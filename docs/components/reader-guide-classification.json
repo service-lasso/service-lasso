@@ -265,6 +265,516 @@
       "disposition": "migration-candidate",
       "destination": "docs/service-authoring",
       "action": "Open a focused migration decision for the template-first authoring flow; retain component-specific harness and package contracts locally."
+    },
+    {
+      "repository": "lasso-archive",
+      "revision": "d0da2a3e94adde35f8529c2b7e03ab135324e405",
+      "path": "README.md",
+      "blob": "107a465153d4dfa5626b13cc05cce2d8220938e3",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain optional archive-provider export, built-in/provider boundary, verification and release-suitability contracts; no independent reader operation workflow requires migration.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-archive",
+      "revision": "d0da2a3e94adde35f8529c2b7e03ab135324e405",
+      "path": "docs/provider-contract.md",
+      "blob": "2e0461ded3c2ee58397f810830c204b494714561",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain optional archive-provider export, built-in/provider boundary, verification and release-suitability contracts; no independent reader operation workflow requires migration.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-archive",
+      "revision": "d0da2a3e94adde35f8529c2b7e03ab135324e405",
+      "path": "docs/release-suitability.md",
+      "blob": "7f5d63ca0913e10fa2c1e74ae4d40ce7d7d3bba1",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain optional archive-provider export, built-in/provider boundary, verification and release-suitability contracts; no independent reader operation workflow requires migration.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-cacao-roaster",
+      "revision": "bdc074e1ba0d90f873a372a090d8af26748322b9",
+      "path": "README.md",
+      "blob": "f5656c20c8d6612c82ca885bab25c4f9f895d1a9",
+      "disposition": "migration-candidate",
+      "destination": "docs/components/README.md",
+      "action": "Map the app-owned CACAO authoring/SOARCA pairing workflow to a Core integration guide; keep health, environment injection, version and archive contracts component-owned. This records a candidate, not a completed migration.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-cacao-roaster",
+      "revision": "bdc074e1ba0d90f873a372a090d8af26748322b9",
+      "path": "docs/service.md",
+      "blob": "b07a8258aed3036037e54743f5a0d7e45e5e8733",
+      "disposition": "migration-candidate",
+      "destination": "docs/components/README.md",
+      "action": "Map the app-owned CACAO authoring/SOARCA pairing workflow to a Core integration guide; keep health, environment injection, version and archive contracts component-owned. This records a candidate, not a completed migration.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-fastapi",
+      "revision": "49f8f9ff187eda457d8929a054c3b75dbcd65b3c",
+      "path": "README.md",
+      "blob": "f8128950a47b7f7cecf90edb01fe3121eb40730a",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain service/provider/health and release-platform contracts. The Windows-only publication limit is documented here; this audit does not verify current released platforms.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-java",
+      "revision": "d5765f12938cd2f7d6d9bff297247294b330c660",
+      "path": "README.md",
+      "blob": "2cef684e397cd629d61f974d2318fc6ffb41204e",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain pinned upstream asset selection, provider export and local verification contracts; Core runtime-provider guidance remains the reader entry point.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-bpmn-server",
+      "revision": "f57db8af782862baf26febc604480f4006437672",
+      "path": "README.md",
+      "blob": "a49953653c14f6dd45dea74db58b1436af3f4524",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain release packaging, dependency-audit, health and URL contracts as component-owned references; link Core reader guidance to these contracts.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-bpmn-server",
+      "revision": "f57db8af782862baf26febc604480f4006437672",
+      "path": "docs/client-sample.md",
+      "blob": "f2107b7651ea0e52ec3326b4ec9067e181848754",
+      "disposition": "migration-candidate",
+      "destination": "docs/components/README.md",
+      "action": "Move direct HTTP and app-owned BPMN client usage into a Core integration guide; retain exported environment and authenticated API contracts in the component. Client calls remain app behavior, not a separate managed daemon.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-bpmn-server",
+      "revision": "f57db8af782862baf26febc604480f4006437672",
+      "path": "docs/dependency-audit.md",
+      "blob": "2c6ee2afa51a90307f2fba085b3f5161f9d90b06",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain release packaging, dependency-audit, health and URL contracts as component-owned references; link Core reader guidance to these contracts.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-bpmn-server",
+      "revision": "f57db8af782862baf26febc604480f4006437672",
+      "path": "docs/url-contracts.md",
+      "blob": "eca0815e8542f67eb2b8072935ce316f4c2f83f1",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain release packaging, dependency-audit, health and URL contracts as component-owned references; link Core reader guidance to these contracts.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-files",
+      "revision": "24daa58f3420d3803b07db336200c789d147cc4a",
+      "path": "README.md",
+      "blob": "f5a0fa14b595ce030c0731186ab0b0e11865eb34",
+      "disposition": "migration-candidate",
+      "destination": "docs/components/README.md",
+      "action": "Move managed installation, upload-policy operation, approved workspace-source selection and legacy application migration guidance into a Core Files guide. Preserve API/path/permission contracts and maintainer build verification in the component; no migration completion claimed.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-files",
+      "revision": "24daa58f3420d3803b07db336200c789d147cc4a",
+      "path": "docs/migration.md",
+      "blob": "c53501aa9a5b236ea12a037a56aa21204fdeb94c",
+      "disposition": "migration-candidate",
+      "destination": "docs/components/README.md",
+      "action": "Move managed installation, upload-policy operation, approved workspace-source selection and legacy application migration guidance into a Core Files guide. Preserve API/path/permission contracts and maintainer build verification in the component; no migration completion claimed.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-files",
+      "revision": "24daa58f3420d3803b07db336200c789d147cc4a",
+      "path": "docs/url-contracts.md",
+      "blob": "50b22ae054a1b1d0ce84561f6240315af98930fa",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain release packaging, dependency-audit, health and URL contracts as component-owned references; link Core reader guidance to these contracts.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-echoservice",
+      "revision": "b825bd7267dc7c39e2d76972d40c13a138a15587",
+      "path": "README.md",
+      "blob": "1899c59850ed485dbaf165e92e08f622a7d90bcf",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain Echo implementation endpoints, simulation controls, manifest exports, packaging and repo-local verification as harness-owned references. Core remains the runtime/operator guide owner; no independent consumer installation workflow appears in these reviewed paths.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-echoservice",
+      "revision": "b825bd7267dc7c39e2d76972d40c13a138a15587",
+      "path": "docs/packaging.md",
+      "blob": "8c3630298eebe3817ced5cc26b18bcf155b5f378",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain Echo implementation endpoints, simulation controls, manifest exports, packaging and repo-local verification as harness-owned references. Core remains the runtime/operator guide owner; no independent consumer installation workflow appears in these reviewed paths.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-echoservice",
+      "revision": "b825bd7267dc7c39e2d76972d40c13a138a15587",
+      "path": "docs/service-contract.md",
+      "blob": "650ceee68b1670aae70a75c267d0747e1b6734d7",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain Echo implementation endpoints, simulation controls, manifest exports, packaging and repo-local verification as harness-owned references. Core remains the runtime/operator guide owner; no independent consumer installation workflow appears in these reviewed paths.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "lasso-echoservice",
+      "revision": "b825bd7267dc7c39e2d76972d40c13a138a15587",
+      "path": "docs/validation.md",
+      "blob": "9c7e9a93c5b67cb3c72b78c32b6f7c8cb28b5c6b",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain Echo implementation endpoints, simulation controls, manifest exports, packaging and repo-local verification as harness-owned references. Core remains the runtime/operator guide owner; no independent consumer installation workflow appears in these reviewed paths.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "service-lasso-app-node",
+      "revision": "468dabe9f9aea29b7767fcf66067bce5c59eca29",
+      "path": "README.md",
+      "blob": "382eed89b210d96b3aeb4c236a940b75954eb47c",
+      "disposition": "migration-candidate",
+      "destination": "docs/service-authoring/overview.md",
+      "action": "Centralize choosing and starting the host, explicit service/workspace roots, Admin embedding and Echo operator smoke flow. Retain repository entrypoints, local commands and implementation scope locally. Reconcile POC sibling-checkout instructions with standalone release bundles; do not treat historical smoke prose as new qualification.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "service-lasso-app-node",
+      "revision": "468dabe9f9aea29b7767fcf66067bce5c59eca29",
+      "path": "docs/minimal-poc.md",
+      "blob": "bcf56fc4b97221891aab555350f7225972c87389",
+      "disposition": "migration-candidate",
+      "destination": "docs/service-authoring/overview.md",
+      "action": "Centralize choosing and starting the host, explicit service/workspace roots, Admin embedding and Echo operator smoke flow. Retain repository entrypoints, local commands and implementation scope locally. Reconcile POC sibling-checkout instructions with standalone release bundles; do not treat historical smoke prose as new qualification.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "service-lasso-app-node",
+      "revision": "468dabe9f9aea29b7767fcf66067bce5c59eca29",
+      "path": "docs/release-artifact.md",
+      "blob": "983602228614a4cbc68625457d9139c6e236f056",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain release payload inventories, archive acquisition modes, packaging commands and implementation task/evidence history as repository-owned references. Core reader guide should explain source/runtime/bundled selection and link these contracts.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "service-lasso-app-node",
+      "revision": "468dabe9f9aea29b7767fcf66067bce5c59eca29",
+      "path": "docs/task-list.md",
+      "blob": "441ead991e12172ecfb1750e8773cb6ff53c73af",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain release payload inventories, archive acquisition modes, packaging commands and implementation task/evidence history as repository-owned references. Core reader guide should explain source/runtime/bundled selection and link these contracts.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "service-lasso-app-web",
+      "revision": "5dcb37c135c084e49f3b751da41a71f3d2b85b27",
+      "path": "README.md",
+      "blob": "a5c4d6c1cd162b7cc59a4847a9569fbb679aeed4",
+      "disposition": "migration-candidate",
+      "destination": "docs/service-authoring/overview.md",
+      "action": "Centralize choosing and starting the host, explicit service/workspace roots, Admin embedding and Echo operator smoke flow. Retain repository entrypoints, local commands and implementation scope locally. Reconcile POC sibling-checkout instructions with standalone release bundles; do not treat historical smoke prose as new qualification.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "service-lasso-app-web",
+      "revision": "5dcb37c135c084e49f3b751da41a71f3d2b85b27",
+      "path": "docs/minimal-poc.md",
+      "blob": "5553ae47d94a2c7c40f6d79d69834d7bde86e8b4",
+      "disposition": "migration-candidate",
+      "destination": "docs/service-authoring/overview.md",
+      "action": "Centralize choosing and starting the host, explicit service/workspace roots, Admin embedding and Echo operator smoke flow. Retain repository entrypoints, local commands and implementation scope locally. Reconcile POC sibling-checkout instructions with standalone release bundles; do not treat historical smoke prose as new qualification.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "service-lasso-app-web",
+      "revision": "5dcb37c135c084e49f3b751da41a71f3d2b85b27",
+      "path": "docs/release-artifact.md",
+      "blob": "1de1c84dc19044b7e63800904951c3f19c4b34f5",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain release payload inventories, archive acquisition modes, packaging commands and implementation task/evidence history as repository-owned references. Core reader guide should explain source/runtime/bundled selection and link these contracts.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "service-lasso-app-web",
+      "revision": "5dcb37c135c084e49f3b751da41a71f3d2b85b27",
+      "path": "docs/task-list.md",
+      "blob": "08dd330a3fc1c7e2ebc06cf8014ccd649acb5a6f",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain release payload inventories, archive acquisition modes, packaging commands and implementation task/evidence history as repository-owned references. Core reader guide should explain source/runtime/bundled selection and link these contracts.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "service-lasso-app-electron",
+      "revision": "57084eb18d11f699cb624ba4845d23c03c1d6773",
+      "path": "README.md",
+      "blob": "948f0c9c329c5344e5133b92c27773cdcea987a2",
+      "disposition": "migration-candidate",
+      "destination": "docs/service-authoring/overview.md",
+      "action": "Centralize desktop-host selection, roots, runtime bootstrap, Admin embedding and Echo operator journey. Preserve repository commands and native wrapper configuration locally. Reconcile claims of an implemented desktop shell with the task-list admission that no native shell was compiled; do not claim native desktop acceptance from a served web host.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "service-lasso-app-electron",
+      "revision": "57084eb18d11f699cb624ba4845d23c03c1d6773",
+      "path": "docs/minimal-poc.md",
+      "blob": "adccc4cb7fd333788b8731d2b920cb2a856b9bb9",
+      "disposition": "migration-candidate",
+      "destination": "docs/service-authoring/overview.md",
+      "action": "Centralize desktop-host selection, roots, runtime bootstrap, Admin embedding and Echo operator journey. Preserve repository commands and native wrapper configuration locally. Reconcile claims of an implemented desktop shell with the task-list admission that no native shell was compiled; do not claim native desktop acceptance from a served web host.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "service-lasso-app-electron",
+      "revision": "57084eb18d11f699cb624ba4845d23c03c1d6773",
+      "path": "docs/release-artifact.md",
+      "blob": "ad079f5331a46b2d22f1098b515b3d7253b93c56",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain payload inventories, packaging commands, acquisition modes and implementation evidence history locally. The task-list explicitly limits proof to a host with future native wrapper configuration; central reader guidance must preserve that limit.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "service-lasso-app-electron",
+      "revision": "57084eb18d11f699cb624ba4845d23c03c1d6773",
+      "path": "docs/task-list.md",
+      "blob": "8f51aa6cf328aa67819c2eb5606622ca3d38ddfd",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain payload inventories, packaging commands, acquisition modes and implementation evidence history locally. The task-list explicitly limits proof to a host with future native wrapper configuration; central reader guidance must preserve that limit.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "service-lasso-app-tauri",
+      "revision": "5662c70f2b1c8af80e01d9aede00c3ace075fba6",
+      "path": "README.md",
+      "blob": "7f00265636cf842501903532f12d4075cc6ec7eb",
+      "disposition": "migration-candidate",
+      "destination": "docs/service-authoring/overview.md",
+      "action": "Centralize desktop-host selection, roots, runtime bootstrap, Admin embedding and Echo operator journey. Preserve repository commands and native wrapper configuration locally. Reconcile claims of an implemented desktop shell with the task-list admission that no native shell was compiled; do not claim native desktop acceptance from a served web host.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "service-lasso-app-tauri",
+      "revision": "5662c70f2b1c8af80e01d9aede00c3ace075fba6",
+      "path": "docs/minimal-poc.md",
+      "blob": "87c9df73027eddfd1f272ed6963af2fadd81f712",
+      "disposition": "migration-candidate",
+      "destination": "docs/service-authoring/overview.md",
+      "action": "Centralize desktop-host selection, roots, runtime bootstrap, Admin embedding and Echo operator journey. Preserve repository commands and native wrapper configuration locally. Reconcile claims of an implemented desktop shell with the task-list admission that no native shell was compiled; do not claim native desktop acceptance from a served web host.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "service-lasso-app-tauri",
+      "revision": "5662c70f2b1c8af80e01d9aede00c3ace075fba6",
+      "path": "docs/release-artifact.md",
+      "blob": "0ed4324d31968172710d09813950e583bf788d3b",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain payload inventories, packaging commands, acquisition modes and implementation evidence history locally. The task-list explicitly limits proof to a host with future native wrapper configuration; central reader guidance must preserve that limit.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "service-lasso-app-tauri",
+      "revision": "5662c70f2b1c8af80e01d9aede00c3ace075fba6",
+      "path": "docs/task-list.md",
+      "blob": "40d6da7f0a7001591de831ae432dc546813b5170",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain payload inventories, packaging commands, acquisition modes and implementation evidence history locally. The task-list explicitly limits proof to a host with future native wrapper configuration; central reader guidance must preserve that limit.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "service-lasso-app-packager-nexe",
+      "revision": "4d72ae7c2d8b7a7d0f58735a8218ea54abe4d63e",
+      "path": "README.md",
+      "blob": "2de911bb53f627244d7fc20dbc93f382ba42f818",
+      "disposition": "migration-candidate",
+      "destination": "docs/service-authoring/overview.md",
+      "action": "Centralize choosing template/source/runtime/bundled consumption and the first launcher-to-Admin/Echo journey. Keep wrapper-specific build commands and repository entrypoints locally. Explain that executable wrapper packages carry a colocated application payload; they are not standalone single-file runtime proof. Preserve source versus release-mode distinction.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "service-lasso-app-packager-nexe",
+      "revision": "4d72ae7c2d8b7a7d0f58735a8218ea54abe4d63e",
+      "path": "docs/minimal-poc.md",
+      "blob": "73a300b5f5cac7d75cc18d3afa1d43e11c5e37bd",
+      "disposition": "migration-candidate",
+      "destination": "docs/service-authoring/overview.md",
+      "action": "Centralize choosing template/source/runtime/bundled consumption and the first launcher-to-Admin/Echo journey. Keep wrapper-specific build commands and repository entrypoints locally. Explain that executable wrapper packages carry a colocated application payload; they are not standalone single-file runtime proof. Preserve source versus release-mode distinction.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "service-lasso-app-packager-nexe",
+      "revision": "4d72ae7c2d8b7a7d0f58735a8218ea54abe4d63e",
+      "path": "docs/release-artifact.md",
+      "blob": "caf85960451662dd1549f900217a345469eed436",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain platform archive inventories, wrapper/runtime relationships, package verification and historical implementation evidence locally. Link centralized consumption guidance to these exact contracts; do not imply signing, installer or update-channel support.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "service-lasso-app-packager-nexe",
+      "revision": "4d72ae7c2d8b7a7d0f58735a8218ea54abe4d63e",
+      "path": "docs/task-list.md",
+      "blob": "83d730e630a6114c541596aada269344177d4cc6",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain platform archive inventories, wrapper/runtime relationships, package verification and historical implementation evidence locally. Link centralized consumption guidance to these exact contracts; do not imply signing, installer or update-channel support.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "service-lasso-app-packager-pkg",
+      "revision": "57cde67347363e97451c245d54b4815171d94051",
+      "path": "README.md",
+      "blob": "a3ec2540a7ba721b687aa285a8b619cd06fb61ec",
+      "disposition": "migration-candidate",
+      "destination": "docs/service-authoring/overview.md",
+      "action": "Centralize choosing template/source/runtime/bundled consumption and the first launcher-to-Admin/Echo journey. Keep wrapper-specific build commands and repository entrypoints locally. Explain that executable wrapper packages carry a colocated application payload; they are not standalone single-file runtime proof. Preserve source versus release-mode distinction.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "service-lasso-app-packager-pkg",
+      "revision": "57cde67347363e97451c245d54b4815171d94051",
+      "path": "docs/minimal-poc.md",
+      "blob": "983eeed1950e2a87aa0feec9e717d34ee05238e7",
+      "disposition": "migration-candidate",
+      "destination": "docs/service-authoring/overview.md",
+      "action": "Centralize choosing template/source/runtime/bundled consumption and the first launcher-to-Admin/Echo journey. Keep wrapper-specific build commands and repository entrypoints locally. Explain that executable wrapper packages carry a colocated application payload; they are not standalone single-file runtime proof. Preserve source versus release-mode distinction.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "service-lasso-app-packager-pkg",
+      "revision": "57cde67347363e97451c245d54b4815171d94051",
+      "path": "docs/release-artifact.md",
+      "blob": "9a5145e0ca2494ec8cbe43560d89870eb1aea679",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain platform archive inventories, wrapper/runtime relationships, package verification and historical implementation evidence locally. Link centralized consumption guidance to these exact contracts; do not imply signing, installer or update-channel support.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "service-lasso-app-packager-pkg",
+      "revision": "57cde67347363e97451c245d54b4815171d94051",
+      "path": "docs/task-list.md",
+      "blob": "aa911bf0d4acbf331df562b68376bb20493e3d70",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain platform archive inventories, wrapper/runtime relationships, package verification and historical implementation evidence locally. Link centralized consumption guidance to these exact contracts; do not imply signing, installer or update-channel support.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "service-lasso-app-packager-sea",
+      "revision": "9eee489a6cb323a42adda041c95e9ba0b3fd026f",
+      "path": "README.md",
+      "blob": "c06a17f38fac5557b2b8d9c97a93c33677c904e9",
+      "disposition": "migration-candidate",
+      "destination": "docs/service-authoring/overview.md",
+      "action": "Centralize choosing template/source/runtime/bundled consumption and the first launcher-to-Admin/Echo journey. Keep wrapper-specific build commands and repository entrypoints locally. Explain that executable wrapper packages carry a colocated application payload; they are not standalone single-file runtime proof. Preserve source versus release-mode distinction.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "service-lasso-app-packager-sea",
+      "revision": "9eee489a6cb323a42adda041c95e9ba0b3fd026f",
+      "path": "docs/minimal-poc.md",
+      "blob": "280003dd4c9bd1e5ae15250378a412da9e75e673",
+      "disposition": "migration-candidate",
+      "destination": "docs/service-authoring/overview.md",
+      "action": "Centralize choosing template/source/runtime/bundled consumption and the first launcher-to-Admin/Echo journey. Keep wrapper-specific build commands and repository entrypoints locally. Explain that executable wrapper packages carry a colocated application payload; they are not standalone single-file runtime proof. Preserve source versus release-mode distinction.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "service-lasso-app-packager-sea",
+      "revision": "9eee489a6cb323a42adda041c95e9ba0b3fd026f",
+      "path": "docs/release-artifact.md",
+      "blob": "baa0c46b88790c281326778e65937f8159c63040",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain platform archive inventories, wrapper/runtime relationships, package verification and historical implementation evidence locally. Link centralized consumption guidance to these exact contracts; do not imply signing, installer or update-channel support.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "service-lasso-app-packager-sea",
+      "revision": "9eee489a6cb323a42adda041c95e9ba0b3fd026f",
+      "path": "docs/task-list.md",
+      "blob": "5891df77d3f68bb9c1dbeb22d881109583c41cb1",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain platform archive inventories, wrapper/runtime relationships, package verification and historical implementation evidence locally. Link centralized consumption guidance to these exact contracts; do not imply signing, installer or update-channel support.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "service-lasso-harness",
+      "revision": "a8e6d7aede951e76d280f7592a2ab43f9644b1c3",
+      "path": "docs/usage-flow.md",
+      "blob": "45cbb7631c769876ff2dcda9aaf25864c32ee4f7",
+      "disposition": "migration-candidate",
+      "destination": "docs/service-authoring/overview.md",
+      "action": "Centralize service-author adoption and local/CI validation guidance only after explicitly separating the runnable contract/result stub from planned isolated lifecycle execution. Keep architecture and proposed ownership locally; do not present future orchestration as implemented proof.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "service-lasso-harness",
+      "revision": "a8e6d7aede951e76d280f7592a2ab43f9644b1c3",
+      "path": "docs/validation-contract.md",
+      "blob": "99bd81ff2687ecda68726995fbe0cdbbdbb6edb2",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain contract validation, supported health values, relative artifact resolution and result-format semantics locally. Current run records intended stage status without installing or executing lifecycle steps; central author guidance must preserve that stub limitation.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "service-lasso-harness",
+      "revision": "a8e6d7aede951e76d280f7592a2ab43f9644b1c3",
+      "path": "docs/openspec-drafts/OPENSPEC-TRACKER.md",
+      "blob": "4144da66e6b88810a5161956525d705a5305cbca",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain draft spec/tracker, architecture decisions, intended runner acceptance and open questions as harness-owned planning references. Their draft status and future implementation evidence are explicit; do not promote them into current runnable reader promises.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "service-lasso-harness",
+      "revision": "a8e6d7aede951e76d280f7592a2ab43f9644b1c3",
+      "path": "docs/openspec-drafts/SPEC-SERVICE-LASSO-HARNESS.md",
+      "blob": "90191e203dda1f93817ea2998a1413b57d3a8c1d",
+      "disposition": "component-owned-reference",
+      "destination": "retain-in-component",
+      "action": "Retain draft spec/tracker, architecture decisions, intended runner acceptance and open questions as harness-owned planning references. Their draft status and future implementation evidence are explicit; do not promote them into current runnable reader promises.",
+      "reviewedAt": "2026-09-27"
+    },
+    {
+      "repository": "service-lasso-harness",
+      "revision": "a8e6d7aede951e76d280f7592a2ab43f9644b1c3",
+      "path": "README.md",
+      "blob": "c3c099e451ac8adcac757790a4ddcb632a6a6e8b",
+      "disposition": "migration-candidate",
+      "destination": "docs/service-authoring/overview.md",
+      "action": "Centralize the quick contract/package/result starter workflow with its explicit stub limitation. Retain harness CLI/build/release contracts, architecture, bootstrap checklist and future execution-engine acceptance locally; do not describe planned isolated lifecycle behavior as a delivered shared proof layer.",
+      "reviewedAt": "2026-09-27"
     }
   ],
   "blocked": {
@@ -868,6 +1378,845 @@
       "blob": "11facd9338e64e8a00d96dde3e1e41a9b561945a",
       "disposition": "component-governing-or-reference-retained",
       "action": "Retain in the component; no reader-workflow migration is justified by this content review."
+    }
+  ],
+  "inventoryRefresh": {
+    "date": "2026-09-27",
+    "scope": "19 previously unavailable develop sources only; the existing 100 reviewed dispositions retain their historical identities and date",
+    "sources": 19,
+    "paths": 169,
+    "unavailableSources": 0,
+    "recursiveTreesTruncated": 0,
+    "contentReviewComplete": false,
+    "reviewedPaths": 51,
+    "pendingPaths": 118
+  },
+  "pendingReview": [
+    {
+      "repository": "lasso-dagu",
+      "revision": "c6d4a55cb9263e9ba73fe09dbe975ec40dbc837d",
+      "path": "README.md",
+      "blob": "ad42ee7aeaaa56efff26f962c8552762fab1d3b3",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-dagu",
+      "revision": "c6d4a55cb9263e9ba73fe09dbe975ec40dbc837d",
+      "path": "docs/bootstrap-new-service-repo.md",
+      "blob": "1b70d04567236572f34ab10addfcbd0daddb3c22",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-dagu",
+      "revision": "c6d4a55cb9263e9ba73fe09dbe975ec40dbc837d",
+      "path": "docs/dagu-service-contract.md",
+      "blob": "d529c445d0cd039486c8209349d0a7c3ad000869",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-dagu",
+      "revision": "c6d4a55cb9263e9ba73fe09dbe975ec40dbc837d",
+      "path": "docs/openspec-drafts/OPENSPEC-TRACKER.md",
+      "blob": "035b29cfb375212779f384d8e43e9781e045e2f4",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-dagu",
+      "revision": "c6d4a55cb9263e9ba73fe09dbe975ec40dbc837d",
+      "path": "docs/openspec-drafts/SPEC-SERVICE-TEMPLATE-REPO.md",
+      "blob": "030d256707058579131794da9ec25edc7ef645fd",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-dagu",
+      "revision": "c6d4a55cb9263e9ba73fe09dbe975ec40dbc837d",
+      "path": "docs/packaging.md",
+      "blob": "31b505d019e6e3314fad645737e66990ba77f25d",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-dagu",
+      "revision": "c6d4a55cb9263e9ba73fe09dbe975ec40dbc837d",
+      "path": "docs/reference/DECISION-CONTEXT.md",
+      "blob": "9775593a5ea053411a0d7954649a7a163d6dc7b4",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-dagu",
+      "revision": "c6d4a55cb9263e9ba73fe09dbe975ec40dbc837d",
+      "path": "docs/reference/EXAMPLE-REPO-TREE.md",
+      "blob": "1dc464e8e49aa16fe7e255169d292ca630848d47",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-dagu",
+      "revision": "c6d4a55cb9263e9ba73fe09dbe975ec40dbc837d",
+      "path": "docs/reference/PROPOSED-CODEBASE-STRUCTURE.md",
+      "blob": "12eb29e03f3a5cf1a77a9f2d7058510d86c28daf",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-dagu",
+      "revision": "c6d4a55cb9263e9ba73fe09dbe975ec40dbc837d",
+      "path": "docs/reference/SERVICE-STRUCTURE-REVIEW.md",
+      "blob": "71a5591c498e60325a143d07a9aa2f1f99ca34bc",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-dagu",
+      "revision": "c6d4a55cb9263e9ba73fe09dbe975ec40dbc837d",
+      "path": "docs/reference/SERVICE-TEMPLATE-REPO.md",
+      "blob": "0a35846acb5c6ab5d0a545fa4f93e8031768312e",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-dagu",
+      "revision": "c6d4a55cb9263e9ba73fe09dbe975ec40dbc837d",
+      "path": "docs/reference/adjacent/SPEC-SERVICE-LASSO-HARNESS.md",
+      "blob": "85cdd2d1c9c6fec6fc1a4128222493b94c3ed63b",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-dagu",
+      "revision": "c6d4a55cb9263e9ba73fe09dbe975ec40dbc837d",
+      "path": "docs/reference/shared-runtime/ARCHITECTURE-DECISIONS.md",
+      "blob": "71e8141dd612dbbf6d8685b964685d62b970dbb3",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-dagu",
+      "revision": "c6d4a55cb9263e9ba73fe09dbe975ec40dbc837d",
+      "path": "docs/reference/shared-runtime/QUESTION-LIST-AND-CODE-VALIDATION.md",
+      "blob": "d5b71777b23d898287ba299b149069019d4096c5",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-dagu",
+      "revision": "c6d4a55cb9263e9ba73fe09dbe975ec40dbc837d",
+      "path": "docs/reference/shared-runtime/SERVICE-MANAGER-BEHAVIOR.md",
+      "blob": "594f6fff0eb031ff57bebdd09c8efbe025d032a0",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-dagu",
+      "revision": "c6d4a55cb9263e9ba73fe09dbe975ec40dbc837d",
+      "path": "docs/runtime-extension-points.md",
+      "blob": "6e937b253c53cc8e7993a92a6c780bdd20aa9338",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-dagu",
+      "revision": "c6d4a55cb9263e9ba73fe09dbe975ec40dbc837d",
+      "path": "docs/secretsbroker-ref-contract.md",
+      "blob": "18a862a7bcc5a991bc246eb61f0a31d16b5442f0",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-dagu",
+      "revision": "c6d4a55cb9263e9ba73fe09dbe975ec40dbc837d",
+      "path": "docs/service-contract.md",
+      "blob": "ccb08315d989da28880590e8dd0802d9157be6b6",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-dagu",
+      "revision": "c6d4a55cb9263e9ba73fe09dbe975ec40dbc837d",
+      "path": "docs/service-json-reference.md",
+      "blob": "1b5f3b308b00b94f8d97cb47f79eaa4739a01ddb",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-dagu",
+      "revision": "c6d4a55cb9263e9ba73fe09dbe975ec40dbc837d",
+      "path": "docs/service-lasso-action-inputs.md",
+      "blob": "be15ee62a20b8a24b5ecbb55118c805096c294dd",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-dagu",
+      "revision": "c6d4a55cb9263e9ba73fe09dbe975ec40dbc837d",
+      "path": "docs/service-lasso-managed-workflows.md",
+      "blob": "d997483ba96c34d5f7846eea8b2161b8daa1ebaa",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-dagu",
+      "revision": "c6d4a55cb9263e9ba73fe09dbe975ec40dbc837d",
+      "path": "docs/validation.md",
+      "blob": "11facd9338e64e8a00d96dde3e1e41a9b561945a",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-echoservice",
+      "revision": "b825bd7267dc7c39e2d76972d40c13a138a15587",
+      "path": "docs/openspec-drafts/OPENSPEC-TRACKER.md",
+      "blob": "035b29cfb375212779f384d8e43e9781e045e2f4",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-echoservice",
+      "revision": "b825bd7267dc7c39e2d76972d40c13a138a15587",
+      "path": "docs/openspec-drafts/SPEC-SERVICE-TEMPLATE-REPO.md",
+      "blob": "f3fa39a3f9c65496b7dbb1573653e25c5cf74f05",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-echoservice",
+      "revision": "b825bd7267dc7c39e2d76972d40c13a138a15587",
+      "path": "docs/reference/DECISION-CONTEXT.md",
+      "blob": "9775593a5ea053411a0d7954649a7a163d6dc7b4",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-echoservice",
+      "revision": "b825bd7267dc7c39e2d76972d40c13a138a15587",
+      "path": "docs/reference/EXAMPLE-REPO-TREE.md",
+      "blob": "ad9a167c6ba26083774fc0005dc662330aaccd69",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-echoservice",
+      "revision": "b825bd7267dc7c39e2d76972d40c13a138a15587",
+      "path": "docs/reference/PROPOSED-CODEBASE-STRUCTURE.md",
+      "blob": "12eb29e03f3a5cf1a77a9f2d7058510d86c28daf",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-echoservice",
+      "revision": "b825bd7267dc7c39e2d76972d40c13a138a15587",
+      "path": "docs/reference/SERVICE-STRUCTURE-REVIEW.md",
+      "blob": "bdb268e44730a69d0b5b703e5b2831522c58564c",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-echoservice",
+      "revision": "b825bd7267dc7c39e2d76972d40c13a138a15587",
+      "path": "docs/reference/SERVICE-TEMPLATE-REPO.md",
+      "blob": "0a35846acb5c6ab5d0a545fa4f93e8031768312e",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-echoservice",
+      "revision": "b825bd7267dc7c39e2d76972d40c13a138a15587",
+      "path": "docs/reference/adjacent/SPEC-SERVICE-LASSO-HARNESS.md",
+      "blob": "85cdd2d1c9c6fec6fc1a4128222493b94c3ed63b",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-echoservice",
+      "revision": "b825bd7267dc7c39e2d76972d40c13a138a15587",
+      "path": "docs/reference/shared-runtime/ARCHITECTURE-DECISIONS.md",
+      "blob": "71e8141dd612dbbf6d8685b964685d62b970dbb3",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-echoservice",
+      "revision": "b825bd7267dc7c39e2d76972d40c13a138a15587",
+      "path": "docs/reference/shared-runtime/QUESTION-LIST-AND-CODE-VALIDATION.md",
+      "blob": "d5b71777b23d898287ba299b149069019d4096c5",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-echoservice",
+      "revision": "b825bd7267dc7c39e2d76972d40c13a138a15587",
+      "path": "docs/reference/shared-runtime/SERVICE-MANAGER-BEHAVIOR.md",
+      "blob": "40ba4d33a5adc16a5912d46fc8461d4e92b8dea2",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-echoservice",
+      "revision": "b825bd7267dc7c39e2d76972d40c13a138a15587",
+      "path": "docs/service-json-reference.md",
+      "blob": "d6590174368ee77ac774e0fc4811502fc8971d25",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-filebeat",
+      "revision": "5427dd1b5b7ca55b565aae5edf7c6b61bfd2b284",
+      "path": "README.md",
+      "blob": "1ce41bfe10da63e966c37fe2b5b8c09774c1e61c",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-filebeat",
+      "revision": "5427dd1b5b7ca55b565aae5edf7c6b61bfd2b284",
+      "path": "docs/openspec-drafts/OPENSPEC-TRACKER.md",
+      "blob": "035b29cfb375212779f384d8e43e9781e045e2f4",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-filebeat",
+      "revision": "5427dd1b5b7ca55b565aae5edf7c6b61bfd2b284",
+      "path": "docs/openspec-drafts/SPEC-SERVICE-TEMPLATE-REPO.md",
+      "blob": "126a0687aac24f4f2cbff48579ddb409fbb58256",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-filebeat",
+      "revision": "5427dd1b5b7ca55b565aae5edf7c6b61bfd2b284",
+      "path": "docs/packaging.md",
+      "blob": "6eec17c816105dd8f5d16a10ea69a05d1fcd01f2",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-filebeat",
+      "revision": "5427dd1b5b7ca55b565aae5edf7c6b61bfd2b284",
+      "path": "docs/reference/DECISION-CONTEXT.md",
+      "blob": "9775593a5ea053411a0d7954649a7a163d6dc7b4",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-filebeat",
+      "revision": "5427dd1b5b7ca55b565aae5edf7c6b61bfd2b284",
+      "path": "docs/reference/EXAMPLE-REPO-TREE.md",
+      "blob": "1dc464e8e49aa16fe7e255169d292ca630848d47",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-filebeat",
+      "revision": "5427dd1b5b7ca55b565aae5edf7c6b61bfd2b284",
+      "path": "docs/reference/PROPOSED-CODEBASE-STRUCTURE.md",
+      "blob": "12eb29e03f3a5cf1a77a9f2d7058510d86c28daf",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-filebeat",
+      "revision": "5427dd1b5b7ca55b565aae5edf7c6b61bfd2b284",
+      "path": "docs/reference/SERVICE-STRUCTURE-REVIEW.md",
+      "blob": "71a5591c498e60325a143d07a9aa2f1f99ca34bc",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-filebeat",
+      "revision": "5427dd1b5b7ca55b565aae5edf7c6b61bfd2b284",
+      "path": "docs/reference/SERVICE-TEMPLATE-REPO.md",
+      "blob": "0a35846acb5c6ab5d0a545fa4f93e8031768312e",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-filebeat",
+      "revision": "5427dd1b5b7ca55b565aae5edf7c6b61bfd2b284",
+      "path": "docs/reference/adjacent/SPEC-SERVICE-LASSO-HARNESS.md",
+      "blob": "85cdd2d1c9c6fec6fc1a4128222493b94c3ed63b",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-filebeat",
+      "revision": "5427dd1b5b7ca55b565aae5edf7c6b61bfd2b284",
+      "path": "docs/reference/shared-runtime/ARCHITECTURE-DECISIONS.md",
+      "blob": "71e8141dd612dbbf6d8685b964685d62b970dbb3",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-filebeat",
+      "revision": "5427dd1b5b7ca55b565aae5edf7c6b61bfd2b284",
+      "path": "docs/reference/shared-runtime/QUESTION-LIST-AND-CODE-VALIDATION.md",
+      "blob": "d5b71777b23d898287ba299b149069019d4096c5",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-filebeat",
+      "revision": "5427dd1b5b7ca55b565aae5edf7c6b61bfd2b284",
+      "path": "docs/reference/shared-runtime/SERVICE-MANAGER-BEHAVIOR.md",
+      "blob": "594f6fff0eb031ff57bebdd09c8efbe025d032a0",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-filebeat",
+      "revision": "5427dd1b5b7ca55b565aae5edf7c6b61bfd2b284",
+      "path": "docs/service-contract.md",
+      "blob": "c1799fa5aa81783b37ae27b66b47d764a786ccc0",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-filebeat",
+      "revision": "5427dd1b5b7ca55b565aae5edf7c6b61bfd2b284",
+      "path": "docs/service-json-reference.md",
+      "blob": "6a9d812fe2a628687c890281ca97d61687e4b37a",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-filebeat",
+      "revision": "5427dd1b5b7ca55b565aae5edf7c6b61bfd2b284",
+      "path": "docs/service.md",
+      "blob": "f5dab31f1de06dcd549babcbcabdeea7ff00fe1a",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-filebeat",
+      "revision": "5427dd1b5b7ca55b565aae5edf7c6b61bfd2b284",
+      "path": "docs/validation.md",
+      "blob": "6fa07ad5fc052e25e9cf9f7263552d41942581c5",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "README.md",
+      "blob": "0268857c4d9e98082c805d3b123f9d85a82bef74",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/advanced-capabilities-roadmap.md",
+      "blob": "95f6a11648c6c07dce84faa03eac2123e892df1b",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/api-contract.md",
+      "blob": "f77812ad014467bd609c1d53e77ef66ec8dcfbb5",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/aws-secrets-manager-source.md",
+      "blob": "fd099c4dedc7e8a107fe56518449d836564e5559",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/backup-restore-rotation.md",
+      "blob": "5cffe3dbf8c55bcd4bada0f8e0148d607e67a76a",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/enterprise-security-readiness.md",
+      "blob": "86ca3c340e23eedb4cff35040368f35eb6a02bb6",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/env-file-exec-sources.md",
+      "blob": "206f05e736259afb7a45ae9353388a60eae13bc7",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/external-adapter-contract.md",
+      "blob": "5c91d458be9c1f50626c6f104a6b1813b17a7552",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/go-security-release-gate.md",
+      "blob": "8d485f829eac1dda912f21a689a7a97093881978",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/headless-admin-cli.md",
+      "blob": "0da131e21f85366fd40174935525bd3bb75bfa3d",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/kv-v2.md",
+      "blob": "0962b6e9849de779adc61eae3beed6292db03374",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/launch-identity-leases.md",
+      "blob": "d89a57790e1413caee807b19c13a29e3036c1bdd",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/lifecycle-states.md",
+      "blob": "368215d569953a83156b80dfce70ca78cb760774",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/local-api-bootstrap-contract.md",
+      "blob": "374654b6e0c8389b31bb7b57a4785d733007d428",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/local-api-security.md",
+      "blob": "73cbbb0d392e5724c81b1d2b7d48fc2559075c8a",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/local-store-resolve.md",
+      "blob": "21fb579b789b1e5cbc099060bef34a5e6def00a9",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/master-key-lifecycle.md",
+      "blob": "586681be0797b2568b0fbb02968f8c8002f785ec",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/mcp-adapter.md",
+      "blob": "b80cdf22e1a83c2b83380d93c66916128edbac73",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/openclaw-secretref-resolver.md",
+      "blob": "e7cb5aa81477245902f0fd4f251adb9d7e2774c7",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/openspec-drafts/OPENSPEC-TRACKER.md",
+      "blob": "035b29cfb375212779f384d8e43e9781e045e2f4",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/openspec-drafts/SPEC-SERVICE-TEMPLATE-REPO.md",
+      "blob": "1439d4f600d4dc5cbeaac2a72600e95d39150d2b",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/operation-capability-manifest.md",
+      "blob": "2837af4fe2a7a815bdb155258e05c76545451ce8",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/operational-controls-baseline.md",
+      "blob": "9086429d01ef94bd5ba67f82aec261940db7ef23",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/os-authenticated-ipc-transport.md",
+      "blob": "149b320898c9e07836a4afce1520b897947f55e9",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/packaging.md",
+      "blob": "6eec17c816105dd8f5d16a10ea69a05d1fcd01f2",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/parity-contract.md",
+      "blob": "127e75820f395c9b56022d214c9d0424fc6e8548",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/portable-master-key.md",
+      "blob": "1e0869ee7d38bffc601c12ea71ea1d7ebe1b74ec",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/provider-configuration-migration-api.md",
+      "blob": "c8b666a94913f6eb56c3cfeff13bd4ca3ca9ee51",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/provider-source-registry.md",
+      "blob": "d76f253553035e14ef68b9b95349bfd8fa70647f",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/reference/DECISION-CONTEXT.md",
+      "blob": "9775593a5ea053411a0d7954649a7a163d6dc7b4",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/reference/EXAMPLE-REPO-TREE.md",
+      "blob": "1dc464e8e49aa16fe7e255169d292ca630848d47",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/reference/PROPOSED-CODEBASE-STRUCTURE.md",
+      "blob": "12eb29e03f3a5cf1a77a9f2d7058510d86c28daf",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/reference/SERVICE-STRUCTURE-REVIEW.md",
+      "blob": "b692abb562b925bc2a7809e7c8172fec0e953f99",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/reference/SERVICE-TEMPLATE-REPO.md",
+      "blob": "0a35846acb5c6ab5d0a545fa4f93e8031768312e",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/reference/adjacent/SPEC-SERVICE-LASSO-HARNESS.md",
+      "blob": "85cdd2d1c9c6fec6fc1a4128222493b94c3ed63b",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/reference/shared-runtime/ARCHITECTURE-DECISIONS.md",
+      "blob": "71e8141dd612dbbf6d8685b964685d62b970dbb3",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/reference/shared-runtime/QUESTION-LIST-AND-CODE-VALIDATION.md",
+      "blob": "d5b71777b23d898287ba299b149069019d4096c5",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/reference/shared-runtime/SERVICE-MANAGER-BEHAVIOR.md",
+      "blob": "40ba4d33a5adc16a5912d46fc8461d4e92b8dea2",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/secrets-management-api.md",
+      "blob": "e5a874a88909caf9ffe776e1e4e2b3bfd6b61713",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/secrets-sync-design.md",
+      "blob": "32e2b7e17852e05f354aadc3c97c6feffc5bec6c",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/secure-initialization-recovery.md",
+      "blob": "479dd56379f24d0fb78697010ca3e5dd57466efe",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/service-contract.md",
+      "blob": "6bc598c6f36e4dfc1acfb68719cf55c0ed11e994",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/service-json-reference.md",
+      "blob": "8c56f0486c5f2dd7bd0c5f24e401a5ff238dd5f5",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/source-tls-trust.md",
+      "blob": "e269b5edfd2b8b8bc348bad9bf43a345ee3caf61",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/threat-model.md",
+      "blob": "6ba820e6e39f3822c574166129a1a09fa528eed5",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/validation.md",
+      "blob": "c3aa69d1de56e294c4486e011ffa8324e1058259",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/vault-openbao-source.md",
+      "blob": "ea95eb7e1565ef6ed9237daa8782378356577413",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/vault-root-bootstrap-contract.md",
+      "blob": "b2b25c08b3268766b0559a4013e3e07db317830f",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-secretsbroker",
+      "revision": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+      "path": "docs/writeback-policy.md",
+      "blob": "e477907c770dd9c7b4542892f831cc744a5bdd4d",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-tini",
+      "revision": "01af1344378a091842e8dd8da222383573a98de2",
+      "path": "README.md",
+      "blob": "b4434f5550a7ae9ee0dcbdef553688b1a47e06a6",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-tini",
+      "revision": "01af1344378a091842e8dd8da222383573a98de2",
+      "path": "docs/bootstrap-new-service-repo.md",
+      "blob": "fa0d1a0d258945f5d244163595a680b48673a6f9",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-tini",
+      "revision": "01af1344378a091842e8dd8da222383573a98de2",
+      "path": "docs/openspec-drafts/OPENSPEC-TRACKER.md",
+      "blob": "035b29cfb375212779f384d8e43e9781e045e2f4",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-tini",
+      "revision": "01af1344378a091842e8dd8da222383573a98de2",
+      "path": "docs/openspec-drafts/SPEC-SERVICE-TEMPLATE-REPO.md",
+      "blob": "030d256707058579131794da9ec25edc7ef645fd",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-tini",
+      "revision": "01af1344378a091842e8dd8da222383573a98de2",
+      "path": "docs/packaging.md",
+      "blob": "6eec17c816105dd8f5d16a10ea69a05d1fcd01f2",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-tini",
+      "revision": "01af1344378a091842e8dd8da222383573a98de2",
+      "path": "docs/reference/DECISION-CONTEXT.md",
+      "blob": "9775593a5ea053411a0d7954649a7a163d6dc7b4",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-tini",
+      "revision": "01af1344378a091842e8dd8da222383573a98de2",
+      "path": "docs/reference/EXAMPLE-REPO-TREE.md",
+      "blob": "1dc464e8e49aa16fe7e255169d292ca630848d47",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-tini",
+      "revision": "01af1344378a091842e8dd8da222383573a98de2",
+      "path": "docs/reference/PROPOSED-CODEBASE-STRUCTURE.md",
+      "blob": "12eb29e03f3a5cf1a77a9f2d7058510d86c28daf",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-tini",
+      "revision": "01af1344378a091842e8dd8da222383573a98de2",
+      "path": "docs/reference/SERVICE-STRUCTURE-REVIEW.md",
+      "blob": "71a5591c498e60325a143d07a9aa2f1f99ca34bc",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-tini",
+      "revision": "01af1344378a091842e8dd8da222383573a98de2",
+      "path": "docs/reference/SERVICE-TEMPLATE-REPO.md",
+      "blob": "0a35846acb5c6ab5d0a545fa4f93e8031768312e",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-tini",
+      "revision": "01af1344378a091842e8dd8da222383573a98de2",
+      "path": "docs/reference/adjacent/SPEC-SERVICE-LASSO-HARNESS.md",
+      "blob": "85cdd2d1c9c6fec6fc1a4128222493b94c3ed63b",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-tini",
+      "revision": "01af1344378a091842e8dd8da222383573a98de2",
+      "path": "docs/reference/shared-runtime/ARCHITECTURE-DECISIONS.md",
+      "blob": "71e8141dd612dbbf6d8685b964685d62b970dbb3",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-tini",
+      "revision": "01af1344378a091842e8dd8da222383573a98de2",
+      "path": "docs/reference/shared-runtime/QUESTION-LIST-AND-CODE-VALIDATION.md",
+      "blob": "d5b71777b23d898287ba299b149069019d4096c5",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-tini",
+      "revision": "01af1344378a091842e8dd8da222383573a98de2",
+      "path": "docs/reference/shared-runtime/SERVICE-MANAGER-BEHAVIOR.md",
+      "blob": "594f6fff0eb031ff57bebdd09c8efbe025d032a0",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-tini",
+      "revision": "01af1344378a091842e8dd8da222383573a98de2",
+      "path": "docs/runtime-extension-points.md",
+      "blob": "6e937b253c53cc8e7993a92a6c780bdd20aa9338",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-tini",
+      "revision": "01af1344378a091842e8dd8da222383573a98de2",
+      "path": "docs/service-contract.md",
+      "blob": "ccb08315d989da28880590e8dd0802d9157be6b6",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-tini",
+      "revision": "01af1344378a091842e8dd8da222383573a98de2",
+      "path": "docs/service-json-reference.md",
+      "blob": "0a8ef321823743880bb73ef00f300cdc8dbb343f",
+      "status": "content-review-pending"
+    },
+    {
+      "repository": "lasso-tini",
+      "revision": "01af1344378a091842e8dd8da222383573a98de2",
+      "path": "docs/validation.md",
+      "blob": "11facd9338e64e8a00d96dde3e1e41a9b561945a",
+      "status": "content-review-pending"
     }
   ]
 }

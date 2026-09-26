@@ -2,8 +2,60 @@
   {
     "repo": "lasso-secretsbroker",
     "branch": "develop",
-    "status": "branch unavailable or inaccessible; requires authorized workflow before source audit",
-    "documents": []
+    "status": "available; non-truncated develop inventory refreshed; content review pending",
+    "documents": [
+      "README.md",
+      "docs/advanced-capabilities-roadmap.md",
+      "docs/api-contract.md",
+      "docs/aws-secrets-manager-source.md",
+      "docs/backup-restore-rotation.md",
+      "docs/enterprise-security-readiness.md",
+      "docs/env-file-exec-sources.md",
+      "docs/external-adapter-contract.md",
+      "docs/go-security-release-gate.md",
+      "docs/headless-admin-cli.md",
+      "docs/kv-v2.md",
+      "docs/launch-identity-leases.md",
+      "docs/lifecycle-states.md",
+      "docs/local-api-bootstrap-contract.md",
+      "docs/local-api-security.md",
+      "docs/local-store-resolve.md",
+      "docs/master-key-lifecycle.md",
+      "docs/mcp-adapter.md",
+      "docs/openclaw-secretref-resolver.md",
+      "docs/openspec-drafts/OPENSPEC-TRACKER.md",
+      "docs/openspec-drafts/SPEC-SERVICE-TEMPLATE-REPO.md",
+      "docs/operation-capability-manifest.md",
+      "docs/operational-controls-baseline.md",
+      "docs/os-authenticated-ipc-transport.md",
+      "docs/packaging.md",
+      "docs/parity-contract.md",
+      "docs/portable-master-key.md",
+      "docs/provider-configuration-migration-api.md",
+      "docs/provider-source-registry.md",
+      "docs/reference/DECISION-CONTEXT.md",
+      "docs/reference/EXAMPLE-REPO-TREE.md",
+      "docs/reference/PROPOSED-CODEBASE-STRUCTURE.md",
+      "docs/reference/SERVICE-STRUCTURE-REVIEW.md",
+      "docs/reference/SERVICE-TEMPLATE-REPO.md",
+      "docs/reference/adjacent/SPEC-SERVICE-LASSO-HARNESS.md",
+      "docs/reference/shared-runtime/ARCHITECTURE-DECISIONS.md",
+      "docs/reference/shared-runtime/QUESTION-LIST-AND-CODE-VALIDATION.md",
+      "docs/reference/shared-runtime/SERVICE-MANAGER-BEHAVIOR.md",
+      "docs/secrets-management-api.md",
+      "docs/secrets-sync-design.md",
+      "docs/secure-initialization-recovery.md",
+      "docs/service-contract.md",
+      "docs/service-json-reference.md",
+      "docs/source-tls-trust.md",
+      "docs/threat-model.md",
+      "docs/validation.md",
+      "docs/vault-openbao-source.md",
+      "docs/vault-root-bootstrap-contract.md",
+      "docs/writeback-policy.md"
+    ],
+    "tree": "fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b",
+    "inventoryRefreshedAt": "2026-09-27"
   },
   {
     "repo": "lasso-serviceadmin",
@@ -272,8 +324,14 @@
   {
     "repo": "lasso-files",
     "branch": "develop",
-    "status": "branch unavailable or inaccessible; requires authorized workflow before source audit",
-    "documents": []
+    "status": "available; non-truncated develop inventory refreshed; listed content reviewed; migration decisions recorded",
+    "documents": [
+      "README.md",
+      "docs/migration.md",
+      "docs/url-contracts.md"
+    ],
+    "tree": "24daa58f3420d3803b07db336200c789d147cc4a",
+    "inventoryRefreshedAt": "2026-09-27"
   },
   {
     "repo": "lasso-pgadmin4",
@@ -332,20 +390,50 @@
   {
     "repo": "lasso-java",
     "branch": "develop",
-    "status": "branch unavailable or inaccessible; requires authorized workflow before source audit",
-    "documents": []
+    "status": "available; non-truncated develop inventory refreshed; listed content reviewed; migration decisions recorded",
+    "documents": [
+      "README.md"
+    ],
+    "tree": "d5765f12938cd2f7d6d9bff297247294b330c660",
+    "inventoryRefreshedAt": "2026-09-27"
   },
   {
     "repo": "lasso-bpmn-server",
     "branch": "develop",
-    "status": "branch unavailable or inaccessible; requires authorized workflow before source audit",
-    "documents": []
+    "status": "available; non-truncated develop inventory refreshed; listed content reviewed; migration decisions recorded",
+    "documents": [
+      "README.md",
+      "docs/client-sample.md",
+      "docs/dependency-audit.md",
+      "docs/url-contracts.md"
+    ],
+    "tree": "f57db8af782862baf26febc604480f4006437672",
+    "inventoryRefreshedAt": "2026-09-27"
   },
   {
     "repo": "lasso-echoservice",
     "branch": "develop",
-    "status": "branch unavailable or inaccessible; requires authorized workflow before source audit",
-    "documents": []
+    "status": "available; non-truncated develop inventory refreshed; content review pending",
+    "documents": [
+      "README.md",
+      "docs/openspec-drafts/OPENSPEC-TRACKER.md",
+      "docs/openspec-drafts/SPEC-SERVICE-TEMPLATE-REPO.md",
+      "docs/packaging.md",
+      "docs/reference/DECISION-CONTEXT.md",
+      "docs/reference/EXAMPLE-REPO-TREE.md",
+      "docs/reference/PROPOSED-CODEBASE-STRUCTURE.md",
+      "docs/reference/SERVICE-STRUCTURE-REVIEW.md",
+      "docs/reference/SERVICE-TEMPLATE-REPO.md",
+      "docs/reference/adjacent/SPEC-SERVICE-LASSO-HARNESS.md",
+      "docs/reference/shared-runtime/ARCHITECTURE-DECISIONS.md",
+      "docs/reference/shared-runtime/QUESTION-LIST-AND-CODE-VALIDATION.md",
+      "docs/reference/shared-runtime/SERVICE-MANAGER-BEHAVIOR.md",
+      "docs/service-contract.md",
+      "docs/service-json-reference.md",
+      "docs/validation.md"
+    ],
+    "tree": "b825bd7267dc7c39e2d76972d40c13a138a15587",
+    "inventoryRefreshedAt": "2026-09-27"
   },
   {
     "repo": "lasso-postgres",
@@ -538,85 +626,223 @@
   {
     "repo": "lasso-filebeat",
     "branch": "develop",
-    "status": "branch unavailable or inaccessible; requires authorized workflow before source audit",
-    "documents": []
+    "status": "available; non-truncated develop inventory refreshed; content review pending",
+    "documents": [
+      "README.md",
+      "docs/openspec-drafts/OPENSPEC-TRACKER.md",
+      "docs/openspec-drafts/SPEC-SERVICE-TEMPLATE-REPO.md",
+      "docs/packaging.md",
+      "docs/reference/DECISION-CONTEXT.md",
+      "docs/reference/EXAMPLE-REPO-TREE.md",
+      "docs/reference/PROPOSED-CODEBASE-STRUCTURE.md",
+      "docs/reference/SERVICE-STRUCTURE-REVIEW.md",
+      "docs/reference/SERVICE-TEMPLATE-REPO.md",
+      "docs/reference/adjacent/SPEC-SERVICE-LASSO-HARNESS.md",
+      "docs/reference/shared-runtime/ARCHITECTURE-DECISIONS.md",
+      "docs/reference/shared-runtime/QUESTION-LIST-AND-CODE-VALIDATION.md",
+      "docs/reference/shared-runtime/SERVICE-MANAGER-BEHAVIOR.md",
+      "docs/service-contract.md",
+      "docs/service-json-reference.md",
+      "docs/service.md",
+      "docs/validation.md"
+    ],
+    "tree": "5427dd1b5b7ca55b565aae5edf7c6b61bfd2b284",
+    "inventoryRefreshedAt": "2026-09-27"
   },
   {
     "repo": "lasso-fastapi",
     "branch": "develop",
-    "status": "branch unavailable or inaccessible; requires authorized workflow before source audit",
-    "documents": []
+    "status": "available; non-truncated develop inventory refreshed; listed content reviewed; migration decisions recorded",
+    "documents": [
+      "README.md"
+    ],
+    "tree": "49f8f9ff187eda457d8929a054c3b75dbcd65b3c",
+    "inventoryRefreshedAt": "2026-09-27"
   },
   {
     "repo": "lasso-cacao-roaster",
     "branch": "develop",
-    "status": "branch unavailable or inaccessible; requires authorized workflow before source audit",
-    "documents": []
+    "status": "available; non-truncated develop inventory refreshed; listed content reviewed; migration decisions recorded",
+    "documents": [
+      "README.md",
+      "docs/service.md"
+    ],
+    "tree": "bdc074e1ba0d90f873a372a090d8af26748322b9",
+    "inventoryRefreshedAt": "2026-09-27"
   },
   {
     "repo": "lasso-archive",
     "branch": "develop",
-    "status": "branch unavailable or inaccessible; requires authorized workflow before source audit",
-    "documents": []
+    "status": "available; non-truncated develop inventory refreshed; listed content reviewed; migration decisions recorded",
+    "documents": [
+      "README.md",
+      "docs/provider-contract.md",
+      "docs/release-suitability.md"
+    ],
+    "tree": "d0da2a3e94adde35f8529c2b7e03ab135324e405",
+    "inventoryRefreshedAt": "2026-09-27"
   },
   {
     "repo": "lasso-dagu",
     "branch": "develop",
-    "status": "branch unavailable or inaccessible; requires authorized workflow before source audit",
-    "documents": []
+    "status": "available; non-truncated develop inventory refreshed; content review pending",
+    "documents": [
+      "README.md",
+      "docs/bootstrap-new-service-repo.md",
+      "docs/dagu-service-contract.md",
+      "docs/openspec-drafts/OPENSPEC-TRACKER.md",
+      "docs/openspec-drafts/SPEC-SERVICE-TEMPLATE-REPO.md",
+      "docs/packaging.md",
+      "docs/reference/DECISION-CONTEXT.md",
+      "docs/reference/EXAMPLE-REPO-TREE.md",
+      "docs/reference/PROPOSED-CODEBASE-STRUCTURE.md",
+      "docs/reference/SERVICE-STRUCTURE-REVIEW.md",
+      "docs/reference/SERVICE-TEMPLATE-REPO.md",
+      "docs/reference/adjacent/SPEC-SERVICE-LASSO-HARNESS.md",
+      "docs/reference/shared-runtime/ARCHITECTURE-DECISIONS.md",
+      "docs/reference/shared-runtime/QUESTION-LIST-AND-CODE-VALIDATION.md",
+      "docs/reference/shared-runtime/SERVICE-MANAGER-BEHAVIOR.md",
+      "docs/runtime-extension-points.md",
+      "docs/secretsbroker-ref-contract.md",
+      "docs/service-contract.md",
+      "docs/service-json-reference.md",
+      "docs/service-lasso-action-inputs.md",
+      "docs/service-lasso-managed-workflows.md",
+      "docs/validation.md"
+    ],
+    "tree": "c6d4a55cb9263e9ba73fe09dbe975ec40dbc837d",
+    "inventoryRefreshedAt": "2026-09-27"
   },
   {
     "repo": "lasso-tini",
     "branch": "develop",
-    "status": "branch unavailable or inaccessible; requires authorized workflow before source audit",
-    "documents": []
+    "status": "available; non-truncated develop inventory refreshed; content review pending",
+    "documents": [
+      "README.md",
+      "docs/bootstrap-new-service-repo.md",
+      "docs/openspec-drafts/OPENSPEC-TRACKER.md",
+      "docs/openspec-drafts/SPEC-SERVICE-TEMPLATE-REPO.md",
+      "docs/packaging.md",
+      "docs/reference/DECISION-CONTEXT.md",
+      "docs/reference/EXAMPLE-REPO-TREE.md",
+      "docs/reference/PROPOSED-CODEBASE-STRUCTURE.md",
+      "docs/reference/SERVICE-STRUCTURE-REVIEW.md",
+      "docs/reference/SERVICE-TEMPLATE-REPO.md",
+      "docs/reference/adjacent/SPEC-SERVICE-LASSO-HARNESS.md",
+      "docs/reference/shared-runtime/ARCHITECTURE-DECISIONS.md",
+      "docs/reference/shared-runtime/QUESTION-LIST-AND-CODE-VALIDATION.md",
+      "docs/reference/shared-runtime/SERVICE-MANAGER-BEHAVIOR.md",
+      "docs/runtime-extension-points.md",
+      "docs/service-contract.md",
+      "docs/service-json-reference.md",
+      "docs/validation.md"
+    ],
+    "tree": "01af1344378a091842e8dd8da222383573a98de2",
+    "inventoryRefreshedAt": "2026-09-27"
   },
   {
     "repo": "service-lasso-harness",
     "branch": "develop",
-    "status": "branch unavailable or inaccessible; requires authorized workflow before source audit",
-    "documents": []
+    "status": "available; non-truncated develop inventory refreshed; listed content reviewed; migration decisions recorded",
+    "documents": [
+      "README.md",
+      "docs/openspec-drafts/OPENSPEC-TRACKER.md",
+      "docs/openspec-drafts/SPEC-SERVICE-LASSO-HARNESS.md",
+      "docs/usage-flow.md",
+      "docs/validation-contract.md"
+    ],
+    "tree": "a8e6d7aede951e76d280f7592a2ab43f9644b1c3",
+    "inventoryRefreshedAt": "2026-09-27"
   },
   {
     "repo": "service-lasso-app-packager-nexe",
     "branch": "develop",
-    "status": "branch unavailable or inaccessible; requires authorized workflow before source audit",
-    "documents": []
+    "status": "available; non-truncated develop inventory refreshed; listed content reviewed; migration decisions recorded",
+    "documents": [
+      "README.md",
+      "docs/minimal-poc.md",
+      "docs/release-artifact.md",
+      "docs/task-list.md"
+    ],
+    "tree": "4d72ae7c2d8b7a7d0f58735a8218ea54abe4d63e",
+    "inventoryRefreshedAt": "2026-09-27"
   },
   {
     "repo": "service-lasso-app-packager-sea",
     "branch": "develop",
-    "status": "branch unavailable or inaccessible; requires authorized workflow before source audit",
-    "documents": []
+    "status": "available; non-truncated develop inventory refreshed; listed content reviewed; migration decisions recorded",
+    "documents": [
+      "README.md",
+      "docs/minimal-poc.md",
+      "docs/release-artifact.md",
+      "docs/task-list.md"
+    ],
+    "tree": "9eee489a6cb323a42adda041c95e9ba0b3fd026f",
+    "inventoryRefreshedAt": "2026-09-27"
   },
   {
     "repo": "service-lasso-app-packager-pkg",
     "branch": "develop",
-    "status": "branch unavailable or inaccessible; requires authorized workflow before source audit",
-    "documents": []
+    "status": "available; non-truncated develop inventory refreshed; listed content reviewed; migration decisions recorded",
+    "documents": [
+      "README.md",
+      "docs/minimal-poc.md",
+      "docs/release-artifact.md",
+      "docs/task-list.md"
+    ],
+    "tree": "57cde67347363e97451c245d54b4815171d94051",
+    "inventoryRefreshedAt": "2026-09-27"
   },
   {
     "repo": "service-lasso-app-tauri",
     "branch": "develop",
-    "status": "branch unavailable or inaccessible; requires authorized workflow before source audit",
-    "documents": []
+    "status": "available; non-truncated develop inventory refreshed; listed content reviewed; migration decisions recorded",
+    "documents": [
+      "README.md",
+      "docs/minimal-poc.md",
+      "docs/release-artifact.md",
+      "docs/task-list.md"
+    ],
+    "tree": "5662c70f2b1c8af80e01d9aede00c3ace075fba6",
+    "inventoryRefreshedAt": "2026-09-27"
   },
   {
     "repo": "service-lasso-app-electron",
     "branch": "develop",
-    "status": "branch unavailable or inaccessible; requires authorized workflow before source audit",
-    "documents": []
+    "status": "available; non-truncated develop inventory refreshed; listed content reviewed; migration decisions recorded",
+    "documents": [
+      "README.md",
+      "docs/minimal-poc.md",
+      "docs/release-artifact.md",
+      "docs/task-list.md"
+    ],
+    "tree": "57084eb18d11f699cb624ba4845d23c03c1d6773",
+    "inventoryRefreshedAt": "2026-09-27"
   },
   {
     "repo": "service-lasso-app-web",
     "branch": "develop",
-    "status": "branch unavailable or inaccessible; requires authorized workflow before source audit",
-    "documents": []
+    "status": "available; non-truncated develop inventory refreshed; listed content reviewed; migration decisions recorded",
+    "documents": [
+      "README.md",
+      "docs/minimal-poc.md",
+      "docs/release-artifact.md",
+      "docs/task-list.md"
+    ],
+    "tree": "5dcb37c135c084e49f3b751da41a71f3d2b85b27",
+    "inventoryRefreshedAt": "2026-09-27"
   },
   {
     "repo": "service-lasso-app-node",
     "branch": "develop",
-    "status": "branch unavailable or inaccessible; requires authorized workflow before source audit",
-    "documents": []
+    "status": "available; non-truncated develop inventory refreshed; listed content reviewed; migration decisions recorded",
+    "documents": [
+      "README.md",
+      "docs/minimal-poc.md",
+      "docs/release-artifact.md",
+      "docs/task-list.md"
+    ],
+    "tree": "468dabe9f9aea29b7767fcf66067bce5c59eca29",
+    "inventoryRefreshedAt": "2026-09-27"
   }
 ]
