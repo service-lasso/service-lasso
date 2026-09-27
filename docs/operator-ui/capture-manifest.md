@@ -117,6 +117,48 @@ clean-environment capture and independent visual review remain required; no
 Dashboard image is published by this record. This capture proves rendered UI
 routes only; it is not a GA, security-review, or broad runtime-acceptance claim.
 
+## 27 September 2026 recovered direct capture packet
+
+The earlier truncated Dashboard evidence comment in #1322 is superseded for
+traceability by this later direct packet; its missing original candidate is
+not reconstructed. [The verified Windows pair report](https://github.com/service-lasso/service-lasso/issues/1328#issuecomment-5765661612)
+records Core `d0f68e3fc47b0bebc22a0cb55bf63c672b589637`, merged with an identical
+complete tree as `72148b5009cca15db11aa1bffb0f1a261e655af3`. It used released
+Admin `2026.8.31-f015b44` and Broker `2026.8.31-f340883`, with both upstream
+artifact checksums verified, on Windows 11 Pro 10.0.26200 x86_64 / Node 22.23.2.
+The report retains browser versions, owned cleanup and the paired journey.
+
+[The actual paired archive](https://github.com/user-attachments/files/32482163/newcomer-pair.zip)
+is 1,845,521 bytes with SHA-256
+`3e5389f65dd89227d39d435e6383e9d07b6566608a6cb291a40f5dd24b2d364e`.
+The retained local archive was rehashed during this reconciliation and matches
+[the downloaded attachment verification](https://github.com/service-lasso/service-lasso/issues/1328#issuecomment-5765666160).
+Inside `a.zip`, `screenshots/ops-tour/capture-receipt.json` records the dark
+1512×982 capture from 2026-09-21T18:31:04.479Z to 18:32:15.721Z: all 40 routes
+passed, four frames captured, no audit failures, and `ok=true`.
+
+| Capture | Archive path inside `a.zip` | Direct observation and limit |
+| --- | --- | --- |
+| Dashboard `/` | `screenshots/ops-tour/dashboard.png` | Rendered with active `dashboard-public-safe-v1`; operational content redacted. Review-only, not published. |
+| Services `/services` | `screenshots/ops-tour/services.png` | Readable service table; stopped Node Sample/OpenObserve warnings remain visible. Does not establish all-services health. |
+| Archive `/services/%40archive` | `screenshots/ops-tour/archive-overview.png` | Actual provider overview; local filesystem values masked. No record-specific action acceptance inferred. |
+| Help Center `/help-center` | `screenshots/ops-tour/help-center.png` | Readable local documentation and navigation. |
+
+All four retained images were visually inspected during reconciliation;
+none is a blank, setup or skeleton frame. Dashboard image SHA-256 is
+`cf6f62ad74a0a2a0749e66386236d60db5aefb02f2347eea61108aa3c082b08f`.
+The receipt retains password/local-path masking, the two allowed Dashboard
+content labels, `promotion=review-only` and `promotedAssets=[]`.
+No new image or public Dashboard asset is introduced here. Same-operator
+inspection is not the independent review required for public promotion.
+
+These frames provide later direct evidence for the four tour states at
+1512×982. The historical 1440×1024 failures above remain unchanged. Admin
+[#622](https://github.com/service-lasso/lasso-serviceadmin/issues/622) still
+needs its literal 1440×1024 source-repair replay of `/`, `/services` and
+`/help-center`. Core #1281 remains open until its complete acceptance mapping
+and this documentation change pass review and required checks. No publication,
+macOS evidence, independent approval or GA conclusion is inferred.
 ## Refresh captures
 
 Create issue worktrees from `develop` in Core and Service Admin. Run Core
