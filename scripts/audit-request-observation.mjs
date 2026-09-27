@@ -25,6 +25,7 @@ export async function observeAudit(scope, npmCli = process.env.npm_execpath) {
   });
   const requests = [];
   let pending = "";
+  let discardingLine = false;
   const consume = (line) => {
     if (line.startsWith("npm http ")) {
       const request = projectAuditRequest(line);
@@ -36,13 +37,22 @@ export async function observeAudit(scope, npmCli = process.env.npm_execpath) {
   };
   child.stderr.setEncoding("utf8");
   child.stderr.on("data", (chunk) => {
+    if (discardingLine) {
+      const end = chunk.indexOf("\n");
+      if (end < 0) return;
+      chunk = chunk.slice(end + 1);
+      discardingLine = false;
+    }
     pending += chunk;
     let index;
     while ((index = pending.indexOf("\n")) >= 0) {
       consume(pending.slice(0, index).replace(/\r$/, ""));
       pending = pending.slice(index + 1);
     }
-    if (pending.length > 64 * 1024) pending = "";
+    if (pending.length > 64 * 1024) {
+      pending = "";
+      discardingLine = true;
+    }
   });
   let spawnFailed = false;
   child.on("error", () => { spawnFailed = true; });
