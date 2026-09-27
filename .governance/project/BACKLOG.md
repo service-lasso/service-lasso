@@ -13,7 +13,7 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 ## Issue Register
 | ID | Status | Title | Spec References | Notes |
 | --- | --- | --- | --- | --- |
-| `ISS-1382` | `in_progress` | Attribute packaged Admin pre-unlock failure | `SPEC-002`, `AC-4BY.2`; `SPEC-005`, `AC-5A`, `AC-5B` | Admin #640 / PR #642 qualified harness ca805f166dfcf5eb3e3fa30e7492ff0e16781d65 awaits owning checksum-bound three-OS packaged evidence. Published Admin/Broker bytes and deadlines remain unchanged; original root cause remains open. |
+| `ISS-1382` | `in_progress` | Attribute packaged Admin pre-unlock failure | `SPEC-002`, `AC-4BY.2`; `SPEC-005`, `AC-5A`, `AC-5B` | Admin #640 / PR #642 qualified harness b0d185de154fbca2eb521a20e4fbf38f5ad23eb1 awaits owning checksum-bound three-OS packaged evidence. Published Admin/Broker bytes and deadlines remain unchanged; original root cause remains open. |
 | `ISS-1385` | `done` | Qualify Linux newcomer journey in concurrent fresh folders | `SPEC-002`, `AC-4AJ.4`, `AC-4AJ.4c` | Matching Windows/Linux full paired proof at `d0f68e3` is Verified; both inspected ZIPs uploaded and downloaded hashes matched in #1328/#1385. #1396 merged as tree-identical `72148b5`; #1389 merged as `ff3f2b8` and the reconciled product head `77f1cf9` passed Release Qualification. #1397 diagnostics landed via #1398. Dossier and qualification matrix reconciled. macOS remains Deferred (#1330); #1326/#1382 remain open investigations. |
 | `ISS-1323` | `done` | Re-establish clean-machine newcomer journey evidence across Windows, Linux, and macOS | `SPEC-002`, `AC-4AJ.4` | Windows/Linux full paired proofs Verified at `d0f68e3`; macOS Deferred non-blocking (#1330). Final reconciliation completed in `docs/development/newcomer-candidate-qualification.md`; exact-head Release Qualification green at `77f1cf9`. No GA claim. |
 | `ISS-1321` | `done` | Deferred confidence follow-up: independent newcomer evidence and candidate review | `SPEC-002`, `AC-4AJ.4` | Closed as deferred by operator decision; no independent review occurred and no GA is claimed. The review protocol remains available for a future reviewer; macOS direct proof stays in #1330. |
@@ -553,3 +553,8 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 ## Next Recommended Item
 `ISS-1387`: repair PostgreSQL newcomer Linux child library resolution (SPEC-002 AC-4AJ.4c); verify pinned binaries and full paired Linux/Windows proof, preserving historical failures and exact candidate identities.
 `ISS-879` is the current `AC-4BM` doctor diagnosis after `#764` closed.
+
+| `ISS-1439` | `in_progress` | Classify tooling audit bulk failure and retired fallback | `SPEC-007`, `AC-7E` | Retain failed #1425 candidate and add bounded advisory-request metadata; audit severity thresholds and failure result stay unchanged. |
+## GA maintenance #1386
+
+- In progress: SPEC-006 AC-6G packaged verification phase diagnostics. Retain the original attempt-1 failure and unchanged successful attempt-2 recovery at 39e1292548a30d063521438c485a8765ef853dd1; classify future outer failures without claiming the original dependency timeout hypothesis is proven. Exact-head packaged and required CI gates remain delivery requirements.
