@@ -143,6 +143,8 @@ The lifetime restriction must reach process termination: a filtered snapshot sel
 
 The c627eae hosted argument-roundtrip failure requires narrower closed native command-status evidence under #1326, with no raw NTSTATUS or identity output. Preserve the failure, all rejection rules and unchanged qualification bounds; a successful local replay does not resolve it.
 
+The 20c0c01 dependency-order generation fixture currently hides the start result behind process-file polling. Require immediate success assertion with closed provider/consumer lifecycle evidence before dependent observations; preserve all product behavior, deadlines and single-mutation assertions.
+
 Issue #1382 pre-unlock diagnostic delivery requires an exact qualified Admin harness pin and complete packaged Windows/Linux/macOS evidence against unchanged released Admin/Broker checksums. Preserve original assertions, deadlines, exactly-once mutations and metadata-only evidence; successful diagnostics do not attribute the historical trusted-session failure.
 
 The related Admin #651 passed-spec/CLI-exit investigation may separately observe bounded Cypress executable exit/close outcomes through the pinned harness. Require exact Admin and owning Core qualification before integration; retain original failure outcomes and unchanged released application bytes.
