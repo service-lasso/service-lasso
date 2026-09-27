@@ -552,3 +552,5 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 ## Next Recommended Item
 `ISS-1387`: repair PostgreSQL newcomer Linux child library resolution (SPEC-002 AC-4AJ.4c); verify pinned binaries and full paired Linux/Windows proof, preserving historical failures and exact candidate identities.
 `ISS-879` is the current `AC-4BM` doctor diagnosis after `#764` closed.
+
+| `ISS-1439` | `in_progress` | Classify tooling audit bulk failure and retired fallback | `SPEC-007`, `AC-7E` | Retain failed #1425 candidate and add bounded advisory-request metadata; audit severity thresholds and failure result stay unchanged. |
