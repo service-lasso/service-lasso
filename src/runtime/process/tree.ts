@@ -25,6 +25,8 @@ export interface OwnedProcessTreeTarget {
   rootIdentity: ProcessFingerprint | null;
   processGroup: ProcessTreeGroup;
   knownMembers?: ProcessFingerprint[];
+  // A lifetime-filtered snapshot cannot authorize independent /T discovery.
+  verifiedMembersOnly?: boolean;
   rootExitObserved?: boolean;
   rootOwnershipProbe?: () => "owned" | "exited" | "unverifiable";
   forceImmediately?: boolean;
@@ -584,7 +586,10 @@ async function signalOwnedProcessTree(
         // monitor keeps the richer descendant snapshot for root-exit cleanup.
         ? [target.rootIdentity]
         : [];
-    if (rootStatus === "exited") {
+    if (target.verifiedMembersOnly && rootStatus === "owned" && !members.some((member) => member.pid === target.rootPid)) {
+      throw new Error(`Cannot control lifetime-filtered process tree ${target.rootPid} without its verified root member.`);
+    }
+    if (rootStatus === "exited" || target.verifiedMembersOnly) {
       await signalVerifiedMembers(members, signal, dependencies);
       return {
         kind: "verified-members",

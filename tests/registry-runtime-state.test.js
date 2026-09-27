@@ -795,6 +795,13 @@ test("start sequences dependencies in order and waits for dependency readiness",
     const body = await response.json();
     const elapsedMs = Date.now() - startedAt;
 
+    assert.equal(response.status, 200, JSON.stringify({
+      provider: JSON.parse(lifecycleFailureDiagnostic({ httpStatus: response.status, state: getLifecycleState("provider-service") })),
+      consumer: JSON.parse(lifecycleFailureDiagnostic({ httpStatus: response.status, state: getLifecycleState("consumer-service") })),
+    }));
+    assert.equal(body.ok, true);
+    assert.equal(body.state.running, true);
+
     const providerEnvSnapshot = JSON.parse(
       await waitFor(async () => {
         try {
@@ -820,9 +827,6 @@ test("start sequences dependencies in order and waits for dependency readiness",
       }),
     );
 
-    assert.equal(response.status, 200);
-    assert.equal(body.ok, true);
-    assert.equal(body.state.running, true);
     assert.ok(elapsedMs >= 75);
     assert.equal(providerEnvSnapshot.SERVICE_ID, "provider-service");
     assert.equal(consumerEnvSnapshot.SERVICE_ID, "consumer-service");

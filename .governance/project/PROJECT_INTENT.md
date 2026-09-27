@@ -137,8 +137,18 @@ Issue #1326 provider-role bootstrap qualification must retain closed failed star
 
 Issue #1326 dependency-reuse verification must assert successful provider install, config and start before treating it as already running, and retain only the existing closed lifecycle failure projection for failed provider or consumer responses. Preserve API outcomes, identity/PID equality assertions, cleanup and deadlines; do not report a provider setup failure as dependency-reuse acceptance.
 
+Issue #1326 repeated ancestry_predates_root snapshots require lifetime-aware membership: only a currently fingerprint-matching root and complete, structurally valid evidence may exclude a positively older unrelated branch. Preserve rejection of unknown identity, invalid ancestry, permission failures and deadlines; never signal numeric-parent candidates without verified lifetime membership.
+
+The lifetime restriction must reach process termination: a filtered snapshot selects verified-member signaling for both graceful and forced control, without taskkill /T rediscovery. Managed records, adopted records and restart reconstruction require explicit propagation and fresh bounded membership before delivery; a standalone controller test is not integration acceptance.
+
+The c627eae hosted argument-roundtrip failure requires narrower closed native command-status evidence under #1326, with no raw NTSTATUS or identity output. Preserve the failure, all rejection rules and unchanged qualification bounds; a successful local replay does not resolve it.
+
+The 20c0c01 dependency-order generation fixture currently hides the start result behind process-file polling. Require immediate success assertion with closed provider/consumer lifecycle evidence before dependent observations; preserve all product behavior, deadlines and single-mutation assertions.
+
 Issue #1382 pre-unlock diagnostic delivery requires an exact qualified Admin harness pin and complete packaged Windows/Linux/macOS evidence against unchanged released Admin/Broker checksums. Preserve original assertions, deadlines, exactly-once mutations and metadata-only evidence; successful diagnostics do not attribute the historical trusted-session failure.
 
 The related Admin #651 passed-spec/CLI-exit investigation may separately observe bounded Cypress executable exit/close outcomes through the pinned harness. Require exact Admin and owning Core qualification before integration; retain original failure outcomes and unchanged released application bytes.
 Issue #1439 qualification audit observation must distinguish bulk and quick advisory requests with closed endpoint/status/timing metadata only. Preserve original npm findings and exit status, production low/tooling high thresholds and all gates. Do not retry audits, log request payloads/credentials, rewrite locks or claim registry root cause from client recovery.
 Issue #1386 requires closed packaged-verifier phase diagnostics that distinguish consumer setup, package staging, dependency acquisition, installed-package binding, consumer execution, result parsing, evidence validation and evidence write. Preserve existing deadlines, isolation, provenance, cleanup and evidence contracts; a successful unchanged retry is recovery evidence, not a root-cause repair.
+
+Issue #1326 confirmed exit-during-query handling requires successful termination evidence from the same held native handle; live/unknown/259 statuses stay fail closed. Preserve native query rights, ancestry, retries, deadlines and original failed observations. Bind native safety tests and exact-head qualification before delivery claims.
