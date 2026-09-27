@@ -126,7 +126,6 @@ test("every ancestry rejection stays fail closed with a distinct bounded reason"
   const newest = "2026-07-18T01:02:05.456Z";
   const cases = [
     ["ancestry_invalid_parent", [row(4343, 0, newer)]],
-    ["ancestry_predates_root", [row(4343, root.pid, "2026-07-18T01:02:02.456Z")]],
     ["ancestry_cycle", [row(4343, 4344, newer), row(4344, 4343, newer)]],
     ["ancestry_missing_parent", [row(4343, 9999, newer)]],
     ["ancestry_predates_parent", [row(4343, 4344, newer), row(4344, root.pid, newest)]],
@@ -156,6 +155,50 @@ test("native command status categories remain closed through actual bounded insp
       assert.equal(evidence.windowsTreeInspectionLastRetry, reason);
       assert.ok(evidence.windowsTreeInspectionAttempts >= 1);
       assert.equal(JSON.stringify(evidence).includes("private"), false);
+      return true;
+    });
+  }
+});
+
+test("verified root lifetime excludes an older numeric-parent branch without discarding valid members", async () => {
+  const command = "private-command";
+  const expected = { ...root, commandHash: hashProcessCommandLine(command) };
+  const row = (pid, parent, date) => ({ Status: "running", ProcessId: pid,
+    ParentProcessId: parent, CreationDate: date, ExecutablePath: root.executablePath, CommandLine: command });
+  const rootRow = row(root.pid, 9000, root.createdAt);
+  const older = row(4343, root.pid, "2026-07-18T01:02:02.456Z");
+  const unrelatedChild = row(4344, 4343, "2026-07-18T01:02:04.456Z");
+  const ownedChild = row(4345, root.pid, "2026-07-18T01:02:05.456Z");
+  const result = await inspectWindowsProcessTree(expected, {
+    runCommand: async () => ({ stdout: JSON.stringify({ Status: "tree", RootStatus: "running",
+      Processes: [rootRow, older, unrelatedChild, ownedChild] }) }),
+  });
+  assert.equal(result.rootStatus, "owned");
+  assert.deepEqual(result.members.map(member => member.pid), [4345, root.pid]);
+});
+
+test("older branches remain fail closed without a current matching root or complete structural evidence", async () => {
+  const command = "private-command";
+  const expected = { ...root, commandHash: hashProcessCommandLine(command) };
+  const row = (pid, parent, date) => ({ Status: "running", ProcessId: pid,
+    ParentProcessId: parent, CreationDate: date, ExecutablePath: root.executablePath, CommandLine: command });
+  const rootRow = row(root.pid, 9000, root.createdAt);
+  const older = row(4343, root.pid, "2026-07-18T01:02:02.456Z");
+  const cases = [
+    { RootStatus: "not_running", Processes: [older], reason: "ancestry_predates_root" },
+    { RootStatus: "running", Processes: [{ ...rootRow, CreationDate: "2026-07-18T01:02:06.456Z" }, older] },
+    { RootStatus: "running", Processes: [rootRow, { ...older, CommandLine: undefined }] },
+    { RootStatus: "running", Processes: [rootRow, { ...older, ParentProcessId: 9999 }], reason: "ancestry_missing_parent" },
+    { RootStatus: "running", Processes: [rootRow, { ...older, ParentProcessId: 4344 },
+      row(4344, 4343, older.CreationDate)], reason: "ancestry_cycle" },
+  ];
+  for (const sample of cases) {
+    await assert.rejects(inspectWindowsProcessTree(expected, {
+      deadlineMs: Date.now() + 150,
+      runCommand: async () => ({ stdout: JSON.stringify({ Status: "tree", RootStatus: sample.RootStatus,
+        Processes: sample.Processes }) }),
+    }), error => {
+      if (sample.reason) assert.equal(windowsTreeInspectionFailureMetadata(error).windowsTreeInspectionLastRetry, sample.reason);
       return true;
     });
   }

@@ -587,13 +587,12 @@ async function inspectWindowsProcessTreeOnce(
   if (!Number.isFinite(rootCreatedAtMs)) {
     throw new Error("Native Windows process-tree root identity changed.");
   }
+  const unrelatedLifetime = new Set<number>();
   for (const row of rows) {
     if (row.identity.pid === expectedRoot.pid) {
       continue;
     }
-    if (Date.parse(row.identity.createdAt) < rootCreatedAtMs) {
-      throw invalidWindowsTreeAncestry("ancestry_predates_root");
-    }
+    let predatesRoot = Date.parse(row.identity.createdAt) < rootCreatedAtMs;
 
     const visited = new Set<number>([row.identity.pid]);
     let current = row;
@@ -606,6 +605,7 @@ async function inspectWindowsProcessTreeOnce(
       if (!parent) {
         throw invalidWindowsTreeAncestry("ancestry_missing_parent");
       }
+      predatesRoot ||= Date.parse(parent.identity.createdAt) < rootCreatedAtMs;
       if (
         Date.parse(current.identity.createdAt) <
         Date.parse(parent.identity.createdAt)
@@ -614,9 +614,17 @@ async function inspectWindowsProcessTreeOnce(
       }
       current = parent;
     }
+    if (predatesRoot) {
+      // A verified current root cannot own an older process lifetime or its branch.
+      // Without that root, the same candidate remains ambiguous and fails closed.
+      if (!root) throw invalidWindowsTreeAncestry("ancestry_predates_root");
+      unrelatedLifetime.add(row.identity.pid);
+    }
   }
 
-  const members = rows.map((row) => row.identity);
+  const members = rows
+    .filter((row) => !unrelatedLifetime.has(row.identity.pid))
+    .map((row) => row.identity);
   return {
     rootStatus: payload.RootStatus === "running" ? "owned" : "exited",
     members: [
