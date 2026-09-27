@@ -1205,14 +1205,14 @@ test("maxAttempts blocks crash restart attempts at the configured limit", async 
       return stored.runtime?.supervision?.lastRestartResult === "blocked";
     }, SUPERVISION_SETTLE_TIMEOUT_MS);
 
-    await waitForManagedProcessFinalization("max-attempts-service", FIXTURE_CLEANUP_TIMEOUT_MS);
+    await waitForManagedProcessFinalization("max-attempts-service", Date.now() + FIXTURE_CLEANUP_TIMEOUT_MS);
     const stored = await readStoredState(serviceRoot);
     assert.equal(stored.runtime.running, false);
     assert.equal(stored.runtime.supervision.restartAttempts, 0);
     assert.equal(stored.runtime.metrics.launchCount, 1);
   } finally {
     await stopManagedProcess("max-attempts-service", FIXTURE_CLEANUP_TIMEOUT_MS);
-    await waitForManagedProcessFinalization("max-attempts-service", FIXTURE_CLEANUP_TIMEOUT_MS);
+    await waitForManagedProcessFinalization("max-attempts-service", Date.now() + FIXTURE_CLEANUP_TIMEOUT_MS);
     resetLifecycleState();
     await rm(tempRoot, { recursive: true, force: true });
   }
