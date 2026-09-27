@@ -558,3 +558,7 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 ## GA maintenance #1386
 
 - In progress: SPEC-006 AC-6G packaged verification phase diagnostics. Retain the original attempt-1 failure and unchanged successful attempt-2 recovery at 39e1292548a30d063521438c485a8765ef853dd1; classify future outer failures without claiming the original dependency timeout hypothesis is proven. Exact-head packaged and required CI gates remain delivery requirements.
+
+## Confirmed native exit-during-query race (#1326)
+
+In progress under SPEC-002 AC-4BH/AC-4BS.2: same-held-handle termination proof may distinguish an exited process from a failed live identity query. Preserve live/unknown/259 errors and every ancestry rejection. Local native safety cases and rebuilt provenance are required; original hosted command/ancestry failures remain unresolved and exact-head hosted gates are required.
