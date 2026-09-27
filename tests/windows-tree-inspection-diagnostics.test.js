@@ -128,7 +128,10 @@ test("every ancestry rejection stays fail closed with a distinct bounded reason"
     ["ancestry_invalid_parent", [row(4343, 0, newer)]],
     ["ancestry_cycle", [row(4343, 4344, newer), row(4344, 4343, newer)]],
     ["ancestry_missing_parent", [row(4343, 9999, newer)]],
-    ["ancestry_predates_parent", [row(4343, 4344, newer), row(4344, root.pid, newest)]],
+    ["ancestry_predates_parent_within_root", [row(4343, 4344, newer), row(4344, root.pid, newest)]],
+    ["ancestry_predates_parent_within_root", [row(4343, 4344, root.createdAt), row(4344, root.pid, newer)]],
+    ["ancestry_predates_parent_before_root", [row(4343, 4344, "2026-07-18T01:02:02.456Z"), row(4344, root.pid, newer)]],
+    ["ancestry_predates_parent_before_root", [row(4343, 4344, "2026-07-18T01:02:01.456Z"), row(4344, root.pid, "2026-07-18T01:02:02.456Z")]],
   ];
   for (const [reason, descendants] of cases) {
     await assert.rejects(inspectWindowsProcessTree(expected, {
@@ -139,7 +142,7 @@ test("every ancestry rejection stays fail closed with a distinct bounded reason"
       const metadata = windowsTreeInspectionFailureMetadata(error);
       assert.equal(metadata.windowsTreeInspectionLastRetry, reason);
       assert.ok(metadata.windowsTreeInspectionRetries >= 1);
-      assert.doesNotMatch(JSON.stringify(metadata), /private|4343|4344|9999/);
+      assert.doesNotMatch(JSON.stringify(metadata), /private|4343|4344|9999|2026-07/);
       return true;
     });
   }
