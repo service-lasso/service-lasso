@@ -11,9 +11,10 @@ import { recordProcessOwnership, findProcessOwnership } from "../dist/runtime/pr
 import { terminateOwnedProcessTree } from "../dist/runtime/process/tree.js";
 import { startManagedProcess, adoptManagedProcess, stopManagedProcess,
   setManagedWindowsTreeInspectorForTests, setManagedProcessTreeTerminatorForTests,
+  waitForManagedProcessFinalization,
 } from "../dist/runtime/execution/supervisor.js";
 
-for (const mode of ["managed", "adopted"]) {
+for (const mode of ["managed", "adopted", "managed-root-exit", "adopted-root-exit"]) {
   test(`Windows filtered ${mode} lifecycle retains restriction after an unfiltered refresh`, { skip: process.platform !== "win32" }, async () => {
     const priorHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
     process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
@@ -24,6 +25,7 @@ for (const mode of ["managed", "adopted"]) {
     const sentinelClosed = new Promise(resolve => sentinel.once("close", resolve));
     let adoptedChild;
     let adoptedClosed;
+    let managedHandle;
     let snapshots = 0;
     let controls = 0;
     try {
@@ -39,7 +41,9 @@ for (const mode of ["managed", "adopted"]) {
       });
       setManagedProcessTreeTerminatorForTests(async (target, timeoutMs, dependencies) => {
         controls += 1;
+        assert.equal(timeoutMs <= 5_000, true);
         assert.equal(target.verifiedMembersOnly, true);
+        if (mode.endsWith("root-exit")) assert.equal(target.rootExitObserved, true);
         assert.equal(target.knownMembers.some(member => member.pid === sentinel.pid), false);
         const started = Date.now();
         const phases = [];
@@ -69,8 +73,8 @@ for (const mode of ["managed", "adopted"]) {
         }
       });
       const [service] = await discoverServices(servicesRoot);
-      if (mode === "managed") {
-        await startManagedProcess({ service, executionPlan: createDirectExecutionPlan(service.manifest), workspaceRoot });
+      if (mode.startsWith("managed")) {
+        managedHandle = await startManagedProcess({ service, executionPlan: createDirectExecutionPlan(service.manifest), workspaceRoot });
       } else {
         adoptedChild = spawn(process.execPath, [path.relative(serviceRoot, scriptPath)], { cwd: serviceRoot, stdio: "ignore", windowsHide: true });
         adoptedClosed = new Promise(resolve => adoptedChild.once("close", resolve));
@@ -84,7 +88,15 @@ for (const mode of ["managed", "adopted"]) {
         // Adoption reconstructed the flag from a full-tree receipt, with no
         // persisted flag or in-memory managed record to inherit.
       }
-      await stopManagedProcess(serviceId, 5_000);
+      if (mode.endsWith("root-exit")) {
+        process.kill(managedHandle?.pid ?? adoptedChild.pid, "SIGKILL");
+        // Adopted exit detection already polls every five seconds; that delay
+        // precedes its unchanged five-second termination budget. The waiter
+        // observes both phases without changing the production control bound.
+        await waitForManagedProcessFinalization(serviceId, Date.now() + (mode === "adopted-root-exit" ? 10_000 : 5_000));
+      } else {
+        await stopManagedProcess(serviceId, 5_000);
+      }
       assert.equal(snapshots >= 2, true);
       assert.equal(controls, 1);
       assert.equal((await inspectProcess(sentinel.pid)).status, "running");
