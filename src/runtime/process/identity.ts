@@ -612,7 +612,12 @@ async function inspectWindowsProcessTreeOnce(
         Date.parse(current.identity.createdAt) <
         Date.parse(parent.identity.createdAt)
       ) {
-        throw invalidWindowsTreeAncestry("ancestry_predates_parent");
+        throw invalidWindowsTreeAncestry(
+          Date.parse(current.identity.createdAt) < rootCreatedAtMs ||
+          Date.parse(parent.identity.createdAt) < rootCreatedAtMs
+            ? "ancestry_predates_parent_before_root"
+            : "ancestry_predates_parent_within_root",
+        );
       }
       current = parent;
     }

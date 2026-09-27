@@ -20,6 +20,7 @@ const retryReasons = new Set([
   "helper_failed", "malformed", "incomplete", "invalid_ancestry", "inconsistent_root",
   "ancestry_invalid_parent", "ancestry_predates_root", "ancestry_cycle",
   "ancestry_missing_parent", "ancestry_predates_parent",
+  "ancestry_predates_parent_before_root", "ancestry_predates_parent_within_root",
   ...Object.values(nativeFailureReasons),
 ]);
 
