@@ -566,3 +566,5 @@ Current hosted c627eae lifecycle gate failed one argument-roundtrip case with 52
 20c0c01 Windows generation test 75 failed at a process-file wait before asserting the HTTP start result. Correct the fixture observation order and attach bounded provider/consumer failure evidence without retrying or widening any bound. Preserve the original 32.746-second failed observation; its hidden HTTP result is not inferred.
 
 In progress under SPEC-002 AC-4BH/AC-4BS.2: same-held-handle termination proof may distinguish an exited process from a failed live identity query. Preserve live/unknown/259 errors and every ancestry rejection. Local native safety cases and rebuilt provenance are required; original hosted command/ancestry failures remain unresolved and exact-head hosted gates are required.
+
+Issue #1326 parent-edge lifetime diagnostic follow-up binds AC-4BH: retain the 079eb33 startup rejection and classify only whether the rejected edge crosses before expected-root creation. No process details or membership/deadline relaxation; require bounded rejection and privacy tests plus exact-head qualification.
