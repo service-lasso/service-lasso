@@ -16,8 +16,18 @@
         "docs/components/app-service-tasks.md"
       ],
       "boundary": "Optional app-owned service task guidance; source-owned APIs, manifests, schemas and runtime verification remain authoritative. No automatic scheduler integration or new runtime acceptance is claimed.",
-      "coreDelivery": "proposed-in-pr",
-      "companionDelivery": "pending-under-1419"
+      "coreDelivery": "merged",
+      "companionDelivery": "merged",
+      "coreReceipt": {
+        "tested": "63d80ae180f775581f96d57e7c877cb77f16d803",
+        "merged": "fc2558d35c413b2bce2b03fb075011cc87160b26",
+        "pr": 1425
+      },
+      "companionReceipt": {
+        "tested": "4e4f710fa56ee256a7564d601beaa22509b84e9f",
+        "merged": "85273bd2741d0cf476294e0ab845a283c9365c01",
+        "pr": 7
+      }
     },
     {
       "repository": "lasso-cacao-roaster",
@@ -29,8 +39,18 @@
         "docs/components/app-service-tasks.md"
       ],
       "boundary": "Optional app-owned service task guidance; source-owned APIs, manifests, schemas and runtime verification remain authoritative. No automatic scheduler integration or new runtime acceptance is claimed.",
-      "coreDelivery": "proposed-in-pr",
-      "companionDelivery": "pending-under-1419"
+      "coreDelivery": "merged",
+      "companionDelivery": "merged",
+      "coreReceipt": {
+        "tested": "63d80ae180f775581f96d57e7c877cb77f16d803",
+        "merged": "fc2558d35c413b2bce2b03fb075011cc87160b26",
+        "pr": 1425
+      },
+      "companionReceipt": {
+        "tested": "4e4f710fa56ee256a7564d601beaa22509b84e9f",
+        "merged": "85273bd2741d0cf476294e0ab845a283c9365c01",
+        "pr": 7
+      }
     },
     {
       "repository": "lasso-bpmn-server",
@@ -42,8 +62,18 @@
         "docs/components/app-service-tasks.md"
       ],
       "boundary": "Optional app-owned service task guidance; source-owned APIs, manifests, schemas and runtime verification remain authoritative. No automatic scheduler integration or new runtime acceptance is claimed.",
-      "coreDelivery": "proposed-in-pr",
-      "companionDelivery": "pending-under-1419"
+      "coreDelivery": "merged",
+      "companionDelivery": "merged",
+      "coreReceipt": {
+        "tested": "63d80ae180f775581f96d57e7c877cb77f16d803",
+        "merged": "fc2558d35c413b2bce2b03fb075011cc87160b26",
+        "pr": 1425
+      },
+      "companionReceipt": {
+        "tested": "0189d56ffa9f1ed296691d25232085ddd7af2ebd",
+        "merged": "13b1ed36809de54f65c0d01a1b7f6981624221b0",
+        "pr": 12
+      }
     },
     {
       "repository": "lasso-files",
@@ -55,8 +85,18 @@
         "docs/components/app-service-tasks.md"
       ],
       "boundary": "Optional app-owned service task guidance; source-owned APIs, manifests, schemas and runtime verification remain authoritative. No automatic scheduler integration or new runtime acceptance is claimed.",
-      "coreDelivery": "proposed-in-pr",
-      "companionDelivery": "pending-under-1419"
+      "coreDelivery": "merged",
+      "companionDelivery": "merged",
+      "coreReceipt": {
+        "tested": "63d80ae180f775581f96d57e7c877cb77f16d803",
+        "merged": "fc2558d35c413b2bce2b03fb075011cc87160b26",
+        "pr": 1425
+      },
+      "companionReceipt": {
+        "tested": "2486f0233b949c7cf5a209e5d71f1523059ae64e",
+        "merged": "333fb571f0454e98007525b86dab2af286a8b120",
+        "pr": 23
+      }
     },
     {
       "repository": "lasso-files",
@@ -68,8 +108,18 @@
         "docs/components/app-service-tasks.md"
       ],
       "boundary": "Optional app-owned service task guidance; source-owned APIs, manifests, schemas and runtime verification remain authoritative. No automatic scheduler integration or new runtime acceptance is claimed.",
-      "coreDelivery": "proposed-in-pr",
-      "companionDelivery": "pending-under-1419"
+      "coreDelivery": "merged",
+      "companionDelivery": "merged",
+      "coreReceipt": {
+        "tested": "63d80ae180f775581f96d57e7c877cb77f16d803",
+        "merged": "fc2558d35c413b2bce2b03fb075011cc87160b26",
+        "pr": 1425
+      },
+      "companionReceipt": {
+        "tested": "2486f0233b949c7cf5a209e5d71f1523059ae64e",
+        "merged": "333fb571f0454e98007525b86dab2af286a8b120",
+        "pr": 23
+      }
     },
     {
       "repository": "lasso-filebeat",
@@ -81,8 +131,18 @@
         "docs/components/app-service-tasks.md"
       ],
       "boundary": "Optional app-owned service task guidance; source-owned APIs, manifests, schemas and runtime verification remain authoritative. No automatic scheduler integration or new runtime acceptance is claimed.",
-      "coreDelivery": "proposed-in-pr",
-      "companionDelivery": "pending-under-1419"
+      "coreDelivery": "merged",
+      "companionDelivery": "merged",
+      "coreReceipt": {
+        "tested": "63d80ae180f775581f96d57e7c877cb77f16d803",
+        "merged": "fc2558d35c413b2bce2b03fb075011cc87160b26",
+        "pr": 1425
+      },
+      "companionReceipt": {
+        "tested": "f7bdd27ccfde04b52d51b7ec6510ea7d73239202",
+        "merged": "475a139282d4bf83cf40281717f5ef6a3375f91f",
+        "pr": 7
+      }
     },
     {
       "repository": "lasso-filebeat",
@@ -96,8 +156,18 @@
         "docs/service-authoring/05-validate-release.md"
       ],
       "boundary": "Optional app-owned service task guidance; source-owned APIs, manifests, schemas and runtime verification remain authoritative. No automatic scheduler integration or new runtime acceptance is claimed.",
-      "coreDelivery": "proposed-in-pr",
-      "companionDelivery": "pending-under-1419"
+      "coreDelivery": "merged",
+      "companionDelivery": "merged",
+      "coreReceipt": {
+        "tested": "63d80ae180f775581f96d57e7c877cb77f16d803",
+        "merged": "fc2558d35c413b2bce2b03fb075011cc87160b26",
+        "pr": 1425
+      },
+      "companionReceipt": {
+        "tested": "f7bdd27ccfde04b52d51b7ec6510ea7d73239202",
+        "merged": "475a139282d4bf83cf40281717f5ef6a3375f91f",
+        "pr": 7
+      }
     },
     {
       "repository": "lasso-filebeat",
@@ -109,8 +179,18 @@
         "docs/components/app-service-tasks.md"
       ],
       "boundary": "Optional app-owned service task guidance; source-owned APIs, manifests, schemas and runtime verification remain authoritative. No automatic scheduler integration or new runtime acceptance is claimed.",
-      "coreDelivery": "proposed-in-pr",
-      "companionDelivery": "pending-under-1419"
+      "coreDelivery": "merged",
+      "companionDelivery": "merged",
+      "coreReceipt": {
+        "tested": "63d80ae180f775581f96d57e7c877cb77f16d803",
+        "merged": "fc2558d35c413b2bce2b03fb075011cc87160b26",
+        "pr": 1425
+      },
+      "companionReceipt": {
+        "tested": "f7bdd27ccfde04b52d51b7ec6510ea7d73239202",
+        "merged": "475a139282d4bf83cf40281717f5ef6a3375f91f",
+        "pr": 7
+      }
     },
     {
       "repository": "lasso-dagu",
@@ -122,8 +202,18 @@
         "docs/components/app-service-tasks.md"
       ],
       "boundary": "Optional app-owned service task guidance; source-owned APIs, manifests, schemas and runtime verification remain authoritative. No automatic scheduler integration or new runtime acceptance is claimed.",
-      "coreDelivery": "proposed-in-pr",
-      "companionDelivery": "pending-under-1419"
+      "coreDelivery": "merged",
+      "companionDelivery": "merged",
+      "coreReceipt": {
+        "tested": "63d80ae180f775581f96d57e7c877cb77f16d803",
+        "merged": "fc2558d35c413b2bce2b03fb075011cc87160b26",
+        "pr": 1425
+      },
+      "companionReceipt": {
+        "tested": "481955b6126dd3140a0795ae1d90592d62d9ee12",
+        "merged": "8868db2798d6ee9a3ca7828a9b8c7f77d1eb6ef9",
+        "pr": 24
+      }
     },
     {
       "repository": "lasso-dagu",
@@ -135,8 +225,18 @@
         "docs/components/app-service-tasks.md"
       ],
       "boundary": "Optional app-owned service task guidance; source-owned APIs, manifests, schemas and runtime verification remain authoritative. No automatic scheduler integration or new runtime acceptance is claimed.",
-      "coreDelivery": "proposed-in-pr",
-      "companionDelivery": "pending-under-1419"
+      "coreDelivery": "merged",
+      "companionDelivery": "merged",
+      "coreReceipt": {
+        "tested": "63d80ae180f775581f96d57e7c877cb77f16d803",
+        "merged": "fc2558d35c413b2bce2b03fb075011cc87160b26",
+        "pr": 1425
+      },
+      "companionReceipt": {
+        "tested": "481955b6126dd3140a0795ae1d90592d62d9ee12",
+        "merged": "8868db2798d6ee9a3ca7828a9b8c7f77d1eb6ef9",
+        "pr": 24
+      }
     },
     {
       "repository": "lasso-dagu",
@@ -150,8 +250,18 @@
         "docs/service-authoring/05-validate-release.md"
       ],
       "boundary": "Optional app-owned service task guidance; source-owned APIs, manifests, schemas and runtime verification remain authoritative. No automatic scheduler integration or new runtime acceptance is claimed.",
-      "coreDelivery": "proposed-in-pr",
-      "companionDelivery": "pending-under-1419"
+      "coreDelivery": "merged",
+      "companionDelivery": "merged",
+      "coreReceipt": {
+        "tested": "63d80ae180f775581f96d57e7c877cb77f16d803",
+        "merged": "fc2558d35c413b2bce2b03fb075011cc87160b26",
+        "pr": 1425
+      },
+      "companionReceipt": {
+        "tested": "481955b6126dd3140a0795ae1d90592d62d9ee12",
+        "merged": "8868db2798d6ee9a3ca7828a9b8c7f77d1eb6ef9",
+        "pr": 24
+      }
     },
     {
       "repository": "lasso-dagu",
@@ -164,8 +274,18 @@
         "docs/reference/service-action-inputs.md"
       ],
       "boundary": "Optional app-owned service task guidance; source-owned APIs, manifests, schemas and runtime verification remain authoritative. No automatic scheduler integration or new runtime acceptance is claimed.",
-      "coreDelivery": "proposed-in-pr",
-      "companionDelivery": "pending-under-1419"
+      "coreDelivery": "merged",
+      "companionDelivery": "merged",
+      "coreReceipt": {
+        "tested": "63d80ae180f775581f96d57e7c877cb77f16d803",
+        "merged": "fc2558d35c413b2bce2b03fb075011cc87160b26",
+        "pr": 1425
+      },
+      "companionReceipt": {
+        "tested": "481955b6126dd3140a0795ae1d90592d62d9ee12",
+        "merged": "8868db2798d6ee9a3ca7828a9b8c7f77d1eb6ef9",
+        "pr": 24
+      }
     },
     {
       "repository": "lasso-dagu",
@@ -179,8 +299,18 @@
         "docs/service-authoring/05-validate-release.md"
       ],
       "boundary": "Optional app-owned service task guidance; source-owned APIs, manifests, schemas and runtime verification remain authoritative. No automatic scheduler integration or new runtime acceptance is claimed.",
-      "coreDelivery": "proposed-in-pr",
-      "companionDelivery": "pending-under-1419"
+      "coreDelivery": "merged",
+      "companionDelivery": "merged",
+      "coreReceipt": {
+        "tested": "63d80ae180f775581f96d57e7c877cb77f16d803",
+        "merged": "fc2558d35c413b2bce2b03fb075011cc87160b26",
+        "pr": 1425
+      },
+      "companionReceipt": {
+        "tested": "481955b6126dd3140a0795ae1d90592d62d9ee12",
+        "merged": "8868db2798d6ee9a3ca7828a9b8c7f77d1eb6ef9",
+        "pr": 24
+      }
     },
     {
       "repository": "lasso-dagu",
@@ -194,8 +324,18 @@
         "docs/service-authoring/05-validate-release.md"
       ],
       "boundary": "Optional app-owned service task guidance; source-owned APIs, manifests, schemas and runtime verification remain authoritative. No automatic scheduler integration or new runtime acceptance is claimed.",
-      "coreDelivery": "proposed-in-pr",
-      "companionDelivery": "pending-under-1419"
+      "coreDelivery": "merged",
+      "companionDelivery": "merged",
+      "coreReceipt": {
+        "tested": "63d80ae180f775581f96d57e7c877cb77f16d803",
+        "merged": "fc2558d35c413b2bce2b03fb075011cc87160b26",
+        "pr": 1425
+      },
+      "companionReceipt": {
+        "tested": "481955b6126dd3140a0795ae1d90592d62d9ee12",
+        "merged": "8868db2798d6ee9a3ca7828a9b8c7f77d1eb6ef9",
+        "pr": 24
+      }
     }
   ]
 }
