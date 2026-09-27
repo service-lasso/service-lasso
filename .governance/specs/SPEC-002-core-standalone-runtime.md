@@ -519,3 +519,7 @@ At harness a8e6d7aede951e76d280f7592a2ab43f9644b1c3, document direct archive ext
 The native inspector must request only access rights needed by its evidence queries. It must retain complete PID, creation time, image, command line and parent evidence for root and descendants, and preserve all existing rejection/deadline behavior. Do not skip access-denied descendants or substitute partial identity. Removing unused VM_READ is not independent proof of the historical root cause; verify the rebuilt canonical inspector and complete current-head gates.
 
 For the retained #1326 invalid-ancestry deadline, closed retry evidence must distinguish invalid parent, predates-root, cycle, missing-parent and predates-parent checks. Preserve every rejection and retry/deadline rule. Do not omit a candidate or infer PID reuse without matching classified evidence.
+
+### AC-4BY.2 pre-unlock harness observation (#1382)
+
+Pin Admin harness ca805f166dfcf5eb3e3fa30e7492ff0e16781d65 for RD-006 through RD-010 closed pre-unlock observations under Admin #640 / PR #642. This source passed all 15 hosted Admin checks and 582 local units after integrating the v8 baseline repair. Preserve the immutable published Admin and Broker releases, three-platform checksum verification, original marker assertions and configured bounds, exactly-once mutations, no retry and metadata-only artifacts. Complete owning packaged evidence is required before diagnostic delivery is complete; it does not establish the original failure cause.
