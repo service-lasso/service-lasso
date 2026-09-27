@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { lifecycleFailureDiagnostic } from "./lifecycle-failure-diagnostics.js";
 import { createServer } from "node:http";
 import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -574,6 +575,12 @@ test("node-sample start onboard, rotation metadata, and non-secret updates stay 
     await stopSample(updatedSample, sampleRoot);
   } catch (error) {
     fixtureFailure = error;
+    console.error(JSON.stringify({
+      fixtureFailureStage: "sample_operation",
+      finalizationDeadlineExceeded: Array.isArray(error?.failures)
+        && error.failures.some((failure) => failure?.code === "PROCESS_CONTROL_DEADLINE_EXCEEDED"),
+      diagnostic: JSON.parse(lifecycleFailureDiagnostic({ error, state: getLifecycleState("node-sample-service") })),
+    }));
     throw error;
   } finally {
     if (sampleRoot) {
@@ -595,6 +602,12 @@ test("node-sample start onboard, rotation metadata, and non-secret updates stay 
     try {
       await waitForManagedProcessFinalization("node-sample-service");
     } catch (error) {
+      console.error(JSON.stringify({
+        fixtureFailureStage: "finalization_cleanup",
+        finalizationDeadlineExceeded: Array.isArray(error?.failures)
+          && error.failures.some((failure) => failure?.code === "PROCESS_CONTROL_DEADLINE_EXCEEDED"),
+        diagnostic: JSON.parse(lifecycleFailureDiagnostic({ error, state: getLifecycleState("node-sample-service") })),
+      }));
       if (fixtureFailure) {
         throw new AggregateError([fixtureFailure, error], "Node sample fixture and managed finalization failed.");
       }
