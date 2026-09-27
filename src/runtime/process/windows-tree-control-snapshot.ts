@@ -11,7 +11,7 @@ export async function inspectKnownWindowsTreeMembers(
 ): Promise<{
   members: ProcessFingerprint[];
   verifiedMembersOnly: boolean;
-  inspectProcess: (pid: number) => Promise<ProcessInspection>;
+  inspectProcess: (pid: number, options?: { deadlineMs?: number; signal?: AbortSignal }) => Promise<ProcessInspection>;
 }> {
   const currentTree = await (dependencies.inspectTree ?? inspectWindowsProcessTree)(rootIdentity, { deadlineMs, signal });
   const excluded = new Set(currentTree.excludedMemberPids ?? []);
@@ -34,7 +34,10 @@ export async function inspectKnownWindowsTreeMembers(
     return {
       members,
       verifiedMembersOnly: true,
-      inspectProcess: pid => (dependencies.inspectIdentity ?? inspectProcess)(pid, { deadlineMs, signal }),
+      inspectProcess: (pid, options) => (dependencies.inspectIdentity ?? inspectProcess)(pid, {
+        deadlineMs: Math.min(deadlineMs, options?.deadlineMs ?? deadlineMs),
+        signal: options?.signal ?? signal,
+      }),
     };
   }
   const currentByPid = new Map(currentTree.members.map((identity) => [identity.pid, identity]));

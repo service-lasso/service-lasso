@@ -42,6 +42,22 @@ test("a previously filtered record retains fresh verification when its next snap
   assert.equal(checks, 1);
 });
 
+test("filtered signal-time inspection forwards its narrower grace deadline and abort signal", async () => {
+  const deadlineMs = Date.now() + 5_000;
+  const outerSignal = new AbortController().signal;
+  const graceController = new AbortController();
+  const graceDeadlineMs = deadlineMs - 4_000;
+  const snapshot = await inspectKnownWindowsTreeMembers(root, [root], deadlineMs, outerSignal, true, {
+    inspectTree: async () => ({ rootStatus: "owned", members: [root] }),
+    inspectIdentity: async (_pid, options) => {
+      assert.equal(options.deadlineMs, graceDeadlineMs);
+      assert.equal(options.signal, graceController.signal);
+      return { status: "running", identity: root };
+    },
+  });
+  await snapshot.inspectProcess(root.pid, { deadlineMs: graceDeadlineMs, signal: graceController.signal });
+});
+
 test("filtered refresh rejects a reused retained PID before it can replace an authorized fingerprint", async () => {
   await assert.rejects(inspectKnownWindowsTreeMembers(root, [child, root], Date.now() + 500, new AbortController().signal, true, {
     inspectTree: async () => ({ rootStatus: "owned", members: [{ ...child, commandHash: "c".repeat(64) }, root] }),
