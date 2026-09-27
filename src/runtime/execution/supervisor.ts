@@ -1,4 +1,5 @@
 import path from "node:path";
+import { inspectKnownWindowsTreeMembers } from "../process/windows-tree-control-snapshot.js";
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { lstat, mkdir, mkdtemp, open, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { constants, createWriteStream, type WriteStream } from "node:fs";
@@ -135,6 +136,7 @@ interface ManagedProcessRecord {
   rootIdentity: ProcessFingerprint | null;
   processGroup: ProcessOwnershipEntry["processGroup"];
   knownTreeMembers: ProcessFingerprint[];
+  verifiedMembersOnly?: boolean;
   treeMonitorPromise: Promise<void>;
   treeMonitorAbortController: AbortController;
   treeTerminationPromise: Promise<ProcessTreeTerminationResult> | null;
@@ -154,6 +156,7 @@ interface AdoptedProcessRecord {
   rootIdentity: ProcessFingerprint;
   processGroup: ProcessOwnershipEntry["processGroup"];
   knownTreeMembers: ProcessFingerprint[];
+  verifiedMembersOnly?: boolean;
   monitorAbortController: AbortController;
 }
 
@@ -250,6 +253,7 @@ let windowsManagedLauncherPath = WINDOWS_MANAGED_LAUNCHER_PATH;
 let managedProcessTreeTerminator = terminateOwnedProcessTree;
 let managedProcessTreeMonitor = monitorManagedProcessTree;
 let managedProcessRootInspector = inspectProcess;
+let managedWindowsTreeInspector = inspectWindowsProcessTree;
 let managedProcessEnrollmentHook: ((child: ChildProcess) => Promise<void> | void) | null = null;
 let managedProcessFilesBoundHook: (() => Promise<void> | void) | null = null;
 let managedProcessAfterReleaseHook: (() => Promise<void> | void) | null = null;
@@ -275,6 +279,15 @@ export function setManagedProcessTreeMonitorForTests(
     throw new Error("Managed process-tree test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
   }
   managedProcessTreeMonitor = monitor ?? monitorManagedProcessTree;
+}
+
+export function setManagedWindowsTreeInspectorForTests(
+  inspector: typeof inspectWindowsProcessTree | null,
+): void {
+  if (process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS !== "1") {
+    throw new Error("Managed process-tree test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
+  }
+  managedWindowsTreeInspector = inspector ?? inspectWindowsProcessTree;
 }
 
 export function setManagedProcessRootInspectorForTests(
@@ -1315,47 +1328,13 @@ function mergeProcessFingerprints(...groups: ProcessFingerprint[][]): ProcessFin
   return [...byPid.values()];
 }
 
-async function inspectKnownWindowsTreeMembers(
-  rootIdentity: ProcessFingerprint,
-  knownMembers: ProcessFingerprint[],
-  deadlineMs: number,
-  signal: AbortSignal,
-): Promise<{
-  members: ProcessFingerprint[];
-  inspectProcess: (pid: number) => Promise<ProcessInspection>;
-}> {
-  const currentTree = await inspectWindowsProcessTree(rootIdentity, { deadlineMs, signal });
-  const currentByPid = new Map(currentTree.members.map((identity) => [identity.pid, identity]));
-  const inspectionByPid = new Map<number, ProcessInspection>(currentTree.members.map((identity) => [
-    identity.pid,
-    { status: "running", identity },
-  ]));
-  for (const expected of knownMembers) {
-    const actual = currentByPid.get(expected.pid);
-    if (!actual) {
-      inspectionByPid.set(expected.pid, { status: "not_running", reason: "process_not_running" });
-      continue;
-    }
-    if (classifyProcessIdentity(expected, { status: "running", identity: actual }, "win32") !== "owned") {
-      throw new Error(`Cannot verify process ${expected.pid} while controlling its process tree.`);
-    }
-    inspectionByPid.set(expected.pid, { status: "running", identity: actual });
-  }
-  return {
-    members: currentTree.members,
-    inspectProcess: async (pid) => inspectionByPid.get(pid) ?? {
-      status: "not_running",
-      reason: "process_not_running",
-    },
-  };
-}
-
 function managedProcessTreeTarget(record: ManagedProcessRecord, rootExitObserved = false): OwnedProcessTreeTarget {
   return {
     rootPid: record.child.pid ?? 0,
     rootIdentity: record.rootIdentity,
     processGroup: record.processGroup,
     knownMembers: record.knownTreeMembers,
+    verifiedMembersOnly: record.verifiedMembersOnly,
     rootExitObserved,
     rootOwnershipProbe: () => probeManagedChildHandle(record.child),
     forceImmediately: process.platform === "win32" && rootExitObserved,
@@ -1399,7 +1378,7 @@ async function terminateManagedProcessTree(
           const dependencies: Parameters<typeof managedProcessTreeTerminator>[2] = { deadlineMs, signal };
           if (
             process.platform === "win32" &&
-            rootExitObserved &&
+            (rootExitObserved || record.verifiedMembersOnly) &&
             record.rootIdentity &&
             record.knownTreeMembers.length > 0
           ) {
@@ -1408,8 +1387,11 @@ async function terminateManagedProcessTree(
               record.knownTreeMembers,
               deadlineMs,
               signal,
+              record.verifiedMembersOnly,
+              { inspectTree: managedWindowsTreeInspector },
             );
-            record.knownTreeMembers = mergeProcessFingerprints(record.knownTreeMembers, snapshot.members);
+            record.verifiedMembersOnly ||= snapshot.verifiedMembersOnly;
+            record.knownTreeMembers = snapshot.members;
             dependencies.inspectProcess = snapshot.inspectProcess;
           }
           return await managedProcessTreeTerminator(
@@ -1442,6 +1424,7 @@ function adoptedProcessTreeTarget(record: AdoptedProcessRecord): OwnedProcessTre
     rootIdentity: record.rootIdentity,
     processGroup: record.processGroup,
     knownMembers: record.knownTreeMembers,
+    verifiedMembersOnly: record.verifiedMembersOnly,
     forceImmediately: process.platform === "win32",
     preferFastWindowsRootIdentity: process.platform === "win32",
   };
@@ -1476,10 +1459,11 @@ async function refreshAdoptedProcessTreeMembers(
   options: { deadlineMs?: number; signal?: AbortSignal } = {},
 ): Promise<void> {
   if (process.platform === "win32") {
-    const inspection = await inspectWindowsProcessTree(record.rootIdentity, options);
+    const inspection = await managedWindowsTreeInspector(record.rootIdentity, options);
     if (inspection.rootStatus !== "owned") {
       throw new Error(`Cannot refresh exited adopted process "${record.service.manifest.id}".`);
     }
+    record.verifiedMembersOnly ||= inspection.verifiedMembersOnly;
     record.knownTreeMembers = inspection.members;
     return;
   }
@@ -1515,10 +1499,11 @@ async function monitorManagedProcessTree(record: ManagedProcessRecord): Promise<
       if (!record.rootIdentity) {
         throw new Error(`Managed process "${serviceId}" has no verified root identity.`);
       }
-      const inspection = await inspectWindowsProcessTree(record.rootIdentity, {
+      const inspection = await managedWindowsTreeInspector(record.rootIdentity, {
         deadlineMs: Date.now() + WINDOWS_TREE_MONITOR_INSPECTION_TIMEOUT_MS,
         signal: record.treeMonitorAbortController.signal,
       });
+      record.verifiedMembersOnly ||= inspection.verifiedMembersOnly;
       if (inspection.members.length > 0) {
         record.knownTreeMembers = inspection.members;
       }
@@ -1549,11 +1534,14 @@ async function finalizeAdoptedProcessExit(record: AdoptedProcessRecord): Promise
           record.knownTreeMembers,
           deadlineMs,
           signal,
+          record.verifiedMembersOnly,
+          { inspectTree: managedWindowsTreeInspector },
         );
-        record.knownTreeMembers = mergeProcessFingerprints(record.knownTreeMembers, snapshot.members);
+        record.verifiedMembersOnly ||= snapshot.verifiedMembersOnly;
+        record.knownTreeMembers = snapshot.members;
         dependencies.inspectProcess = snapshot.inspectProcess;
       }
-      return await terminateOwnedProcessTree({
+      return await managedProcessTreeTerminator({
         ...adoptedProcessTreeTarget(record),
         processGroup: { kind: "none", id: null },
         rootExitObserved: process.platform === "win32",
@@ -2028,9 +2016,10 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
       record.rootIdentity = ownership.identity;
       if (process.platform === "win32") {
         startFailurePhase = "initial_tree_inspection";
-        const initialTree = await inspectWindowsProcessTree(ownership.identity, {
+        const initialTree = await managedWindowsTreeInspector(ownership.identity, {
           deadlineMs: Date.now() + WINDOWS_TREE_MONITOR_INSPECTION_TIMEOUT_MS,
         });
+        record.verifiedMembersOnly ||= initialTree.verifiedMembersOnly;
         record.knownTreeMembers = initialTree.members;
         if (initialTree.rootStatus !== "owned" || probeManagedChildHandle(child) !== "owned") {
           throw new Error(`Cannot start managed process "${serviceId}": root exited during ownership enrollment.`);
@@ -2061,10 +2050,13 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
         startFailurePhase = "stabilization_delay";
         await adoptedProcessPollDelay(undefined);
         startFailurePhase = "stabilized_tree_inspection";
-        const stabilizedTree = await inspectWindowsProcessTree(ownership.identity, {
+        const stabilizedTree = await managedWindowsTreeInspector(ownership.identity, {
           deadlineMs: Date.now() + WINDOWS_TREE_MONITOR_INSPECTION_TIMEOUT_MS,
         });
-        record.knownTreeMembers = mergeProcessFingerprints(initialTree.members, stabilizedTree.members);
+        record.verifiedMembersOnly ||= stabilizedTree.verifiedMembersOnly;
+        const excluded = new Set(stabilizedTree.excludedMemberPids ?? []);
+        record.knownTreeMembers = mergeProcessFingerprints(initialTree.members, stabilizedTree.members)
+          .filter(member => !excluded.has(member.pid));
         if (stabilizedTree.rootStatus !== "owned" || probeManagedChildHandle(child) !== "owned") {
           throw new Error(`Cannot start managed process "${serviceId}": root exited during ownership enrollment.`);
         }
@@ -2081,10 +2073,11 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
       if (rootIdentity) {
         const verifiedRootIdentity = rootIdentity;
         if (process.platform === "win32" && record.knownTreeMembers.length === 0) {
-          const emergencyTree = await inspectWindowsProcessTree(verifiedRootIdentity, {
+          const emergencyTree = await managedWindowsTreeInspector(verifiedRootIdentity, {
             deadlineMs: Date.now() + WINDOWS_TREE_MONITOR_INSPECTION_TIMEOUT_MS,
           }).catch(() => null);
           if (emergencyTree) {
+            record.verifiedMembersOnly ||= emergencyTree.verifiedMembersOnly;
             record.knownTreeMembers = emergencyTree.members;
           }
         }
@@ -2102,8 +2095,11 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
                 record.knownTreeMembers,
                 containmentDeadlineMs,
                 signal,
+                record.verifiedMembersOnly,
+                { inspectTree: managedWindowsTreeInspector },
               );
-              record.knownTreeMembers = mergeProcessFingerprints(record.knownTreeMembers, snapshot.members);
+              record.verifiedMembersOnly ||= snapshot.verifiedMembersOnly;
+              record.knownTreeMembers = snapshot.members;
               dependencies.inspectProcess = snapshot.inspectProcess;
             }
             const target: Parameters<typeof managedProcessTreeTerminator>[0] = {
@@ -2111,6 +2107,7 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
               rootIdentity: verifiedRootIdentity,
               processGroup,
               knownMembers: record.knownTreeMembers,
+              verifiedMembersOnly: record.verifiedMembersOnly,
               rootExitObserved: rootStatus === "exited",
               rootOwnershipProbe: () => probeManagedChildHandle(child),
               forceImmediately: process.platform === "win32",
@@ -2137,6 +2134,8 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
                 const stoppedTree = await inspectKnownWindowsTreeMembers(
                   verifiedRootIdentity, record.knownTreeMembers,
                   containmentDeadlineMs, signal,
+                  record.verifiedMembersOnly,
+                  { inspectTree: managedWindowsTreeInspector },
                 );
                 for (const member of record.knownTreeMembers) {
                   if ((await stoppedTree.inspectProcess(member.pid)).status !== "not_running") {
@@ -2300,8 +2299,11 @@ async function stopAdoptedProcess(
         record.knownTreeMembers,
         deadlineMs,
         signal,
+        record.verifiedMembersOnly,
+        { inspectTree: managedWindowsTreeInspector },
       );
-      record.knownTreeMembers = mergeProcessFingerprints(record.knownTreeMembers, snapshot.members);
+      record.verifiedMembersOnly ||= snapshot.verifiedMembersOnly;
+      record.knownTreeMembers = snapshot.members;
       terminationTarget = adoptedProcessTreeTarget(record);
       terminationDependencies.signal = signal;
       terminationDependencies.inspectProcess = snapshot.inspectProcess;
@@ -2312,7 +2314,7 @@ async function stopAdoptedProcess(
       );
     }, { deadlineMs });
   }
-  const termination = await terminateOwnedProcessTree(
+  const termination = await managedProcessTreeTerminator(
     terminationTarget,
     remainingProcessControlMs(deadlineMs),
     terminationDependencies,
@@ -2349,7 +2351,7 @@ export async function waitForManagedProcessExit(
     if (!exited) {
       return null;
     }
-    const termination = await terminateOwnedProcessTree({
+    const termination = await managedProcessTreeTerminator({
       ...adoptedProcessTreeTarget(adopted),
       processGroup: { kind: "none", id: null },
     }, timeoutMs);

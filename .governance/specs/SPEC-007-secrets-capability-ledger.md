@@ -238,3 +238,8 @@ evidence is a row-specific real-process result.
   for published-package acquisition, startup, readiness sampling, and owned
   cleanup. Historical failed dispatches remain unwaived. Mutation retry stays
   forbidden. This is not a substitute for `AC-7H` independent review.
+
+
+### Issue #1439: audit-request qualification evidence
+
+Under AC-7E, qualification audits retain bounded bulk/quick endpoint, HTTP status and elapsed-time observations without request bodies, credentials or arbitrary URLs. Production audit retains omit-dev/low and tooling audit retains high severity. Original npm findings and failure status remain authoritative; no automatic retry, waiver or lock mutation is introduced. A local successful bulk request is distinct from a hosted failure and does not establish its upstream cause.
