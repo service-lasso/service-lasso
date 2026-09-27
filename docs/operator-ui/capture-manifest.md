@@ -155,8 +155,8 @@ inspection is not the independent review required for public promotion.
 These frames provide later direct evidence for the four tour states at
 1512×982. The historical 1440×1024 failures above remain unchanged. Admin
 [#622](https://github.com/service-lasso/lasso-serviceadmin/issues/622) still
-needs its literal 1440×1024 source-repair replay of `/`, `/services` and
-`/help-center`. Core #1281 remains open until its complete acceptance mapping
+has completed its literal 1440×1024 source replay of `/`, `/services` and
+`/help-center`; the new evidence record below retains its publication limits. Core #1281 remains open until its complete acceptance mapping
 and this documentation change pass review and required checks. No publication,
 macOS evidence, independent approval or GA conclusion is inferred.
 ## Refresh captures
@@ -258,3 +258,27 @@ only; it is not a GA, security-review, or broad runtime-acceptance claim.
 
 Replace this record with verified, readable browser captures only after the
 generated runtime gate and verifier both succeed.
+
+### Literal 1440×1024 source replay (2026-09-27)
+
+The owned replay used Core `cdb877a16e005e5e9e70214192585d0cdd7ec6c3`
+and source Admin `a3c972e881a1c781f7a7cc3d411e3e0b02981ab8`. Its receipt
+records 2026-09-27T01:37:22.457Z–01:38:29.306Z, 40 read-only route audits,
+three PNGs at exactly 1440×1024 and `ok=true`. Dashboard, Services and Help
+Center were individually inspected. Dashboard uses the canonical redaction
+policy; password controls and local paths are masked. Services renders its
+table, with horizontal clipping at this viewport retained as a layout
+limitation. This proves rendered loading completion for these source routes,
+not every layout or interaction contract.
+
+The owned runtime gate and canonical verifier passed; supported cleanup
+settled all six owned entries and the separately owned source server stopped.
+Earlier entry-wait and privacy-toggle harness attempts remain retained and
+are not successful evidence. The successful inspected packet contains only
+the three PNGs, `receipt.json` and `REPORT.md`: 543,390 bytes, SHA-256
+`58934b7fb8c8c849ab52853aed4598df32904b92cd1defba68e7c0bc88df7d13`.
+Its local filename is `622-literal-1440-proof.zip`. Upload approval and a
+shareable attachment link are pending; the packet is not claimed published.
+The [issue receipt](https://github.com/service-lasso/lasso-serviceadmin/issues/622#issuecomment-5851691254)
+records the replay and limits. Neither issue is closed by this record; it
+provides no independent GA approval or released-package acceptance.
