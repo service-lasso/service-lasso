@@ -22,6 +22,91 @@ const target = {
 };
 const CONTROL_TIMEOUT_MS = 250;
 
+test("Windows lifetime-filtered live tree never rediscovers unrelated descendants during escalation", async () => {
+  const child = { ...identity, pid: identity.pid + 1, commandHash: "b".repeat(64) };
+  const unrelatedPid = identity.pid + 2;
+  const live = new Set([identity.pid, child.pid, unrelatedPid]);
+  const signals = [];
+  const inspections = [];
+  const result = await terminateOwnedProcessTree({
+    ...target,
+    verifiedMembersOnly: true,
+    knownMembers: [child, identity],
+    rootOwnershipProbe: () => "owned",
+  }, 500, {
+    platform: "win32",
+    inspectProcess: async (pid) => {
+      inspections.push(pid);
+      assert.notEqual(pid, unrelatedPid);
+      return live.has(pid)
+        ? { status: "running", identity: pid === identity.pid ? identity : child }
+        : { status: "not_running", reason: "process_not_running" };
+    },
+    killProcess: (pid, signal) => {
+      if (signal === 0) {
+        if (!live.has(pid)) throw missingProcessError();
+        return;
+      }
+      assert.notEqual(pid, unrelatedPid);
+      signals.push({ pid, signal });
+      if (signal === "SIGKILL") live.delete(pid);
+    },
+    runWindowsCommand: async () => {
+      throw new Error("Lifetime-filtered membership forbids tree-wide rediscovery.");
+    },
+  });
+  assert.deepEqual(result, { forced: true });
+  assert.deepEqual(signals, [
+    { pid: child.pid, signal: "SIGTERM" },
+    { pid: identity.pid, signal: "SIGTERM" },
+    { pid: child.pid, signal: "SIGKILL" },
+    { pid: identity.pid, signal: "SIGKILL" },
+  ]);
+  assert.equal(live.has(unrelatedPid), true);
+  assert.equal(inspections.filter(pid => pid === child.pid).length >= 2, true);
+});
+
+test("Windows lifetime-filtered adopted immediate-force stop signals only fingerprint-verified members", async () => {
+  const child = { ...identity, pid: identity.pid + 1 };
+  const live = new Set([identity.pid, child.pid]);
+  const signals = [];
+  const result = await terminateOwnedProcessTree({
+    ...target, verifiedMembersOnly: true, forceImmediately: true,
+    knownMembers: [child, identity], preferFastWindowsRootIdentity: true,
+  }, 500, {
+    platform: "win32",
+    classifyWindowsProcessIdentityFast: async () => "owned",
+    inspectProcess: async pid => ({ status: "running", identity: pid === identity.pid ? identity : child }),
+    killProcess: (pid, signal) => {
+      if (signal === 0) {
+        if (!live.has(pid)) throw missingProcessError();
+        return;
+      }
+      signals.push({ pid, signal });
+      live.delete(pid);
+    },
+    runWindowsCommand: async () => { throw new Error("No tree-wide helper is authorized."); },
+  });
+  assert.deepEqual(result, { forced: true });
+  assert.deepEqual(signals, [{ pid: child.pid, signal: "SIGKILL" }, { pid: identity.pid, signal: "SIGKILL" }]);
+});
+
+test("Windows lifetime-filtered live tree requires a root member and rejects changed child identity", async () => {
+  for (const members of [[], [{ ...identity, pid: identity.pid + 1 }, identity]]) {
+    let signals = 0;
+    await assert.rejects(terminateOwnedProcessTree({
+      ...target, knownMembers: members, verifiedMembersOnly: true,
+      rootOwnershipProbe: () => "owned",
+    }, 500, {
+      platform: "win32",
+      inspectProcess: async pid => ({ status: "running", identity: { ...identity, pid, commandHash: "c".repeat(64) } }),
+      killProcess: () => { signals += 1; },
+      runWindowsCommand: async () => { throw new Error("No tree-wide helper is authorized."); },
+    }), /Cannot (control|verify)/);
+    assert.equal(signals, 0);
+  }
+});
+
 function missingProcessError() {
   return Object.assign(new Error("fixture process exited"), { code: "ENOENT" });
 }

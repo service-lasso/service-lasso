@@ -72,6 +72,10 @@ internal static class ServiceLassoWindowsProcessInspector
 
     [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetExitCodeProcess(IntPtr processHandle, out uint exitCode);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetProcessTimes(
         IntPtr processHandle,
         out FileTime creationTime,
@@ -118,6 +122,11 @@ internal static class ServiceLassoWindowsProcessInspector
         if (value == 0xC0000022) EvidenceStage(32);
         else if (value == 0xC0000004) EvidenceStage(33);
         else if (value == 0xC0000003 || value == 0xC0000002) EvidenceStage(34);
+        else if (value == 0xC0000023) EvidenceStage(37);
+        else if (value == 0x8000000D) EvidenceStage(38);
+        else if (value == 0xC000010A) EvidenceStage(39);
+        else if (value == 0xC0000001) EvidenceStage(40);
+        else if (value == 0x80000005) EvidenceStage(41);
         else EvidenceStage(35);
     }
     private static string ReadCommandLine(IntPtr processHandle)
@@ -231,6 +240,14 @@ internal static class ServiceLassoWindowsProcessInspector
         }
     }
 
+    private static bool IsConfirmedExited(IntPtr processHandle)
+    {
+        uint exitCode;
+        // Use the held handle: PID lookup could observe a replacement process.
+        // STILL_ACTIVE is also a legal exit code, so 259 remains unconfirmed.
+        return GetExitCodeProcess(processHandle, out exitCode) && exitCode != 259;
+    }
+
     private static ProcessEvidence ReadProcessEvidence(int targetProcessId)
     {
         EvidenceStage(20);
@@ -283,6 +300,16 @@ internal static class ServiceLassoWindowsProcessInspector
                 ExecutablePath = executablePath.ToString(),
                 CommandLine = ReadCommandLine(processHandle)
             };
+        }
+        catch (Win32Exception)
+        {
+            if (IsConfirmedExited(processHandle)) return null;
+            throw;
+        }
+        catch (InvalidOperationException)
+        {
+            if (IsConfirmedExited(processHandle)) return null;
+            throw;
         }
         finally
         {
