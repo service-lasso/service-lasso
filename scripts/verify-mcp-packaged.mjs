@@ -11,6 +11,8 @@ import {
   validateMcpProductEvidence,
 } from "./mcp-product-acceptance-lib.mjs";
 
+import { packagedVerificationDiagnostic } from "./packaged-verification-diagnostics.mjs";
+
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const platform = process.platform;
 const npmEntrypoint = process.env.npm_execpath?.trim();
@@ -195,6 +197,7 @@ const servicesRoot = path.join(tempRoot, "services");
 const httpWorkspaceRoot = path.join(tempRoot, "workspace-http");
 const stdioWorkspaceRoot = path.join(tempRoot, "workspace-stdio");
 let verificationFailure = null;
+let verificationStage = "consumer_setup";
 
 try {
   await Promise.all([
@@ -204,10 +207,12 @@ try {
     mkdir(stdioWorkspaceRoot, { recursive: true }),
   ]);
   const serviceId = await writeCanonicalService(servicesRoot);
+  verificationStage = "package_staging";
   const staged = await stagePublishedPackage({ repoRoot, outputRoot: packageOutputRoot, version });
   const packageArchiveBytes = await readFile(staged.packageArchivePath);
   const packageArchiveSha256 = createHash("sha256").update(packageArchiveBytes).digest("hex");
   await writeFile(path.join(consumerRoot, "package.json"), `${JSON.stringify({ private: true, type: "module" }, null, 2)}\n`);
+  verificationStage = "dependency_acquisition";
   await runCommand(process.execPath, [npmEntrypoint,
     "install",
     "--ignore-scripts",
@@ -218,6 +223,7 @@ try {
     "@modelcontextprotocol/inspector@2.4.0",
     `@modelcontextprotocol/sdk@${pinnedSdkVersion}`,
   ], { cwd: consumerRoot, timeoutMs: 300_000 });
+  verificationStage = "installed_package_binding";
   const installedRoot = path.join(consumerRoot, "node_modules", "@service-lasso", "service-lasso");
   const installedManifest = JSON.parse(await readFile(path.join(installedRoot, "package.json"), "utf8"));
   if (installedManifest.name !== "@service-lasso/service-lasso" || installedManifest.version !== version) {
@@ -265,6 +271,7 @@ try {
     reviewedManagedLauncherNative.fill(0);
     reviewedManagedLauncherNativeProvenance.fill(0);
   }
+  verificationStage = "consumer_setup";
   const consumerRunnerPath = path.join(consumerRoot, "mcp-packaged-consumer-runner.mjs");
   const consumerLibraryPath = path.join(consumerRoot, "mcp-product-acceptance-lib.mjs");
   await Promise.all([
@@ -285,6 +292,7 @@ try {
   ];
   let runnerResult;
   try {
+    verificationStage = "consumer_runner";
     runnerResult = await runCommand(process.execPath, [...permissionOptions, consumerRunnerPath], {
       cwd: consumerRoot,
       timeoutMs: 900_000,
@@ -314,6 +322,7 @@ try {
     };
     throw safe;
   }
+  verificationStage = "consumer_result";
   let acceptance;
   try {
     acceptance = JSON.parse(runnerResult.stdout.trim());
@@ -342,7 +351,9 @@ try {
     assertions: acceptance.assertions,
     generatedAt: new Date().toISOString(),
   };
+  verificationStage = "evidence_validation";
   validateMcpProductEvidence(evidence, { candidateSha, platform });
+  verificationStage = "evidence_write";
   await mkdir(path.dirname(evidencePath), { recursive: true });
   await writeFile(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
   process.stdout.write(`${JSON.stringify({
@@ -356,10 +367,7 @@ try {
     result: "passed",
   })}\n`);
 } catch (error) {
-  verificationFailure = error?.packagedAcceptanceDiagnostic ?? {
-    stage: "packaged_verification",
-    errorCode: "verification_failed",
-  };
+  verificationFailure = error?.packagedAcceptanceDiagnostic ?? packagedVerificationDiagnostic(verificationStage);
 } finally {
   try {
     await removeOwnedTempRoot(tempRoot);
