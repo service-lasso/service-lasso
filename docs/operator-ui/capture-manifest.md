@@ -277,8 +277,9 @@ Earlier entry-wait and privacy-toggle harness attempts remain retained and
 are not successful evidence. The successful inspected packet contains only
 the three PNGs, `receipt.json` and `REPORT.md`: 543,390 bytes, SHA-256
 `58934b7fb8c8c849ab52853aed4598df32904b92cd1defba68e7c0bc88df7d13`.
-Its local filename is `622-literal-1440-proof.zip`. Upload approval and a
-shareable attachment link are pending; the packet is not claimed published.
+The [versioned evidence archive](evidence/622-literal-1440-proof.zip) retains
+that exact packet in source history. It is source evidence, not a published
+documentation asset or released-package acceptance.
 The [issue receipt](https://github.com/service-lasso/lasso-serviceadmin/issues/622#issuecomment-5851691254)
 records the replay and limits. Neither issue is closed by this record; it
 provides no independent GA approval or released-package acceptance.
