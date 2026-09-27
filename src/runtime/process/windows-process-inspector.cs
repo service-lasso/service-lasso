@@ -122,6 +122,11 @@ internal static class ServiceLassoWindowsProcessInspector
         if (value == 0xC0000022) EvidenceStage(32);
         else if (value == 0xC0000004) EvidenceStage(33);
         else if (value == 0xC0000003 || value == 0xC0000002) EvidenceStage(34);
+        else if (value == 0xC0000023) EvidenceStage(37);
+        else if (value == 0x8000000D) EvidenceStage(38);
+        else if (value == 0xC000010A) EvidenceStage(39);
+        else if (value == 0xC0000001) EvidenceStage(40);
+        else if (value == 0x80000005) EvidenceStage(41);
         else EvidenceStage(35);
     }
     private static string ReadCommandLine(IntPtr processHandle)

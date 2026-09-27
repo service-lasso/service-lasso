@@ -141,6 +141,8 @@ Issue #1326 repeated ancestry_predates_root snapshots require lifetime-aware mem
 
 The lifetime restriction must reach process termination: a filtered snapshot selects verified-member signaling for both graceful and forced control, without taskkill /T rediscovery. Managed records, adopted records and restart reconstruction require explicit propagation and fresh bounded membership before delivery; a standalone controller test is not integration acceptance.
 
+The c627eae hosted argument-roundtrip failure requires narrower closed native command-status evidence under #1326, with no raw NTSTATUS or identity output. Preserve the failure, all rejection rules and unchanged qualification bounds; a successful local replay does not resolve it.
+
 Issue #1382 pre-unlock diagnostic delivery requires an exact qualified Admin harness pin and complete packaged Windows/Linux/macOS evidence against unchanged released Admin/Broker checksums. Preserve original assertions, deadlines, exactly-once mutations and metadata-only evidence; successful diagnostics do not attribute the historical trusted-session failure.
 
 The related Admin #651 passed-spec/CLI-exit investigation may separately observe bounded Cypress executable exit/close outcomes through the pinned harness. Require exact Admin and owning Core qualification before integration; retain original failure outcomes and unchanged released application bytes.

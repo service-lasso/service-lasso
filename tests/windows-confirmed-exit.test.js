@@ -44,6 +44,19 @@ internal static class HeldExit {
     if(args.Length==2 && args[0]=="--fixture") { Console.ReadLine(); return Int32.Parse(args[1]); }
     try {
       var assembly=Assembly.LoadFrom(args[0]);
+      var inspector=assembly.GetType("ServiceLassoWindowsProcessInspector");
+      var classify=inspector.GetMethod("EvidenceCommandQueryFailure", BindingFlags.Static|BindingFlags.NonPublic);
+      var subject=inspector.GetField("evidenceSubject", BindingFlags.Static|BindingFlags.NonPublic);
+      var failure=inspector.GetField("failureExitCode", BindingFlags.Static|BindingFlags.NonPublic);
+      uint[] statuses={0xC0000023,0x8000000D,0xC000010A,0xC0000001,0x80000005,0xDEADBEEF};
+      int[] codes={37,38,39,40,41,35};
+      foreach(int offset in new int[]{0,100}) {
+        subject.SetValue(null,offset);
+        for(int index=0;index<statuses.Length;index++) {
+          classify.Invoke(null,new object[]{unchecked((int)statuses[index])});
+          Require((int)failure.GetValue(null)==offset+codes[index]);
+        }
+      }
       proof=assembly.GetType("ServiceLassoWindowsProcessInspector").GetMethod("IsConfirmedExited", BindingFlags.Static|BindingFlags.NonPublic);
       Require(proof!=null); Require(!Confirm(IntPtr.Zero)); Probe(0); Probe(259);
       Console.WriteLine("held_handle_cases_passed"); return 0;

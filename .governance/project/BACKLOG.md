@@ -561,4 +561,6 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 
 ## Confirmed native exit-during-query race (#1326)
 
+Current hosted c627eae lifecycle gate failed one argument-roundtrip case with 52 repeated descendant_command_native_failure snapshots. Filtered lifecycle and held-handle regressions passed. Narrow the generic command category with closed MS-ERREF status evidence and native mapping tests, preserving failures and every control/qualification bound. Local non-reproduction is not resolution.
+
 In progress under SPEC-002 AC-4BH/AC-4BS.2: same-held-handle termination proof may distinguish an exited process from a failed live identity query. Preserve live/unknown/259 errors and every ancestry rejection. Local native safety cases and rebuilt provenance are required; original hosted command/ancestry failures remain unresolved and exact-head hosted gates are required.

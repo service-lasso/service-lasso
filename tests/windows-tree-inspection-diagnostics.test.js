@@ -146,7 +146,9 @@ test("every ancestry rejection stays fail closed with a distinct bounded reason"
 });
 test("native command status categories remain closed through actual bounded inspection retries", async () => {
   for (const [code, reason] of [[132, "descendant_command_denied"], [133, "descendant_command_length_changed"],
-    [134, "descendant_command_unsupported"], [135, "descendant_command_native_failure"], [136, "descendant_command_result_length"]]) {
+    [134, "descendant_command_unsupported"], [135, "descendant_command_native_failure"], [136, "descendant_command_result_length"],
+    [137, "descendant_command_buffer_small"], [138, "descendant_command_partial_copy"], [139, "descendant_command_terminating"],
+    [140, "descendant_command_unsuccessful"], [141, "descendant_command_buffer_overflow"]]) {
     await assert.rejects(inspectWindowsProcessTree(root, {
       deadlineMs: Date.now() + 80,
       runCommand: async () => ({ exitCode: code, stdout: "private-native-output", stderr: "private-process-output" }),
