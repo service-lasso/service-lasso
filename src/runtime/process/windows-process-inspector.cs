@@ -72,6 +72,10 @@ internal static class ServiceLassoWindowsProcessInspector
 
     [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetExitCodeProcess(IntPtr processHandle, out uint exitCode);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetProcessTimes(
         IntPtr processHandle,
         out FileTime creationTime,
@@ -231,6 +235,14 @@ internal static class ServiceLassoWindowsProcessInspector
         }
     }
 
+    private static bool IsConfirmedExited(IntPtr processHandle)
+    {
+        uint exitCode;
+        // Use the held handle: PID lookup could observe a replacement process.
+        // STILL_ACTIVE is also a legal exit code, so 259 remains unconfirmed.
+        return GetExitCodeProcess(processHandle, out exitCode) && exitCode != 259;
+    }
+
     private static ProcessEvidence ReadProcessEvidence(int targetProcessId)
     {
         EvidenceStage(20);
@@ -283,6 +295,16 @@ internal static class ServiceLassoWindowsProcessInspector
                 ExecutablePath = executablePath.ToString(),
                 CommandLine = ReadCommandLine(processHandle)
             };
+        }
+        catch (Win32Exception)
+        {
+            if (IsConfirmedExited(processHandle)) return null;
+            throw;
+        }
+        catch (InvalidOperationException)
+        {
+            if (IsConfirmedExited(processHandle)) return null;
+            throw;
         }
         finally
         {
