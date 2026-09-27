@@ -6,7 +6,8 @@ import path from "node:path";
 import { discoverServices } from "../dist/runtime/discovery/discoverServices.js";
 import { createServiceRegistry } from "../dist/runtime/manager/DependencyGraph.js";
 import { configService, installService, startService, stopService } from "../dist/runtime/lifecycle/actions.js";
-import { getLifecycleState, resetLifecycleState, setLifecycleState } from "../dist/runtime/lifecycle/store.js";
+import { getLifecycleState, resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
+import { waitForManagedProcessFinalization } from "../dist/runtime/execution/supervisor.js";
 import {
   compileServiceStartupBrokerPlan,
   resolveServiceStartupBrokerResolution,
@@ -264,26 +265,10 @@ async function stopSample(service, sampleRoot) {
   });
   const serviceId = service.manifest.id;
   const current = getLifecycleState(serviceId);
-  if (!current.running) {
-    return;
-  }
-  try {
+  if (current.running) {
     await stopService(service);
-  } catch {
-    const latest = getLifecycleState(serviceId);
-    if (latest.running) {
-      setLifecycleState(serviceId, {
-        ...latest,
-        running: false,
-        runtime: {
-          ...latest.runtime,
-          pid: null,
-          lastTermination: "stopped",
-          finishedAt: new Date().toISOString(),
-        },
-      });
-    }
   }
+  await waitForManagedProcessFinalization(serviceId);
   await killSamplePid(sampleRoot);
 }
 
@@ -461,6 +446,7 @@ test("node-sample start onboard, rotation metadata, and non-secret updates stay 
   const priorCommand = process.env.SERVICE_LASSO_SECRETSBROKER_LAUNCH_LEASE_COMMAND;
   const priorArgs = process.env.SERVICE_LASSO_SECRETSBROKER_LAUNCH_LEASE_ARGS_JSON;
   let sampleRoot = "";
+  let fixtureFailure;
   try {
     await writeManifest(servicesRoot, "@node", {
       id: "@node",
@@ -586,6 +572,9 @@ test("node-sample start onboard, rotation metadata, and non-secret updates stay 
     assert.equal(updatedDiagnostics.nonSecrets.featureFlag, "updated-without-broker");
     assert.equal(mockBroker.seen().applyCount, applyCountBeforeConfig);
     await stopSample(updatedSample, sampleRoot);
+  } catch (error) {
+    fixtureFailure = error;
+    throw error;
   } finally {
     if (sampleRoot) {
       await killSamplePid(sampleRoot);
@@ -602,6 +591,15 @@ test("node-sample start onboard, rotation metadata, and non-secret updates stay 
     }
     await mockBroker.stop();
     resetScopedBrokerIdentities();
+    // Failed finalization retains the owned fixture and its lifecycle evidence.
+    try {
+      await waitForManagedProcessFinalization("node-sample-service");
+    } catch (error) {
+      if (fixtureFailure) {
+        throw new AggregateError([fixtureFailure, error], "Node sample fixture and managed finalization failed.");
+      }
+      throw error;
+    }
     resetLifecycleState();
     await rm(tempRoot, {
       recursive: true,
