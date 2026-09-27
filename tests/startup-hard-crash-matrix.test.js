@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
+import { observeHardCrashChildExit } from "./hard-crash-child-exit.js";
 import { lifecycleFailureDiagnostic } from "./lifecycle-failure-diagnostics.js";
 import { readFile, readdir, rm } from "node:fs/promises";
 import { startApiServer } from "../dist/server/index.js";
@@ -65,11 +66,7 @@ async function stopExactChild(child) {
 }
 
 async function waitForHardExit(child, timeoutMs = 120_000) {
-  const closed = once(child, "exit");
-  const outcome = await Promise.race([
-    closed.then(([code, signal]) => ({ kind: "exit", code, signal })),
-    new Promise((resolve) => setTimeout(() => resolve({ kind: "timeout" }), timeoutMs)),
-  ]);
+  const outcome = await observeHardCrashChildExit(child, timeoutMs);
   if (outcome.kind === "timeout") {
     await stopExactChild(child);
     throw new Error(`Hard-crash fixture did not exit within ${timeoutMs}ms.`);

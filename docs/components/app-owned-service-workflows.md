@@ -56,4 +56,4 @@ sources on 15 September 2026:
 | `lasso-soarca/README.md` | `579498fa08e28cc7c5e742b6d9b6a1110ceae7a4` | `9d7726a94467767e4b38ed4a09ceefe21fe37ca2` |
 | `lasso-soarca/docs/service.md` | `579498fa08e28cc7c5e742b6d9b6a1110ceae7a4` | `f3109cf88e2795138d836f75d200303f9a81f89d` |
 
-Component redirects remain tracked in [Core #1287](https://github.com/service-lasso/service-lasso/issues/1287). Their absence means this migration is not yet complete across the component repositories.
+The former redirect strategy in #1287 is superseded by maintainer-directed legacy-guide removal. Actual companion ownership and reader-guide migration remain tracked under [Core #1265](https://github.com/service-lasso/service-lasso/issues/1265) and its scoped children. See [optional app-service tasks](app-service-tasks.md) for the next reviewed group; neither Core delivery nor a source review proves publication or component migration complete.
