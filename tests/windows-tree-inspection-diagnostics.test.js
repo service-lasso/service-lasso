@@ -176,6 +176,7 @@ test("verified root lifetime excludes an older numeric-parent branch without dis
   assert.equal(result.rootStatus, "owned");
   assert.deepEqual(result.members.map(member => member.pid), [4345, root.pid]);
   assert.equal(result.verifiedMembersOnly, true);
+  assert.deepEqual(result.excludedMemberPids, [4343, 4344]);
 });
 
 test("older branches remain fail closed without a current matching root or complete structural evidence", async () => {

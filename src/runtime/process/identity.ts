@@ -323,6 +323,7 @@ export interface WindowsProcessTreeInspection {
   rootStatus: "owned" | "exited";
   members: ProcessFingerprint[];
   verifiedMembersOnly?: boolean;
+  excludedMemberPids?: number[];
 }
 
 function parseWindowsProcessJson(
@@ -628,7 +629,10 @@ async function inspectWindowsProcessTreeOnce(
     .map((row) => row.identity);
   return {
     rootStatus: payload.RootStatus === "running" ? "owned" : "exited",
-    ...(unrelatedLifetime.size > 0 ? { verifiedMembersOnly: true } : {}),
+    ...(unrelatedLifetime.size > 0 ? {
+      verifiedMembersOnly: true,
+      excludedMemberPids: [...unrelatedLifetime],
+    } : {}),
     members: [
       ...members.filter((member) => member.pid !== expectedRoot.pid).reverse(),
       ...(root ? [root] : []),
