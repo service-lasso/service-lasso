@@ -18,6 +18,16 @@ test("Windows ConPTY TUI helper compiles and emits only bounded metadata", { ski
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
+test("terminal probes bind retained-tool verification to its owning module", async () => {
+  const operatorTools = await import("../scripts/operator-tool-packaging-lib.mjs");
+  assert.equal(typeof operatorTools.verifyRetainedOperatorTools, "function");
+  for (const probe of ["verify-operator-tui-conpty.mjs", "verify-operator-tui-pty.mjs"]) {
+    const source = await readFile(path.join(repoRoot, "scripts", probe), "utf8");
+    assert.match(source, /import \{ verifyRetainedOperatorTools \} from "\.\/operator-tool-packaging-lib\.mjs"/u);
+    assert.doesNotMatch(source, /verifyRetainedOperatorTools \} from "\.\/release-artifact-lib\.mjs"/u);
+  }
+});
+
 test("Release Qualification runs the Windows ConPTY probe without publication", async () => {
   const workflow = await readFile(path.join(repoRoot, ".github", "workflows", "release-qualification.yml"), "utf8");
   assert.match(workflow, /name: Verify attached-terminal TUI behavior \(Windows ConPTY\)\n        if: matrix\.platform == 'win32'/u);

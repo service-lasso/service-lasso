@@ -3,7 +3,8 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { extractZipSafely } from "../dist/runtime/files/safe-zip.js";
-import { extractPlatformReleaseArchive, runCommand, stageReleaseArtifact, verifyRetainedOperatorTools } from "./release-artifact-lib.mjs";
+import { extractPlatformReleaseArchive, runCommand, stageReleaseArtifact } from "./release-artifact-lib.mjs";
+import { verifyRetainedOperatorTools } from "./operator-tool-packaging-lib.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 if (process.platform !== "win32") {
