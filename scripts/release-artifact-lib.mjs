@@ -655,6 +655,8 @@ export async function stageBundledReleaseArtifact({
     cwd: artifactRoot,
   });
 
+  await stageOperatorTools({ artifactRoot });
+
   const bundledServices = await acquireBundledServices({
     repoRoot,
     artifactRoot,
@@ -670,6 +672,7 @@ export async function stageBundledReleaseArtifact({
       ...RELEASE_FILES,
       "services",
       "node_modules",
+      "operator-tools",
       "sbom.cdx.json",
     ],
     runtimeRoots: {
@@ -677,6 +680,7 @@ export async function stageBundledReleaseArtifact({
       workspaceRoot: "provided by the operator/consumer at runtime",
     },
     bundledServices,
+    operatorTools: true,
     notes: [
       "This artifact is a runnable Service Lasso runtime with the checked-in baseline services folder included.",
       "Baseline service release archives are already acquired under each service .state folder, so startup does not need to download them again.",

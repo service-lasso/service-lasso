@@ -10,6 +10,7 @@ import {
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { createHash } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import {
   createTemporaryOutputRoot,
@@ -22,6 +23,7 @@ import {
   readRootPackageJson,
   RELEASE_VERSION_ENV,
 } from "./release-version-lib.mjs";
+import { stageOperatorTools } from "./operator-tool-packaging-lib.mjs";
 
 const NPM_COMMAND = process.platform === "win32" ? "npm.cmd" : "npm";
 export const NPMJS_REGISTRY = "https://registry.npmjs.org";
@@ -146,6 +148,7 @@ function buildPublishedPackageJson(version, rootPackageJson) {
       "cli.js",
       "publish-artifact.json",
       "sbom.cdx.json",
+      "operator-tools",
     ],
     engines: {
       node: ">=22",
@@ -174,7 +177,7 @@ async function copyPublishPath(repoRoot, artifactRoot, relativePath) {
   await cp(sourcePath, targetPath, { recursive: true });
 }
 
-async function writePublishScaffold({ repoRoot, artifactRoot, version }) {
+async function writePublishScaffold({ repoRoot, artifactRoot, version, operatorTools }) {
   const rootPackageJson = await readRootPackageJson(repoRoot);
   const packageJson = buildPublishedPackageJson(version, rootPackageJson);
   const manifest = {
@@ -194,12 +197,14 @@ async function writePublishScaffold({ repoRoot, artifactRoot, version }) {
       "package.json",
       "publish-artifact.json",
       "sbom.cdx.json",
+      "operator-tools",
     ],
     entrypoints: {
       library: "index.js",
       cli: "cli.js",
       runtime: "dist/index.js",
     },
+    operatorToolsManifest: operatorTools ? "operator-tools/manifest.json" : undefined,
     notes: [
       "This payload is self-contained and publishable to the public npm registry.",
       "Consumers must still provide servicesRoot and workspaceRoot at runtime.",
@@ -295,10 +300,13 @@ export async function stagePublishedPackage({
       await copyPublishPath(repoRoot, artifactRoot, relativePath);
     }
 
+    await stageOperatorTools({ artifactRoot });
+
     const manifest = await writePublishScaffold({
       repoRoot,
       artifactRoot,
       version: resolvedVersion,
+      operatorTools: true,
     });
 
     await writeArtifactSBOM({
@@ -359,6 +367,7 @@ export async function verifyPublishedPackage({
   await stat(path.join(stagedRoot, "index.js"));
   await stat(path.join(stagedRoot, "cli.js"));
   await stat(path.join(stagedRoot, "index.d.ts"));
+  await stat(path.join(stagedRoot, "operator-tools", "manifest.json"));
   const sbom = JSON.parse(
     await readFile(path.join(stagedRoot, "sbom.cdx.json"), "utf8"),
   );
@@ -421,15 +430,47 @@ export async function verifyPublishedPackage({
       cwd: consumerRoot,
     });
 
+    const installedToolsRoot = path.join(consumerRoot, "node_modules", "@service-lasso", "service-lasso", "operator-tools");
+    const installedTools = JSON.parse(await readFile(path.join(installedToolsRoot, "manifest.json"), "utf8"));
+    if (!Array.isArray(installedTools.tools) || installedTools.tools.length !== 2 || installedTools.tools.some((tool) => tool.status !== "available")) {
+      throw new Error("consumer-installed package does not retain both available operator tools");
+    }
+    for (const tool of installedTools.tools) {
+      for (const asset of tool.assets ?? []) {
+        const bytes = await readFile(path.join(consumerRoot, "node_modules", "@service-lasso", "service-lasso", asset.relativePath));
+        const actual = createHash("sha256").update(bytes).digest("hex");
+        if (actual !== asset.sha256) throw new Error(`consumer-installed operator tool checksum mismatch for ${asset.name}`);
+      }
+    }
+
     await writeFile(
       probePath,
       [
         'import { startApiServer } from "@service-lasso/service-lasso";',
+        'import { spawn } from "node:child_process";',
+        'import { copyFile, mkdir, writeFile } from "node:fs/promises";',
+        'import { fileURLToPath } from "node:url";',
         "",
         `const servicesRoot = ${JSON.stringify(servicesRoot)};`,
         `const workspaceRoot = ${JSON.stringify(workspaceRoot)};`,
         `const port = ${bootPort};`,
         `const expectedVersion = ${JSON.stringify(resolvedVersion)};`,
+        `const packagedRoot = ${JSON.stringify(path.join(consumerRoot, "node_modules", "@service-lasso", "service-lasso"))};`,
+        "const toolRoot = new URL(\"./operator-cli/\", import.meta.url);",
+        "const toolRootPath = fileURLToPath(toolRoot);",
+        "await mkdir(toolRoot, { recursive: true });",
+        "await writeFile(new URL(\"./package.json\", toolRoot), JSON.stringify({ private: true, type: \"module\" }));",
+        "",
+        "function runCli(args) {",
+        "  return new Promise((resolve, reject) => {",
+        "    const child = spawn(process.execPath, args, { cwd: toolRootPath, stdio: [\"ignore\", \"pipe\", \"pipe\"] });",
+        "    let stdout = \"\"; let stderr = \"\";",
+        "    child.stdout.on(\"data\", (value) => { stdout += value; });",
+        "    child.stderr.on(\"data\", (value) => { stderr += value; });",
+        "    child.on(\"error\", reject);",
+        "    child.on(\"close\", (code) => resolve({ code, stdout, stderr }));",
+        "  });",
+        "}",
         "",
         "const api = await startApiServer({ servicesRoot, workspaceRoot, port });",
         "const healthResponse = await fetch(`${api.url}/api/health`);",
@@ -437,6 +478,18 @@ export async function verifyPublishedPackage({
         "if (health.api.version !== expectedVersion) {",
         "  throw new Error(`runtime health version ${health.api.version} did not match ${expectedVersion}`);",
         "}",
+        "const cliArchive = fileURLToPath(new URL(\"./operator-cli/service-lassoctl.tgz\", import.meta.url));",
+        "await copyFile(`${packagedRoot}/operator-tools/service-lassoctl/service-lassoctl-0.1.0-dev.0fb93a2.tgz`, cliArchive);",
+        "const npmCommand = process.platform === \"win32\" ? { command: process.env.ComSpec ?? \"cmd.exe\", args: [\"/d\", \"/s\", \"/c\", `npm.cmd install ${cliArchive}`] } : { command: \"npm\", args: [\"install\", cliArchive] };",
+        "const install = spawn(npmCommand.command, npmCommand.args, { cwd: toolRootPath, stdio: \"inherit\" });",
+        "await new Promise((resolve, reject) => { install.on(\"error\", reject); install.on(\"close\", (code) => code === 0 ? resolve() : reject(new Error(`operator CLI install exited ${code}`))); });",
+        "const cliPath = fileURLToPath(new URL(\"./operator-cli/node_modules/@service-lasso/cli/dist/index.js\", import.meta.url));",
+        "const success = await runCli([cliPath, \"--core-url\", api.url, \"instance\", \"status\", \"--json\"]);",
+        "if (success.code !== 0 || JSON.parse(success.stdout).api?.version !== expectedVersion) throw new Error(`operator CLI JSON status failed: ${success.stderr}`);",
+        "const unreachable = await runCli([cliPath, \"--core-url\", \"http://127.0.0.1:1\", \"instance\", \"status\", \"--json\"]);",
+        "if (unreachable.code !== 1 || !unreachable.stderr.includes(\"core_unreachable\")) throw new Error(`operator CLI safe error failed: ${unreachable.stderr}`);",
+        "const confirmation = await runCli([cliPath, \"--core-url\", api.url, \"service\", \"start\", \"missing-service\", \"--json\"]);",
+        "if (confirmation.code !== 1 || !confirmation.stderr.includes(\"confirmation_required\")) throw new Error(`operator CLI confirmation guard failed: ${confirmation.stderr}`);",
         "console.log(JSON.stringify({ ok: true, url: api.url, version: health.api.version }));",
         "await api.stop();",
         "",
@@ -488,6 +541,7 @@ export async function verifyPublishedPackage({
       summary: {
         ...summary,
         cliVersion: reportedVersion,
+        operatorTools: installedTools.tools.map((tool) => ({ command: tool.command, status: tool.status })),
       },
     };
   } finally {

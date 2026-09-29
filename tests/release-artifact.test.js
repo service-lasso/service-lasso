@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { rm, stat } from "node:fs/promises";
+import { readFile, rm, stat } from "node:fs/promises";
 import {
   createTemporaryOutputRoot,
   stageReleaseArtifact,
@@ -29,6 +29,10 @@ test("bounded release artifact can be staged and verified", async () => {
       staged.manifest.entrypoints.corePackage,
       "packages/core/index.js",
     );
+    const operatorTools = JSON.parse(
+      await readFile(path.join(staged.artifactRoot, "operator-tools", "manifest.json"), "utf8"),
+    );
+    assert.deepEqual(operatorTools.tools.map((tool) => tool.status), ["available", "available"]);
     assert.deepEqual(
       staged.platformArchives.map((archive) => archive.archiveName),
       [
