@@ -557,7 +557,7 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 | `ISS-1439` | `in_progress` | Classify tooling audit bulk failure and retired fallback | `SPEC-007`, `AC-7E` | Retain failed #1425 candidate and add bounded advisory-request metadata; audit severity thresholds and failure result stay unchanged. |
 ## GA maintenance #1386
 
-- In progress: SPEC-006 AC-6G packaged verification phase diagnostics. Retain the original attempt-1 failure and unchanged successful attempt-2 recovery at 39e1292548a30d063521438c485a8765ef853dd1; classify future outer failures without claiming the original dependency timeout hypothesis is proven. Exact-head packaged and required CI gates remain delivery requirements.
+- In progress: SPEC-006 AC-6G packaged verification phase diagnostics. Retain the original attempt-1 failure and unchanged successful attempt-2 recovery at 39e1292548a30d063521438c485a8765ef853dd1; classify future outer failures without claiming the original dependency timeout hypothesis is proven. #1473's natural Windows protected-state timeout may distinguish only integrity verification from native helper invocation through fixed safe codes, without changing its deadline, retry, DPAPI/ACL protection, or historical attribution. Exact-head packaged and required CI gates remain delivery requirements.
 
 ## Confirmed native exit-during-query race (#1326)
 

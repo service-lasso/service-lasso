@@ -59,7 +59,7 @@ test("#864 packaged failure diagnostics admit one strict bounded record and disc
     errorCode: "guarded_preflight_failed",
     result: { isError: true, status: null, errorCode: "invalid_request" },
     componentProbe: { stage: "component_probe", errorCode: null },
-    auditProbe: { stage: "audit_probe", reason: "confirmation_private_state_system_utilities_unavailable" },
+    auditProbe: { stage: "audit_probe", reason: "confirmation_private_state_protect_integrity_timeout" },
   };
   const hostile = "token=secret C:\\private\\workspace /opt/private command --password";
   assert.deepEqual(
@@ -78,6 +78,14 @@ test("#864 packaged failure diagnostics admit one strict bounded record and disc
   assert.equal(parsePackagedAcceptanceFailure(`[mcp-package-acceptance-error] ${JSON.stringify(safe)}\n[mcp-package-acceptance-error] ${JSON.stringify(safe)}`), null);
   assert.equal(JSON.stringify(safe).includes(hostile), false);
   assert.ok(JSON.stringify(safe).length < 512);
+  const helperTimeout = {
+    ...safe,
+    auditProbe: { stage: "audit_probe", reason: "confirmation_private_state_protect_helper_timeout" },
+  };
+  assert.deepEqual(
+    parsePackagedAcceptanceFailure(`[mcp-package-acceptance-error] ${JSON.stringify(helperTimeout)}`),
+    helperTimeout,
+  );
 
   const guarded = {
     stage: "guarded_replay",
