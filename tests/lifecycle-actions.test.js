@@ -48,17 +48,22 @@ async function postJson(url, body) {
           body: JSON.stringify(body),
         }),
   });
+  const responseBody = await response.json();
   if (response.status >= 400 && /\/(start|restart)$/.test(new URL(url).pathname)) {
     try {
       const serviceId = decodeURIComponent(new URL(url).pathname.split("/").at(-2));
-      console.error(lifecycleFailureDiagnostic({ httpStatus: response.status, state: getLifecycleState(serviceId) }));
+      console.error(lifecycleFailureDiagnostic({
+        httpStatus: response.status,
+        state: getLifecycleState(serviceId),
+        apiErrorCode: responseBody?.error,
+      }));
     } catch {
       console.error('{"kind":"lifecycle-failure","diagnostic":"metadata_unavailable"}');
     }
   }
   return {
     status: response.status,
-    body: await response.json(),
+    body: responseBody,
   };
 }
 
