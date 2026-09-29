@@ -1,6 +1,6 @@
 # Staged service transfer prerequisite
 
-Issue #1463 defines the client-local transfer boundary that follows the unmerged
+Issue #1463 defines `SPEC-002` `AC-4CH`, the client-local transfer boundary that follows the unmerged
 #1462 durable registration API. This document is a prerequisite contract only;
 no HTTP route is available on `develop` and no client path is accepted.
 
