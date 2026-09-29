@@ -308,6 +308,12 @@ jobs:
       - name: Build packaged MCP verifier
         run: npm run build
 
+      - name: Verify attached-terminal TUI behavior (Windows ConPTY)
+        if: matrix.platform == 'win32'
+        env:
+          SERVICE_LASSO_RELEASE_METADATA_TOKEN: ${{ github.token }}
+        run: node scripts/verify-operator-tui-conpty.mjs
+
       - name: Verify fresh-consumer packaged MCP
         env:
           MCP_PRODUCT_EVIDENCE_PATH: artifacts/mcp-product-${{ matrix.platform }}.json

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -16,4 +16,11 @@ test("Windows ConPTY TUI helper compiles and emits only bounded metadata", { ski
     await runCommand(compiler, ["/nologo", "/target:exe", "/platform:anycpu", `/out:${executable}`, path.join(repoRoot, "scripts", "verify-operator-tui-conpty.cs")]);
     await assert.rejects(runCommand(executable, []));
   } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("Release Qualification runs the Windows ConPTY probe without publication", async () => {
+  const workflow = await readFile(path.join(repoRoot, ".github", "workflows", "release-qualification.yml"), "utf8");
+  assert.match(workflow, /name: Verify attached-terminal TUI behavior \(Windows ConPTY\)\n        if: matrix\.platform == 'win32'/u);
+  assert.match(workflow, /run: node scripts\/verify-operator-tui-conpty\.mjs/u);
+  assert.equal(workflow.includes("Create immutable GitHub release"), false);
 });
