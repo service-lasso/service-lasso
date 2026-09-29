@@ -39,6 +39,9 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
 
+      - name: Build external operator package verifier
+        run: npm run build
+
       - name: Verify packaged external operator tools
         env:
           SERVICE_LASSO_RELEASE_METADATA_TOKEN: ${{ github.token }}
