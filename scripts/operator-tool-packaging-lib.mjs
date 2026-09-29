@@ -1,9 +1,11 @@
 import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
+import { setTimeout as delay } from "node:timers/promises";
 import path from "node:path";
 
 
 function digest(bytes) { return createHash("sha256").update(bytes).digest("hex"); }
+const ASSET_DOWNLOAD_ATTEMPTS = 3;
 
 // These records are immutable GitHub candidate releases. Staging re-reads the
 // release API and every retained byte before they can enter a Core artifact.
@@ -46,22 +48,29 @@ export function assertExactCliRelease(release) {
 }
 
 async function downloadExact(fetchImpl, url, expected) {
-  let current = new URL(url);
-  if (current.protocol !== "https:" || current.hostname !== "api.github.com" || !/^\/repos\/service-lasso\/[A-Za-z0-9._-]+\/releases\/assets\/\d+$/u.test(current.pathname)) throw new Error("operator tool download URL is not a GitHub release asset API URL");
-  let response;
-  for (let redirects = 0; redirects < 4; redirects++) {
-    response = await fetchImpl(current, { redirect: "manual", headers: current.hostname === "api.github.com" ? { accept: "application/octet-stream" } : undefined });
-    if (response.status < 300 || response.status >= 400) break;
-    const location = response.headers.get("location");
-    if (!location) throw new Error("operator tool redirect is missing a location");
-    const next = new URL(location, current);
-    if (next.protocol !== "https:" || !(next.hostname === "github.com" || next.hostname.endsWith(".githubusercontent.com"))) throw new Error("operator tool redirect target is not an allowed GitHub asset host");
-    current = next;
+  const initial = new URL(url);
+  if (initial.protocol !== "https:" || initial.hostname !== "api.github.com" || !/^\/repos\/service-lasso\/[A-Za-z0-9._-]+\/releases\/assets\/\d+$/u.test(initial.pathname)) throw new Error("operator tool download URL is not a GitHub release asset API URL");
+  for (let attempt = 0; attempt < ASSET_DOWNLOAD_ATTEMPTS; attempt += 1) {
+    let current = new URL(initial);
+    let response;
+    for (let redirects = 0; redirects < 4; redirects++) {
+      response = await fetchImpl(current, { redirect: "manual", headers: current.hostname === "api.github.com" ? { accept: "application/octet-stream" } : undefined });
+      if (response.status < 300 || response.status >= 400) break;
+      const location = response.headers.get("location");
+      if (!location) throw new Error("operator tool redirect is missing a location");
+      const next = new URL(location, current);
+      if (next.protocol !== "https:" || !(next.hostname === "github.com" || next.hostname.endsWith(".githubusercontent.com"))) throw new Error("operator tool redirect target is not an allowed GitHub asset host");
+      current = next;
+    }
+    if (response.ok) {
+      const bytes = Buffer.from(await response.arrayBuffer());
+      if (!bytes.length || digest(bytes) !== expected) throw new Error("operator tool checksum mismatch");
+      return bytes;
+    }
+    if (response.status < 500 || response.status > 599 || attempt === ASSET_DOWNLOAD_ATTEMPTS - 1) throw new Error(`operator tool download failed with HTTP ${response.status}`);
+    await delay(100 * (attempt + 1));
   }
-  if (!response.ok) throw new Error(`operator tool download failed with HTTP ${response.status}`);
-  const bytes = Buffer.from(await response.arrayBuffer());
-  if (!bytes.length || digest(bytes) !== expected) throw new Error("operator tool checksum mismatch");
-  return bytes;
+  throw new Error("operator tool download exhausted retries");
 }
 
 function assertChecksumManifest(bytes, assets) {

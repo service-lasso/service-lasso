@@ -58,3 +58,25 @@ test("operator tools reject duplicate or mismatched GitHub release inventory", a
     await assert.rejects(stageOperatorTools({ artifactRoot: root, fetchImpl: duplicateFetch, release }), /duplicate|inventory/u);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test("operator tools retry only a transient 5xx asset response before checksum verification", async () => {
+  const retryAssets = ["win32-amd64", "linux-amd64", "darwin-amd64", "darwin-arm64"].map((platform) => ({ platform, name: `retry-${platform}.zip`, sha256: hash(platform) }));
+  const retrySums = Buffer.from(retryAssets.map((asset) => `${asset.sha256}  ${asset.name}`).join("\n") + "\n");
+  const retryRelease = { repository: "service-lasso/service-lasso-tui", tag: "candidate-2026.9.30-abcdef1", targetCommit: "abcdef1234567890abcdef1234567890abcdef12", checksumManifest: { name: "SHA256SUMS.txt", sha256: hash(retrySums) }, candidateManifest: { name: "candidate-manifest.json", sha256: hash("candidate") }, assets: retryAssets };
+  const root = await mkdtemp(path.join(os.tmpdir(), "operator-tools-retry-"));
+  let checksumAttempts = 0;
+  try {
+    const fetchImpl = async (url) => {
+      const parsed = new URL(url);
+      if (parsed.pathname.includes("/releases/tags/")) return Response.json({ tag_name: retryRelease.tag, target_commitish: retryRelease.targetCommit, prerelease: true, draft: false, assets: [...retryAssets, retryRelease.checksumManifest, retryRelease.candidateManifest].map((asset, index) => ({ name: asset.name, digest: `sha256:${asset.sha256}`, url: `https://api.github.com/repos/service-lasso/service-lasso-tui/releases/assets/${index + 1}` })) });
+      const index = Number(parsed.pathname.split("/").at(-1)) - 1;
+      const asset = [...retryAssets, retryRelease.checksumManifest, retryRelease.candidateManifest][index];
+      if (asset.name === "SHA256SUMS.txt" && checksumAttempts++ === 0) return new Response("temporary upstream failure", { status: 500 });
+      const body = asset.name === "SHA256SUMS.txt" ? retrySums : asset.name === "candidate-manifest.json" ? Buffer.from("candidate") : Buffer.from(asset.platform);
+      return new Response(body, { status: 200 });
+    };
+    const manifest = await stageOperatorTools({ artifactRoot: root, fetchImpl, release: retryRelease, cliRelease: null });
+    assert.equal(checksumAttempts, 2);
+    assert.equal(manifest.tools[1].status, "available");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
