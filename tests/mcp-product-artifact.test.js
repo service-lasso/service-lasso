@@ -385,21 +385,25 @@ test("#864 retained evidence verifies downloaded content, exact SHA, three OSes,
     const releaseWorkflow = await readFile(".github/workflows/release-qualification.yml", "utf8");
     assert.match(releaseWorkflow, /qualify-mcp-product:[\s\S]*?npm run test:mcp:product/u);
     assert.match(releaseWorkflow, /qualify-mcp-packaged:[\s\S]*?platform: win32[\s\S]*?platform: linux[\s\S]*?platform: darwin/u);
-    assert.match(releaseWorkflow, /qualify-mcp-packaged:[\s\S]*?npm run verify:mcp:packaged/u);
+    assert.match(releaseWorkflow, /qualify-mcp-packaged:[\s\S]*?Build packaged MCP verifier[\s\S]*?npm run build[\s\S]*?SERVICE_LASSO_RELEASE_METADATA_TOKEN: \$\{\{ github\.token \}\}[\s\S]*?node scripts\/verify-mcp-packaged-bootstrap\.mjs/u);
+    assert.match(releaseWorkflow, /Verify attached-terminal TUI behavior \(Windows ConPTY\)[\s\S]*?if: matrix\.platform == 'win32'[\s\S]*?node scripts\/verify-operator-tui-conpty\.mjs/u);
     assert.match(releaseWorkflow, /MCP_PRODUCT_EVIDENCE_PATH: artifacts\/mcp-product-\$\{\{ matrix\.platform \}\}\.json[\s\S]*?path: artifacts\/mcp-product-\$\{\{ matrix\.platform \}\}\.json/u);
     assert.match(releaseWorkflow, /qualify-release:[\s\S]*?needs:[\s\S]*?- qualify-mcp-product[\s\S]*?- qualify-mcp-packaged/u);
 
     for (const workflowPath of [".github/workflows/publish-package.yml", ".github/workflows/release-artifact.yml"]) {
       const publicationWorkflow = await readFile(workflowPath, "utf8");
       assert.match(publicationWorkflow, /qualify-mcp-packaged:[\s\S]*?platform: win32[\s\S]*?platform: linux[\s\S]*?platform: darwin/u);
-      assert.match(publicationWorkflow, /qualify-mcp-packaged:[\s\S]*?npm run verify:mcp:packaged/u);
+      assert.match(publicationWorkflow, /qualify-mcp-packaged:[\s\S]*?Build packaged MCP verifier[\s\S]*?npm run build[\s\S]*?SERVICE_LASSO_RELEASE_METADATA_TOKEN: \$\{\{ github\.token \}\}[\s\S]*?node scripts\/verify-mcp-packaged-bootstrap\.mjs/u);
       assert.match(publicationWorkflow, /MCP_PRODUCT_EVIDENCE_PATH: artifacts\/mcp-product-\$\{\{ matrix\.platform \}\}\.json[\s\S]*?path: artifacts\/mcp-product-\$\{\{ matrix\.platform \}\}\.json/u);
       assert.match(publicationWorkflow, /needs:[\s\S]*?- qualify-mcp-packaged/u);
       assert.match(publicationWorkflow, /retention-days: 90/u);
       assert.match(publicationWorkflow, /node scripts\/verify-mcp-product-artifact\.mjs/u);
     }
 
+    const packagedBootstrap = await readFile("scripts/verify-mcp-packaged-bootstrap.mjs", "utf8");
+    assert.match(packagedBootstrap, /bootstrapReleaseMetadataToken\(\);[\s\S]*?await import\("\.\/verify-mcp-packaged\.mjs"\)/u);
     const packagedVerifier = await readFile("scripts/verify-mcp-packaged.mjs", "utf8");
+    assert.match(packagedVerifier, /takeBootstrappedReleaseMetadataToken\(\)/u);
     assert.match(packagedVerifier, /const tempRoot = await realpath\(await mkdtemp/u);
     assert.match(packagedVerifier, /PSModulePath: path\.join\(process\.env\.SystemRoot, "System32", "WindowsPowerShell", "v1\.0", "Modules"\)/u);
     assert.match(packagedVerifier, /verifyWindowsProcessInspectorProvenance[\s\S]*?verify-windows-process-inspector\.ps1/u);
