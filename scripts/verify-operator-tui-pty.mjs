@@ -83,6 +83,14 @@ def run_case(name, connected):
             raise RuntimeError(name + " q did not exit within the bounded terminal window")
         if not os.WIFEXITED(status) or os.WEXITSTATUS(status) != 0: raise RuntimeError(name + " did not exit cleanly")
     finally:
+        if status is None:
+            try:
+                waited, _ = os.waitpid(pid, os.WNOHANG)
+                if waited != pid:
+                    os.kill(pid, signal.SIGKILL)
+                    os.waitpid(pid, 0)
+            except (ChildProcessError, OSError):
+                pass
         try: os.close(fd)
         except OSError: pass
 run_case("safe_unavailable", False)
