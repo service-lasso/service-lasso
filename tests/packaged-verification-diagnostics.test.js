@@ -20,7 +20,10 @@ test("unknown or hostile diagnostic inputs cannot disclose payloads or execute g
   for (const value of [undefined, null, "private-token", "constructor", hostile, new Error("private-token")]) {
     const result = packagedVerificationDiagnostic(value);
     assert.deepEqual(result, { stage: "packaged_verification", errorCode: "verification_failed" });
+    const externalResult = packagedVerificationDiagnostic("package_staging", value);
+    assert.deepEqual(externalResult, { stage: "package_staging", errorCode: "verification_failed" });
     assert.equal(JSON.stringify(result).includes("private-token"), false);
+    assert.equal(JSON.stringify(externalResult).includes("private-token"), false);
   }
 });
 

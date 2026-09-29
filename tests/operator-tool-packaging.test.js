@@ -19,10 +19,14 @@ test("operator tools stage only checksum-verified immutable release bytes", asyn
   const sums = tuiSums;
   const root = await mkdtemp(path.join(os.tmpdir(), "operator-tools-"));
   const downloadHosts = [];
+  const metadataAuthorization = [];
+  const assetAuthorization = [];
   try {
-    const fetchImpl = async (url) => {
+    const fetchImpl = async (url, options = {}) => {
 		const parsed = new URL(url);
 		if (parsed.hostname === "api.github.com" && parsed.pathname.includes("/releases/assets/")) {
+      assetAuthorization.push(options.headers?.authorization);
+
 			const cli = parsed.pathname.includes("service-lasso-cli");
 			const listed = cli ? [cliRelease.asset, cliRelease.checksumManifest, cliRelease.candidateManifest] : [...assets, release.checksumManifest, release.candidateManifest];
 			const asset = listed[Number(parsed.pathname.split("/").at(-1)) - 1];
@@ -30,17 +34,19 @@ test("operator tools stage only checksum-verified immutable release bytes", asyn
 			return new Response(body, { status: 200 });
 		}
 		if (parsed.hostname === "api.github.com") {
+      metadataAuthorization.push(options.headers?.authorization);
 			const cli = parsed.pathname.includes("service-lasso-cli");
 			const listed = cli ? [cliRelease.asset, cliRelease.checksumManifest, cliRelease.candidateManifest] : [...assets, release.checksumManifest, release.candidateManifest];
 			return Response.json({ tag_name: cli ? cliRelease.tag : release.tag, target_commitish: cli ? cliRelease.targetCommit : release.targetCommit, prerelease: true, draft: false, assets: listed.map((asset, index) => ({ name: asset.name, digest: `sha256:${asset.sha256}`, url: `https://api.github.com/repos/service-lasso/${cli ? "service-lasso-cli" : "service-lasso-tui"}/releases/assets/${index + 1}` })) });
 		}
 		const cli = parsed.pathname.includes("service-lasso-cli");
+    assetAuthorization.push(options.headers?.authorization);
 		downloadHosts.push(parsed.hostname);
 		const name = parsed.pathname.split("/").at(-1);
 		const body = name === "SHA256SUMS.txt" ? (cli ? cliSums : sums) : Buffer.from(assets.find((asset) => asset.name === name)?.platform ?? (name === cliRelease.asset.name ? "cli" : name === "candidate-manifest.json" ? tuiCandidate : name === "candidate.json" ? cliCandidate : ""));
 		return new Response(body, { status: 200 });
     };
-    const manifest = await stageOperatorTools({ artifactRoot: root, fetchImpl, release, cliRelease });
+    const manifest = await stageOperatorTools({ artifactRoot: root, fetchImpl, release, cliRelease, releaseMetadataToken: "test-read-token" });
     assert.equal(manifest.tools[0].command, "service-lassoctl");
     assert.equal(manifest.tools[0].status, "available");
     assert.equal(manifest.tools[0].candidateManifest.relativePath, "operator-tools/service-lassoctl/candidate.json");
@@ -51,6 +57,8 @@ test("operator tools stage only checksum-verified immutable release bytes", asyn
     const retained = await verifyRetainedOperatorTools({ artifactRoot: root });
     assert.deepEqual(retained.manifest.tools[0].supportedPlatforms, ["win32", "linux", "darwin"]);
     assert.deepEqual([...new Set(downloadHosts)], ["github.com"]);
+    assert.deepEqual(metadataAuthorization, ["Bearer test-read-token", "Bearer test-read-token"]);
+    assert.ok(assetAuthorization.every((authorization) => authorization === undefined));
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
@@ -65,7 +73,7 @@ test("operator tool identity rejects incomplete platform inventory", () => {
 test("operator tools expose only a fixed release-metadata failure class", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "operator-tools-metadata-"));
   try {
-    await assert.rejects(stageOperatorTools({ artifactRoot: root, fetchImpl: async () => new Response(null, { status: 403 }), release, cliRelease: null }), (error) => {
+    await assert.rejects(stageOperatorTools({ artifactRoot: root, fetchImpl: async () => new Response(null, { status: 403 }), release, cliRelease: null, releaseMetadataToken: "denied-read-token" }), (error) => {
       assert.deepEqual(operatorToolFailureDiagnostic(error), { boundary: "github_release_metadata", httpStatus: 403 });
       return true;
     });

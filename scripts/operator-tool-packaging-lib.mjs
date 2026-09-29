@@ -126,8 +126,14 @@ function assertChecksumManifest(bytes, assets) {
 // External tools are retained as verified release archives. Core does not run,
 // extract, supervise, catalogue, or otherwise manage them. The caller extracts
 // the selected platform archive and starts the TUI in its own terminal.
-async function assertGitHubRelease(fetchImpl, release, expectedAssets) {
-  const response = await fetchImpl(`https://api.github.com/repos/${release.repository}/releases/tags/${release.tag}`, { redirect: "error" });
+async function assertGitHubRelease(fetchImpl, release, expectedAssets, releaseMetadataToken) {
+  const token = typeof releaseMetadataToken === "string" ? releaseMetadataToken.trim() : "";
+  // This request is always the fixed GitHub REST release endpoint. Asset fetches
+  // intentionally receive no headers, including after their allowed redirects.
+  const response = await fetchImpl(`https://api.github.com/repos/${release.repository}/releases/tags/${release.tag}`, {
+    redirect: "error",
+    headers: token ? { authorization: `Bearer ${token}`, accept: "application/vnd.github+json" } : { accept: "application/vnd.github+json" },
+  });
   if (!response.ok) throw releaseMetadataFailure(response.status);
   const metadata = await response.json();
   if (metadata.tag_name !== release.tag || metadata.target_commitish !== release.targetCommit || metadata.prerelease !== true || metadata.draft !== false) throw new Error("operator tool release metadata does not match the pinned candidate identity");
@@ -141,13 +147,13 @@ async function assertGitHubRelease(fetchImpl, release, expectedAssets) {
   return actual;
 }
 
-export async function stageOperatorTools({ artifactRoot, fetchImpl = fetch, release = CURRENT_TUI_RELEASE, cliRelease = CURRENT_CLI_RELEASE } = {}) {
+export async function stageOperatorTools({ artifactRoot, fetchImpl = fetch, release = CURRENT_TUI_RELEASE, cliRelease = CURRENT_CLI_RELEASE, releaseMetadataToken = process.env.SERVICE_LASSO_RELEASE_METADATA_TOKEN } = {}) {
 	await mkdir(path.join(artifactRoot, "operator-tools"), { recursive: true });
   const assets = [];
   let tuiTool = { command: "service-lasso-tui", status: "unavailable", reason: "No current reviewed immutable TUI release is pinned." };
   if (release) {
     assertExactToolRelease(release);
-    const releaseAssets = await assertGitHubRelease(fetchImpl, release, [...release.assets, release.checksumManifest, release.candidateManifest]);
+    const releaseAssets = await assertGitHubRelease(fetchImpl, release, [...release.assets, release.checksumManifest, release.candidateManifest], releaseMetadataToken);
     const root = path.join(artifactRoot, "operator-tools", "service-lasso-tui");
     await mkdir(root, { recursive: true });
     const checksum = await downloadExact(fetchImpl, browserAssetUrl(release, release.checksumManifest.name), release.checksumManifest.sha256);
@@ -168,7 +174,7 @@ export async function stageOperatorTools({ artifactRoot, fetchImpl = fetch, rele
   if (cliRelease) {
   const cliRoot = path.join(artifactRoot, "operator-tools", "service-lassoctl");
   assertExactCliRelease(cliRelease);
-  const cliAssets = await assertGitHubRelease(fetchImpl, cliRelease, [cliRelease.asset, cliRelease.checksumManifest, cliRelease.candidateManifest]);
+  const cliAssets = await assertGitHubRelease(fetchImpl, cliRelease, [cliRelease.asset, cliRelease.checksumManifest, cliRelease.candidateManifest], releaseMetadataToken);
   await mkdir(cliRoot, { recursive: true });
   const cliSums = await downloadExact(fetchImpl, browserAssetUrl(cliRelease, cliRelease.checksumManifest.name), cliRelease.checksumManifest.sha256);
   assertChecksumManifest(cliSums, [cliRelease.asset, cliRelease.candidateManifest]);

@@ -40,10 +40,14 @@ jobs:
         run: npm ci
 
       - name: Verify packaged external operator tools
+        env:
+          SERVICE_LASSO_RELEASE_METADATA_TOKEN: ${{ github.token }}
         run: npm run package:verify
 
       - name: Verify attached-terminal TUI behavior
         if: matrix.platform != 'win32'
+        env:
+          SERVICE_LASSO_RELEASE_METADATA_TOKEN: ${{ github.token }}
         run: npm run verify:operator-tui-pty
 
       - name: Compute candidate package version
@@ -56,6 +60,7 @@ jobs:
       - name: Verify fresh-consumer packaged MCP before publication
         env:
           MCP_PRODUCT_EVIDENCE_PATH: artifacts/mcp-product-${{ matrix.platform }}.json
+          SERVICE_LASSO_RELEASE_METADATA_TOKEN: ${{ github.token }}
         run: npm run verify:mcp:packaged
 
       - name: Upload exact-SHA publication MCP evidence
