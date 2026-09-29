@@ -786,9 +786,6 @@ export function mcpOperationStatePath(workspaceRoot: string): string {
 
 export function isDurableMcpAction(action: McpGuardedActionName): boolean {
   return new Set<McpGuardedActionName>([
-    "service_start",
-    "service_stop",
-    "service_restart",
     "service_install",
     "service_configure",
     "setup_step_run",

@@ -191,7 +191,6 @@ import {
 import {
   McpOperationError,
   McpOperationService,
-  isDurableMcpAction,
   isSafelyCancellableMcpAction,
 } from "../runtime/operator/mcp-operations.js";
 import {
@@ -4318,9 +4317,6 @@ async function routeRequestWithoutMutationCoordination(
             409,
             "Durable lifecycle execution requires its idempotency key and the server-issued confirmation.",
           );
-        }
-        if (!isDurableMcpAction(body.action)) {
-          throw new ApiError("durable_operation_unavailable", 409, "This lifecycle action does not yet support durable operation tracking.");
         }
         const preflight = await preflightMcpGuardedActionExecution({
           workspaceRoot: config.workspaceRoot,
