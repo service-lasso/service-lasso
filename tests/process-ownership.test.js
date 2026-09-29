@@ -3642,8 +3642,13 @@ test("runtime and service ownership are durable before readiness and clear after
     assert.equal((await postJson(`${apiServer.url}/api/services/owned-service/install`)).response.status, 200);
     assert.equal((await postJson(`${apiServer.url}/api/services/owned-service/config`)).response.status, 200);
 
-    const startPromise = postJson(`${apiServer.url}/api/services/owned-service/start`);
+    let startFailure = null;
+    const startPromise = postJson(`${apiServer.url}/api/services/owned-service/start`).catch((error) => {
+      startFailure = error;
+      return null;
+    });
     const launching = await waitFor(async () => {
+      if (startFailure) throw startFailure;
       const entry = await findProcessOwnership(workspaceRoot, "service", "owned-service");
       return entry?.lifecycleState === "launching" ? entry : null;
     }, 20_000);
@@ -3651,6 +3656,8 @@ test("runtime and service ownership are durable before readiness and clear after
     assert.equal(launching.pid > 0, true);
 
     const started = await startPromise;
+    if (startFailure) throw startFailure;
+    assert.notEqual(started, null);
     assert.equal(started.response.status, 200);
     assert.equal(started.body.state.running, true);
     const running = await findProcessOwnership(workspaceRoot, "service", "owned-service");
