@@ -59,29 +59,52 @@ async function downloadExact(fetchImpl, url, expected) {
 }
 
 function assertChecksumManifest(bytes, assets) {
-  const entries = new Map(bytes.toString("utf8").split(/\r?\n/u).map((line) => line.match(/^([a-f0-9]{64})\s+\*?(.+)$/u)).filter(Boolean).map(([, hash, name]) => [name, hash]));
-  for (const asset of assets) if (entries.get(asset.name) !== asset.sha256) throw new Error("operator tool checksum manifest does not match the pinned asset inventory");
+  const entries = new Map();
+  for (const line of bytes.toString("utf8").split(/\r?\n/u).filter(Boolean)) {
+    const match = line.match(/^([a-f0-9]{64})\s+\*?([A-Za-z0-9._-]+)$/u);
+    if (!match || entries.has(match[2])) throw new Error("operator tool checksum manifest is malformed or contains duplicate assets");
+    entries.set(match[2], match[1]);
+  }
+  if (entries.size !== assets.length || assets.some((asset) => entries.get(asset.name) !== asset.sha256)) throw new Error("operator tool checksum manifest does not match the pinned asset inventory");
 }
 
 // External tools are retained as verified release archives. Core does not run,
 // extract, supervise, catalogue, or otherwise manage them. The caller extracts
 // the selected platform archive and starts the TUI in its own terminal.
-export async function stageOperatorTools({ artifactRoot, fetchImpl = fetch, release = TUI_RELEASE, cliRelease = CLI_RELEASE } = {}) {
-  assertExactToolRelease(release);
-  const root = path.join(artifactRoot, "operator-tools", "service-lasso-tui");
-  await mkdir(root, { recursive: true });
-  const checksum = await downloadExact(fetchImpl, assetUrl(release, release.checksumManifest.name), release.checksumManifest.sha256);
-  assertChecksumManifest(checksum, release.assets);
-  await writeFile(path.join(root, release.checksumManifest.name), checksum);
+async function assertGitHubRelease(fetchImpl, release, expectedAssets) {
+  const response = await fetchImpl(`https://api.github.com/repos/${release.repository}/releases/tags/${release.tag}`, { redirect: "error" });
+  if (!response.ok) throw new Error(`operator tool release metadata failed with HTTP ${response.status}`);
+  const metadata = await response.json();
+  if (metadata.tag_name !== release.tag || metadata.target_commitish !== release.targetCommit || metadata.prerelease !== true || metadata.draft !== false) throw new Error("operator tool release metadata does not match the pinned candidate identity");
+  const actual = new Map((metadata.assets ?? []).map((asset) => [asset.name, asset.digest]));
+  if (actual.size !== expectedAssets.length || expectedAssets.some((asset) => actual.get(asset.name) !== `sha256:${asset.sha256}`)) throw new Error("operator tool release metadata asset inventory does not match the pinned manifest");
+}
+
+export async function stageOperatorTools({ artifactRoot, fetchImpl = fetch, release = null, cliRelease = null } = {}) {
+	await mkdir(path.join(artifactRoot, "operator-tools"), { recursive: true });
   const assets = [];
-  for (const asset of release.assets) {
-    const bytes = await downloadExact(fetchImpl, assetUrl(release, asset.name), asset.sha256);
-    const relativePath = path.posix.join("operator-tools", "service-lasso-tui", asset.name);
-    await writeFile(path.join(artifactRoot, relativePath), bytes);
-    assets.push({ ...asset, relativePath });
+  let tuiTool = { command: "service-lasso-tui", status: "unavailable", reason: "No current reviewed immutable TUI release is pinned." };
+  if (release) {
+    assertExactToolRelease(release);
+    await assertGitHubRelease(fetchImpl, release, [...release.assets, release.checksumManifest]);
+    const root = path.join(artifactRoot, "operator-tools", "service-lasso-tui");
+    await mkdir(root, { recursive: true });
+    const checksum = await downloadExact(fetchImpl, assetUrl(release, release.checksumManifest.name), release.checksumManifest.sha256);
+    assertChecksumManifest(checksum, release.assets);
+    await writeFile(path.join(root, release.checksumManifest.name), checksum);
+    for (const asset of release.assets) {
+      const bytes = await downloadExact(fetchImpl, assetUrl(release, asset.name), asset.sha256);
+      const relativePath = path.posix.join("operator-tools", "service-lasso-tui", asset.name);
+      await writeFile(path.join(artifactRoot, relativePath), bytes);
+      assets.push({ ...asset, relativePath });
+    }
+    tuiTool = { command: "service-lasso-tui", status: "available", mode: "caller-attached-terminal", repository: release.repository, tag: release.tag, targetCommit: release.targetCommit, checksumManifest: { ...release.checksumManifest, relativePath: "operator-tools/service-lasso-tui/SHA256SUMS.txt" }, assets };
   }
+  let cliTool = { command: "service-lassoctl", status: "unavailable", reason: "No current reviewed immutable CLI release is pinned." };
+  if (cliRelease) {
   const cliRoot = path.join(artifactRoot, "operator-tools", "service-lassoctl");
   if (!/^[a-f0-9]{40}$/u.test(cliRelease.targetCommit) || !/^[a-f0-9]{64}$/u.test(cliRelease.asset.sha256)) throw new Error("CLI release identity is invalid");
+  await assertGitHubRelease(fetchImpl, cliRelease, [cliRelease.asset, cliRelease.checksumManifest, { name: "candidate.json", sha256: "c28b7627030c37e0f32eb67496d65fa6197c873b1206d602d5c897b1d0b5270f" }]);
   await mkdir(cliRoot, { recursive: true });
   const cliSums = await downloadExact(fetchImpl, assetUrl(cliRelease, cliRelease.checksumManifest.name), cliRelease.checksumManifest.sha256);
   assertChecksumManifest(cliSums, [cliRelease.asset]);
@@ -89,11 +112,13 @@ export async function stageOperatorTools({ artifactRoot, fetchImpl = fetch, rele
   const cliBytes = await downloadExact(fetchImpl, assetUrl(cliRelease, cliRelease.asset.name), cliRelease.asset.sha256);
   const cliRelativePath = path.posix.join("operator-tools", "service-lassoctl", cliRelease.asset.name);
   await writeFile(path.join(artifactRoot, cliRelativePath), cliBytes);
+  cliTool = { command: "service-lassoctl", status: "available", mode: "caller-invoked", repository: cliRelease.repository, tag: cliRelease.tag, targetCommit: cliRelease.targetCommit, checksumManifest: { ...cliRelease.checksumManifest, relativePath: "operator-tools/service-lassoctl/SHA256SUMS.txt" }, assets: [{ ...cliRelease.asset, relativePath: cliRelativePath }] };
+  }
   const manifest = {
     schemaVersion: "service-lasso.operator-tools.v1",
     tools: [
-      { command: "service-lassoctl", status: "available", mode: "caller-invoked", repository: cliRelease.repository, tag: cliRelease.tag, targetCommit: cliRelease.targetCommit, checksumManifest: { ...cliRelease.checksumManifest, relativePath: "operator-tools/service-lassoctl/SHA256SUMS.txt" }, assets: [{ ...cliRelease.asset, relativePath: cliRelativePath }] },
-      { command: "service-lasso-tui", status: "available", mode: "caller-attached-terminal", repository: release.repository, tag: release.tag, targetCommit: release.targetCommit, checksumManifest: { ...release.checksumManifest, relativePath: "operator-tools/service-lasso-tui/SHA256SUMS.txt" }, assets },
+      cliTool,
+      tuiTool,
     ],
   };
   await writeFile(path.join(artifactRoot, "operator-tools", "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);

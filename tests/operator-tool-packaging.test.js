@@ -16,7 +16,13 @@ test("operator tools stage only checksum-verified immutable release bytes", asyn
   const root = await mkdtemp(path.join(os.tmpdir(), "operator-tools-"));
   try {
     const fetchImpl = async (url) => {
-      const name = new URL(url).pathname.split("/").at(-1);
+		const parsed = new URL(url);
+		if (parsed.hostname === "api.github.com") {
+			const cli = parsed.pathname.includes("service-lasso-cli");
+			const listed = cli ? [{ name: CLI_RELEASE.asset.name, digest: `sha256:${hash("cli")}` }, { name: "SHA256SUMS.txt", digest: `sha256:${hash(Buffer.from(`${hash("cli")}  ${CLI_RELEASE.asset.name}\n`))}` }, { name: "candidate.json", digest: "sha256:c28b7627030c37e0f32eb67496d65fa6197c873b1206d602d5c897b1d0b5270f" }] : [...assets, release.checksumManifest].map((asset) => ({ name: asset.name, digest: `sha256:${asset.sha256}` }));
+			return Response.json({ tag_name: cli ? CLI_RELEASE.tag : release.tag, target_commitish: cli ? CLI_RELEASE.targetCommit : release.targetCommit, prerelease: true, draft: false, assets: listed });
+		}
+		const name = parsed.pathname.split("/").at(-1);
       const body = name === "SHA256SUMS.txt" ? (new URL(url).pathname.includes("service-lasso-cli") ? Buffer.from(`${hash("cli")}  ${CLI_RELEASE.asset.name}\n`) : sums) : Buffer.from(assets.find((asset) => asset.name === name)?.platform ?? (name === CLI_RELEASE.asset.name ? "cli" : ""));
       return new Response(body, { status: 200 });
     };
