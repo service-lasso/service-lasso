@@ -7,6 +7,10 @@ import path from "node:path";
 function digest(bytes) { return createHash("sha256").update(bytes).digest("hex"); }
 const ASSET_DOWNLOAD_ATTEMPTS = 3;
 
+function browserAssetUrl(release, name) {
+  return `https://github.com/${release.repository}/releases/download/${release.tag}/${name}`;
+}
+
 // These records are immutable GitHub candidate releases. Staging re-reads the
 // release API and every retained byte before they can enter a Core artifact.
 export const CURRENT_TUI_RELEASE = {
@@ -49,12 +53,12 @@ export function assertExactCliRelease(release) {
 
 async function downloadExact(fetchImpl, url, expected) {
   const initial = new URL(url);
-  if (initial.protocol !== "https:" || initial.hostname !== "api.github.com" || !/^\/repos\/service-lasso\/[A-Za-z0-9._-]+\/releases\/assets\/\d+$/u.test(initial.pathname)) throw new Error("operator tool download URL is not a GitHub release asset API URL");
+  if (initial.protocol !== "https:" || initial.hostname !== "github.com" || !/^\/service-lasso\/[A-Za-z0-9._-]+\/releases\/download\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/u.test(initial.pathname)) throw new Error("operator tool download URL is not an exact GitHub release asset URL");
   for (let attempt = 0; attempt < ASSET_DOWNLOAD_ATTEMPTS; attempt += 1) {
     let current = new URL(initial);
     let response;
     for (let redirects = 0; redirects < 4; redirects++) {
-      response = await fetchImpl(current, { redirect: "manual", headers: current.hostname === "api.github.com" ? { accept: "application/octet-stream" } : undefined });
+      response = await fetchImpl(current, { redirect: "manual" });
       if (response.status < 300 || response.status >= 400) break;
       const location = response.headers.get("location");
       if (!location) throw new Error("operator tool redirect is missing a location");
@@ -110,13 +114,13 @@ export async function stageOperatorTools({ artifactRoot, fetchImpl = fetch, rele
     const releaseAssets = await assertGitHubRelease(fetchImpl, release, [...release.assets, release.checksumManifest, release.candidateManifest]);
     const root = path.join(artifactRoot, "operator-tools", "service-lasso-tui");
     await mkdir(root, { recursive: true });
-    const checksum = await downloadExact(fetchImpl, releaseAssets.get(release.checksumManifest.name).url, release.checksumManifest.sha256);
+    const checksum = await downloadExact(fetchImpl, browserAssetUrl(release, release.checksumManifest.name), release.checksumManifest.sha256);
     assertChecksumManifest(checksum, release.assets);
     await writeFile(path.join(root, release.checksumManifest.name), checksum);
-    const candidateManifest = await downloadExact(fetchImpl, releaseAssets.get(release.candidateManifest.name).url, release.candidateManifest.sha256);
+    const candidateManifest = await downloadExact(fetchImpl, browserAssetUrl(release, release.candidateManifest.name), release.candidateManifest.sha256);
     await writeFile(path.join(root, release.candidateManifest.name), candidateManifest);
     for (const asset of release.assets) {
-      const bytes = await downloadExact(fetchImpl, releaseAssets.get(asset.name).url, asset.sha256);
+      const bytes = await downloadExact(fetchImpl, browserAssetUrl(release, asset.name), asset.sha256);
       const relativePath = path.posix.join("operator-tools", "service-lasso-tui", asset.name);
       await writeFile(path.join(artifactRoot, relativePath), bytes);
       assets.push({ ...asset, relativePath });
@@ -129,12 +133,12 @@ export async function stageOperatorTools({ artifactRoot, fetchImpl = fetch, rele
   assertExactCliRelease(cliRelease);
   const cliAssets = await assertGitHubRelease(fetchImpl, cliRelease, [cliRelease.asset, cliRelease.checksumManifest, cliRelease.candidateManifest]);
   await mkdir(cliRoot, { recursive: true });
-  const cliSums = await downloadExact(fetchImpl, cliAssets.get(cliRelease.checksumManifest.name).url, cliRelease.checksumManifest.sha256);
+  const cliSums = await downloadExact(fetchImpl, browserAssetUrl(cliRelease, cliRelease.checksumManifest.name), cliRelease.checksumManifest.sha256);
   assertChecksumManifest(cliSums, [cliRelease.asset, cliRelease.candidateManifest]);
   await writeFile(path.join(cliRoot, cliRelease.checksumManifest.name), cliSums);
-  const cliCandidateManifest = await downloadExact(fetchImpl, cliAssets.get(cliRelease.candidateManifest.name).url, cliRelease.candidateManifest.sha256);
+  const cliCandidateManifest = await downloadExact(fetchImpl, browserAssetUrl(cliRelease, cliRelease.candidateManifest.name), cliRelease.candidateManifest.sha256);
   await writeFile(path.join(cliRoot, cliRelease.candidateManifest.name), cliCandidateManifest);
-  const cliBytes = await downloadExact(fetchImpl, cliAssets.get(cliRelease.asset.name).url, cliRelease.asset.sha256);
+  const cliBytes = await downloadExact(fetchImpl, browserAssetUrl(cliRelease, cliRelease.asset.name), cliRelease.asset.sha256);
   const cliRelativePath = path.posix.join("operator-tools", "service-lassoctl", cliRelease.asset.name);
   await writeFile(path.join(artifactRoot, cliRelativePath), cliBytes);
   cliTool = { command: "service-lassoctl", status: "available", mode: "caller-invoked", repository: cliRelease.repository, tag: cliRelease.tag, targetCommit: cliRelease.targetCommit, checksumManifest: { ...cliRelease.checksumManifest, relativePath: "operator-tools/service-lassoctl/SHA256SUMS.txt" }, candidateManifest: { ...cliRelease.candidateManifest, relativePath: "operator-tools/service-lassoctl/candidate.json" }, assets: [{ ...cliRelease.asset, relativePath: cliRelativePath }] };
