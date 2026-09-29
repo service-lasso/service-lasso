@@ -45,6 +45,18 @@ async function postJson(url, body) {
   };
 }
 
+async function postJsonWithHeaders(url, body, headers) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...headers },
+    body: JSON.stringify(body),
+  });
+  return {
+    status: response.status,
+    body: await response.json(),
+  };
+}
+
 async function putJson(url, body) {
   const response = await fetch(url, {
     method: "PUT",
@@ -1710,6 +1722,113 @@ test("GET /api/runtime/actions/importService/plan previews app-owned import with
     await apiServer.stop();
     resetLifecycleState();
     await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("remote service registration is authenticated, idempotent, durable, and never accepts client paths", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-remote-registration-");
+  const originalFetch = globalThis.fetch;
+  const previousToken = process.env.SERVICE_LASSO_LOCAL_ADMIN_TOKEN;
+  const previousTrustProxy = process.env.SERVICE_LASSO_TRUST_PROXY_HEADERS;
+  process.env.SERVICE_LASSO_LOCAL_ADMIN_TOKEN = "remote-registration-test-token";
+  process.env.SERVICE_LASSO_TRUST_PROXY_HEADERS = "true";
+  const manifest = {
+    id: "remote-registered-service",
+    name: "Remote Registered Service",
+    description: "Released registration fixture.",
+    executable: process.execPath,
+    args: ["runtime/remote-registered-service.mjs"],
+    healthcheck: { type: "process" },
+    artifact: {
+      kind: "archive",
+      source: { type: "github-release", repo: "service-lasso/remote-service", tag: "v1.0.0" },
+      platforms: {
+        win32: { assetName: "remote-service.zip", archiveType: "zip", command: "remote-service.exe", checksum: { algorithm: "sha256", value: "a".repeat(64) } },
+      },
+    },
+  };
+  globalThis.fetch = async (input, init) => {
+    const requestUrl = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    if (requestUrl === "https://api.github.com/repos/service-lasso/remote-service/releases/tags/v1.0.0") {
+      return new Response(JSON.stringify({
+        tag_name: "v1.0.0",
+        assets: [{ name: "service.json", browser_download_url: "https://fixtures.invalid/remote-service.json" }],
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    if (requestUrl === "https://fixtures.invalid/remote-service.json") {
+      return new Response(JSON.stringify(manifest), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    return originalFetch(input, init);
+  };
+  let apiServer = await startApiServer({ port: 0, host: "0.0.0.0", servicesRoot, workspaceRoot });
+  const remoteHeaders = {
+    "x-forwarded-for": "203.0.113.10",
+    "x-service-lasso-admin-token": "remote-registration-test-token",
+  };
+  const request = { repo: "service-lasso/remote-service", tag: "v1.0.0", idempotencyKey: "remote-registration-0001", confirm: true };
+
+  try {
+    const invalid = await postJsonWithHeaders(`${apiServer.url}/api/runtime/actions/importService`, {
+      ...request,
+      manifestPath: "C:\\client-only\\service.json",
+    }, remoteHeaders);
+    assert.equal(invalid.status, 400);
+    assert.equal(invalid.body.error, "invalid_body");
+
+    const denied = await postJsonWithHeaders(`${apiServer.url}/api/runtime/actions/importService`, request, {
+      "x-forwarded-for": "203.0.113.10",
+    });
+    assert.equal(denied.status, 401);
+    assert.equal(denied.body.error, "remote_auth_required");
+
+    const accepted = await postJsonWithHeaders(`${apiServer.url}/api/runtime/actions/importService`, request, remoteHeaders);
+    assert.equal(accepted.status, 201);
+    assert.equal(accepted.body.operation.status, "completed");
+    assert.equal(accepted.body.operation.replayed, false);
+    assert.equal(accepted.body.operation.serviceId, manifest.id);
+    assert.equal(Object.hasOwn(accepted.body.operation, "targetPath"), false);
+    await readFile(path.join(servicesRoot, manifest.id, "service.json"), "utf8");
+
+    const replay = await postJsonWithHeaders(`${apiServer.url}/api/runtime/actions/importService`, request, remoteHeaders);
+    assert.equal(replay.status, 200);
+    assert.equal(replay.body.operation.id, accepted.body.operation.id);
+    assert.equal(replay.body.operation.replayed, true);
+
+    const altered = await postJsonWithHeaders(`${apiServer.url}/api/runtime/actions/importService`, {
+      ...request,
+      tag: "v2.0.0",
+    }, remoteHeaders);
+    assert.equal(altered.status, 409);
+    assert.equal(altered.body.error, "idempotency_key_reused");
+
+    const conflict = await postJsonWithHeaders(`${apiServer.url}/api/runtime/actions/importService`, {
+      ...request,
+      idempotencyKey: "remote-registration-0002",
+    }, remoteHeaders);
+    assert.equal(conflict.status, 409, JSON.stringify(conflict.body));
+    assert.equal(conflict.body.operation.status, "conflict");
+    assert.equal(conflict.body.operation.errorCode, "target_manifest_exists");
+
+    await apiServer.stop();
+    apiServer = await startApiServer({ port: 0, host: "0.0.0.0", servicesRoot, workspaceRoot });
+    const readback = await getJsonWithHeaders(
+      `${apiServer.url}/api/operator/operations/${encodeURIComponent(accepted.body.operation.id)}`,
+      remoteHeaders,
+    );
+    assert.equal(readback.status, 200);
+    assert.equal(readback.body.operation.id, accepted.body.operation.id);
+    assert.equal(readback.body.operation.status, "completed");
+    assert.doesNotMatch(JSON.stringify(readback.body), /client-only|service\.json.*[A-Z]:/i);
+  } finally {
+    await apiServer.stop();
+    globalThis.fetch = originalFetch;
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+    if (previousToken === undefined) delete process.env.SERVICE_LASSO_LOCAL_ADMIN_TOKEN;
+    else process.env.SERVICE_LASSO_LOCAL_ADMIN_TOKEN = previousToken;
+    if (previousTrustProxy === undefined) delete process.env.SERVICE_LASSO_TRUST_PROXY_HEADERS;
+    else process.env.SERVICE_LASSO_TRUST_PROXY_HEADERS = previousTrustProxy;
   }
 });
 

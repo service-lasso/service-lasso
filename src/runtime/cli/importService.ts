@@ -31,6 +31,8 @@ export interface ImportServiceManifestCliOptions {
   dryRun?: boolean;
   /** Test override. Production leftover CLI mutations use `cli-local-root`. */
   permissionActor?: PermissionActor;
+  /** Optional caller-owned release policy applied before the manifest is written. */
+  validateReleasedManifest?: (manifest: ServiceManifest) => void;
 }
 
 export interface ImportServiceManifestCliResult {
@@ -330,6 +332,7 @@ export async function importServiceManifestFromCli(
     tag: options.tag,
     apiBaseUrl: options.apiBaseUrl,
   });
+  options.validateReleasedManifest?.(manifest);
   const serviceRoot = resolveDirectServiceRoot(servicesRoot, manifest.id);
   const targetPath = path.join(serviceRoot, "service.json");
   await assertSafeImportDestination(servicesRoot, serviceRoot);
