@@ -42,7 +42,7 @@ test("outer verifier reports the failed boundary, hides captured errors and alwa
       let stderr = "";
       const fail = () => { throw Object.assign(new Error("private-token and private-path"), { stdout: "private-token", stderr: "private-token" }); };
       const context = {
-        path, createHash, packagedVerificationDiagnostic, operatorToolFailureDiagnostic: () => undefined,
+        path, createHash, packagedVerificationDiagnostic, operatorToolFailureDiagnostic: () => undefined, releaseMetadataToken: undefined,
         tempRoot: "owned-temp", consumerRoot: "owned-temp/consumer", servicesRoot: "owned-temp/services",
         httpWorkspaceRoot: "owned-temp/http", stdioWorkspaceRoot: "owned-temp/stdio",
         repoRoot: "repo", packageOutputRoot: "owned-temp/package-output", version: "0.1.0",

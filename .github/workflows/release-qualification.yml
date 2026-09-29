@@ -305,11 +305,14 @@ jobs:
           $dateUtc = [DateTime]::UtcNow.ToString('yyyy.M.d')
           "SERVICE_LASSO_RELEASE_VERSION=$dateUtc-$shortSha" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
+      - name: Build packaged MCP verifier
+        run: npm run build
+
       - name: Verify fresh-consumer packaged MCP
         env:
           MCP_PRODUCT_EVIDENCE_PATH: artifacts/mcp-product-${{ matrix.platform }}.json
           SERVICE_LASSO_RELEASE_METADATA_TOKEN: ${{ github.token }}
-        run: npm run verify:mcp:packaged
+        run: node scripts/verify-mcp-packaged-bootstrap.mjs
 
       - name: Upload exact-SHA release MCP evidence
         id: release_mcp_artifact

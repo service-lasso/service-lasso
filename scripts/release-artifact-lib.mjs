@@ -25,7 +25,7 @@ import {
   readRootPackageJson,
   RELEASE_VERSION_ENV,
 } from "./release-version-lib.mjs";
-import { stageOperatorTools, verifyRetainedOperatorTools } from "./operator-tool-packaging-lib.mjs";
+import { consumeReleaseMetadataToken, stageOperatorTools, verifyRetainedOperatorTools } from "./operator-tool-packaging-lib.mjs";
 
 export const RELEASE_FILES = [
   "LICENSE",
@@ -615,7 +615,9 @@ export async function stageReleaseArtifact({
   repoRoot,
   outputRoot = path.join(repoRoot, "artifacts"),
   version,
+  releaseMetadataToken,
 } = {}) {
+  const metadataToken = releaseMetadataToken ?? consumeReleaseMetadataToken();
   const resolvedVersion = version ?? (await getReleaseVersion(repoRoot));
   const artifactName = getArtifactName(resolvedVersion);
   const artifactRoot = path.join(outputRoot, artifactName);
@@ -631,7 +633,7 @@ export async function stageReleaseArtifact({
   await runNpmCommand(["install", "--omit=dev"], {
     cwd: artifactRoot,
   });
-  await stageOperatorTools({ artifactRoot });
+  await stageOperatorTools({ artifactRoot, releaseMetadataToken: metadataToken });
 
   const manifest = await writeReleaseManifest({
     repoRoot,
@@ -674,7 +676,9 @@ export async function stageBundledReleaseArtifact({
   outputRoot = path.join(repoRoot, "artifacts"),
   version,
   serviceIds = DEFAULT_BUNDLED_SERVICE_IDS,
+  releaseMetadataToken,
 } = {}) {
+  const metadataToken = releaseMetadataToken ?? consumeReleaseMetadataToken();
   const resolvedVersion = version ?? (await getReleaseVersion(repoRoot));
   const artifactName = getBundledArtifactName(resolvedVersion);
   const artifactRoot = path.join(outputRoot, artifactName);
@@ -691,7 +695,7 @@ export async function stageBundledReleaseArtifact({
     cwd: artifactRoot,
   });
 
-  await stageOperatorTools({ artifactRoot });
+  await stageOperatorTools({ artifactRoot, releaseMetadataToken: metadataToken });
 
   const bundledServices = await acquireBundledServices({
     repoRoot,

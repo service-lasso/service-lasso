@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
-import { assertExactCliRelease, assertExactToolRelease, CURRENT_CLI_RELEASE, CURRENT_TUI_RELEASE, operatorToolFailureDiagnostic, stageOperatorTools, verifyRetainedOperatorTools } from "../scripts/operator-tool-packaging-lib.mjs";
+import { assertExactCliRelease, assertExactToolRelease, CURRENT_CLI_RELEASE, CURRENT_TUI_RELEASE, bootstrapReleaseMetadataToken, consumeReleaseMetadataToken, operatorToolFailureDiagnostic, takeBootstrappedReleaseMetadataToken, stageOperatorTools, verifyRetainedOperatorTools } from "../scripts/operator-tool-packaging-lib.mjs";
 
 const hash = (value) => createHash("sha256").update(value).digest("hex");
 const assets = ["darwin-amd64", "darwin-arm64", "linux-amd64", "win32-amd64"].map((platform) => ({ platform, name: `tool-${platform}.tar.gz`, sha256: hash(platform) }));
@@ -68,6 +68,17 @@ test("operator tool identity rejects incomplete platform inventory", () => {
   assert.throws(() => assertExactToolRelease({ ...release, assets: release.assets.slice(1) }), /incomplete/u);
   assert.throws(() => assertExactCliRelease({ ...cliRelease, repository: "other/cli" }), /identity/u);
   assert.throws(() => assertExactCliRelease({ ...cliRelease, tag: "latest" }), /identity/u);
+});
+
+test("release metadata token is consumed and removed before child work", () => {
+  const environment = { SERVICE_LASSO_RELEASE_METADATA_TOKEN: " test-read-token " };
+  assert.equal(consumeReleaseMetadataToken(environment), "test-read-token");
+  assert.equal("SERVICE_LASSO_RELEASE_METADATA_TOKEN" in environment, false);
+  const bootstrapEnvironment = { SERVICE_LASSO_RELEASE_METADATA_TOKEN: "bootstrap-token" };
+  bootstrapReleaseMetadataToken(bootstrapEnvironment);
+  assert.equal("SERVICE_LASSO_RELEASE_METADATA_TOKEN" in bootstrapEnvironment, false);
+  assert.equal(takeBootstrappedReleaseMetadataToken(), "bootstrap-token");
+  assert.equal(takeBootstrappedReleaseMetadataToken(), undefined);
 });
 
 test("operator tools expose only a fixed release-metadata failure class", async () => {

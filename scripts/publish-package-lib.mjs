@@ -23,7 +23,7 @@ import {
   readRootPackageJson,
   RELEASE_VERSION_ENV,
 } from "./release-version-lib.mjs";
-import { stageOperatorTools } from "./operator-tool-packaging-lib.mjs";
+import { consumeReleaseMetadataToken, stageOperatorTools } from "./operator-tool-packaging-lib.mjs";
 
 const NPM_COMMAND = process.platform === "win32" ? "npm.cmd" : "npm";
 export const NPMJS_REGISTRY = "https://registry.npmjs.org";
@@ -286,7 +286,9 @@ export async function stagePublishedPackage({
   repoRoot,
   outputRoot = path.join(repoRoot, "artifacts", "npm"),
   version,
+  releaseMetadataToken,
 } = {}) {
+  const metadataToken = releaseMetadataToken ?? consumeReleaseMetadataToken();
   return await withPackageStageLock(outputRoot, async () => {
     const resolvedVersion = version ?? (await getReleaseVersion(repoRoot));
     const artifactName = getPublishedPackageArtifactName(resolvedVersion);
@@ -300,7 +302,7 @@ export async function stagePublishedPackage({
       await copyPublishPath(repoRoot, artifactRoot, relativePath);
     }
 
-    await stageOperatorTools({ artifactRoot });
+    await stageOperatorTools({ artifactRoot, releaseMetadataToken: metadataToken });
 
     const manifest = await writePublishScaffold({
       repoRoot,

@@ -19,6 +19,24 @@ export function operatorToolFailureDiagnostic(error) {
   return safeFailureDiagnostics.get(error);
 }
 
+export function consumeReleaseMetadataToken(environment = process.env) {
+  const token = typeof environment.SERVICE_LASSO_RELEASE_METADATA_TOKEN === "string"
+    ? environment.SERVICE_LASSO_RELEASE_METADATA_TOKEN.trim()
+    : "";
+  delete environment.SERVICE_LASSO_RELEASE_METADATA_TOKEN;
+  return token || undefined;
+}
+
+let bootstrappedReleaseMetadataToken;
+export function bootstrapReleaseMetadataToken(environment = process.env) {
+  bootstrappedReleaseMetadataToken = consumeReleaseMetadataToken(environment);
+}
+export function takeBootstrappedReleaseMetadataToken() {
+  const token = bootstrappedReleaseMetadataToken;
+  bootstrappedReleaseMetadataToken = undefined;
+  return token;
+}
+
 function browserAssetUrl(release, name) {
   return `https://github.com/${release.repository}/releases/download/${release.tag}/${name}`;
 }
@@ -147,7 +165,7 @@ async function assertGitHubRelease(fetchImpl, release, expectedAssets, releaseMe
   return actual;
 }
 
-export async function stageOperatorTools({ artifactRoot, fetchImpl = fetch, release = CURRENT_TUI_RELEASE, cliRelease = CURRENT_CLI_RELEASE, releaseMetadataToken = process.env.SERVICE_LASSO_RELEASE_METADATA_TOKEN } = {}) {
+export async function stageOperatorTools({ artifactRoot, fetchImpl = fetch, release = CURRENT_TUI_RELEASE, cliRelease = CURRENT_CLI_RELEASE, releaseMetadataToken } = {}) {
 	await mkdir(path.join(artifactRoot, "operator-tools"), { recursive: true });
   const assets = [];
   let tuiTool = { command: "service-lasso-tui", status: "unavailable", reason: "No current reviewed immutable TUI release is pinned." };
