@@ -25,6 +25,7 @@ import {
   readRootPackageJson,
   RELEASE_VERSION_ENV,
 } from "./release-version-lib.mjs";
+import { stageOperatorTools } from "./operator-tool-packaging-lib.mjs";
 
 export const RELEASE_FILES = [
   "LICENSE",
@@ -94,6 +95,7 @@ async function writeReleaseManifest({
     "Production runtime dependencies are installed into node_modules so the staged artifact can boot directly.",
   ],
   bundledServices = [],
+  operatorTools = false,
 }) {
   const packageJson = await readRootPackageJson(repoRoot);
   await writeFile(
@@ -130,6 +132,7 @@ async function writeReleaseManifest({
       cli: "packages/core/cli.js",
     },
     runtimeRoots,
+    ...(operatorTools ? { operatorToolsManifest: "operator-tools/manifest.json" } : {}),
     ...(bundledServices.length > 0 ? { bundledServices } : {}),
     notes,
   };
@@ -592,13 +595,15 @@ export async function stageReleaseArtifact({
   await runNpmCommand(["install", "--omit=dev"], {
     cwd: artifactRoot,
   });
+  await stageOperatorTools({ artifactRoot });
 
   const manifest = await writeReleaseManifest({
     repoRoot,
     artifactRoot,
     artifactName,
     version: resolvedVersion,
-    shippedFiles: [...RELEASE_FILES, "node_modules", "sbom.cdx.json"],
+    shippedFiles: [...RELEASE_FILES, "node_modules", "operator-tools", "sbom.cdx.json"],
+    operatorTools: true,
   });
   const { sbom } = await writeArtifactSBOM({
     artifactRoot,
