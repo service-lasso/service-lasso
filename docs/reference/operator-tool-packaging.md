@@ -17,7 +17,7 @@ Neither tool is a Core managed service. Do not add `service.json`, catalog it, s
 
 The API CLI is a Node 22+ package and may be packaged only for a Core platform where that Node runtime is supported. The TUI release inventory must contain `windows-amd64`, `linux-amd64`, `darwin-amd64`, and `darwin-arm64` assets. An operator-tools manifest must enumerate only assets present for the current platform; an unsupported platform must return a stable unavailable result before extraction or process launch.
 
-The current TUI release workflow cross-builds the target matrix but does not publish `darwin-amd64`. Its release workflow, and the CLI release workflow, publish only from `main`. These are upstream release prerequisites: a normal Core development branch must not target or alter them.
+The pinned TUI candidate `candidate-2026.9.29-f33ba22` targets `f33ba22be3ccf97cec03b3ad5254abbe80c6cfa0` and supplies all four required assets plus `SHA256SUMS.txt`. The pinned CLI candidate `cli-v0.1.0-dev.0f199b7-candidate-0f199b7` targets `0f199b7a4a343f0392b60863d82c176e54fba3cf` and supplies its `.tgz` and checksum manifest. Both are prerelease candidates, not GA.
 
 ## Release identity gate
 
@@ -31,6 +31,6 @@ Core may package an external operator tool only after the owning repository supp
 
 The stage must reject mutable selectors such as `latest`, an unmatched tag/target, a missing, extra, duplicate, malformed, redirected, path-traversing, unsupported, or checksum-mismatched asset. It must make no network fetch at Core startup.
 
-The current reviewed implementation heads are `service-lasso-cli` `c800d9da68ddd76bf2c1446576a51b93ed547239` and `service-lasso-tui` `2995087e6d7104a879909863d5e78d13261d7b64`. They have no corresponding immutable release assets as of 2026-09-30. Earlier foundation releases target different commits, so Core must not package or qualify them as substitutes.
+The Core staging record pins these candidates and verifies downloaded nonempty bytes against both the release checksum manifest and the independently pinned asset digest. Earlier foundation releases target different commits, so Core must not package or qualify them as substitutes.
 
 After the exact releases exist, qualify a clean Core package/archive extraction or install on Windows, Linux, and macOS. Run the API CLI against the packaged Core for machine-readable success, safe error, and confirmation behavior. Run the TUI in the caller terminal for startup, safe errors, keyboard navigation, and clean exit. Record the tested Core and tool heads, and distinguish direct runtime proof from surrogate checks.

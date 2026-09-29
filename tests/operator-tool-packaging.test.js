@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
-import { assertExactToolRelease, stageOperatorTools } from "../scripts/operator-tool-packaging-lib.mjs";
+import { CLI_RELEASE, assertExactToolRelease, stageOperatorTools } from "../scripts/operator-tool-packaging-lib.mjs";
 
 const hash = (value) => createHash("sha256").update(value).digest("hex");
 const assets = ["darwin-amd64", "darwin-arm64", "linux-amd64", "win32-amd64"].map((platform) => ({ platform, name: `tool-${platform}.tar.gz`, sha256: hash(platform) }));
@@ -17,12 +17,13 @@ test("operator tools stage only checksum-verified immutable release bytes", asyn
   try {
     const fetchImpl = async (url) => {
       const name = new URL(url).pathname.split("/").at(-1);
-      const body = name === "SHA256SUMS.txt" ? sums : Buffer.from(assets.find((asset) => asset.name === name)?.platform ?? "");
+      const body = name === "SHA256SUMS.txt" ? (new URL(url).pathname.includes("service-lasso-cli") ? Buffer.from(`${hash("cli")}  ${CLI_RELEASE.asset.name}\n`) : sums) : Buffer.from(assets.find((asset) => asset.name === name)?.platform ?? (name === CLI_RELEASE.asset.name ? "cli" : ""));
       return new Response(body, { status: 200 });
     };
-    const manifest = await stageOperatorTools({ artifactRoot: root, fetchImpl, release });
+    const cliRelease = { ...CLI_RELEASE, asset: { ...CLI_RELEASE.asset, sha256: hash("cli") }, checksumManifest: { ...CLI_RELEASE.checksumManifest, sha256: hash(Buffer.from(`${hash("cli")}  ${CLI_RELEASE.asset.name}\n`)) } };
+    const manifest = await stageOperatorTools({ artifactRoot: root, fetchImpl, release, cliRelease });
     assert.equal(manifest.tools[0].command, "service-lassoctl");
-    assert.equal(manifest.tools[0].status, "unavailable");
+    assert.equal(manifest.tools[0].status, "available");
     assert.equal(manifest.tools[1].assets.length, 4);
     assert.equal(await readFile(path.join(root, "operator-tools", "service-lasso-tui", assets[0].name), "utf8"), assets[0].platform);
   } finally { await rm(root, { recursive: true, force: true }); }
