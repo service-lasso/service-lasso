@@ -6,6 +6,18 @@ import path from "node:path";
 
 function digest(bytes) { return createHash("sha256").update(bytes).digest("hex"); }
 const ASSET_DOWNLOAD_ATTEMPTS = 3;
+const safeFailureDiagnostics = new WeakMap();
+
+function releaseMetadataFailure(status) {
+  const error = new Error(`operator tool release metadata failed with HTTP ${status}`);
+  safeFailureDiagnostics.set(error, { boundary: "github_release_metadata", httpStatus: status });
+  return error;
+}
+
+export function operatorToolFailureDiagnostic(error) {
+  if ((typeof error !== "object" && typeof error !== "function") || error === null) return undefined;
+  return safeFailureDiagnostics.get(error);
+}
 
 function browserAssetUrl(release, name) {
   return `https://github.com/${release.repository}/releases/download/${release.tag}/${name}`;
@@ -116,7 +128,7 @@ function assertChecksumManifest(bytes, assets) {
 // the selected platform archive and starts the TUI in its own terminal.
 async function assertGitHubRelease(fetchImpl, release, expectedAssets) {
   const response = await fetchImpl(`https://api.github.com/repos/${release.repository}/releases/tags/${release.tag}`, { redirect: "error" });
-  if (!response.ok) throw new Error(`operator tool release metadata failed with HTTP ${response.status}`);
+  if (!response.ok) throw releaseMetadataFailure(response.status);
   const metadata = await response.json();
   if (metadata.tag_name !== release.tag || metadata.target_commitish !== release.targetCommit || metadata.prerelease !== true || metadata.draft !== false) throw new Error("operator tool release metadata does not match the pinned candidate identity");
   if (!Array.isArray(metadata.assets) || metadata.assets.length !== expectedAssets.length) throw new Error("operator tool release metadata asset inventory does not match the pinned manifest");

@@ -10,6 +10,11 @@ test("packaged failure phases distinguish acquisition, binding, execution and ev
   }
 });
 
+test("safe release-metadata diagnostics carry only a fixed boundary and status", () => {
+  assert.deepEqual(packagedVerificationDiagnostic("package_staging", { boundary: "github_release_metadata", httpStatus: 403 }), { stage: "package_staging", errorCode: "verification_failed", external: { boundary: "github_release_metadata", httpStatus: 403 } });
+  assert.deepEqual(packagedVerificationDiagnostic("package_staging", { boundary: "github_release_metadata", httpStatus: 200 }), { stage: "package_staging", errorCode: "verification_failed" });
+});
+
 test("unknown or hostile diagnostic inputs cannot disclose payloads or execute getters", () => {
   const hostile = new Proxy({}, { get() { throw new Error("private-token"); } });
   for (const value of [undefined, null, "private-token", "constructor", hostile, new Error("private-token")]) {
@@ -34,7 +39,7 @@ test("outer verifier reports the failed boundary, hides captured errors and alwa
       let stderr = "";
       const fail = () => { throw Object.assign(new Error("private-token and private-path"), { stdout: "private-token", stderr: "private-token" }); };
       const context = {
-        path, createHash, packagedVerificationDiagnostic,
+        path, createHash, packagedVerificationDiagnostic, operatorToolFailureDiagnostic: () => undefined,
         tempRoot: "owned-temp", consumerRoot: "owned-temp/consumer", servicesRoot: "owned-temp/services",
         httpWorkspaceRoot: "owned-temp/http", stdioWorkspaceRoot: "owned-temp/stdio",
         repoRoot: "repo", packageOutputRoot: "owned-temp/package-output", version: "0.1.0",

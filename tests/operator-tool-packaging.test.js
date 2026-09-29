@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
-import { assertExactCliRelease, assertExactToolRelease, CURRENT_CLI_RELEASE, CURRENT_TUI_RELEASE, stageOperatorTools, verifyRetainedOperatorTools } from "../scripts/operator-tool-packaging-lib.mjs";
+import { assertExactCliRelease, assertExactToolRelease, CURRENT_CLI_RELEASE, CURRENT_TUI_RELEASE, operatorToolFailureDiagnostic, stageOperatorTools, verifyRetainedOperatorTools } from "../scripts/operator-tool-packaging-lib.mjs";
 
 const hash = (value) => createHash("sha256").update(value).digest("hex");
 const assets = ["darwin-amd64", "darwin-arm64", "linux-amd64", "win32-amd64"].map((platform) => ({ platform, name: `tool-${platform}.tar.gz`, sha256: hash(platform) }));
@@ -60,6 +60,16 @@ test("operator tool identity rejects incomplete platform inventory", () => {
   assert.throws(() => assertExactToolRelease({ ...release, assets: release.assets.slice(1) }), /incomplete/u);
   assert.throws(() => assertExactCliRelease({ ...cliRelease, repository: "other/cli" }), /identity/u);
   assert.throws(() => assertExactCliRelease({ ...cliRelease, tag: "latest" }), /identity/u);
+});
+
+test("operator tools expose only a fixed release-metadata failure class", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "operator-tools-metadata-"));
+  try {
+    await assert.rejects(stageOperatorTools({ artifactRoot: root, fetchImpl: async () => new Response(null, { status: 403 }), release, cliRelease: null }), (error) => {
+      assert.deepEqual(operatorToolFailureDiagnostic(error), { boundary: "github_release_metadata", httpStatus: 403 });
+      return true;
+    });
+  } finally { await rm(root, { recursive: true, force: true }); }
 });
 
 test("operator tools reject duplicate or mismatched GitHub release inventory", async () => {

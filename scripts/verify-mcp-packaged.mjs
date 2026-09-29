@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { stagePublishedPackage } from "./publish-package-lib.mjs";
+import { operatorToolFailureDiagnostic } from "./operator-tool-packaging-lib.mjs";
 import {
   MCP_PRODUCT_EVIDENCE_CONTRACT,
   parsePackagedAcceptanceFailure,
@@ -367,7 +368,7 @@ try {
     result: "passed",
   })}\n`);
 } catch (error) {
-  verificationFailure = error?.packagedAcceptanceDiagnostic ?? packagedVerificationDiagnostic(verificationStage);
+  verificationFailure = error?.packagedAcceptanceDiagnostic ?? packagedVerificationDiagnostic(verificationStage, operatorToolFailureDiagnostic(error));
 } finally {
   try {
     await removeOwnedTempRoot(tempRoot);
