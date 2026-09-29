@@ -555,6 +555,7 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 `ISS-879` is the current `AC-4BM` doctor diagnosis after `#764` closed.
 
 | `ISS-1439` | `in_progress` | Classify tooling audit bulk failure and retired fallback | `SPEC-007`, `AC-7E` | Retain failed #1425 candidate and add bounded advisory-request metadata; audit severity thresholds and failure result stay unchanged. |
+| `ISS-1468` | `in_progress` | Preserve truthful one-shot rollback-marker cleanup | `SPEC-002`, `AC-4BS.1`, `AC-4BS.2` | Investigate the retained claimed marker from PR #1467 Ubuntu lifecycle job `109521319427`. The test fixture must atomically consume and remove its workspace-private marker before its deliberate exact failure exit; qualification must prove that failure, no readiness, one subsequent healthy start, metadata-only output, and clean teardown without widening a runtime or test deadline. Preserve the originating failed job as evidence. |
 ## GA maintenance #1386
 
 - In progress: SPEC-006 AC-6G packaged verification phase diagnostics. Retain the original attempt-1 failure and unchanged successful attempt-2 recovery at 39e1292548a30d063521438c485a8765ef853dd1; classify future outer failures without claiming the original dependency timeout hypothesis is proven. Exact-head packaged and required CI gates remain delivery requirements.
