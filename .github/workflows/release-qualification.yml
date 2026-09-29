@@ -316,7 +316,7 @@ jobs:
 
       - name: Install hash-pinned Windows ConPTY host
         if: matrix.platform == 'win32'
-        run: python -m pip install --require-hashes --only-binary=:all: --no-deps -r scripts/requirements-conpty.txt
+        run: "python -m pip install --require-hashes --only-binary=:all: --no-deps -r scripts/requirements-conpty.txt"
 
       - name: Verify attached-terminal TUI behavior (Windows ConPTY)
         if: matrix.platform == 'win32'
