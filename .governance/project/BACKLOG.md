@@ -555,6 +555,7 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 `ISS-879` is the current `AC-4BM` doctor diagnosis after `#764` closed.
 
 | `ISS-1439` | `in_progress` | Classify tooling audit bulk failure and retired fallback | `SPEC-007`, `AC-7E` | Retain failed #1425 candidate and add bounded advisory-request metadata; audit severity thresholds and failure result stay unchanged. |
+| `ISS-1470` | `in_progress` | Attribute ownership-start HTTP failure without unhandled rejection | `SPEC-002`, `AC-4BH`, `AC-4BI` | Preserve the failed PR #1469 Ubuntu runtime-generation job `109526929181` as direct evidence. The durable-ownership fixture must observe its concurrent start request immediately while it waits for the persisted `launching` owner, then rethrow any request failure at the owning assertion boundary. This must not mask an API/process failure, relax ownership evidence, or widen a runtime/test deadline. |
 ## GA maintenance #1386
 
 - In progress: SPEC-006 AC-6G packaged verification phase diagnostics. Retain the original attempt-1 failure and unchanged successful attempt-2 recovery at 39e1292548a30d063521438c485a8765ef853dd1; classify future outer failures without claiming the original dependency timeout hypothesis is proven. Exact-head packaged and required CI gates remain delivery requirements.
