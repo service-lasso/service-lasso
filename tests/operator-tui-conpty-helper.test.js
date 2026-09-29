@@ -1,21 +1,18 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
-import os from "node:os";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { runCommand } from "../scripts/release-artifact-lib.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-test("Windows ConPTY TUI helper compiles and emits only bounded metadata", { skip: process.platform !== "win32" }, async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "service-lasso-conpty-helper-"));
-  const compiler = path.join(process.env.WINDIR ?? "C:\\Windows", "Microsoft.NET", "Framework64", "v4.0.30319", "csc.exe");
-  const executable = path.join(root, "helper.exe");
-  try {
-    await runCommand(compiler, ["/nologo", "/target:exe", "/platform:anycpu", `/out:${executable}`, path.join(repoRoot, "scripts", "verify-operator-tui-conpty.cs")]);
-    await assert.rejects(runCommand(executable, []));
-  } finally { await rm(root, { recursive: true, force: true }); }
+test("Windows ConPTY helper uses a bounded host with a sanitized child environment", async () => {
+  const source = await readFile(path.join(repoRoot, "scripts", "verify-operator-tui-conpty.py"), "utf8");
+  assert.match(source, /Backend\.ConPTY/u);
+  assert.match(source, /process\.close\(force=True\)/u);
+  assert.match(source, /"SERVICE_LASSO_API_URL"/u);
+  assert.doesNotMatch(source, /os\.environ\.copy\(\)/u);
+  assert.match(source, /\{"ok": False, "stage": stage\}/u);
 });
 
 test("terminal probes bind retained-tool verification to its owning module", async () => {
@@ -30,6 +27,10 @@ test("terminal probes bind retained-tool verification to its owning module", asy
 
 test("Release Qualification runs the Windows ConPTY probe without publication", async () => {
   const workflow = await readFile(path.join(repoRoot, ".github", "workflows", "release-qualification.yml"), "utf8");
+  const requirements = await readFile(path.join(repoRoot, "scripts", "requirements-conpty.txt"), "utf8");
+  assert.match(requirements, /^pywinpty==3\.0\.5 --hash=sha256:d62946adf14b15b54c0b8d785f93fe18b04da23f4ad59e2e8c4612646e9abd23$/mu);
+  assert.match(workflow, /actions\/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1/u);
+  assert.match(workflow, /python -m pip install --require-hashes --only-binary=:all: --no-deps -r scripts\/requirements-conpty\.txt/u);
   assert.match(workflow, /name: Verify attached-terminal TUI behavior \(Windows ConPTY\)\n        if: matrix\.platform == 'win32'/u);
   assert.match(workflow, /run: node scripts\/verify-operator-tui-conpty\.mjs/u);
   assert.equal(workflow.includes("Create immutable GitHub release"), false);

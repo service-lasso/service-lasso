@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -15,9 +15,7 @@ if (process.platform !== "win32") {
 const tempRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-tui-conpty-"));
 const outputRoot = path.join(tempRoot, "artifacts");
 const tuiRoot = path.join(tempRoot, "tui");
-const helperPath = path.join(tempRoot, "verify-operator-tui-conpty.exe");
-const helperSource = path.join(repoRoot, "scripts", "verify-operator-tui-conpty.cs");
-const compilerPath = path.join(process.env.WINDIR ?? "C:\\Windows", "Microsoft.NET", "Framework64", "v4.0.30319", "csc.exe");
+const helperPath = path.join(repoRoot, "scripts", "verify-operator-tui-conpty.py");
 let extractedCoreArchive;
 let apiServer;
 
@@ -44,12 +42,11 @@ try {
   const files = await readdir(tuiRoot, { recursive: true });
   const executable = files.find((file) => file === "service-lasso-tui.exe");
   if (!executable) throw new Error("Windows TUI archive did not contain its executable");
-  await runCommand(compilerPath, ["/nologo", "/target:exe", "/platform:anycpu", `/out:${helperPath}`, helperSource]);
   const tuiExecutable = path.join(tuiRoot, executable);
-  const safeProbe = safeProbeResult((await runCommand(helperPath, [tuiExecutable, "unavailable", "-"])).stdout);
+  const safeProbe = safeProbeResult((await runCommand("python", [helperPath, "--executable", tuiExecutable, "--mode", "unavailable"])).stdout);
   const core = await import(pathToFileURL(path.join(coreRoot, "packages", "core", "index.js")).href);
   apiServer = await core.startApiServer({ port: 0, servicesRoot: path.join(repoRoot, "services"), workspaceRoot: path.join(tempRoot, "workspace") });
-  const connectedProbe = safeProbeResult((await runCommand(helperPath, [tuiExecutable, "connected", apiServer.url])).stdout);
+  const connectedProbe = safeProbeResult((await runCommand("python", [helperPath, "--executable", tuiExecutable, "--mode", "connected", "--api-url", apiServer.url])).stdout);
   console.log(JSON.stringify({ ok: true, evidence: "direct-conpty", platform: "win32-amd64", safeStartup: safeProbe.safeStartup, connectedDashboard: connectedProbe.connectedDashboard, navigation: connectedProbe.navigation, exit: connectedProbe.exit, artifact: staged.artifactName }));
 } finally {
   await apiServer?.stop();
