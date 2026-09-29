@@ -5,7 +5,7 @@ using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
 
-internal static class ServiceLassoWindowsProcessInspector
+internal static partial class ServiceLassoWindowsProcessInspector
 {
     private const uint ProcessQueryLimitedInformation = 0x1000;
     private const uint SnapshotProcesses = 0x00000002;
@@ -15,6 +15,16 @@ internal static class ServiceLassoWindowsProcessInspector
     private const int ProcessBasicInformation = 0;
     private static int failureExitCode = 1;
     private static int evidenceSubject = 0;
+
+#if WINDOWS_PROCESS_INSPECTOR_TEST
+    private delegate int CommandLineQuery(
+        IntPtr processHandle,
+        IntPtr information,
+        int informationLength,
+        out int returnLength);
+
+    private static CommandLineQuery testCommandLineQuery;
+#endif
 
     private static void EvidenceStage(int code)
     {
@@ -138,6 +148,26 @@ internal static class ServiceLassoWindowsProcessInspector
             value == 0x8000000D; // STATUS_PARTIAL_COPY
     }
 
+    private static int QueryCommandLineInformation(
+        IntPtr processHandle,
+        IntPtr information,
+        int informationLength,
+        out int returnLength)
+    {
+#if WINDOWS_PROCESS_INSPECTOR_TEST
+        if (testCommandLineQuery != null)
+        {
+            return testCommandLineQuery(processHandle, information, informationLength, out returnLength);
+        }
+#endif
+        return NtQueryInformationProcess(
+            processHandle,
+            ProcessCommandLineInformation,
+            information,
+            informationLength,
+            out returnLength);
+    }
+
     private static string ReadCommandLine(IntPtr processHandle)
     {
         int headerSize = IntPtr.Size == 8 ? 16 : 8;
@@ -145,9 +175,8 @@ internal static class ServiceLassoWindowsProcessInspector
         {
             EvidenceStage(25);
             int requiredLength;
-            NtQueryInformationProcess(
+            QueryCommandLineInformation(
                 processHandle,
-                ProcessCommandLineInformation,
                 IntPtr.Zero,
                 0,
                 out requiredLength);
@@ -161,9 +190,8 @@ internal static class ServiceLassoWindowsProcessInspector
             {
                 int returnedLength;
                 EvidenceStage(26);
-                int status = NtQueryInformationProcess(
+                int status = QueryCommandLineInformation(
                     processHandle,
-                    ProcessCommandLineInformation,
                     buffer,
                     requiredLength,
                     out returnedLength);
@@ -491,6 +519,12 @@ internal static class ServiceLassoWindowsProcessInspector
     public static int Main(string[] args)
     {
         Console.OutputEncoding = new UTF8Encoding(false);
+#if WINDOWS_PROCESS_INSPECTOR_TEST
+        if (args.Length == 1 && String.Equals(args[0], "--test-command-line-retry", StringComparison.Ordinal))
+        {
+            return RunCommandLineRetryHarness();
+        }
+#endif
         int targetProcessId;
         if (args.Length < 1 || !Int32.TryParse(args[0], NumberStyles.None, CultureInfo.InvariantCulture, out targetProcessId) || targetProcessId <= 0)
         {
