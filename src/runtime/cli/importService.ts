@@ -106,6 +106,16 @@ async function lstatIfPresent(targetPath: string) {
   }
 }
 
+async function removeOwnedManifest(targetPath: string, expectedBytes: string): Promise<boolean> {
+  try {
+    if ((await readFile(targetPath, "utf8")) !== expectedBytes) return false;
+    await rm(targetPath, { force: false });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function assertSafeImportDestination(servicesRoot: string, serviceRoot: string): Promise<void> {
   const rootStat = await lstatIfPresent(servicesRoot);
   if (!rootStat) return;
@@ -347,10 +357,16 @@ export async function importServiceManifestFromCli(
   if (!options.dryRun) {
     await mkdir(serviceRoot, { recursive: true });
     await assertSafeImportDestination(servicesRoot, serviceRoot);
-    await writeFile(targetPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
-    const discovered = await discoverServices(servicesRoot);
-    if (!discovered.some((service) => service.manifest.id === manifest.id && service.manifestPath === targetPath)) {
-      throw new Error(`Imported manifest for "${manifest.id}" could not be rediscovered from ${servicesRoot}.`);
+    const manifestBytes = `${JSON.stringify(manifest, null, 2)}\n`;
+    await writeFile(targetPath, manifestBytes, "utf8");
+    try {
+      const discovered = await discoverServices(servicesRoot);
+      if (!discovered.some((service) => service.manifest.id === manifest.id && service.manifestPath === targetPath)) {
+        throw new Error(`Imported manifest for "${manifest.id}" could not be rediscovered from ${servicesRoot}.`);
+      }
+    } catch (error) {
+      if (!exists) await removeOwnedManifest(targetPath, manifestBytes);
+      throw error;
     }
   }
 

@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import os from "node:os";
 import net from "node:net";
@@ -1750,6 +1751,9 @@ test("remote service registration is authenticated, idempotent, durable, and nev
   };
   globalThis.fetch = async (input, init) => {
     const requestUrl = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    if (requestUrl === "https://api.github.com/repos/service-lasso/remote-service/git/ref/tags/v1.0.0") {
+      return new Response(JSON.stringify({ object: { type: "commit", sha: "b".repeat(40) } }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
     if (requestUrl === "https://api.github.com/repos/service-lasso/remote-service/releases/tags/v1.0.0") {
       return new Response(JSON.stringify({
         tag_name: "v1.0.0",
@@ -1766,7 +1770,14 @@ test("remote service registration is authenticated, idempotent, durable, and nev
     "x-forwarded-for": "203.0.113.10",
     "x-service-lasso-admin-token": "remote-registration-test-token",
   };
-  const request = { repo: "service-lasso/remote-service", tag: "v1.0.0", idempotencyKey: "remote-registration-0001", confirm: true };
+  const request = {
+    repo: "service-lasso/remote-service",
+    tag: "v1.0.0",
+    expectedCommit: "b".repeat(40),
+    expectedManifestSha256: createHash("sha256").update(JSON.stringify(manifest)).digest("hex"),
+    idempotencyKey: "remote-registration-0001",
+    confirm: true,
+  };
 
   try {
     const invalid = await postJsonWithHeaders(`${apiServer.url}/api/runtime/actions/importService`, {
@@ -1782,7 +1793,37 @@ test("remote service registration is authenticated, idempotent, durable, and nev
     assert.equal(denied.status, 401);
     assert.equal(denied.body.error, "remote_auth_required");
 
-    const accepted = await postJsonWithHeaders(`${apiServer.url}/api/runtime/actions/importService`, request, remoteHeaders);
+    const wrongCommit = await postJsonWithHeaders(`${apiServer.url}/api/runtime/actions/importService`, {
+      ...request,
+      expectedCommit: "c".repeat(40),
+      idempotencyKey: "remote-registration-provenance-01",
+    }, remoteHeaders);
+    assert.equal(wrongCommit.status, 409);
+    assert.equal(wrongCommit.body.error, "release_commit_mismatch");
+    const wrongManifestDigest = await postJsonWithHeaders(`${apiServer.url}/api/runtime/actions/importService`, {
+      ...request,
+      expectedManifestSha256: "d".repeat(64),
+      idempotencyKey: "remote-registration-provenance-02",
+    }, remoteHeaders);
+    assert.equal(wrongManifestDigest.status, 409);
+    assert.equal(wrongManifestDigest.body.error, "release_manifest_digest_mismatch");
+
+    const [first, duplicate, competing] = await Promise.all([
+      postJsonWithHeaders(`${apiServer.url}/api/runtime/actions/importService`, request, remoteHeaders),
+      postJsonWithHeaders(`${apiServer.url}/api/runtime/actions/importService`, request, remoteHeaders),
+      postJsonWithHeaders(`${apiServer.url}/api/runtime/actions/importService`, {
+        ...request,
+        idempotencyKey: "remote-registration-0002",
+      }, remoteHeaders),
+    ]);
+    const accepted = [first, duplicate].find((result) => result.status === 201);
+    assert.ok(accepted, JSON.stringify([first.body, duplicate.body]));
+    const sameKeyReplay = [first, duplicate].find((result) => result.status === 200);
+    assert.ok(sameKeyReplay, JSON.stringify([first.body, duplicate.body]));
+    assert.equal(sameKeyReplay.body.operation.id, accepted.body.operation.id);
+    assert.equal(competing.status, 409, JSON.stringify(competing.body));
+    assert.equal(competing.body.operation.status, "conflict");
+
     assert.equal(accepted.status, 201);
     assert.equal(accepted.body.operation.status, "completed");
     assert.equal(accepted.body.operation.replayed, false);
@@ -1802,13 +1843,37 @@ test("remote service registration is authenticated, idempotent, durable, and nev
     assert.equal(altered.status, 409);
     assert.equal(altered.body.error, "idempotency_key_reused");
 
-    const conflict = await postJsonWithHeaders(`${apiServer.url}/api/runtime/actions/importService`, {
-      ...request,
-      idempotencyKey: "remote-registration-0002",
-    }, remoteHeaders);
-    assert.equal(conflict.status, 409, JSON.stringify(conflict.body));
-    assert.equal(conflict.body.operation.status, "conflict");
-    assert.equal(conflict.body.operation.errorCode, "target_manifest_exists");
+    assert.equal(competing.body.operation.errorCode, "target_manifest_exists");
+
+    const recoveryKey = "remote-registration-0003";
+    const recoveryOperationId = "sro_" + createHash("sha256")
+      .update(`${accepted.body.operation.actorId}\u0000${recoveryKey}`)
+      .digest("hex")
+      .slice(0, 32);
+    const operationStorePath = path.join(workspaceRoot, ".service-lasso", "operator", "service-registration-operations.json");
+    const operationStore = JSON.parse(await readFile(operationStorePath, "utf8"));
+    operationStore.operations.push({
+      id: recoveryOperationId,
+      kind: "service_registration",
+      status: "unknown",
+      actorId: accepted.body.operation.actorId,
+      repo: request.repo,
+      tag: request.tag,
+      sourceCommit: request.expectedCommit,
+      serviceId: manifest.id,
+      version: null,
+      createdAt: new Date().toISOString(),
+      completedAt: null,
+      errorCode: "registration_interrupted",
+      requestFingerprint: createHash("sha256").update(JSON.stringify({
+        repo: request.repo,
+        tag: request.tag,
+        expectedCommit: request.expectedCommit,
+        expectedManifestSha256: request.expectedManifestSha256,
+      })).digest("hex"),
+      manifestSha256: request.expectedManifestSha256,
+    });
+    await writeFile(operationStorePath, JSON.stringify(operationStore));
 
     await apiServer.stop();
     apiServer = await startApiServer({ port: 0, host: "0.0.0.0", servicesRoot, workspaceRoot });
@@ -1819,6 +1884,19 @@ test("remote service registration is authenticated, idempotent, durable, and nev
     assert.equal(readback.status, 200);
     assert.equal(readback.body.operation.id, accepted.body.operation.id);
     assert.equal(readback.body.operation.status, "completed");
+    const unknownReadback = await getJsonWithHeaders(
+      `${apiServer.url}/api/operator/operations/${encodeURIComponent(recoveryOperationId)}`,
+      remoteHeaders,
+    );
+    assert.equal(unknownReadback.status, 200);
+    assert.equal(unknownReadback.body.operation.status, "unknown");
+    const reconciled = await postJsonWithHeaders(`${apiServer.url}/api/runtime/actions/importService`, {
+      ...request,
+      idempotencyKey: recoveryKey,
+    }, remoteHeaders);
+    assert.equal(reconciled.status, 200);
+    assert.equal(reconciled.body.operation.status, "completed");
+    assert.equal(reconciled.body.operation.replayed, true);
     assert.doesNotMatch(JSON.stringify(readback.body), /client-only|service\.json.*[A-Z]:/i);
   } finally {
     await apiServer.stop();

@@ -1,34 +1,39 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { ApiError } from "../../server/errors.js";
-import { importServiceManifestFromCli } from "../cli/importService.js";
+import { discoverServices } from "../discovery/discoverServices.js";
+import { validateServiceManifest } from "../discovery/validateManifest.js";
 import type { PermissionActor } from "../permissions/enforcement.js";
 import type { ServiceManifest } from "../../contracts/service.js";
 
 export interface RemoteServiceRegistrationRequest {
   repo: string;
   tag: string;
+  expectedCommit: string;
+  expectedManifestSha256: string;
   idempotencyKey: string;
 }
 
 export interface RemoteServiceRegistrationOperation {
   id: string;
   kind: "service_registration";
-  status: "completed" | "conflict";
+  status: "completed" | "conflict" | "unknown";
   replayed: boolean;
   actorId: string;
   repo: string;
   tag: string;
+  sourceCommit: string;
   serviceId: string;
   version: string | null;
   createdAt: string;
-  completedAt: string;
+  completedAt: string | null;
   errorCode: string | null;
 }
 
 interface PersistedOperation extends Omit<RemoteServiceRegistrationOperation, "replayed"> {
   requestFingerprint: string;
+  manifestSha256: string;
 }
 
 interface PersistedOperationStore {
@@ -36,29 +41,33 @@ interface PersistedOperationStore {
   operations: PersistedOperation[];
 }
 
+interface GitHubReleaseResponse {
+  tag_name?: unknown;
+  assets?: unknown;
+}
+
+interface GitRefResponse {
+  object?: { sha?: unknown; type?: unknown };
+}
+
 const REPO_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const TAG_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$/;
 const IDEMPOTENCY_KEY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{7,127}$/;
+const SHA256_PATTERN = /^[a-f0-9]{64}$/;
+const COMMIT_PATTERN = /^[a-f0-9]{40}$/;
+const registrationLocks = new Map<string, Promise<void>>();
 
 function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
-function assertApprovedReleaseManifest(manifest: ServiceManifest, repo: string, tag: string): void {
-  if (!repo.startsWith("service-lasso/")) {
-    throw new ApiError("unapproved_release", 403, "Only approved Service Lasso publisher releases can be registered.");
-  }
-  const artifact = manifest.artifact;
-  if (
-    !artifact || artifact.kind !== "archive" || artifact.source.type !== "github-release" ||
-    artifact.source.repo !== repo || artifact.source.tag !== tag
-  ) {
-    throw new ApiError("release_manifest_mismatch", 409, "The release manifest does not bind to the requested approved release.");
-  }
-  const platforms = Object.values(artifact.platforms);
-  if (platforms.length === 0 || platforms.some((platform) => platform.checksum?.algorithm !== "sha256" || (!platform.checksum.value && !platform.checksum.assetName))) {
-    throw new ApiError("release_checksum_required", 409, "Approved release manifests require SHA-256 checksum bindings for every platform artifact.");
-  }
+function githubHeaders(): Record<string, string> {
+  const token = process.env.GITHUB_TOKEN?.trim() || process.env.GH_TOKEN?.trim();
+  return {
+    accept: "application/vnd.github+json",
+    "user-agent": "service-lasso-core-runtime",
+    ...(token ? { authorization: `Bearer ${token}` } : {}),
+  };
 }
 
 function storePath(workspaceRoot: string): string {
@@ -73,9 +82,7 @@ async function readStore(workspaceRoot: string): Promise<PersistedOperationStore
     }
     return { version: 1, operations: parsed.operations };
   } catch (error) {
-    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
-      return { version: 1, operations: [] };
-    }
+    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") return { version: 1, operations: [] };
     throw error;
   }
 }
@@ -89,106 +96,175 @@ async function writeStore(workspaceRoot: string, store: PersistedOperationStore)
 }
 
 function toPublicOperation(operation: PersistedOperation, replayed: boolean): RemoteServiceRegistrationOperation {
-  const { requestFingerprint: _requestFingerprint, ...publicOperation } = operation;
+  const { requestFingerprint: _requestFingerprint, manifestSha256: _manifestSha256, ...publicOperation } = operation;
   return { ...publicOperation, replayed };
 }
 
-export function parseRemoteServiceRegistrationRequest(input: unknown): RemoteServiceRegistrationRequest {
-  if (!input || typeof input !== "object" || Array.isArray(input)) {
-    throw new ApiError("invalid_body", 400, "Service registration body must be a JSON object.");
-  }
-  const candidate = input as Record<string, unknown>;
-  const allowed = new Set(["repo", "tag", "idempotencyKey", "confirm"]);
-  if (Object.keys(candidate).some((key) => !allowed.has(key))) {
-    throw new ApiError("invalid_body", 400, "Service registration accepts only repo, tag, idempotencyKey, and confirm.");
-  }
-  if (typeof candidate.repo !== "string" || !REPO_PATTERN.test(candidate.repo)) {
-    throw new ApiError("invalid_repo", 400, '"repo" must be an owner/repository release reference.');
-  }
-  if (typeof candidate.tag !== "string" || !TAG_PATTERN.test(candidate.tag)) {
-    throw new ApiError("invalid_tag", 400, '"tag" must be an immutable release tag.');
-  }
-  if (typeof candidate.idempotencyKey !== "string" || !IDEMPOTENCY_KEY_PATTERN.test(candidate.idempotencyKey)) {
-    throw new ApiError("invalid_idempotency_key", 400, '"idempotencyKey" must be an opaque 8-128 character key.');
-  }
-  if (candidate.confirm !== true) {
-    throw new ApiError("confirmation_required", 409, "Service registration requires explicit server-side confirmation.");
-  }
-  return { repo: candidate.repo, tag: candidate.tag, idempotencyKey: candidate.idempotencyKey };
-}
-
-export async function registerReleasedService(input: {
-  workspaceRoot: string;
-  servicesRoot: string;
-  actor: PermissionActor;
-  request: RemoteServiceRegistrationRequest;
-}): Promise<RemoteServiceRegistrationOperation> {
-  const requestFingerprint = sha256(JSON.stringify({ repo: input.request.repo, tag: input.request.tag }));
-  const keyFingerprint = sha256(`${input.actor.id}\u0000${input.request.idempotencyKey}`);
-  const operationId = `sro_${keyFingerprint.slice(0, 32)}`;
-  const store = await readStore(input.workspaceRoot);
-  const existing = store.operations.find((operation) => operation.id === operationId && operation.actorId === input.actor.id);
-  if (existing) {
-    if (existing.requestFingerprint !== requestFingerprint) {
-      throw new ApiError("idempotency_key_reused", 409, "The idempotency key was already used for a different registration request.");
-    }
-    return toPublicOperation(existing, true);
-  }
-
-  let result;
+async function withWorkspaceRegistrationLock<T>(workspaceRoot: string, action: () => Promise<T>): Promise<T> {
+  const key = path.resolve(workspaceRoot);
+  const prior = registrationLocks.get(key) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => { release = resolve; });
+  const queued = prior.then(() => current);
+  registrationLocks.set(key, queued);
+  await prior;
   try {
-    result = await importServiceManifestFromCli({
-      repo: input.request.repo,
-      tag: input.request.tag,
-      servicesRoot: input.servicesRoot,
-      workspaceRoot: input.workspaceRoot,
-      permissionActor: input.actor,
-      validateReleasedManifest: (manifest) => assertApprovedReleaseManifest(manifest, input.request.repo, input.request.tag),
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "";
-    const match = /^Refusing to overwrite existing manifest for "([^"]+)"/.exec(message);
-    if (!match) throw error;
-    result = {
-      ok: false,
-      resolvedTag: input.request.tag,
-      serviceId: match[1],
-      version: null,
-      conflict: { kind: "target_manifest_exists" as const },
-    };
+    return await action();
+  } finally {
+    release();
+    if (registrationLocks.get(key) === queued) registrationLocks.delete(key);
   }
-  const now = new Date().toISOString();
-  const operation: PersistedOperation = {
-    id: operationId,
-    kind: "service_registration",
-    status: result.ok ? "completed" : "conflict",
-    actorId: input.actor.id,
-    repo: input.request.repo,
-    tag: result.resolvedTag ?? input.request.tag,
-    serviceId: result.serviceId,
-    version: result.version,
-    createdAt: now,
-    completedAt: now,
-    errorCode: result.conflict?.kind ?? null,
-    requestFingerprint,
-  };
-  store.operations.push(operation);
-  await writeStore(input.workspaceRoot, store);
-  return toPublicOperation(operation, false);
 }
 
-export async function readRemoteServiceRegistrationOperation(input: {
-  workspaceRoot: string;
-  actor: PermissionActor;
-  operationId: string;
-}): Promise<RemoteServiceRegistrationOperation> {
-  if (!/^sro_[a-f0-9]{32}$/.test(input.operationId)) {
-    throw new ApiError("operation_not_found", 404, "Service registration operation was not found.");
+function assertApprovedReleaseManifest(manifest: ServiceManifest, request: RemoteServiceRegistrationRequest): void {
+  if (!request.repo.startsWith("service-lasso/")) {
+    throw new ApiError("unapproved_release", 403, "Only approved Service Lasso publisher releases can be registered.");
   }
+  const artifact = manifest.artifact;
+  if (
+    !artifact || artifact.kind !== "archive" || artifact.source.type !== "github-release" ||
+    artifact.source.repo !== request.repo || artifact.source.tag !== request.tag
+  ) {
+    throw new ApiError("release_manifest_mismatch", 409, "The release manifest does not bind to the requested approved release.");
+  }
+  const platforms = Object.values(artifact.platforms);
+  if (platforms.length === 0 || platforms.some((platform) => platform.checksum?.algorithm !== "sha256" || (!platform.checksum.value && !platform.checksum.assetName))) {
+    throw new ApiError("release_checksum_required", 409, "Approved release manifests require SHA-256 checksum bindings for every platform artifact.");
+  }
+}
+
+async function resolveReleasedManifest(request: RemoteServiceRegistrationRequest): Promise<{ manifest: ServiceManifest; manifestBytes: string }> {
+  const apiBaseUrl = (process.env.SERVICE_LASSO_GITHUB_API_BASE_URL?.trim() || "https://api.github.com").replace(/\/+$/, "");
+  const tagRef = await fetch(`${apiBaseUrl}/repos/${request.repo}/git/ref/tags/${encodeURIComponent(request.tag)}`, { headers: githubHeaders() });
+  if (!tagRef.ok) throw new ApiError("release_provenance_unavailable", 503, "Release provenance could not be resolved.");
+  const ref = await tagRef.json() as GitRefResponse;
+  if (ref.object?.type !== "commit" || ref.object.sha !== request.expectedCommit) {
+    throw new ApiError("release_commit_mismatch", 409, "The release tag does not resolve to the caller-bound commit.");
+  }
+  const releaseResponse = await fetch(`${apiBaseUrl}/repos/${request.repo}/releases/tags/${encodeURIComponent(request.tag)}`, { headers: githubHeaders() });
+  if (!releaseResponse.ok) throw new ApiError("release_provenance_unavailable", 503, "Release metadata could not be resolved.");
+  const release = await releaseResponse.json() as GitHubReleaseResponse;
+  if (release.tag_name !== request.tag || !Array.isArray(release.assets)) {
+    throw new ApiError("release_manifest_mismatch", 409, "Release metadata does not match the requested tag.");
+  }
+  const assets = release.assets.filter((asset): asset is { name: string; browser_download_url: string } =>
+    Boolean(asset && typeof asset === "object" && (asset as { name?: unknown }).name === "service.json" && typeof (asset as { browser_download_url?: unknown }).browser_download_url === "string"),
+  );
+  if (assets.length !== 1) throw new ApiError("release_manifest_mismatch", 409, "Release metadata must contain exactly one service.json asset.");
+  const manifestResponse = await fetch(assets[0].browser_download_url, { headers: githubHeaders() });
+  if (!manifestResponse.ok) throw new ApiError("release_manifest_unavailable", 503, "Release manifest could not be downloaded.");
+  const manifestBytes = await manifestResponse.text();
+  if (sha256(manifestBytes) !== request.expectedManifestSha256) {
+    throw new ApiError("release_manifest_digest_mismatch", 409, "Downloaded release manifest does not match the caller-bound digest.");
+  }
+  let parsed: unknown;
+  try { parsed = JSON.parse(manifestBytes); } catch { throw new ApiError("release_manifest_invalid", 409, "Release manifest is not valid JSON."); }
+  const manifest = validateServiceManifest(parsed, `${request.repo}@${request.tag}:service.json`);
+  assertApprovedReleaseManifest(manifest, request);
+  return { manifest, manifestBytes };
+}
+
+async function manifestAtTargetMatches(servicesRoot: string, operation: PersistedOperation): Promise<boolean> {
+  try {
+    const target = path.join(path.resolve(servicesRoot), operation.serviceId, "service.json");
+    return sha256(await readFile(target, "utf8")) === operation.manifestSha256 &&
+      (await discoverServices(servicesRoot)).some((service) => service.manifest.id === operation.serviceId && service.manifestPath === target);
+  } catch {
+    return false;
+  }
+}
+
+async function rollbackOwnedManifest(serviceRoot: string, targetPath: string, manifestBytes: string): Promise<boolean> {
+  try {
+    const entries = await readdir(serviceRoot, { withFileTypes: true });
+    if (entries.length !== 1 || !entries[0].isFile() || entries[0].name !== "service.json") return false;
+    if ((await readFile(targetPath, "utf8")) !== manifestBytes) return false;
+    await rm(serviceRoot, { recursive: true, force: false });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function importVerifiedManifest(input: { servicesRoot: string; manifest: ServiceManifest; manifestBytes: string }): Promise<"completed" | "conflict" | "unknown"> {
+  const root = path.resolve(input.servicesRoot);
+  const serviceRoot = path.resolve(root, input.manifest.id);
+  if (path.dirname(serviceRoot) !== root) return "unknown";
+  const targetPath = path.join(serviceRoot, "service.json");
+  try {
+    await mkdir(root, { recursive: true });
+    await mkdir(serviceRoot);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") return "conflict";
+    return "unknown";
+  }
+  try {
+    await writeFile(targetPath, input.manifestBytes, { encoding: "utf8", flag: "wx" });
+    const discovered = await discoverServices(root);
+    if (!discovered.some((service) => service.manifest.id === input.manifest.id && service.manifestPath === targetPath)) {
+      await rollbackOwnedManifest(serviceRoot, targetPath, input.manifestBytes);
+      return "unknown";
+    }
+    return "completed";
+  } catch {
+    await rollbackOwnedManifest(serviceRoot, targetPath, input.manifestBytes);
+    return "unknown";
+  }
+}
+
+export function parseRemoteServiceRegistrationRequest(input: unknown): RemoteServiceRegistrationRequest {
+  if (!input || typeof input !== "object" || Array.isArray(input)) throw new ApiError("invalid_body", 400, "Service registration body must be a JSON object.");
+  const candidate = input as Record<string, unknown>;
+  const allowed = new Set(["repo", "tag", "expectedCommit", "expectedManifestSha256", "idempotencyKey", "confirm"]);
+  if (Object.keys(candidate).some((key) => !allowed.has(key))) throw new ApiError("invalid_body", 400, "Service registration accepts only release identity, digest, idempotencyKey, and confirm.");
+  if (typeof candidate.repo !== "string" || !REPO_PATTERN.test(candidate.repo)) throw new ApiError("invalid_repo", 400, '"repo" must be an owner/repository release reference.');
+  if (typeof candidate.tag !== "string" || !TAG_PATTERN.test(candidate.tag)) throw new ApiError("invalid_tag", 400, '"tag" must be a release tag.');
+  if (typeof candidate.expectedCommit !== "string" || !COMMIT_PATTERN.test(candidate.expectedCommit)) throw new ApiError("invalid_expected_commit", 400, '"expectedCommit" must be a lowercase 40-character commit SHA.');
+  if (typeof candidate.expectedManifestSha256 !== "string" || !SHA256_PATTERN.test(candidate.expectedManifestSha256)) throw new ApiError("invalid_expected_manifest_sha256", 400, '"expectedManifestSha256" must be a lowercase SHA-256 digest.');
+  if (typeof candidate.idempotencyKey !== "string" || !IDEMPOTENCY_KEY_PATTERN.test(candidate.idempotencyKey)) throw new ApiError("invalid_idempotency_key", 400, '"idempotencyKey" must be an opaque 8-128 character key.');
+  if (candidate.confirm !== true) throw new ApiError("confirmation_required", 409, "Service registration requires explicit server-side confirmation.");
+  return { repo: candidate.repo, tag: candidate.tag, expectedCommit: candidate.expectedCommit, expectedManifestSha256: candidate.expectedManifestSha256, idempotencyKey: candidate.idempotencyKey };
+}
+
+export async function registerReleasedService(input: { workspaceRoot: string; servicesRoot: string; actor: PermissionActor; request: RemoteServiceRegistrationRequest }): Promise<RemoteServiceRegistrationOperation> {
+  const requestFingerprint = sha256(JSON.stringify({ repo: input.request.repo, tag: input.request.tag, expectedCommit: input.request.expectedCommit, expectedManifestSha256: input.request.expectedManifestSha256 }));
+  const operationId = `sro_${sha256(`${input.actor.id}\u0000${input.request.idempotencyKey}`).slice(0, 32)}`;
+  return withWorkspaceRegistrationLock(input.workspaceRoot, async () => {
+    const store = await readStore(input.workspaceRoot);
+    const existing = store.operations.find((operation) => operation.id === operationId && operation.actorId === input.actor.id);
+    if (existing) {
+      if (existing.requestFingerprint !== requestFingerprint) throw new ApiError("idempotency_key_reused", 409, "The idempotency key was already used for a different registration request.");
+      if (existing.status === "unknown" && await manifestAtTargetMatches(input.servicesRoot, existing)) {
+        existing.status = "completed";
+        existing.completedAt = new Date().toISOString();
+        existing.errorCode = null;
+        await writeStore(input.workspaceRoot, store);
+      }
+      return toPublicOperation(existing, true);
+    }
+    const resolved = await resolveReleasedManifest(input.request);
+    const now = new Date().toISOString();
+    const operation: PersistedOperation = {
+      id: operationId, kind: "service_registration", status: "unknown", actorId: input.actor.id,
+      repo: input.request.repo, tag: input.request.tag, sourceCommit: input.request.expectedCommit,
+      serviceId: resolved.manifest.id, version: resolved.manifest.version ?? null, createdAt: now, completedAt: null,
+      errorCode: "registration_interrupted", requestFingerprint, manifestSha256: input.request.expectedManifestSha256,
+    };
+    store.operations.push(operation);
+    await writeStore(input.workspaceRoot, store);
+    const outcome = await importVerifiedManifest({ servicesRoot: input.servicesRoot, manifest: resolved.manifest, manifestBytes: resolved.manifestBytes });
+    operation.status = outcome;
+    operation.completedAt = outcome === "unknown" ? null : new Date().toISOString();
+    operation.errorCode = outcome === "conflict" ? "target_manifest_exists" : outcome === "unknown" ? "registration_unknown" : null;
+    await writeStore(input.workspaceRoot, store);
+    return toPublicOperation(operation, false);
+  });
+}
+
+export async function readRemoteServiceRegistrationOperation(input: { workspaceRoot: string; actor: PermissionActor; operationId: string }): Promise<RemoteServiceRegistrationOperation> {
+  if (!/^sro_[a-f0-9]{32}$/.test(input.operationId)) throw new ApiError("operation_not_found", 404, "Service registration operation was not found.");
   const store = await readStore(input.workspaceRoot);
   const operation = store.operations.find((candidate) => candidate.id === input.operationId && candidate.actorId === input.actor.id);
-  if (!operation) {
-    throw new ApiError("operation_not_found", 404, "Service registration operation was not found.");
-  }
+  if (!operation) throw new ApiError("operation_not_found", 404, "Service registration operation was not found.");
   return toPublicOperation(operation, false);
 }
