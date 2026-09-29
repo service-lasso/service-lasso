@@ -47,7 +47,13 @@ jobs:
           SERVICE_LASSO_RELEASE_METADATA_TOKEN: ${{ github.token }}
         run: node scripts/publish-package-verify.mjs
 
-      - name: Verify attached-terminal TUI behavior
+      - name: Verify attached-terminal TUI behavior (Windows ConPTY)
+        if: matrix.platform == 'win32'
+        env:
+          SERVICE_LASSO_RELEASE_METADATA_TOKEN: ${{ github.token }}
+        run: node scripts/verify-operator-tui-conpty.mjs
+
+      - name: Verify attached-terminal TUI behavior (Unix PTY)
         if: matrix.platform != 'win32'
         env:
           SERVICE_LASSO_RELEASE_METADATA_TOKEN: ${{ github.token }}
