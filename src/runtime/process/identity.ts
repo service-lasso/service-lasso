@@ -457,12 +457,52 @@ async function inspectWindowsProcess(
     "deadlineMs" | "signal" | "windowsSystemRoot"
   >,
 ): Promise<ProcessInspection> {
+  // Direct enrollment and rehydration use this single-process path rather than
+  // the serialized tree path. Preserve the same closed timing projection when
+  // its helper reaches the caller-owned deadline, so attributable evidence
+  // does not rely on reproducing the failure through a tree inspection.
+  let inspectionPhase = "native_snapshot";
+  let attempts = 0;
+  let retries = 0;
+  let nativeMs = 0;
+  let activeNativeAt: number | null = null;
+  const attachDeadlineDiagnostics = (error: unknown) => {
+    if (!error || typeof error !== "object") return;
+    try {
+      Object.defineProperty(error, "windowsTreeInspection", {
+        value: Object.freeze(projectWindowsTreeInspectionMetadata({
+          windowsTreeInspectionPhase: inspectionPhase,
+          windowsTreeInspectionAttempts: Math.min(1000, attempts),
+          windowsTreeInspectionRetries: Math.min(1000, retries),
+          windowsTreeInspectionQueueMs: 0,
+          windowsTreeInspectionNativeMs: Math.min(
+            600000,
+            Math.round(nativeMs + (activeNativeAt === null ? 0 : performance.now() - activeNativeAt)),
+          ),
+          windowsTreeInspectionLastRetry: null,
+        })),
+        configurable: true,
+      });
+    } catch {
+      // Attribution must never replace the original fail-closed error.
+    }
+  };
   let last: ProcessInspection = {
     status: "unknown",
     reason: "windows_process_inspection_not_attempted",
   };
   for (let attempt = 1; attempt <= 3; attempt += 1) {
-    last = await inspectWindowsProcessOnce(pid, runCommand, options);
+    attempts += 1;
+    activeNativeAt = performance.now();
+    try {
+      last = await inspectWindowsProcessOnce(pid, runCommand, options);
+    } catch (error) {
+      attachDeadlineDiagnostics(error);
+      throw error;
+    } finally {
+      nativeMs += performance.now() - activeNativeAt;
+      activeNativeAt = null;
+    }
     if (last.status !== "unknown") {
       return last;
     }
@@ -476,7 +516,10 @@ async function inspectWindowsProcess(
       ) {
         return last;
       }
+      inspectionPhase = "retry_delay";
+      retries += 1;
       await new Promise((resolve) => setTimeout(resolve, 20));
+      inspectionPhase = "native_snapshot";
     }
   }
   return last;

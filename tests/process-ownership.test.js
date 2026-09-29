@@ -468,7 +468,19 @@ test("Windows full identity inspection aborts and observes helper closure at its
         helper.once("error", reject);
       }),
     }),
-    (error) => error?.code === "PROCESS_CONTROL_DEADLINE_EXCEEDED",
+    (error) => {
+      assert.equal(error?.code, "PROCESS_CONTROL_DEADLINE_EXCEEDED");
+      assert.deepEqual(error?.windowsTreeInspection, {
+        windowsTreeInspectionPhase: "native_snapshot",
+        windowsTreeInspectionAttempts: 1,
+        windowsTreeInspectionRetries: 0,
+        windowsTreeInspectionQueueMs: 0,
+        windowsTreeInspectionNativeMs: error?.windowsTreeInspection?.windowsTreeInspectionNativeMs,
+        windowsTreeInspectionLastRetry: null,
+      });
+      assert.ok(error?.windowsTreeInspection?.windowsTreeInspectionNativeMs >= 50);
+      return true;
+    },
   );
   await waitFor(() => helperCloseObserved, 1_000);
   assert.equal(helperAbortObserved, true);
