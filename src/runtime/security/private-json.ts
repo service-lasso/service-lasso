@@ -182,7 +182,7 @@ async function runWindowsDpapiHelper(operation: "protect" | "unprotect", input: 
   }
   const remainingMs = deadline - Date.now();
   if (remainingMs <= 0) {
-    throw new PrivateJsonError(timeoutCode("helper"), "Windows private-state protection timed out.");
+    throw new PrivateJsonError(timeoutCode("integrity"), "Windows private-state protection timed out.");
   }
   return await new Promise((resolve, reject) => {
     const child = spawn(helperPath, [operation], {
