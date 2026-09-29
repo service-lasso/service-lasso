@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, realpath, rename, rmdir, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { ApiError } from "../../server/errors.js";
 import { discoverServices } from "../discovery/discoverServices.js";
@@ -151,7 +151,12 @@ async function resolveReleasedManifest(request: RemoteServiceRegistrationRequest
     Boolean(asset && typeof asset === "object" && (asset as { name?: unknown }).name === "service.json" && typeof (asset as { browser_download_url?: unknown }).browser_download_url === "string"),
   );
   if (assets.length !== 1) throw new ApiError("release_manifest_mismatch", 409, "Release metadata must contain exactly one service.json asset.");
-  const manifestResponse = await fetch(assets[0].browser_download_url, { headers: githubHeaders() });
+  let manifestAssetUrl: URL;
+  try { manifestAssetUrl = new URL(assets[0].browser_download_url); } catch { throw new ApiError("release_manifest_mismatch", 409, "Release manifest asset URL is invalid."); }
+  if (manifestAssetUrl.protocol !== "https:" || !isApprovedGitHubAssetHost(manifestAssetUrl.hostname)) {
+    throw new ApiError("release_manifest_mismatch", 409, "Release manifest asset URL is not an approved GitHub HTTPS destination.");
+  }
+  const manifestResponse = await fetchApprovedManifestAsset(manifestAssetUrl);
   if (!manifestResponse.ok) throw new ApiError("release_manifest_unavailable", 503, "Release manifest could not be downloaded.");
   const manifestBytes = await manifestResponse.text();
   if (sha256(manifestBytes) !== request.expectedManifestSha256) {
@@ -164,9 +169,49 @@ async function resolveReleasedManifest(request: RemoteServiceRegistrationRequest
   return { manifest, manifestBytes };
 }
 
+function isApprovedGitHubAssetHost(hostname: string): boolean {
+  const host = hostname.toLowerCase();
+  return host === "github.com" || host.endsWith(".githubusercontent.com");
+}
+
+async function fetchApprovedManifestAsset(initialUrl: URL): Promise<Response> {
+  let currentUrl = initialUrl;
+  for (let redirects = 0; redirects <= 3; redirects += 1) {
+    if (currentUrl.protocol !== "https:" || !isApprovedGitHubAssetHost(currentUrl.hostname)) {
+      throw new ApiError("release_manifest_mismatch", 409, "Release manifest redirected outside approved GitHub HTTPS destinations.");
+    }
+    const response = await fetch(currentUrl, { headers: { accept: "application/json" }, redirect: "manual" });
+    if (![301, 302, 303, 307, 308].includes(response.status)) return response;
+    const location = response.headers.get("location");
+    if (!location) throw new ApiError("release_manifest_mismatch", 409, "Release manifest redirect is missing a destination.");
+    try { currentUrl = new URL(location, currentUrl); } catch { throw new ApiError("release_manifest_mismatch", 409, "Release manifest redirect destination is invalid."); }
+  }
+  throw new ApiError("release_manifest_mismatch", 409, "Release manifest redirect limit exceeded.");
+}
+
+async function isSafeDirectChildManifest(servicesRoot: string, serviceId: string): Promise<string | null> {
+  try {
+    const root = path.resolve(servicesRoot);
+    const rootStat = await lstat(root);
+    if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) return null;
+    const serviceRoot = path.resolve(root, serviceId);
+    if (path.dirname(serviceRoot) !== root) return null;
+    const serviceStat = await lstat(serviceRoot);
+    if (!serviceStat.isDirectory() || serviceStat.isSymbolicLink()) return null;
+    if (path.dirname(await realpath(serviceRoot)) !== await realpath(root)) return null;
+    const targetPath = path.join(serviceRoot, "service.json");
+    const targetStat = await lstat(targetPath);
+    if (!targetStat.isFile() || targetStat.isSymbolicLink()) return null;
+    return targetPath;
+  } catch {
+    return null;
+  }
+}
+
 async function manifestAtTargetMatches(servicesRoot: string, operation: PersistedOperation): Promise<boolean> {
   try {
-    const target = path.join(path.resolve(servicesRoot), operation.serviceId, "service.json");
+    const target = await isSafeDirectChildManifest(servicesRoot, operation.serviceId);
+    if (!target) return false;
     return sha256(await readFile(target, "utf8")) === operation.manifestSha256 &&
       (await discoverServices(servicesRoot)).some((service) => service.manifest.id === operation.serviceId && service.manifestPath === target);
   } catch {
@@ -176,10 +221,15 @@ async function manifestAtTargetMatches(servicesRoot: string, operation: Persiste
 
 async function rollbackOwnedManifest(serviceRoot: string, targetPath: string, manifestBytes: string): Promise<boolean> {
   try {
-    const entries = await readdir(serviceRoot, { withFileTypes: true });
-    if (entries.length !== 1 || !entries[0].isFile() || entries[0].name !== "service.json") return false;
+    const root = path.dirname(serviceRoot);
+    const rootStat = await lstat(root);
+    const serviceStat = await lstat(serviceRoot);
+    const targetStat = await lstat(targetPath);
+    if (!rootStat.isDirectory() || rootStat.isSymbolicLink() || !serviceStat.isDirectory() || serviceStat.isSymbolicLink() || !targetStat.isFile() || targetStat.isSymbolicLink()) return false;
+    if (path.dirname(await realpath(serviceRoot)) !== await realpath(root)) return false;
     if ((await readFile(targetPath, "utf8")) !== manifestBytes) return false;
-    await rm(serviceRoot, { recursive: true, force: false });
+    await unlink(targetPath);
+    await rmdir(serviceRoot);
     return true;
   } catch {
     return false;

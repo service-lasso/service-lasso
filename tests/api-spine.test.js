@@ -1749,6 +1749,8 @@ test("remote service registration is authenticated, idempotent, durable, and nev
       },
     },
   };
+  let manifestAssetUrl = "https://github.com/service-lasso/remote-service/releases/download/v1.0.0/service.json";
+  let manifestRedirectLocation = null;
   globalThis.fetch = async (input, init) => {
     const requestUrl = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     if (requestUrl === "https://api.github.com/repos/service-lasso/remote-service/git/ref/tags/v1.0.0") {
@@ -1757,10 +1759,11 @@ test("remote service registration is authenticated, idempotent, durable, and nev
     if (requestUrl === "https://api.github.com/repos/service-lasso/remote-service/releases/tags/v1.0.0") {
       return new Response(JSON.stringify({
         tag_name: "v1.0.0",
-        assets: [{ name: "service.json", browser_download_url: "https://fixtures.invalid/remote-service.json" }],
+        assets: [{ name: "service.json", browser_download_url: manifestAssetUrl }],
       }), { status: 200, headers: { "Content-Type": "application/json" } });
     }
-    if (requestUrl === "https://fixtures.invalid/remote-service.json") {
+    if (requestUrl === manifestAssetUrl) {
+      if (manifestRedirectLocation) return new Response(null, { status: 302, headers: { location: manifestRedirectLocation } });
       return new Response(JSON.stringify(manifest), { status: 200, headers: { "Content-Type": "application/json" } });
     }
     return originalFetch(input, init);
@@ -1807,6 +1810,22 @@ test("remote service registration is authenticated, idempotent, durable, and nev
     }, remoteHeaders);
     assert.equal(wrongManifestDigest.status, 409);
     assert.equal(wrongManifestDigest.body.error, "release_manifest_digest_mismatch");
+    manifestAssetUrl = "http://untrusted.example/service.json";
+    const unsafeAsset = await postJsonWithHeaders(`${apiServer.url}/api/runtime/actions/importService`, {
+      ...request,
+      idempotencyKey: "remote-registration-provenance-03",
+    }, remoteHeaders);
+    assert.equal(unsafeAsset.status, 409);
+    assert.equal(unsafeAsset.body.error, "release_manifest_mismatch");
+    manifestAssetUrl = "https://github.com/service-lasso/remote-service/releases/download/v1.0.0/service.json";
+    manifestRedirectLocation = "https://untrusted.example/service.json";
+    const unsafeRedirect = await postJsonWithHeaders(`${apiServer.url}/api/runtime/actions/importService`, {
+      ...request,
+      idempotencyKey: "remote-registration-provenance-04",
+    }, remoteHeaders);
+    assert.equal(unsafeRedirect.status, 409);
+    assert.equal(unsafeRedirect.body.error, "release_manifest_mismatch");
+    manifestRedirectLocation = null;
 
     const [first, duplicate, competing] = await Promise.all([
       postJsonWithHeaders(`${apiServer.url}/api/runtime/actions/importService`, request, remoteHeaders),
@@ -1897,6 +1916,44 @@ test("remote service registration is authenticated, idempotent, durable, and nev
     assert.equal(reconciled.status, 200);
     assert.equal(reconciled.body.operation.status, "completed");
     assert.equal(reconciled.body.operation.replayed, true);
+
+    const ambiguousKey = "remote-registration-0004";
+    const ambiguousOperationId = "sro_" + createHash("sha256")
+      .update(`${accepted.body.operation.actorId}\u0000${ambiguousKey}`)
+      .digest("hex")
+      .slice(0, 32);
+    const changedManifestBytes = "user changed this manifest";
+    await writeFile(path.join(servicesRoot, manifest.id, "service.json"), changedManifestBytes);
+    const ambiguousStore = JSON.parse(await readFile(operationStorePath, "utf8"));
+    ambiguousStore.operations.push({
+      id: ambiguousOperationId,
+      kind: "service_registration",
+      status: "unknown",
+      actorId: accepted.body.operation.actorId,
+      repo: request.repo,
+      tag: request.tag,
+      sourceCommit: request.expectedCommit,
+      serviceId: manifest.id,
+      version: null,
+      createdAt: new Date().toISOString(),
+      completedAt: null,
+      errorCode: "registration_interrupted",
+      requestFingerprint: createHash("sha256").update(JSON.stringify({
+        repo: request.repo,
+        tag: request.tag,
+        expectedCommit: request.expectedCommit,
+        expectedManifestSha256: request.expectedManifestSha256,
+      })).digest("hex"),
+      manifestSha256: request.expectedManifestSha256,
+    });
+    await writeFile(operationStorePath, JSON.stringify(ambiguousStore));
+    const unresolved = await postJsonWithHeaders(`${apiServer.url}/api/runtime/actions/importService`, {
+      ...request,
+      idempotencyKey: ambiguousKey,
+    }, remoteHeaders);
+    assert.equal(unresolved.status, 200);
+    assert.equal(unresolved.body.operation.status, "unknown");
+    assert.equal(await readFile(path.join(servicesRoot, manifest.id, "service.json"), "utf8"), changedManifestBytes);
     assert.doesNotMatch(JSON.stringify(readback.body), /client-only|service\.json.*[A-Z]:/i);
   } finally {
     await apiServer.stop();
