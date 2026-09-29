@@ -17,12 +17,20 @@ const launchPhases = new Set([
 ]);
 const eventStatuses = new Set(["completed", "blocked", "failed", "skipped"]);
 const attemptStatuses = new Set(["running", "succeeded", "failed", "blocked"]);
+// API response bodies are not diagnostic input. This closed projection only
+// distinguishes the lifecycle conflicts that can explain a post-action 409.
+const lifecycleApiErrorCodes = new Set([
+  "invalid_lifecycle_state",
+  "runtime_generation_active",
+  "runtime_generation_owner_unknown",
+  "startup_transaction_recovery_required",
+]);
 const allowed = (values, value) => values.has(value) ? value : null;
 
 // Deliberately closed: never serialize errors, messages, handles, or raw state.
 export function lifecycleFailureDiagnostic(input = {}) {
   try {
-    let { httpStatus, state, error } = input ?? {};
+    let { httpStatus, state, error, apiErrorCode } = input ?? {};
     const current = state?.runtime?.startTrace?.current;
     const failurePhases = [];
     const windowsTreeInspections = [];
@@ -55,6 +63,7 @@ export function lifecycleFailureDiagnostic(input = {}) {
         if (inspection.windowsTreeInspectionPhase) windowsTreeInspections.push(inspection);
       }
     }
+    const apiFailure = allowed(lifecycleApiErrorCodes, apiErrorCode);
     return JSON.stringify({
       kind: "lifecycle-failure",
       httpStatus: Number.isInteger(httpStatus) && httpStatus >= 100 && httpStatus <= 599 ? httpStatus : null,
@@ -66,6 +75,7 @@ export function lifecycleFailureDiagnostic(input = {}) {
       })) : [],
       failurePhases,
       deadlineExceeded,
+      ...(apiFailure ? { apiErrorCode: apiFailure } : {}),
       ...(windowsTreeInspections.length ? { windowsTreeInspections } : {}),
     });
   } catch {

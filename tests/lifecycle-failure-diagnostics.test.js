@@ -33,6 +33,22 @@ test("lifecycle diagnostics exclude unknown strings and sensitive payload fields
   assert.deepEqual(JSON.parse(result).events, [{ phase: null, status: null, failurePhase: null }]);
 });
 
+test("lifecycle diagnostics project only allowlisted API conflict classifications", () => {
+  const allowedResult = JSON.parse(lifecycleFailureDiagnostic({
+    httpStatus: 409,
+    apiErrorCode: "invalid_lifecycle_state",
+  }));
+  assert.equal(allowedResult.apiErrorCode, "invalid_lifecycle_state");
+
+  const sensitive = "private-path-or-token";
+  const rejected = lifecycleFailureDiagnostic({
+    httpStatus: 409,
+    apiErrorCode: sensitive,
+  });
+  assert.equal(rejected.includes(sensitive), false);
+  assert.equal(JSON.parse(rejected).apiErrorCode, undefined);
+});
+
 test("lifecycle diagnostics bound event and cause counts and tolerate missing or malformed state", () => {
   for (const input of [undefined, null, "invalid", 42]) {
     assert.deepEqual(JSON.parse(lifecycleFailureDiagnostic(input)).events, []);
