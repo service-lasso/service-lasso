@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, writeFile } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
 import path from "node:path";
 
@@ -34,6 +34,7 @@ export const CURRENT_CLI_RELEASE = {
   asset: { name: "service-lassoctl-0.1.0-dev.0fb93a2.tgz", sha256: "1062fda830784e05f830540ce3646a4adf9d690ba6d2e4dd250da62669051a91" },
   checksumManifest: { name: "SHA256SUMS.txt", sha256: "ffb881045a56f20fb5577889befaf1146613dea5f562badabd95af3a195c045d" },
   candidateManifest: { name: "candidate.json", sha256: "a085f0db0834876d1ccd7725c34c10fa4c7aae0983fcceceeff02ecc3d46447d" },
+  supportedPlatforms: ["win32", "linux", "darwin"],
 };
 
 export function assertExactToolRelease(release) {
@@ -48,6 +49,7 @@ export function assertExactToolRelease(release) {
 }
 
 export function assertExactCliRelease(release) {
+  if (!Array.isArray(release?.supportedPlatforms) || release.supportedPlatforms.length !== 3 || !["win32", "linux", "darwin"].every((platform) => release.supportedPlatforms.includes(platform)) || new Set(release.supportedPlatforms).size !== release.supportedPlatforms.length) throw new Error("CLI supported platform inventory is invalid");
   if (release?.repository !== "service-lasso/service-lasso-cli" || !/^cli-v[0-9A-Za-z.-]+-candidate-[a-f0-9]{7,}$/u.test(release.tag) || !/^[a-f0-9]{40}$/u.test(release.targetCommit) || !/^service-lassoctl-[A-Za-z0-9.-]+\.tgz$/u.test(release.asset?.name) || !/^[a-f0-9]{64}$/u.test(release.asset?.sha256) || release.checksumManifest?.name !== "SHA256SUMS.txt" || !/^[a-f0-9]{64}$/u.test(release.checksumManifest?.sha256) || release.candidateManifest?.name !== "candidate.json" || !/^[a-f0-9]{64}$/u.test(release.candidateManifest?.sha256)) throw new Error("CLI release identity is invalid");
 }
 
@@ -75,6 +77,28 @@ async function downloadExact(fetchImpl, url, expected) {
     await delay(100 * (attempt + 1));
   }
   throw new Error("operator tool download exhausted retries");
+}
+
+function parseCandidateManifest(bytes, name) {
+  try {
+    const parsed = JSON.parse(bytes.toString("utf8"));
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("not an object");
+    return parsed;
+  } catch {
+    throw new Error(`${name} candidate manifest is not valid JSON`);
+  }
+}
+
+function assertTuiCandidateManifest(bytes, release) {
+  const candidate = parseCandidateManifest(bytes, "TUI");
+  if (candidate.schemaVersion !== 1 || candidate.kind !== "develop-prerelease-candidate" || candidate.source?.repository !== release.repository || candidate.source?.commit !== release.targetCommit || candidate.release?.tag !== release.tag || candidate.release?.prerelease !== true || candidate.checksumManifest?.name !== release.checksumManifest.name || candidate.checksumManifest?.sha256 !== release.checksumManifest.sha256 || !Array.isArray(candidate.assets) || candidate.assets.length !== release.assets.length) throw new Error("TUI candidate manifest does not match the pinned release identity");
+  const candidateAssets = new Map(candidate.assets.map((asset) => [asset?.name, asset]));
+  if (candidateAssets.size !== candidate.assets.length || release.assets.some((asset) => candidateAssets.get(asset.name)?.platform !== asset.platform || candidateAssets.get(asset.name)?.sha256 !== asset.sha256)) throw new Error("TUI candidate manifest asset inventory does not match the pinned release");
+}
+
+function assertCliCandidateManifest(bytes, release) {
+  const candidate = parseCandidateManifest(bytes, "CLI");
+  if (candidate.schemaVersion !== 1 || candidate.candidateTag !== release.tag || candidate.source?.repository !== release.repository || candidate.source?.commit !== release.targetCommit || candidate.package?.command !== "service-lassoctl" || candidate.package?.node !== ">=22.12.0" || !Array.isArray(candidate.platforms) || candidate.platforms.length !== release.supportedPlatforms.length || !release.supportedPlatforms.every((platform) => candidate.platforms.includes(platform)) || !Array.isArray(candidate.assets) || candidate.assets.length !== 1 || candidate.assets[0]?.name !== release.asset.name || candidate.assets[0]?.sha256 !== release.asset.sha256) throw new Error("CLI candidate manifest does not match the pinned release identity");
 }
 
 function assertChecksumManifest(bytes, assets) {
@@ -118,6 +142,7 @@ export async function stageOperatorTools({ artifactRoot, fetchImpl = fetch, rele
     assertChecksumManifest(checksum, release.assets);
     await writeFile(path.join(root, release.checksumManifest.name), checksum);
     const candidateManifest = await downloadExact(fetchImpl, browserAssetUrl(release, release.candidateManifest.name), release.candidateManifest.sha256);
+    assertTuiCandidateManifest(candidateManifest, release);
     await writeFile(path.join(root, release.candidateManifest.name), candidateManifest);
     for (const asset of release.assets) {
       const bytes = await downloadExact(fetchImpl, browserAssetUrl(release, asset.name), asset.sha256);
@@ -137,11 +162,12 @@ export async function stageOperatorTools({ artifactRoot, fetchImpl = fetch, rele
   assertChecksumManifest(cliSums, [cliRelease.asset, cliRelease.candidateManifest]);
   await writeFile(path.join(cliRoot, cliRelease.checksumManifest.name), cliSums);
   const cliCandidateManifest = await downloadExact(fetchImpl, browserAssetUrl(cliRelease, cliRelease.candidateManifest.name), cliRelease.candidateManifest.sha256);
+  assertCliCandidateManifest(cliCandidateManifest, cliRelease);
   await writeFile(path.join(cliRoot, cliRelease.candidateManifest.name), cliCandidateManifest);
   const cliBytes = await downloadExact(fetchImpl, browserAssetUrl(cliRelease, cliRelease.asset.name), cliRelease.asset.sha256);
   const cliRelativePath = path.posix.join("operator-tools", "service-lassoctl", cliRelease.asset.name);
   await writeFile(path.join(artifactRoot, cliRelativePath), cliBytes);
-  cliTool = { command: "service-lassoctl", status: "available", mode: "caller-invoked", repository: cliRelease.repository, tag: cliRelease.tag, targetCommit: cliRelease.targetCommit, checksumManifest: { ...cliRelease.checksumManifest, relativePath: "operator-tools/service-lassoctl/SHA256SUMS.txt" }, candidateManifest: { ...cliRelease.candidateManifest, relativePath: "operator-tools/service-lassoctl/candidate.json" }, assets: [{ ...cliRelease.asset, relativePath: cliRelativePath }] };
+  cliTool = { command: "service-lassoctl", status: "available", mode: "caller-invoked", repository: cliRelease.repository, tag: cliRelease.tag, targetCommit: cliRelease.targetCommit, checksumManifest: { ...cliRelease.checksumManifest, relativePath: "operator-tools/service-lassoctl/SHA256SUMS.txt" }, candidateManifest: { ...cliRelease.candidateManifest, relativePath: "operator-tools/service-lassoctl/candidate.json" }, supportedPlatforms: [...cliRelease.supportedPlatforms], assets: [{ ...cliRelease.asset, relativePath: cliRelativePath }] };
   }
   const manifest = {
     schemaVersion: "service-lasso.operator-tools.v1",
@@ -152,4 +178,44 @@ export async function stageOperatorTools({ artifactRoot, fetchImpl = fetch, rele
   };
   await writeFile(path.join(artifactRoot, "operator-tools", "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
   return manifest;
+}
+
+function resolveRetainedPath(artifactRoot, relativePath) {
+  if (typeof relativePath !== "string" || !relativePath) throw new Error("operator tool retained path is invalid");
+  const resolved = path.resolve(artifactRoot, relativePath);
+  const relative = path.relative(artifactRoot, resolved);
+  if (!relative || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) throw new Error("operator tool retained path escapes the artifact root");
+  return resolved;
+}
+
+async function readRetainedBytes(artifactRoot, relativePath) {
+  const retainedPath = resolveRetainedPath(artifactRoot, relativePath);
+  const retainedStat = await lstat(retainedPath);
+  if (!retainedStat.isFile() || retainedStat.isSymbolicLink()) throw new Error("operator tool retained asset is not a regular file");
+  return readFile(retainedPath);
+}
+
+export async function verifyRetainedOperatorTools({ artifactRoot } = {}) {
+  const manifestBytes = await readRetainedBytes(artifactRoot, "operator-tools/manifest.json");
+  const manifest = parseCandidateManifest(manifestBytes, "operator tools");
+  if (manifest.schemaVersion !== "service-lasso.operator-tools.v1" || !Array.isArray(manifest.tools) || manifest.tools.length !== 2) throw new Error("operator tools manifest is invalid");
+  const tools = new Map(manifest.tools.map((tool) => [tool?.command, tool]));
+  if (tools.size !== 2 || tools.get("service-lassoctl")?.status !== "available" || tools.get("service-lasso-tui")?.status !== "available") throw new Error("operator tools manifest availability is invalid");
+  const tui = tools.get("service-lasso-tui");
+  const cli = tools.get("service-lassoctl");
+  assertExactToolRelease({ repository: tui.repository, tag: tui.tag, targetCommit: tui.targetCommit, checksumManifest: tui.checksumManifest, candidateManifest: tui.candidateManifest, assets: tui.assets });
+  assertExactCliRelease({ repository: cli.repository, tag: cli.tag, targetCommit: cli.targetCommit, checksumManifest: cli.checksumManifest, candidateManifest: cli.candidateManifest, supportedPlatforms: cli.supportedPlatforms, asset: cli.assets?.[0] });
+  const tuiSums = await readRetainedBytes(artifactRoot, tui.checksumManifest.relativePath);
+  const tuiCandidate = await readRetainedBytes(artifactRoot, tui.candidateManifest.relativePath);
+  assertChecksumManifest(tuiSums, tui.assets);
+  assertTuiCandidateManifest(tuiCandidate, tui);
+  const cliSums = await readRetainedBytes(artifactRoot, cli.checksumManifest.relativePath);
+  const cliCandidate = await readRetainedBytes(artifactRoot, cli.candidateManifest.relativePath);
+  assertChecksumManifest(cliSums, [...cli.assets, cli.candidateManifest]);
+  assertCliCandidateManifest(cliCandidate, { ...cli, asset: cli.assets[0] });
+  for (const asset of [...tui.assets, ...cli.assets]) {
+    const bytes = await readRetainedBytes(artifactRoot, asset.relativePath);
+    if (digest(bytes) !== asset.sha256) throw new Error("operator tool retained asset checksum mismatch");
+  }
+  return { manifest, tuiAssets: tui.assets.map((asset) => asset.relativePath), cliAssets: cli.assets.map((asset) => asset.relativePath) };
 }

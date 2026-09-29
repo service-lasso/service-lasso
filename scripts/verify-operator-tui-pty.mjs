@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promis
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { runCommand, stageReleaseArtifact } from "./release-artifact-lib.mjs";
+import { extractPlatformReleaseArchive, runCommand, stageReleaseArtifact, verifyRetainedOperatorTools } from "./release-artifact-lib.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -17,22 +17,28 @@ const platform = process.platform === "darwin" ? `darwin-${architecture}` : "lin
 const tempRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-tui-pty-"));
 const outputRoot = path.join(tempRoot, "artifacts");
 const extractRoot = path.join(tempRoot, "tui");
+let extractedCoreArchive;
 const pythonProbe = path.join(tempRoot, "tui-pty-probe.py");
 let apiServer;
 
 try {
   const staged = await stageReleaseArtifact({ repoRoot, outputRoot });
-  const operatorTools = JSON.parse(await readFile(path.join(staged.artifactRoot, "operator-tools", "manifest.json"), "utf8"));
+  const coreArchive = staged.platformArchives.find((archive) => archive.platform === process.platform);
+  if (!coreArchive) throw new Error(`missing ${process.platform} Core release archive`);
+  extractedCoreArchive = await extractPlatformReleaseArchive({ archivePath: coreArchive.archivePath, artifactName: staged.artifactName, platform: process.platform });
+  const extractedCoreRoot = extractedCoreArchive.extractedRoot;
+  const verifiedOperatorTools = await verifyRetainedOperatorTools({ artifactRoot: extractedCoreRoot });
+  const operatorTools = verifiedOperatorTools.manifest;
   const tui = operatorTools.tools.find((tool) => tool.command === "service-lasso-tui" && tool.status === "available");
   const asset = tui?.assets?.find((candidate) => candidate.platform === platform);
   if (!asset || !/^[A-Za-z0-9._-]+\.tar\.gz$/u.test(asset.name) || !/^[a-f0-9]{64}$/u.test(asset.sha256)) throw new Error(`missing exact ${platform} TUI archive in staged Core artifact`);
-  const archivePath = path.join(staged.artifactRoot, asset.relativePath);
+  const archivePath = path.join(extractedCoreRoot, asset.relativePath);
   await mkdir(extractRoot, { recursive: true });
   await runCommand("tar", ["-xzf", archivePath, "-C", extractRoot]);
   const files = await readdir(extractRoot, { recursive: true });
   const executable = files.find((entry) => entry === "service-lasso-tui");
   if (!executable) throw new Error("TUI archive did not contain its expected executable");
-  const stagedCore = await import(pathToFileURL(path.join(staged.artifactRoot, "packages", "core", "index.js")).href);
+  const stagedCore = await import(pathToFileURL(path.join(extractedCoreRoot, "packages", "core", "index.js")).href);
   apiServer = await stagedCore.startApiServer({
     port: 0,
     servicesRoot: path.join(repoRoot, "services"),
@@ -103,5 +109,6 @@ print(json.dumps({"ok": True, "platform": sys.argv[2], "safeStartup": "unavailab
   console.log(JSON.stringify({ ...result, evidence: "direct-pty", artifact: staged.artifactName }));
 } finally {
   await apiServer?.stop();
+  await extractedCoreArchive?.cleanup();
   await rm(tempRoot, { recursive: true, force: true });
 }

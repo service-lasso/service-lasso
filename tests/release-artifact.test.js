@@ -58,6 +58,8 @@ test("bounded release artifact can be staged and verified", async () => {
     });
 
     assert.equal(verified.artifactName, staged.artifactName);
+    assert.deepEqual(verified.zipVerification.verifiedOperatorTools.manifest.tools.map((tool) => tool.command), ["service-lassoctl", "service-lasso-tui"]);
+    assert.deepEqual(verified.platformArchiveVerifications.map((verification) => verification.platform).sort(), ["darwin", "linux"]);
   } finally {
     await rm(outputRoot, { recursive: true, force: true });
   }

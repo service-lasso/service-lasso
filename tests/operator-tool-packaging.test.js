@@ -4,17 +4,19 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
-import { assertExactCliRelease, assertExactToolRelease, CURRENT_CLI_RELEASE, CURRENT_TUI_RELEASE, stageOperatorTools } from "../scripts/operator-tool-packaging-lib.mjs";
+import { assertExactCliRelease, assertExactToolRelease, CURRENT_CLI_RELEASE, CURRENT_TUI_RELEASE, stageOperatorTools, verifyRetainedOperatorTools } from "../scripts/operator-tool-packaging-lib.mjs";
 
 const hash = (value) => createHash("sha256").update(value).digest("hex");
 const assets = ["darwin-amd64", "darwin-arm64", "linux-amd64", "win32-amd64"].map((platform) => ({ platform, name: `tool-${platform}.tar.gz`, sha256: hash(platform) }));
-const release = { repository: "service-lasso/service-lasso-tui", tag: "candidate-2026.9.30-9ac25a1", targetCommit: "9ac25a1bb8c63d9f564743e7ee0c8956304b1db3", checksumManifest: { name: "SHA256SUMS.txt", sha256: "" }, candidateManifest: { name: "candidate-manifest.json", sha256: hash("candidate") }, assets };
-const cliSums = Buffer.from(`${hash("cli")}  service-lassoctl-0.1.0-dev.1234567.tgz\n${hash("candidate-cli")}  candidate.json\n`);
-const cliRelease = { repository: "service-lasso/service-lasso-cli", tag: "cli-v0.1.0-dev.1234567-candidate-1234567", targetCommit: "1234567890123456789012345678901234567890", asset: { name: "service-lassoctl-0.1.0-dev.1234567.tgz", sha256: hash("cli") }, checksumManifest: { name: "SHA256SUMS.txt", sha256: hash(cliSums) }, candidateManifest: { name: "candidate.json", sha256: hash("candidate-cli") } };
+const tuiSums = Buffer.from(assets.map((asset) => `${asset.sha256}  ${asset.name}`).join("\n") + "\n");
+const tuiCandidate = Buffer.from(JSON.stringify({ schemaVersion: 1, kind: "develop-prerelease-candidate", source: { repository: "service-lasso/service-lasso-tui", commit: "9ac25a1bb8c63d9f564743e7ee0c8956304b1db3" }, release: { tag: "candidate-2026.9.30-9ac25a1", prerelease: true }, checksumManifest: { name: "SHA256SUMS.txt", sha256: hash(tuiSums) }, assets }));
+const release = { repository: "service-lasso/service-lasso-tui", tag: "candidate-2026.9.30-9ac25a1", targetCommit: "9ac25a1bb8c63d9f564743e7ee0c8956304b1db3", checksumManifest: { name: "SHA256SUMS.txt", sha256: hash(tuiSums) }, candidateManifest: { name: "candidate-manifest.json", sha256: hash(tuiCandidate) }, assets };
+const cliCandidate = Buffer.from(JSON.stringify({ schemaVersion: 1, candidateTag: "cli-v0.1.0-dev.1234567-candidate-1234567", source: { repository: "service-lasso/service-lasso-cli", commit: "1234567890123456789012345678901234567890" }, package: { command: "service-lassoctl", node: ">=22.12.0" }, platforms: ["win32", "linux", "darwin"], assets: [{ name: "service-lassoctl-0.1.0-dev.1234567.tgz", sha256: hash("cli") }] }));
+const cliSums = Buffer.from(`${hash("cli")}  service-lassoctl-0.1.0-dev.1234567.tgz\n${hash(cliCandidate)}  candidate.json\n`);
+const cliRelease = { repository: "service-lasso/service-lasso-cli", tag: "cli-v0.1.0-dev.1234567-candidate-1234567", targetCommit: "1234567890123456789012345678901234567890", asset: { name: "service-lassoctl-0.1.0-dev.1234567.tgz", sha256: hash("cli") }, checksumManifest: { name: "SHA256SUMS.txt", sha256: hash(cliSums) }, candidateManifest: { name: "candidate.json", sha256: hash(cliCandidate) }, supportedPlatforms: ["win32", "linux", "darwin"] };
 
 test("operator tools stage only checksum-verified immutable release bytes", async () => {
-  const sums = Buffer.from(assets.map((asset) => `${asset.sha256}  ${asset.name}`).join("\n") + "\n");
-  release.checksumManifest.sha256 = hash(sums);
+  const sums = tuiSums;
   const root = await mkdtemp(path.join(os.tmpdir(), "operator-tools-"));
   const downloadHosts = [];
   try {
@@ -24,7 +26,7 @@ test("operator tools stage only checksum-verified immutable release bytes", asyn
 			const cli = parsed.pathname.includes("service-lasso-cli");
 			const listed = cli ? [cliRelease.asset, cliRelease.checksumManifest, cliRelease.candidateManifest] : [...assets, release.checksumManifest, release.candidateManifest];
 			const asset = listed[Number(parsed.pathname.split("/").at(-1)) - 1];
-			const body = asset.name === "SHA256SUMS.txt" ? (cli ? cliSums : sums) : Buffer.from(assets.find((candidate) => candidate.name === asset.name)?.platform ?? (asset.name === cliRelease.asset.name ? "cli" : asset.name === "candidate-manifest.json" ? "candidate" : asset.name === "candidate.json" ? "candidate-cli" : ""));
+			const body = asset.name === "SHA256SUMS.txt" ? (cli ? cliSums : sums) : Buffer.from(assets.find((candidate) => candidate.name === asset.name)?.platform ?? (asset.name === cliRelease.asset.name ? "cli" : asset.name === "candidate-manifest.json" ? tuiCandidate : asset.name === "candidate.json" ? cliCandidate : ""));
 			return new Response(body, { status: 200 });
 		}
 		if (parsed.hostname === "api.github.com") {
@@ -35,16 +37,19 @@ test("operator tools stage only checksum-verified immutable release bytes", asyn
 		const cli = parsed.pathname.includes("service-lasso-cli");
 		downloadHosts.push(parsed.hostname);
 		const name = parsed.pathname.split("/").at(-1);
-		const body = name === "SHA256SUMS.txt" ? (cli ? cliSums : sums) : Buffer.from(assets.find((asset) => asset.name === name)?.platform ?? (name === cliRelease.asset.name ? "cli" : name === "candidate-manifest.json" ? "candidate" : name === "candidate.json" ? "candidate-cli" : ""));
+		const body = name === "SHA256SUMS.txt" ? (cli ? cliSums : sums) : Buffer.from(assets.find((asset) => asset.name === name)?.platform ?? (name === cliRelease.asset.name ? "cli" : name === "candidate-manifest.json" ? tuiCandidate : name === "candidate.json" ? cliCandidate : ""));
 		return new Response(body, { status: 200 });
     };
     const manifest = await stageOperatorTools({ artifactRoot: root, fetchImpl, release, cliRelease });
     assert.equal(manifest.tools[0].command, "service-lassoctl");
     assert.equal(manifest.tools[0].status, "available");
     assert.equal(manifest.tools[0].candidateManifest.relativePath, "operator-tools/service-lassoctl/candidate.json");
+    assert.deepEqual(manifest.tools[0].supportedPlatforms, ["win32", "linux", "darwin"]);
     assert.equal(manifest.tools[1].assets.length, 4);
     assert.equal(manifest.tools[1].candidateManifest.relativePath, "operator-tools/service-lasso-tui/candidate-manifest.json");
     assert.equal(await readFile(path.join(root, "operator-tools", "service-lasso-tui", assets[0].name), "utf8"), assets[0].platform);
+    const retained = await verifyRetainedOperatorTools({ artifactRoot: root });
+    assert.deepEqual(retained.manifest.tools[0].supportedPlatforms, ["win32", "linux", "darwin"]);
     assert.deepEqual([...new Set(downloadHosts)], ["github.com"]);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
@@ -65,10 +70,27 @@ test("operator tools reject duplicate or mismatched GitHub release inventory", a
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
+test("operator tools reject a pinned candidate manifest with mismatched source identity", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "operator-tools-candidate-"));
+  const sums = tuiSums;
+  const mismatchedRelease = { ...release, targetCommit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
+  try {
+    const fetchImpl = async (url) => {
+      const parsed = new URL(url);
+      if (parsed.pathname.includes("/releases/tags/")) return Response.json({ tag_name: mismatchedRelease.tag, target_commitish: mismatchedRelease.targetCommit, prerelease: true, draft: false, assets: [...assets, mismatchedRelease.checksumManifest, mismatchedRelease.candidateManifest].map((asset, index) => ({ name: asset.name, digest: `sha256:${asset.sha256}`, url: `https://api.github.com/repos/service-lasso/service-lasso-tui/releases/assets/${index + 1}` })) });
+      const name = parsed.pathname.split("/").at(-1);
+      const body = name === "SHA256SUMS.txt" ? sums : name === "candidate-manifest.json" ? tuiCandidate : Buffer.from(assets.find((asset) => asset.name === name)?.platform ?? "");
+      return new Response(body);
+    };
+    await assert.rejects(stageOperatorTools({ artifactRoot: root, fetchImpl, release: mismatchedRelease, cliRelease: null }), /candidate manifest/u);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test("operator tools retry only a transient 5xx asset response before checksum verification", async () => {
   const retryAssets = ["win32-amd64", "linux-amd64", "darwin-amd64", "darwin-arm64"].map((platform) => ({ platform, name: `retry-${platform}.zip`, sha256: hash(platform) }));
   const retrySums = Buffer.from(retryAssets.map((asset) => `${asset.sha256}  ${asset.name}`).join("\n") + "\n");
-  const retryRelease = { repository: "service-lasso/service-lasso-tui", tag: "candidate-2026.9.30-abcdef1", targetCommit: "abcdef1234567890abcdef1234567890abcdef12", checksumManifest: { name: "SHA256SUMS.txt", sha256: hash(retrySums) }, candidateManifest: { name: "candidate-manifest.json", sha256: hash("candidate") }, assets: retryAssets };
+  const retryCandidate = Buffer.from(JSON.stringify({ schemaVersion: 1, kind: "develop-prerelease-candidate", source: { repository: "service-lasso/service-lasso-tui", commit: "abcdef1234567890abcdef1234567890abcdef12" }, release: { tag: "candidate-2026.9.30-abcdef1", prerelease: true }, checksumManifest: { name: "SHA256SUMS.txt", sha256: hash(retrySums) }, assets: retryAssets }));
+  const retryRelease = { repository: "service-lasso/service-lasso-tui", tag: "candidate-2026.9.30-abcdef1", targetCommit: "abcdef1234567890abcdef1234567890abcdef12", checksumManifest: { name: "SHA256SUMS.txt", sha256: hash(retrySums) }, candidateManifest: { name: "candidate-manifest.json", sha256: hash(retryCandidate) }, assets: retryAssets };
   const root = await mkdtemp(path.join(os.tmpdir(), "operator-tools-retry-"));
   let checksumAttempts = 0;
   try {
@@ -77,7 +99,7 @@ test("operator tools retry only a transient 5xx asset response before checksum v
       if (parsed.pathname.includes("/releases/tags/")) return Response.json({ tag_name: retryRelease.tag, target_commitish: retryRelease.targetCommit, prerelease: true, draft: false, assets: [...retryAssets, retryRelease.checksumManifest, retryRelease.candidateManifest].map((asset, index) => ({ name: asset.name, digest: `sha256:${asset.sha256}`, url: `https://api.github.com/repos/service-lasso/service-lasso-tui/releases/assets/${index + 1}` })) });
       const asset = parsed.hostname === "github.com" ? [...retryAssets, retryRelease.checksumManifest, retryRelease.candidateManifest].find((candidate) => candidate.name === parsed.pathname.split("/").at(-1)) : [...retryAssets, retryRelease.checksumManifest, retryRelease.candidateManifest][Number(parsed.pathname.split("/").at(-1)) - 1];
       if (asset.name === "SHA256SUMS.txt" && checksumAttempts++ === 0) return new Response("temporary upstream failure", { status: 500 });
-      const body = asset.name === "SHA256SUMS.txt" ? retrySums : asset.name === "candidate-manifest.json" ? Buffer.from("candidate") : Buffer.from(asset.platform);
+      const body = asset.name === "SHA256SUMS.txt" ? retrySums : asset.name === "candidate-manifest.json" ? retryCandidate : Buffer.from(asset.platform);
       return new Response(body, { status: 200 });
     };
     const manifest = await stageOperatorTools({ artifactRoot: root, fetchImpl, release: retryRelease, cliRelease: null });

@@ -25,7 +25,7 @@ import {
   readRootPackageJson,
   RELEASE_VERSION_ENV,
 } from "./release-version-lib.mjs";
-import { stageOperatorTools } from "./operator-tool-packaging-lib.mjs";
+import { stageOperatorTools, verifyRetainedOperatorTools } from "./operator-tool-packaging-lib.mjs";
 
 export const RELEASE_FILES = [
   "LICENSE",
@@ -535,6 +535,9 @@ export async function verifyReleaseZipArchive({ archivePath, artifactName }) {
         );
       }
     }
+    const verifiedOperatorTools = manifest.operatorToolsManifest === "operator-tools/manifest.json"
+      ? await verifyRetainedOperatorTools({ artifactRoot: extractedRoot })
+      : undefined;
     const cli = await runCommand(
       process.execPath,
       [path.join(extractedRoot, manifest.entrypoints.cli), "--help"],
@@ -549,10 +552,43 @@ export async function verifyReleaseZipArchive({ archivePath, artifactName }) {
       manifest,
       verifiedEntrypoints,
       verifiedCorePackageFiles: RELEASE_CORE_PACKAGE_FILES,
+      verifiedOperatorTools,
       cli,
     };
   } finally {
     await rm(extractionRoot, { recursive: true, force: true });
+  }
+}
+
+export async function extractPlatformReleaseArchive({ archivePath, artifactName, platform }) {
+  const extractionRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-release-platform-"));
+  try {
+    if (platform === "win32") await extractZipSafely(archivePath, extractionRoot);
+    else await runCommand("tar", ["-xzf", archivePath, "-C", extractionRoot]);
+    const extractedRoot = path.join(extractionRoot, artifactName);
+    const extractedStat = await stat(extractedRoot);
+    if (!extractedStat.isDirectory()) throw new Error("platform release archive did not contain its artifact root");
+    return {
+      extractionRoot,
+      extractedRoot,
+      async cleanup() { await rm(extractionRoot, { recursive: true, force: true }); },
+    };
+  } catch (error) {
+    await rm(extractionRoot, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+export async function verifyPlatformReleaseArchive({ archivePath, artifactName, platform }) {
+  const extracted = await extractPlatformReleaseArchive({ archivePath, artifactName, platform });
+  try {
+    return {
+      archivePath,
+      platform,
+      ...(await verifyRetainedOperatorTools({ artifactRoot: extracted.extractedRoot })),
+    };
+  } finally {
+    await extracted.cleanup();
   }
 }
 
@@ -745,6 +781,14 @@ export async function verifyStagedArtifact({
     artifactName,
   });
 
+  const platformArchiveVerifications = await Promise.all(
+    SUPPORTED_RELEASE_PLATFORMS.filter((platform) => platform !== "win32").map((platform) => verifyPlatformReleaseArchive({
+      archivePath: path.join(path.dirname(stagedArchivePath), `${artifactName}-${platform}.tar.gz`),
+      artifactName,
+      platform,
+    })),
+  );
+
   const coreModule = await import(
     pathToFileURL(path.join(stagedRoot, "packages", "core", "index.js")).href
   );
@@ -835,6 +879,7 @@ export async function verifyStagedArtifact({
       booted,
       health,
       zipVerification,
+      platformArchiveVerifications,
     };
   } finally {
     child.kill("SIGTERM");
