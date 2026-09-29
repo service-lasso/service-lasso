@@ -42,6 +42,10 @@ jobs:
       - name: Verify packaged external operator tools
         run: npm run package:verify
 
+      - name: Verify attached-terminal TUI behavior
+        if: matrix.platform != 'win32'
+        run: npm run verify:operator-tui-pty
+
       - name: Compute candidate package version
         shell: pwsh
         run: |
