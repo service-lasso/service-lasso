@@ -318,14 +318,20 @@ export async function preflightMcpGuardedActionExecution(input: {
   const authorization = input.authorization;
   if (!authorization) throw new McpGuardedActionError("authorization_required", "A validated MCP identity is required.");
   try {
-    normalizeParameters(input.action, input.parameters);
     const idempotencyKey = normalizeIdempotencyKey(input.parameters.idempotencyKey);
+    const normalized = normalizeParameters(input.action, input.parameters);
+    const executionId = guardedActionExecutionId(
+      authorization.actor.actorId,
+      authorization.actor.clientId,
+      idempotencyKey,
+    );
+    const existing = await withStateLock(guardedActionStatePath(input.workspaceRoot), async () =>
+      await readIdempotencyRecord(input.workspaceRoot, guardedActionExecutionPath(input.workspaceRoot, executionId)));
+    if (existing && existing.requestFingerprint !== fingerprint({ action: input.action, parameters: normalized })) {
+      throw new McpGuardedActionError("idempotency_conflict", "The idempotency key is already bound to different action parameters.");
+    }
     return {
-      guardedExecutionId: guardedActionExecutionId(
-        authorization.actor.actorId,
-        authorization.actor.clientId,
-        idempotencyKey,
-      ),
+      guardedExecutionId: executionId,
     };
   } catch (error) {
     await audit(

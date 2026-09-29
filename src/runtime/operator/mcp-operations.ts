@@ -218,6 +218,14 @@ export class McpOperationService {
     cancellationSupported: boolean;
     guardedExecutionId?: string | null;
     requestSignal?: AbortSignal;
+    /**
+     * HTTP operation clients need an opaque record even when a local action
+     * finishes inside the request budget. MCP tool calls retain their
+     * existing synchronous response unless they opt into this mode.
+     */
+    alwaysAccept?: boolean;
+    /** Restrict operation-record replay to the HTTP lifecycle adapter. */
+    deduplicateByGuardedExecution?: boolean;
     execute: (
       signal: AbortSignal,
       reportProgress: (update: McpGuardedActionProgressUpdate) => Promise<void>,
@@ -231,6 +239,25 @@ export class McpOperationService {
       !isTerminal(operation.status) && Date.parse(operation.expiresAt) <= createdAt.getTime()
     )) {
       await this.reconcileOperation(prior.operationId);
+    }
+    const guardedExecutionId = normalizeGuardedExecutionId(input.guardedExecutionId);
+    const existing = input.deduplicateByGuardedExecution ? priorState.operations.find((operation) =>
+      operation.actorId === storedIdentity(authorization.actor.actorId, "actor") &&
+      operation.clientId === storedIdentity(authorization.actor.clientId, "client") &&
+      guardedExecutionId !== null && operation.guardedExecutionId === guardedExecutionId
+    ) : undefined;
+    if (existing) {
+      const current = await this.get(existing.operationId, authorization);
+      return {
+        kind: "accepted",
+        payload: {
+          contractVersion: MCP_OPERATION_ACCEPTED_CONTRACT_VERSION,
+          generatedAt: this.now().toISOString(),
+          accepted: true,
+          operation: current.operation,
+          safety: operationSafety(true),
+        },
+      };
     }
     const operationId = `mcp-operation-${randomUUID()}`;
     const correlationId = `mcp-operation-correlation-${randomUUID()}`;
@@ -256,7 +283,7 @@ export class McpOperationService {
       runnerPid: process.pid,
       runnerInstanceId: randomUUID(),
       heartbeatAt: createdAt.toISOString(),
-      guardedExecutionId: normalizeGuardedExecutionId(input.guardedExecutionId),
+      guardedExecutionId,
       pendingTerminal: null,
     };
 
@@ -302,7 +329,22 @@ export class McpOperationService {
     ]);
     if (settled !== budgetElapsed) {
       input.requestSignal?.removeEventListener("abort", requestCancellation);
-      if (settled.error === null && settled.response) return { kind: "completed", response: settled.response };
+      if (settled.error === null && settled.response && !input.alwaysAccept) {
+        return { kind: "completed", response: settled.response };
+      }
+      if (settled.error === null && settled.response) {
+        const current = await this.get(operationId, authorization);
+        return {
+          kind: "accepted",
+          payload: {
+            contractVersion: MCP_OPERATION_ACCEPTED_CONTRACT_VERSION,
+            generatedAt: this.now().toISOString(),
+            accepted: true,
+            operation: current.operation,
+            safety: operationSafety(true),
+          },
+        };
+      }
       throw settled.error instanceof Error
         ? settled.error
         : new McpOperationError("invalid_request", "The durable MCP operation failed safely.");
@@ -744,6 +786,9 @@ export function mcpOperationStatePath(workspaceRoot: string): string {
 
 export function isDurableMcpAction(action: McpGuardedActionName): boolean {
   return new Set<McpGuardedActionName>([
+    "service_start",
+    "service_stop",
+    "service_restart",
     "service_install",
     "service_configure",
     "setup_step_run",

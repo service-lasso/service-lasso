@@ -182,6 +182,19 @@ import type {
   McpGuardedActionPlan,
 } from "../runtime/operator/mcp-guarded-actions.js";
 import {
+  guardedActionPolicy,
+  invokeMcpGuardedAction,
+  McpGuardedActionError,
+  preflightMcpGuardedActionExecution,
+  type McpGuardedActionInput,
+} from "../runtime/operator/mcp-guarded-actions.js";
+import {
+  McpOperationError,
+  McpOperationService,
+  isDurableMcpAction,
+  isSafelyCancellableMcpAction,
+} from "../runtime/operator/mcp-operations.js";
+import {
   MCP_MAX_REQUEST_BODY_BYTES,
   MCP_PROTECTED_RESOURCE_METADATA_PATH,
   McpHttpPolicyError,
@@ -1781,6 +1794,83 @@ function parseLifecycleActionBody(input: unknown): { confirm: boolean } {
     throw new ApiError("invalid_body", 400, '"confirm" must be a boolean when present.');
   }
   return { confirm: candidate.confirm === true };
+}
+
+const durableLifecycleOperationActions = {
+  install: "service_install",
+  config: "service_configure",
+  start: "service_start",
+  stop: "service_stop",
+  restart: "service_restart",
+} as const satisfies Record<string, McpGuardedActionName>;
+
+type DurableLifecycleOperationAction = typeof durableLifecycleOperationActions[keyof typeof durableLifecycleOperationActions];
+
+function parseDurableLifecycleOperationBody(input: unknown): {
+  action: DurableLifecycleOperationAction;
+  parameters: McpGuardedActionInput;
+} {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new ApiError("invalid_body", 400, "Durable lifecycle operation body must be a JSON object.");
+  }
+  const candidate = input as Record<string, unknown>;
+  const action = typeof candidate.action === "string" ? durableLifecycleOperationActions[candidate.action as keyof typeof durableLifecycleOperationActions] : undefined;
+  if (!action) {
+    throw new ApiError("invalid_action", 400, "Durable lifecycle operations support install, config, start, stop, and restart.");
+  }
+  const unknownFields = Object.keys(candidate).filter((key) =>
+    key !== "action" && key !== "serviceId" && key !== "execute" && key !== "idempotencyKey" &&
+    key !== "confirmationId" && key !== "confirmationPhrase" && key !== "confirmationTtlSeconds"
+  );
+  if (unknownFields.length > 0) {
+    throw new ApiError("invalid_body", 400, "Durable lifecycle operation body contains an unsupported field.");
+  }
+  return {
+    action,
+    parameters: {
+      serviceId: candidate.serviceId as string | undefined,
+      execute: candidate.execute as boolean | undefined,
+      idempotencyKey: candidate.idempotencyKey as string | undefined,
+      confirmationId: candidate.confirmationId as string | undefined,
+      confirmationPhrase: candidate.confirmationPhrase as string | undefined,
+      confirmationTtlSeconds: candidate.confirmationTtlSeconds as number | undefined,
+    },
+  };
+}
+
+function durableLifecycleOperationError(error: unknown): ApiError | null {
+  if (!(error instanceof McpGuardedActionError) && !(error instanceof McpOperationError)) return null;
+  const code = error.code;
+  const statusCode = code === "authorization_required" ? 401
+    : code === "forbidden" || code === "insufficient_profile" || code === "insufficient_scope" || code === "mcp_read_only_mode" ? 403
+      : code === "operation_not_found" ? 404
+        : code === "idempotency_conflict" || code === "idempotency_in_progress" || code.startsWith("confirmation_") ? 409
+          : code === "operation_capacity" ? 429
+            : code.endsWith("_unavailable") || code.endsWith("_state_invalid") || code === "mcp_operation_audit_unavailable" || code === "mcp_audit_unavailable" ? 503
+              : 400;
+  return new ApiError(code, statusCode, error.message);
+}
+
+async function authorizeDurableLifecycleOperationRequest(
+  request: IncomingMessage,
+  response: ServerResponse,
+  auth: RuntimeAuthPolicyStatus,
+  config: ApiRouteConfig,
+): Promise<McpHttpAuthorization | null> {
+  try {
+    const mode = assertMcpTransportEnabled(config.mcpHttpIdentity);
+    assertMcpHostAllowed(request, config.mcpHttpIdentity);
+    if (mode !== "guarded") throw new McpHttpPolicyError("mcp_read_only_mode", 403);
+    const authorization = await authorizeMcpHttpRequest(request, auth, config.mcpHttpIdentity);
+    assertMcpRateLimit(config.mcpRateLimiter, authorization, config.mcpHttpIdentity);
+    return authorization;
+  } catch (error) {
+    if (error instanceof McpHttpPolicyError) {
+      writeMcpPolicyError(response, error);
+      return null;
+    }
+    throw error;
+  }
 }
 
 function parseRuntimeStartupSettingsBody(input: unknown): { autostart: boolean } {
@@ -4142,6 +4232,134 @@ async function routeRequestWithoutMutationCoordination(
       operatingMode,
     );
     return;
+  }
+
+  if (url.pathname.startsWith("/api/operator/lifecycle/")) {
+    const authorization = await authorizeDurableLifecycleOperationRequest(request, response, auth, config);
+    if (!authorization) return;
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    const facade = createMcpGuardedActionFacade(runtimeModel, config);
+    const operationService = new McpOperationService({ workspaceRoot: config.workspaceRoot });
+    const pathParts = url.pathname.split("/").filter(Boolean);
+    try {
+      if (request.method === "GET" && pathParts.length === 6 && pathParts[3] === "services" && pathParts[5] === "availability") {
+        const serviceId = decodeURIComponent(pathParts[4] ?? "");
+        const service = runtimeModel.registry.getById(serviceId);
+        if (!service) throw new ApiError("service_not_found", 404, "The requested service is not available.");
+        const actions = await Promise.all(Object.entries(durableLifecycleOperationActions).map(async ([name, action]) => {
+          const policy = guardedActionPolicy(action);
+          const allowed = authorization.actor.scopes.includes(policy.requiredScope);
+          const plan = allowed ? await facade.preflight(action, { serviceId }) : null;
+          return {
+            action: name,
+            available: allowed && plan?.executable === true,
+            reason: !allowed ? "permission_not_granted" : plan?.skippedReason ?? null,
+            permission: policy.requiredScope,
+            requiresConfirmation: policy.confirmationRequired,
+          };
+        }));
+        actions.push({
+          action: "reload",
+          available: false,
+          reason: "durable_operation_unavailable",
+          permission: "service-lasso:lifecycle:write",
+          requiresConfirmation: true,
+        });
+        writeJson(response, 200, {
+          contractVersion: "service-lasso-durable-lifecycle-operation.v1",
+          serviceId,
+          actions,
+          safety: { mutating: false, redacted: true, omittedSensitiveFields: ["command lines", "environment and config values"] },
+        });
+        return;
+      }
+
+      if (request.method === "GET" && url.pathname === "/api/operator/lifecycle/operations") {
+        const cursor = url.searchParams.get("cursor");
+        const limit = url.searchParams.get("limit");
+        const payload = await operationService.list({
+          authorization,
+          cursor: cursor === null ? undefined : Number(cursor),
+          limit: limit === null ? undefined : Number(limit),
+        });
+        writeJson(response, 200, payload);
+        return;
+      }
+
+      if (request.method === "POST" && url.pathname === "/api/operator/lifecycle/operations") {
+        assertMcpJsonContentType(request);
+        const body = parseDurableLifecycleOperationBody(await readJsonBody(request, { maxBytes: MCP_MAX_REQUEST_BODY_BYTES }));
+        const invoke = async (
+          signal?: AbortSignal,
+          reportProgress?: McpGuardedActionExecutionOptions["reportProgress"],
+          correlationId?: string,
+        ) => await invokeMcpGuardedAction({
+          workspaceRoot: config.workspaceRoot,
+          operatingMode: "guarded",
+          authorization,
+          facade,
+          action: body.action,
+          parameters: body.parameters,
+          signal,
+          reportProgress,
+          correlationId,
+        });
+        if (body.parameters.execute !== true) {
+          writeJson(response, 200, await invoke());
+          return;
+        }
+        if (
+          typeof body.parameters.idempotencyKey !== "string" ||
+          typeof body.parameters.confirmationId !== "string" ||
+          typeof body.parameters.confirmationPhrase !== "string"
+        ) {
+          throw new ApiError(
+            "confirmation_required",
+            409,
+            "Durable lifecycle execution requires its idempotency key and the server-issued confirmation.",
+          );
+        }
+        if (!isDurableMcpAction(body.action)) {
+          throw new ApiError("durable_operation_unavailable", 409, "This lifecycle action does not yet support durable operation tracking.");
+        }
+        const preflight = await preflightMcpGuardedActionExecution({
+          workspaceRoot: config.workspaceRoot,
+          operatingMode: "guarded",
+          authorization,
+          action: body.action,
+          parameters: body.parameters,
+        });
+        const submission = await operationService.submit({
+          authorization,
+          action: body.action,
+          targetIds: body.parameters.serviceId ? [body.parameters.serviceId] : [],
+          cancellationSupported: isSafelyCancellableMcpAction(body.action),
+          guardedExecutionId: preflight.guardedExecutionId,
+          alwaysAccept: true,
+          deduplicateByGuardedExecution: true,
+          execute: async (signal, reportProgress, correlationId) => await invoke(signal, reportProgress, correlationId),
+        });
+        writeJson(response, 202, submission.kind === "accepted" ? submission.payload : submission.response);
+        return;
+      }
+
+      if (pathParts.length === 5 && pathParts[3] === "operations") {
+        const operationId = decodeURIComponent(pathParts[4] ?? "");
+        if (request.method === "GET") {
+          writeJson(response, 200, await operationService.get(operationId, authorization));
+          return;
+        }
+      }
+
+      if (request.method === "POST" && pathParts.length === 6 && pathParts[3] === "operations" && pathParts[5] === "cancel") {
+        const operationId = decodeURIComponent(pathParts[4] ?? "");
+        writeJson(response, 200, await operationService.cancel(operationId, authorization));
+        return;
+      }
+    } catch (error) {
+      const translated = durableLifecycleOperationError(error);
+      throw translated ?? error;
+    }
   }
 
   if (request.method === "GET" && url.pathname === "/api/services") {

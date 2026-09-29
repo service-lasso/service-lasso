@@ -22,3 +22,4 @@ This file tracks bootstrap/adoption/remediation work required before product imp
   open until independent review of the later bytes or an explicit operator
   close with that residual.
 - Product/bootstrap adoption work is complete; use `.governance/project/BACKLOG.md` and the active service repos for any newly discovered follow-up work instead of treating this file as a live implementation queue.
+- #1465 is mapped in the active backlog and `SPEC-006`; its bounded HTTP lifecycle-operation adapter remains subject to exact-head CI and packaged client reconciliation before closure.
