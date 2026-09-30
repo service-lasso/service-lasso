@@ -12,6 +12,7 @@ import {
   validateTerminalJobMetadata,
 } from "./published-package-qualification-lib.mjs";
 import { selectCurrentAttemptArtifacts } from "./published-package-qualification-reliability.mjs";
+import { strictJson } from "./consume-admin-trusted-unlock-receipt.mjs";
 
 const PLATFORMS = Object.freeze(["linux", "win32", "darwin"]);
 
@@ -52,6 +53,15 @@ async function readOnlyFile(filePath, label) {
     throw new Error(`${label} is missing, empty, or not a regular file.`);
   }
   return readFile(filePath, "utf8");
+}
+
+function parseStrictJson(source, label) {
+  if (!strictJson(source)) throw new Error(`${label} is malformed or has duplicate keys.`);
+  try {
+    return JSON.parse(source);
+  } catch {
+    throw new Error(`${label} is malformed or has duplicate keys.`);
+  }
 }
 
 const repo = env("GITHUB_REPOSITORY", /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u);
@@ -105,11 +115,13 @@ for (const platform of PLATFORMS) {
   if (entries.length !== 2 || entries.some((entry) => !entry.isFile() || entry.isSymbolicLink()) || !entries.some((entry) => entry.name === expectedFile) || !entries.some((entry) => entry.name === expectedReceipt)) {
     throw new Error(`Downloaded ${platform} artifact did not contain its exact metadata evidence and trusted-unlock receipt.`);
   }
-  const evidence = JSON.parse(
+  const evidence = parseStrictJson(
     await readOnlyFile(path.join(artifactDirectory, expectedFile), `${platform} retained evidence`),
+    `${platform} retained evidence`,
   );
-  const retainedReceipt = JSON.parse(
+  const retainedReceipt = parseStrictJson(
     await readOnlyFile(path.join(artifactDirectory, expectedReceipt), `${platform} retained trusted-unlock receipt`),
+    `${platform} retained trusted-unlock receipt`,
   );
   const jobName = `published-package-qualification (${platform})`;
   const matchingJobs = jobs.filter(({ name }) => name === jobName);

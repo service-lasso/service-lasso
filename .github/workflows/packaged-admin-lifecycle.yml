@@ -39,6 +39,13 @@ concurrency:
   group: packaged-admin-lifecycle-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+env:
+  # PR runs receive a synthetic merge commit in github.sha. Qualification is
+  # bound to the reviewed source candidate, and keeps that dispatch identity
+  # separately in retained evidence.
+  QUALIFICATION_CANDIDATE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+  QUALIFICATION_EVENT_SHA: ${{ github.sha }}
+
 jobs:
   packaged-admin-lifecycle:
     name: packaged-admin-lifecycle (${{ matrix.admin_platform }})
@@ -84,7 +91,7 @@ jobs:
       - name: Check out candidate Core
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ env.QUALIFICATION_CANDIDATE_SHA }}
 
       - name: Check out exact qualified Admin harness
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -223,6 +230,7 @@ jobs:
         run: |
           set -euo pipefail
           core_revision="$(git rev-parse HEAD)"
+          test "$core_revision" = "$QUALIFICATION_CANDIDATE_SHA"
           admin_revision="$(git -C qualification/admin rev-parse HEAD)"
           test "$admin_revision" = "$ADMIN_HARNESS_REVISION"
           echo "core_revision=$core_revision" >> "$GITHUB_OUTPUT"
@@ -256,6 +264,8 @@ jobs:
           ADMIN_EXPECTED_SHA256: ${{ matrix.admin_sha256 }}
           BROKER_ASSET: ${{ matrix.broker_asset }}
           BROKER_EXPECTED_SHA256: ${{ matrix.broker_sha256 }}
+          QUALIFICATION_CANDIDATE_SHA: ${{ env.QUALIFICATION_CANDIDATE_SHA }}
+          QUALIFICATION_EVENT_SHA: ${{ env.QUALIFICATION_EVENT_SHA }}
         run: |
           $ErrorActionPreference = 'Stop'
           $hex64 = '^[0-9a-f]{64}$'
@@ -334,7 +344,11 @@ jobs:
       - name: Check out exact aggregate verifier
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ env.QUALIFICATION_CANDIDATE_SHA }}
+
+      - name: Verify exact aggregate candidate checkout
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "$QUALIFICATION_CANDIDATE_SHA"
 
       - name: Download exact current-attempt platform evidence
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -346,6 +360,7 @@ jobs:
         shell: bash
         env:
           PACKAGED_ARTIFACTS_ROOT: ${{ runner.temp }}/packaged-admin-lifecycle-artifacts
+          QUALIFICATION_CANDIDATE_SHA: ${{ env.QUALIFICATION_CANDIDATE_SHA }}
         run: node scripts/verify-packaged-admin-lifecycle-artifacts.mjs
 
       - name: Require all packaged Admin lifecycle platforms

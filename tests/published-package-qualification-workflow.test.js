@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { strictJson } from "../scripts/consume-admin-trusted-unlock-receipt.mjs";
 
 const workflowUrl = new URL(
   "../.github/workflows/published-package-qualification.yml",
@@ -178,4 +179,18 @@ test("AC-4BZ.1 aggregate verifies current-attempt artifacts and retains prior-at
   assert.match(source, /admin-trusted-unlock-receipt\.json/);
   assert.match(source, /validateTerminalJobMetadata\(matchingJobs\[0\]/);
   assert.match(source, /validateRetainedEvidence\(evidence/);
+  assert.match(source, /parseStrictJson\(/);
+  assert.match(source, /parseStrictJson\([\s\S]*?retained trusted-unlock receipt/);
+});
+
+test("AC-4BZ.1 downloaded aggregate JSON rejects raw and escaped duplicate keys before closed-shape validation", () => {
+  for (const source of [
+    '{"platform":"linux","platform":"linux"}',
+    '{"platform":"linux","plat\\u0066orm":"linux"}',
+    '{"trustedUnlock":{"classification":"closed","receipt":{"status":"observed","status":"observed"}}}',
+  ]) assert.equal(strictJson(source), null);
+  // These are syntactically strict, but must still be rejected by the aggregate's
+  // exact closed-shape and metadata-only validators after decoding.
+  assert.ok(strictJson('{"platform":"linux","private":true}'));
+  assert.ok(strictJson('{"platform":"linux","retained":{"extra":true}}'));
 });
