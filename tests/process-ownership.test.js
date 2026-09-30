@@ -120,6 +120,23 @@ async function waitFor(check, timeoutMs = 3_000) {
   throw new Error(`Condition not met within ${timeoutMs}ms`);
 }
 
+async function runNativeCommandQuerySeam(mode) {
+  const inspectorPath = path.resolve("src", "runtime", "process", "windows-process-inspector.exe");
+  return await new Promise((resolve, reject) => {
+    const child = spawn(inspectorPath, [String(process.pid)], {
+      windowsHide: true,
+      stdio: "ignore",
+      env: {
+        ...process.env,
+        SERVICE_LASSO_ENABLE_TEST_HOOKS: "1",
+        SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY: mode,
+      },
+    });
+    child.once("error", reject);
+    child.once("close", (code, signal) => resolve({ code, signal }));
+  });
+}
+
 async function postJson(url, body) {
   const response = await fetch(url, {
     method: "POST",
@@ -516,6 +533,31 @@ test("Windows inspection adapter captures creation, executable, and hashed comma
     },
   });
   assert.equal(receivedExplicitDeadlineMs, explicitDeadlineMs);
+});
+
+test("Windows native command query retries only partial copy on the held handle", {
+  skip: process.platform !== "win32",
+}, async () => {
+  const partialThenValid = await runNativeCommandQuerySeam("partial_then_success");
+  assert.deepEqual(partialThenValid, { code: 0, signal: null });
+
+  const persistentPartial = await runNativeCommandQuerySeam("partial_only");
+  assert.deepEqual(persistentPartial, { code: 38, signal: null });
+
+  const unrelatedStatus = await runNativeCommandQuerySeam("unsupported_then_success");
+  assert.deepEqual(unrelatedStatus, { code: 34, signal: null });
+
+  const inspectorSource = await readFile(
+    path.resolve("src", "runtime", "process", "windows-process-inspector.cs"),
+    "utf8",
+  );
+  const readCommandLine = inspectorSource.slice(
+    inspectorSource.indexOf("private static string ReadCommandLine"),
+    inspectorSource.indexOf("private static int ReadParentProcessId"),
+  );
+  assert.match(readCommandLine, /for \(int attempt = 0; attempt < CommandLineQueryAttempts/u);
+  assert.match(readCommandLine, /status == StatusPartialCopy && attempt \+ 1 < CommandLineQueryAttempts/u);
+  assert.doesNotMatch(readCommandLine, /OpenProcess\(/u);
 });
 
 test("Windows inspection treats only an explicit absent-process result as not running", async () => {
@@ -3277,6 +3319,49 @@ test("newcomer diagnostics observe a real API startup failure before owned clean
     await stopManagedProcess("echo-service", 10_000).catch(() => null);
     if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
     else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
+    resetLifecycleState();
+    await removeTempRoot(tempRoot);
+  }
+});
+
+test("Windows partial native command query reaches the startup hook with a closed receipt", {
+  skip: process.platform !== "win32",
+}, async () => {
+  resetLifecycleState();
+  const priorTestHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+  const priorCommandQuery = process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY;
+  process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
+  process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY = "partial_then_success";
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-partial-command-query-");
+  const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "echo-service");
+  let apiServer;
+  let startupHookReached = false;
+  try {
+    const stateRoot = path.join(serviceRoot, ".state");
+    await mkdir(stateRoot, { recursive: true });
+    await writeFile(path.join(stateRoot, "install.json"), JSON.stringify({ installed: true }), "utf8");
+    await writeFile(path.join(stateRoot, "config.json"), JSON.stringify({ configured: true }), "utf8");
+    apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
+    setManagedProcessAfterReleaseHookForTests(async () => {
+      startupHookReached = true;
+      throw new Error("PRIVATE-PARTIAL-COPY-HOOK");
+    });
+    const start = await postJson(`${apiServer.url}/api/services/echo-service/start`);
+    assert.equal(start.response.status, 409);
+    assert.equal(startupHookReached, true);
+    const receipt = await collectStartupFailure(apiServer.url, "echo-service");
+    assert.equal(receipt.observations[0].events.some((event) => event.failurePhase === "post_release_hook"), true);
+    const closedReceipt = JSON.stringify(receipt);
+    assert.equal(closedReceipt.includes("PRIVATE-PARTIAL-COPY-HOOK"), false);
+    assert.equal(closedReceipt.includes("CommandLine"), false);
+  } finally {
+    setManagedProcessAfterReleaseHookForTests(null);
+    await apiServer?.stop();
+    await stopManagedProcess("echo-service", 10_000).catch(() => null);
+    if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+    else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
+    if (priorCommandQuery === undefined) delete process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY;
+    else process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY = priorCommandQuery;
     resetLifecycleState();
     await removeTempRoot(tempRoot);
   }
