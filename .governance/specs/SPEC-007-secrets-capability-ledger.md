@@ -258,9 +258,10 @@ failed run, and it does not make a release or GA claim.
 
 ### Issues #1493 and #1494: exact-head audit integration
 
-The governed integration candidate starts from develop
-`d724258656b582d2e11b12473d5a8499547823b4` and composes only the independently
-reviewed `fast-uri` `3.1.8` lockfile delta from PR #1497 head
+The independently reviewed source deltas start from develop
+`d724258656b582d2e11b12473d5a8499547823b4`; the integration candidate rebases
+them onto current develop and composes only the reviewed `fast-uri` `3.1.8`
+lockfile delta from PR #1497 head
 `668879645c2c3c73688459cbf625623e547c8e9b` and the compatible
 `brace-expansion` `1.1.21` root override and lockfile delta from PR #1498 head
 `88efa5dd9c18daa744cb1db9d0be2c0a77328918`. It must pass clean installation,
