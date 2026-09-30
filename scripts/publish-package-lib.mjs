@@ -23,7 +23,11 @@ import {
   readRootPackageJson,
   RELEASE_VERSION_ENV,
 } from "./release-version-lib.mjs";
-import { consumeReleaseMetadataToken, stageOperatorTools } from "./operator-tool-packaging-lib.mjs";
+import {
+  consumeReleaseMetadataToken,
+  stageOperatorTools,
+  verifyRetainedOperatorTools,
+} from "./operator-tool-packaging-lib.mjs";
 
 const NPM_COMMAND = process.platform === "win32" ? "npm.cmd" : "npm";
 export const NPMJS_REGISTRY = "https://registry.npmjs.org";
@@ -287,65 +291,78 @@ export async function stagePublishedPackage({
   outputRoot = path.join(repoRoot, "artifacts", "npm"),
   version,
   releaseMetadataToken,
-  stageOperatorToolsImpl = stageOperatorTools,
+  // Tests may provide a deterministic release-response fixture. It substitutes
+  // acquisition bytes only; stageOperatorTools still validates the release
+  // identity, inventory, manifests, and retained digests.
+  testOnlyOperatorToolFixture,
+  // This test-only observer brackets the complete locked staging transaction.
+  // It cannot alter staging or verification behavior.
+  testOnlyStageObserver,
 } = {}) {
   const metadataToken = releaseMetadataToken ?? consumeReleaseMetadataToken();
   return await withPackageStageLock(outputRoot, async () => {
-    const resolvedVersion = version ?? (await getReleaseVersion(repoRoot));
-    const artifactName = getPublishedPackageArtifactName(resolvedVersion);
-    const artifactRoot = path.join(outputRoot, artifactName);
+    await testOnlyStageObserver?.({ phase: "entered" });
+    try {
+      const resolvedVersion = version ?? (await getReleaseVersion(repoRoot));
+      const artifactName = getPublishedPackageArtifactName(resolvedVersion);
+      const artifactRoot = path.join(outputRoot, artifactName);
 
-    await ensureBuildOutput(repoRoot);
-    await rm(artifactRoot, { recursive: true, force: true });
-    await mkdir(outputRoot, { recursive: true });
+      await ensureBuildOutput(repoRoot);
+      await rm(artifactRoot, { recursive: true, force: true });
+      await mkdir(outputRoot, { recursive: true });
 
-    for (const relativePath of PUBLISH_FILES) {
-      await copyPublishPath(repoRoot, artifactRoot, relativePath);
+      for (const relativePath of PUBLISH_FILES) {
+        await copyPublishPath(repoRoot, artifactRoot, relativePath);
+      }
+
+      await stageOperatorTools({
+        artifactRoot,
+        releaseMetadataToken: metadataToken,
+        ...testOnlyOperatorToolFixture,
+      });
+      await verifyRetainedOperatorTools({ artifactRoot });
+
+      const manifest = await writePublishScaffold({
+        repoRoot,
+        artifactRoot,
+        version: resolvedVersion,
+        operatorTools: true,
+      });
+
+      await writeArtifactSBOM({
+        artifactRoot,
+        artifactName,
+        version: resolvedVersion,
+        artifactKind: manifest.artifactKind,
+        lockPath: path.join(repoRoot, "package-lock.json"),
+      });
+
+      const packResult = await runNpmCommand(["pack"], {
+        cwd: artifactRoot,
+      });
+
+      const packageArchiveName = packResult.stdout
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .at(-1);
+
+      if (!packageArchiveName) {
+        throw new Error("npm pack did not report the generated archive name.");
+      }
+
+      const packageArchivePath = path.join(artifactRoot, packageArchiveName);
+      await stat(packageArchivePath);
+
+      return {
+        artifactName,
+        artifactRoot,
+        packageArchivePath,
+        manifest,
+      };
+    } finally {
+      await testOnlyStageObserver?.({ phase: "leaving" });
     }
-
-    await stageOperatorToolsImpl({
-      artifactRoot,
-      releaseMetadataToken: metadataToken,
-    });
-
-    const manifest = await writePublishScaffold({
-      repoRoot,
-      artifactRoot,
-      version: resolvedVersion,
-      operatorTools: true,
-    });
-
-    await writeArtifactSBOM({
-      artifactRoot,
-      artifactName,
-      version: resolvedVersion,
-      artifactKind: manifest.artifactKind,
-      lockPath: path.join(repoRoot, "package-lock.json"),
-    });
-
-    const packResult = await runNpmCommand(["pack"], {
-      cwd: artifactRoot,
-    });
-
-    const packageArchiveName = packResult.stdout
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .at(-1);
-
-    if (!packageArchiveName) {
-      throw new Error("npm pack did not report the generated archive name.");
-    }
-
-    const packageArchivePath = path.join(artifactRoot, packageArchiveName);
-    await stat(packageArchivePath);
-
-    return {
-      artifactName,
-      artifactRoot,
-      packageArchivePath,
-      manifest,
-    };
   });
 }
 
