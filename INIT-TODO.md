@@ -12,16 +12,24 @@ This file tracks bootstrap/adoption/remediation work required before product imp
 ## Open Items
 - #1463 defines a release-asset-only staged transfer prerequisite in
   `docs/api/staged-service-transfer.md`. It uses a new reviewed
-  staged-registration adapter over #1462 / PR #1464 (`a83133cc`), rather than
+   staged-registration adapter over #1462 / PR #1464 (`a83133cc`), rather than
   asserting the old `confirm:true` API already has stage fields. It derives
-   canonical release checksums, exact asset IDs, and release API byte sizes
-   server-side, so client lengths and digests are not trusted. It requires only
-   explicit per-OS policy assets (no `default` or generic fallback), exact
-   actor/header precedence, fixed actor/workspace quota ceilings, and durable
-   retention of uncertain recovery capacity. `release-archive-profile-v1` keeps
+   a non-draft published release/tag/full-SHA tuple, canonical release checksums,
+   exact asset IDs, release API byte sizes, trusted workspace identity, and a
+   single claimed Core-held byte object server-side, so client lengths, digests,
+   workspaces, and archive sources are not trusted. The direct-child importer
+   must consume that exact byte object once and cannot redownload or substitute
+   it; registration remains separate from later install/acquire materialisation.
+   It requires only explicit per-OS policy assets (no `default` or generic
+   fallback), exact actor/header precedence, fixed actor/workspace quota
+   ceilings, and durable retention of uncertain recovery capacity. Canonical
+   `service.json` must be a separately identified same-release service-producer
+   asset/member, not an ordinary archive scan or Core runtime inventory entry;
+   #1524 owns that prerequisite. `release-archive-profile-v1` keeps
    the full release surface:
   ZIP plus a closed gzip TAR grammar for Linux/macOS assets, including bounded
-  GNU-longname and POSIX-PAX path records. Current TAR admission remains
+   GNU-longname and POSIX-PAX path records, with PAX `size` required to equal
+   the raw following header in both directions. Current TAR admission remains
   unimplemented and blocked on fresh independent review, GNU/Linux and
   BSD/macOS real-producer fixtures/receipts, byte-level parser evidence, and
   the checksum-bound released CLI/TUI/Core journey on all three OSs. This is a
