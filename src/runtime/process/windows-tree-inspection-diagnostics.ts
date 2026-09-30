@@ -23,8 +23,13 @@ const retryReasons = new Set([
   "ancestry_predates_parent_before_root", "ancestry_predates_parent_within_root",
   ...Object.values(nativeFailureReasons),
 ]);
+const ancestryCategories = new Set([
+  "child_before_parent_parent_before_root",
+  "child_before_root_parent_at_or_after_root",
+]);
+const ancestryDepthBuckets = new Set(["one", "two_to_four", "five_plus"]);
 
-export type WindowsTreeInspectionMetadata = Record<string, string | number | null>;
+export type WindowsTreeInspectionMetadata = Record<string, string | number | boolean | null>;
 
 const boundedInteger = (value: unknown, maximum: number): number | null =>
   typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= maximum ? value : null;
@@ -37,6 +42,13 @@ export function projectWindowsTreeInspectionMetadata(value: unknown): WindowsTre
     const phase = metadata.windowsTreeInspectionPhase;
     if (typeof phase !== "string" || !phases.has(phase)) return {};
     const reason = metadata.windowsTreeInspectionLastRetry;
+    const ancestryCategory = metadata.windowsTreeInspectionAncestryCategory;
+    const rootFingerprintMatch = metadata.windowsTreeInspectionRootFingerprintMatch;
+    const ancestryDepthBucket = metadata.windowsTreeInspectionAncestryDepthBucket;
+    const hasClosedAncestryDiagnostic =
+      typeof ancestryCategory === "string" && ancestryCategories.has(ancestryCategory) &&
+      typeof rootFingerprintMatch === "boolean" &&
+      typeof ancestryDepthBucket === "string" && ancestryDepthBuckets.has(ancestryDepthBucket);
     return {
       windowsTreeInspectionPhase: phase,
       windowsTreeInspectionAttempts: boundedInteger(metadata.windowsTreeInspectionAttempts, 1000),
@@ -44,6 +56,9 @@ export function projectWindowsTreeInspectionMetadata(value: unknown): WindowsTre
       windowsTreeInspectionQueueMs: boundedInteger(metadata.windowsTreeInspectionQueueMs, 600000),
       windowsTreeInspectionNativeMs: boundedInteger(metadata.windowsTreeInspectionNativeMs, 600000),
       windowsTreeInspectionLastRetry: typeof reason === "string" && retryReasons.has(reason) ? reason : null,
+      windowsTreeInspectionAncestryCategory: hasClosedAncestryDiagnostic ? ancestryCategory : null,
+      windowsTreeInspectionRootFingerprintMatch: hasClosedAncestryDiagnostic ? rootFingerprintMatch : null,
+      windowsTreeInspectionAncestryDepthBucket: hasClosedAncestryDiagnostic ? ancestryDepthBucket : null,
     };
   } catch {
     return {};

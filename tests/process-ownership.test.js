@@ -477,6 +477,9 @@ test("Windows full identity inspection aborts and observes helper closure at its
         windowsTreeInspectionQueueMs: 0,
         windowsTreeInspectionNativeMs: error?.windowsTreeInspection?.windowsTreeInspectionNativeMs,
         windowsTreeInspectionLastRetry: null,
+        windowsTreeInspectionAncestryCategory: null,
+        windowsTreeInspectionRootFingerprintMatch: null,
+        windowsTreeInspectionAncestryDepthBucket: null,
       });
       assert.ok(error?.windowsTreeInspection?.windowsTreeInspectionNativeMs >= 50);
       return true;

@@ -525,9 +525,17 @@ async function inspectWindowsProcess(
   return last;
 }
 
-function invalidWindowsTreeAncestry(reason: string): Error {
+function invalidWindowsTreeAncestry(
+  reason: string,
+  ancestry?: {
+    category: "child_before_parent_parent_before_root" | "child_before_root_parent_at_or_after_root";
+    rootFingerprintMatch: boolean;
+    depthBucket: "one" | "two_to_four" | "five_plus";
+  },
+): Error {
   return Object.assign(new Error("Native Windows process-tree ancestry was invalid."), {
     windowsNativeInspectionFailure: reason,
+    ...(ancestry ? { windowsTreeInspectionAncestry: ancestry } : {}),
   });
 }
 
@@ -641,6 +649,7 @@ async function inspectWindowsProcessTreeOnce(
 
     const visited = new Set<number>([row.identity.pid]);
     let current = row;
+    let ancestryDepth = 0;
     while (current.parentPid !== expectedRoot.pid) {
       if (current.parentPid === null || visited.has(current.parentPid)) {
         throw invalidWindowsTreeAncestry("ancestry_cycle");
@@ -650,17 +659,28 @@ async function inspectWindowsProcessTreeOnce(
       if (!parent) {
         throw invalidWindowsTreeAncestry("ancestry_missing_parent");
       }
+      ancestryDepth += 1;
       predatesRoot ||= Date.parse(parent.identity.createdAt) < rootCreatedAtMs;
+      const currentCreatedAtMs = Date.parse(current.identity.createdAt);
+      const parentCreatedAtMs = Date.parse(parent.identity.createdAt);
       if (
-        Date.parse(current.identity.createdAt) <
-        Date.parse(parent.identity.createdAt)
+        currentCreatedAtMs < parentCreatedAtMs
       ) {
-        throw invalidWindowsTreeAncestry(
-          Date.parse(current.identity.createdAt) < rootCreatedAtMs ||
-          Date.parse(parent.identity.createdAt) < rootCreatedAtMs
-            ? "ancestry_predates_parent_before_root"
-            : "ancestry_predates_parent_within_root",
-        );
+        const childBeforeRoot = currentCreatedAtMs < rootCreatedAtMs;
+        const parentBeforeRoot = parentCreatedAtMs < rootCreatedAtMs;
+        const reason = childBeforeRoot || parentBeforeRoot
+          ? "ancestry_predates_parent_before_root"
+          : "ancestry_predates_parent_within_root";
+        if (reason === "ancestry_predates_parent_before_root") {
+          throw invalidWindowsTreeAncestry(reason, {
+            category: parentBeforeRoot
+              ? "child_before_parent_parent_before_root"
+              : "child_before_root_parent_at_or_after_root",
+            rootFingerprintMatch: true,
+            depthBucket: ancestryDepth === 1 ? "one" : ancestryDepth <= 4 ? "two_to_four" : "five_plus",
+          });
+        }
+        throw invalidWindowsTreeAncestry(reason);
       }
       current = parent;
     }
@@ -740,6 +760,7 @@ export async function inspectWindowsProcessTree(
   let queueMs = 0;
   let nativeMs = 0;
   let lastRetry: string | null = null;
+  let lastAncestry: unknown = null;
   const retryReasons: Record<string, string> = {
     "Native Windows process-tree inspection failed.": "helper_failed",
     "Native Windows process-tree evidence was malformed.": "malformed",
@@ -783,6 +804,9 @@ export async function inspectWindowsProcessTree(
               windowsTreeInspectionQueueMs: Math.min(600000, Math.round(queueMs)),
               windowsTreeInspectionNativeMs: Math.min(600000, Math.round(nativeMs + (activeNativeAt === null ? 0 : performance.now() - activeNativeAt))),
               windowsTreeInspectionLastRetry: lastRetry,
+              windowsTreeInspectionAncestryCategory: (lastAncestry as { category?: unknown } | null)?.category ?? null,
+              windowsTreeInspectionRootFingerprintMatch: (lastAncestry as { rootFingerprintMatch?: unknown } | null)?.rootFingerprintMatch ?? null,
+              windowsTreeInspectionAncestryDepthBucket: (lastAncestry as { depthBucket?: unknown } | null)?.depthBucket ?? null,
             })),
             configurable: true,
           });
@@ -810,6 +834,10 @@ export async function inspectWindowsProcessTree(
       lastRetry = error instanceof Error
         ? (error as Error & { windowsNativeInspectionFailure?: string | null }).windowsNativeInspectionFailure ?? retryReasons[error.message] ?? null
         : null;
+      if (error && typeof error === "object") {
+        const ancestry = (error as { windowsTreeInspectionAncestry?: unknown }).windowsTreeInspectionAncestry;
+        if (ancestry) lastAncestry = ancestry;
+      }
       inspectionPhase = "retry_delay";
       await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
     }
