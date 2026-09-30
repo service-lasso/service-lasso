@@ -199,6 +199,7 @@ import {
   McpOperationError,
   McpOperationService,
   isSafelyCancellableMcpAction,
+  type McpOperationOutcome,
   type McpOperationPublicRecord,
 } from "../runtime/operator/mcp-operations.js";
 import {
@@ -494,6 +495,8 @@ export interface ApiServerOptions {
     appendAuditEvent?: typeof appendAuditEvent;
     now?: () => number;
     afterDurableClaim?: (operation: McpOperationPublicRecord) => Promise<void>;
+    afterCancellationAccepted?: (operation: McpOperationPublicRecord) => Promise<void>;
+    beforeTerminalStage?: (operation: McpOperationPublicRecord, outcome: McpOperationOutcome) => Promise<void>;
   };
   secretRotationTestHooks?: {
     brokerRuntime: SecretsBrokerRuntimeContext;
@@ -4365,6 +4368,8 @@ async function routeRequestWithoutMutationCoordination(
     const operationService = new McpOperationService({
       workspaceRoot: config.workspaceRoot,
       afterDurableClaim: config.mcpPolicyTestHooks?.afterDurableClaim,
+      afterCancellationAccepted: config.mcpPolicyTestHooks?.afterCancellationAccepted,
+      beforeTerminalStage: config.mcpPolicyTestHooks?.beforeTerminalStage,
       recoverDetached: async (operation) => {
         if (!operation.guardedExecutionId) {
           return {

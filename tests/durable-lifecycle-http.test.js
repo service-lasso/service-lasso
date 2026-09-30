@@ -170,10 +170,19 @@ async function startHeldUpdateServer() {
   let holdRelease = true;
   let releaseRequests = 0;
   let downloadRequests = 0;
+  const releaseAborted = deferred();
+  const releaseSocketClosed = deferred();
+  const downloadAborted = deferred();
+  const downloadSocketClosed = deferred();
   const server = createServer((request, response) => {
     const url = new URL(request.url ?? "/", "http://127.0.0.1");
+    const observeInterruption = (aborted, socketClosed) => {
+      request.once("aborted", () => aborted.resolve());
+      request.socket.once("close", () => socketClosed.resolve());
+    };
     if (url.pathname === "/repos/service-lasso/durable-http-update/releases/latest") {
       releaseRequests += 1;
+      observeInterruption(releaseAborted, releaseSocketClosed);
       if (holdRelease) return;
       const baseUrl = `http://127.0.0.1:${server.address().port}`;
       response.setHeader("content-type", "application/json; charset=utf-8");
@@ -196,6 +205,7 @@ async function startHeldUpdateServer() {
     }
     if (url.pathname === "/downloads/durable-http-update.zip") {
       downloadRequests += 1;
+      observeInterruption(downloadAborted, downloadSocketClosed);
       return;
     }
     response.statusCode = 404;
@@ -207,6 +217,13 @@ async function startHeldUpdateServer() {
     baseUrl: `http://127.0.0.1:${server.address().port}`,
     releaseRequests: () => releaseRequests,
     downloadRequests: () => downloadRequests,
+    waitForAbort: async (kind) => {
+      if (kind === "release") {
+        await Promise.all([releaseAborted.promise, releaseSocketClosed.promise]);
+        return;
+      }
+      await Promise.all([downloadAborted.promise, downloadSocketClosed.promise]);
+    },
     release: () => { holdRelease = false; },
     async stop() {
       server.closeAllConnections?.();
@@ -439,6 +456,7 @@ test("#1538 HTTP update operations use one cross-process claim and persist actua
     assert.equal(checkCancelled.status, 200);
     assert.equal(checkCancelled.body.cancellation.result, "requested");
     assert.equal(checkCancelled.body.operation.status, "cancelled");
+    await updates.waitForAbort("release");
 
     updates.release();
     const downloadPlan = await lifecycleRequest(apiServer, "/api/operator/lifecycle/operations", "POST", { action: "update_download", serviceId: "durable-http-update" }, ownerToken);
@@ -459,6 +477,7 @@ test("#1538 HTTP update operations use one cross-process claim and persist actua
     const cancelled = await lifecycleRequest(peer, `/api/operator/lifecycle/operations/${accepted.body.operation.operationId}/cancel`, "POST", {}, ownerToken);
     assert.equal(cancelled.status, 200);
     assert.equal(cancelled.body.cancellation.result, "requested");
+    await updates.waitForAbort("download");
     const readback = await waitForTerminalOperation(apiServer, accepted.body.operation.operationId, ownerToken);
     assert.equal(readback.body.operation.status, "cancelled");
     assert.equal(JSON.stringify(readback.body).includes(tempRoot), false);
@@ -477,6 +496,91 @@ test("#1538 HTTP update operations use one cross-process claim and persist actua
     }
   } finally {
     await peer?.stop().catch(() => undefined);
+    await apiServer?.stop().catch(() => undefined);
+    await updates.stop().catch(() => undefined);
+    await jwks.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("#1538 accepted HTTP cancellation wins a concurrent successful guarded response before terminal staging", async () => {
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-durable-http-cancellation-race-");
+  const jwks = await startJwksServer();
+  const updates = await startHeldUpdateServer();
+  const terminalBoundary = deferred();
+  const releaseTerminal = deferred();
+  const cancellationAccepted = deferred();
+  const originalHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+  let apiServer;
+  try {
+    process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
+    updates.release();
+    await writeManifest(servicesRoot, "durable-http-update", {
+      id: "durable-http-update",
+      name: "Durable HTTP Update",
+      description: "Controlled durable HTTP update fixture.",
+      version: "2026.10.1-old",
+      artifact: {
+        kind: "archive",
+        source: { type: "github-release", repo: "service-lasso/durable-http-update", tag: "2026.10.1-old", api_base_url: updates.baseUrl },
+        platforms: { default: { assetName: "durable-http-update.zip", archiveType: "zip", command: "node", args: ["runtime/update.mjs"] } },
+      },
+      updates: { mode: "notify", track: "latest" },
+    });
+    const env = {
+      SERVICE_LASSO_MCP_MODE: "guarded",
+      SERVICE_LASSO_MCP_OAUTH_ISSUER: issuer,
+      SERVICE_LASSO_MCP_OAUTH_JWKS_URI: jwks.jwksUri,
+      SERVICE_LASSO_MCP_RESOURCE_URI: resource,
+      SERVICE_LASSO_MCP_OAUTH_AUDIENCE: audience,
+    };
+    const ownerToken = await signAccessToken(
+      jwks.privateKey,
+      "service-lasso:read service-lasso:lifecycle:write service-lasso:config:write service-lasso:update:write",
+      { actorId: "race-owner", clientId: "race-client" },
+    );
+    apiServer = await startDirectApiServer({
+      servicesRoot,
+      workspaceRoot,
+      mcpHttpIdentity: { env },
+      mcpPolicyTestHooks: {
+        beforeTerminalStage: async (_operation, outcome) => {
+          if (outcome !== "succeeded") return;
+          terminalBoundary.resolve();
+          await releaseTerminal.promise;
+        },
+        afterCancellationAccepted: async () => { cancellationAccepted.resolve(); },
+      },
+    });
+    const accepted = await lifecycleRequest(apiServer, "/api/operator/lifecycle/operations", "POST", {
+      action: "update_check",
+      serviceId: "durable-http-update",
+      execute: true,
+      idempotencyKey: "durable-update-success-race-key-1538",
+    }, ownerToken);
+    assert.equal(accepted.status, 202, JSON.stringify(accepted.body));
+    await terminalBoundary.promise;
+
+    const cancellation = lifecycleRequest(apiServer, `/api/operator/lifecycle/operations/${accepted.body.operation.operationId}/cancel`, "POST", {}, ownerToken);
+    await cancellationAccepted.promise;
+    releaseTerminal.resolve();
+    const cancelled = await cancellation;
+    assert.equal(cancelled.status, 200);
+    assert.equal(cancelled.body.cancellation.result, "requested");
+    assert.equal(cancelled.body.operation.status, "cancelled");
+
+    const readback = await lifecycleRequest(apiServer, `/api/operator/lifecycle/operations/${accepted.body.operation.operationId}`, "GET", undefined, ownerToken);
+    assert.equal(readback.status, 200);
+    assert.equal(readback.body.operation.status, "cancelled");
+    assert.equal(readback.body.operation.outcome, "cancelled");
+    const audit = await readAuditEvents({ workspaceRoot });
+    const terminalEvents = audit.events.filter((event) =>
+      event.subject === accepted.body.operation.operationId && ["mcp.operation.succeeded", "mcp.operation.cancelled"].includes(event.action),
+    );
+    assert.deepEqual(terminalEvents.map((event) => event.action), ["mcp.operation.cancelled"]);
+  } finally {
+    if (originalHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+    else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = originalHooks;
     await apiServer?.stop().catch(() => undefined);
     await updates.stop().catch(() => undefined);
     await jwks.stop();
