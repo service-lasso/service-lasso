@@ -12,7 +12,7 @@ This file tracks bootstrap/adoption/remediation work required before product imp
 ## Open Items
 - #1463 staged client-local transfer is specified as a prerequisite in
   `docs/api/staged-service-transfer.md`; implementation is blocked on the
-  unmerged #1462 durable registration API and must not create a generic upload
+  merged #1462 durable registration API (a83133cc / PR #1464); implementation still requires fresh independent specification/security review and must not create a generic upload
   route on `develop`.
 - Long-lived branch model is `develop` for governed implementation and `main` for promoted releases. Feature/fix branches merge back through PR, are archived with the `archive/` prefix after merge, and the workspace returns to clean `develop` before the next issue.
 - Keep issue `#1164` security settings, active ruleset, branch protection,
