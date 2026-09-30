@@ -77,7 +77,7 @@ export function parseReceipt(line) {
 // JSON.parse intentionally accepts duplicate object members by keeping the
 // last one. Consumer receipts are custody inputs, so reject them before that
 // lossy materialization can occur.
-function strictJson(source) {
+export function strictJson(source) {
   if (typeof source !== "string") return null;
   const parseValue = (start) => {
     let index = skipWhitespace(source, start);

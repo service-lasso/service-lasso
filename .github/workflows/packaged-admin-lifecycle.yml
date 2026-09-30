@@ -14,6 +14,7 @@ on:
       - scripts/consume-admin-trusted-unlock-receipt.mjs
       - scripts/retain-packaged-admin-lifecycle-receipt.mjs
       - scripts/verify-packaged-admin-lifecycle-artifacts.mjs
+      - scripts/published-package-qualification-lib.mjs
       - tests/fixtures/real-admin-browser-runner.mjs
       - tests/consume-admin-trusted-unlock-receipt.test.js
       - tests/packaged-admin-lifecycle-receipt-custody.test.js
@@ -29,6 +30,7 @@ on:
       - scripts/consume-admin-trusted-unlock-receipt.mjs
       - scripts/retain-packaged-admin-lifecycle-receipt.mjs
       - scripts/verify-packaged-admin-lifecycle-artifacts.mjs
+      - scripts/published-package-qualification-lib.mjs
       - tests/fixtures/real-admin-browser-runner.mjs
       - tests/consume-admin-trusted-unlock-receipt.test.js
       - tests/packaged-admin-lifecycle-receipt-custody.test.js

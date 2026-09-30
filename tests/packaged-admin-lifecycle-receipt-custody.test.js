@@ -6,17 +6,22 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { retainReceipt } from "../scripts/retain-packaged-admin-lifecycle-receipt.mjs";
+import { ADMIN_HARNESS_REVISION, ADMIN_RELEASE, BROKER_RELEASE } from "../scripts/published-package-qualification-lib.mjs";
 
 const script = new URL("../scripts/verify-packaged-admin-lifecycle-artifacts.mjs", import.meta.url);
 const runId = "431", runAttempt = "2", workflowSha = "a".repeat(40);
 const receipt = { schema: "service-lasso.admin-trusted-unlock-consumer.v1", outcome: "nonzero_exit", exitCode: 1, signal: null, trustedUnlock: { classification: "closed", receipt: { schema: "service-admin.trusted-unlock-receipt.v1", status: "observed", present: true, verified: false, localRoot: false, loading: true, unavailable: false } } };
+function evidenceFor(platform) {
+  const release = (value) => ({ revision: value.revision, releaseId: value.id, tag: value.tag, asset: value.platforms[platform].asset, sha256: value.platforms[platform].sha256, checksumSource: "SHA256SUMS.txt" });
+  return { schema: "service-lasso.packaged-admin-lifecycle.v1", retainedContent: "metadata_only", outcome: "failure", platform, core: { revision: workflowSha }, admin: release(ADMIN_RELEASE), adminHarness: { repository: "service-lasso/lasso-serviceadmin", revision: ADMIN_HARNESS_REVISION }, broker: release(BROKER_RELEASE), browser: { modes: platform === "win32" ? ["first_run", "comprehensive_lifecycle", "stopped_lifecycle", "local_operator_lockout"] : ["first_run", "comprehensive_lifecycle", "stopped_lifecycle"], mutationRetry: false, capturesRetained: false, sensitiveEvidenceRetained: false } };
+}
 async function fixture(mutator, source = receipt) {
   const root = await mkdtemp(path.join(tmpdir(), "packaged-custody-"));
   for (const platform of ["linux", "win32", "darwin"]) {
     const directory = path.join(root, `packaged-admin-lifecycle-${platform}-${runId}-${runAttempt}`);
     await mkdir(directory);
     const evidence = path.join(directory, `packaged-admin-lifecycle-${platform}.json`), retained = path.join(directory, "admin-trusted-unlock-receipt.json"), privateReceipt = path.join(await mkdtemp(path.join(tmpdir(), "packaged-private-")), "runner-private-receipt.json");
-    await writeFile(evidence, JSON.stringify({ schema: "service-lasso.packaged-admin-lifecycle.v1", platform, outcome: "failure" }));
+    await writeFile(evidence, JSON.stringify(evidenceFor(platform)));
     await writeFile(privateReceipt, JSON.stringify(source));
     await retainReceipt({ receiptPath: privateReceipt, evidencePath: evidence, retainedPath: retained, runId, runAttempt, workflowSha, platform });
   }
@@ -38,7 +43,7 @@ for (const [label, source] of [
 ]) test(`AC-4BY.2 recorder rejects ${label}`, async () => {
   const root = await mkdtemp(path.join(tmpdir(), "packaged-recorder-"));
   const evidence = path.join(root, "evidence.json"), retained = path.join(root, "retained.json"), receiptPath = path.join(root, "receipt.json");
-  await writeFile(evidence, JSON.stringify({ schema: "service-lasso.packaged-admin-lifecycle.v1", platform: "linux" }));
+  await writeFile(evidence, JSON.stringify(evidenceFor("linux")));
   if (source !== null) await writeFile(receiptPath, typeof source === "string" ? source : JSON.stringify(source));
   await assert.rejects(retainReceipt({ receiptPath, evidencePath: evidence, retainedPath: retained, runId, runAttempt, workflowSha, platform: "linux" }));
 });
@@ -52,7 +57,7 @@ for (const [label, source] of [
   for (const platform of ["linux", "win32", "darwin"]) {
     const root = await mkdtemp(path.join(tmpdir(), `packaged-recorder-${platform}-`));
     const evidence = path.join(root, "evidence.json"), retained = path.join(root, "retained.json"), receiptPath = path.join(root, "receipt.json");
-    await writeFile(evidence, JSON.stringify({ schema: "service-lasso.packaged-admin-lifecycle.v1", platform }));
+    await writeFile(evidence, JSON.stringify(evidenceFor(platform)));
     if (source !== null) await writeFile(receiptPath, typeof source === "string" ? source : JSON.stringify(source));
     await assert.rejects(retainReceipt({ receiptPath, evidencePath: evidence, retainedPath: retained, runId, runAttempt, workflowSha, platform }));
   }
@@ -66,6 +71,12 @@ for (const [label, mutate] of [
   ["success without explicit no-failure classification", async (root) => writeFile(path.join(root, `packaged-admin-lifecycle-linux-${runId}-${runAttempt}`, "admin-trusted-unlock-receipt.json"), JSON.stringify({ ...receipt, outcome: "success", exitCode: 0, trustedUnlock: null }))],
   ["stale", async (root) => { const file = path.join(root, `packaged-admin-lifecycle-linux-${runId}-${runAttempt}`, "packaged-admin-lifecycle-linux.json"); const value = JSON.parse(await readFile(file)); value.run.id = "430"; await writeFile(file, JSON.stringify(value)); }],
   ["attempt mismatch", async (root) => { const file = path.join(root, `packaged-admin-lifecycle-linux-${runId}-${runAttempt}`, "packaged-admin-lifecycle-linux.json"); const value = JSON.parse(await readFile(file)); value.run.attempt = "1"; await writeFile(file, JSON.stringify(value)); }],
+  ["wrong Core candidate", async (root) => { const file = path.join(root, `packaged-admin-lifecycle-linux-${runId}-${runAttempt}`, "packaged-admin-lifecycle-linux.json"); const value = JSON.parse(await readFile(file)); value.core.revision = "b".repeat(40); await writeFile(file, JSON.stringify(value)); }],
+  ["wrong Admin release", async (root) => { const file = path.join(root, `packaged-admin-lifecycle-linux-${runId}-${runAttempt}`, "packaged-admin-lifecycle-linux.json"); const value = JSON.parse(await readFile(file)); value.admin.releaseId = "1"; await writeFile(file, JSON.stringify(value)); }],
+  ["wrong Admin revision", async (root) => { const file = path.join(root, `packaged-admin-lifecycle-linux-${runId}-${runAttempt}`, "packaged-admin-lifecycle-linux.json"); const value = JSON.parse(await readFile(file)); value.admin.revision = "b".repeat(40); await writeFile(file, JSON.stringify(value)); }],
+  ["wrong Admin checksum", async (root) => { const file = path.join(root, `packaged-admin-lifecycle-linux-${runId}-${runAttempt}`, "packaged-admin-lifecycle-linux.json"); const value = JSON.parse(await readFile(file)); value.admin.sha256 = "b".repeat(64); await writeFile(file, JSON.stringify(value)); }],
+  ["wrong Admin harness", async (root) => { const file = path.join(root, `packaged-admin-lifecycle-linux-${runId}-${runAttempt}`, "packaged-admin-lifecycle-linux.json"); const value = JSON.parse(await readFile(file)); value.adminHarness.revision = "b".repeat(40); await writeFile(file, JSON.stringify(value)); }],
+  ["expanded evidence", async (root) => { const file = path.join(root, `packaged-admin-lifecycle-linux-${runId}-${runAttempt}`, "packaged-admin-lifecycle-linux.json"); const value = JSON.parse(await readFile(file)); value.private = true; await writeFile(file, JSON.stringify(value)); }],
   ["extra material", async (root) => writeFile(path.join(root, `packaged-admin-lifecycle-linux-${runId}-${runAttempt}`, "extra.json"), "{}")],
 ]) test(`AC-4BY.2 aggregate rejects ${label} receipt custody`, async () => { assert.notEqual(verify(await fixture(mutate)).status, 0); });
 for (const [label, source] of [

@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { parseDocument } from "yaml";
+import { ADMIN_HARNESS_REVISION, ADMIN_RELEASE, BROKER_RELEASE } from "../scripts/published-package-qualification-lib.mjs";
 
 const workflowUrl = new URL(
   "../.github/workflows/packaged-admin-lifecycle.yml",
@@ -22,6 +23,7 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
     "scripts/consume-admin-trusted-unlock-receipt.mjs",
     "scripts/retain-packaged-admin-lifecycle-receipt.mjs",
     "scripts/verify-packaged-admin-lifecycle-artifacts.mjs",
+    "scripts/published-package-qualification-lib.mjs",
     "tests/fixtures/real-admin-browser-runner.mjs",
     "tests/consume-admin-trusted-unlock-receipt.test.js",
     "tests/packaged-admin-lifecycle-receipt-custody.test.js",
@@ -64,6 +66,10 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
     workflow,
     /BROKER_REVISION: "f340883056ec3cf74b535fb46490b39382e8c823"/,
   );
+  assert.equal(ADMIN_RELEASE.id, "380051618");
+  assert.equal(ADMIN_RELEASE.revision, "f015b4445b0526546a309301270186a697588166");
+  assert.equal(ADMIN_HARNESS_REVISION, "90caf8cf0f8e3c599a1a5022936813ac8bf0983b");
+  assert.equal(BROKER_RELEASE.revision, "f340883056ec3cf74b535fb46490b39382e8c823");
 
   for (const digest of [
     "fe5e5fe01d1202f3874097e6223652d634c94677c765c5f82d20e6d274c0161c",
