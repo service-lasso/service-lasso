@@ -130,11 +130,14 @@ jobs:
           echo "bundled_artifact_name=service-lasso-bundled-$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Run tests
+        env:
+          SERVICE_LASSO_RELEASE_METADATA_TOKEN: ${{ github.token }}
         run: npm test
 
       - name: Verify bounded release artifact
         env:
           SERVICE_LASSO_RELEASE_VERSION: ${{ steps.release_version.outputs.version }}
+          SERVICE_LASSO_RELEASE_METADATA_TOKEN: ${{ github.token }}
         run: npm run release:verify
 
       - name: Validate staged release asset policy
