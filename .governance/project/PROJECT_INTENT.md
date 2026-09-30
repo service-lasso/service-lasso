@@ -102,7 +102,7 @@ For the first runtime slice, expected proof should include:
 
 ## Newcomer delivery priority
 
-Issue #1326 must retain secret-safe phase evidence for repeated Windows lifecycle qualification failures before further retries. Diagnostic work must preserve product deadlines, ownership/containment checks and original assertions; collecting evidence is not resolution of the underlying failure.
+Issue #1326 must retain secret-safe phase evidence for repeated Windows lifecycle qualification failures before further retries. The canceled-monitor enrollment boundary records only closed parent/child birth relations to a fingerprint-matching root and a bounded ancestry depth, so a stale parent lifetime can be separated from an ordering-race candidate. Diagnostic work must preserve product deadlines, ownership/containment checks and original assertions; collecting evidence is not resolution of the underlying failure.
 
 The real newcomer runner must also retain a bounded, read-only startup failure snapshot before owned cleanup when a request abort hides the server's eventual failure phase. Keep this diagnostic outside public bundles, preserve the original failure, and never retry mutations or extend their deadlines to collect it.
 
