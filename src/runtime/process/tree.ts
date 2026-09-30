@@ -554,11 +554,13 @@ async function signalVerifiedMembers(
   terminalWindowsInspectionEpisode = false,
 ): Promise<void> {
   for (const member of members) {
-    const identityState = terminalWindowsInspectionEpisode && (dependencies.platform ?? process.platform) === "win32"
-      ? "owned"
-      : signalAlreadyAuthorized
-        ? await requirePostSignalIdentity(member, dependencies)
-        : await requireOwnedIdentity(member, dependencies);
+    // A terminal same-held command query leaves this member as retained
+    // custody, not as a fresh numeric-PID authority. It can only become absent
+    // through the authoritative absence probe; a present or ambiguous PID
+    // remains fail-closed rather than being signalled.
+    const identityState = signalAlreadyAuthorized
+      ? await requirePostSignalIdentity(member, dependencies, terminalWindowsInspectionEpisode)
+      : await requireOwnedIdentity(member, dependencies);
     if (identityState === "unverifiable") {
       throw new Error(`Cannot verify process ${member.pid} while controlling its process tree.`);
     }

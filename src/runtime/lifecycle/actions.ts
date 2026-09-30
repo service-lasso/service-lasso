@@ -1106,7 +1106,7 @@ async function stopManagedProcessWithOverride(
   const serviceId = service.manifest.id;
   const override = getLifecycleStopOverride(service);
   if (!override) {
-    const stopped = await stopManagedProcess(serviceId);
+    const stopped = await stopManagedProcess(serviceId, undefined, { newWindowsInspectionEpisode: true });
     return {
       exitCode: stopped?.exitCode ?? current.runtime.exitCode ?? 0,
       message: "Stop completed.",
@@ -1124,7 +1124,7 @@ async function stopManagedProcessWithOverride(
     }
   }
 
-  const stopped = await stopManagedProcess(serviceId);
+  const stopped = await stopManagedProcess(serviceId, undefined, { newWindowsInspectionEpisode: true });
   const reason = overrideResult.timedOut
     ? "timed out"
     : `failed with exit code ${overrideResult.exitCode ?? "unknown"}`;

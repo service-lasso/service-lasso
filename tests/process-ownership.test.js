@@ -3586,6 +3586,62 @@ test("Windows explicit managed stop starts a fresh native inspection episode aft
   }
 });
 
+test("Windows public HTTP stop starts a fresh native inspection episode after a terminal monitor refresh", {
+  skip: process.platform !== "win32",
+}, async () => {
+  resetLifecycleState();
+  const priorTestHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+  const priorCommandQuery = process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY;
+  process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
+  delete process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY;
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-public-stop-native-");
+  const serviceId = "public-stop-native-service";
+  await writeExecutableFixtureService(servicesRoot, serviceId);
+  let apiServer;
+  let nativeTreeInvocations = 0;
+  let terminalRefreshObserved = false;
+
+  try {
+    setManagedWindowsTreeInspectorForTests(async (identity, options) => {
+      nativeTreeInvocations += 1;
+      try {
+        return await inspectWindowsProcessTree(identity, options);
+      } catch (error) {
+        terminalRefreshObserved ||= windowsTreeInspectionFailureMetadata(error).windowsTreeInspectionLastRetry === "root_command_partial_copy";
+        throw error;
+      }
+    });
+    apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
+    assert.equal((await postJson(`${apiServer.url}/api/services/${serviceId}/install`)).response.status, 200);
+    assert.equal((await postJson(`${apiServer.url}/api/services/${serviceId}/config`)).response.status, 200);
+    assert.equal((await postJson(`${apiServer.url}/api/services/${serviceId}/start`)).response.status, 200);
+    const initialNativeTreeInvocations = nativeTreeInvocations;
+
+    process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY = "partial_tree_only";
+    await waitFor(() => terminalRefreshObserved, 20_000);
+    assert.equal(nativeTreeInvocations, initialNativeTreeInvocations + 1);
+
+    delete process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY;
+    const stop = await postJson(`${apiServer.url}/api/services/${serviceId}/stop`, { confirm: true });
+    assert.equal(stop.response.status, 200);
+    assert.equal(stop.body.state.running, false);
+    assert.equal(nativeTreeInvocations, initialNativeTreeInvocations + 2);
+    const stopped = await findProcessOwnership(workspaceRoot, "service", serviceId);
+    assert.equal(stopped.lifecycleState, "stopped");
+    assert.equal(stopped.pid, null);
+  } finally {
+    setManagedWindowsTreeInspectorForTests(null);
+    await apiServer?.stop();
+    await stopAllManagedProcesses().catch(() => null);
+    if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+    else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
+    if (priorCommandQuery === undefined) delete process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY;
+    else process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY = priorCommandQuery;
+    resetLifecycleState();
+    await removeTempRoot(tempRoot);
+  }
+});
+
 test("API preserves and can stop truthful running state after enrollment containment fails", {
   skip: process.platform !== "win32",
 }, async () => {

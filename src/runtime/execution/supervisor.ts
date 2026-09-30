@@ -1479,6 +1479,7 @@ function adoptedProcessTreeTarget(record: AdoptedProcessRecord): OwnedProcessTre
     verifiedMembersOnly: record.verifiedMembersOnly,
     forceImmediately: process.platform === "win32",
     preferFastWindowsRootIdentity: process.platform === "win32",
+    terminalWindowsInspectionEpisode: record.terminalWindowsCommandPartialCopy,
   };
 }
 
@@ -1692,9 +1693,12 @@ async function monitorAdoptedProcess(record: AdoptedProcessRecord): Promise<void
       }
       continue;
     }
-    if (status === "not_running" || status === "identity_mismatch") {
+    if (status === "not_running") {
       await finalizeAdoptedProcessExit(record);
       return;
+    }
+    if (status === "identity_mismatch") {
+      throw new Error(`Cannot finalize adopted service "${serviceId}" because its retained PID identity changed.`);
     }
   }
 }
@@ -2337,8 +2341,11 @@ async function waitForAdoptedProcessExit(
       return true;
     }
     const status = await classifyRegisteredProcess(ownership);
-    if (status === "not_running" || status === "identity_mismatch") {
+    if (status === "not_running") {
       return true;
+    }
+    if (status === "identity_mismatch") {
+      throw new Error(`Cannot verify adopted service "${record.service.manifest.id}" absence because its retained PID identity changed.`);
     }
     if (status === "unknown_owner") {
       throw new Error(`Cannot verify adopted service "${record.service.manifest.id}" process owner during stop.`);
@@ -2360,6 +2367,11 @@ async function stopAdoptedProcess(
 
   const deadlineMs = processControlDeadline(timeoutMs);
   const finalizer = managedProcessFinalizers.get(serviceId);
+  // A user-requested stop starts its own bounded inspection episode. Automatic
+  // monitor/finalizer/stopAll continuation deliberately keeps terminal custody.
+  if (process.platform === "win32" && options.newWindowsInspectionEpisode === true) {
+    record.terminalWindowsCommandPartialCopy = false;
+  }
   await beginManagedProcessStop(serviceId, deadlineMs);
   let terminationTarget = adoptedProcessTreeTarget(record);
   const terminationDependencies: Parameters<typeof terminateOwnedProcessTree>[2] = { deadlineMs };
@@ -2415,6 +2427,10 @@ async function stopAdoptedProcess(
     remainingProcessControlMs(deadlineMs),
     terminationDependencies,
   );
+  const exited = await waitForAdoptedProcessExit(record, remainingProcessControlMs(deadlineMs));
+  if (!exited) {
+    throw new Error(`Cannot stop adopted service "${serviceId}" because authoritative process absence was not observed.`);
+  }
 
   await withProcessControlDeadline(
     async () => await withSerializedWorkspaceFinalization(record.workspaceRoot, async () => {

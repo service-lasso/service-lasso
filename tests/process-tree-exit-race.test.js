@@ -690,6 +690,40 @@ test("Windows exited managed root still cleans its verified descendant without r
   assert.deepEqual(commands, []);
 });
 
+test("Windows terminal inspection custody never signals a retained reused PID", async () => {
+  const retainedChild = { ...identity, pid: identity.pid + 1, commandHash: "b".repeat(64) };
+  const probes = [];
+  const signals = [];
+  await assert.rejects(
+    terminateOwnedProcessTree({
+      ...target,
+      knownMembers: [identity, retainedChild],
+      rootOwnershipProbe: () => "exited",
+      terminalWindowsInspectionEpisode: true,
+    }, 500, {
+      platform: "win32",
+      inspectProcess: async () => {
+        throw new Error("Terminal custody must not reopen PID identity inspection.");
+      },
+      killProcess: (pid, signal) => {
+        if (signal === 0) {
+          probes.push(pid);
+          if (pid === identity.pid) throw missingProcessError();
+          return;
+        }
+        signals.push({ pid, signal });
+      },
+      runWindowsCommand: async () => {
+        throw new Error("Exited root must not authorize taskkill.");
+      },
+    }),
+    /Cannot verify process/,
+  );
+
+  assert.deepEqual(probes, [retainedChild.pid]);
+  assert.deepEqual(signals, []);
+});
+
 test("Windows managed root-handle probe failure remains fail closed before taskkill", async () => {
   const commands = [];
   await assert.rejects(
