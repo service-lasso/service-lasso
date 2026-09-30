@@ -2290,6 +2290,10 @@ async function executeLifecycleAction(
     expectedExecutableFiles,
     expectedStopExecutableBinding,
     expectedDoctorExecutableBindings,
+    // Request-context-backed lifecycle dispatch is the supported explicit
+    // operator surface. Internal shutdown, monitor, and finalizer calls keep
+    // their current episode and cannot reopen terminal native inspection.
+    newWindowsInspectionEpisode: action === "stop" && requestContext !== undefined,
   };
   const result = await (async () => {
     switch (action) {
