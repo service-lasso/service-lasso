@@ -2005,6 +2005,13 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
         true,
         finalizationDeadlineMs,
       );
+      // #1537 requires a fresh root-exit receipt and a fresh verified-member
+      // union before a managed root can become stopped. An earlier terminal
+      // #1535 episode forbids reopening the native inspector, so preserve the
+      // durable launching record rather than manufacture that final proof.
+      if (record.terminalWindowsCommandPartialCopy) {
+        throw new Error("Managed process finalization requires a new Windows inspection episode.");
+      }
       await new Promise<void>((resolve) => setImmediate(resolve));
       record.exitCode = exitCode;
       record.exitSignal = signal;
