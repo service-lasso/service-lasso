@@ -29,9 +29,11 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
   );
   assert.match(
     workflow,
-    /ADMIN_HARNESS_REVISION: "66ea0a5be70a8b3f3f73e4132d92b50ff6d45784"/,
+    /ADMIN_HARNESS_REVISION: "90caf8cf0f8e3c599a1a5022936813ac8bf0983b"/,
   );
   assert.match(workflow, /ref: \$\{\{ env\.ADMIN_HARNESS_REVISION \}\}/);
+  assert.match(workflow, /timeout-minutes: 60/);
+  assert.doesNotMatch(workflow, /(?:timeout|deadline)[^\n]*?(?:real-browser|consume-admin-trusted-unlock-receipt)/iu);
   assert.match(
     workflow,
     /test "\$admin_revision" = "\$ADMIN_HARNESS_REVISION"/,
@@ -77,6 +79,10 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
   );
   assert.match(workflow, /SERVICE_LASSO_TEST_ADMIN_ROOT/);
   assert.match(workflow, /consume-admin-trusted-unlock-receipt\.mjs/);
+  assert.match(
+    workflow,
+    /consume-admin-trusted-unlock-receipt\.mjs[\s\S]*?--receipt[\s\S]*?pnpm test:secrets:real-browser/,
+  );
   assert.match(workflow, /SERVICE_LASSO_REQUIRE_TEST_BROKER_BINARY: "1"/);
   assert.match(workflow, /& chmod \+x \$brokerBinary\.FullName/);
   assert.doesNotMatch(workflow, /& chmod \+x --/);

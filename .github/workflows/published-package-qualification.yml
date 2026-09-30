@@ -72,7 +72,7 @@ jobs:
       CORE_NPM_INTEGRITY: ${{ inputs.core_npm_integrity }}
       CORE_RELEASE_ASSET: service-lasso-${{ inputs.core_release_tag }}-${{ matrix.core_suffix }}
       CORE_RELEASE_SHA256: ${{ matrix.core_sha256 }}
-      ADMIN_HARNESS_REVISION: 66ea0a5be70a8b3f3f73e4132d92b50ff6d45784
+      ADMIN_HARNESS_REVISION: 90caf8cf0f8e3c599a1a5022936813ac8bf0983b
       QUALIFICATION_PLATFORM: ${{ matrix.platform }}
       QUALIFICATION_SAFE_STATE_PATH: ${{ github.workspace }}/artifacts/qualification-state-${{ matrix.platform }}.json
       QUALIFICATION_EVIDENCE_ROOT: ${{ github.workspace }}/artifacts/retained-${{ matrix.platform }}

@@ -43,7 +43,7 @@ test("AC-4BZ.1 workflow qualifies only exact downloaded publications on all thre
   assert.match(workflow, /ref: \$\{\{ github\.sha \}\}/);
   assert.match(
     workflow,
-    /ADMIN_HARNESS_REVISION: 66ea0a5be70a8b3f3f73e4132d92b50ff6d45784/,
+    /ADMIN_HARNESS_REVISION: 90caf8cf0f8e3c599a1a5022936813ac8bf0983b/,
   );
   assert.match(
     workflow,
@@ -58,6 +58,10 @@ test("AC-4BZ.1 workflow qualifies only exact downloaded publications on all thre
     /node scripts\/prepare-published-package-qualification\.mjs/,
   );
   assert.match(workflow, /consume-admin-trusted-unlock-receipt\.mjs/);
+  assert.match(
+    workflow,
+    /consume-admin-trusted-unlock-receipt\.mjs[\s\S]*?--receipt[\s\S]*?pnpm test:secrets:real-browser/,
+  );
   assert.doesNotMatch(
     workflow,
     /\bnpm ci\b|\bnpm run build\b|\bcontinue-on-error\b|\bmain\b|--force|screenshots|videos/iu,
