@@ -12,7 +12,7 @@ import {
   validateMcpProductEvidence,
 } from "./mcp-product-acceptance-lib.mjs";
 
-import { packagedVerificationDiagnostic } from "./packaged-verification-diagnostics.mjs";
+import { dependencyAcquisitionSubcode, packagedVerificationDiagnostic } from "./packaged-verification-diagnostics.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const platform = process.platform;
@@ -218,6 +218,7 @@ try {
   verificationStage = "dependency_acquisition";
   await runCommand(process.execPath, [npmEntrypoint,
     "install",
+    "--json",
     "--ignore-scripts",
     "--no-audit",
     "--no-fund",
@@ -370,7 +371,11 @@ try {
     result: "passed",
   })}\n`);
 } catch (error) {
-  verificationFailure = error?.packagedAcceptanceDiagnostic ?? packagedVerificationDiagnostic(verificationStage, operatorToolFailureDiagnostic(error));
+  verificationFailure = error?.packagedAcceptanceDiagnostic ?? packagedVerificationDiagnostic(
+    verificationStage,
+    operatorToolFailureDiagnostic(error),
+    verificationStage === "dependency_acquisition" ? dependencyAcquisitionSubcode(error) : undefined,
+  );
 } finally {
   try {
     await removeOwnedTempRoot(tempRoot);

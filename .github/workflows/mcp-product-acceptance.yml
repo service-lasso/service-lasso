@@ -11,8 +11,10 @@ on:
       - .github/workflows/release-qualification.yml
       - .governance/project/BACKLOG.md
       - .governance/project/PROJECT_INTENT.md
+      - .governance/specs/SPEC-002-core-standalone-runtime.md
       - .governance/specs/SPEC-006-operator-mcp.md
       - docs/reference/operator-mcp.md
+      - docs/reference/source-safe-template-admission.md
       - docs/reference/process-ownership-registry.md
       - package.json
       - package-lock.json
@@ -63,8 +65,10 @@ on:
       - .github/workflows/release-qualification.yml
       - .governance/project/BACKLOG.md
       - .governance/project/PROJECT_INTENT.md
+      - .governance/specs/SPEC-002-core-standalone-runtime.md
       - .governance/specs/SPEC-006-operator-mcp.md
       - docs/reference/operator-mcp.md
+      - docs/reference/source-safe-template-admission.md
       - docs/reference/process-ownership-registry.md
       - package.json
       - package-lock.json

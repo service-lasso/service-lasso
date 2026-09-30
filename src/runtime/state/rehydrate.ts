@@ -112,6 +112,7 @@ interface StoredRuntimeState {
   variables?: unknown;
   brokerIdentity?: ServiceLifecycleState["runtime"]["brokerIdentity"];
   startTrace?: unknown;
+  restartTrace?: unknown;
   supervision?: unknown;
   lastAction?: LifecycleAction | null;
   actionHistory?: LifecycleAction[];
@@ -326,6 +327,25 @@ function parseStartTraceState(value: unknown): ServiceLifecycleState["runtime"][
       ? record.history.map(parseStartTraceAttempt).filter((attempt): attempt is ServiceStartTraceAttempt => attempt !== null)
       : [],
   };
+}
+
+function parseRestartTraceState(value: unknown): ServiceLifecycleState["runtime"]["restartTrace"] {
+  const parseAttempt = (candidate: unknown): ServiceLifecycleState["runtime"]["restartTrace"]["current"] => {
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return null;
+    const record = candidate as { status?: unknown; events?: unknown };
+    if (!(record.status === "running" || record.status === "succeeded" || record.status === "failed" || record.status === "blocked") || !Array.isArray(record.events)) return null;
+    const events = record.events.slice(0, 7).flatMap((event, index) => {
+      if (!event || typeof event !== "object" || Array.isArray(event)) return [];
+      const value = event as { stage?: unknown; status?: unknown; oldNewProcessRelation?: unknown };
+      if (!(value.stage === "precheck" || value.stage === "stop_request" || value.stage === "finalization_settled" || value.stage === "finalization_failed" || value.stage === "replacement_spawn" || value.stage === "readiness" || value.stage === "response")) return [];
+      if (!(value.status === "completed" || value.status === "blocked" || value.status === "failed" || value.status === "skipped")) return [];
+      return [{ order: index + 1, stage: value.stage, status: value.status, oldNewProcessRelation: value.oldNewProcessRelation === "prior_generation_running" || value.oldNewProcessRelation === "replacement_spawned" ? value.oldNewProcessRelation : "unavailable" }];
+    });
+    return { status: record.status, events } as ServiceLifecycleState["runtime"]["restartTrace"]["current"];
+  };
+  if (!value || typeof value !== "object" || Array.isArray(value)) return { current: null, history: [] };
+  const record = value as { current?: unknown; history?: unknown };
+  return { current: parseAttempt(record.current), history: Array.isArray(record.history) ? record.history.slice(0, 4).map(parseAttempt).filter((attempt): attempt is NonNullable<typeof attempt> => attempt !== null) : [] };
 }
 
 function parseRuntimeVariables(value: unknown): ServiceLifecycleState["runtime"]["variables"] {
@@ -682,6 +702,7 @@ function parseLifecycleState(service: DiscoveredService, snapshot: {
       variables: parseRuntimeVariables(runtime?.variables),
       brokerIdentity: parseBrokerIdentity(runtime?.brokerIdentity),
       startTrace: parseStartTraceState(runtime?.startTrace),
+      restartTrace: parseRestartTraceState(runtime?.restartTrace),
       supervision: parseSupervisionState(runtime?.supervision),
     },
   };
