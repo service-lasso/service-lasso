@@ -4384,6 +4384,7 @@ async function routeRequestWithoutMutationCoordination(
           targetIds: body.parameters.serviceId ? [body.parameters.serviceId] : [],
           cancellationSupported: isSafelyCancellableMcpAction(body.action),
           guardedExecutionId: preflight.guardedExecutionId,
+          requestFingerprint: preflight.requestFingerprint,
           alwaysAccept: true,
           deduplicateByGuardedExecution: true,
           execute: async (signal, reportProgress, correlationId) => await invoke(signal, reportProgress, correlationId),

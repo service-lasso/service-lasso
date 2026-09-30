@@ -306,7 +306,7 @@ export async function preflightMcpGuardedActionExecution(input: {
   authorization: McpHttpAuthorization | undefined;
   action: McpGuardedActionName;
   parameters: McpGuardedActionInput;
-}): Promise<{ guardedExecutionId: string }> {
+}): Promise<{ guardedExecutionId: string; requestFingerprint: string }> {
   const correlationId = `mcp-action-${randomUUID()}`;
   await assertMcpGuardedActionAuthorization({
     workspaceRoot: input.workspaceRoot,
@@ -332,6 +332,7 @@ export async function preflightMcpGuardedActionExecution(input: {
     }
     return {
       guardedExecutionId: executionId,
+      requestFingerprint: fingerprint({ action: input.action, parameters: normalized }),
     };
   } catch (error) {
     await audit(

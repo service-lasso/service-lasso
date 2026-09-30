@@ -36,7 +36,7 @@ const activeOperations = new Map<string, {
   controller: AbortController;
   completion: Promise<McpOperationCompletion>;
 }>();
-const activeGuardedExecutions = new Map<string, string>();
+const activeGuardedExecutions = new Map<string, { operationId: string; requestFingerprint: string }>();
 const workspaceHeartbeats = new Map<string, { completion: Promise<void> }>();
 const STATE_VERSION = 1;
 const STATE_LOCK_TIMEOUT_MS = 15_000;
@@ -143,6 +143,11 @@ interface StoredOperation {
   runnerInstanceId: string;
   heartbeatAt: string;
   guardedExecutionId: string | null;
+  /**
+   * Immutable validated request identity for HTTP durable-operation claims.
+   * Older records without it may be read for recovery, but never replayed.
+   */
+  requestFingerprint: string | null;
   pendingTerminal: PendingTerminal | null;
 }
 
@@ -181,6 +186,7 @@ export class McpOperationError extends Error {
     public readonly code:
       | "authorization_required"
       | "forbidden"
+      | "idempotency_conflict"
       | "invalid_cursor"
       | "invalid_request"
       | "operation_capacity"
@@ -218,6 +224,8 @@ export class McpOperationService {
     targetIds: string[];
     cancellationSupported: boolean;
     guardedExecutionId?: string | null;
+    /** Validated action-and-parameters fingerprint for an HTTP claim. */
+    requestFingerprint?: string | null;
     requestSignal?: AbortSignal;
     /**
      * HTTP operation clients need an opaque record even when a local action
@@ -236,14 +244,23 @@ export class McpOperationService {
     const authorization = requiredAuthorization(input.authorization);
     const createdAt = this.now();
     const guardedExecutionId = normalizeGuardedExecutionId(input.guardedExecutionId);
+    const requestFingerprint = input.deduplicateByGuardedExecution
+      ? normalizeRequestFingerprint(input.requestFingerprint)
+      : null;
     const guardedExecutionKey = input.deduplicateByGuardedExecution && guardedExecutionId !== null
       ? operationGuardedExecutionKey(this.workspaceRoot, authorization, guardedExecutionId)
       : null;
     if (guardedExecutionKey) {
-      const activeOperationId = activeGuardedExecutions.get(guardedExecutionKey);
-      if (activeOperationId) {
+      const activeOperation = activeGuardedExecutions.get(guardedExecutionKey);
+      if (activeOperation) {
+        if (activeOperation.requestFingerprint !== requestFingerprint) {
+          throw new McpOperationError(
+            "idempotency_conflict",
+            "The idempotency key is already bound to different action parameters.",
+          );
+        }
         try {
-          const current = await this.get(activeOperationId, authorization);
+          const current = await this.get(activeOperation.operationId, authorization);
           return acceptedOperationPayload(this.now(), current.operation);
         } catch (error) {
           if (!(error instanceof McpOperationError) || error.code !== "operation_not_found") throw error;
@@ -282,6 +299,7 @@ export class McpOperationService {
       runnerInstanceId: randomUUID(),
       heartbeatAt: createdAt.toISOString(),
       guardedExecutionId,
+      requestFingerprint,
       pendingTerminal: null,
     };
 
@@ -293,6 +311,15 @@ export class McpOperationService {
         guardedExecutionId !== null && operation.guardedExecutionId === guardedExecutionId
       ) : undefined;
       if (existing) {
+        // The operation record is the first durable claim. The guarded-action
+        // journal is written later, so compare the validated fingerprint here
+        // while holding the cross-process operation-state lock.
+        if (existing.requestFingerprint !== requestFingerprint) {
+          throw new McpOperationError(
+            "idempotency_conflict",
+            "The idempotency key is already bound to different action parameters.",
+          );
+        }
         existingOperationId = existing.operationId;
         return;
       }
@@ -305,11 +332,13 @@ export class McpOperationService {
       const current = await this.get(existingOperationId, authorization);
       return acceptedOperationPayload(this.now(), current.operation);
     }
-    if (guardedExecutionKey) activeGuardedExecutions.set(guardedExecutionKey, operationId);
+    if (guardedExecutionKey && requestFingerprint) {
+      activeGuardedExecutions.set(guardedExecutionKey, { operationId, requestFingerprint });
+    }
     try {
       await auditOperation(this.workspaceRoot, record, "started", "accepted");
     } catch (error) {
-      if (guardedExecutionKey && activeGuardedExecutions.get(guardedExecutionKey) === operationId) {
+      if (guardedExecutionKey && activeGuardedExecutions.get(guardedExecutionKey)?.operationId === operationId) {
         activeGuardedExecutions.delete(guardedExecutionKey);
       }
       await this.mutateState((state) => {
@@ -331,7 +360,7 @@ export class McpOperationService {
     this.ensureWorkspaceHeartbeat();
     if (guardedExecutionKey) {
       void completion.finally(() => {
-        if (activeGuardedExecutions.get(guardedExecutionKey) === operationId) {
+        if (activeGuardedExecutions.get(guardedExecutionKey)?.operationId === operationId) {
           activeGuardedExecutions.delete(guardedExecutionKey);
         }
       }).catch(() => undefined);
@@ -893,6 +922,13 @@ function normalizeGuardedExecutionId(value: string | null | undefined): string |
   return value;
 }
 
+function normalizeRequestFingerprint(value: string | null | undefined): string {
+  if (typeof value !== "string" || !/^[0-9a-f]{64}$/u.test(value)) {
+    throw new McpOperationError("invalid_request", "Durable operation request identity is invalid.");
+  }
+  return value;
+}
+
 function sameTargets(left: string[], right: string[]): boolean {
   return left.length === right.length && left.every((value, index) => value === right[index]);
 }
@@ -1110,9 +1146,10 @@ function parseStoredOperation(raw: unknown): StoredOperation {
     typeof record.runnerInstanceId !== "string" || !/^[0-9a-f-]{36}$/u.test(record.runnerInstanceId) ||
     !isIso(record.heartbeatAt) ||
     !(record.guardedExecutionId === null || typeof record.guardedExecutionId === "string" && /^[0-9a-f]{64}$/u.test(record.guardedExecutionId)) ||
+    !(record.requestFingerprint === undefined || record.requestFingerprint === null || typeof record.requestFingerprint === "string" && /^[0-9a-f]{64}$/u.test(record.requestFingerprint)) ||
     !(record.pendingTerminal === null || isPendingTerminal(record.pendingTerminal))
   ) throw invalidState();
-  return record as StoredOperation;
+  return { ...record, requestFingerprint: record.requestFingerprint ?? null } as StoredOperation;
 }
 
 function isPendingTerminal(value: unknown): value is PendingTerminal {
