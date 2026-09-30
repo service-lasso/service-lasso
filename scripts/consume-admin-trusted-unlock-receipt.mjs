@@ -9,7 +9,6 @@ const MAX_RECORD_LENGTH = 256;
 const MAX_CHUNK_SLICE_BYTES = 8_192;
 const MAX_OBSERVED_BYTES = 65_536;
 const MAX_DISCARD_BYTES = 16_384;
-const COMMAND_TIMEOUT_MS = 120_000;
 const TERMINATION_GRACE_MS = 500;
 const PIPE_CLOSE_TIMEOUT_MS = 500;
 const PROPAGATED_SIGNALS = new Set(["SIGTERM", "SIGINT", "SIGHUP"]);
@@ -188,22 +187,33 @@ export async function consume(command, args, options = {}) {
   let timedOut = false;
   const result = await new Promise((resolve) => {
     let forceTimer = null;
-    const timer = setTimeout(() => {
+    let timer = null;
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      clearTimeout(forceTimer);
+      resolve(value);
+    };
+    const timeoutMs = options.timeoutMs;
+    const onTimeout = () => {
       timedOut = true;
       if (child.exitCode === null && child.signalCode === null) child.kill("SIGTERM");
       forceTimer = setTimeout(() => {
-        if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+        if (child.exitCode !== null || child.signalCode !== null) return;
+        child.kill("SIGKILL");
+        // A successful signal delivery is not evidence that the child (or any
+        // inherited pipe holder) exited. Do not await that uncertainty forever.
+        finish({ code: null, signal: null, executionFailure: "execution_timeout" });
       }, TERMINATION_GRACE_MS);
-    }, options.timeoutMs ?? COMMAND_TIMEOUT_MS);
+    };
+    if (Number.isFinite(timeoutMs) && timeoutMs >= 0) timer = setTimeout(onTimeout, timeoutMs);
     child.once("error", () => {
-      clearTimeout(timer);
-      clearTimeout(forceTimer);
-      resolve({ code: null, signal: null, executionFailure: "spawn_failed" });
+      finish({ code: null, signal: null, executionFailure: "spawn_failed" });
     });
     child.once("exit", (code, signal) => {
-      clearTimeout(timer);
-      clearTimeout(forceTimer);
-      resolve({ code, signal, executionFailure: timedOut ? "execution_timeout" : null });
+      finish({ code, signal, executionFailure: timedOut ? "execution_timeout" : null });
     });
   });
   let pipeHang = false;
