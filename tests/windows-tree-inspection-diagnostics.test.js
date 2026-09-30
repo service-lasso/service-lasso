@@ -89,12 +89,16 @@ test("projection excludes arbitrary fields, invalid codes and unbounded numbers"
     windowsTreeInspectionPhase: "native_snapshot", windowsTreeInspectionAttempts: Infinity,
     windowsTreeInspectionRetries: 1001, windowsTreeInspectionQueueMs: -1,
     windowsTreeInspectionNativeMs: 600001, windowsTreeInspectionLastRetry: "private-secret",
+    windowsTreeInspectionAncestryCategory: "private-secret", windowsTreeInspectionRootFingerprintMatch: "private-secret",
+    windowsTreeInspectionAncestryDepthBucket: "private-secret",
     output: "private-secret", pid: root.pid, command: "private-secret",
   });
   assert.deepEqual(evidence, {
     windowsTreeInspectionPhase: "native_snapshot", windowsTreeInspectionAttempts: null,
     windowsTreeInspectionRetries: null, windowsTreeInspectionQueueMs: null,
     windowsTreeInspectionNativeMs: null, windowsTreeInspectionLastRetry: null,
+    windowsTreeInspectionAncestryCategory: null, windowsTreeInspectionRootFingerprintMatch: null,
+    windowsTreeInspectionAncestryDepthBucket: null,
   });
   assert.deepEqual(projectWindowsTreeInspectionMetadata({ windowsTreeInspectionPhase: "private-secret" }), {});
   assert.deepEqual(windowsTreeInspectionFailureMetadata({ get windowsTreeInspection() { throw new Error("private-secret"); } }), {});
@@ -146,6 +150,66 @@ test("every ancestry rejection stays fail closed with a distinct bounded reason"
       return true;
     });
   }
+});
+
+test("before-root parent-edge retries retain only closed ordering, root-match, and depth evidence", async () => {
+  const command = "private-command";
+  const expected = { ...root, commandHash: hashProcessCommandLine(command) };
+  const row = (pid, parent, date) => ({ Status: "running", ProcessId: pid,
+    ParentProcessId: parent, CreationDate: date, ExecutablePath: root.executablePath, CommandLine: command });
+  const rootRow = row(root.pid, 9000, root.createdAt);
+  const cases = [
+    {
+      category: "child_before_root_parent_at_or_after_root",
+      depth: "one",
+      descendants: [row(4343, 4344, "2026-07-18T01:02:02.456Z"), row(4344, root.pid, "2026-07-18T01:02:04.456Z")],
+    },
+    {
+      category: "child_before_parent_parent_before_root",
+      depth: "five_plus",
+      descendants: [
+        row(4343, 4344, "2026-07-18T01:02:08.456Z"), row(4344, 4345, "2026-07-18T01:02:07.456Z"),
+        row(4345, 4346, "2026-07-18T01:02:06.456Z"), row(4346, 4347, "2026-07-18T01:02:05.456Z"),
+        row(4347, 4348, "2026-07-18T01:02:01.456Z"), row(4348, root.pid, "2026-07-18T01:02:02.456Z"),
+      ],
+    },
+  ];
+  for (const sample of cases) {
+    await assert.rejects(inspectWindowsProcessTree(expected, {
+      deadlineMs: Date.now() + 180,
+      runCommand: async () => {
+        await new Promise(resolve => setTimeout(resolve, 75));
+        return { stdout: JSON.stringify({ Status: "tree", RootStatus: "running",
+          Processes: [rootRow, ...sample.descendants] }) };
+      },
+    }), error => {
+      const metadata = windowsTreeInspectionFailureMetadata(error);
+      assert.equal(error.code, "PROCESS_CONTROL_DEADLINE_EXCEEDED");
+      assert.equal(metadata.windowsTreeInspectionLastRetry, "ancestry_predates_parent_before_root");
+      assert.equal(metadata.windowsTreeInspectionAncestryCategory, sample.category);
+      assert.equal(metadata.windowsTreeInspectionRootFingerprintMatch, true);
+      assert.equal(metadata.windowsTreeInspectionAncestryDepthBucket, sample.depth);
+      assert.ok(metadata.windowsTreeInspectionRetries >= 1);
+      assert.doesNotMatch(JSON.stringify(metadata), /private|4343|4344|4345|4346|4347|4348|2026-07/);
+      return true;
+    });
+  }
+});
+
+test("ancestry diagnostic fields are retained only as a complete closed discriminator", () => {
+  const base = { windowsTreeInspectionPhase: "native_snapshot", windowsTreeInspectionAttempts: 52,
+    windowsTreeInspectionRetries: 51, windowsTreeInspectionQueueMs: 6, windowsTreeInspectionNativeMs: 2680,
+    windowsTreeInspectionLastRetry: "ancestry_predates_parent_before_root" };
+  assert.deepEqual(projectWindowsTreeInspectionMetadata({ ...base,
+    windowsTreeInspectionAncestryCategory: "child_before_parent_parent_before_root",
+    windowsTreeInspectionRootFingerprintMatch: true, windowsTreeInspectionAncestryDepthBucket: "two_to_four",
+  }), { ...base, windowsTreeInspectionAncestryCategory: "child_before_parent_parent_before_root",
+    windowsTreeInspectionRootFingerprintMatch: true, windowsTreeInspectionAncestryDepthBucket: "two_to_four" });
+  assert.deepEqual(projectWindowsTreeInspectionMetadata({ ...base,
+    windowsTreeInspectionAncestryCategory: "child_before_parent_parent_before_root",
+    windowsTreeInspectionRootFingerprintMatch: true, windowsTreeInspectionAncestryDepthBucket: "private-depth",
+  }), { ...base, windowsTreeInspectionAncestryCategory: null,
+    windowsTreeInspectionRootFingerprintMatch: null, windowsTreeInspectionAncestryDepthBucket: null });
 });
 test("native command status categories remain closed through actual bounded inspection retries", async () => {
   for (const [code, reason] of [[132, "descendant_command_denied"], [133, "descendant_command_length_changed"],
