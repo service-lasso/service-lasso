@@ -202,6 +202,10 @@ import {
   type McpOperationPublicRecord,
 } from "../runtime/operator/mcp-operations.js";
 import {
+  initializeReconciliationContextIdentity,
+  ReconciliationContextIdentityError,
+} from "../runtime/operator/reconciliation-context-identity.js";
+import {
   MCP_MAX_REQUEST_BODY_BYTES,
   MCP_PROTECTED_RESOURCE_METADATA_PATH,
   McpHttpPolicyError,
@@ -541,6 +545,7 @@ interface ApiRouteConfig extends RuntimeConfig {
   mcpPolicyTestHooks?: ApiServerOptions["mcpPolicyTestHooks"];
   secretRotationTestHooks?: ApiServerOptions["secretRotationTestHooks"];
   runtimeShutdownSlot?: RuntimeShutdownSlot;
+  reconciliationContextIdentity: Promise<string>;
 }
 
 export interface RunningApiServer {
@@ -1816,30 +1821,29 @@ const DURABLE_RECONCILIATION_CONTEXT_CONTRACT_VERSION = "service-lasso-durable-r
 
 /**
  * The reconciler needs a durable comparison value, not a transport credential
- * or a description of the runtime's local topology.  Use the already opaque
- * runtime-lane identity as an HMAC key so the response is stable across a
- * restart of the same lane, while a different workspace/lane cannot produce
- * the same bindings even when it is served at the same HTTP URL.
+ * or a description of the runtime's local topology. Core creates the opaque
+ * authority once at its initialization boundary and keeps it under the
+ * workspace lifecycle lock, so a restart retains it while a replacement
+ * workspace at the same URL receives a distinct authority.
  */
 function durableReconciliationBinding(
-  config: Pick<ApiRouteConfig, "servicesRoot" | "workspaceRoot" | "version">,
+  authorityId: string,
   kind: "instance" | "workspace" | "actor" | "client",
   authorization: McpHttpAuthorization,
 ): string {
-  const instanceId = resolveRuntimeInstanceId(config);
   const identity = authorization.actor;
   const input = kind === "actor"
     ? `v1\u0000actor\u0000${identity.kind}\u0000${identity.actorId}`
     : kind === "client"
       ? `v1\u0000client\u0000${identity.kind}\u0000${identity.clientId}`
       : `v1\u0000${kind}`;
-  return `slrc_${createHmac("sha256", instanceId).update(input, "utf8").digest("hex")}`;
+  return `slrc_${createHmac("sha256", authorityId).update(input, "utf8").digest("hex")}`;
 }
 
-function createDurableReconciliationContextResponse(
-  config: Pick<ApiRouteConfig, "servicesRoot" | "workspaceRoot" | "version">,
+async function createDurableReconciliationContextResponse(
+  config: Pick<ApiRouteConfig, "reconciliationContextIdentity">,
   authorization: McpHttpAuthorization,
-): {
+): Promise<{
   contractVersion: typeof DURABLE_RECONCILIATION_CONTEXT_CONTRACT_VERSION;
   context: {
     instanceBinding: string;
@@ -1847,14 +1851,23 @@ function createDurableReconciliationContextResponse(
     actorBinding: string;
     clientBinding: string;
   };
-} {
+}> {
+  let authorityId: string;
+  try {
+    authorityId = await config.reconciliationContextIdentity;
+  } catch (error) {
+    if (error instanceof ReconciliationContextIdentityError) {
+      throw new ApiError("reconciliation_context_unavailable", 503, "Durable reconciliation context is unavailable.");
+    }
+    throw error;
+  }
   return {
     contractVersion: DURABLE_RECONCILIATION_CONTEXT_CONTRACT_VERSION,
     context: {
-      instanceBinding: durableReconciliationBinding(config, "instance", authorization),
-      workspaceBinding: durableReconciliationBinding(config, "workspace", authorization),
-      actorBinding: durableReconciliationBinding(config, "actor", authorization),
-      clientBinding: durableReconciliationBinding(config, "client", authorization),
+      instanceBinding: durableReconciliationBinding(authorityId, "instance", authorization),
+      workspaceBinding: durableReconciliationBinding(authorityId, "workspace", authorization),
+      actorBinding: durableReconciliationBinding(authorityId, "actor", authorization),
+      clientBinding: durableReconciliationBinding(authorityId, "client", authorization),
     },
   };
 }
@@ -4357,7 +4370,7 @@ async function routeRequestWithoutMutationCoordination(
   if (request.method === "GET" && url.pathname === "/api/operator/lifecycle/reconciliation-context") {
     const authorization = await authorizeDurableReconciliationContextRequest(request, response, auth, config);
     if (!authorization) return;
-    writeJson(response, 200, createDurableReconciliationContextResponse(config, authorization));
+    writeJson(response, 200, await createDurableReconciliationContextResponse(config, authorization));
     return;
   }
 
@@ -7665,6 +7678,8 @@ export function createApiServer(options: ApiServerOptions = {}): Server {
     throw new Error("Secret rotation test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
   }
   const resolvedConfig = resolveRuntimeConfig(options);
+  const reconciliationContextIdentity = initializeReconciliationContextIdentity(resolvedConfig.workspaceRoot);
+  void reconciliationContextIdentity.catch(() => undefined);
   const routeConfig: ApiRouteConfig = {
     ...resolvedConfig,
     bindHost: options.host ?? process.env.SERVICE_LASSO_HOST ?? "127.0.0.1",
@@ -7682,6 +7697,7 @@ export function createApiServer(options: ApiServerOptions = {}): Server {
     mcpPolicyTestHooks: options.mcpPolicyTestHooks,
     secretRotationTestHooks: options.secretRotationTestHooks,
     runtimeShutdownSlot: options.runtimeShutdownSlot,
+    reconciliationContextIdentity,
   };
   const workflowRunFacadeState = cloneWorkflowRunFacadeState(options.workflowRunFacadeState ?? exampleWorkflowRunFacadeState);
   const apiRequestTelemetryState = options.apiRequestTelemetryState ?? { requests: [], droppedCount: 0 };
@@ -7914,6 +7930,7 @@ async function startApiServerInternal(
   }
   const baselineServiceIds = requestedBaselineServiceIds(options);
   const config = await ensureRuntimeConfig(resolveRuntimeConfig(options));
+  await initializeReconciliationContextIdentity(config.workspaceRoot);
   const recoveryModel = await loadRuntimeModel(config.servicesRoot);
   const recovery = await inspectStartupRecovery(config, recoveryModel.discovered);
   let recoveryClassification = recovery.classification;
