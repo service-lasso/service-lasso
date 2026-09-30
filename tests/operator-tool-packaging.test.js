@@ -37,7 +37,7 @@ test("operator tools stage only checksum-verified release bytes", async () => {
       metadataAuthorization.push(options.headers?.authorization);
 			const cli = parsed.pathname.includes("service-lasso-cli");
 			const listed = cli ? [cliRelease.asset, cliRelease.checksumManifest, cliRelease.candidateManifest] : [...assets, release.checksumManifest, release.candidateManifest];
-			return Response.json({ tag_name: cli ? cliRelease.tag : release.tag, target_commitish: cli ? cliRelease.targetCommit : release.targetCommit, prerelease: true, draft: false, assets: listed.map((asset, index) => ({ name: asset.name, digest: `sha256:${asset.sha256}`, url: `https://api.github.com/repos/service-lasso/${cli ? "service-lasso-cli" : "service-lasso-tui"}/releases/assets/${index + 1}` })) });
+      return Response.json({ tag_name: cli ? cliRelease.tag : release.tag, target_commitish: cli ? cliRelease.targetCommit : release.targetCommit, prerelease: true, draft: false, immutable: false, assets: listed.map((asset, index) => ({ name: asset.name, digest: `sha256:${asset.sha256}`, url: `https://api.github.com/repos/service-lasso/${cli ? "service-lasso-cli" : "service-lasso-tui"}/releases/assets/${index + 1}` })) });
 		}
 		const cli = parsed.pathname.includes("service-lasso-cli");
     assetAuthorization.push(options.headers?.authorization);
@@ -67,7 +67,7 @@ test("operator tool identity rejects incomplete platform inventory", () => {
   assertExactCliRelease(CURRENT_CLI_RELEASE);
   assert.deepEqual(
     { tag: CURRENT_TUI_RELEASE.tag, targetCommit: CURRENT_TUI_RELEASE.targetCommit, assets: CURRENT_TUI_RELEASE.assets.map((asset) => asset.name) },
-    { tag: "candidate-2026.9.30-97fafb0", targetCommit: "97fafb04c69fce8efdd245eb186e6dfb9915485d", assets: ["service-lasso-tui-2026.9.30-97fafb0-win32-amd64.zip", "service-lasso-tui-2026.9.30-97fafb0-linux-amd64.tar.gz", "service-lasso-tui-2026.9.30-97fafb0-darwin-amd64.tar.gz", "service-lasso-tui-2026.9.30-97fafb0-darwin-arm64.tar.gz"] },
+    { tag: "candidate-2026.9.30-0fa84ce", targetCommit: "0fa84ce38630e7f5b0066d2aaa103c55b0485c06", assets: ["service-lasso-tui-2026.9.30-0fa84ce-win32-amd64.zip", "service-lasso-tui-2026.9.30-0fa84ce-linux-amd64.tar.gz", "service-lasso-tui-2026.9.30-0fa84ce-darwin-amd64.tar.gz", "service-lasso-tui-2026.9.30-0fa84ce-darwin-arm64.tar.gz"] },
   );
   assert.deepEqual(
     { tag: CURRENT_CLI_RELEASE.tag, version: CURRENT_CLI_RELEASE.version, targetCommit: CURRENT_CLI_RELEASE.targetCommit, asset: CURRENT_CLI_RELEASE.asset, checksumManifest: CURRENT_CLI_RELEASE.checksumManifest, candidateManifest: CURRENT_CLI_RELEASE.candidateManifest },
@@ -106,10 +106,18 @@ test("operator tools expose only a fixed release-metadata failure class", async 
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
+test("operator tools reject a release whose mutability state changes", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "operator-tools-mutability-"));
+  try {
+    const frozenFetch = async () => Response.json({ tag_name: release.tag, target_commitish: release.targetCommit, prerelease: true, draft: false, immutable: true, assets: [] });
+    await assert.rejects(stageOperatorTools({ artifactRoot: root, fetchImpl: frozenFetch, release, cliRelease: null }), /mutable candidate identity/u);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test("operator tools reject duplicate or mismatched GitHub release inventory", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "operator-tools-duplicate-"));
   try {
-    const duplicateFetch = async () => Response.json({ tag_name: release.tag, target_commitish: release.targetCommit, prerelease: true, draft: false, assets: [{ name: assets[0].name, digest: `sha256:${assets[0].sha256}`, url: "https://api.github.com/repos/service-lasso/service-lasso-tui/releases/assets/1" }, { name: assets[0].name, digest: `sha256:${assets[0].sha256}`, url: "https://api.github.com/repos/service-lasso/service-lasso-tui/releases/assets/2" }, ...assets.slice(1).map((asset, index) => ({ name: asset.name, digest: `sha256:${asset.sha256}`, url: `https://api.github.com/repos/service-lasso/service-lasso-tui/releases/assets/${index + 3}` })), { name: release.checksumManifest.name, digest: `sha256:${release.checksumManifest.sha256}`, url: "https://api.github.com/repos/service-lasso/service-lasso-tui/releases/assets/7" }, { name: release.candidateManifest.name, digest: `sha256:${release.candidateManifest.sha256}`, url: "https://api.github.com/repos/service-lasso/service-lasso-tui/releases/assets/8" }] });
+    const duplicateFetch = async () => Response.json({ tag_name: release.tag, target_commitish: release.targetCommit, prerelease: true, draft: false, immutable: false, assets: [{ name: assets[0].name, digest: `sha256:${assets[0].sha256}`, url: "https://api.github.com/repos/service-lasso/service-lasso-tui/releases/assets/1" }, { name: assets[0].name, digest: `sha256:${assets[0].sha256}`, url: "https://api.github.com/repos/service-lasso/service-lasso-tui/releases/assets/2" }, ...assets.slice(1).map((asset, index) => ({ name: asset.name, digest: `sha256:${asset.sha256}`, url: `https://api.github.com/repos/service-lasso/service-lasso-tui/releases/assets/${index + 3}` })), { name: release.checksumManifest.name, digest: `sha256:${release.checksumManifest.sha256}`, url: "https://api.github.com/repos/service-lasso/service-lasso-tui/releases/assets/7" }, { name: release.candidateManifest.name, digest: `sha256:${release.candidateManifest.sha256}`, url: "https://api.github.com/repos/service-lasso/service-lasso-tui/releases/assets/8" }] });
     await assert.rejects(stageOperatorTools({ artifactRoot: root, fetchImpl: duplicateFetch, release }), /duplicate|inventory/u);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
@@ -121,7 +129,7 @@ test("operator tools reject a pinned candidate manifest with mismatched source i
   try {
     const fetchImpl = async (url) => {
       const parsed = new URL(url);
-      if (parsed.pathname.includes("/releases/tags/")) return Response.json({ tag_name: mismatchedRelease.tag, target_commitish: mismatchedRelease.targetCommit, prerelease: true, draft: false, assets: [...assets, mismatchedRelease.checksumManifest, mismatchedRelease.candidateManifest].map((asset, index) => ({ name: asset.name, digest: `sha256:${asset.sha256}`, url: `https://api.github.com/repos/service-lasso/service-lasso-tui/releases/assets/${index + 1}` })) });
+      if (parsed.pathname.includes("/releases/tags/")) return Response.json({ tag_name: mismatchedRelease.tag, target_commitish: mismatchedRelease.targetCommit, prerelease: true, draft: false, immutable: false, assets: [...assets, mismatchedRelease.checksumManifest, mismatchedRelease.candidateManifest].map((asset, index) => ({ name: asset.name, digest: `sha256:${asset.sha256}`, url: `https://api.github.com/repos/service-lasso/service-lasso-tui/releases/assets/${index + 1}` })) });
       const name = parsed.pathname.split("/").at(-1);
       const body = name === "SHA256SUMS.txt" ? sums : name === "candidate-manifest.json" ? tuiCandidate : Buffer.from(assets.find((asset) => asset.name === name)?.platform ?? "");
       return new Response(body);
@@ -140,7 +148,7 @@ test("operator tools retry only a transient 5xx asset response before checksum v
   try {
     const fetchImpl = async (url) => {
       const parsed = new URL(url);
-      if (parsed.pathname.includes("/releases/tags/")) return Response.json({ tag_name: retryRelease.tag, target_commitish: retryRelease.targetCommit, prerelease: true, draft: false, assets: [...retryAssets, retryRelease.checksumManifest, retryRelease.candidateManifest].map((asset, index) => ({ name: asset.name, digest: `sha256:${asset.sha256}`, url: `https://api.github.com/repos/service-lasso/service-lasso-tui/releases/assets/${index + 1}` })) });
+      if (parsed.pathname.includes("/releases/tags/")) return Response.json({ tag_name: retryRelease.tag, target_commitish: retryRelease.targetCommit, prerelease: true, draft: false, immutable: false, assets: [...retryAssets, retryRelease.checksumManifest, retryRelease.candidateManifest].map((asset, index) => ({ name: asset.name, digest: `sha256:${asset.sha256}`, url: `https://api.github.com/repos/service-lasso/service-lasso-tui/releases/assets/${index + 1}` })) });
       const asset = parsed.hostname === "github.com" ? [...retryAssets, retryRelease.checksumManifest, retryRelease.candidateManifest].find((candidate) => candidate.name === parsed.pathname.split("/").at(-1)) : [...retryAssets, retryRelease.checksumManifest, retryRelease.candidateManifest][Number(parsed.pathname.split("/").at(-1)) - 1];
       if (asset.name === "SHA256SUMS.txt" && checksumAttempts++ === 0) return new Response("temporary upstream failure", { status: 500 });
       const body = asset.name === "SHA256SUMS.txt" ? retrySums : asset.name === "candidate-manifest.json" ? retryCandidate : Buffer.from(asset.platform);
