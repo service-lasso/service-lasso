@@ -2,28 +2,33 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { mkdtemp, rm, stat } from "node:fs/promises";
-import { stagePublishedPackage } from "../scripts/publish-package-lib.mjs";
-
-const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+import { mkdtemp, rm } from "node:fs/promises";
+import { setTimeout as delay } from "node:timers/promises";
+import { withPackageStageLock } from "../scripts/publish-package-lib.mjs";
 
 test("package staging serializes concurrent writers that share an output root", async () => {
   const outputRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-package-stage-lock-"));
-  const version = `0.1.0-stage.${process.pid}.${Date.now()}`;
+  let activeWriters = 0;
+  let maximumActiveWriters = 0;
 
   try {
-    const results = await Promise.all([
-      stagePublishedPackage({ repoRoot, outputRoot, version }),
-      stagePublishedPackage({ repoRoot, outputRoot, version }),
+    await Promise.all([
+      withPackageStageLock(outputRoot, async () => {
+        activeWriters += 1;
+        maximumActiveWriters = Math.max(maximumActiveWriters, activeWriters);
+        await delay(25);
+        activeWriters -= 1;
+      }),
+      withPackageStageLock(outputRoot, async () => {
+        activeWriters += 1;
+        maximumActiveWriters = Math.max(maximumActiveWriters, activeWriters);
+        await delay(25);
+        activeWriters -= 1;
+      }),
     ]);
 
-    assert.equal(results.length, 2);
-    assert.equal(results[0].artifactName, `service-lasso-package-${version}`);
-    assert.equal(results[1].artifactName, `service-lasso-package-${version}`);
-
-    const archive = await stat(results[1].packageArchivePath);
-    assert.equal(archive.isFile(), true);
+    assert.equal(maximumActiveWriters, 1);
+    assert.equal(activeWriters, 0);
   } finally {
     await rm(outputRoot, { recursive: true, force: true });
   }

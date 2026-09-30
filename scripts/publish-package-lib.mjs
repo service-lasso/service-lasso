@@ -113,7 +113,7 @@ async function acquirePackageStageLock(outputRoot) {
   );
 }
 
-async function withPackageStageLock(outputRoot, callback) {
+export async function withPackageStageLock(outputRoot, callback) {
   const release = await acquirePackageStageLock(outputRoot);
   try {
     return await callback();
