@@ -35,14 +35,16 @@ or a generic upload route to that protocol.
 
 ## Required template authority before implementation
 
-`service-template` issue #17 / PR #18 now supplies a candidate
-`template-contract.json` and verifier. They define a closed inventory with
-hashes and Git modes, allowed `service.json` fields, `config/example.env`, and
-`template-provenance.json`; the verifier checks the immutable baseline and
-allowed differences. That is useful owner evidence, but the current
-`1.0.0-dev` candidate is neither a reviewed published release nor an approved
-immutable Core catalog pin. Core must not treat a repository branch, PR,
-verifier result, or candidate version as catalog authority.
+`service-template` issue #17 / PR #18 has an unmerged candidate
+`template-contract.json` and verifier. It is not evidence that a complete,
+safe contract exists: its fresh independent review found unbound policy
+bytes/modes, editable manifest-pointer containers that could admit unknown
+fields, URLs, or secret references, and missing compressed/expanded/path-depth
+and configuration-count quotas. The candidate therefore does not currently
+establish immutable policy, safe editable values, or bounded archive acceptance.
+It is neither a reviewed published release nor an approved immutable Core
+catalog pin. Core must not treat a repository branch, PR, verifier result, or
+candidate version as catalog authority.
 
 Before implementation, the owning `service-template` work must publish a
 reviewed, versioned template-contract release, and Core must separately approve
@@ -72,11 +74,11 @@ the following:
 
 This prerequisite is tracked as
 [service-template#17](https://github.com/service-lasso/service-template/issues/17).
-Until both the reviewed published candidate and Core's immutable catalog pin
-exist, all source-admission requests fail with `template_contract_unrecognized`
-before a stage is created. A client may create a local project in any
-caller-selected directory, but that local path is never an API field, Audit
-field, operation field, or diagnostic.
+Until both a repaired, independently reviewed published template release and
+Core's immutable catalog pin exist, all source-admission requests fail with
+`template_contract_unrecognized` before a stage is created. A client may create
+a local project in any caller-selected directory, but that local path is never
+an API field, Audit field, operation field, or diagnostic.
 
 The Core catalog approval is a server-side decision over that published template
 tuple and its closed per-path policy. Candidate provenance only proves the
