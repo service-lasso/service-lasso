@@ -3794,6 +3794,122 @@ test("runtime restart adopts a registry owner even when runtime.json discarded r
   }
 });
 
+test("rehydration persists a closed bounded inspection receipt while preserving the original timeout", {
+  skip: process.platform !== "win32",
+}, async () => {
+  resetLifecycleState();
+  const priorTestHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+  process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
+  const preferredPort = 18244;
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-rehydrate-timeout-receipt-success-");
+  const { serviceRoot, scriptPath } = await writeExecutableFixtureService(servicesRoot, "registry-adopt-timeout-receipt", {
+    ports: { service: preferredPort },
+  });
+  const relativeScriptPath = path.relative(serviceRoot, scriptPath);
+  const child = spawn(process.execPath, [relativeScriptPath], {
+    cwd: serviceRoot,
+    stdio: "ignore",
+    windowsHide: true,
+  });
+  const deadline = new ProcessControlDeadlineError();
+  deadline.windowsTreeInspection = {
+    windowsTreeInspectionPhase: "native_snapshot",
+    windowsTreeInspectionAttempts: 2,
+    windowsTreeInspectionRetries: 1,
+    windowsTreeInspectionQueueMs: 7,
+    windowsTreeInspectionNativeMs: 15_000,
+    windowsTreeInspectionLastRetry: "descendant_open_denied",
+    rawOutput: "never-persist-this-native-output",
+    secret: "never-persist-this-secret",
+  };
+
+  try {
+    await new Promise((resolve, reject) => {
+      child.once("spawn", resolve);
+      child.once("error", reject);
+    });
+    const inspection = await inspectProcess(child.pid);
+    assert.equal(inspection.status, "running");
+    await recordProcessOwnership(workspaceRoot, {
+      ownerType: "service",
+      ownerId: "registry-adopt-timeout-receipt",
+      serviceId: "registry-adopt-timeout-receipt",
+      pid: child.pid,
+      ownerRoot: serviceRoot,
+      ports: { service: preferredPort },
+      lifecycleState: "running",
+      source: "spawn",
+    });
+    const retainedHistory = Array.from({ length: 5 }, (_, index) => ({
+      attemptId: `older-rehydrate-attempt-${index}`,
+      serviceId: "registry-adopt-timeout-receipt",
+      action: "start",
+      startedAt: "2026-09-01T00:00:00.000Z",
+      finishedAt: "2026-09-01T00:00:00.000Z",
+      status: "failed",
+      events: [],
+    }));
+    await writeInstalledRuntimeState(serviceRoot, {
+      running: false,
+      pid: child.pid,
+      startedAt: inspection.identity.createdAt,
+      command: `${process.execPath} ${relativeScriptPath}`,
+      ports: { service: preferredPort },
+      lastAction: "start",
+      actionHistory: ["install", "config", "start"],
+      startTrace: { current: null, history: retainedHistory },
+    });
+    setManagedWindowsTreeInspectorForTests(async () => { throw deadline; });
+
+    const [service] = await discoverServices(servicesRoot);
+    await assert.rejects(
+      rehydrateLifecycleState(service, { workspaceRoot }),
+      (error) => error === deadline,
+    );
+
+    const receipt = JSON.parse(await readFile(path.join(serviceRoot, ".state", "runtime.json"), "utf8"));
+    const current = receipt.startTrace.current;
+    assert.equal(current.status, "failed");
+    assert.equal(current.events.length, 1);
+    assert.equal(current.events[0].phase, "process_spawn");
+    assert.equal(current.events[0].status, "failed");
+    assert.equal(current.events[0].metadata.rehydrateFailure, "registry_owner_adoption");
+    assert.equal(current.events[0].metadata.windowsTreeInspectionAttempts, 2);
+    assert.equal(current.events[0].metadata.windowsTreeInspectionRetries, 1);
+    assert.equal(current.events[0].metadata.windowsTreeInspectionQueueMs, 7);
+    assert.equal(current.events[0].metadata.windowsTreeInspectionNativeMs, 15_000);
+    assert.equal(current.events[0].metadata.windowsTreeInspectionLastRetry, "descendant_open_denied");
+    assert.equal(receipt.startTrace.history.length, 5);
+    assert.equal(receipt.startTrace.history[0].attemptId, current.attemptId);
+    assert.deepEqual(receipt.startTrace.history.slice(1).map((entry) => entry.attemptId), [
+      "older-rehydrate-attempt-0",
+      "older-rehydrate-attempt-1",
+      "older-rehydrate-attempt-2",
+      "older-rehydrate-attempt-3",
+    ]);
+    const serializedReceipt = JSON.stringify(receipt);
+    assert.equal(serializedReceipt.includes("never-persist-this-native-output"), false);
+    assert.equal(serializedReceipt.includes("never-persist-this-secret"), false);
+    assert.equal(hasManagedProcess("registry-adopt-timeout-receipt"), false);
+    assert.equal(child.exitCode, null);
+    assert.equal(child.signalCode, null);
+    const postFailureInspection = await inspectProcess(child.pid);
+    assert.equal(postFailureInspection.status, "running");
+    assert.equal(postFailureInspection.identity.pid, child.pid);
+    const ownership = await findProcessOwnership(workspaceRoot, "service", "registry-adopt-timeout-receipt");
+    assert.equal(ownership.lifecycleState, "running");
+    assert.equal(ownership.pid, child.pid);
+  } finally {
+    setManagedWindowsTreeInspectorForTests(null);
+    await stopManagedProcess("registry-adopt-timeout-receipt", 500).catch(() => null);
+    child.kill("SIGKILL");
+    if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+    else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
+    resetLifecycleState();
+    await removeTempRoot(tempRoot);
+  }
+});
+
 test("rehydration preserves the native-inspection timeout when receipt persistence fails", {
   skip: process.platform !== "win32",
 }, async () => {
