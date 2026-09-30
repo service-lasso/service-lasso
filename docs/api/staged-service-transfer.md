@@ -184,9 +184,11 @@ revision, archive SHA-256, and server-resolved release/asset IDs; (T3) real
   lifecycle effect; and
 (T5) packaged Core and the released external CLI/TUI journey transfer the
 checksum-bound Windows ZIP, Linux TAR, and macOS TAR assets on Windows, Linux,
-and macOS. Current evidence supplies none of the required fresh producer
-receipts, parser tests, or three-OS journey. This specification therefore does
-not claim TAR qualification or admission.
+and macOS. Parser-unit tests and fixture-parser receipts are narrower evidence:
+they do not provide independent review, released-asset producer receipts, or
+the checksum-bound three-OS journey. This specification therefore does not
+claim TAR qualification or admission until every T1--T5 gate is complete for
+one exact enabling commit.
 
 **ZIP.** Require first local header, one terminal EOCD, and a central directory fully inside the archive. Reject prefix/SFX bytes, multi-disk, trailing bytes, ZIP64 locator/EOCD/extra fields, encrypted or strong-encrypted flags (0/6), patched-data flag 5, central-directory encryption flag 13, and every general-purpose flag except bit 3 and UTF-8 bit 11. Permit only stored (0) and deflate (8), rejecting AES/other methods. Every central record has one local record at its declared offset; filename bytes, method, allowed flags, CRC-32, compressed size, and uncompressed size agree. Bit 3 allows zero local CRC/sizes only where its immediate signed descriptor supplies the same 32-bit values; no ZIP64 descriptor. Reject overlap between local records/descriptors, central directory, EOCD, or declared member ranges; reject nonzero extra fields. Filename is strict UTF-8 with bit 11, or ASCII-only without bit 11; CP437, Unicode-path extras, and non-ASCII unflagged names fail. Count all members; add regular-file uncompressed size; stream regular files under an output cap and verify CRC-32. Directories end `/` and have zero payload; regular files do not end `/`. Reject symlink/device mode bits and unrecognized external attributes.
 
