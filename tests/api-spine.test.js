@@ -1755,9 +1755,11 @@ test("remote service registration is authenticated, idempotent, durable, and nev
   };
   let manifestAssetUrl = "https://github.com/service-lasso/lasso-node/releases/download/v1.0.0/service.json";
   let manifestRedirectLocation = null;
+  let trustedProvenanceAvailable = true;
   globalThis.fetch = async (input, init) => {
     const requestUrl = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     if (requestUrl === "https://api.github.com/repos/service-lasso/lasso-node/git/ref/tags/v1.0.0") {
+      if (!trustedProvenanceAvailable) return new Response("trusted API unavailable", { status: 503 });
       return new Response(JSON.stringify({ object: { type: "commit", sha: "b".repeat(40) } }), { status: 200, headers: { "Content-Type": "application/json" } });
     }
     if (requestUrl === "https://api.github.com/repos/service-lasso/lasso-node/releases/tags/v1.0.0") {
@@ -1787,6 +1789,32 @@ test("remote service registration is authenticated, idempotent, durable, and nev
   };
 
   try {
+    const untrustedRequests = [];
+    const provenanceServer = await new Promise((resolve) => {
+      const server = createServer((incoming, outgoing) => {
+        untrustedRequests.push(incoming.headers.authorization);
+        outgoing.writeHead(200, { "content-type": "application/json" });
+        outgoing.end(JSON.stringify({
+          tag_name: request.tag,
+          assets: [{ name: "service.json", browser_download_url: manifestAssetUrl }],
+        }));
+      });
+      server.listen(0, "127.0.0.1", () => resolve(server));
+    });
+    const provenanceAddress = provenanceServer.address();
+    process.env.SERVICE_LASSO_GITHUB_API_BASE_URL = `http://127.0.0.1:${provenanceAddress.port}`;
+    trustedProvenanceAvailable = false;
+    const ignoredUntrustedApi = await postJsonWithHeaders(`${apiServer.url}/api/runtime/actions/importService`, {
+      ...request,
+      idempotencyKey: "remote-registration-untrusted-api-01",
+    }, remoteHeaders);
+    trustedProvenanceAvailable = true;
+    await new Promise((resolve, reject) => provenanceServer.close((error) => error ? reject(error) : resolve()));
+    assert.equal(ignoredUntrustedApi.status, 503);
+    assert.equal(ignoredUntrustedApi.body.error, "release_provenance_unavailable");
+    assert.deepEqual(untrustedRequests, []);
+    await assert.rejects(readFile(path.join(servicesRoot, manifest.id, "service.json"), "utf8"), /ENOENT/);
+
     const unapproved = await postJsonWithHeaders(`${apiServer.url}/api/runtime/actions/importService`, {
       ...request,
       repo: "service-lasso/unapproved-service",
@@ -1968,25 +1996,6 @@ test("remote service registration is authenticated, idempotent, durable, and nev
     assert.equal(await readFile(path.join(servicesRoot, manifest.id, "service.json"), "utf8"), changedManifestBytes);
     assert.doesNotMatch(JSON.stringify(readback.body), /client-only|service\.json.*[A-Z]:/i);
 
-    const untrustedRequests = [];
-    const provenanceServer = await new Promise((resolve) => {
-      const server = createServer((incoming, outgoing) => {
-        untrustedRequests.push(incoming.headers.authorization);
-        outgoing.writeHead(503, { "content-type": "application/json" });
-        outgoing.end(JSON.stringify({ error: "unavailable" }));
-      });
-      server.listen(0, "127.0.0.1", () => resolve(server));
-    });
-    const provenanceAddress = provenanceServer.address();
-    process.env.SERVICE_LASSO_GITHUB_API_BASE_URL = `http://127.0.0.1:${provenanceAddress.port}`;
-    const untrustedApiBase = await postJsonWithHeaders(`${apiServer.url}/api/runtime/actions/importService`, {
-      ...request,
-      idempotencyKey: "remote-registration-untrusted-api-01",
-    }, remoteHeaders);
-    await new Promise((resolve, reject) => provenanceServer.close((error) => error ? reject(error) : resolve()));
-    assert.equal(untrustedApiBase.status, 503);
-    assert.equal(untrustedApiBase.body.error, "release_provenance_unavailable");
-    assert.deepEqual(untrustedRequests, [undefined]);
   } finally {
     await apiServer.stop();
     globalThis.fetch = originalFetch;

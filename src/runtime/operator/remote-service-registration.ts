@@ -88,16 +88,12 @@ function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
-function normalizedGitHubApiBaseUrl(): string {
-  return (process.env.SERVICE_LASSO_GITHUB_API_BASE_URL?.trim() || TRUSTED_GITHUB_API_ORIGIN).replace(/\/+$/, "");
-}
-
-function githubHeaders(apiBaseUrl: string): Record<string, string> {
+function githubHeaders(): Record<string, string> {
   const token = process.env.GITHUB_TOKEN?.trim() || process.env.GH_TOKEN?.trim();
   return {
     accept: "application/vnd.github+json",
     "user-agent": "service-lasso-core-runtime",
-    ...(apiBaseUrl === TRUSTED_GITHUB_API_ORIGIN && token ? { authorization: `Bearer ${token}` } : {}),
+    ...(token ? { authorization: `Bearer ${token}` } : {}),
   };
 }
 
@@ -169,15 +165,14 @@ function assertApprovedReleaseManifest(manifest: ServiceManifest, request: Remot
 }
 
 async function resolveReleasedManifest(request: RemoteServiceRegistrationRequest): Promise<{ manifest: ServiceManifest; manifestBytes: string }> {
-  const apiBaseUrl = normalizedGitHubApiBaseUrl();
-  const headers = githubHeaders(apiBaseUrl);
-  const tagRef = await fetch(`${apiBaseUrl}/repos/${request.repo}/git/ref/tags/${encodeURIComponent(request.tag)}`, { headers });
+  const headers = githubHeaders();
+  const tagRef = await fetch(`${TRUSTED_GITHUB_API_ORIGIN}/repos/${request.repo}/git/ref/tags/${encodeURIComponent(request.tag)}`, { headers });
   if (!tagRef.ok) throw new ApiError("release_provenance_unavailable", 503, "Release provenance could not be resolved.");
   const ref = await tagRef.json() as GitRefResponse;
   if (ref.object?.type !== "commit" || ref.object.sha !== request.expectedCommit) {
     throw new ApiError("release_commit_mismatch", 409, "The release tag does not resolve to the caller-bound commit.");
   }
-  const releaseResponse = await fetch(`${apiBaseUrl}/repos/${request.repo}/releases/tags/${encodeURIComponent(request.tag)}`, { headers });
+  const releaseResponse = await fetch(`${TRUSTED_GITHUB_API_ORIGIN}/repos/${request.repo}/releases/tags/${encodeURIComponent(request.tag)}`, { headers });
   if (!releaseResponse.ok) throw new ApiError("release_provenance_unavailable", 503, "Release metadata could not be resolved.");
   const release = await releaseResponse.json() as GitHubReleaseResponse;
   if (release.tag_name !== request.tag || !Array.isArray(release.assets)) {
