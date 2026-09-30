@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import {
@@ -69,10 +69,10 @@ if (adminHarnessRevision !== ADMIN_HARNESS_REVISION) {
   throw new Error("Admin browser harness revision is not canonical.");
 }
 const trustedUnlockSourcePath = process.env.ADMIN_TRUSTED_UNLOCK_RECEIPT_PATH;
-let trustedUnlockSource = null;
-if (trustedUnlockSourcePath) {
-  try { trustedUnlockSource = await readFile(path.resolve(trustedUnlockSourcePath), "utf8"); } catch {}
-}
+if (typeof trustedUnlockSourcePath !== "string" || !trustedUnlockSourcePath) throw new Error("Admin trusted-unlock consumer receipt path is required.");
+const trustedUnlockSourceInfo = await lstat(path.resolve(trustedUnlockSourcePath)).catch(() => null);
+if (!trustedUnlockSourceInfo?.isFile() || trustedUnlockSourceInfo.isSymbolicLink() || trustedUnlockSourceInfo.size <= 0 || trustedUnlockSourceInfo.size > 2048) throw new Error("Admin trusted-unlock consumer receipt is missing, private, or out of bounds.");
+const trustedUnlockSource = await readFile(path.resolve(trustedUnlockSourcePath), "utf8");
 const adminTrustedUnlockReceipt = retainAdminTrustedUnlockReceipt(trustedUnlockSource, {
   platform,
   coreRevision,

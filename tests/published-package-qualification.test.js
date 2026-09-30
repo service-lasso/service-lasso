@@ -348,7 +348,7 @@ test("AC-4BZ.1 retained evidence requires terminal scenarios and rejects sensiti
   );
 });
 
-test("AC-4BY.2 retains only a closed primitive receipt and never upgrades a failed Cypress consumer", () => {
+test("AC-4BY.2 retains only observed consumer receipts and never upgrades a failed Cypress consumer", () => {
   const expected = {
     platform: "linux",
     coreRevision: core.revision,
@@ -356,9 +356,7 @@ test("AC-4BY.2 retains only a closed primitive receipt and never upgrades a fail
     adminRevision: ADMIN_RELEASE.revision,
     adminHarnessRevision: ADMIN_HARNESS_REVISION,
   };
-  const missing = retainAdminTrustedUnlockReceipt(null, expected);
-  assert.equal(missing.consumerOutcome, "missing");
-  assert.deepEqual(missing.trustedUnlock, { classification: "missing" });
+  expectCode("invalid_retained_trusted_unlock_receipt", () => retainAdminTrustedUnlockReceipt(null, expected));
   const raw = JSON.stringify({
     schema: "service-lasso.admin-trusted-unlock-consumer.v1",
     outcome: "nonzero_exit",
@@ -383,9 +381,11 @@ test("AC-4BY.2 retains only a closed primitive receipt and never upgrades a fail
   assert.equal(retained.trustedUnlock.classification, "closed");
   assert.doesNotMatch(JSON.stringify(retained), /stdout|stderr|token|path|url/iu);
   assert.equal(
-    retainAdminTrustedUnlockReceipt(raw.replace('"loading":true', '"loading":true,"private":true'), expected).trustedUnlock.classification,
-    "invalid",
+    (() => { try { retainAdminTrustedUnlockReceipt(raw.replace('"loading":true', '"loading":true,"private":true'), expected); } catch (error) { return error.code; } })(),
+    "invalid_retained_trusted_unlock_receipt",
   );
+  const success = retainAdminTrustedUnlockReceipt(JSON.stringify({ schema: "service-lasso.admin-trusted-unlock-consumer.v1", outcome: "success", exitCode: 0, signal: null, trustedUnlock: { classification: "not_emitted" } }), expected);
+  assert.deepEqual(success.trustedUnlock, { classification: "not_emitted", reason: "no_failure" });
 });
 
 test("AC-4BY.2 preparation rejects a stale Admin harness pin before any mutation", async () => {

@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { classify, consume, parseReceipt } from "../scripts/consume-admin-trusted-unlock-receipt.mjs";
+import { classify, consume, parseConsumerReceipt, parseReceipt } from "../scripts/consume-admin-trusted-unlock-receipt.mjs";
 
 const valid = JSON.stringify({ schema: "service-admin.trusted-unlock-receipt.v1", status: "observed", present: true, verified: false, localRoot: false, loading: true, unavailable: false });
 
@@ -16,6 +16,14 @@ test("AC-4BY.2 parses an exact primitive receipt before duplicate JSON members c
   assert.equal(parseReceipt('{"schema":"x","status":"observed","present":true,"verified":false,"localRoot":false,"loading":true,"unavailable":false,"extra":false}'), null);
   assert.equal(parseReceipt({ get schema() { throw new Error("must not access getter"); } }), null);
   assert.deepEqual(classify([]), { classification: "missing" });
+});
+
+test("AC-4BY.2 strictly closes successful consumer sources as no-failure observations", () => {
+  const success = JSON.stringify({ schema: "service-lasso.admin-trusted-unlock-consumer.v1", outcome: "success", exitCode: 0, signal: null, trustedUnlock: { classification: "not_emitted" } });
+  assert.equal(parseConsumerReceipt(success)?.trustedUnlock.classification, "not_emitted");
+  assert.equal(parseConsumerReceipt(success.replace('"not_emitted"', "null")), null);
+  assert.equal(parseConsumerReceipt(success.replace('"outcome":"success",', '"outcome":"success","outcome":"nonzero_exit",')), null);
+  assert.equal(parseConsumerReceipt(success.replace('"not_emitted"', '"not_emitted","private":true')), null);
 });
 
 test("AC-4BY.2 retains no child output and preserves the original nonzero exit", async () => {

@@ -74,6 +74,54 @@ export function parseReceipt(line) {
   return { schema: fields.schema, status: fields.status, present: fields.present, verified: fields.verified, localRoot: fields.localRoot, loading: fields.loading, unavailable: fields.unavailable };
 }
 
+// JSON.parse intentionally accepts duplicate object members by keeping the
+// last one. Consumer receipts are custody inputs, so reject them before that
+// lossy materialization can occur.
+function strictJson(source) {
+  if (typeof source !== "string") return null;
+  const parseValue = (start) => {
+    let index = skipWhitespace(source, start);
+    if (source[index] === '"') return parseString(source, index);
+    if (source[index] === "{") {
+      index += 1;
+      const keys = new Set();
+      for (;;) {
+        index = skipWhitespace(source, index);
+        if (source[index] === "}") return { next: index + 1 };
+        const key = parseString(source, index);
+        if (!key || keys.has(key.value)) return null;
+        keys.add(key.value);
+        index = skipWhitespace(source, key.next);
+        if (source[index] !== ":") return null;
+        const value = parseValue(index + 1);
+        if (!value) return null;
+        index = skipWhitespace(source, value.next);
+        if (source[index] === "}") return { next: index + 1 };
+        if (source[index] !== ",") return null;
+        index += 1;
+      }
+    }
+    if (source[index] === "[") {
+      index += 1;
+      index = skipWhitespace(source, index);
+      if (source[index] === "]") return { next: index + 1 };
+      for (;;) {
+        const value = parseValue(index);
+        if (!value) return null;
+        index = skipWhitespace(source, value.next);
+        if (source[index] === "]") return { next: index + 1 };
+        if (source[index] !== ",") return null;
+        index += 1;
+      }
+    }
+    for (const literal of ["true", "false", "null"]) if (source.startsWith(literal, index)) return { next: index + literal.length };
+    const number = /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?/u.exec(source.slice(index));
+    return number ? { next: index + number[0].length } : null;
+  };
+  const value = parseValue(0);
+  return value && skipWhitespace(source, value.next) === source.length ? source : null;
+}
+
 export function classify(lines) {
   let seen = 0;
   let candidate = null;
@@ -88,8 +136,9 @@ export function classify(lines) {
 }
 
 export function parseConsumerReceipt(source) {
+  if (!strictJson(source)) return null;
   let value;
-  try { value = JSON.parse(String(source)); } catch { return null; }
+  try { value = JSON.parse(source); } catch { return null; }
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const keys = Object.keys(value).sort();
   const allowed = ["exitCode", "outcome", "schema", "signal", "streamFailure", "trustedUnlock"];
@@ -97,7 +146,7 @@ export function parseConsumerReceipt(source) {
   if (value.schema !== "service-lasso.admin-trusted-unlock-consumer.v1" || !["success", "nonzero_exit", "signal", "observation_failure"].includes(value.outcome)) return null;
   if (!(value.exitCode === null || (Number.isSafeInteger(value.exitCode) && value.exitCode >= 0 && value.exitCode <= 255))) return null;
   if (!(value.signal === null || /^[A-Z0-9_]{1,32}$/u.test(value.signal))) return null;
-  if (value.outcome === "success" && (value.exitCode !== 0 || value.signal !== null || value.trustedUnlock !== null)) return null;
+  if (value.outcome === "success" && (value.exitCode !== 0 || value.signal !== null || value.streamFailure !== undefined)) return null;
   if (value.outcome === "nonzero_exit" && !(value.exitCode > 0) || value.outcome === "signal" && value.signal === null) return null;
   if (value.streamFailure !== undefined && !["execution_timeout", "spawn_failed", "pipe_hang", "stream_budget_exceeded", "malformed_utf8"].includes(value.streamFailure)) return null;
   const trusted = value.trustedUnlock;
@@ -106,11 +155,19 @@ export function parseConsumerReceipt(source) {
     if (!trusted || typeof trusted !== "object" || Array.isArray(trusted)) return null;
     if (trusted.classification === "closed") {
       if (Object.keys(trusted).sort().join(",") !== "classification,receipt" || !parseReceipt(JSON.stringify(trusted.receipt))) return null;
-    } else if ((trusted.classification === "missing" || trusted.classification === "invalid") && Object.keys(trusted).length === 1) {
+    } else if ((trusted.classification === "missing" || trusted.classification === "invalid" || trusted.classification === "not_emitted") && Object.keys(trusted).length === 1) {
       // Closed classifications are the only form permitted to carry primitives.
     } else return null;
   }
+  if (value.outcome === "success" && trusted?.classification !== "not_emitted") return null;
+  if (trusted?.classification === "not_emitted" && value.outcome !== "success") return null;
   return value;
+}
+
+export function hasObservedConsumerReceipt(receipt) {
+  if (!receipt) return false;
+  if (receipt.outcome === "success") return receipt.exitCode === 0 && receipt.signal === null && receipt.streamFailure === undefined && receipt.trustedUnlock?.classification === "not_emitted";
+  return receipt.trustedUnlock?.classification === "closed";
 }
 
 function receiptObserver() {
@@ -256,7 +313,7 @@ export async function consume(command, args, options = {}) {
   }
   const finalized = observations ?? streamClosed.map(({ stream }) => ({ seen: 0, duplicate: false, candidate: null, failure: stream.destroyed ? "pipe_hang" : null }));
   const streamFailure = result.executionFailure ?? (pipeHang ? "pipe_hang" : finalized.find((observation) => observation.failure)?.failure ?? null);
-  return { ...result, trustedUnlock: result.code === 0 && result.signal === null && !streamFailure ? null : classifyObservations(finalized), streamFailure };
+  return { ...result, trustedUnlock: result.code === 0 && result.signal === null && !streamFailure ? { classification: "not_emitted" } : classifyObservations(finalized), streamFailure };
 }
 
 function outcomeFor(result) {
