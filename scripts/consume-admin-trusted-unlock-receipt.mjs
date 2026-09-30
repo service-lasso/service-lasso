@@ -27,18 +27,47 @@ export function classify(lines) {
   return receipt ? { classification: "closed", receipt } : { classification: "invalid" };
 }
 
+function receiptObserver() {
+  let line = "", markerIndex = 0, sawSchema = false, oversized = false;
+  const observations = [];
+  const complete = () => {
+    if (sawSchema) observations.push(oversized ? null : parseReceipt(line));
+    line = "";
+    markerIndex = 0;
+    sawSchema = false;
+    oversized = false;
+  };
+  return {
+    write(chunk) {
+      for (const character of chunk.toString("utf8")) {
+        if (character === "\n") { complete(); continue; }
+        if (line.length < 256) line += character;
+        else oversized = true;
+        markerIndex = character === SCHEMA[markerIndex] ? markerIndex + 1 : character === SCHEMA[0] ? 1 : 0;
+        if (markerIndex === SCHEMA.length) sawSchema = true;
+      }
+    },
+    end() { if (line || sawSchema) complete(); return observations; }
+  };
+}
+
+function classifyObservations(observations) {
+  if (!observations.length) return { classification: "missing" };
+  if (observations.length !== 1 || !observations[0]) return { classification: "invalid" };
+  return { classification: "closed", receipt: observations[0] };
+}
+
 export async function consume(command, args, options = {}) {
   const child = spawn(command, args, { cwd: options.cwd, env: options.env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
-  const lines = [];
+  const observers = [receiptObserver(), receiptObserver()];
   const streamClosed = [];
-  for (const [stream, target] of [[child.stdout, process.stdout], [child.stderr, process.stderr]]) {
-    let buffer = "";
-    stream.on("data", (chunk) => { target.write(chunk); buffer += chunk.toString("utf8"); const parts = buffer.split(/\r?\n/u); buffer = parts.pop() ?? ""; lines.push(...parts); });
-    streamClosed.push(once(stream, "end"));
+  for (const [stream, observer] of [[child.stdout, observers[0]], [child.stderr, observers[1]]]) {
+    stream.on("data", (chunk) => observer.write(chunk));
+    streamClosed.push(once(stream, "end").then(() => observer.end()));
   }
   const result = await new Promise((resolve, reject) => { child.once("error", reject); child.once("close", (code, signal) => resolve({ code, signal })); });
-  await Promise.all(streamClosed);
-  return { ...result, trustedUnlock: result.code === 0 && result.signal === null ? null : classify(lines) };
+  const observations = (await Promise.all(streamClosed)).flat();
+  return { ...result, trustedUnlock: result.code === 0 && result.signal === null ? null : classifyObservations(observations) };
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
