@@ -287,6 +287,7 @@ export async function stagePublishedPackage({
   outputRoot = path.join(repoRoot, "artifacts", "npm"),
   version,
   releaseMetadataToken,
+  stageOperatorToolsImpl = stageOperatorTools,
 } = {}) {
   const metadataToken = releaseMetadataToken ?? consumeReleaseMetadataToken();
   return await withPackageStageLock(outputRoot, async () => {
@@ -302,7 +303,10 @@ export async function stagePublishedPackage({
       await copyPublishPath(repoRoot, artifactRoot, relativePath);
     }
 
-    await stageOperatorTools({ artifactRoot, releaseMetadataToken: metadataToken });
+    await stageOperatorToolsImpl({
+      artifactRoot,
+      releaseMetadataToken: metadataToken,
+    });
 
     const manifest = await writePublishScaffold({
       repoRoot,
