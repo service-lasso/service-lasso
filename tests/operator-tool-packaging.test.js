@@ -100,6 +100,11 @@ function fixtureReleaseFetch({ metadataAuthorization, assetAuthorization }) {
   };
   return async (url, options = {}) => {
     const parsed = new URL(url);
+    assert.equal(
+      process.env.SERVICE_LASSO_RELEASE_METADATA_TOKEN,
+      undefined,
+      "child staging must not retain the metadata token in process environment",
+    );
     if (parsed.hostname === "api.github.com") {
       metadataAuthorization.push(options.headers?.authorization);
       const isCli = parsed.pathname.includes("service-lasso-cli");
@@ -142,9 +147,18 @@ test("every release stage that can retain operator tools projects the restricted
       SERVICE_LASSO_RELEASE_METADATA_TOKEN: "projected-read-token",
     });
   }
+
+  for (const entrypoint of ["scripts/release-artifact.mjs", "scripts/release-verify.mjs"]) {
+    const source = await readFile(entrypoint, "utf8");
+    assert.match(source, /import \{ consumeReleaseMetadataToken \} from "\.\/operator-tool-packaging-lib\.mjs";/u);
+    assert.match(source, /const releaseMetadataToken = consumeReleaseMetadataToken\(\);/u);
+    assert.match(source, /stageReleaseArtifact\(\{ repoRoot, releaseMetadataToken \}\)/u);
+    assert.match(source, /stageBundledReleaseArtifact\(\{ repoRoot, releaseMetadataToken \}\)/u);
+    assert.doesNotMatch(source, /process\.env\.SERVICE_LASSO_RELEASE_METADATA_TOKEN\s*=/u);
+  }
 });
 
-test("workflow-projected metadata token stages publish and release artifacts through closed fixture routes", async () => {
+test("workflow-projected metadata token stages package, normal, and bundled artifacts through closed fixture routes", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "operator-tool-stagers-"));
   const metadataAuthorization = [];
   const assetAuthorization = [];
@@ -155,7 +169,7 @@ test("workflow-projected metadata token stages publish and release artifacts thr
   try {
     globalThis.fetch = fixtureReleaseFetch({ metadataAuthorization, assetAuthorization });
     process.env.npm_config_offline = "true";
-    const { stagePublishedPackage, stageReleaseArtifact } = await importFixtureStagers(root);
+    const { stagePublishedPackage, stageReleaseArtifact, stageBundledReleaseArtifact } = await importFixtureStagers(root);
 
     process.env.SERVICE_LASSO_RELEASE_METADATA_TOKEN = expectedToken;
     const published = stagePublishedPackage({
@@ -167,17 +181,34 @@ test("workflow-projected metadata token stages publish and release artifacts thr
     const stagedPackage = await published;
     assert.equal(stagedPackage.manifest.operatorToolsManifest, "operator-tools/manifest.json");
 
-    process.env.SERVICE_LASSO_RELEASE_METADATA_TOKEN = expectedToken;
+    process.env.SERVICE_LASSO_RELEASE_METADATA_TOKEN = ` ${expectedToken} `;
+    const releaseMetadataToken = consumeReleaseMetadataToken();
+    assert.equal(releaseMetadataToken, expectedToken);
+    assert.equal(process.env.SERVICE_LASSO_RELEASE_METADATA_TOKEN, undefined);
     const released = stageReleaseArtifact({
       repoRoot: path.resolve(),
       outputRoot: path.join(root, "release"),
       version: "0.1.0-stage.fixture",
+      releaseMetadataToken,
     });
     assert.equal(process.env.SERVICE_LASSO_RELEASE_METADATA_TOKEN, undefined);
     const stagedRelease = await released;
     assert.equal(stagedRelease.manifest.operatorToolsManifest, "operator-tools/manifest.json");
 
+    const bundled = stageBundledReleaseArtifact({
+      repoRoot: path.resolve(),
+      outputRoot: path.join(root, "bundled-release"),
+      version: "0.1.0-stage.fixture",
+      serviceIds: [],
+      releaseMetadataToken,
+    });
+    assert.equal(process.env.SERVICE_LASSO_RELEASE_METADATA_TOKEN, undefined);
+    const stagedBundled = await bundled;
+    assert.equal(stagedBundled.manifest.operatorToolsManifest, "operator-tools/manifest.json");
+
     assert.deepEqual(metadataAuthorization, [
+      "Bearer projected-read-token",
+      "Bearer projected-read-token",
       "Bearer projected-read-token",
       "Bearer projected-read-token",
       "Bearer projected-read-token",
