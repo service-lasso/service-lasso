@@ -243,3 +243,15 @@ evidence is a row-specific real-process result.
 ### Issue #1439: audit-request qualification evidence
 
 Under AC-7E, qualification audits retain bounded bulk/quick endpoint, HTTP status and elapsed-time observations without request bodies, credentials or arbitrary URLs. Production audit retains omit-dev/low and tooling audit retains high severity. Original npm findings and failure status remain authoritative; no automatic retry, waiver or lock mutation is introduced. A local successful bulk request is distinct from a hosted failure and does not establish its upstream cause.
+
+### Issue #1494: tooling dependency hygiene
+
+Under AC-7E, Core retains the secret-free failed Docs Site observation from
+`36663989108` / job `109724626749` at develop
+`d724258656b582d2e11b12473d5a8499547823b4`: the high
+`brace-expansion <=1.1.20` advisory reached `minimatch@3.1.5` through its
+declared `^1.1.7` range. Core selects the compatible patched `1.1.21`
+resolution through a root override and records the exact candidate audit
+result. The separate moderate `fast-uri` advisory is tracked by #1493 and is
+not remediated by this issue. This work does not waive, retry, or alter the
+failed run, and it does not make a release or GA claim.
