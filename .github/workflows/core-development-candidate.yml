@@ -27,7 +27,9 @@ jobs:
       actions: read
       contents: read
     outputs:
-      artifact_name: ${{ steps.upload.outputs.artifact-name }}
+      artifact_name: core-development-candidate-${{ env.CANDIDATE_SHA }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
     steps:
       - name: Check out requested exact candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -91,7 +93,7 @@ jobs:
           - os: macos-latest
             platform: darwin
     steps:
-      - name: Check out exact candidate for consumer fixtures
+      - name: Check out exact candidate consumer verifier
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ env.CANDIDATE_SHA }}
@@ -105,10 +107,18 @@ jobs:
       - name: Install locked consumer verifier dependencies
         run: npm ci
 
+      - name: Verify immutable uploaded candidate identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEVELOPMENT_CANDIDATE_ARTIFACT_ID: ${{ needs.build-candidate.outputs.artifact_id }}
+          DEVELOPMENT_CANDIDATE_ARTIFACT_NAME: ${{ needs.build-candidate.outputs.artifact_name }}
+          DEVELOPMENT_CANDIDATE_ARTIFACT_DIGEST: ${{ needs.build-candidate.outputs.artifact_digest }}
+        run: node scripts/verify-development-candidate-artifact.mjs
+
       - name: Download candidate artifact
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: core-development-candidate-${{ env.CANDIDATE_SHA }}
+          artifact-ids: ${{ needs.build-candidate.outputs.artifact_id }}
           path: candidate
 
       - name: Verify clean consumer startup and health

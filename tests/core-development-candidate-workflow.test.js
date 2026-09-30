@@ -12,9 +12,14 @@ test("AC-4BZ.3 development candidate workflow is exact-develop, read-only, and n
   assert.doesNotMatch(workflow, /environment: release|npm publish|gh release|attest-build-provenance|contents: write|id-token: write/u);
 });
 
-test("AC-4BZ.3 retains six archives, reads back upload digest, and exercises each clean OS consumer", () => {
+test("AC-4BZ.3 binds every consumer to the immutable uploaded artifact and exercises each clean OS consumer", () => {
   assert.match(workflow, /scripts\/create-development-candidate\.mjs/u);
   assert.match(workflow, /scripts\/verify-development-candidate-artifact\.mjs/u);
+  assert.match(workflow, /artifact_id: \$\{\{ steps\.upload\.outputs\.artifact-id \}\}/u);
+  assert.match(workflow, /artifact_digest: \$\{\{ steps\.upload\.outputs\.artifact-digest \}\}/u);
+  assert.match(workflow, /DEVELOPMENT_CANDIDATE_ARTIFACT_ID: \$\{\{ needs\.build-candidate\.outputs\.artifact_id \}\}/u);
+  assert.match(workflow, /DEVELOPMENT_CANDIDATE_ARTIFACT_DIGEST: \$\{\{ needs\.build-candidate\.outputs\.artifact_digest \}\}/u);
+  assert.match(workflow, /artifact-ids: \$\{\{ needs\.build-candidate\.outputs\.artifact_id \}\}/u);
   assert.match(workflow, /actions\/download-artifact@/u);
   assert.match(workflow, /windows-latest[\s\S]*?win32/u);
   assert.match(workflow, /ubuntu-latest[\s\S]*?linux/u);

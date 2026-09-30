@@ -14,7 +14,7 @@ const candidateSha = required("CANDIDATE_SHA").toLowerCase();
 const artifactId = required("DEVELOPMENT_CANDIDATE_ARTIFACT_ID");
 const artifactName = required("DEVELOPMENT_CANDIDATE_ARTIFACT_NAME");
 const uploadDigest = required("DEVELOPMENT_CANDIDATE_ARTIFACT_DIGEST").replace(/^sha256:/u, "").toLowerCase();
-if (!/^[a-f0-9]{40}$/u.test(candidateSha) || !/^[a-f0-9]{64}$/u.test(uploadDigest)) throw new Error("Candidate artifact identity is malformed.");
+if (!/^[a-f0-9]{40}$/u.test(candidateSha) || !/^[1-9][0-9]*$/u.test(artifactId) || !/^[a-f0-9]{64}$/u.test(uploadDigest)) throw new Error("Candidate artifact identity is malformed.");
 
 const apiBase = (process.env.GITHUB_API_URL?.trim() || "https://api.github.com").replace(/\/$/u, "");
 const headers = { accept: "application/vnd.github+json", authorization: `Bearer ${token}`, "x-github-api-version": "2022-11-28" };

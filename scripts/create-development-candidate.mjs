@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -14,7 +14,9 @@ if (!/^[a-f0-9]{40}$/u.test(candidateSha ?? "")) {
 }
 
 const outputRoot = path.join(repoRoot, "artifacts", "development-candidate");
+const stagingRoot = path.join(repoRoot, "artifacts", "development-candidate-stage");
 await rm(outputRoot, { recursive: true, force: true });
+await rm(stagingRoot, { recursive: true, force: true });
 await mkdir(outputRoot, { recursive: true });
 
 const version = `develop-${candidateSha.slice(0, 12)}`;
@@ -22,39 +24,49 @@ const version = `develop-${candidateSha.slice(0, 12)}`;
 // helpers receive it explicitly, while their npm and archive child processes
 // run after it has been removed from the inherited environment.
 const releaseMetadataToken = consumeReleaseMetadataToken();
-const unbundled = await stageReleaseArtifact({ repoRoot, outputRoot, version, releaseMetadataToken });
-const bundled = await stageBundledReleaseArtifact({ repoRoot, outputRoot, version, releaseMetadataToken });
+let unbundled;
+let bundled;
+try {
+  unbundled = await stageReleaseArtifact({ repoRoot, outputRoot: stagingRoot, version, releaseMetadataToken });
+  bundled = await stageBundledReleaseArtifact({ repoRoot, outputRoot: stagingRoot, version, releaseMetadataToken });
 
-const archives = [...unbundled.platformArchives, ...bundled.platformArchives].map((archive) => ({
-  artifact: archive.archiveName.startsWith(unbundled.artifactName) ? "unbundled" : "bundled",
-  platform: archive.platform,
-  name: archive.archiveName,
-  path: archive.archivePath,
-}));
+  const archives = [
+    ...unbundled.platformArchives.map((archive) => ({ artifact: "unbundled", platform: archive.platform, name: archive.archiveName, path: archive.archivePath })),
+    ...bundled.platformArchives.map((archive) => ({ artifact: "bundled", platform: archive.platform, name: archive.archiveName, path: archive.archivePath })),
+  ];
 
-if (archives.length !== 6) throw new Error("Development candidate must contain six platform archives.");
+  const requiredPairs = new Set(["unbundled:win32", "unbundled:linux", "unbundled:darwin", "bundled:win32", "bundled:linux", "bundled:darwin"]);
+  const archiveNames = new Set(archives.map((archive) => archive.name));
+  const archivePairs = new Set(archives.map((archive) => `${archive.artifact}:${archive.platform}`));
+  if (archives.length !== requiredPairs.size || archiveNames.size !== archives.length || archivePairs.size !== requiredPairs.size || [...requiredPairs].some((pair) => !archivePairs.has(pair))) {
+    throw new Error("Development candidate must contain exactly six unique bundled and unbundled platform archives.");
+  }
+  for (const archive of archives) await copyFile(archive.path, path.join(outputRoot, archive.name));
 
-const digest = async (filePath) => createHash("sha256").update(await readFile(filePath)).digest("hex");
-const manifestArchives = await Promise.all(archives.map(async ({ path: archivePath, ...archive }) => ({
-  ...archive,
-  sha256: await digest(archivePath),
-})));
+  const digest = async (filePath) => createHash("sha256").update(await readFile(filePath)).digest("hex");
+  const manifestArchives = await Promise.all(archives.map(async ({ path: archivePath, ...archive }) => ({
+    ...archive,
+    sha256: await digest(path.join(outputRoot, archive.name)),
+  })));
 
-const manifest = {
-  schemaVersion: 1,
-  kind: "core-development-candidate",
-  source: { repository: process.env.GITHUB_REPOSITORY ?? "service-lasso/service-lasso", commit: candidateSha, ref: "develop" },
-  nonGoals: ["github-release", "npm-publication", "deployment", "promotion", "release-environment", "ga"],
-  archives: manifestArchives.map(({ path: archivePath, ...archive }) => archive).sort((left, right) => left.name.localeCompare(right.name)),
-};
+  const manifest = {
+    schemaVersion: 1,
+    kind: "core-development-candidate",
+    source: { repository: process.env.GITHUB_REPOSITORY ?? "service-lasso/service-lasso", commit: candidateSha, ref: "develop" },
+    nonGoals: ["github-release", "npm-publication", "deployment", "promotion", "release-environment", "ga"],
+    archives: manifestArchives.map(({ path: archivePath, ...archive }) => archive).sort((left, right) => left.name.localeCompare(right.name)),
+  };
 
-const manifestPath = path.join(outputRoot, "candidate-manifest.json");
-await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
-const checksums = [
-  ...manifest.archives.map((archive) => `${archive.sha256}  ${archive.name}`),
-  `${await digest(manifestPath)}  candidate-manifest.json`,
-].join("\n");
-await writeFile(path.join(outputRoot, "SHA256SUMS.txt"), `${checksums}\n`, "utf8");
+  const manifestPath = path.join(outputRoot, "candidate-manifest.json");
+  await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+  const checksums = [
+    ...manifest.archives.map((archive) => `${archive.sha256}  ${archive.name}`),
+    `${await digest(manifestPath)}  candidate-manifest.json`,
+  ].join("\n");
+  await writeFile(path.join(outputRoot, "SHA256SUMS.txt"), `${checksums}\n`, "utf8");
 
-for (const archive of manifest.archives) await stat(path.join(outputRoot, archive.name));
-process.stdout.write(`${JSON.stringify({ candidateSha, archiveCount: manifest.archives.length, outputRoot })}\n`);
+  for (const archive of manifest.archives) await stat(path.join(outputRoot, archive.name));
+  process.stdout.write(`${JSON.stringify({ candidateSha, archiveCount: manifest.archives.length, outputRoot })}\n`);
+} finally {
+  await rm(stagingRoot, { recursive: true, force: true });
+}
