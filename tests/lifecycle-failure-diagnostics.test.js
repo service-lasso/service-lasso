@@ -156,6 +156,47 @@ test("malformed mixed error properties cannot replace an otherwise valid deadlin
   assert.equal(serialized.includes(sensitive), false);
 });
 
+test("lifecycle diagnostics do not invoke error accessors and retain nested own-data receipts", () => {
+  let accessorReads = 0;
+  const hostile = {};
+  for (const property of ["failurePhase", "code", "windowsTreeInspection", "cause", "errors"]) {
+    Object.defineProperty(hostile, property, {
+      get() {
+        accessorReads += 1;
+        return "private-accessor-value";
+      },
+    });
+  }
+  const deadline = {
+    failurePhase: "target_acknowledgement",
+    code: "PROCESS_CONTROL_DEADLINE_EXCEEDED",
+    windowsTreeInspection: {
+      windowsTreeInspectionPhase: "native_snapshot",
+      windowsTreeInspectionAttempts: 1,
+      windowsTreeInspectionRetries: 0,
+      windowsTreeInspectionQueueMs: 0,
+      windowsTreeInspectionNativeMs: 9,
+      windowsTreeInspectionLastRetry: null,
+    },
+  };
+  const result = JSON.parse(lifecycleFailureDiagnostic({ error: { cause: deadline, errors: [hostile] } }));
+
+  assert.equal(accessorReads, 0);
+  assert.deepEqual(result.failurePhases, ["target_acknowledgement"]);
+  assert.equal(result.deadlineExceeded, true);
+  assert.deepEqual(result.windowsTreeInspections, [{
+    windowsTreeInspectionPhase: "native_snapshot",
+    windowsTreeInspectionAttempts: 1,
+    windowsTreeInspectionRetries: 0,
+    windowsTreeInspectionQueueMs: 0,
+    windowsTreeInspectionNativeMs: 9,
+    windowsTreeInspectionLastRetry: null,
+    windowsTreeInspectionAncestryCategory: null,
+    windowsTreeInspectionRootFingerprintMatch: null,
+    windowsTreeInspectionAncestryDepthBucket: null,
+  }]);
+});
+
 test("aggregate diagnostic traversal remains bounded across wide and deep error graphs", () => {
   const deadline = { code: "PROCESS_CONTROL_DEADLINE_EXCEEDED" };
   const wide = new AggregateError([...Array.from({ length: 32 }, () => ({ failurePhase: "wrapper_spawn" })), deadline]);
