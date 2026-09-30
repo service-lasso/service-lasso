@@ -10,10 +10,13 @@ This file tracks bootstrap/adoption/remediation work required before product imp
 - Resolution used for this update run: normalize those artifacts into the current bootstrap-update output rather than discard or ignore them.
 
 ## Open Items
-- #1463 staged client-local transfer is specified as a prerequisite in
-  `docs/api/staged-service-transfer.md`; implementation is blocked on the
-  merged #1462 durable registration API (a83133cc / PR #1464); implementation still requires fresh independent specification/security review and must not create a generic upload
-  route on `develop`.
+- #1463 defines a release-asset-only staged transfer prerequisite in
+  `docs/api/staged-service-transfer.md`. It uses a new reviewed
+  staged-registration adapter over #1462 / PR #1464 (`a83133cc`), rather than
+  asserting the old `confirm:true` API already has stage fields. Implementation
+  requires fresh independent specification/security review and must not create a
+  generic upload route. Locally authored template/source admission remains open in
+  #1513 (`SPEC-002` / `SPEC-006 AC-6E`; CLI #1/#8), outside #1463.
 - Long-lived branch model is `develop` for governed implementation and `main` for promoted releases. Feature/fix branches merge back through PR, are archived with the `archive/` prefix after merge, and the workspace returns to clean `develop` before the next issue.
 - Keep issue `#1164` security settings, active ruleset, branch protection,
   CODEOWNERS, immutable Action pins, CodeQL/dependency review, Dependabot, and

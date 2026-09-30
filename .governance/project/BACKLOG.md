@@ -560,6 +560,10 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 
 | `ISS-1462` | `done` | Remote-safe service registration and durable operator API | `SPEC-002`, `AC-4CF` | Merged at `a83133cc` (PR #1464). Core owns the released-reference resolver, trusted actor/permission/confirmation, idempotent operation readback and exclusive direct-child import. #1463 / `AC-4CH` stages only bytes checksum-bound to that server-resolved released platform asset; generic upload, client-host paths and client-local manifest authoring remain excluded pending independent implementation/security review. |
 
+| `ISS-1463` | `blocked` | Release-asset-only staged remote transfer contract | `SPEC-002`, `AC-4CH`–`AC-4CH.2`; `SPEC-006`, `AC-6E` | PR #1473 defines the closed HTTP/header/token/range/parser/recovery contract and a new staged-registration adapter over #1462's source-safe substrate. Fresh independent specification and security review precede product implementation. It makes no GA, deployment, lifecycle, or locally authored source-admission claim. |
+
+| `ISS-1513` | `ready` | Source-safe admission contract for locally authored template projects | `SPEC-002`; `SPEC-006`, `AC-6E` | Separate from release-asset transfer. Defines the still-open full client-local source-admission contract for CLI #1/#8 and #1463; requires exact provenance/admission review, authorization/confirmation, durable operation/recovery, safe parser/Audit boundaries, packaged evidence, and no lifecycle authority before implementation. |
+
 | `ISS-1439` | `in_progress` | Classify tooling audit bulk failure and retired fallback | `SPEC-007`, `AC-7E` | Retain failed #1425 candidate and add bounded advisory-request metadata; audit severity thresholds and failure result stay unchanged. |
 ## GA maintenance #1386
 
