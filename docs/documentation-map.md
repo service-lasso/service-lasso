@@ -68,6 +68,7 @@ This inventory records every Markdown page that existed when issue [#1258](https
 | `reference/operator-inbox.md` | Run and manage services | reference | Unlisted: API detail |
 | `reference/operator-mcp.md` | Technical reference | reference | Listed: MCP entry |
 | `reference/operator-notifications.md` | Run and manage services | reference | Unlisted: API detail |
+| `reference/operator-tool-packaging.md` | Contribute and maintain | reference | Unlisted: exact external operator-tool release gate |
 | `reference/process-ownership-registry.md` | Security and access | reference | Unlisted: persistence and ownership contract |
 | `reference/product-api-facade.md` | Technical reference | reference | Listed: HTTP API entry |
 | `reference/readiness-gate.md` | Technical reference | reference | Listed: CLI entry |
