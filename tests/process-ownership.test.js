@@ -3853,6 +3853,10 @@ test("rehydration preserves the native-inspection timeout when receipt persisten
 
     assert.equal(hasManagedProcess("registry-adopt-timeout"), false);
     assert.equal(child.exitCode, null);
+    assert.equal(child.signalCode, null);
+    const postFailureInspection = await inspectProcess(child.pid);
+    assert.equal(postFailureInspection.status, "running");
+    assert.equal(postFailureInspection.identity.pid, child.pid);
     const receiptFiles = await Promise.all([
       readFile(path.join(serviceRoot, ".state", "service.json"), "utf8"),
       readFile(path.join(serviceRoot, ".state", "install.json"), "utf8"),
