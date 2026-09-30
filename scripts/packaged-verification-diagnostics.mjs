@@ -19,6 +19,16 @@ const npmSubcodes = new Map([
 ]);
 
 const MAX_NPM_JSON_BYTES = 8 * 1024;
+const childExecutionSubcodes = new Set([
+  "subprocess_spawn_enoent",
+  "subprocess_spawn_eacces",
+  "subprocess_spawn_eperm",
+  "subprocess_exit_nonzero",
+  "subprocess_timeout",
+  "subprocess_output_limit",
+  "subprocess_killed_sigterm",
+  "subprocess_killed_sigkill",
+]);
 
 function ownData(value, key) {
   if (!value || typeof value !== "object") return undefined;
@@ -50,6 +60,11 @@ export function dependencyAcquisitionSubcode(error) {
   if (code === "ENOENT") return "subprocess_spawn_enoent";
   if (code === "EACCES") return "subprocess_spawn_eacces";
   if (code === "EPERM") return "subprocess_spawn_eperm";
+  if (code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER" || ownData(error, "maxOutputExceeded") === true) return "subprocess_output_limit";
+  if (ownData(error, "timedOut") === true) return "subprocess_timeout";
+  const signal = ownData(error, "signal");
+  if (ownData(error, "killed") === true && signal === "SIGTERM") return "subprocess_killed_sigterm";
+  if (ownData(error, "killed") === true && signal === "SIGKILL") return "subprocess_killed_sigkill";
   if (typeof code !== "number") return undefined;
   return npmSubcodes.get(npmReportedCode(error)) ?? "subprocess_exit_nonzero";
 }
@@ -71,7 +86,7 @@ export function packagedVerificationDiagnostic(stage, external, subcode) {
   return {
     stage: stages.has(stage) ? stage : "packaged_verification",
     errorCode: "verification_failed",
-    ...(stage === "dependency_acquisition" && typeof subcode === "string" && [...npmSubcodes.values(), "subprocess_spawn_enoent", "subprocess_spawn_eacces", "subprocess_spawn_eperm", "subprocess_exit_nonzero"].includes(subcode) ? { subcode } : {}),
+    ...(stage === "dependency_acquisition" && typeof subcode === "string" && [...npmSubcodes.values(), ...childExecutionSubcodes].includes(subcode) ? { subcode } : {}),
     ...(upstream ? { external: upstream } : {}),
   };
 }

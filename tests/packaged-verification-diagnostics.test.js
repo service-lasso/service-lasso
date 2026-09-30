@@ -22,6 +22,10 @@ test("dependency acquisition projects only bounded npm-reported observations and
     [{ code: "ENOENT", stderr: secret }, "subprocess_spawn_enoent"],
     [{ code: "EACCES", stderr: secret }, "subprocess_spawn_eacces"],
     [{ code: 1, stderr: secret }, "subprocess_exit_nonzero"],
+    [{ timedOut: true, stderr: secret }, "subprocess_timeout"],
+    [{ maxOutputExceeded: true, stderr: secret }, "subprocess_output_limit"],
+    [{ killed: true, signal: "SIGTERM", stderr: secret }, "subprocess_killed_sigterm"],
+    [{ killed: true, signal: "SIGKILL", stderr: secret }, "subprocess_killed_sigkill"],
     [{ code: 1, stdout: JSON.stringify({ error: { code: "ENOTFOUND", detail: secret } }), stderr: secret }, "npm_reported_network_enotfound"],
     [{ code: 1, stdout: JSON.stringify({ error: { code: "EINTEGRITY", detail: secret } }), stderr: secret }, "npm_reported_checksum_mismatch"],
     [{ code: 1, stdout: JSON.stringify({ error: { code: "E401", detail: secret } }), stderr: secret }, "npm_reported_registry_identity_rejected"],
@@ -38,6 +42,7 @@ test("dependency acquisition projects only bounded npm-reported observations and
     { code: 1, stdout: "{malformed" },
     { code: 1, stdout: "x".repeat(8 * 1024 + 1) },
     { stderr: `npm ERR! code ENOTFOUND\nnpm ERR! ${secret}` },
+    { killed: true, signal: "SIGUSR1", stderr: secret },
     new Error(secret),
   ]) {
     assert.equal(dependencyAcquisitionSubcode(error), typeof error.code === "number" ? "subprocess_exit_nonzero" : undefined);
@@ -54,6 +59,25 @@ test("dependency acquisition ignores hostile getters and cannot project their pr
   Object.defineProperty(hostile, "code", { value: 1 });
   Object.defineProperty(hostile, "stdout", { get() { throw new Error("private-token"); } });
   assert.equal(dependencyAcquisitionSubcode(hostile), "subprocess_exit_nonzero");
+  for (const key of ["timedOut", "maxOutputExceeded", "killed", "signal"]) {
+    Object.defineProperty(hostile, key, { get() { throw new Error("private-token"); } });
+  }
+  assert.equal(dependencyAcquisitionSubcode(hostile), "subprocess_exit_nonzero");
+});
+
+test("real child execution observations are closed and secret-safe", async () => {
+  const secret = "private-token-and-path";
+  const timeout = await runCommand(process.execPath, ["-e", "setTimeout(() => {}, 1000)"], { timeoutMs: 25 }).catch(value => value);
+  assert.equal(dependencyAcquisitionSubcode(timeout), "subprocess_timeout");
+  const outputLimit = await runCommand(process.execPath, ["-e", "process.stdout.write('x'.repeat(3 * 1024 * 1024))"]).catch(value => value);
+  assert.equal(dependencyAcquisitionSubcode(outputLimit), "subprocess_output_limit");
+  const spawnFault = await runCommand("service-lasso-1386-missing-command", []).catch(value => value);
+  assert.equal(dependencyAcquisitionSubcode(spawnFault), "subprocess_spawn_enoent");
+  for (const error of [timeout, outputLimit, spawnFault]) {
+    Object.defineProperty(error, "message", { value: secret });
+    const diagnostic = packagedVerificationDiagnostic("dependency_acquisition", undefined, dependencyAcquisitionSubcode(error));
+    assert.equal(JSON.stringify(diagnostic).includes(secret), false);
+  }
 });
 
 test("real command failure projects only its bounded npm JSON error code", async () => {
@@ -82,7 +106,7 @@ test("the verifier catch branch keeps npm install safeguards and emits only the 
   const os = await import("node:os");
   const path = (await import("node:path")).default;
   const source = await readFile(new URL("../scripts/verify-mcp-packaged.mjs", import.meta.url), "utf8");
-  for (const flag of ["\"--json\"", "\"--ignore-scripts\"", "\"--no-audit\"", "\"--no-fund\"", "timeoutMs: 300_000"]) assert.equal(source.includes(flag), true);
+  for (const flag of ["\"--json\"", "\"--ignore-scripts\"", "\"--no-audit\"", "\"--no-fund\"", "timeoutMs: 300_000", "timeoutMs: 900_000"]) assert.equal(source.includes(flag), true);
   const body = source.slice(source.indexOf("let verificationFailure = null;"));
   const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-1386-verifier-"));

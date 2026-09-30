@@ -282,7 +282,7 @@ export async function runCommand(command, args, options = {}) {
     let settled = false;
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
-      finish(new Error(`Command did not complete within ${timeoutMs}ms.`));
+      finish(Object.assign(new Error(`Command did not complete within ${timeoutMs}ms.`), { timedOut: true }));
     }, timeoutMs);
     timer.unref?.();
 
@@ -290,7 +290,7 @@ export async function runCommand(command, args, options = {}) {
       const next = kind === "stdout" ? stdoutBytes + chunk.length : stderrBytes + chunk.length;
       if (next > MAX_CAPTURE_BYTES) {
         child.kill("SIGKILL");
-        finish(new Error(`Command ${kind} exceeded the bounded capture limit.`));
+        finish(Object.assign(new Error(`Command ${kind} exceeded the bounded capture limit.`), { maxOutputExceeded: true }));
         return;
       }
       chunks.push(chunk);
