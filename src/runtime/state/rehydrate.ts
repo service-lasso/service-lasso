@@ -950,8 +950,14 @@ export async function reconcilePersistedServiceOwner(
       adoptedState = await adoptVerifiedRegistryOwner(service, state, ownership, workspaceRoot);
     } catch (error) {
       // Do not turn a failed inspection into an ownership decision. Persist a
-      // closed diagnostic receipt, then preserve the original failure.
-      await writeServiceState(service, buildRehydrateInspectionFailureState(service, state, error));
+      // closed diagnostic receipt when possible, then preserve the original
+      // failure even when the receipt cannot be written.
+      try {
+        await writeServiceState(service, buildRehydrateInspectionFailureState(service, state, error));
+      } catch {
+        // Receipt persistence is diagnostic only. The original inspection
+        // failure remains the fail-closed outcome.
+      }
       throw error;
     }
     await writeServiceState(service, adoptedState);

@@ -3794,7 +3794,7 @@ test("runtime restart adopts a registry owner even when runtime.json discarded r
   }
 });
 
-test("rehydration preserves a closed native-inspection timeout receipt when registry-owner adoption fails", {
+test("rehydration preserves the native-inspection timeout when receipt persistence fails", {
   skip: process.platform !== "win32",
 }, async () => {
   resetLifecycleState();
@@ -3848,6 +3848,11 @@ test("rehydration preserves a closed native-inspection timeout receipt when regi
       lastAction: "start",
       actionHistory: ["install", "config", "start"],
     });
+    // Make the closed receipt write fail. This must not replace the native
+    // inspection deadline with a persistence error.
+    const runtimeStatePath = path.join(serviceRoot, ".state", "runtime.json");
+    await rm(runtimeStatePath, { force: true });
+    await mkdir(runtimeStatePath);
     setManagedWindowsTreeInspectorForTests(async () => { throw deadline; });
 
     const [service] = await discoverServices(servicesRoot);
@@ -3858,18 +3863,13 @@ test("rehydration preserves a closed native-inspection timeout receipt when regi
 
     assert.equal(hasManagedProcess("registry-adopt-timeout"), false);
     assert.equal(child.exitCode, null);
-    const stored = await readStoredState(serviceRoot);
-    const event = stored.runtime.startTrace.current.events[0];
-    assert.deepEqual(event.metadata, {
-      rehydrateFailure: "registry_owner_adoption",
-      windowsTreeInspectionPhase: "native_snapshot",
-      windowsTreeInspectionAttempts: 1,
-      windowsTreeInspectionRetries: 0,
-      windowsTreeInspectionQueueMs: 0,
-      windowsTreeInspectionNativeMs: 15_000,
-      windowsTreeInspectionLastRetry: null,
-    });
-    assert.equal(JSON.stringify(stored).includes("never-persist-this-native-output"), false);
+    const receiptFiles = await Promise.all([
+      readFile(path.join(serviceRoot, ".state", "service.json"), "utf8"),
+      readFile(path.join(serviceRoot, ".state", "install.json"), "utf8"),
+      readFile(path.join(serviceRoot, ".state", "config.json"), "utf8"),
+      readFile(path.join(serviceRoot, ".state", "setup.json"), "utf8"),
+    ]);
+    assert.equal(receiptFiles.join("\n").includes("never-persist-this-native-output"), false);
     const ownership = await findProcessOwnership(workspaceRoot, "service", "registry-adopt-timeout");
     assert.equal(ownership.lifecycleState, "running");
     assert.equal(ownership.pid, child.pid);
