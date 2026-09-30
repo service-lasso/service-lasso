@@ -5,56 +5,133 @@ import { fileURLToPath } from "node:url";
 import { once } from "node:events";
 
 export const SCHEMA = "service-admin.trusted-unlock-receipt.v1";
-const KEYS = "loading,localRoot,present,schema,status,unavailable,verified";
+const REQUIRED_KEYS = new Set(["schema", "status", "present", "verified", "localRoot", "loading", "unavailable"]);
+const MAX_RECORD_LENGTH = 256;
 
+function parseString(source, start) {
+  if (source[start] !== '"') return null;
+  let index = start + 1;
+  while (index < source.length) {
+    const character = source[index];
+    if (character === '"') {
+      const raw = source.slice(start, index + 1);
+      try { return { value: JSON.parse(raw), next: index + 1 }; } catch { return null; }
+    }
+    if (character === "\\") {
+      index += 1;
+      if (index >= source.length) return null;
+    } else if (character.charCodeAt(0) < 0x20) return null;
+    index += 1;
+  }
+  return null;
+}
+
+function skipWhitespace(source, index) {
+  while (index < source.length && /[ \t\n\r]/u.test(source[index])) index += 1;
+  return index;
+}
+
+function parseBoolean(source, index) {
+  if (source.startsWith("true", index)) return { value: true, next: index + 4 };
+  if (source.startsWith("false", index)) return { value: false, next: index + 5 };
+  return null;
+}
+
+// Tokenizing member names before materializing an object prevents escaped
+// duplicate keys from disappearing during JSON.parse object construction.
 export function parseReceipt(line) {
-  if (typeof line !== "string" || line.length < 2 || line.length > 256) return null;
-  const matches = line.match(/"(?:schema|status|present|verified|localRoot|loading|unavailable)"\s*:/gu) ?? [];
-  if (new Set(matches.map((v) => v.replace(/["\s:]/gu, ""))).size !== matches.length) return null;
-  let value; try { value = JSON.parse(line); } catch { return null; }
-  if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).sort().join(",") !== KEYS) return null;
-  if (value.schema !== SCHEMA || value.status !== "observed") return null;
-  for (const key of ["present", "verified", "localRoot", "loading", "unavailable"]) if (typeof Object.getOwnPropertyDescriptor(value, key)?.value !== "boolean") return null;
-  if (value.present !== (value.verified || value.localRoot || value.loading || value.unavailable)) return null;
-  return { schema: value.schema, status: value.status, present: value.present, verified: value.verified, localRoot: value.localRoot, loading: value.loading, unavailable: value.unavailable };
+  if (typeof line !== "string" || line.length < 2 || line.length > MAX_RECORD_LENGTH) return null;
+  let index = skipWhitespace(line, 0);
+  if (line[index] !== "{") return null;
+  index += 1;
+  const fields = Object.create(null);
+  const seen = new Set();
+  for (;;) {
+    index = skipWhitespace(line, index);
+    if (line[index] === "}") { index += 1; break; }
+    const key = parseString(line, index);
+    if (!key || !REQUIRED_KEYS.has(key.value) || seen.has(key.value)) return null;
+    seen.add(key.value);
+    index = skipWhitespace(line, key.next);
+    if (line[index] !== ":") return null;
+    index = skipWhitespace(line, index + 1);
+    const value = key.value === "schema" || key.value === "status" ? parseString(line, index) : parseBoolean(line, index);
+    if (!value) return null;
+    fields[key.value] = value.value;
+    index = skipWhitespace(line, value.next);
+    if (line[index] === ",") { index += 1; continue; }
+    if (line[index] === "}") { index += 1; break; }
+    return null;
+  }
+  if (skipWhitespace(line, index) !== line.length || seen.size !== REQUIRED_KEYS.size) return null;
+  if (fields.schema !== SCHEMA || fields.status !== "observed") return null;
+  if (fields.present !== (fields.verified || fields.localRoot || fields.loading || fields.unavailable)) return null;
+  return { schema: fields.schema, status: fields.status, present: fields.present, verified: fields.verified, localRoot: fields.localRoot, loading: fields.loading, unavailable: fields.unavailable };
 }
 
 export function classify(lines) {
-  const candidates = lines.filter((line) => typeof line === "string" && line.includes(SCHEMA));
-  if (!candidates.length) return { classification: "missing" };
-  if (candidates.length !== 1) return { classification: "invalid" };
-  const receipt = parseReceipt(candidates[0]);
-  return receipt ? { classification: "closed", receipt } : { classification: "invalid" };
+  let seen = 0;
+  let candidate = null;
+  for (const line of lines) {
+    if (typeof line !== "string" || !line.includes(SCHEMA)) continue;
+    seen = Math.min(2, seen + 1);
+    if (seen === 1) candidate = parseReceipt(line);
+  }
+  if (!seen) return { classification: "missing" };
+  if (seen !== 1 || !candidate) return { classification: "invalid" };
+  return { classification: "closed", receipt: candidate };
 }
 
 function receiptObserver() {
+  const decoder = new TextDecoder("utf-8", { fatal: true });
   let line = "", markerIndex = 0, sawSchema = false, oversized = false;
-  const observations = [];
+  let seen = 0, duplicate = false, candidate = null, decodeFailed = false;
   const complete = () => {
-    if (sawSchema) observations.push(oversized ? null : parseReceipt(line));
+    if (sawSchema) {
+      if (seen) duplicate = true;
+      else candidate = oversized ? null : parseReceipt(line);
+      seen = 1;
+    }
     line = "";
     markerIndex = 0;
     sawSchema = false;
     oversized = false;
   };
+  const acceptText = (text) => {
+    for (const character of text) {
+      if (character === "\n" || character === "\r") { complete(); continue; }
+      if (line.length < MAX_RECORD_LENGTH) line += character;
+      else oversized = true;
+      markerIndex = character === SCHEMA[markerIndex] ? markerIndex + 1 : character === SCHEMA[0] ? 1 : 0;
+      if (markerIndex === SCHEMA.length) sawSchema = true;
+    }
+  };
   return {
     write(chunk) {
-      for (const character of chunk.toString("utf8")) {
-        if (character === "\n") { complete(); continue; }
-        if (line.length < 256) line += character;
-        else oversized = true;
-        markerIndex = character === SCHEMA[markerIndex] ? markerIndex + 1 : character === SCHEMA[0] ? 1 : 0;
-        if (markerIndex === SCHEMA.length) sawSchema = true;
-      }
+      if (decodeFailed) return;
+      try { acceptText(decoder.decode(chunk, { stream: true })); } catch { decodeFailed = true; }
     },
-    end() { if (line || sawSchema) complete(); return observations; }
+    end() {
+      if (!decodeFailed) {
+        try { acceptText(decoder.decode()); } catch { decodeFailed = true; }
+      }
+      if (line || sawSchema) complete();
+      return { seen, duplicate, candidate, decodeFailed };
+    },
   };
 }
 
 function classifyObservations(observations) {
-  if (!observations.length) return { classification: "missing" };
-  if (observations.length !== 1 || !observations[0]) return { classification: "invalid" };
-  return { classification: "closed", receipt: observations[0] };
+  let seen = 0;
+  let candidate = null;
+  for (const observation of observations) {
+    if (observation.decodeFailed) return { classification: "invalid" };
+    if (!observation.seen) continue;
+    if (seen || observation.duplicate || !observation.candidate) return { classification: "invalid" };
+    seen = 1;
+    candidate = observation.candidate;
+  }
+  return seen ? { classification: "closed", receipt: candidate } : { classification: "missing" };
 }
 
 export async function consume(command, args, options = {}) {
@@ -66,12 +143,22 @@ export async function consume(command, args, options = {}) {
     streamClosed.push(once(stream, "end").then(() => observer.end()));
   }
   const result = await new Promise((resolve, reject) => { child.once("error", reject); child.once("close", (code, signal) => resolve({ code, signal })); });
-  const observations = (await Promise.all(streamClosed)).flat();
+  const observations = await Promise.all(streamClosed);
   return { ...result, trustedUnlock: result.code === 0 && result.signal === null ? null : classifyObservations(observations) };
+}
+
+function outcomeFor(result) {
+  if (result.signal) return "signal";
+  return result.code === 0 ? "success" : "nonzero_exit";
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
   const receipt = process.argv.indexOf("--receipt"), separator = process.argv.indexOf("--");
   if (receipt < 0 || separator < 0 || !process.argv[receipt + 1] || !process.argv[separator + 1]) process.exitCode = 2;
-  else { const result = await consume(process.argv[separator + 1], process.argv.slice(separator + 2), { cwd: process.cwd(), env: process.env }); await writeFile(process.argv[receipt + 1], `${JSON.stringify({ schema: "service-lasso.admin-trusted-unlock-consumer.v1", outcome: result.code === 0 && result.signal === null ? "success" : "nonzero_exit", trustedUnlock: result.trustedUnlock })}\n`); process.exitCode = result.code ?? 1; }
+  else {
+    const result = await consume(process.argv[separator + 1], process.argv.slice(separator + 2), { cwd: process.cwd(), env: process.env });
+    await writeFile(process.argv[receipt + 1], `${JSON.stringify({ schema: "service-lasso.admin-trusted-unlock-consumer.v1", outcome: outcomeFor(result), exitCode: result.code, signal: result.signal, trustedUnlock: result.trustedUnlock })}\n`);
+    if (result.signal && process.platform !== "win32") process.kill(process.pid, result.signal);
+    else process.exitCode = result.code ?? 1;
+  }
 }
