@@ -141,7 +141,6 @@ test("every ancestry rejection stays fail closed with a distinct bounded reason"
     ["ancestry_missing_parent", [row(4343, 9999, newer)]],
     ["ancestry_predates_parent_within_root", [row(4343, 4344, newer), row(4344, root.pid, newest)]],
     ["ancestry_predates_parent_within_root", [row(4343, 4344, root.createdAt), row(4344, root.pid, newer)]],
-    ["ancestry_predates_parent_before_root", [row(4343, 4344, "2026-07-18T01:02:02.456Z"), row(4344, root.pid, newer)]],
     ["ancestry_predates_parent_before_root", [row(4343, 4344, "2026-07-18T01:02:01.456Z"), row(4344, root.pid, "2026-07-18T01:02:02.456Z")]],
   ];
   for (const [reason, descendants] of cases) {
@@ -193,6 +192,46 @@ test("verified root lifetime excludes an older numeric-parent branch without dis
   assert.deepEqual(result.members.map(member => member.pid), [4345, root.pid]);
   assert.equal(result.verifiedMembersOnly, true);
   assert.deepEqual(result.excludedMemberPids, [4343, 4344]);
+});
+
+test("a verified direct pre-root child edge is excluded without disowning its current-root sibling", async () => {
+  const command = "private-command";
+  const expected = { ...root, commandHash: hashProcessCommandLine(command) };
+  const row = (pid, parent, date) => ({ Status: "running", ProcessId: pid,
+    ParentProcessId: parent, CreationDate: date, ExecutablePath: root.executablePath, CommandLine: command });
+  const rootRow = row(root.pid, 9000, root.createdAt);
+  const currentParent = row(4343, root.pid, "2026-07-18T01:02:04.456Z");
+  const staleChild = row(4344, currentParent.ProcessId, "2026-07-18T01:02:02.456Z");
+  const staleRelatedChild = row(4345, staleChild.ProcessId, "2026-07-18T01:02:03.456Z");
+  const ownedChild = row(4346, root.pid, "2026-07-18T01:02:05.456Z");
+  const result = await inspectWindowsProcessTree(expected, {
+    runCommand: async () => ({ stdout: JSON.stringify({ Status: "tree", RootStatus: "running",
+      Processes: [rootRow, currentParent, staleChild, staleRelatedChild, ownedChild] }) }),
+  });
+  assert.equal(result.rootStatus, "owned");
+  assert.deepEqual(result.members.map(member => member.pid), [4346, 4343, root.pid]);
+  assert.equal(result.verifiedMembersOnly, true);
+  assert.deepEqual(result.excludedMemberPids, [4344, 4345]);
+});
+
+test("only direct pre-root branches are excluded; deeper and changed-root evidence remains rejected", async () => {
+  const command = "private-command";
+  const expected = { ...root, commandHash: hashProcessCommandLine(command) };
+  const row = (pid, parent, date) => ({ Status: "running", ProcessId: pid,
+    ParentProcessId: parent, CreationDate: date, ExecutablePath: root.executablePath, CommandLine: command });
+  const rootRow = row(root.pid, 9000, root.createdAt);
+  const first = row(4343, root.pid, "2026-07-18T01:02:04.456Z");
+  const second = row(4344, first.ProcessId, "2026-07-18T01:02:05.456Z");
+  const staleDeeper = row(4345, second.ProcessId, "2026-07-18T01:02:02.456Z");
+  for (const sample of [
+    { RootStatus: "running", Processes: [rootRow, first, second, staleDeeper] },
+    { RootStatus: "running", Processes: [{ ...rootRow, CreationDate: "2026-07-18T01:02:06.456Z" }, first] },
+  ]) {
+    await assert.rejects(inspectWindowsProcessTree(expected, {
+      deadlineMs: Date.now() + 150,
+      runCommand: async () => ({ stdout: JSON.stringify({ Status: "tree", ...sample }) }),
+    }));
+  }
 });
 
 test("older branches remain fail closed without a current matching root or complete structural evidence", async () => {
