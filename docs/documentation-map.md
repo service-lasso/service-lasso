@@ -97,6 +97,7 @@ This inventory records every Markdown page that existed when issue [#1258](https
 | `reference/service-health-history.md` | Run and manage services | reference | Unlisted: health-history API |
 | `reference/SERVICE-JSON-COMPLETE-UNION-SCHEMA.md` | Technical reference | reference | Unlisted: schema detail |
 | `reference/service-json-reference.md` | Technical reference | reference | Listed: manifest entry |
+| `reference/service-producer-release-policy.md` | Technical reference | policy | Listed: released-service producer identity and approval gate |
 | `reference/service-lockfile.md` | Technical reference | reference | Unlisted: lockfile contract |
 | `reference/service-secret-access-policy.md` | Security and access | reference | Listed: secret-access entry |
 | `reference/service-start-trace-api.md` | Run and manage services | reference | Unlisted: tracing API |
