@@ -1809,7 +1809,14 @@ async function monitorAdoptedProcess(record: AdoptedProcessRecord): Promise<void
           deadlineMs: Date.now() + WINDOWS_TREE_MONITOR_INSPECTION_TIMEOUT_MS,
           signal: record.monitorAbortController.signal,
         });
-      } catch {
+      } catch (error) {
+        // An exhausted same-held command query closes this automatic monitor
+        // episode. Keep the last verified members and durable custody rather
+        // than allowing a later poll to open another native tree query.
+        if (isTerminalWindowsCommandPartialCopy(error)) {
+          record.terminalWindowsCommandPartialCopy = true;
+          return;
+        }
         // Retain the last verified tree snapshot and retry process inspection.
       }
       continue;
@@ -2435,10 +2442,11 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
 export async function stopManagedProcess(
   serviceId: string,
   timeoutMs = DEFAULT_MANAGED_PROCESS_STOP_TIMEOUT_MS,
+  options: { newWindowsInspectionEpisode?: boolean } = {},
 ): Promise<{ exitCode: number | null; signal: NodeJS.Signals | null } | null> {
   const record = managedProcesses.get(serviceId);
   if (!record) {
-    return await stopAdoptedProcess(serviceId, timeoutMs);
+    return await stopAdoptedProcess(serviceId, timeoutMs, options);
   }
 
   const deadlineMs = processControlDeadline(timeoutMs);
@@ -2478,6 +2486,7 @@ async function waitForAdoptedProcessExit(
 async function stopAdoptedProcess(
   serviceId: string,
   timeoutMs: number,
+  options: { newWindowsInspectionEpisode?: boolean } = {},
 ): Promise<{ exitCode: number | null; signal: NodeJS.Signals | null } | null> {
   const record = adoptedProcesses.get(serviceId);
   if (!record) {
@@ -2512,7 +2521,9 @@ async function stopAdoptedProcess(
         processGroup: { kind: "none" as const, id: null },
       };
     }
-  } else if (record.knownTreeMembers.length > 0) {
+  } else if (record.knownTreeMembers.length > 0 && (
+    !record.terminalWindowsCommandPartialCopy || options.newWindowsInspectionEpisode === true
+  )) {
     await withProcessControlDeadline(async (signal) => {
       const snapshot = await inspectKnownWindowsTreeMembers(
         record.rootIdentity,
@@ -2630,7 +2641,9 @@ export async function stopAllManagedProcesses(): Promise<void> {
       ?? managedProcessFinalizers.get(serviceId)?.pid
       ?? null;
     try {
-      await stopManagedProcess(serviceId);
+      await stopManagedProcess(serviceId, DEFAULT_MANAGED_PROCESS_STOP_TIMEOUT_MS, {
+        newWindowsInspectionEpisode: false,
+      });
       await waitForManagedProcessFinalization(serviceId);
       return [];
     } catch (error) {
