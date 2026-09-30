@@ -59,6 +59,13 @@ export function parseConptyProbeResult(stdout, mode) {
   ) {
     throw new Error(`Windows ConPTY TUI probe failed during ${result.stage}.`);
   }
+  if (
+    result && typeof result === "object" && !Array.isArray(result) &&
+    Object.keys(result).length === 3 && result.ok === false && result.stage === "cleanup" &&
+    typeof result.primaryStage === "string" && (result.primaryStage === "none" || FAILURE_STAGES.has(result.primaryStage))
+  ) {
+    throw new Error(`Windows ConPTY TUI probe failed during cleanup.`);
+  }
   throw new Error(
     "Windows ConPTY TUI probe did not complete its bounded assertions.",
   );

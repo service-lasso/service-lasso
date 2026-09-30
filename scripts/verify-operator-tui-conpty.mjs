@@ -1,13 +1,13 @@
-import { createServer } from "node:http";
 import { randomBytes } from "node:crypto";
 import { mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { extractZipSafely } from "../dist/runtime/files/safe-zip.js";
-import { extractPlatformReleaseArchive, runCommand, stageReleaseArtifact } from "./release-artifact-lib.mjs";
+import { extractPlatformReleaseArchive, stageReleaseArtifact } from "./release-artifact-lib.mjs";
 import { verifyRetainedOperatorTools } from "./operator-tool-packaging-lib.mjs";
-import { parseConptyProbeResult } from "./operator-tui-conpty-result.mjs";
+import { runConptyHelper } from "./operator-tui-conpty-runner.mjs";
+import { createOwnedUnavailableEndpoint } from "./operator-tui-conpty-endpoint.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 if (process.platform !== "win32") {
@@ -21,25 +21,20 @@ const tuiRoot = path.join(tempRoot, "tui");
 const helperPath = path.join(repoRoot, "scripts", "verify-operator-tui-conpty.py");
 let extractedCoreArchive;
 let apiServer;
-let unavailableServer;
+let unavailableEndpoint;
 const previousLocalAdminToken = process.env.SERVICE_LASSO_LOCAL_ADMIN_TOKEN;
 
 function ownedLoopbackUnavailableEndpoint() {
-  return new Promise((resolve, reject) => {
-    unavailableServer = createServer((_request, response) => response.destroy());
-    unavailableServer.once("error", reject);
-    unavailableServer.listen(0, "127.0.0.1", () => {
-      const address = unavailableServer.address();
-      if (!address || typeof address === "string") return reject(new Error("missing owned unavailable loopback endpoint"));
-      resolve(`http://127.0.0.1:${address.port}`);
-    });
+  return createOwnedUnavailableEndpoint().then((endpoint) => {
+    unavailableEndpoint = endpoint;
+    return endpoint.url;
   });
 }
 
 async function closeUnavailableEndpoint() {
-  if (!unavailableServer) return;
-  await new Promise((resolve, reject) => unavailableServer.close((error) => error ? reject(error) : resolve()));
-  unavailableServer = undefined;
+  const endpoint = unavailableEndpoint;
+  unavailableEndpoint = undefined;
+  await endpoint?.close();
 }
 
 try {
@@ -60,13 +55,13 @@ try {
   const tuiExecutable = path.join(tuiRoot, executable);
   const unavailableUrl = await ownedLoopbackUnavailableEndpoint();
   const unavailableToken = randomBytes(32).toString("base64url");
-  const safeProbe = parseConptyProbeResult((await runCommand("python", [helperPath, "--executable", tuiExecutable, "--mode", "unavailable", "--api-url", unavailableUrl, "--api-token", unavailableToken])).stdout, "unavailable");
+  const safeProbe = await runConptyHelper({ helperPath, executable: tuiExecutable, mode: "unavailable", apiUrl: unavailableUrl, apiToken: unavailableToken });
   await closeUnavailableEndpoint();
   const connectedToken = randomBytes(32).toString("base64url");
   process.env.SERVICE_LASSO_LOCAL_ADMIN_TOKEN = connectedToken;
   const core = await import(pathToFileURL(path.join(coreRoot, "packages", "core", "index.js")).href);
   apiServer = await core.startApiServer({ port: 0, servicesRoot: path.join(repoRoot, "services"), workspaceRoot: path.join(tempRoot, "workspace") });
-  const connectedProbe = parseConptyProbeResult((await runCommand("python", [helperPath, "--executable", tuiExecutable, "--mode", "connected", "--api-url", apiServer.url, "--api-token", connectedToken])).stdout, "connected");
+  const connectedProbe = await runConptyHelper({ helperPath, executable: tuiExecutable, mode: "connected", apiUrl: apiServer.url, apiToken: connectedToken });
   console.log(JSON.stringify({ ok: true, evidence: "direct-conpty", platform: "win32-amd64", safeStartup: safeProbe.startup, connectedDashboard: connectedProbe.startup, navigation: connectedProbe.navigation, exit: connectedProbe.exit, artifact: staged.artifactName }));
 } finally {
   await apiServer?.stop();
