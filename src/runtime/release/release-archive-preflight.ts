@@ -147,18 +147,48 @@ function portablePath(raw: string, limits: ReleaseArchiveLimits, directory: bool
   return { key: canonical.join("/"), components: canonical };
 }
 
-function aliasesFor(component: string): Set<string> {
+function aliasParts(component: string): { stem: string[]; extension: string[]; short: boolean } {
   const dot = component.lastIndexOf(".");
-  const stem = dot > 0 ? component.slice(0, dot) : component;
-  const extension = dot > 0 ? component.slice(dot) : "";
-  const aliases = new Set<string>([component]);
-  if (stem.length > 8 || extension.length > 4) aliases.add(`${stem.slice(0, 6)}~1${extension.slice(0, 4)}`);
-  return aliases;
+  const rawStem = dot >= 0 ? component.slice(0, dot) : component;
+  const stem = Array.from(rawStem.replaceAll(".", ""));
+  const extension = Array.from(dot >= 0 ? component.slice(dot + 1) : "");
+  return { stem, extension, short: rawStem === rawStem.replaceAll(".", "") && stem.length <= 8 && extension.length <= 3 };
+}
+
+function generatedAlias(component: string, number: number): string {
+  const { stem, extension } = aliasParts(component);
+  const marker = `~${number}`;
+  const prefixLength = 8 - marker.length;
+  if (stem.length === 0 || prefixLength < 1) fail();
+  return `${stem.slice(0, prefixLength).join("")}${marker}${extension.length ? `.${extension.slice(0, 3).join("")}` : ""}`;
+}
+
+function validateAliases(componentsByParent: Map<string, Set<string>>): void {
+  for (const components of componentsByParent.values()) {
+    const direct = new Set<string>();
+    const generated: string[] = [];
+    for (const component of components) {
+      if (aliasParts(component).short) direct.add(component);
+      else generated.push(component);
+    }
+    const allocated = new Set<string>();
+    for (const component of generated.sort()) {
+      let number = 1;
+      for (;;) {
+        const alias = generatedAlias(component, number);
+        // A literal 8.3 sibling can be reached by the first long-name alias on
+        // Windows. Reserve that first alias so the profile fails closed.
+        if (number === 1 && direct.has(alias)) fail();
+        if (!direct.has(alias) && !allocated.has(alias)) { allocated.add(alias); break; }
+        number += 1;
+      }
+    }
+  }
 }
 
 function registerPath(
   root: NamespaceNode,
-  shortNamesByParent: Map<string, Map<string, string>>,
+  componentsByParent: Map<string, Set<string>>,
   raw: string,
   limits: ReleaseArchiveLimits,
   directory: boolean,
@@ -169,13 +199,9 @@ function registerPath(
   for (let index = 0; index < path.components.length; index += 1) {
     if (node.kind === "file") fail();
     const component = path.components[index]!;
-    let aliases = shortNamesByParent.get(parentKey);
-    if (!aliases) { aliases = new Map<string, string>(); shortNamesByParent.set(parentKey, aliases); }
-    for (const alias of aliasesFor(component)) {
-      const previous = aliases.get(alias);
-      if (previous !== undefined && previous !== component) fail();
-      aliases.set(alias, component);
-    }
+    let siblings = componentsByParent.get(parentKey);
+    if (!siblings) { siblings = new Set<string>(); componentsByParent.set(parentKey, siblings); }
+    siblings.add(component);
     let child = node.children.get(component);
     if (!child) { child = { children: new Map() }; node.children.set(component, child); }
     node = child;
@@ -240,7 +266,7 @@ function validateZip(bytes: Uint8Array, limits: ReleaseArchiveLimits): ReleaseAr
   if (centralOffset === 0 || centralOffset + centralLength !== eocd || centralOffset >= eocd) fail();
   const records: ZipRecord[] = [];
   const namespace: NamespaceNode = { children: new Map() };
-  const shortNamesByParent = new Map<string, Map<string, string>>();
+  const componentsByParent = new Map<string, Set<string>>();
   let cursor = centralOffset;
   let expanded = 0;
   let regularFiles = 0;
@@ -263,7 +289,7 @@ function validateZip(bytes: Uint8Array, limits: ReleaseArchiveLimits): ReleaseAr
       if ((unixMode & 0o170000) !== expectedType || (unixMode & 0o7000) !== 0 || dosAttributes !== (directory ? 0x10 : 0)) fail();
     } else if (dosAttributes !== (directory ? 0x10 : 0) || unixMode !== 0) fail();
     if (directory ? compressed !== 0 || size !== 0 : false) fail();
-    registerPath(namespace, shortNamesByParent, name, limits, directory);
+    registerPath(namespace, componentsByParent, name, limits, directory);
     if (!directory) { expanded += size; regularFiles += 1; if (!ratioAllowed(expanded, bytes.length, limits)) fail(); } else directories += 1;
     if (localOffset >= centralOffset || u32(bytes, localOffset) !== ZIP_LOCAL || localOffset + 30 > centralOffset) fail();
     const localFlags = u16(bytes, localOffset + 6); const localMethod = u16(bytes, localOffset + 8);
@@ -287,6 +313,7 @@ function validateZip(bytes: Uint8Array, limits: ReleaseArchiveLimits): ReleaseAr
   if (cursor !== centralOffset + centralLength) fail();
   records.sort((left, right) => left.offset - right.offset);
   for (let index = 1; index < records.length; index += 1) if (records[index - 1]!.end > records[index]!.offset) fail();
+  validateAliases(componentsByParent);
   return { archiveType: "zip", entries, regularFiles, directories, expandedBytes: expanded };
 }
 
@@ -314,7 +341,7 @@ function tarChecksum(header: Uint8Array): boolean {
 interface PendingExtension { name?: string; pax?: { path?: string; size?: number }; }
 class TarStreamValidator {
   private readonly namespace: NamespaceNode = { children: new Map() };
-  private readonly shortNamesByParent = new Map<string, Map<string, string>>();
+  private readonly componentsByParent = new Map<string, Set<string>>();
   private buffered = new Uint8Array(0);
   private payloadRemaining = 0;
   private paddingRemaining = 0;
@@ -367,6 +394,7 @@ class TarStreamValidator {
 
   finish(): ReleaseArchiveInventory {
     if (this.buffered.length !== 0 || this.payloadRemaining !== 0 || this.paddingRemaining !== 0 || !this.ended || this.pending) fail();
+    validateAliases(this.componentsByParent);
     return { archiveType: "tar.gz", entries: this.entries, regularFiles: this.files, directories: this.directories, expandedBytes: this.expanded };
   }
 
@@ -396,7 +424,7 @@ class TarStreamValidator {
     const effective = this.pending?.name ?? this.pending?.pax?.path ?? ordinary;
     if (this.pending?.pax?.size !== undefined && (directory || this.pending.pax.size !== size)) fail();
     this.pending = null; this.entries += 1; if (this.entries > this.limits.maxEntries) fail();
-    registerPath(this.namespace, this.shortNamesByParent, effective, this.limits, directory);
+    registerPath(this.namespace, this.componentsByParent, effective, this.limits, directory);
     if (directory) this.directories += 1;
     else { this.files += 1; this.expanded += size; if (!ratioAllowed(this.expanded, this.bytes.length, this.limits)) fail(); }
   }

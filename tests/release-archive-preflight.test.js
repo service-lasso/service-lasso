@@ -103,6 +103,18 @@ test("ZIP has one portable filesystem namespace and full default Unicode folding
   for (const character of ["\u0001", "<", ">", "\"", "|", "?", "*"]) unsafe(preflightReleaseArchive({ bytes: zip([{ name: `safe${character}.txt`, content: "x" }]), archiveType: "zip" }));
 });
 
+test("ZIP reserves normalized Windows 8.3 aliases over complete canonical siblings", () => {
+  for (const entries of [
+    [{ name: "pkg/foo.bar.long", content: "x" }, { name: "pkg/foobar~1.lon", content: "x" }],
+    [{ name: "pkg/foobar~1.lon", content: "x" }, { name: "pkg/foo.bar.long", content: "x" }],
+  ]) unsafe(preflightReleaseArchive({ bytes: zip(entries), archiveType: "zip" }));
+  for (const entries of [
+    [{ name: "pkg/foo.bar.long", content: "x" }, { name: "pkg/foo.ba~1.lon", content: "x" }],
+    [{ name: "pkg/foo.ba~1.lon", content: "x" }, { name: "pkg/foo.bar.long", content: "x" }],
+    [{ name: "one/foo.bar.long", content: "x" }, { name: "two/foobar~1.lon", content: "x" }],
+  ]) assert.equal(preflightReleaseArchive({ bytes: zip(entries), archiveType: "zip" }).ok, true);
+});
+
 test("ZIP bounds are enforced before a caller can observe parser detail", () => {
   unsafe(preflightReleaseArchive({ bytes: zip([{ name: "one", content: "1" }, { name: "two", content: "2" }]), archiveType: "zip", limits: { maxEntries: 1 } }));
   unsafe(preflightReleaseArchive({ bytes: zip([{ name: "large", content: "0".repeat(4096), method: 8 }]), archiveType: "zip", limits: { maxCompressionRatio: 1 } }));
@@ -153,6 +165,18 @@ test("TAR applies the same namespace, alias, and full Unicode folding rules in e
     { name: "one/longfilename.abcdef", content: "x" }, { name: "two/longfi~1.abc", content: "x" },
     { name: "I", content: "x" }, { name: "\u0131", content: "x" },
   ]), archiveType: "tar.gz" }).ok, true);
+});
+
+test("TAR reserves normalized Windows 8.3 aliases over complete canonical siblings", () => {
+  for (const entries of [
+    [{ name: "pkg/foo.bar.long", content: "x" }, { name: "pkg/foobar~1.lon", content: "x" }],
+    [{ name: "pkg/foobar~1.lon", content: "x" }, { name: "pkg/foo.bar.long", content: "x" }],
+  ]) unsafe(preflightReleaseArchive({ bytes: tar(entries), archiveType: "tar.gz" }));
+  for (const entries of [
+    [{ name: "pkg/foo.bar.long", content: "x" }, { name: "pkg/foo.ba~1.lon", content: "x" }],
+    [{ name: "pkg/foo.ba~1.lon", content: "x" }, { name: "pkg/foo.bar.long", content: "x" }],
+    [{ name: "one/foo.bar.long", content: "x" }, { name: "two/foobar~1.lon", content: "x" }],
+  ]) assert.equal(preflightReleaseArchive({ bytes: tar(entries), archiveType: "tar.gz" }).ok, true);
 });
 
 test("TAR PAX equal size and path are validation-only metadata, never physical framing authority", () => {
