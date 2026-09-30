@@ -870,7 +870,7 @@ function parseOperatorCommandBody(input: unknown): OperatorCommandRequest {
 
 async function readJsonBody(
   request: IncomingMessage,
-  options: { maxBytes?: number } = {},
+  options: { maxBytes?: number; rejectDuplicateKeys?: boolean } = {},
 ): Promise<unknown> {
   const chunks: Buffer[] = [];
   let totalBytes = 0;
@@ -898,10 +898,79 @@ async function readJsonBody(
   }
 
   try {
+    if (options.rejectDuplicateKeys) assertNoDuplicateJsonKeys(body);
     return JSON.parse(body) as unknown;
   } catch {
     throw new ApiError("invalid_json", 400, "Request body must be valid JSON.");
   }
+}
+
+function assertNoDuplicateJsonKeys(body: string): void {
+  let cursor = 0;
+  const skipWhitespace = () => {
+    while (/\s/u.test(body[cursor] ?? "")) cursor += 1;
+  };
+  const parseString = (): string => {
+    const start = cursor;
+    if (body[cursor] !== '"') throw new Error("expected string");
+    cursor += 1;
+    let escaped = false;
+    while (cursor < body.length) {
+      const character = body[cursor++];
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (character === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (character === '"') return JSON.parse(body.slice(start, cursor)) as string;
+      if (character.charCodeAt(0) < 0x20) throw new Error("invalid string");
+    }
+    throw new Error("unterminated string");
+  };
+  const parseValue = (): void => {
+    skipWhitespace();
+    if (body[cursor] === "{") {
+      cursor += 1;
+      skipWhitespace();
+      const keys = new Set<string>();
+      if (body[cursor] === "}") { cursor += 1; return; }
+      while (true) {
+        skipWhitespace();
+        const key = parseString();
+        if (keys.has(key)) throw new Error("duplicate key");
+        keys.add(key);
+        skipWhitespace();
+        if (body[cursor++] !== ":") throw new Error("expected colon");
+        parseValue();
+        skipWhitespace();
+        if (body[cursor] === "}") { cursor += 1; return; }
+        if (body[cursor++] !== ",") throw new Error("expected comma");
+      }
+    }
+    if (body[cursor] === "[") {
+      cursor += 1;
+      skipWhitespace();
+      if (body[cursor] === "]") { cursor += 1; return; }
+      while (true) {
+        parseValue();
+        skipWhitespace();
+        if (body[cursor] === "]") { cursor += 1; return; }
+        if (body[cursor++] !== ",") throw new Error("expected comma");
+      }
+    }
+    if (body[cursor] === '"') { parseString(); return; }
+    const primitive = /(?:true|false|null|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)/uy;
+    primitive.lastIndex = cursor;
+    const match = primitive.exec(body);
+    if (!match) throw new Error("invalid JSON value");
+    cursor += match[0].length;
+  };
+  parseValue();
+  skipWhitespace();
+  if (cursor !== body.length) throw new Error("trailing JSON input");
 }
 
 function getAuditActor(input: unknown): string {
@@ -1810,6 +1879,8 @@ const durableLifecycleOperationActions = {
   start: "service_start",
   stop: "service_stop",
   restart: "service_restart",
+  update_check: "update_check",
+  update_download: "update_download",
 } as const satisfies Record<string, McpGuardedActionName>;
 
 type DurableLifecycleOperationAction = typeof durableLifecycleOperationActions[keyof typeof durableLifecycleOperationActions];
@@ -1824,7 +1895,7 @@ function parseDurableLifecycleOperationBody(input: unknown): {
   const candidate = input as Record<string, unknown>;
   const action = typeof candidate.action === "string" ? durableLifecycleOperationActions[candidate.action as keyof typeof durableLifecycleOperationActions] : undefined;
   if (!action) {
-    throw new ApiError("invalid_action", 400, "Durable lifecycle operations support install, config, start, stop, and restart.");
+    throw new ApiError("invalid_action", 400, "Durable lifecycle operations support install, config, start, stop, restart, update_check, and update_download.");
   }
   const unknownFields = Object.keys(candidate).filter((key) =>
     key !== "action" && key !== "serviceId" && key !== "execute" && key !== "idempotencyKey" &&
@@ -4387,7 +4458,10 @@ async function routeRequestWithoutMutationCoordination(
 
       if (request.method === "POST" && url.pathname === "/api/operator/lifecycle/operations") {
         assertMcpJsonContentType(request);
-        const body = parseDurableLifecycleOperationBody(await readJsonBody(request, { maxBytes: MCP_MAX_REQUEST_BODY_BYTES }));
+        const body = parseDurableLifecycleOperationBody(await readJsonBody(request, {
+          maxBytes: MCP_MAX_REQUEST_BODY_BYTES,
+          rejectDuplicateKeys: true,
+        }));
         const invoke = async (
           signal?: AbortSignal,
           reportProgress?: McpGuardedActionExecutionOptions["reportProgress"],
