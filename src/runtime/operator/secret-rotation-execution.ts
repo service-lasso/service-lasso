@@ -264,7 +264,11 @@ function operationKey(operation: SecretRotationImpactOperation): string {
   return `${operation.serviceId}:${operation.action}:${operation.actionId ?? ""}`;
 }
 
-function rotationConsumerNotReady(serviceId: string, cause?: unknown): ApiError {
+/**
+ * Retains an in-flight lifecycle error for local control flow only. Rotation
+ * state persists the enclosing stable failure code, never this cause.
+ */
+export function rotationConsumerNotReady(serviceId: string, cause?: unknown): ApiError {
   const error = new ApiError("rotation_consumer_not_ready", 503, `Impacted service "${serviceId}" did not restart.`);
   if (cause !== undefined) Object.defineProperty(error, "cause", { value: cause });
   return error;

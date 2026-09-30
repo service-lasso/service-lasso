@@ -10,6 +10,7 @@ import { buildSecretRotationImpactPlan } from "../dist/runtime/operator/secret-r
 import {
   executeSecretRotation,
   readSecretRotationExecutionState,
+  rotationConsumerNotReady,
 } from "../dist/runtime/operator/secret-rotation-execution.js";
 import { LifecycleStateError } from "../dist/server/errors.js";
 
@@ -227,7 +228,15 @@ test("consumer convergence failure automatically restores the Broker version and
   }
 });
 
-test("a thrown consumer lifecycle-state error rolls back as consumer-not-ready while retaining the original cause", async () => {
+test("consumer-not-ready error retains the in-flight lifecycle error by identity", () => {
+  const originalCause = new LifecycleStateError("fixture consumer start is not ready");
+  const error = rotationConsumerNotReady("consumer", originalCause);
+
+  assert.equal(error.code, "rotation_consumer_not_ready");
+  assert.equal(error.cause, originalCause);
+});
+
+test("a thrown consumer lifecycle-state error rolls back as consumer-not-ready without persisting the raw cause", async () => {
   const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-rotation-thrown-readiness-"));
   const fixture = service();
   const services = [fixture];
@@ -262,7 +271,8 @@ test("a thrown consumer lifecycle-state error rolls back as consumer-not-ready w
     assert.equal(startAttempts, 2);
     assert.equal(getLifecycleState(fixture.manifest.id).running, true);
     assert.equal(calls.some((call) => call.path.endsWith("/rollback")), true);
-    assert.equal(originalCause.code, "invalid_lifecycle_state");
+    const stateBytes = await readFile(path.join(workspaceRoot, ".service-lasso", "secret-rotations", "rotation-thrown-readiness.json"));
+    assert.equal(stateBytes.includes(Buffer.from(originalCause.message)), false);
   } finally {
     resetLifecycleState();
     await rm(workspaceRoot, { recursive: true, force: true });
