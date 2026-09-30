@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { randomUUID } from "node:crypto";
-import { createServer } from "node:http";
+import { createServer, request as httpRequest } from "node:http";
 import { access, mkdir, rm, writeFile } from "node:fs/promises";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { createApiServer } from "../dist/server/index.js";
@@ -83,6 +83,21 @@ async function readContext(api, accessToken, headers = {}) {
     headers: { connection: "close", ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}), ...headers },
   });
   return { status: response.status, body: await response.json() };
+}
+
+async function readContextWithHost(api, host, accessToken) {
+  return await new Promise((resolve, reject) => {
+    const request = httpRequest(`${api.url}/api/operator/lifecycle/reconciliation-context`, {
+      headers: { host, connection: "close", ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}) },
+    }, (response) => {
+      let body = "";
+      response.setEncoding("utf8");
+      response.on("data", (chunk) => { body += chunk; });
+      response.on("end", () => resolve({ status: response.statusCode, body: JSON.parse(body) }));
+    });
+    request.once("error", reject);
+    request.end();
+  });
 }
 
 async function pathExists(filePath) {
@@ -282,6 +297,9 @@ test("#1553 keeps the shared read boundary's Origin and actor/client rate denial
     const deniedOrigin = await readContext(api, actor, { origin: "https://denied.example" });
     assert.equal(deniedOrigin.status, 403);
     assert.equal(JSON.stringify(deniedOrigin.body).includes("denied.example"), false);
+    const deniedHost = await readContextWithHost(api, "attacker-controlled.example", actor);
+    assert.equal(deniedHost.status, 403);
+    assert.equal(JSON.stringify(deniedHost.body).includes("attacker-controlled.example"), false);
     assert.equal((await readContext(api, actor, { origin: "https://allowed.example" })).status, 200);
     assert.equal((await readContext(api, actor, { origin: "https://allowed.example" })).status, 200);
     const limited = await readContext(api, actor, { origin: "https://allowed.example" });
