@@ -19,6 +19,13 @@ const npmSubcodes = new Map([
 ]);
 
 const MAX_NPM_JSON_BYTES = 8 * 1024;
+const acquisitionOutcomes = new Set([
+  "deadline_exceeded",
+  "output_capture_exceeded",
+  "spawn_failed",
+  "exit_nonzero",
+  "unknown",
+]);
 
 function ownData(value, key) {
   if (!value || typeof value !== "object") return undefined;
@@ -45,20 +52,28 @@ function npmReportedCode(error) {
   }
 }
 
-export function dependencyAcquisitionSubcode(error) {
+export function dependencyAcquisitionReceipt(error, observedOutcome = "unknown") {
+  const outcome = acquisitionOutcomes.has(observedOutcome) ? observedOutcome : "unknown";
   const code = ownData(error, "code");
-  if (code === "ENOENT") return "subprocess_spawn_enoent";
-  if (code === "EACCES") return "subprocess_spawn_eacces";
-  if (code === "EPERM") return "subprocess_spawn_eperm";
-  if (typeof code !== "number") return undefined;
-  return npmSubcodes.get(npmReportedCode(error)) ?? "subprocess_exit_nonzero";
+  const spawnSubcode = code === "ENOENT" ? "subprocess_spawn_enoent"
+    : code === "EACCES" ? "subprocess_spawn_eacces"
+      : code === "EPERM" ? "subprocess_spawn_eperm"
+        : undefined;
+  if (outcome === "spawn_failed") return { outcome, ...(spawnSubcode ? { subcode: spawnSubcode } : {}) };
+  if (outcome !== "exit_nonzero") return { outcome };
+  return { outcome, subcode: npmSubcodes.get(npmReportedCode(error)) ?? "subprocess_exit_nonzero" };
+}
+
+export function dependencyAcquisitionSubcode(error, observedOutcome = "unknown") {
+  return dependencyAcquisitionReceipt(error, observedOutcome).subcode;
 }
 
 // The outer verifier's current phase is the only input. Never inspect a caught error.
 function safeExternalDiagnostic(value) {
   if (!value || typeof value !== "object") return undefined;
   try {
-    const { boundary, httpStatus } = value;
+    const boundary = ownData(value, "boundary");
+    const httpStatus = ownData(value, "httpStatus");
     if (boundary !== "github_release_metadata" || !Number.isInteger(httpStatus) || httpStatus < 400 || httpStatus > 599) return undefined;
     return { boundary: "github_release_metadata", httpStatus };
   } catch {
@@ -66,12 +81,21 @@ function safeExternalDiagnostic(value) {
   }
 }
 
-export function packagedVerificationDiagnostic(stage, external, subcode) {
+export function packagedVerificationDiagnostic(stage, external, receipt) {
   const upstream = safeExternalDiagnostic(external);
+  const acquisitionReceipt = receipt && typeof receipt === "object"
+    && acquisitionOutcomes.has(ownData(receipt, "outcome"))
+    ? receipt
+    : undefined;
   return {
     stage: stages.has(stage) ? stage : "packaged_verification",
     errorCode: "verification_failed",
-    ...(stage === "dependency_acquisition" && typeof subcode === "string" && [...npmSubcodes.values(), "subprocess_spawn_enoent", "subprocess_spawn_eacces", "subprocess_spawn_eperm", "subprocess_exit_nonzero"].includes(subcode) ? { subcode } : {}),
+    ...(stage === "dependency_acquisition" && acquisitionReceipt
+      ? {
+          outcome: ownData(acquisitionReceipt, "outcome"),
+          ...(typeof ownData(acquisitionReceipt, "subcode") === "string" && [...npmSubcodes.values(), "subprocess_spawn_enoent", "subprocess_spawn_eacces", "subprocess_spawn_eperm", "subprocess_exit_nonzero"].includes(ownData(acquisitionReceipt, "subcode")) ? { subcode: ownData(acquisitionReceipt, "subcode") } : {}),
+        }
+      : {}),
     ...(upstream ? { external: upstream } : {}),
   };
 }
