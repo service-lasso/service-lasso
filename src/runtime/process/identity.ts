@@ -435,8 +435,14 @@ async function inspectWindowsProcessOnce(
       runCommand,
       options,
     );
-    return result.exitCode === 0
-      ? parseWindowsProcessJson(result.stdout, pid)
+    if (result.exitCode === 0) {
+      return parseWindowsProcessJson(result.stdout, pid);
+    }
+    // The helper has already spent its two command queries on one held handle.
+    // Re-launching it would reopen by PID and turn that bounded failure into a
+    // fresh handle/retry sequence.
+    return result.exitCode === 38
+      ? { status: "unknown", reason: "windows_process_command_partial_copy_exhausted" }
       : { status: "unknown", reason: "windows_process_helper_failed" };
   } catch (error) {
     if (isProcessControlDeadlineError(error)) {
@@ -504,6 +510,9 @@ async function inspectWindowsProcess(
       activeNativeAt = null;
     }
     if (last.status !== "unknown") {
+      return last;
+    }
+    if (last.reason === "windows_process_command_partial_copy_exhausted") {
       return last;
     }
     if (attempt < 3) {
@@ -715,6 +724,17 @@ async function inspectWindowsProcessTreeOnce(
 
 function isRetryableWindowsTreeSnapshotError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
+  const nativeFailure = (error as Error & {
+    windowsNativeInspectionFailure?: unknown;
+  }).windowsNativeInspectionFailure;
+  // A root (38) or descendant (138) partial-copy exit means the helper has
+  // exhausted its same-held-handle command-query budget. Do not respawn it.
+  if (
+    nativeFailure === "root_command_partial_copy" ||
+    nativeFailure === "descendant_command_partial_copy"
+  ) {
+    return false;
+  }
   return new Set([
     "Native Windows process-tree inspection failed.",
     "Native Windows process-tree evidence was malformed.",
