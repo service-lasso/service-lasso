@@ -62,6 +62,7 @@ const sidebars = {
     { type: "category", label: "Technical reference", collapsed: true, items: [
       { type: "doc", id: "reference/README", label: "Technical reference" },
       { type: "doc", id: "reference/service-json-reference", label: "Manifest fields and health checks" },
+      { type: "doc", id: "reference/service-producer-release-policy", label: "Released service producer policy" },
       { type: "doc", id: "reference/readiness-gate", label: "CLI commands" },
       { type: "doc", id: "reference/product-api-facade", label: "HTTP APIs" },
       { type: "doc", id: "reference/operator-mcp", label: "Operator MCP" },

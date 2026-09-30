@@ -26,8 +26,12 @@ This file tracks bootstrap/adoption/remediation work required before product imp
    fallback), exact actor/header precedence, fixed actor/workspace quota
    ceilings, and durable retention of uncertain recovery capacity. Canonical
    `service.json` must be a separately identified same-release service-producer
-   asset/member, not an ordinary archive scan or Core runtime inventory entry;
-   #1524 owns that prerequisite. `release-archive-profile-v1` keeps
+   asset/member, not an ordinary archive scan or Core runtime inventory entry.
+   #1524 now proposes a fixed `service-lasso-release-policy.json` v1 asset and
+   a dedicated `service.json` release asset in
+   `docs/reference/service-producer-release-policy.md`; independent review and
+   the service-producer owner's per-repository catalog pin remain mandatory
+   before #1463 can resolve or admit a stage. `release-archive-profile-v1` keeps
    the full release surface:
   ZIP plus a closed gzip TAR grammar for Linux/macOS assets, including bounded
    GNU-longname and POSIX-PAX path records, with PAX `size` required to equal

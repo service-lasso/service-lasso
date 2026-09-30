@@ -59,6 +59,7 @@
     "docs:clear": "node ./node_modules/@docusaurus/core/bin/docusaurus.mjs clear docs",
     "docs:check-secrets-ledger": "node scripts/check-secrets-capability-ledger.mjs",
     "docs:check-staged-service-transfer": "node scripts/check-staged-service-transfer-contract.mjs",
+    "docs:check-service-producer-release-policy": "node scripts/check-service-producer-release-policy-contract.mjs",
     "verify:release-authority": "node scripts/verify-core-release-authority.mjs",
     "audit:production": "node scripts/audit-request-observation.mjs production",
     "audit:tooling": "node scripts/audit-request-observation.mjs tooling",
