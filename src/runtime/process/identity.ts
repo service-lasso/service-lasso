@@ -4,6 +4,7 @@ import { readFile, readdir, readlink } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { projectWindowsTreeInspectionMetadata, windowsNativeInspectionFailure } from "./windows-tree-inspection-diagnostics.js";
 import {
   isProcessControlDeadlineError,
   remainingProcessControlMs,
@@ -321,23 +322,8 @@ interface WindowsProcessTreeJson {
 export interface WindowsProcessTreeInspection {
   rootStatus: "owned" | "exited";
   members: ProcessFingerprint[];
-}
-
-type WindowsTreeAncestryEvidence = {
-  parentBirthRelation: "parent_before_root" | "parent_at_or_after_root";
-  childBirthRelation: "child_before_root";
-  rootFingerprintMatch: boolean;
-  depthBucket: "one" | "two_to_four" | "five_plus";
-};
-
-function invalidWindowsTreeAncestry(
-  reason: string,
-  ancestry?: WindowsTreeAncestryEvidence,
-): Error {
-  return Object.assign(new Error("Native Windows process-tree ancestry was invalid."), {
-    windowsNativeInspectionFailure: reason,
-    ...(ancestry ? { windowsTreeInspectionAncestry: Object.freeze(ancestry) } : {}),
-  });
+  verifiedMembersOnly?: boolean;
+  excludedMemberPids?: number[];
 }
 
 function parseWindowsProcessJson(
@@ -471,12 +457,52 @@ async function inspectWindowsProcess(
     "deadlineMs" | "signal" | "windowsSystemRoot"
   >,
 ): Promise<ProcessInspection> {
+  // Direct enrollment and rehydration use this single-process path rather than
+  // the serialized tree path. Preserve the same closed timing projection when
+  // its helper reaches the caller-owned deadline, so attributable evidence
+  // does not rely on reproducing the failure through a tree inspection.
+  let inspectionPhase = "native_snapshot";
+  let attempts = 0;
+  let retries = 0;
+  let nativeMs = 0;
+  let activeNativeAt: number | null = null;
+  const attachDeadlineDiagnostics = (error: unknown) => {
+    if (!error || typeof error !== "object") return;
+    try {
+      Object.defineProperty(error, "windowsTreeInspection", {
+        value: Object.freeze(projectWindowsTreeInspectionMetadata({
+          windowsTreeInspectionPhase: inspectionPhase,
+          windowsTreeInspectionAttempts: Math.min(1000, attempts),
+          windowsTreeInspectionRetries: Math.min(1000, retries),
+          windowsTreeInspectionQueueMs: 0,
+          windowsTreeInspectionNativeMs: Math.min(
+            600000,
+            Math.round(nativeMs + (activeNativeAt === null ? 0 : performance.now() - activeNativeAt)),
+          ),
+          windowsTreeInspectionLastRetry: null,
+        })),
+        configurable: true,
+      });
+    } catch {
+      // Attribution must never replace the original fail-closed error.
+    }
+  };
   let last: ProcessInspection = {
     status: "unknown",
     reason: "windows_process_inspection_not_attempted",
   };
   for (let attempt = 1; attempt <= 3; attempt += 1) {
-    last = await inspectWindowsProcessOnce(pid, runCommand, options);
+    attempts += 1;
+    activeNativeAt = performance.now();
+    try {
+      last = await inspectWindowsProcessOnce(pid, runCommand, options);
+    } catch (error) {
+      attachDeadlineDiagnostics(error);
+      throw error;
+    } finally {
+      nativeMs += performance.now() - activeNativeAt;
+      activeNativeAt = null;
+    }
     if (last.status !== "unknown") {
       return last;
     }
@@ -490,10 +516,30 @@ async function inspectWindowsProcess(
       ) {
         return last;
       }
+      inspectionPhase = "retry_delay";
+      retries += 1;
       await new Promise((resolve) => setTimeout(resolve, 20));
+      inspectionPhase = "native_snapshot";
     }
   }
   return last;
+}
+
+type WindowsTreeAncestryEvidence = {
+  parentBirthRelation: "parent_before_root" | "parent_at_or_after_root";
+  childBirthRelation: "child_before_root";
+  rootFingerprintMatch: boolean;
+  depthBucket: "one" | "two_to_four" | "five_plus";
+};
+
+function invalidWindowsTreeAncestry(
+  reason: string,
+  ancestry?: WindowsTreeAncestryEvidence,
+): Error {
+  return Object.assign(new Error("Native Windows process-tree ancestry was invalid."), {
+    windowsNativeInspectionFailure: reason,
+    ...(ancestry ? { windowsTreeInspectionAncestry: Object.freeze(ancestry) } : {}),
+  });
 }
 
 async function inspectWindowsProcessTreeOnce(
@@ -518,7 +564,11 @@ async function inspectWindowsProcessTreeOnce(
     },
   );
   if (result.exitCode !== 0 || !result.stdout.trim()) {
-    throw new Error("Native Windows process-tree inspection failed.");
+    const error = new Error("Native Windows process-tree inspection failed.");
+    Object.defineProperty(error, "windowsNativeInspectionFailure", {
+      value: windowsNativeInspectionFailure(result.exitCode),
+    });
+    throw error;
   }
 
   let payload: WindowsProcessTreeJson;
@@ -593,11 +643,12 @@ async function inspectWindowsProcessTreeOnce(
   if (!Number.isFinite(rootCreatedAtMs)) {
     throw new Error("Native Windows process-tree root identity changed.");
   }
+  const unrelatedLifetime = new Set<number>();
   for (const row of rows) {
     if (row.identity.pid === expectedRoot.pid) {
       continue;
     }
-    const rowPredatesRoot = Date.parse(row.identity.createdAt) < rootCreatedAtMs;
+    let predatesRoot = Date.parse(row.identity.createdAt) < rootCreatedAtMs;
 
     const visited = new Set<number>([row.identity.pid]);
     let current = row;
@@ -612,11 +663,10 @@ async function inspectWindowsProcessTreeOnce(
         throw invalidWindowsTreeAncestry("ancestry_missing_parent");
       }
       ancestryDepth += 1;
+      predatesRoot ||= Date.parse(parent.identity.createdAt) < rootCreatedAtMs;
       const childCreatedAtMs = Date.parse(current.identity.createdAt);
       const parentCreatedAtMs = Date.parse(parent.identity.createdAt);
-      if (
-        childCreatedAtMs < parentCreatedAtMs
-      ) {
+      if (childCreatedAtMs < parentCreatedAtMs) {
         const childBeforeRoot = childCreatedAtMs < rootCreatedAtMs;
         const parentBeforeRoot = parentCreatedAtMs < rootCreatedAtMs;
         throw invalidWindowsTreeAncestry(
@@ -639,14 +689,23 @@ async function inspectWindowsProcessTreeOnce(
       }
       current = parent;
     }
-    if (rowPredatesRoot) {
-      throw invalidWindowsTreeAncestry("ancestry_predates_root");
+    if (predatesRoot) {
+      // A verified current root cannot own an older process lifetime or its branch.
+      // Without that root, the same candidate remains ambiguous and fails closed.
+      if (!root) throw invalidWindowsTreeAncestry("ancestry_predates_root");
+      unrelatedLifetime.add(row.identity.pid);
     }
   }
 
-  const members = rows.map((row) => row.identity);
+  const members = rows
+    .filter((row) => !unrelatedLifetime.has(row.identity.pid))
+    .map((row) => row.identity);
   return {
     rootStatus: payload.RootStatus === "running" ? "owned" : "exited",
+    ...(unrelatedLifetime.size > 0 ? {
+      verifiedMembersOnly: true,
+      excludedMemberPids: [...unrelatedLifetime],
+    } : {}),
     members: [
       ...members.filter((member) => member.pid !== expectedRoot.pid).reverse(),
       ...(root ? [root] : []),
@@ -700,28 +759,46 @@ export async function inspectWindowsProcessTree(
   const deadlineMs =
     dependencies.deadlineMs ??
     Date.now() + WINDOWS_PROCESS_INSPECTION_TIMEOUT_MS;
+  let inspectionPhase = "queue_wait";
+  let attempts = 0;
+  let retries = 0;
+  let queueMs = 0;
+  let nativeMs = 0;
+  let lastRetry: string | null = null;
+  const retryReasons: Record<string, string> = {
+    "Native Windows process-tree inspection failed.": "helper_failed",
+    "Native Windows process-tree evidence was malformed.": "malformed",
+    "Native Windows process-tree evidence was incomplete.": "incomplete",
+    "Native Windows process-tree ancestry was invalid.": "invalid_ancestry",
+    "Native Windows process-tree root evidence was inconsistent.": "inconsistent_root",
+  };
   let lastError: unknown;
   let lastAncestry: WindowsTreeAncestryEvidence | null = null;
-  let lastRetry: string | null = null;
   for (let attempt = 1; ; attempt += 1) {
+    if (remainingProcessControlMs(deadlineMs) > 0) inspectionPhase = "queue_wait";
+    const queuedAt = performance.now();
+    let entered = false;
+    let activeNativeAt: number | null = null;
     try {
       return await serializeWindowsNativeTreeSnapshot(async (signal) => {
+        entered = true;
+        queueMs += performance.now() - queuedAt;
+        inspectionPhase = "native_snapshot";
+        attempts += 1;
+        activeNativeAt = performance.now();
         try {
           return await inspectWindowsProcessTreeOnce(expectedRoot, {
             ...dependencies,
             deadlineMs,
             signal,
           });
-        } catch (error) {
-          if (error && typeof error === "object") {
-            lastAncestry = (error as { windowsTreeInspectionAncestry?: WindowsTreeAncestryEvidence }).windowsTreeInspectionAncestry ?? null;
-            lastRetry = (error as { windowsNativeInspectionFailure?: unknown }).windowsNativeInspectionFailure as string | null ?? null;
-          }
-          throw error;
+        } finally {
+          nativeMs += performance.now() - activeNativeAt;
+          activeNativeAt = null;
         }
       }, { deadlineMs, signal: dependencies.signal });
     } catch (error) {
-      lastError = error;
+      if (!entered) queueMs += performance.now() - queuedAt;
       if (error && typeof error === "object") {
         const ancestry = (error as { windowsTreeInspectionAncestry?: WindowsTreeAncestryEvidence }).windowsTreeInspectionAncestry;
         if (ancestry !== undefined) lastAncestry = ancestry;
@@ -731,19 +808,25 @@ export async function inspectWindowsProcessTree(
       if (error && typeof error === "object") {
         try {
           Object.defineProperty(error, "windowsTreeInspection", {
-            value: Object.freeze({
+            value: Object.freeze(projectWindowsTreeInspectionMetadata({
+              windowsTreeInspectionPhase: inspectionPhase,
+              windowsTreeInspectionAttempts: Math.min(1000, attempts),
+              windowsTreeInspectionRetries: Math.min(1000, retries),
+              windowsTreeInspectionQueueMs: Math.min(600000, Math.round(queueMs)),
+              windowsTreeInspectionNativeMs: Math.min(600000, Math.round(nativeMs + (activeNativeAt === null ? 0 : performance.now() - activeNativeAt))),
               windowsTreeInspectionLastRetry: lastRetry,
               windowsTreeInspectionParentBirthRelation: lastAncestry?.parentBirthRelation ?? null,
               windowsTreeInspectionChildBirthRelation: lastAncestry?.childBirthRelation ?? null,
               windowsTreeInspectionRootFingerprintMatch: lastAncestry?.rootFingerprintMatch ?? null,
               windowsTreeInspectionAncestryDepthBucket: lastAncestry?.depthBucket ?? null,
-            }),
+            })),
             configurable: true,
           });
         } catch {
-          // Added observation cannot replace the original rejection.
+          // Preserve the original error even if it cannot carry diagnostics.
         }
       }
+      lastError = error;
       if (
         !isRetryableWindowsTreeSnapshotError(error) ||
         dependencies.signal?.aborted ||
@@ -759,6 +842,11 @@ export async function inspectWindowsProcessTree(
       if (retryDelayMs <= 0) {
         throw error;
       }
+      retries += 1;
+      lastRetry = error instanceof Error
+        ? (error as Error & { windowsNativeInspectionFailure?: string | null }).windowsNativeInspectionFailure ?? retryReasons[error.message] ?? null
+        : null;
+      inspectionPhase = "retry_delay";
       await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
     }
   }

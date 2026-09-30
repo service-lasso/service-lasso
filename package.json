@@ -23,6 +23,7 @@
     "package:stage": "npm run build && node scripts/publish-package.mjs",
     "package:verify": "npm run build && node scripts/publish-package-verify.mjs",
     "verify:package-consumer": "npm run build && node scripts/verify-package-consumer.mjs",
+    "verify:operator-tui-pty": "npm run build && node scripts/verify-operator-tui-pty.mjs",
     "test:mcp:product": "npm run build && node --test --test-concurrency=1 tests/operator-mcp.test.js tests/operator-mcp-identity.test.js tests/operator-mcp-stdio.test.js tests/operator-mcp-read-surface.test.js tests/operator-mcp-guarded-actions.test.js tests/operator-mcp-operations.test.js tests/operator-mcp-product-acceptance.test.js tests/mcp-product-artifact.test.js",
     "verify:mcp:packaged": "npm run build && node scripts/verify-mcp-packaged.mjs",
     "verify:baseline-start": "npm run build && node scripts/baseline-start-smoke.mjs",
@@ -58,20 +59,21 @@
     "docs:clear": "node ./node_modules/@docusaurus/core/bin/docusaurus.mjs clear docs",
     "docs:check-secrets-ledger": "node scripts/check-secrets-capability-ledger.mjs",
     "verify:release-authority": "node scripts/verify-core-release-authority.mjs",
-    "audit:production": "npm audit --omit=dev --audit-level=low",
-    "audit:tooling": "npm audit --audit-level=high",
+    "audit:production": "node scripts/audit-request-observation.mjs production",
+    "audit:tooling": "node scripts/audit-request-observation.mjs tooling",
     "release:assets:expected": "node scripts/check-release-assets.mjs --expected",
     "release:assets:check": "node scripts/check-release-assets.mjs",
     "bootstrap:local-sso": "node scripts/local-sso-bootstrap.mjs",
     "test:local-sso": "npm run build && node --test --test-concurrency=1 tests/local-sso-bootstrap.test.js",
-    "test:local-sso-loop": "npm run build && node --test --test-concurrency=1 tests/local-sso-loop-smoke.test.js"
+    "test:local-sso-loop": "npm run build && node --test --test-concurrency=1 tests/local-sso-loop-smoke.test.js",
+    "verify:release-governance": "node scripts/validate-release-governance.mjs && node --test tests/release-governance.test.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.0",
     "fflate": "0.8.3",
     "jose": "6.2.12",
     "tar": "7.5.22",
-    "zod": "4.6.1"
+    "zod": "4.6.5"
   },
   "devDependencies": {
     "@docusaurus/core": "3.10.2",
@@ -86,6 +88,7 @@
     "typescript": "^7.0.2"
   },
   "overrides": {
+    "ip-address": "10.7.2",
     "serialize-javascript": "7.1.0",
     "hono": "4.13.7",
     "qs": "6.16.0",

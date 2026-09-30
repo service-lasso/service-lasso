@@ -37,6 +37,8 @@ test("publishable core package can be staged and consumed by a temp project", as
     );
     assert.equal(stagedPackageJson.publishConfig.access, "public");
     assert.ok(stagedPackageJson.files.includes("sbom.cdx.json"));
+    assert.ok(stagedPackageJson.files.includes("operator-tools"));
+    assert.equal(staged.manifest.operatorToolsManifest, "operator-tools/manifest.json");
 
     const sbom = JSON.parse(
       await readFile(path.join(staged.artifactRoot, "sbom.cdx.json"), "utf8"),
@@ -56,6 +58,10 @@ test("publishable core package can be staged and consumed by a temp project", as
 
     assert.equal(verified.artifactName, staged.artifactName);
     assert.equal(verified.summary.ok, true);
+    assert.deepEqual(verified.summary.operatorTools, [
+      { command: "service-lassoctl", status: "available" },
+      { command: "service-lasso-tui", status: "available" },
+    ]);
     assert.match(verified.summary.url, /^http:\/\/127\.0\.0\.1:\d+$/);
   } finally {
     await rm(outputRoot, { recursive: true, force: true });

@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
+import { observeHardCrashChildExit } from "./hard-crash-child-exit.js";
+import { lifecycleFailureDiagnostic } from "./lifecycle-failure-diagnostics.js";
 import { readFile, readdir, rm } from "node:fs/promises";
 import { startApiServer } from "../dist/server/index.js";
 import { resolveRuntimeConfig } from "../dist/runtime/config.js";
@@ -64,11 +66,7 @@ async function stopExactChild(child) {
 }
 
 async function waitForHardExit(child, timeoutMs = 120_000) {
-  const closed = once(child, "exit");
-  const outcome = await Promise.race([
-    closed.then(([code, signal]) => ({ kind: "exit", code, signal })),
-    new Promise((resolve) => setTimeout(() => resolve({ kind: "timeout" }), timeoutMs)),
-  ]);
+  const outcome = await observeHardCrashChildExit(child, timeoutMs);
   if (outcome.kind === "timeout") {
     await stopExactChild(child);
     throw new Error(`Hard-crash fixture did not exit within ${timeoutMs}ms.`);
@@ -359,6 +357,17 @@ for (const phase of STARTUP_TRANSACTION_PHASES) {
         assert.equal(stoppedRegistry.entries.some((entry) => entry.lifecycleState !== "stopped"), false);
         assert.equal(processIsAlive(unrelated.pid), true);
         assert.deepEqual(await listStartupResidue(fixture.workspaceRoot), []);
+      } catch (error) {
+        try {
+          console.error(JSON.stringify({
+            kind: "startup-recovery-failure",
+            interruptedPhase: phase,
+            lifecycle: JSON.parse(lifecycleFailureDiagnostic({ error, state: getLifecycleState("matrix-service") })),
+          }));
+        } catch {
+          // Bounded observation must not replace the assertion or cleanup path.
+        }
+        throw error;
       } finally {
         await apiServer?.stop().catch(() => undefined);
         await stopExactChild(crash);

@@ -7,6 +7,11 @@ title: Component guides
 Service Lasso is the documentation home for the product family. Start with the guide for the component you use.
 
 - [Add OpenObserve or SOARCA to an app](app-owned-service-workflows.md)
+- [Connect optional app services](app-service-tasks.md) — CACAO Roaster, Files, Filebeat, Dagu and BPMN clients
+
+## Secrets Broker
+
+- [Operate and recover Secrets Broker](../security/broker-operator-tasks.md)
 
 ## Service Admin
 

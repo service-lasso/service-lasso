@@ -48,17 +48,22 @@ async function postJson(url, body) {
           body: JSON.stringify(body),
         }),
   });
+  const responseBody = await response.json();
   if (response.status >= 400 && /\/(start|restart)$/.test(new URL(url).pathname)) {
     try {
       const serviceId = decodeURIComponent(new URL(url).pathname.split("/").at(-2));
-      console.error(lifecycleFailureDiagnostic({ httpStatus: response.status, state: getLifecycleState(serviceId) }));
+      console.error(lifecycleFailureDiagnostic({
+        httpStatus: response.status,
+        state: getLifecycleState(serviceId),
+        apiErrorCode: responseBody?.error,
+      }));
     } catch {
       console.error('{"kind":"lifecycle-failure","diagnostic":"metadata_unavailable"}');
     }
   }
   return {
     status: response.status,
-    body: await response.json(),
+    body: responseBody,
   };
 }
 
@@ -1205,12 +1210,14 @@ test("maxAttempts blocks crash restart attempts at the configured limit", async 
       return stored.runtime?.supervision?.lastRestartResult === "blocked";
     }, SUPERVISION_SETTLE_TIMEOUT_MS);
 
+    await waitForManagedProcessFinalization("max-attempts-service", Date.now() + FIXTURE_CLEANUP_TIMEOUT_MS);
     const stored = await readStoredState(serviceRoot);
     assert.equal(stored.runtime.running, false);
     assert.equal(stored.runtime.supervision.restartAttempts, 0);
     assert.equal(stored.runtime.metrics.launchCount, 1);
   } finally {
-    await stopManagedProcess("max-attempts-service", 100).catch(() => null);
+    await stopManagedProcess("max-attempts-service", FIXTURE_CLEANUP_TIMEOUT_MS);
+    await waitForManagedProcessFinalization("max-attempts-service", Date.now() + FIXTURE_CLEANUP_TIMEOUT_MS);
     resetLifecycleState();
     await rm(tempRoot, { recursive: true, force: true });
   }

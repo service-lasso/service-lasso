@@ -71,6 +71,11 @@ test("an absent root never labels descendant lifetime evidence as fingerprint-ma
 
 test("the parent-lifetime projector rejects incomplete and arbitrary observations", () => {
   assert.deepEqual(projectWindowsTreeInspectionMetadata({
+    windowsTreeInspectionPhase: "native_snapshot",
+    windowsTreeInspectionAttempts: 1,
+    windowsTreeInspectionRetries: 0,
+    windowsTreeInspectionQueueMs: 2,
+    windowsTreeInspectionNativeMs: 3,
     windowsTreeInspectionLastRetry: "ancestry_predates_parent_before_root",
     windowsTreeInspectionParentBirthRelation: "parent_before_root",
     windowsTreeInspectionChildBirthRelation: "child_before_root",
@@ -79,6 +84,11 @@ test("the parent-lifetime projector rejects incomplete and arbitrary observation
     pid: 4343,
     command: "private-command",
   }), {
+    windowsTreeInspectionPhase: "native_snapshot",
+    windowsTreeInspectionAttempts: 1,
+    windowsTreeInspectionRetries: 0,
+    windowsTreeInspectionQueueMs: 2,
+    windowsTreeInspectionNativeMs: 3,
     windowsTreeInspectionLastRetry: "ancestry_predates_parent_before_root",
     windowsTreeInspectionParentBirthRelation: "parent_before_root",
     windowsTreeInspectionChildBirthRelation: "child_before_root",
@@ -86,7 +96,15 @@ test("the parent-lifetime projector rejects incomplete and arbitrary observation
     windowsTreeInspectionAncestryDepthBucket: "two_to_four",
   });
   assert.deepEqual(projectWindowsTreeInspectionMetadata({
+    windowsTreeInspectionPhase: "native_snapshot",
     windowsTreeInspectionLastRetry: "malformed",
     windowsTreeInspectionParentBirthRelation: "private",
-  }), {});
+  }), {
+    windowsTreeInspectionPhase: "native_snapshot",
+    windowsTreeInspectionAttempts: null,
+    windowsTreeInspectionRetries: null,
+    windowsTreeInspectionQueueMs: null,
+    windowsTreeInspectionNativeMs: null,
+    windowsTreeInspectionLastRetry: "malformed",
+  });
 });

@@ -18,6 +18,7 @@ Apply these files in order:
 5. `gov-06-issues.mdc` (issue lifecycle)
 6. `gov-07-tasks.mdc` (task hygiene)
 7. `gov-08-exploratory-review.mdc` (continuous exploratory discovery + backlog hydration)
+8. `gov-09-release-authority.mdc` (release owner authority + exact-candidate GA readiness)
 
 ## Source-of-Truth Layout
 

@@ -33,24 +33,51 @@ test("lifecycle diagnostics exclude unknown strings and sensitive payload fields
   assert.deepEqual(JSON.parse(result).events, [{ phase: null, status: null, failurePhase: null }]);
 });
 
-test("lifecycle diagnostics project only complete closed parent-lifetime evidence", () => {
-  const error = {
-    windowsTreeInspection: {
-      windowsTreeInspectionLastRetry: "ancestry_predates_parent_before_root",
-      windowsTreeInspectionParentBirthRelation: "parent_before_root",
-      windowsTreeInspectionChildBirthRelation: "child_before_root",
-      windowsTreeInspectionRootFingerprintMatch: true,
-      windowsTreeInspectionAncestryDepthBucket: "one",
-      pid: 4343,
-      command: "private-command",
+test("lifecycle diagnostics project only allowlisted API conflict classifications", () => {
+  const allowedResult = JSON.parse(lifecycleFailureDiagnostic({
+    httpStatus: 409,
+    apiErrorCode: "invalid_lifecycle_state",
+  }));
+  assert.equal(allowedResult.apiErrorCode, "invalid_lifecycle_state");
+
+  const sensitive = "private-path-or-token";
+  const rejected = lifecycleFailureDiagnostic({
+    httpStatus: 409,
+    apiErrorCode: sensitive,
+  });
+  assert.equal(rejected.includes(sensitive), false);
+  assert.equal(JSON.parse(rejected).apiErrorCode, undefined);
+});
+
+test("lifecycle diagnostics retain only a complete closed parent-lifetime receipt", () => {
+  const result = JSON.parse(lifecycleFailureDiagnostic({
+    error: {
+      windowsTreeInspection: {
+        windowsTreeInspectionPhase: "native_snapshot",
+        windowsTreeInspectionAttempts: 1,
+        windowsTreeInspectionRetries: 0,
+        windowsTreeInspectionQueueMs: 2,
+        windowsTreeInspectionNativeMs: 3,
+        windowsTreeInspectionLastRetry: "ancestry_predates_parent_before_root",
+        windowsTreeInspectionParentBirthRelation: "parent_before_root",
+        windowsTreeInspectionChildBirthRelation: "child_before_root",
+        windowsTreeInspectionRootFingerprintMatch: false,
+        windowsTreeInspectionAncestryDepthBucket: "one",
+        pid: 4343,
+        command: "private-command",
+      },
     },
-  };
-  const result = JSON.parse(lifecycleFailureDiagnostic({ error }));
+  }));
   assert.deepEqual(result.windowsTreeInspections, [{
+    windowsTreeInspectionPhase: "native_snapshot",
+    windowsTreeInspectionAttempts: 1,
+    windowsTreeInspectionRetries: 0,
+    windowsTreeInspectionQueueMs: 2,
+    windowsTreeInspectionNativeMs: 3,
     windowsTreeInspectionLastRetry: "ancestry_predates_parent_before_root",
     windowsTreeInspectionParentBirthRelation: "parent_before_root",
     windowsTreeInspectionChildBirthRelation: "child_before_root",
-    windowsTreeInspectionRootFingerprintMatch: true,
+    windowsTreeInspectionRootFingerprintMatch: false,
     windowsTreeInspectionAncestryDepthBucket: "one",
   }]);
   assert.equal(JSON.stringify(result).includes("private"), false);
@@ -69,7 +96,32 @@ test("lifecycle diagnostics bound event and cause counts and tolerate missing or
     state: { runtime: { startTrace: { current: { events: Array(100).fill(null) } } } },
   }));
   assert.equal(result.events.length, 16);
-  assert.equal(result.failurePhases.length, 4);
+  assert.equal(result.failurePhases.length, 1);
+});
+
+test("aggregate containment failures retain nested deadlines without disclosing errors", () => {
+  const sensitive = "private-path-command-token";
+  const failure = new AggregateError([
+    { failurePhase: "launch_state_cleanup", message: sensitive },
+    new AggregateError([{ code: "PROCESS_CONTROL_DEADLINE_EXCEEDED", stack: sensitive }], sensitive),
+    { failurePhase: sensitive, handle: sensitive },
+  ], sensitive);
+  failure.errors.push(failure);
+  const serialized = lifecycleFailureDiagnostic({ error: failure });
+  const result = JSON.parse(serialized);
+  assert.deepEqual(result.failurePhases, ["launch_state_cleanup"]);
+  assert.equal(result.deadlineExceeded, true);
+  assert.equal(serialized.includes(sensitive), false);
+});
+
+test("aggregate diagnostic traversal remains bounded across wide and deep error graphs", () => {
+  const deadline = { code: "PROCESS_CONTROL_DEADLINE_EXCEEDED" };
+  const wide = new AggregateError([...Array.from({ length: 32 }, () => ({ failurePhase: "wrapper_spawn" })), deadline]);
+  const result = JSON.parse(lifecycleFailureDiagnostic({ error: wide }));
+  assert.equal(result.failurePhases.length, 15);
+  assert.equal(result.deadlineExceeded, false);
+  const deep = { cause: { cause: { cause: { cause: deadline } } } };
+  assert.equal(JSON.parse(lifecycleFailureDiagnostic({ error: deep })).deadlineExceeded, false);
 });
 
 test("diagnostic errors cannot replace the original failure or expose thrown content", () => {
