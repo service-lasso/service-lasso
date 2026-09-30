@@ -252,7 +252,10 @@ const WINDOWS_MANAGED_LAUNCH_MAX_TARGET_ENVIRONMENT_OVERRIDES = 128;
 let windowsManagedLauncherPath = WINDOWS_MANAGED_LAUNCHER_PATH;
 let managedProcessTreeTerminator = terminateOwnedProcessTree;
 let managedProcessTreeMonitor = monitorManagedProcessTree;
-let managedProcessRootInspector = inspectProcess;
+let managedProcessRootInspector: (
+  pid: number,
+  options?: { deadlineMs?: number; signal?: AbortSignal },
+) => Promise<ProcessInspection> = inspectProcess;
 let managedWindowsTreeInspector = inspectWindowsProcessTree;
 let managedProcessEnrollmentHook: ((child: ChildProcess) => Promise<void> | void) | null = null;
 let managedProcessFilesBoundHook: (() => Promise<void> | void) | null = null;
@@ -291,7 +294,7 @@ export function setManagedWindowsTreeInspectorForTests(
 }
 
 export function setManagedProcessRootInspectorForTests(
-  inspector: ((pid: number) => Promise<ProcessInspection>) | null,
+  inspector: ((pid: number, options?: { deadlineMs?: number; signal?: AbortSignal }) => Promise<ProcessInspection>) | null,
 ): void {
   if (process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS !== "1") {
     throw new Error("Managed process-root test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
@@ -1328,6 +1331,49 @@ function mergeProcessFingerprints(...groups: ProcessFingerprint[][]): ProcessFin
   return [...byPid.values()];
 }
 
+function unionProcessFingerprints(...groups: readonly ProcessFingerprint[][]): ProcessFingerprint[] {
+  const members = new Map<string, ProcessFingerprint>();
+  for (const identity of groups.flat()) {
+    // Preserve conflicting lifetimes for one PID.  The fresh identity probe
+    // below must classify the prior identity as mismatched instead of allowing
+    // a later tree row to replace it.
+    members.set([
+      identity.pid,
+      identity.createdAt,
+      identity.executablePath,
+      identity.commandHash,
+    ].join("\u0000"), identity);
+  }
+  return [...members.values()];
+}
+
+async function verifyNativeAcknowledgementFinalContainment(
+  record: ManagedProcessRecord,
+  rootIdentity: ProcessFingerprint,
+  deadlineMs: number,
+  signal: AbortSignal,
+): Promise<void> {
+  // The final tree is a receipt for this acknowledgement, not a refresh of an
+  // earlier snapshot.  Its root result and the retained ChildProcess handle
+  // must independently agree that the managed wrapper exited.
+  const finalTree = await managedWindowsTreeInspector(rootIdentity, { deadlineMs, signal });
+  if (finalTree.rootStatus !== "exited") {
+    throw new Error("Native acknowledgement containment root has not exited.");
+  }
+  if (probeManagedChildHandle(record.child) !== "exited") {
+    throw new Error("Native acknowledgement containment wrapper has not exited.");
+  }
+
+  const members = unionProcessFingerprints(record.knownTreeMembers, finalTree.members);
+  record.knownTreeMembers = members;
+  for (const member of members) {
+    const inspection = await managedProcessRootInspector(member.pid, { deadlineMs, signal });
+    if (inspection.status !== "not_running") {
+      throw new Error("Native acknowledgement containment has not converged.");
+    }
+  }
+}
+
 function managedProcessTreeTarget(record: ManagedProcessRecord, rootExitObserved = false): OwnedProcessTreeTarget {
   return {
     rootPid: record.child.pid ?? 0,
@@ -2130,19 +2176,12 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
               terminate: (helperSignal) => managedProcessTreeTerminator(target,
                 remainingProcessControlMs(containmentDeadlineMs),
                 { ...dependencies, signal: helperSignal }),
-              verifyStopped: async () => {
-                const stoppedTree = await inspectKnownWindowsTreeMembers(
-                  verifiedRootIdentity, record.knownTreeMembers,
-                  containmentDeadlineMs, signal,
-                  record.verifiedMembersOnly,
-                  { inspectTree: managedWindowsTreeInspector },
-                );
-                for (const member of record.knownTreeMembers) {
-                  if ((await stoppedTree.inspectProcess(member.pid)).status !== "not_running") {
-                    throw new Error("Native acknowledgement containment has not converged.");
-                  }
-                }
-              },
+              verifyStopped: async () => await verifyNativeAcknowledgementFinalContainment(
+                record,
+                verifiedRootIdentity,
+                containmentDeadlineMs,
+                signal,
+              ),
             });
           }, { deadlineMs: containmentDeadlineMs });
         } catch (cleanupError) {
