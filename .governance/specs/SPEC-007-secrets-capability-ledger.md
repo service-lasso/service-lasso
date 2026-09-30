@@ -122,6 +122,15 @@ provenance metadata, asset inventory readback, and independent repeatable build
 instructions. Publication is explicitly dispatched through an approval-gated
 release environment and never occurs from an ordinary integration push.
 
+Qualification diagnostics are release evidence, not publication authority. For
+the `#1386` packaged-MCP consumer-acquisition child, any retained diagnostic is
+limited to the closed `SPEC-006 AC-6G` stage/code/subcode receipt and its normal
+cleanup precedence. It must never contain a command line, registry URL,
+package path, raw npm report, stdout, stderr, token, environment value, or a
+duration-derived cause claim. A closed receipt can identify an observed failure
+class for later investigation; it neither attributes the historical failure nor
+authorizes retry, publication, promotion, deployment, or GA.
+
 ### `AC-7H` — Release 1 security evidence and owner decision gate
 
 Before Release 1 GA, the exact immutable Core, Admin, and Broker identities

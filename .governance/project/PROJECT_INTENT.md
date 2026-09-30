@@ -3,18 +3,22 @@
 Use this file to capture the project-specific intent that governance cannot provide.
 
 ## Purpose
+
 Service Lasso is the core runtime and contract repository for running local packaged services under one governed manager. Its job is to define and implement the shared service model, discover service manifests, orchestrate install/config/start/stop/health behavior, and provide the reusable runtime surface that service repos and the Service Admin UI depend on.
 
 ## Context
+
 Bootstrap/governance setup is now in place and remains durable. The first core runtime implementation batch is landed (`#2` to `#8`), and this repository is now in the hardening phase for startup configuration, persistence rehydration, stronger API semantics, and real execution supervision.
 
 The broader multi-repo shape is already established:
+
 - `service-lasso` = core runtime + canonical shared contract/docs
 - `service-template` = the template for individual services
 - `lasso-@serviceadmin` = the operator UI
 - sibling app-host and packaging-target repos = quick-start consumers around the core runtime, with the canonical lineup tracked in current docs and issues
 
 This repo is therefore the place where the real core behavior must live and continue hardening:
+
 - standalone runtime/server entrypoint
 - manifest discovery and parsing
 - service lifecycle orchestration
@@ -26,6 +30,7 @@ This repo is therefore the place where the real core behavior must live and cont
 - one operator MCP on the core runtime for safe reads plus guarded lifecycle and maintenance actions through shared application facades (`SPEC-006`); never secret values, raw config/log payloads, local roots, generic shell, terminal/stdin, raw filesystem, or raw configuration tools
 
 ## Constraints
+
 - Hard-crash fixture failures before an intentional exit must retain only closed startup-phase and lifecycle metadata over a dedicated test IPC channel; never raw child output, error messages, paths or secrets (#1397, `SPEC-002 AC-4BJ.9a`). This adds observation, not retries or changed deadlines.
 - Governance/spec/backlog traceability must remain in place while product code starts.
 - This repo is private and should preserve clear auditability for decisions and changes.
@@ -44,6 +49,7 @@ This repo is therefore the place where the real core behavior must live and cont
 - Release authority and readiness follow `gov-09-release-authority.mdc` and `RELEASE_TRACEABILITY.md`. Agents report exact-candidate technical readiness; only the release owner accepts residual risk, declares GA, and authorizes promotion, publication, or deployment. Independent review is required only when the owner explicitly mandates it and names the reviewer (`SPEC-007` `AC-7H`, `#1409`). Missing or failed technical proof is never converted into a pass.
 
 ## Risks
+
 - Startup recovery sidecars must remain atomically replaceable under transient Windows sharing contention; bounded retries must preserve prior encrypted recovery bytes and reject changed or redirected paths (#1394, AC-4BJ.2a).
 - Linux shutdown must tolerate process disappearance during `/proc` enumeration without interpreting failed enumeration as proof of exit (#1392, SPEC-002 AC-4BH.1).
 - Staying in analysis/doc mode too long would create false progress without a running core.
@@ -52,6 +58,7 @@ This repo is therefore the place where the real core behavior must live and cont
 - Divergence between `develop` and `main` can create false completion claims and lost integration work unless branch direction is enforced mechanically and in repository instructions.
 
 ## Assumptions
+
 - The first trustworthy milestone, a runnable standalone core slice, is now achieved.
 - The current highest-value work is proving release readiness from a clean consumer perspective: package install, GitHub release artifacts, manifest-owned service acquisition, Service Admin integration, Echo Service behavior, and canonical reference-app source/bootstrap/bundled outputs.
 - Hosted Windows cold start and load can make a real PowerShell identity smoke slower than the product's caller-owned process-control deadline. The smoke therefore uses its own explicit bounded test allowance; deterministic injected tests remain the authority for the unchanged product deadline, helper termination, and fail-closed classifications.
@@ -59,6 +66,7 @@ This repo is therefore the place where the real core behavior must live and cont
 - Bootstrap artifacts remain part of repo history, but active delivery is now product-spec driven.
 
 ## Key Behaviors
+
 - The core runtime should discover canonical `service.json` manifests and treat them as operational contract files, not passive metadata.
 - First-run service start may generate missing declared Broker-produced secrets once; manifest discovery must not write KV.
 - `node-sample-service` is the tracked rotation/update fixture for non-secret env plus optional consumer and generated producer secrets.
@@ -85,13 +93,17 @@ This repo is therefore the place where the real core behavior must live and cont
 - Operator MCP Streamable HTTP remains authenticated-loopback-only until a complete OAuth resource configuration enables signature-, issuer-, expiry-, configured-audience-, scope-, Origin-, and content-boundary enforcement. MCP defaults to read-only, supports explicit disabled/guarded configuration, rate-limits validated actors and clients independently, and fails closed when its Audit event cannot be persisted (`SPEC-006` `AC-6C`).
 - Core emits durable operator Inbox items for runtime/setup, lifecycle failure, health transitions, scheduled workflow outcomes, update notices, and Broker needs-attention when Core already reports it (`SPEC-002` `AC-4CA`).
 - Guarded MCP actions derive actor and permission profile only from validated transport identity, preflight through the same application facade used by runtime operators, require server-bound single-use confirmation for risky mutations, and replay duplicate idempotency keys without repeating lifecycle effects (`SPEC-006` `AC-6E`).
+- A locally authored service project reaches remote Core only through the source-safe, template-derived admission contract (`SPEC-002` `AC-4CF.1`, `#1513`), not through released-reference registration or `#1463` release-asset transfer. The client never sends its filesystem path and Core never accepts or exposes a server path. Admission is bounded to a staged archive that differs from a server-recognized immutable `service-template` contract only where that contract permits; it records provenance, permission, server confirmation, idempotency, recovery, and metadata-only Audit without installing, acquiring, configuring, starting, stopping, reloading, resolving secrets, or adopting service semantics.
+- Source-safe admission uses `SLTP-ZIP-1`, a fixed-length identity-coded upload, and one canonical fingerprint. Raw ZIP, normalized inventory, and manifest-byte identities remain distinct; confirmation, idempotency, Audit, and recovery bind that fingerprint. Its durable operation begins `accepted`, and an `audit_unavailable` commit `503` never converts stored-operation GET readback into a success claim.
 - Long-running MCP configuration, setup, update, and runtime-wide actions become durable actor/workspace-scoped operations when they exceed the request budget. Safe operation records survive client disconnects and runtime restarts, expose bounded status/progress/terminal summaries without command, log, path, config, or secret material, and permit cancellation only where the underlying shared facade can stop safely (`SPEC-006` `AC-6F`).
 - MCP release qualification treats the official Inspector/SDK protocol matrix, the complete security regression suite, and fresh-consumer packaged startup on Windows, Linux, and macOS as blocking product evidence. Canonical acceptance remains non-destructive except for one server-confirmed exactly-once lifecycle action, and retained artifacts contain only exact-SHA-bound version/result metadata without captures, credentials, raw logs, configuration, environment values, local paths, or secrets (`SPEC-006` `AC-6G`).
 
 ## Verification Expectations
+
 Core product work should be verified with direct runnable evidence, not only documentation updates.
 
 For the first runtime slice, expected proof should include:
+
 - tracked source artifacts for the standalone core runtime
 - direct local execution evidence that the runtime starts successfully
 - direct proof that manifest discovery/parsing works against defined fixture/sample services
@@ -152,6 +164,10 @@ The 20c0c01 dependency-order generation fixture currently hides the start result
 Issue #1382 pre-unlock diagnostic delivery requires an exact qualified Admin harness pin and complete packaged Windows/Linux/macOS evidence against unchanged released Admin/Broker checksums. Preserve original assertions, deadlines, exactly-once mutations and metadata-only evidence; successful diagnostics do not attribute the historical trusted-session failure.
 
 The related Admin #651 passed-spec/CLI-exit investigation may separately observe bounded Cypress executable exit/close outcomes through the pinned harness. Require exact Admin and owning Core qualification before integration; retain original failure outcomes and unchanged released application bytes.
+
+Core remote local-input intent has two separately governed paths. #1463 / `SPEC-002 AC-4CH` transfers only a caller-held copy of a checksum-bound selected asset from an approved published release; it requires no source-admission authority and has no lifecycle effect. The locally authored template-project path remains open as #1513, bound to `SPEC-002` and `SPEC-006 AC-6E` and linked to CLI #1/#8. No release-asset evidence may be used to claim that full client-local source admission is complete.
+
+For #1463, an eligible service producer release has exactly one fixed `service-lasso-release-policy.json` v1 asset and one dedicated `service.json` asset, defined in `docs/reference/service-producer-release-policy.md`. The policy binds the same published non-draft release tag/full target SHA, target service ID, manifest digest, and explicit platform archive/checksum identities. It is distinct from Core runtime packaging; an independently reviewed, service-producer-owner-approved Core catalog pin is mandatory before a resolver can admit a stage.
 Issue #1439 qualification audit observation must distinguish bulk and quick advisory requests with closed endpoint/status/timing metadata only. Preserve original npm findings and exit status, production low/tooling high thresholds and all gates. Do not retry audits, log request payloads/credentials, rewrite locks or claim registry root cause from client recovery.
 Issue #1281 capture reconciliation must bind recovered later direct images to their actual candidate, receipt, viewport and archive hash. Preserve historical failed observations, review-only redaction/publication boundaries and Admin #622 literal viewport requirement; do not reconstruct missing original evidence or infer independent approval.
 Issue #1386 requires closed packaged-verifier phase diagnostics that distinguish consumer setup, package staging, dependency acquisition, installed-package binding, consumer execution, result parsing, evidence validation and evidence write. Preserve existing deadlines, isolation, provenance, cleanup and evidence contracts; a successful unchanged retry is recovery evidence, not a root-cause repair.
