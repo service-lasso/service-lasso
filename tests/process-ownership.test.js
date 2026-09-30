@@ -41,6 +41,7 @@ import {
   setManagedProcessSpawnerForTests,
   setManagedProcessTreeMonitorForTests,
   setManagedProcessTreeTerminatorForTests,
+  setManagedWindowsTreeInspectorForTests,
   setWindowsManagedLauncherPathForTests,
   startManagedProcess as startRuntimeManagedProcess,
   stopAllManagedProcesses,
@@ -3122,6 +3123,184 @@ test("Windows persistent partial native command query fails before the startup h
     setManagedProcessAfterReleaseHookForTests(null);
     await apiServer?.stop();
     await stopManagedProcess("echo-service", 10_000).catch(() => null);
+    if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+    else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
+    if (priorCommandQuery === undefined) delete process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY;
+    else process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY = priorCommandQuery;
+    resetLifecycleState();
+    await removeTempRoot(tempRoot);
+  }
+});
+
+test("Windows adopted monitor retains a real terminal tree refresh through shutdown", {
+  skip: process.platform !== "win32",
+}, async () => {
+  resetLifecycleState();
+  const priorTestHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+  const priorCommandQuery = process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY;
+  process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
+  delete process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY;
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-adopted-terminal-native-");
+  const serviceId = "adopted-terminal-native-service";
+  const { serviceRoot, scriptPath } = await writeExecutableFixtureService(servicesRoot, serviceId);
+  const relativeScriptPath = path.relative(serviceRoot, scriptPath);
+  const root = spawn(process.execPath, [relativeScriptPath], {
+    cwd: serviceRoot,
+    stdio: "ignore",
+    windowsHide: true,
+  });
+  const rootClosed = new Promise((resolve) => root.once("close", resolve));
+  let nativeTreeInvocations = 0;
+  let terminalRefreshObserved = false;
+
+  try {
+    await new Promise((resolve, reject) => {
+      root.once("spawn", resolve);
+      root.once("error", reject);
+    });
+    // This wrapper counts calls but delegates every successful identity and
+    // member result to the checked-in native executable. The only injected
+    // behavior below is the helper's closed partial-copy failure seam.
+    setManagedWindowsTreeInspectorForTests(async (identity, options) => {
+      nativeTreeInvocations += 1;
+      try {
+        return await inspectWindowsProcessTree(identity, options);
+      } catch (error) {
+        terminalRefreshObserved ||= windowsTreeInspectionFailureMetadata(error).windowsTreeInspectionLastRetry === "root_command_partial_copy";
+        throw error;
+      }
+    });
+    const rootInspection = await inspectProcess(root.pid);
+    assert.equal(rootInspection.status, "running");
+    await recordProcessOwnership(workspaceRoot, {
+      ownerType: "service",
+      ownerId: serviceId,
+      serviceId,
+      pid: root.pid,
+      ownerRoot: serviceRoot,
+      lifecycleState: "running",
+      source: "legacy-verified",
+    });
+    const [service] = await discoverServices(servicesRoot);
+    await adoptManagedProcess({
+      service,
+      pid: root.pid,
+      startedAt: rootInspection.identity.createdAt,
+      command: `${process.execPath} ${relativeScriptPath}`,
+      workspaceRoot,
+    });
+    assert.equal(nativeTreeInvocations, 1);
+
+    // Direct ownership revalidation stays real and succeeds; only the later
+    // native tree refresh exhausts its held-handle command query.
+    process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY = "partial_tree_only";
+    await waitFor(() => terminalRefreshObserved, 20_000);
+    assert.equal(nativeTreeInvocations, 2);
+    const retained = await findProcessOwnership(workspaceRoot, "service", serviceId);
+    assert.equal(retained.lifecycleState, "running");
+    assert.equal(retained.identityStatus, "owned");
+    assert.equal(retained.pid, root.pid);
+    assert.equal(hasManagedProcess(serviceId), true);
+
+    // The terminal automatic episode is not reopened by any of shutdown's
+    // eight convergence passes; retained members are used for control.
+    await stopAllManagedProcesses();
+    assert.equal(nativeTreeInvocations, 2);
+    assert.equal(hasManagedProcess(serviceId), false);
+    const stopped = await findProcessOwnership(workspaceRoot, "service", serviceId);
+    assert.equal(stopped.lifecycleState, "stopped");
+    assert.equal(stopped.pid, null);
+    await rootClosed;
+  } finally {
+    setManagedWindowsTreeInspectorForTests(null);
+    await stopAllManagedProcesses().catch(() => null);
+    forceCleanupProcesses([root.pid]);
+    if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+    else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
+    if (priorCommandQuery === undefined) delete process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY;
+    else process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY = priorCommandQuery;
+    resetLifecycleState();
+    await removeTempRoot(tempRoot);
+  }
+});
+
+test("Windows explicit adopted stop starts a new real tree inspection episode after a terminal monitor refresh", {
+  skip: process.platform !== "win32",
+}, async () => {
+  resetLifecycleState();
+  const priorTestHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+  const priorCommandQuery = process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY;
+  process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
+  delete process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY;
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-adopted-explicit-native-");
+  const serviceId = "adopted-explicit-native-service";
+  const { serviceRoot, scriptPath } = await writeExecutableFixtureService(servicesRoot, serviceId);
+  const relativeScriptPath = path.relative(serviceRoot, scriptPath);
+  const root = spawn(process.execPath, [relativeScriptPath], {
+    cwd: serviceRoot,
+    stdio: "ignore",
+    windowsHide: true,
+  });
+  const rootClosed = new Promise((resolve) => root.once("close", resolve));
+  let nativeTreeInvocations = 0;
+  let terminalRefreshObserved = false;
+
+  try {
+    await new Promise((resolve, reject) => {
+      root.once("spawn", resolve);
+      root.once("error", reject);
+    });
+    setManagedWindowsTreeInspectorForTests(async (identity, options) => {
+      nativeTreeInvocations += 1;
+      try {
+        return await inspectWindowsProcessTree(identity, options);
+      } catch (error) {
+        terminalRefreshObserved ||= windowsTreeInspectionFailureMetadata(error).windowsTreeInspectionLastRetry === "root_command_partial_copy";
+        throw error;
+      }
+    });
+    const rootInspection = await inspectProcess(root.pid);
+    assert.equal(rootInspection.status, "running");
+    await recordProcessOwnership(workspaceRoot, {
+      ownerType: "service",
+      ownerId: serviceId,
+      serviceId,
+      pid: root.pid,
+      ownerRoot: serviceRoot,
+      lifecycleState: "running",
+      source: "legacy-verified",
+    });
+    const [service] = await discoverServices(servicesRoot);
+    await adoptManagedProcess({
+      service,
+      pid: root.pid,
+      startedAt: rootInspection.identity.createdAt,
+      command: `${process.execPath} ${relativeScriptPath}`,
+      workspaceRoot,
+    });
+    assert.equal(nativeTreeInvocations, 1);
+
+    process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY = "partial_tree_only";
+    await waitFor(() => terminalRefreshObserved, 20_000);
+    assert.equal(nativeTreeInvocations, 2);
+
+    // This is a separate operator-requested action, so it receives its own
+    // existing bounded episode. Clearing the failure seam lets the actual
+    // native tree inspection provide fresh evidence for that action.
+    delete process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY;
+    await stopManagedProcess(serviceId, PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS, {
+      newWindowsInspectionEpisode: true,
+    });
+    assert.equal(nativeTreeInvocations, 3);
+    assert.equal(hasManagedProcess(serviceId), false);
+    const stopped = await findProcessOwnership(workspaceRoot, "service", serviceId);
+    assert.equal(stopped.lifecycleState, "stopped");
+    assert.equal(stopped.pid, null);
+    await rootClosed;
+  } finally {
+    setManagedWindowsTreeInspectorForTests(null);
+    await stopAllManagedProcesses().catch(() => null);
+    forceCleanupProcesses([root.pid]);
     if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
     else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
     if (priorCommandQuery === undefined) delete process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY;

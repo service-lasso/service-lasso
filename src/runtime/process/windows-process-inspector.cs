@@ -20,6 +20,7 @@ internal static class ServiceLassoWindowsProcessInspector
     private static int evidenceSubject = 0;
     private static int testCommandQueryPartialCopiesRemaining = 0;
     private static int testCommandQueryFailureStatus = 0;
+    private static bool testCommandQueryTreeOnly = false;
 
     private static void EvidenceStage(int code)
     {
@@ -149,6 +150,14 @@ internal static class ServiceLassoWindowsProcessInspector
         else if (String.Equals(requested, "partial_only", StringComparison.Ordinal))
         {
             testCommandQueryPartialCopiesRemaining = CommandLineQueryAttempts;
+        }
+        else if (String.Equals(requested, "partial_tree_only", StringComparison.Ordinal))
+        {
+            // The lifecycle monitor first makes a direct identity query and
+            // only then refreshes the owned tree. Keep that real identity
+            // evidence intact so the test seam injects failure only at the
+            // later native tree command-query boundary.
+            testCommandQueryTreeOnly = true;
         }
         else if (String.Equals(requested, "unsupported_then_success", StringComparison.Ordinal))
         {
@@ -543,6 +552,10 @@ internal static class ServiceLassoWindowsProcessInspector
         bool includeDescendants = args.Length > 1 &&
             (String.Equals(args[1], "--include-descendants", StringComparison.Ordinal) ||
              String.Equals(args[1], "-IncludeDescendants", StringComparison.Ordinal));
+        if (testCommandQueryTreeOnly && includeDescendants)
+        {
+            testCommandQueryPartialCopiesRemaining = CommandLineQueryAttempts;
+        }
 
         try
         {
