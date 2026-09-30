@@ -65,6 +65,7 @@ const sidebars = {
       { type: "doc", id: "reference/readiness-gate", label: "CLI commands" },
       { type: "doc", id: "reference/product-api-facade", label: "HTTP APIs" },
       { type: "doc", id: "reference/operator-mcp", label: "Operator MCP" },
+      { type: "doc", id: "reference/source-safe-template-admission", label: "Source-safe template admission" },
       { type: "doc", id: "reference/runtime-instance-registry", label: "Configuration and state" },
       { type: "doc", id: "reference/endpoints-contract", label: "Dependencies and endpoint allocation" },
       { type: "doc", id: "reference/workflow-package-catalog", label: "Workflow packages and execution" },

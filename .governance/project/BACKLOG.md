@@ -561,6 +561,7 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 `ISS-879` is the current `AC-4BM` doctor diagnosis after `#764` closed.
 
 | `ISS-1462` | `in_progress` | Remote-safe service registration and durable operator API | `SPEC-002`, `AC-4CF` | Core owns the released-reference registration, trusted actor/permission/confirmation, idempotent operation readback, and HTTP integration proof. CLI #1 and TUI #1 are dependent consumers; generic upload and client-host paths are excluded. |
+| `ISS-1513` | `in_progress` | Define source-safe admission for locally authored template projects | `SPEC-002`, `AC-4CF.1`; `SPEC-006`, `AC-6E` | Separate from #1462 released-reference registration and #1463 staged release-asset transfer. `docs/reference/source-safe-template-admission.md` defines closed source-stage/preflight/commit/readback grammar, template-derived provenance and allowed-difference limits, actor-bound confirmation, durable idempotency/recovery, metadata-only Audit, and no-lifecycle semantics. Blocked on service-template #17 for the immutable machine-readable contract and fixtures/verifier; CLI #1/#8 remain dependent consumers. |
 
 | `ISS-1439` | `in_progress` | Classify tooling audit bulk failure and retired fallback | `SPEC-007`, `AC-7E` | Retain failed #1425 candidate and add bounded advisory-request metadata; audit severity thresholds and failure result stay unchanged. |
 ## GA maintenance #1386

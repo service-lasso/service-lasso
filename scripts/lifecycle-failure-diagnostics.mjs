@@ -17,6 +17,8 @@ const launchPhases = new Set([
 ]);
 const eventStatuses = new Set(["completed", "blocked", "failed", "skipped"]);
 const attemptStatuses = new Set(["running", "succeeded", "failed", "blocked"]);
+const restartStages = new Set(["precheck", "stop_request", "finalization_settled", "finalization_failed", "replacement_spawn", "readiness", "response"]);
+const restartRelations = new Set(["unavailable", "prior_generation_running", "replacement_spawned"]);
 // API response bodies are not diagnostic input. This closed projection only
 // distinguishes the lifecycle conflicts that can explain a post-action 409.
 const lifecycleApiErrorCodes = new Set([
@@ -30,8 +32,15 @@ const allowed = (values, value) => values.has(value) ? value : null;
 // Deliberately closed: never serialize errors, messages, handles, or raw state.
 export function lifecycleFailureDiagnostic(input = {}) {
   try {
-    let { httpStatus, state, error, apiErrorCode } = input ?? {};
-    const current = state?.runtime?.startTrace?.current;
+    let { httpStatus, state, error, apiErrorCode, action } = input ?? {};
+    const restartCandidate = action === "restart" ? state?.runtime?.restartTrace?.current : null;
+    const restart = restartCandidate &&
+      (restartCandidate.status === "failed" || restartCandidate.status === "blocked") &&
+      Array.isArray(restartCandidate.events) &&
+      restartCandidate.events.some((event) => event?.stage === "response" && (event?.status === "failed" || event?.status === "blocked"))
+      ? restartCandidate
+      : null;
+    const current = action === "restart" ? restart : (restart ?? state?.runtime?.startTrace?.current);
     const failurePhases = [];
     const windowsTreeInspections = [];
     let deadlineExceeded = false;
@@ -68,7 +77,12 @@ export function lifecycleFailureDiagnostic(input = {}) {
       kind: "lifecycle-failure",
       httpStatus: Number.isInteger(httpStatus) && httpStatus >= 100 && httpStatus <= 599 ? httpStatus : null,
       attemptStatus: allowed(attemptStatuses, current?.status),
-      events: Array.isArray(current?.events) ? current.events.slice(-16).map(event => ({
+      ...(restart ? { attemptAction: "restart" } : {}),
+      events: restart && Array.isArray(restart.events) ? restart.events.slice(-7).map(event => ({
+        stage: allowed(restartStages, event?.stage),
+        status: allowed(eventStatuses, event?.status),
+        oldNewProcessRelation: allowed(restartRelations, event?.oldNewProcessRelation) ?? "unavailable",
+      })) : Array.isArray(current?.events) ? current.events.slice(-16).map(event => ({
         phase: allowed(phases, event?.phase),
         status: allowed(eventStatuses, event?.status),
         failurePhase: allowed(launchPhases, event?.metadata?.processStartFailurePhase),
