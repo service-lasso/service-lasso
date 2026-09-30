@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { parseConptyProbeResult } from "../scripts/operator-tui-conpty-result.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -11,8 +12,30 @@ test("Windows ConPTY helper uses a bounded host with a sanitized child environme
   assert.match(source, /Backend\.ConPTY/u);
   assert.match(source, /process\.close\(force=True\)/u);
   assert.match(source, /"SERVICE_LASSO_API_URL"/u);
+  assert.match(source, /"SERVICE_LASSO_API_TOKEN"/u);
+  assert.match(source, /dimensions=\(40, 120\)/u);
+  assert.match(source, /startup_ok, text = wait_for/u);
+  assert.match(source, /if args\.mode == "connected"/u);
   assert.doesNotMatch(source, /os\.environ\.copy\(\)/u);
   assert.match(source, /\{"ok": False, "stage": stage\}/u);
+});
+
+test("Windows ConPTY helper results are closed, mode-specific schemas", () => {
+  assert.deepEqual(parseConptyProbeResult('{"ok":true,"mode":"unavailable","startup":"unavailable","navigation":"not_applicable","exit":"q"}', "unavailable"), {
+    ok: true, mode: "unavailable", startup: "unavailable", navigation: "not_applicable", exit: "q",
+  });
+  assert.deepEqual(parseConptyProbeResult('{"ok":true,"mode":"connected","startup":"connected","navigation":"help","exit":"q"}', "connected"), {
+    ok: true, mode: "connected", startup: "connected", navigation: "help", exit: "q",
+  });
+  for (const malformed of [
+    '{"ok":true,"mode":"connected","startup":"connected","navigation":"help"}',
+    '{"ok":true,"mode":"connected","startup":"connected","navigation":"help","exit":"q","extra":true}',
+    '{"ok":true,"mode":"unavailable","startup":"connected","navigation":"not_applicable","exit":"q"}',
+    '{"ok":false,"stage":"transcript"}',
+  ]) {
+    assert.throws(() => parseConptyProbeResult(malformed, "connected"));
+  }
+  assert.throws(() => parseConptyProbeResult('{"ok":false,"stage":"cleanup"}', "connected"), /cleanup/u);
 });
 
 test("terminal probes bind retained-tool verification to its owning module", async () => {
