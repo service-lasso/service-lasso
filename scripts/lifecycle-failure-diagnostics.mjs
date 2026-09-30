@@ -26,6 +26,13 @@ const lifecycleApiErrorCodes = new Set([
   "startup_transaction_recovery_required",
 ]);
 const allowed = (values, value) => values.has(value) ? value : null;
+const readErrorProperty = (error, property) => {
+  try {
+    return error[property];
+  } catch {
+    return undefined;
+  }
+};
 
 // Deliberately closed: never serialize errors, messages, handles, or raw state.
 export function lifecycleFailureDiagnostic(input = {}) {
@@ -42,14 +49,15 @@ export function lifecycleFailureDiagnostic(input = {}) {
       const currentError = entry.error;
       if (!currentError || typeof currentError !== "object" || seen.has(currentError)) continue;
       seen.add(currentError);
-      const phase = allowed(launchPhases, currentError.failurePhase);
+      const phase = allowed(launchPhases, readErrorProperty(currentError, "failurePhase"));
       if (phase) failurePhases.push(phase);
-      deadlineExceeded ||= currentError.code === "PROCESS_CONTROL_DEADLINE_EXCEEDED";
-      const inspection = projectWindowsTreeInspectionMetadata(currentError.windowsTreeInspection);
+      deadlineExceeded ||= readErrorProperty(currentError, "code") === "PROCESS_CONTROL_DEADLINE_EXCEEDED";
+      const inspection = projectWindowsTreeInspectionMetadata(readErrorProperty(currentError, "windowsTreeInspection"));
       if (inspection.windowsTreeInspectionPhase) windowsTreeInspections.push(inspection);
       if (entry.depth < 3) {
-        const children = [currentError.cause];
-        if (Array.isArray(currentError.errors)) children.push(...currentError.errors.slice(0, 16));
+        const children = [readErrorProperty(currentError, "cause")];
+        const errors = readErrorProperty(currentError, "errors");
+        if (Array.isArray(errors)) children.push(...errors.slice(0, 16));
         for (const child of children) {
           if (pending.length >= 16) break;
           if (child && typeof child === "object") pending.push({ error: child, depth: entry.depth + 1 });
