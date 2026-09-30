@@ -9,6 +9,7 @@ import { rm } from "node:fs/promises";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { createApiServer, startApiServer } from "../dist/server/index.js";
 import { mcpOperationStatePath } from "../dist/runtime/operator/mcp-operations.js";
+import { readAuditEvents } from "../dist/runtime/audit/store.js";
 import { writePrivateJson } from "../dist/runtime/security/private-json.js";
 import { makeTempServicesRoot, writeExecutableFixtureService } from "./test-helpers.js";
 
@@ -16,6 +17,12 @@ const issuer = "https://durable-lifecycle-issuer.example";
 const resource = "https://durable-lifecycle.example/api/mcp";
 const audience = "durable-lifecycle-http";
 const keyId = "durable-lifecycle-http-key";
+
+function deferred() {
+  let resolve;
+  const promise = new Promise((done) => { resolve = done; });
+  return { promise, resolve };
+}
 
 async function startJwksServer() {
   const { privateKey, publicKey } = await generateKeyPair("RS256");
@@ -312,6 +319,134 @@ test("#1465 durable lifecycle HTTP operations preserve confirmation, idempotency
   } finally {
     await apiServer?.stop().catch(() => undefined);
     await new Promise((resolve) => setTimeout(resolve, 1_000));
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("#1465 cross-process HTTP claim window rejects altered valid requests before guarded journal dispatch", async () => {
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-durable-lifecycle-claim-window-");
+  const claimed = deferred();
+  const releaseClaim = deferred();
+  const originalHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+  let apiServer;
+  let peer;
+  let firstRequest;
+  try {
+    process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
+    const fixtureOptions = { autoExitMs: 1_500 };
+    await writeExecutableFixtureService(servicesRoot, "durable-window-service", fixtureOptions);
+    await writeExecutableFixtureService(servicesRoot, "durable-window-other-service", fixtureOptions);
+    apiServer = await startDirectApiServer({
+      servicesRoot,
+      workspaceRoot,
+      mcpHttpIdentity: { env: { SERVICE_LASSO_MCP_MODE: "guarded" } },
+      mcpPolicyTestHooks: {
+        afterDurableClaim: async () => {
+          claimed.resolve();
+          await releaseClaim.promise;
+        },
+      },
+    });
+    peer = await startCrossProcessLifecyclePeer({
+      servicesRoot,
+      workspaceRoot,
+      env: { SERVICE_LASSO_MCP_MODE: "guarded" },
+    });
+    const plan = await lifecycleRequest(apiServer, "/api/operator/lifecycle/operations", "POST", {
+      action: "start",
+      serviceId: "durable-window-service",
+    });
+    assert.equal(plan.status, 200);
+    const execute = {
+      action: "start",
+      serviceId: "durable-window-service",
+      execute: true,
+      idempotencyKey: "durable-claim-window-key-0001",
+      confirmationId: plan.body.confirmation.id,
+      confirmationPhrase: plan.body.confirmation.confirmationPhrase,
+    };
+    firstRequest = lifecycleRequest(apiServer, "/api/operator/lifecycle/operations", "POST", execute);
+    await claimed.promise;
+
+    const exactReplay = await lifecycleRequest(peer, "/api/operator/lifecycle/operations", "POST", execute);
+    assert.equal(exactReplay.status, 202, JSON.stringify(exactReplay.body));
+
+    const missingConfirmation = { ...execute };
+    delete missingConfirmation.confirmationPhrase;
+    const missing = await lifecycleRequest(peer, "/api/operator/lifecycle/operations", "POST", missingConfirmation);
+    assert.equal(missing.status, 409);
+    assert.equal(missing.body.error, "confirmation_required");
+
+    const unknown = await lifecycleRequest(peer, "/api/operator/lifecycle/operations", "POST", {
+      ...execute,
+      confirmationId: `mcp-confirmation-${randomUUID()}`,
+    });
+    assert.equal(unknown.status, 409);
+    assert.equal(unknown.body.error, "confirmation_not_found");
+
+    const expiringPlan = await lifecycleRequest(peer, "/api/operator/lifecycle/operations", "POST", {
+      action: "start",
+      serviceId: "durable-window-service",
+      confirmationTtlSeconds: 1,
+    });
+    assert.equal(expiringPlan.status, 200);
+    await new Promise((resolve) => setTimeout(resolve, 1_050));
+    const expired = await lifecycleRequest(peer, "/api/operator/lifecycle/operations", "POST", {
+      ...execute,
+      confirmationId: expiringPlan.body.confirmation.id,
+      confirmationPhrase: expiringPlan.body.confirmation.confirmationPhrase,
+    });
+    assert.equal(expired.status, 409);
+    assert.equal(expired.body.error, "confirmation_expired");
+
+    const alteredPhrase = await lifecycleRequest(peer, "/api/operator/lifecycle/operations", "POST", {
+      ...execute,
+      confirmationPhrase: `${execute.confirmationPhrase} changed`,
+    });
+    assert.equal(alteredPhrase.status, 409);
+    assert.equal(alteredPhrase.body.error, "idempotency_conflict");
+
+    const alteredTarget = await lifecycleRequest(peer, "/api/operator/lifecycle/operations", "POST", {
+      ...execute,
+      serviceId: "durable-window-other-service",
+    });
+    assert.equal(alteredTarget.status, 409);
+    assert.equal(alteredTarget.body.error, "idempotency_conflict");
+
+    await writeExecutableFixtureService(servicesRoot, "durable-window-service", {
+      ...fixtureOptions,
+      env: { DURABLE_WINDOW_CONTEXT: "changed" },
+    });
+    const alteredContext = await lifecycleRequest(peer, "/api/operator/lifecycle/operations", "POST", execute);
+    assert.equal(alteredContext.status, 409);
+    assert.equal(alteredContext.body.error, "idempotency_conflict");
+    await writeExecutableFixtureService(servicesRoot, "durable-window-service", fixtureOptions);
+
+    releaseClaim.resolve();
+    const accepted = await firstRequest;
+    assert.equal(accepted.status, 202, JSON.stringify(accepted.body));
+    assert.equal(accepted.body.operation.operationId, exactReplay.body.operation.operationId);
+
+    let settled;
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      settled = await lifecycleRequest(apiServer, `/api/operator/lifecycle/operations/${accepted.body.operation.operationId}`);
+      if (settled.body.operation.outcome !== null) break;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    assert.equal(settled.body.operation.outcome, "succeeded");
+
+    const audit = await readAuditEvents({ workspaceRoot });
+    assert.equal(audit.events.filter((event) => event.action === "mcp.operation.started").length, 1);
+    assert.equal(audit.events.filter((event) => event.action === "mcp.action.started").length, 1);
+    assert.equal(JSON.stringify(audit).includes(execute.confirmationPhrase), false);
+  } finally {
+    releaseClaim.resolve();
+    await firstRequest?.catch(() => undefined);
+    if (apiServer) await stopFixtureService(apiServer, "durable-window-service").catch(() => undefined);
+    await peer?.stop().catch(() => undefined);
+    await apiServer?.stop().catch(() => undefined);
+    if (originalHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+    else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = originalHooks;
     await rm(tempRoot, { recursive: true, force: true });
   }
 });

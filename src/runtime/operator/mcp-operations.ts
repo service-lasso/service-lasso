@@ -179,6 +179,8 @@ export interface McpOperationServiceOptions {
   now?: () => Date;
   recoverDetached?: (operation: McpOperationRecoveryRecord) => Promise<McpOperationRecoveryResult | null>;
   cancelDetached?: (operation: McpOperationPublicRecord) => Promise<"cancelled" | "unsupported" | "too_late">;
+  /** Test-only synchronization point after a durable claim is audited and before guarded dispatch. */
+  afterDurableClaim?: (operation: McpOperationPublicRecord) => Promise<void>;
 }
 
 export class McpOperationError extends Error {
@@ -208,6 +210,7 @@ export class McpOperationService {
   readonly now: () => Date;
   private readonly recoverDetached?: McpOperationServiceOptions["recoverDetached"];
   private readonly cancelDetached?: McpOperationServiceOptions["cancelDetached"];
+  private readonly afterDurableClaim?: McpOperationServiceOptions["afterDurableClaim"];
 
   constructor(options: McpOperationServiceOptions) {
     this.workspaceRoot = path.resolve(options.workspaceRoot);
@@ -216,6 +219,31 @@ export class McpOperationService {
     this.now = options.now ?? (() => new Date());
     this.recoverDetached = options.recoverDetached;
     this.cancelDetached = options.cancelDetached;
+    this.afterDurableClaim = options.afterDurableClaim;
+  }
+
+  /**
+   * Reads the durable actor/client/key claim under the operation-state lock.
+   * Guarded preflight uses this only to classify an already-admitted changed
+   * confirmation before its own idempotency journal has been created.
+   */
+  async hasGuardedExecutionClaim(input: {
+    authorization: McpHttpAuthorization | undefined;
+    guardedExecutionId: string;
+  }): Promise<boolean> {
+    const authorization = requiredAuthorization(input.authorization);
+    const guardedExecutionId = normalizeGuardedExecutionId(input.guardedExecutionId);
+    if (!guardedExecutionId) return false;
+    const actorId = storedIdentity(authorization.actor.actorId, "actor");
+    const clientId = storedIdentity(authorization.actor.clientId, "client");
+    return await withStateLock(this.workspaceRoot, async () => {
+      const state = await readState(this.workspaceRoot, { fresh: true });
+      return state.operations.some((operation) =>
+        operation.actorId === actorId &&
+        operation.clientId === clientId &&
+        operation.guardedExecutionId === guardedExecutionId
+      );
+    });
   }
 
   async submit(input: {
@@ -346,6 +374,7 @@ export class McpOperationService {
       }).catch(() => undefined);
       throw error;
     }
+    await this.afterDurableClaim?.(publicRecord(record, authorization.actor.actorId));
 
     const controller = new AbortController();
     const activeKey = operationKey(this.workspaceRoot, operationId);

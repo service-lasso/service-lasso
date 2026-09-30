@@ -199,6 +199,7 @@ import {
   McpOperationError,
   McpOperationService,
   isSafelyCancellableMcpAction,
+  type McpOperationPublicRecord,
 } from "../runtime/operator/mcp-operations.js";
 import {
   MCP_MAX_REQUEST_BODY_BYTES,
@@ -492,6 +493,7 @@ export interface ApiServerOptions {
   mcpPolicyTestHooks?: {
     appendAuditEvent?: typeof appendAuditEvent;
     now?: () => number;
+    afterDurableClaim?: (operation: McpOperationPublicRecord) => Promise<void>;
   };
   secretRotationTestHooks?: {
     brokerRuntime: SecretsBrokerRuntimeContext;
@@ -4291,6 +4293,7 @@ async function routeRequestWithoutMutationCoordination(
     const facade = createMcpGuardedActionFacade(runtimeModel, config);
     const operationService = new McpOperationService({
       workspaceRoot: config.workspaceRoot,
+      afterDurableClaim: config.mcpPolicyTestHooks?.afterDurableClaim,
       recoverDetached: async (operation) => {
         if (!operation.guardedExecutionId) {
           return {
@@ -4411,6 +4414,10 @@ async function routeRequestWithoutMutationCoordination(
           facade,
           action: body.action,
           parameters: body.parameters,
+          hasDurableClaim: async (guardedExecutionId) => await operationService.hasGuardedExecutionClaim({
+            authorization,
+            guardedExecutionId,
+          }),
         });
         const submission = await operationService.submit({
           authorization,

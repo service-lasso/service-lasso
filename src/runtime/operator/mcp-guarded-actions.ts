@@ -317,6 +317,8 @@ export async function preflightMcpGuardedActionExecution(input: {
   facade: McpGuardedActionFacade | undefined;
   action: McpGuardedActionName;
   parameters: McpGuardedActionInput;
+  /** Checks the durable HTTP claim under its independent cross-process lock. */
+  hasDurableClaim?: (guardedExecutionId: string) => Promise<boolean>;
 }): Promise<{ guardedExecutionId: string; requestFingerprint: string }> {
   const correlationId = `mcp-action-${randomUUID()}`;
   await assertMcpGuardedActionAuthorization({
@@ -331,6 +333,11 @@ export async function preflightMcpGuardedActionExecution(input: {
   if (!input.facade) throw new McpGuardedActionError("feature_unavailable", "Guarded actions are unavailable for this runtime.");
   try {
     const idempotencyKey = normalizeIdempotencyKey(input.parameters.idempotencyKey);
+    const executionId = guardedActionExecutionId(
+      authorization.actor.actorId,
+      authorization.actor.clientId,
+      idempotencyKey,
+    );
     const normalized = normalizeParameters(input.action, input.parameters);
     const statePath = guardedActionStatePath(input.workspaceRoot);
     const idempotencyPath = guardedActionIdempotencyPath(
@@ -391,9 +398,9 @@ export async function preflightMcpGuardedActionExecution(input: {
         } catch (error) {
           if (record?.status === "expired") await writeState(input.workspaceRoot, statePath, state);
           if (
-            existing &&
             error instanceof McpGuardedActionError &&
-            (error.code === "confirmation_context_mismatch" || error.code === "confirmation_target_mismatch" || error.code === "confirmation_parameter_mismatch" || error.code === "confirmation_plan_mismatch")
+            isClaimBoundConfirmationMismatch(error.code) &&
+            (existing || await input.hasDurableClaim?.(executionId))
           ) {
             throw new McpGuardedActionError("idempotency_conflict", "The idempotency key is already bound to different action parameters or governed context.");
           }
@@ -402,11 +409,6 @@ export async function preflightMcpGuardedActionExecution(input: {
       });
       confirmationBinding = { id: confirmationId, phrase: confirmationPhrase };
     }
-    const executionId = guardedActionExecutionId(
-      authorization.actor.actorId,
-      authorization.actor.clientId,
-      idempotencyKey,
-    );
     const requestFingerprint = fingerprint({
       action: input.action,
       parameters: normalized,
@@ -1105,6 +1107,15 @@ function validateConfirmation(
   if (!replayingClaimedConfirmation && record.planFingerprint !== expected.planFingerprint) throw new McpGuardedActionError("confirmation_plan_mismatch", "The authoritative preflight changed before execution.");
   if (record.contextFingerprint !== expected.contextFingerprint) throw new McpGuardedActionError("confirmation_context_mismatch", "The immutable guarded execution context changed before replay.");
   if (record.phraseHash !== fingerprint(expected.phrase)) throw new McpGuardedActionError("confirmation_phrase_mismatch", "The server confirmation phrase did not match.");
+}
+
+function isClaimBoundConfirmationMismatch(code: McpGuardedActionErrorCode): boolean {
+  return code === "confirmation_action_mismatch" ||
+    code === "confirmation_parameter_mismatch" ||
+    code === "confirmation_phrase_mismatch" ||
+    code === "confirmation_plan_mismatch" ||
+    code === "confirmation_context_mismatch" ||
+    code === "confirmation_target_mismatch";
 }
 
 function normalizeIdempotencyKey(value: unknown): string {
