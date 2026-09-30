@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { mkdtemp, writeFile } from "node:fs/promises";
+import { PassThrough } from "node:stream";
+import { EventEmitter } from "node:events";
 import { createConnection } from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -67,6 +69,101 @@ test("ConPTY helper boundary does not project credentials, endpoints, paths, chi
   assert.equal(seen.env.SERVICE_LASSO_API_TOKEN, token);
   assert.equal(seen.env.SERVICE_LASSO_API_URL, url);
   assert.deepEqual(Object.keys(conptyHelperEnvironment({ apiUrl: url, apiToken: token, source: host })).sort(), ["APPDATA", "LOCALAPPDATA", "PATH", "SERVICE_LASSO_API_TOKEN", "SERVICE_LASSO_API_URL", "SystemRoot", "USERPROFILE"]);
+});
+
+test("ConPTY helper waits for the owned containment host to close after timeout", async () => {
+  const helper = path.join(repoRoot, "scripts", "verify-operator-tui-conpty.py");
+  const launcher = path.join(repoRoot, "src", "runtime", "execution", "windows-managed-launcher-native.exe");
+  const child = new EventEmitter();
+  child.stdout = new PassThrough();
+  child.stderr = new PassThrough();
+  let killed = false;
+  child.kill = () => {
+    killed = true;
+    return true;
+  };
+  let settled = false;
+  let spawned;
+  const didSpawn = new Promise((resolve) => { spawned = resolve; });
+  const result = runConptyHelper({
+    command: process.execPath,
+    helperPath: helper,
+    executable: "fixture.exe",
+    mode: "connected",
+    apiUrl: "http://127.0.0.1:41999",
+    apiToken: "synthetic-attempt-token-value",
+    envSource: { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot ?? "C:\\Windows" },
+    timeoutMs: 25,
+    platform: "win32",
+    managedLauncherPath: launcher,
+    spawnProcess: (command, args, options) => {
+      assert.equal(command, launcher);
+      assert.deepEqual(args, []);
+      assert.equal(options.env.SERVICE_LASSO_API_TOKEN, "synthetic-attempt-token-value");
+      assert.equal(options.env.SERVICE_LASSO_API_URL, "http://127.0.0.1:41999");
+      const payload = JSON.parse(Buffer.from(options.env.SERVICE_LASSO_MANAGED_LAUNCH_PAYLOAD, "base64").toString("utf8"));
+      assert.equal(JSON.stringify(payload).includes("synthetic-attempt-token-value"), false);
+      assert.equal(JSON.stringify(payload).includes("127.0.0.1:41999"), false);
+      assert.equal(payload.requireExecutableBinding, true);
+      assert.deepEqual(payload.argumentBindings, [{ index: 0, prefix: "", bindingIndex: 1 }]);
+      spawned();
+      return child;
+    },
+  }).then(() => { settled = true; }, () => { settled = true; });
+  await didSpawn;
+  await new Promise((resolve) => setTimeout(resolve, 75));
+  assert.equal(killed, true);
+  assert.equal(settled, false);
+  child.emit("close", 1, "SIGTERM");
+  await result;
+  assert.equal(settled, true);
+});
+
+test("Windows ConPTY timeout terminates the helper's Job Object descendant before reporting failure", {
+  skip: process.platform !== "win32",
+  timeout: 20_000,
+}, async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "conpty-owned-tree-"));
+  const helper = path.join(root, "surviving-helper.mjs");
+  const descendantPath = path.join(root, "descendant.pid");
+  let descendantPid;
+  try {
+    await writeFile(helper, [
+      'import { spawn } from "node:child_process";',
+      'import { writeFileSync } from "node:fs";',
+      'const descendant = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });',
+      'writeFileSync(process.argv[3], String(descendant.pid));',
+      'setInterval(() => {}, 1000);',
+    ].join("\n"));
+    const run = assert.rejects(
+      runConptyHelper({
+        command: process.execPath,
+        helperPath: helper,
+        executable: descendantPath,
+        mode: "connected",
+        apiUrl: "http://127.0.0.1:41999",
+        apiToken: "synthetic-attempt-token-value",
+        timeoutMs: 1_000,
+      }),
+      (error) => error.message === "Windows ConPTY TUI probe did not complete its bounded assertions.",
+    );
+    const deadline = Date.now() + 8_000;
+    while (Date.now() < deadline) {
+      try {
+        descendantPid = Number((await readFile(descendantPath, "utf8")).trim());
+        if (Number.isInteger(descendantPid) && descendantPid > 0) break;
+      } catch {}
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    assert.ok(Number.isInteger(descendantPid) && descendantPid > 0);
+    await run;
+    assert.throws(() => process.kill(descendantPid, 0));
+  } finally {
+    if (Number.isInteger(descendantPid) && descendantPid > 0) {
+      try { process.kill(descendantPid, "SIGKILL"); } catch {}
+    }
+    await (await import("node:fs/promises")).rm(root, { recursive: true, force: true });
+  }
 });
 
 test("owned unavailable endpoint disposes a held loopback socket within its bounded cleanup", async () => {

@@ -1,9 +1,24 @@
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
+import { createHash, randomBytes } from "node:crypto";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { parseConptyProbeResult } from "./operator-tui-conpty-result.mjs";
 
 const MAX_CAPTURED_BYTES = 16 * 1024;
 const HELPER_TIMEOUT_MS = 35_000;
 const SAFE_HELPER_FAILURE = "Windows ConPTY TUI probe did not complete its bounded assertions.";
+const WINDOWS_MANAGED_LAUNCHER = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "src",
+  "runtime",
+  "execution",
+  "windows-managed-launcher-native.exe",
+);
+const WINDOWS_MANAGED_LAUNCHER_BYTES = 34_304;
+const WINDOWS_MANAGED_LAUNCHER_SHA256 = "9fb89ec94c6f3d1930246ca95aa9f7f0d3bd85a1801e3e0b951920a6770ea5f6";
 
 function appendBounded(current, chunk) {
   if (current.length >= MAX_CAPTURED_BYTES) return current;
@@ -29,12 +44,104 @@ function safeFailure() {
   return new Error(SAFE_HELPER_FAILURE);
 }
 
-export async function runConptyHelper({ command = "python", helperPath, executable, mode, apiUrl, apiToken, envSource, timeoutMs = HELPER_TIMEOUT_MS }) {
+async function sha256File(filePath) {
+  const bytes = await readFile(filePath);
+  return {
+    sha256: createHash("sha256").update(bytes).digest("hex"),
+    size: bytes.length,
+  };
+}
+
+function token() {
+  return randomBytes(32).toString("hex");
+}
+
+function resolveWindowsExecutable(command, env) {
+  if (path.isAbsolute(command)) return command;
+  try {
+    const resolved = execFileSync("where.exe", [command], {
+      env,
+      stdio: ["ignore", "pipe", "ignore"],
+      windowsHide: true,
+      encoding: "utf8",
+    }).split(/\r?\n/u).find((candidate) => path.isAbsolute(candidate));
+    if (resolved) return resolved;
+  } catch {}
+  throw safeFailure();
+}
+
+async function assertWindowsManagedLauncher(launcherPath) {
+  const bytes = await readFile(launcherPath);
+  if (bytes.length !== WINDOWS_MANAGED_LAUNCHER_BYTES || createHash("sha256").update(bytes).digest("hex") !== WINDOWS_MANAGED_LAUNCHER_SHA256) {
+    throw safeFailure();
+  }
+}
+
+async function createContainedWindowsLaunch({ command, args, helperPath, env, launcherPath }) {
+  await assertWindowsManagedLauncher(launcherPath);
+  const resolvedCommand = resolveWindowsExecutable(command, env);
+  const [commandBinding, helperBinding] = await Promise.all([sha256File(resolvedCommand), sha256File(helperPath)]);
+  const root = await mkdtemp(path.join(os.tmpdir(), "service-lasso-conpty-owned-tree-"));
+  const gatePath = path.join(root, "release.gate");
+  const filesBoundPath = path.join(root, "files-bound.gate");
+  const continuePath = path.join(root, "continue.gate");
+  const ackPath = path.join(root, "launched.pid");
+  const releaseToken = token();
+  const filesBoundToken = token();
+  const continueToken = token();
+  const ackToken = token();
+  const payload = {
+    executable: resolvedCommand,
+    args: [helperPath, ...args.slice(1)],
+    workingDirectory: path.dirname(helperPath),
+    ackPath,
+    filesBoundPath,
+    continuePath,
+    releaseToken,
+    filesBoundToken,
+    continueToken,
+    ackToken,
+    approvedFiles: [
+      { file: resolvedCommand, ...commandBinding },
+      { file: helperPath, ...helperBinding },
+    ],
+    executableBindingIndex: 0,
+    requireExecutableBinding: true,
+    argumentBindings: [{ index: 0, prefix: "", bindingIndex: 1 }],
+    targetEnvironmentOverrides: [],
+    postResumeDelayMilliseconds: 0,
+  };
+  try {
+    await Promise.all([
+      writeFile(gatePath, releaseToken, "utf8"),
+      writeFile(continuePath, continueToken, "utf8"),
+    ]);
+    return {
+      command: launcherPath,
+      args: [],
+      env: {
+        ...env,
+        SERVICE_LASSO_MANAGED_LAUNCH_PAYLOAD: Buffer.from(JSON.stringify(payload), "utf8").toString("base64"),
+        SERVICE_LASSO_MANAGED_LAUNCH_GATE: gatePath,
+      },
+      cleanup: () => rm(root, { recursive: true, force: true }),
+    };
+  } catch (error) {
+    await rm(root, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+export async function runConptyHelper({ command = "python", helperPath, executable, mode, apiUrl, apiToken, envSource, timeoutMs = HELPER_TIMEOUT_MS, platform = process.platform, managedLauncherPath = WINDOWS_MANAGED_LAUNCHER, spawnProcess = spawn }) {
   const args = [helperPath, "--executable", executable, "--mode", mode];
   const env = conptyHelperEnvironment({ apiUrl, apiToken, source: envSource });
   let stdout = "";
+  const launch = platform === "win32"
+    ? await createContainedWindowsLaunch({ command, args, helperPath, env, launcherPath: managedLauncherPath })
+    : { command, args, env, cleanup: async () => {} };
 
-  const completion = await new Promise((resolve) => {
+  try {
+    const completion = await new Promise((resolve) => {
     let settled = false;
     let child;
     let timedOut = false;
@@ -47,10 +154,9 @@ export async function runConptyHelper({ command = "python", helperPath, executab
     const timer = setTimeout(() => {
       timedOut = true;
       try { child?.kill(); } catch {}
-      setTimeout(() => finish({ kind: "failed" }), 1_000);
     }, timeoutMs);
     try {
-      child = spawn(command, args, { cwd: undefined, env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+      child = spawnProcess(launch.command, launch.args, { cwd: undefined, env: launch.env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
       child.stdout?.on("data", (chunk) => { stdout = appendBounded(stdout, chunk); });
       child.stderr?.resume();
       child.once("error", () => finish({ kind: "failed" }));
@@ -58,14 +164,17 @@ export async function runConptyHelper({ command = "python", helperPath, executab
     } catch {
       finish({ kind: "failed" });
     }
-  });
+    });
 
-  if (completion.kind === "success" || completion.kind === "nonzero") {
-    try {
-      return parseConptyProbeResult(stdout, mode);
-    } catch {
-      throw safeFailure();
+    if (completion.kind === "success" || completion.kind === "nonzero") {
+      try {
+        return parseConptyProbeResult(stdout, mode);
+      } catch {
+        throw safeFailure();
+      }
     }
+    throw safeFailure();
+  } finally {
+    await launch.cleanup();
   }
-  throw safeFailure();
 }
