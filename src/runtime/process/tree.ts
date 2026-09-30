@@ -31,6 +31,11 @@ export interface OwnedProcessTreeTarget {
   rootOwnershipProbe?: () => "owned" | "exited" | "unverifiable";
   forceImmediately?: boolean;
   preferFastWindowsRootIdentity?: boolean;
+  // An exhausted same-held native command query ends automatic inspection for
+  // this record. Its retained members remain the already-verified custody
+  // set: control may use them, but a still-present PID stays unresolved rather
+  // than reopening a native helper by PID.
+  terminalWindowsInspectionEpisode?: boolean;
 }
 
 export interface ProcessTreeTerminationResult {
@@ -83,6 +88,7 @@ type ProcessTreeSignalEvidence =
       kind: "verified-members";
       rootPid: number;
       members: ProcessFingerprint[];
+      terminalWindowsInspectionEpisode?: boolean;
     }
   | {
       kind: "windows-taskkill";
@@ -91,6 +97,7 @@ type ProcessTreeSignalEvidence =
       rootOwnershipProbe?: () => "owned" | "exited" | "unverifiable";
       members: ProcessFingerprint[];
       commandSucceeded: boolean;
+      terminalWindowsInspectionEpisode?: boolean;
     };
 
 const PROCESS_TREE_POLL_INTERVAL_MS = 25;
@@ -419,6 +426,7 @@ async function requireFastWindowsIdentity(
 async function requirePostSignalIdentity(
   identity: ProcessFingerprint,
   dependencies: ProcessTreeControlDependencies,
+  terminalWindowsInspectionEpisode = false,
 ): Promise<"owned" | "exited" | "unverifiable"> {
   // `taskkill` normally makes the exact PID disappear before its helper closes.
   // Prove that cheap, unambiguous state first so a successful forced stop does
@@ -427,6 +435,12 @@ async function requirePostSignalIdentity(
   // verification, preserving fail-closed PID-reuse protection.
   if ((dependencies.platform ?? process.platform) === "win32" && await verifyPostSignalExit(identity.pid, dependencies)) {
     return "exited";
+  }
+  // Do not turn a terminal same-held query outcome into a new helper/handle
+  // attempt. A present or ambiguous PID remains fail-closed and prevents a
+  // stopped transition; it is never treated as the retained member.
+  if ((dependencies.platform ?? process.platform) === "win32" && terminalWindowsInspectionEpisode) {
+    return "unverifiable";
   }
   const classification = classifyProcessIdentity(identity, await processInspector(dependencies)(identity.pid));
   if (classification === "owned") {
@@ -537,11 +551,14 @@ async function signalVerifiedMembers(
   signal: "SIGTERM" | "SIGKILL",
   dependencies: ProcessTreeControlDependencies,
   signalAlreadyAuthorized = false,
+  terminalWindowsInspectionEpisode = false,
 ): Promise<void> {
   for (const member of members) {
-    const identityState = signalAlreadyAuthorized
-      ? await requirePostSignalIdentity(member, dependencies)
-      : await requireOwnedIdentity(member, dependencies);
+    const identityState = terminalWindowsInspectionEpisode && (dependencies.platform ?? process.platform) === "win32"
+      ? "owned"
+      : signalAlreadyAuthorized
+        ? await requirePostSignalIdentity(member, dependencies)
+        : await requireOwnedIdentity(member, dependencies);
     if (identityState === "unverifiable") {
       throw new Error(`Cannot verify process ${member.pid} while controlling its process tree.`);
     }
@@ -590,11 +607,18 @@ async function signalOwnedProcessTree(
       throw new Error(`Cannot control lifetime-filtered process tree ${target.rootPid} without its verified root member.`);
     }
     if (rootStatus === "exited" || target.verifiedMembersOnly) {
-      await signalVerifiedMembers(members, signal, dependencies);
+      await signalVerifiedMembers(
+        members,
+        signal,
+        dependencies,
+        target.terminalWindowsInspectionEpisode,
+        target.terminalWindowsInspectionEpisode,
+      );
       return {
         kind: "verified-members",
         rootPid: target.rootPid,
         members,
+        terminalWindowsInspectionEpisode: target.terminalWindowsInspectionEpisode,
       };
     }
     const args = ["/pid", String(target.rootPid), "/t"];
@@ -608,6 +632,7 @@ async function signalOwnedProcessTree(
       rootOwnershipProbe: target.rootOwnershipProbe,
       members,
       commandSucceeded: await waitForCommandExit("taskkill", args, dependencies),
+      terminalWindowsInspectionEpisode: target.terminalWindowsInspectionEpisode,
     };
   }
 
@@ -656,7 +681,7 @@ async function hasRunningEvidence(
       return false;
     }
     for (const member of evidence.members) {
-      if (await requirePostSignalIdentity(member, dependencies) !== "exited") {
+      if (await requirePostSignalIdentity(member, dependencies, evidence.terminalWindowsInspectionEpisode) !== "exited") {
         return true;
       }
     }
@@ -664,7 +689,7 @@ async function hasRunningEvidence(
   }
 
   for (const member of evidence.members) {
-    if (await requirePostSignalIdentity(member, dependencies) !== "exited") {
+    if (await requirePostSignalIdentity(member, dependencies, evidence.terminalWindowsInspectionEpisode) !== "exited") {
       return true;
     }
   }
@@ -720,14 +745,26 @@ async function forceSignaledProcessTree(
           dependencies,
         )
       : evidence.commandSucceeded;
-    await signalVerifiedMembers(evidence.members, "SIGKILL", dependencies, true);
+    await signalVerifiedMembers(
+      evidence.members,
+      "SIGKILL",
+      dependencies,
+      true,
+      evidence.terminalWindowsInspectionEpisode,
+    );
     return {
       ...evidence,
       commandSucceeded,
     };
   }
 
-  await signalVerifiedMembers(evidence.members, "SIGKILL", dependencies, true);
+  await signalVerifiedMembers(
+    evidence.members,
+    "SIGKILL",
+    dependencies,
+    true,
+    evidence.terminalWindowsInspectionEpisode,
+  );
   return evidence;
 }
 

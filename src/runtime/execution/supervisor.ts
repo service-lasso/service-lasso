@@ -1387,6 +1387,7 @@ function managedProcessTreeTarget(record: ManagedProcessRecord, rootExitObserved
     rootExitObserved,
     rootOwnershipProbe: () => probeManagedChildHandle(record.child),
     forceImmediately: process.platform === "win32" && rootExitObserved,
+    terminalWindowsInspectionEpisode: record.terminalWindowsCommandPartialCopy,
   };
 }
 
@@ -1396,6 +1397,7 @@ async function terminateManagedProcessTree(
   rootExitObserved = false,
   retryAfterSharedFailure = false,
   deadlineMs = record.stopDeadlineMs ?? processControlDeadline(timeoutMs),
+  newWindowsInspectionEpisode = false,
 ): Promise<ProcessTreeTerminationResult> {
   let retryAvailable = retryAfterSharedFailure;
   while (true) {
@@ -1427,8 +1429,8 @@ async function terminateManagedProcessTree(
           const dependencies: Parameters<typeof managedProcessTreeTerminator>[2] = { deadlineMs, signal };
           if (
             process.platform === "win32" &&
-            (rootExitObserved || record.verifiedMembersOnly) &&
-            !record.terminalWindowsCommandPartialCopy &&
+            (rootExitObserved || record.verifiedMembersOnly || newWindowsInspectionEpisode) &&
+            (!record.terminalWindowsCommandPartialCopy || newWindowsInspectionEpisode) &&
             record.rootIdentity &&
             record.knownTreeMembers.length > 0
           ) {
@@ -2294,8 +2296,20 @@ export async function stopManagedProcess(
   }
 
   const deadlineMs = processControlDeadline(timeoutMs);
+  // A caller's later explicit stop is a new bounded inspection episode. The
+  // automatic monitor/finalizer and stopAll deliberately retain the marker.
+  if (process.platform === "win32" && options.newWindowsInspectionEpisode === true) {
+    record.terminalWindowsCommandPartialCopy = false;
+  }
   await beginManagedProcessStop(serviceId, deadlineMs);
-  await terminateManagedProcessTree(record, timeoutMs, false, false, deadlineMs);
+  await terminateManagedProcessTree(
+    record,
+    timeoutMs,
+    false,
+    false,
+    deadlineMs,
+    options.newWindowsInspectionEpisode === true,
+  );
   const result = await withProcessControlDeadline(
     async () => await record.exitPromise,
     { deadlineMs },
