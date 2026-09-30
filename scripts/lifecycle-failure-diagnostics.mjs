@@ -33,8 +33,14 @@ const allowed = (values, value) => values.has(value) ? value : null;
 export function lifecycleFailureDiagnostic(input = {}) {
   try {
     let { httpStatus, state, error, apiErrorCode, action } = input ?? {};
-    const restart = action === "restart" ? state?.runtime?.restartTrace?.current : null;
-    const current = restart ?? state?.runtime?.startTrace?.current;
+    const restartCandidate = action === "restart" ? state?.runtime?.restartTrace?.current : null;
+    const restart = restartCandidate &&
+      (restartCandidate.status === "failed" || restartCandidate.status === "blocked") &&
+      Array.isArray(restartCandidate.events) &&
+      restartCandidate.events.some((event) => event?.stage === "response" && (event?.status === "failed" || event?.status === "blocked"))
+      ? restartCandidate
+      : null;
+    const current = action === "restart" ? restart : (restart ?? state?.runtime?.startTrace?.current);
     const failurePhases = [];
     const windowsTreeInspections = [];
     let deadlineExceeded = false;

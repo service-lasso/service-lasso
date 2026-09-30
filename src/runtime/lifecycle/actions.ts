@@ -107,6 +107,13 @@ const scheduledSupervisionRestarts = new Map<string, ReturnType<typeof setTimeou
 const activeSupervisionRestarts = new Map<string, Promise<void>>();
 const supervisionRestartClaims = new Set<string>();
 const shutdownRequestedServiceIds = new Set<string>();
+let readinessWaiterForTests: typeof waitForServiceReadiness | null = null;
+
+export function setReadinessWaiterForTests(
+  waiter: typeof waitForServiceReadiness | null,
+): void {
+  readinessWaiterForTests = waiter;
+}
 
 registerManagedProcessShutdownQuiescer(async (managedServiceIds) => {
   const serviceIds = new Set([
@@ -470,6 +477,7 @@ function recordRestartTrace(serviceId: string, attempt: ServiceRestartTraceAttem
 
 function finishRestartTrace(serviceId: string, attempt: ServiceRestartTraceAttempt, status: "succeeded" | "failed" | "blocked", oldNewProcessRelation: "unavailable" | "prior_generation_running" | "replacement_spawned" = "unavailable"): void {
   try {
+    if (attempt.status !== "running") return;
     recordRestartTrace(serviceId, attempt, "response", status === "succeeded" ? "completed" : status, oldNewProcessRelation);
     attempt.status = status;
     const completed = { ...attempt, events: attempt.events.map((event) => ({ ...event })) };
@@ -1803,6 +1811,9 @@ export async function restartService(
   cancelScheduledSupervisionRestart(serviceId);
   const current = getLifecycleState(serviceId);
   const restartTrace = beginRestartTrace(serviceId);
+  let replacementSpawned = false;
+  let unexpectedFailureStage: ServiceRestartTraceStage = "replacement_spawn";
+  try {
   if (!current.installed) {
     recordRestartTrace(serviceId, restartTrace, "precheck", "blocked");
     finishRestartTrace(serviceId, restartTrace, "blocked");
@@ -2005,6 +2016,7 @@ export async function restartService(
     throw new LifecycleStateError(message);
   }
   recordRestartTrace(serviceId, restartTrace, "replacement_spawn", "completed", "replacement_spawned");
+  replacementSpawned = true;
 
   updateRuntimeState(serviceId, (state) => ({
     ...state,
@@ -2033,7 +2045,8 @@ export async function restartService(
     },
   }));
 
-  const readiness = await waitForServiceReadiness(service, sharedGlobalEnv, {
+  unexpectedFailureStage = "readiness";
+  const readiness = await (readinessWaiterForTests ?? waitForServiceReadiness)(service, sharedGlobalEnv, {
     workspaceRoot: options.workspaceRoot,
     generationId: options.runtimeGenerationId,
     allocationRevision,
@@ -2087,6 +2100,7 @@ export async function restartService(
     await transitionProcessOwnership(options.workspaceRoot, "service", serviceId, "running", "owned", handle.pid);
   }
 
+  unexpectedFailureStage = "response";
   finishRestartTrace(serviceId, restartTrace, "succeeded", "replacement_spawned");
   const result = applyState(serviceId, "restart", (state) => ({
     nextState: {
@@ -2119,4 +2133,14 @@ export async function restartService(
     },
   ]);
   return result;
+  } catch (error) {
+    if (restartTrace.status === "running") {
+      const relation = replacementSpawned ? "replacement_spawned" : "unavailable";
+      if (unexpectedFailureStage !== "response") {
+        recordRestartTrace(serviceId, restartTrace, unexpectedFailureStage, "failed", relation);
+      }
+      finishRestartTrace(serviceId, restartTrace, "failed", relation);
+    }
+    throw error;
+  }
 }

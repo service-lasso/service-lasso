@@ -79,6 +79,22 @@ test("restart diagnostic access failures remain contained", () => {
   });
 });
 
+test("restart diagnostics reject a nonterminal receipt instead of selecting a stale start receipt", () => {
+  const result = JSON.parse(lifecycleFailureDiagnostic({
+    action: "restart",
+    state: { runtime: {
+      startTrace: { current: { status: "succeeded", events: [{ phase: "process_spawn", status: "completed", metadata: {} }] } },
+      restartTrace: { current: { status: "running", events: [
+        { stage: "precheck", status: "completed", oldNewProcessRelation: "prior_generation_running" },
+      ] } },
+    } },
+  }));
+  assert.deepEqual(result, {
+    kind: "lifecycle-failure", httpStatus: null, attemptStatus: null,
+    events: [], failurePhases: [], deadlineExceeded: false,
+  });
+});
+
 test("lifecycle diagnostics retain only a complete closed parent-lifetime receipt", () => {
   const result = JSON.parse(lifecycleFailureDiagnostic({
     error: {

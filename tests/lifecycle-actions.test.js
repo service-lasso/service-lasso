@@ -9,6 +9,8 @@ import { discoverServices } from "../dist/runtime/discovery/discoverServices.js"
 import {
   installService,
   configService,
+  restartService,
+  setReadinessWaiterForTests,
   startService,
   stopService,
   cancelScheduledSupervisionRestart,
@@ -585,6 +587,89 @@ test("restart replaces the running process and clears stale termination evidence
     assert.equal(stored.runtime.lastTermination, null);
   } finally {
     await apiServer.stop();
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("restart closes its receipt when port reservation rejects after old-process finalization", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot(
+    "service-lasso-restart-receipt-reservation-",
+  );
+  const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "restart-receipt-reservation", {
+    ports: { http: 0 },
+  });
+  const [service] = await discoverServices(servicesRoot);
+  const blockedWorkspace = path.join(tempRoot, "blocked-workspace");
+
+  try {
+    await installService(service);
+    await configService(service);
+    await startService(service);
+    await writeFile(blockedWorkspace, "not-a-directory\n", "utf8");
+
+    await assert.rejects(
+      restartService(service, undefined, { workspaceRoot: blockedWorkspace }),
+    );
+
+    await waitForManagedProcessFinalization("restart-receipt-reservation");
+    const trace = getLifecycleState("restart-receipt-reservation").runtime.restartTrace.current;
+    assert.equal(hasManagedProcess("restart-receipt-reservation"), false);
+    assert.equal(trace.status, "failed");
+    assert.deepEqual(trace.events.map((event) => [event.stage, event.status]), [
+      ["precheck", "completed"],
+      ["stop_request", "completed"],
+      ["finalization_settled", "completed"],
+      ["replacement_spawn", "failed"],
+      ["response", "failed"],
+    ]);
+    assert.equal(trace.events.filter((event) => event.stage === "response").length, 1);
+    assert.equal((await readStoredState(serviceRoot)).runtime.running, false);
+  } finally {
+    await stopManagedProcess("restart-receipt-reservation", FIXTURE_CLEANUP_TIMEOUT_MS).catch(() => null);
+    await waitForManagedProcessFinalization("restart-receipt-reservation", Date.now() + FIXTURE_CLEANUP_TIMEOUT_MS).catch(() => null);
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("restart closes its receipt when readiness rejects after replacement spawn", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot(
+    "service-lasso-restart-receipt-readiness-",
+  );
+  await writeExecutableFixtureService(servicesRoot, "restart-receipt-readiness");
+  const [service] = await discoverServices(servicesRoot);
+  const expected = new Error("injected readiness rejection");
+
+  try {
+    await installService(service);
+    await configService(service);
+    await startService(service);
+    setReadinessWaiterForTests(async () => { throw expected; });
+
+    await assert.rejects(
+      restartService(service),
+      (error) => error === expected,
+    );
+
+    const trace = getLifecycleState("restart-receipt-readiness").runtime.restartTrace.current;
+    assert.equal(hasManagedProcess("restart-receipt-readiness"), true);
+    assert.equal(trace.status, "failed");
+    assert.deepEqual(trace.events.map((event) => [event.stage, event.status]), [
+      ["precheck", "completed"],
+      ["stop_request", "completed"],
+      ["finalization_settled", "completed"],
+      ["replacement_spawn", "completed"],
+      ["readiness", "failed"],
+      ["response", "failed"],
+    ]);
+    assert.equal(trace.events.filter((event) => event.stage === "response").length, 1);
+  } finally {
+    setReadinessWaiterForTests(null);
+    await stopManagedProcess("restart-receipt-readiness", FIXTURE_CLEANUP_TIMEOUT_MS).catch(() => null);
+    await waitForManagedProcessFinalization("restart-receipt-readiness", Date.now() + FIXTURE_CLEANUP_TIMEOUT_MS).catch(() => null);
     resetLifecycleState();
     await rm(tempRoot, { recursive: true, force: true });
   }
