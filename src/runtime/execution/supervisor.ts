@@ -1,5 +1,6 @@
 import path from "node:path";
 import { inspectKnownWindowsTreeMembers } from "../process/windows-tree-control-snapshot.js";
+import { isTerminalWindowsCommandPartialCopy } from "../process/windows-tree-inspection-diagnostics.js";
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { lstat, mkdir, mkdtemp, open, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { constants, createWriteStream, type WriteStream } from "node:fs";
@@ -137,6 +138,7 @@ interface ManagedProcessRecord {
   processGroup: ProcessOwnershipEntry["processGroup"];
   knownTreeMembers: ProcessFingerprint[];
   verifiedMembersOnly?: boolean;
+  terminalWindowsCommandPartialCopy?: boolean;
   treeMonitorPromise: Promise<void>;
   treeMonitorAbortController: AbortController;
   treeTerminationPromise: Promise<ProcessTreeTerminationResult> | null;
@@ -157,6 +159,7 @@ interface AdoptedProcessRecord {
   processGroup: ProcessOwnershipEntry["processGroup"];
   knownTreeMembers: ProcessFingerprint[];
   verifiedMembersOnly?: boolean;
+  terminalWindowsCommandPartialCopy?: boolean;
   monitorAbortController: AbortController;
 }
 
@@ -1361,7 +1364,7 @@ async function terminateManagedProcessTree(
         if (record.treeTerminationPromise === existing) {
           record.treeTerminationPromise = null;
         }
-        if (!retryAvailable) {
+        if (!retryAvailable || isTerminalWindowsCommandPartialCopy(error)) {
           throw error;
         }
         retryAvailable = false;
@@ -1379,6 +1382,7 @@ async function terminateManagedProcessTree(
           if (
             process.platform === "win32" &&
             (rootExitObserved || record.verifiedMembersOnly) &&
+            !record.terminalWindowsCommandPartialCopy &&
             record.rootIdentity &&
             record.knownTreeMembers.length > 0
           ) {
@@ -1410,7 +1414,7 @@ async function terminateManagedProcessTree(
       if (record.treeTerminationPromise === attempt) {
         record.treeTerminationPromise = null;
       }
-      if (!retryAvailable) {
+      if (!retryAvailable || isTerminalWindowsCommandPartialCopy(error)) {
         throw error;
       }
       retryAvailable = false;
@@ -1507,8 +1511,12 @@ async function monitorManagedProcessTree(record: ManagedProcessRecord): Promise<
       if (inspection.members.length > 0) {
         record.knownTreeMembers = inspection.members;
       }
-    } catch {
+    } catch (error) {
       // Process inspection can fail transiently; retain the last verified snapshot.
+      if (isTerminalWindowsCommandPartialCopy(error)) {
+        record.terminalWindowsCommandPartialCopy = true;
+        return;
+      }
       inspectionFailed = true;
     }
     refreshDelayMs = inspectionFailed
@@ -1528,7 +1536,11 @@ async function finalizeAdoptedProcessExit(record: AdoptedProcessRecord): Promise
     const deadlineMs = processControlDeadline(5_000);
     await withProcessControlDeadline(async (signal) => {
       const dependencies: Parameters<typeof terminateOwnedProcessTree>[2] = { deadlineMs, signal };
-      if (process.platform === "win32" && record.knownTreeMembers.length > 0) {
+      if (
+        process.platform === "win32" &&
+        record.knownTreeMembers.length > 0 &&
+        !record.terminalWindowsCommandPartialCopy
+      ) {
         const snapshot = await inspectKnownWindowsTreeMembers(
           record.rootIdentity,
           record.knownTreeMembers,
@@ -1605,8 +1617,12 @@ async function monitorAdoptedProcess(record: AdoptedProcessRecord): Promise<void
         deadlineMs: Date.now() + WINDOWS_TREE_MONITOR_INSPECTION_TIMEOUT_MS,
         signal: record.monitorAbortController.signal,
       });
-    } catch {
+    } catch (error) {
       // Process inspection can fail transiently; retain durable ownership and retry.
+      if (isTerminalWindowsCommandPartialCopy(error)) {
+        record.terminalWindowsCommandPartialCopy = true;
+        throw error;
+      }
       continue;
     }
 
@@ -2068,11 +2084,16 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
       const startError = error instanceof ManagedProcessStartError
         ? error
         : new ManagedProcessStartError(startFailurePhase, error);
+      record.terminalWindowsCommandPartialCopy ||= isTerminalWindowsCommandPartialCopy(startError);
       const classifiedStartFailurePhase = managedProcessStartFailurePhase(startError) ?? startFailurePhase;
       let containmentError: unknown = null;
       if (rootIdentity) {
         const verifiedRootIdentity = rootIdentity;
-        if (process.platform === "win32" && record.knownTreeMembers.length === 0) {
+        if (
+          process.platform === "win32" &&
+          record.knownTreeMembers.length === 0 &&
+          !isTerminalWindowsCommandPartialCopy(startError)
+        ) {
           const emergencyTree = await managedWindowsTreeInspector(verifiedRootIdentity, {
             deadlineMs: Date.now() + WINDOWS_TREE_MONITOR_INSPECTION_TIMEOUT_MS,
           }).catch(() => null);
@@ -2089,7 +2110,11 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
               deadlineMs: containmentDeadlineMs,
               signal,
             };
-            if (process.platform === "win32" && record.knownTreeMembers.length > 0) {
+            if (
+              process.platform === "win32" &&
+              record.knownTreeMembers.length > 0 &&
+              !isTerminalWindowsCommandPartialCopy(startError)
+            ) {
               const snapshot = await inspectKnownWindowsTreeMembers(
                 verifiedRootIdentity,
                 record.knownTreeMembers,

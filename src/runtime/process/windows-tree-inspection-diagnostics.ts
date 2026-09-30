@@ -15,6 +15,38 @@ export function windowsNativeInspectionFailure(exitCode: number | null): string 
   return Number.isInteger(exitCode) && Object.hasOwn(nativeFailureReasons, exitCode as number)
     ? nativeFailureReasons[exitCode as number] : null;
 }
+
+// This deliberately recognizes only the two exhausted same-handle outcomes.
+// It traverses wrapping errors without reading messages or native output so
+// supervisor callers can stop automatic continuation without widening the
+// diagnostic surface.
+export function isTerminalWindowsCommandPartialCopy(error: unknown): boolean {
+  try {
+    const pending = [error];
+    const seen = new Set<object>();
+    for (let index = 0; index < pending.length && index < 16; index += 1) {
+      const current = pending[index];
+      if (!current || typeof current !== "object" || seen.has(current)) continue;
+      seen.add(current);
+      const candidate = current as {
+        windowsNativeInspectionFailure?: unknown;
+        cause?: unknown;
+        errors?: unknown;
+      };
+      if (
+        candidate.windowsNativeInspectionFailure === "root_command_partial_copy" ||
+        candidate.windowsNativeInspectionFailure === "descendant_command_partial_copy"
+      ) {
+        return true;
+      }
+      pending.push(candidate.cause);
+      if (Array.isArray(candidate.errors)) pending.push(...candidate.errors.slice(0, 16));
+    }
+  } catch {
+    // Classification must never replace the original inspection failure.
+  }
+  return false;
+}
 const phases = new Set(["queue_wait", "native_snapshot", "retry_delay"]);
 const retryReasons = new Set([
   "helper_failed", "malformed", "incomplete", "invalid_ancestry", "inconsistent_root",

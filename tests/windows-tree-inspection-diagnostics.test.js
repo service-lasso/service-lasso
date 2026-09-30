@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { inspectWindowsProcessTree, hashProcessCommandLine } from "../dist/runtime/process/identity.js";
-import { projectWindowsTreeInspectionMetadata, windowsTreeInspectionFailureMetadata, windowsNativeInspectionFailure } from "../dist/runtime/process/windows-tree-inspection-diagnostics.js";
+import { isTerminalWindowsCommandPartialCopy, projectWindowsTreeInspectionMetadata, windowsTreeInspectionFailureMetadata, windowsNativeInspectionFailure } from "../dist/runtime/process/windows-tree-inspection-diagnostics.js";
 import { lifecycleFailureDiagnostic } from "./lifecycle-failure-diagnostics.js";
 
 const root = { pid: 4342, createdAt: "2026-07-18T01:02:03.456Z", executablePath: "C:\\private\\node.exe", commandHash: "private-command-hash" };
@@ -16,6 +16,17 @@ test("native failure codes distinguish root/descendant denial without forwarding
     windowsTreeInspectionLastRetry: windowsNativeInspectionFailure(131), command: "private-secret" });
   assert.equal(evidence.windowsTreeInspectionLastRetry, "descendant_open_denied");
   assert.equal(JSON.stringify(evidence).includes("private-secret"), false);
+});
+
+test("exhausted partial-copy classification survives supervisor wrapping without exposing native detail", () => {
+  for (const failure of ["root_command_partial_copy", "descendant_command_partial_copy"]) {
+    const native = Object.assign(new Error("closed native failure"), { windowsNativeInspectionFailure: failure });
+    assert.equal(isTerminalWindowsCommandPartialCopy(new AggregateError([new Error("private"), native])), true);
+  }
+  assert.equal(isTerminalWindowsCommandPartialCopy(Object.assign(new Error("private"), {
+    windowsNativeInspectionFailure: "root_command_query",
+  })), false);
+  assert.equal(isTerminalWindowsCommandPartialCopy(new Error("root_command_partial_copy")), false);
 });
 
 test("queued deadline reports queue time and never starts the expired helper", async () => {
