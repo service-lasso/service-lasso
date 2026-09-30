@@ -15,6 +15,7 @@ import { runRecoveryCliAction, type RecoveryCliAction, type RecoveryCliResult } 
 import { runReleaseCliAction, type ReleaseCliAction, type ReleaseCliResult } from "./runtime/cli/release.js";
 import type { ServiceRecoveryHistoryState } from "./runtime/recovery/history.js";
 import { runOperatorCliAction, type OperatorActionsCliAction, type OperatorCliResult } from "./runtime/cli/operator.js";
+import { runDurableOperator, type DurableOperatorCommand } from "./runtime/cli/durable-operator.js";
 import { runSecretsCliAction, type SecretsCliAction, type SecretsCliResult } from "./runtime/cli/secrets.js";
 import { runSetupCliAction, type SetupCliAction, type SetupCliResult } from "./runtime/cli/setup.js";
 import { runTemplateCliAction, type TemplateCliAction, type TemplateCliResult } from "./runtime/cli/template.js";
@@ -48,6 +49,9 @@ interface ParsedCliOptions {
   backupAction?: BackupCliAction;
   diagnosticsAction?: DiagnosticsCliAction;
   operatorActionsAction?: OperatorActionsCliAction;
+  durableOperatorCommand?: DurableOperatorCommand;
+  idempotencyKey?: string;
+  waitMs?: number;
   templateAction?: TemplateCliAction;
   releaseAction?: ReleaseCliAction;
   actionId?: string;
@@ -126,6 +130,10 @@ function usageText(): string {
     "  service-lasso operator actions acknowledge <actionId> [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso operator actions defer <actionId> [--until <iso>] [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso operator actions reopen <actionId> [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso operator remote <services|health|setup|dependencies> [--json]",
+    "  service-lasso operator remote available-actions <serviceId> [--json]",
+    "  service-lasso operator remote <install|config|start|stop|restart> <serviceId> --idempotency-key <key> --confirm [--wait-ms <ms>] [--json]",
+    "  service-lasso operator remote <inspect|wait|cancel> <operationId> [--wait-ms <ms>] [--json]",
     "  service-lasso services import <owner/repo> [--tag <tag>] [--services-root <path>] [--dry-run] [--force] [--json]",
     "  service-lasso services import --archive <path> [--services-root <path>] [--dry-run] [--json]",
     "  service-lasso template check-upgrade <targetServicesRoot> [--core-services-root <path>] [--json]",
@@ -441,22 +449,34 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
 
   if (command === "operator") {
     const scope = remaining.shift();
-    if (scope !== "actions") {
-      throw new Error('The "operator" command requires the "actions" scope.');
-    }
-
-    const action = remaining.shift();
-    if (action !== "list" && action !== "acknowledge" && action !== "defer" && action !== "reopen") {
-      throw new Error('The "operator actions" command requires one of: list, acknowledge, defer, reopen.');
-    }
-
-    parsed.operatorActionsAction = action;
-    if (action !== "list") {
-      const actionId = remaining.shift();
-      if (!actionId || actionId.startsWith("-")) {
-        throw new Error(`The "operator actions ${action}" command requires an <actionId> argument.`);
+    if (scope === "remote") {
+      const action = remaining.shift();
+      if (action !== "install" && action !== "config" && action !== "start" && action !== "stop" && action !== "restart" && action !== "available-actions" && action !== "inspect" && action !== "wait" && action !== "cancel" && action !== "services" && action !== "health" && action !== "setup" && action !== "dependencies") {
+        throw new Error('The "operator remote" command requires a supported durable action or read command.');
       }
-      parsed.actionId = actionId;
+      parsed.durableOperatorCommand = action;
+      if (action !== "services" && action !== "health" && action !== "setup" && action !== "dependencies") {
+        const target = remaining.shift();
+        if (!target || target.startsWith("-")) throw new Error(`The "operator remote ${action}" command requires an identifier.`);
+        if (action === "inspect" || action === "wait" || action === "cancel") parsed.actionId = target;
+        else parsed.serviceId = target;
+      }
+    } else if (scope === "actions") {
+      const action = remaining.shift();
+      if (action !== "list" && action !== "acknowledge" && action !== "defer" && action !== "reopen") {
+        throw new Error('The "operator actions" command requires one of: list, acknowledge, defer, reopen.');
+      }
+
+      parsed.operatorActionsAction = action;
+      if (action !== "list") {
+        const actionId = remaining.shift();
+        if (!actionId || actionId.startsWith("-")) {
+          throw new Error(`The "operator actions ${action}" command requires an <actionId> argument.`);
+        }
+        parsed.actionId = actionId;
+      }
+    } else {
+      throw new Error('The "operator" command requires the "actions" or "remote" scope.');
     }
   }
 
@@ -573,6 +593,25 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
           throw new Error("Missing value for --until.");
         }
         parsed.deferredUntil = value;
+        break;
+      }
+      case "--idempotency-key": {
+        if (command !== "operator" || !parsed.durableOperatorCommand || !["install", "config", "start", "stop", "restart"].includes(parsed.durableOperatorCommand)) throw new Error("--idempotency-key is only supported for durable lifecycle actions.");
+        const value = remaining.shift();
+        if (!value) throw new Error("Missing value for --idempotency-key.");
+        parsed.idempotencyKey = value;
+        break;
+      }
+      case "--confirm": {
+        if (command !== "operator" || !parsed.durableOperatorCommand || !["install", "config", "start", "stop", "restart"].includes(parsed.durableOperatorCommand)) throw new Error("--confirm is only supported for durable lifecycle actions.");
+        parsed.force = true;
+        break;
+      }
+      case "--wait-ms": {
+        if (command !== "operator" || !parsed.durableOperatorCommand) throw new Error("--wait-ms is only supported for operator remote commands.");
+        const value = Number(remaining.shift());
+        if (!Number.isInteger(value) || value <= 0 || value > 300000) throw new Error("--wait-ms must be an integer from 1 to 300000.");
+        parsed.waitMs = value;
         break;
       }
       case "--dry-run": {
@@ -1644,6 +1683,19 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
   }
 
   if (parsed.command === "operator") {
+    if (parsed.durableOperatorCommand) {
+      const result = await runDurableOperator({
+        command: parsed.durableOperatorCommand,
+        serviceId: parsed.serviceId,
+        operationId: parsed.actionId,
+        idempotencyKey: parsed.idempotencyKey,
+        confirm: parsed.force,
+        waitMs: parsed.waitMs,
+      });
+      console.log(JSON.stringify(result));
+      process.exitCode = result.exitCode;
+      return;
+    }
     const result = await runOperatorCliAction({
       action: "actions",
       actionsAction: parsed.operatorActionsAction!,

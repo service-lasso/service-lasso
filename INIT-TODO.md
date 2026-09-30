@@ -12,6 +12,14 @@ This file tracks bootstrap/adoption/remediation work required before product imp
 - Resolution used for this update run: normalize those artifacts into the current bootstrap-update output rather than discard or ignore them.
 
 ## Open Items
+- `#1541` is a development child of `#1465`, bound to `SPEC-006 AC-6F.1`.
+  It may implement a CLI client for the frozen reviewed Core PR `#1472` HTTP
+  contract only. It must retain the dependency boundary: that Core head is not
+  merged, published, or package-qualified; `#1538` owns HTTP update
+  cancellation; and `#1513`/`#1463` own source authoring and registration.
+  The CLI must not fall back to synchronous lifecycle endpoints or use local
+  paths/credentials as remote input.
+
 - #1463 defines a release-asset-only staged transfer prerequisite in
   `docs/api/staged-service-transfer.md`. It uses a new reviewed
    staged-registration adapter over #1462 / PR #1464 (`a83133cc`), rather than
