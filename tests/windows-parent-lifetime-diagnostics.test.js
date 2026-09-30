@@ -43,6 +43,32 @@ test("a canceled enrollment monitor retains closed parent-birth evidence without
   }
 });
 
+test("an absent root never labels descendant lifetime evidence as fingerprint-matching", async () => {
+  const expected = { ...root, commandHash: hashProcessCommandLine(command) };
+  await assert.rejects(inspectWindowsProcessTree(expected, {
+    deadlineMs: Date.now() + 140,
+    runCommand: async () => ({ stdout: JSON.stringify({
+      Status: "tree",
+      RootStatus: "not_running",
+      Processes: [
+        row(4343, 4344, "2026-07-18T01:02:01.456Z"),
+        row(4344, root.pid, "2026-07-18T01:02:02.456Z"),
+      ],
+    }) }),
+  }), error => {
+    const metadata = windowsTreeInspectionFailureMetadata(error);
+    assert.equal(metadata.windowsTreeInspectionLastRetry, "ancestry_predates_parent_before_root");
+    assert.equal(metadata.windowsTreeInspectionParentBirthRelation, "parent_before_root");
+    assert.equal(metadata.windowsTreeInspectionChildBirthRelation, "child_before_root");
+    assert.equal(metadata.windowsTreeInspectionRootFingerprintMatch, false);
+    assert.equal(metadata.windowsTreeInspectionAncestryDepthBucket, "one");
+    const diagnostic = lifecycleFailureDiagnostic({ error: { cause: error } });
+    assert.equal(diagnostic.includes("private"), false);
+    assert.doesNotMatch(diagnostic, /4342|4343|4344|2026-07/);
+    return true;
+  });
+});
+
 test("the parent-lifetime projector rejects incomplete and arbitrary observations", () => {
   assert.deepEqual(projectWindowsTreeInspectionMetadata({
     windowsTreeInspectionLastRetry: "ancestry_predates_parent_before_root",

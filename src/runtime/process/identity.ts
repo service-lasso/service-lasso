@@ -572,15 +572,15 @@ async function inspectWindowsProcessTreeOnce(
 
   const byPid = new Map(rows.map((row) => [row.identity.pid, row]));
   const root = byPid.get(expectedRoot.pid)?.identity;
-  if (
+  const rootIdentityOwned =
     payload.RootStatus === "running" &&
-    (!root ||
-      classifyProcessIdentity(
-        expectedRoot,
-        { status: "running", identity: root },
-        "win32",
-      ) !== "owned")
-  ) {
+    root !== undefined &&
+    classifyProcessIdentity(
+      expectedRoot,
+      { status: "running", identity: root },
+      "win32",
+    ) === "owned";
+  if (payload.RootStatus === "running" && !rootIdentityOwned) {
     throw new Error("Native Windows process-tree root identity changed.");
   }
   if (payload.RootStatus === "not_running" && root) {
@@ -629,7 +629,7 @@ async function inspectWindowsProcessTreeOnce(
                   ? "parent_before_root"
                   : "parent_at_or_after_root",
                 childBirthRelation: "child_before_root",
-                rootFingerprintMatch: true,
+                rootFingerprintMatch: rootIdentityOwned,
                 depthBucket: ancestryDepth === 1
                   ? "one"
                   : ancestryDepth <= 4 ? "two_to_four" : "five_plus",
