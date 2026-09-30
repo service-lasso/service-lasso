@@ -42,6 +42,21 @@ for (const [label, source] of [
   if (source !== null) await writeFile(receiptPath, typeof source === "string" ? source : JSON.stringify(source));
   await assert.rejects(retainReceipt({ receiptPath, evidencePath: evidence, retainedPath: retained, runId, runAttempt, workflowSha, platform: "linux" }));
 });
+for (const [label, source] of [
+  ["contradictory exit and signal", { ...receipt, exitCode: 7, signal: "SIGTERM" }],
+  ["observation failure without mechanism", { ...receipt, outcome: "observation_failure", exitCode: 0 }],
+  ["private source", { ...receipt, private: true }],
+  ["duplicate source", JSON.stringify(receipt).replace('"outcome":"nonzero_exit",', '"outcome":"nonzero_exit","outcome":"nonzero_exit",')],
+  ["missing source", null],
+]) test(`AC-4BY.2 recorder rejects ${label} for every platform before artifact retention`, async () => {
+  for (const platform of ["linux", "win32", "darwin"]) {
+    const root = await mkdtemp(path.join(tmpdir(), `packaged-recorder-${platform}-`));
+    const evidence = path.join(root, "evidence.json"), retained = path.join(root, "retained.json"), receiptPath = path.join(root, "receipt.json");
+    await writeFile(evidence, JSON.stringify({ schema: "service-lasso.packaged-admin-lifecycle.v1", platform }));
+    if (source !== null) await writeFile(receiptPath, typeof source === "string" ? source : JSON.stringify(source));
+    await assert.rejects(retainReceipt({ receiptPath, evidencePath: evidence, retainedPath: retained, runId, runAttempt, workflowSha, platform }));
+  }
+});
 for (const [label, mutate] of [
   ["missing", async (root) => writeFile(path.join(root, `packaged-admin-lifecycle-linux-${runId}-${runAttempt}`, "admin-trusted-unlock-receipt.json"), "")],
   ["private", async (root) => writeFile(path.join(root, `packaged-admin-lifecycle-linux-${runId}-${runAttempt}`, "admin-trusted-unlock-receipt.json"), JSON.stringify({ ...receipt, secret: "x" }))],
@@ -53,3 +68,14 @@ for (const [label, mutate] of [
   ["attempt mismatch", async (root) => { const file = path.join(root, `packaged-admin-lifecycle-linux-${runId}-${runAttempt}`, "packaged-admin-lifecycle-linux.json"); const value = JSON.parse(await readFile(file)); value.run.attempt = "1"; await writeFile(file, JSON.stringify(value)); }],
   ["extra material", async (root) => writeFile(path.join(root, `packaged-admin-lifecycle-linux-${runId}-${runAttempt}`, "extra.json"), "{}")],
 ]) test(`AC-4BY.2 aggregate rejects ${label} receipt custody`, async () => { assert.notEqual(verify(await fixture(mutate)).status, 0); });
+for (const [label, source] of [
+  ["contradictory exit and signal", { ...receipt, exitCode: 7, signal: "SIGTERM" }],
+  ["private", { ...receipt, private: true }],
+  ["duplicate", JSON.stringify(receipt).replace('"outcome":"nonzero_exit",', '"outcome":"nonzero_exit","outcome":"nonzero_exit",')],
+  ["missing", ""],
+]) test(`AC-4BY.2 aggregate rejects ${label} retained receipt across all three platform artifacts`, async () => {
+  const result = verify(await fixture(async (root) => {
+    for (const platform of ["linux", "win32", "darwin"]) await writeFile(path.join(root, `packaged-admin-lifecycle-${platform}-${runId}-${runAttempt}`, "admin-trusted-unlock-receipt.json"), typeof source === "string" ? source : JSON.stringify(source));
+  }));
+  assert.notEqual(result.status, 0);
+});

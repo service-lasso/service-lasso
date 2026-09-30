@@ -26,6 +26,21 @@ test("AC-4BY.2 strictly closes successful consumer sources as no-failure observa
   assert.equal(parseConsumerReceipt(success.replace('"not_emitted"', '"not_emitted","private":true')), null);
 });
 
+test("AC-4BY.2 rejects contradictory primary failures and requires observation-failure evidence", () => {
+  const closed = { classification: "closed", receipt: JSON.parse(valid) };
+  const source = (value) => JSON.stringify({ schema: "service-lasso.admin-trusted-unlock-consumer.v1", trustedUnlock: closed, ...value });
+  assert.equal(parseConsumerReceipt(source({ outcome: "nonzero_exit", exitCode: 7, signal: null }))?.exitCode, 7);
+  assert.equal(parseConsumerReceipt(source({ outcome: "signal", exitCode: null, signal: "SIGTERM" }))?.signal, "SIGTERM");
+  assert.equal(parseConsumerReceipt(source({ outcome: "observation_failure", exitCode: 7, signal: null, streamFailure: "pipe_hang" }))?.streamFailure, "pipe_hang");
+  assert.equal(parseConsumerReceipt(source({ outcome: "observation_failure", exitCode: null, signal: null, executionFailure: "spawn_failed" }))?.executionFailure, "spawn_failed");
+  for (const contradictory of [
+    { outcome: "nonzero_exit", exitCode: 7, signal: "SIGTERM" },
+    { outcome: "signal", exitCode: 7, signal: "SIGTERM" },
+    { outcome: "observation_failure", exitCode: 0, signal: null },
+    { outcome: "success", exitCode: 0, signal: null, executionFailure: "spawn_failed" },
+  ]) assert.equal(parseConsumerReceipt(source(contradictory)), null);
+});
+
 test("AC-4BY.2 retains no child output and preserves the original nonzero exit", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "admin-receipt-"));
   try {
@@ -120,8 +135,9 @@ test("AC-4BY.2 closes an actual output flood and records a direct-child timeout 
     const stalled = path.join(root, "stalled.mjs");
     await writeFile(stalled, `process.on("SIGTERM", () => {}); setInterval(() => {}, 1_000);`);
     const timedOut = await consume(process.execPath, [stalled], { timeoutMs: 25, pipeCloseTimeoutMs: 100 });
-    assert.equal(timedOut.streamFailure, "execution_timeout");
+    assert.equal(timedOut.streamFailure, null);
     assert.equal(timedOut.executionFailure, "execution_timeout");
+    assert.deepEqual(timedOut.trustedUnlock, { classification: "missing" });
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 

@@ -12,11 +12,11 @@ on:
       - src/runtime/**
       - src/server/**
       - scripts/consume-admin-trusted-unlock-receipt.mjs
-       - scripts/retain-packaged-admin-lifecycle-receipt.mjs
-       - scripts/verify-packaged-admin-lifecycle-artifacts.mjs
+      - scripts/retain-packaged-admin-lifecycle-receipt.mjs
+      - scripts/verify-packaged-admin-lifecycle-artifacts.mjs
       - tests/fixtures/real-admin-browser-runner.mjs
       - tests/consume-admin-trusted-unlock-receipt.test.js
-       - tests/packaged-admin-lifecycle-receipt-custody.test.js
+      - tests/packaged-admin-lifecycle-receipt-custody.test.js
   push:
     branches:
       - develop
@@ -27,11 +27,11 @@ on:
       - src/runtime/**
       - src/server/**
       - scripts/consume-admin-trusted-unlock-receipt.mjs
-       - scripts/retain-packaged-admin-lifecycle-receipt.mjs
-       - scripts/verify-packaged-admin-lifecycle-artifacts.mjs
+      - scripts/retain-packaged-admin-lifecycle-receipt.mjs
+      - scripts/verify-packaged-admin-lifecycle-artifacts.mjs
       - tests/fixtures/real-admin-browser-runner.mjs
       - tests/consume-admin-trusted-unlock-receipt.test.js
-       - tests/packaged-admin-lifecycle-receipt-custody.test.js
+      - tests/packaged-admin-lifecycle-receipt-custody.test.js
 
 concurrency:
   group: packaged-admin-lifecycle-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}

@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { parseDocument } from "yaml";
 
 const workflowUrl = new URL(
   "../.github/workflows/packaged-admin-lifecycle.yml",
@@ -9,10 +10,29 @@ const workflowUrl = new URL(
 
 test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS browser acceptance", async () => {
   const workflow = await readFile(workflowUrl, "utf8");
+  const document = parseDocument(workflow, { uniqueKeys: true });
+  assert.equal(document.errors.length, 0, document.errors.map(String).join("\n"));
+  const parsed = document.toJS();
+  const expectedPaths = [
+    ".github/workflows/packaged-admin-lifecycle.yml",
+    "services/@serviceadmin/service.json",
+    "services/@secretsbroker/service.json",
+    "src/runtime/**",
+    "src/server/**",
+    "scripts/consume-admin-trusted-unlock-receipt.mjs",
+    "scripts/retain-packaged-admin-lifecycle-receipt.mjs",
+    "scripts/verify-packaged-admin-lifecycle-artifacts.mjs",
+    "tests/fixtures/real-admin-browser-runner.mjs",
+    "tests/consume-admin-trusted-unlock-receipt.test.js",
+    "tests/packaged-admin-lifecycle-receipt-custody.test.js",
+  ];
 
   assert.match(workflow, /^name: Packaged Admin Lifecycle Acceptance$/m);
-  assert.match(workflow, /pull_request:\s*\n\s+branches:\s*\n\s+- develop/);
-  assert.match(workflow, /push:\s*\n\s+branches:\s*\n\s+- develop/);
+  assert.deepEqual(Object.keys(parsed.on).sort(), ["pull_request", "push", "workflow_dispatch"]);
+  for (const trigger of ["pull_request", "push"]) {
+    assert.deepEqual(parsed.on[trigger].branches, ["develop"]);
+    assert.deepEqual(parsed.on[trigger].paths, expectedPaths);
+  }
   assert.match(
     workflow,
     /os: ubuntu-latest[\s\S]*?os: windows-latest[\s\S]*?os: macos-latest/,
@@ -121,4 +141,17 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
     workflow,
     /test '\$\{\{ needs\.packaged-admin-lifecycle\.result \}\}' = 'success'/,
   );
+});
+
+test("AC-4BY.2 rejects YAML scalar continuations that silently remove receipt-custody triggers", async () => {
+  const workflow = await readFile(workflowUrl, "utf8");
+  const malformed = workflow.replace(
+    "\n      - scripts/retain-packaged-admin-lifecycle-receipt.mjs",
+    "\n       - scripts/retain-packaged-admin-lifecycle-receipt.mjs",
+  );
+  const document = parseDocument(malformed, { uniqueKeys: true });
+  assert.equal(document.errors.length, 0, document.errors.map(String).join("\n"));
+  const paths = document.toJS().on.pull_request.paths;
+  assert.ok(paths.includes("scripts/consume-admin-trusted-unlock-receipt.mjs - scripts/retain-packaged-admin-lifecycle-receipt.mjs"));
+  assert.ok(!paths.includes("scripts/retain-packaged-admin-lifecycle-receipt.mjs"));
 });

@@ -87,7 +87,8 @@
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "selfsigned": "5.5.0",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "yaml": "^2.9.0"
   },
   "overrides": {
     "ip-address": "10.7.2",
