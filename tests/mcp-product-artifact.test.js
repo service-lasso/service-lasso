@@ -12,10 +12,49 @@ import {
   MCP_PRODUCT_EVIDENCE_CONTRACT,
   fetchBoundedDiagnosticJson,
   parsePackagedAcceptanceFailure,
+  projectPackagedWindowsTreeInspection,
   validateMcpProductEvidence,
 } from "../scripts/mcp-product-acceptance-lib.mjs";
 
 const execFileAsync = promisify(execFile);
+
+test("#1326 packaged projection retains only bounded initial-inspection evidence", () => {
+  const privateValue = "C:\\private\\workspace token=secret command --password";
+  assert.deepEqual(projectPackagedWindowsTreeInspection({
+    windowsTreeInspectionPhase: "native_snapshot",
+    windowsTreeInspectionAttempts: 53,
+    windowsTreeInspectionRetries: 52,
+    windowsTreeInspectionQueueMs: 6,
+    windowsTreeInspectionNativeMs: 2600,
+    windowsTreeInspectionLastRetry: "descendant_command_partial_copy",
+    pid: 4343,
+    command: privateValue,
+    path: privateValue,
+  }), {
+    windowsTreeInspectionPhase: "native_snapshot",
+    windowsTreeInspectionAttempts: 53,
+    windowsTreeInspectionRetries: 52,
+    windowsTreeInspectionQueueMs: 6,
+    windowsTreeInspectionNativeMs: 2600,
+    windowsTreeInspectionLastRetry: "descendant_command_partial_copy",
+  });
+  assert.equal(projectPackagedWindowsTreeInspection({ windowsTreeInspectionPhase: "private_phase" }), null);
+  assert.deepEqual(projectPackagedWindowsTreeInspection({
+    windowsTreeInspectionPhase: "queue_wait",
+    windowsTreeInspectionAttempts: 1001,
+    windowsTreeInspectionRetries: -1,
+    windowsTreeInspectionQueueMs: 600001,
+    windowsTreeInspectionNativeMs: 600001,
+    windowsTreeInspectionLastRetry: privateValue,
+  }), {
+    windowsTreeInspectionPhase: "queue_wait",
+    windowsTreeInspectionAttempts: null,
+    windowsTreeInspectionRetries: null,
+    windowsTreeInspectionQueueMs: null,
+    windowsTreeInspectionNativeMs: null,
+    windowsTreeInspectionLastRetry: null,
+  });
+});
 
 test("#864 guarded diagnostic acquisition is time- and size-bounded", async () => {
   const server = createServer((request, response) => {
@@ -101,6 +140,14 @@ test("#864 packaged failure diagnostics admit one strict bounded record and disc
         readinessAttribution: "not_applicable",
         healthcheckFailed: true,
         processStartFailurePhase: "launcher_file_hash",
+        windowsTreeInspection: {
+          windowsTreeInspectionPhase: "native_snapshot",
+          windowsTreeInspectionAttempts: 53,
+          windowsTreeInspectionRetries: 52,
+          windowsTreeInspectionQueueMs: 6,
+          windowsTreeInspectionNativeMs: 2600,
+          windowsTreeInspectionLastRetry: "descendant_command_partial_copy",
+        },
       },
     },
   };
@@ -111,6 +158,33 @@ test("#864 packaged failure diagnostics admit one strict bounded record and disc
   assert.equal(parsePackagedAcceptanceFailure(`[mcp-package-acceptance-error] ${JSON.stringify({
     ...guarded,
     guardedProbe: { ...guarded.guardedProbe, message: hostile },
+  })}`), null);
+  assert.equal(parsePackagedAcceptanceFailure(`[mcp-package-acceptance-error] ${JSON.stringify({
+    ...guarded,
+    guardedProbe: {
+      ...guarded.guardedProbe,
+      lifecycle: {
+        ...guarded.guardedProbe.lifecycle,
+        windowsTreeInspection: {
+          ...guarded.guardedProbe.lifecycle.windowsTreeInspection,
+          pid: 4343,
+          command: hostile,
+        },
+      },
+    },
+  })}`), null);
+  assert.equal(parsePackagedAcceptanceFailure(`[mcp-package-acceptance-error] ${JSON.stringify({
+    ...guarded,
+    guardedProbe: {
+      ...guarded.guardedProbe,
+      lifecycle: {
+        ...guarded.guardedProbe.lifecycle,
+        windowsTreeInspection: {
+          ...guarded.guardedProbe.lifecycle.windowsTreeInspection,
+          windowsTreeInspectionAttempts: 1001,
+        },
+      },
+    },
   })}`), null);
   assert.equal(parsePackagedAcceptanceFailure(`[mcp-package-acceptance-error] ${JSON.stringify({
     ...guarded,
@@ -155,7 +229,7 @@ test("#864 packaged failure diagnostics admit one strict bounded record and disc
     },
   })}`), null);
   assert.equal(JSON.stringify(guarded).includes(hostile), false);
-  assert.ok(JSON.stringify(guarded).length < 768);
+  assert.ok(JSON.stringify(guarded).length < 1024);
 });
 
 function evidence(candidateSha, platform) {

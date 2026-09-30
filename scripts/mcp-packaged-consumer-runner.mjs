@@ -8,6 +8,7 @@ import {
   MCP_PACKAGED_COVERAGE_KEYS,
   MCP_PACKAGED_SAFE_AUDIT_DIAGNOSTIC_REASONS,
   fetchBoundedDiagnosticJson,
+  projectPackagedWindowsTreeInspection,
   runInspector,
   supportedMcpVersions,
 } from "./mcp-product-acceptance-lib.mjs";
@@ -509,6 +510,7 @@ try {
               failedEvent.metadata.processStartFailurePhase,
               SAFE_PROCESS_START_FAILURE_PHASES,
             ),
+        windowsTreeInspection: projectPackagedWindowsTreeInspection(failedEvent?.metadata),
       };
     } catch {
       lifecycleDiagnostic = {
@@ -518,6 +520,7 @@ try {
         readinessAttribution: null,
         healthcheckFailed: null,
         processStartFailurePhase: null,
+        windowsTreeInspection: null,
       };
     }
     const summarize = (result) => ({
