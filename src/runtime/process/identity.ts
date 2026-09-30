@@ -323,6 +323,23 @@ export interface WindowsProcessTreeInspection {
   members: ProcessFingerprint[];
 }
 
+type WindowsTreeAncestryEvidence = {
+  parentBirthRelation: "parent_before_root" | "parent_at_or_after_root";
+  childBirthRelation: "child_before_root";
+  rootFingerprintMatch: boolean;
+  depthBucket: "one" | "two_to_four" | "five_plus";
+};
+
+function invalidWindowsTreeAncestry(
+  reason: string,
+  ancestry?: WindowsTreeAncestryEvidence,
+): Error {
+  return Object.assign(new Error("Native Windows process-tree ancestry was invalid."), {
+    windowsNativeInspectionFailure: reason,
+    ...(ancestry ? { windowsTreeInspectionAncestry: Object.freeze(ancestry) } : {}),
+  });
+}
+
 function parseWindowsProcessJson(
   stdout: string,
   pid: number,
@@ -547,7 +564,7 @@ async function inspectWindowsProcessTreeOnce(
         parentPid <= 0 ||
         parentPid === pid)
     ) {
-      throw new Error("Native Windows process-tree ancestry was invalid.");
+      throw invalidWindowsTreeAncestry("ancestry_invalid_parent");
     }
     seen.add(pid);
     rows.push({ identity: inspection.identity, parentPid });
@@ -580,28 +597,50 @@ async function inspectWindowsProcessTreeOnce(
     if (row.identity.pid === expectedRoot.pid) {
       continue;
     }
-    if (Date.parse(row.identity.createdAt) < rootCreatedAtMs) {
-      throw new Error("Native Windows process-tree ancestry was invalid.");
-    }
+    const rowPredatesRoot = Date.parse(row.identity.createdAt) < rootCreatedAtMs;
 
     const visited = new Set<number>([row.identity.pid]);
     let current = row;
+    let ancestryDepth = 0;
     while (current.parentPid !== expectedRoot.pid) {
       if (current.parentPid === null || visited.has(current.parentPid)) {
-        throw new Error("Native Windows process-tree ancestry was invalid.");
+        throw invalidWindowsTreeAncestry("ancestry_cycle");
       }
       visited.add(current.parentPid);
       const parent = byPid.get(current.parentPid);
       if (!parent) {
-        throw new Error("Native Windows process-tree ancestry was invalid.");
+        throw invalidWindowsTreeAncestry("ancestry_missing_parent");
       }
+      ancestryDepth += 1;
+      const childCreatedAtMs = Date.parse(current.identity.createdAt);
+      const parentCreatedAtMs = Date.parse(parent.identity.createdAt);
       if (
-        Date.parse(current.identity.createdAt) <
-        Date.parse(parent.identity.createdAt)
+        childCreatedAtMs < parentCreatedAtMs
       ) {
-        throw new Error("Native Windows process-tree ancestry was invalid.");
+        const childBeforeRoot = childCreatedAtMs < rootCreatedAtMs;
+        const parentBeforeRoot = parentCreatedAtMs < rootCreatedAtMs;
+        throw invalidWindowsTreeAncestry(
+          childBeforeRoot || parentBeforeRoot
+            ? "ancestry_predates_parent_before_root"
+            : "ancestry_predates_parent_within_root",
+          childBeforeRoot || parentBeforeRoot
+            ? {
+                parentBirthRelation: parentBeforeRoot
+                  ? "parent_before_root"
+                  : "parent_at_or_after_root",
+                childBirthRelation: "child_before_root",
+                rootFingerprintMatch: true,
+                depthBucket: ancestryDepth === 1
+                  ? "one"
+                  : ancestryDepth <= 4 ? "two_to_four" : "five_plus",
+              }
+            : undefined,
+        );
       }
       current = parent;
+    }
+    if (rowPredatesRoot) {
+      throw invalidWindowsTreeAncestry("ancestry_predates_root");
     }
   }
 
@@ -662,17 +701,49 @@ export async function inspectWindowsProcessTree(
     dependencies.deadlineMs ??
     Date.now() + WINDOWS_PROCESS_INSPECTION_TIMEOUT_MS;
   let lastError: unknown;
+  let lastAncestry: WindowsTreeAncestryEvidence | null = null;
+  let lastRetry: string | null = null;
   for (let attempt = 1; ; attempt += 1) {
     try {
       return await serializeWindowsNativeTreeSnapshot(async (signal) => {
-        return await inspectWindowsProcessTreeOnce(expectedRoot, {
-          ...dependencies,
-          deadlineMs,
-          signal,
-        });
+        try {
+          return await inspectWindowsProcessTreeOnce(expectedRoot, {
+            ...dependencies,
+            deadlineMs,
+            signal,
+          });
+        } catch (error) {
+          if (error && typeof error === "object") {
+            lastAncestry = (error as { windowsTreeInspectionAncestry?: WindowsTreeAncestryEvidence }).windowsTreeInspectionAncestry ?? null;
+            lastRetry = (error as { windowsNativeInspectionFailure?: unknown }).windowsNativeInspectionFailure as string | null ?? null;
+          }
+          throw error;
+        }
       }, { deadlineMs, signal: dependencies.signal });
     } catch (error) {
       lastError = error;
+      if (error && typeof error === "object") {
+        const ancestry = (error as { windowsTreeInspectionAncestry?: WindowsTreeAncestryEvidence }).windowsTreeInspectionAncestry;
+        if (ancestry !== undefined) lastAncestry = ancestry;
+        const retry = (error as { windowsNativeInspectionFailure?: unknown }).windowsNativeInspectionFailure;
+        if (typeof retry === "string") lastRetry = retry;
+      }
+      if (error && typeof error === "object") {
+        try {
+          Object.defineProperty(error, "windowsTreeInspection", {
+            value: Object.freeze({
+              windowsTreeInspectionLastRetry: lastRetry,
+              windowsTreeInspectionParentBirthRelation: lastAncestry?.parentBirthRelation ?? null,
+              windowsTreeInspectionChildBirthRelation: lastAncestry?.childBirthRelation ?? null,
+              windowsTreeInspectionRootFingerprintMatch: lastAncestry?.rootFingerprintMatch ?? null,
+              windowsTreeInspectionAncestryDepthBucket: lastAncestry?.depthBucket ?? null,
+            }),
+            configurable: true,
+          });
+        } catch {
+          // Added observation cannot replace the original rejection.
+        }
+      }
       if (
         !isRetryableWindowsTreeSnapshotError(error) ||
         dependencies.signal?.aborted ||

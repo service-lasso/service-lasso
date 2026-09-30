@@ -33,6 +33,29 @@ test("lifecycle diagnostics exclude unknown strings and sensitive payload fields
   assert.deepEqual(JSON.parse(result).events, [{ phase: null, status: null, failurePhase: null }]);
 });
 
+test("lifecycle diagnostics project only complete closed parent-lifetime evidence", () => {
+  const error = {
+    windowsTreeInspection: {
+      windowsTreeInspectionLastRetry: "ancestry_predates_parent_before_root",
+      windowsTreeInspectionParentBirthRelation: "parent_before_root",
+      windowsTreeInspectionChildBirthRelation: "child_before_root",
+      windowsTreeInspectionRootFingerprintMatch: true,
+      windowsTreeInspectionAncestryDepthBucket: "one",
+      pid: 4343,
+      command: "private-command",
+    },
+  };
+  const result = JSON.parse(lifecycleFailureDiagnostic({ error }));
+  assert.deepEqual(result.windowsTreeInspections, [{
+    windowsTreeInspectionLastRetry: "ancestry_predates_parent_before_root",
+    windowsTreeInspectionParentBirthRelation: "parent_before_root",
+    windowsTreeInspectionChildBirthRelation: "child_before_root",
+    windowsTreeInspectionRootFingerprintMatch: true,
+    windowsTreeInspectionAncestryDepthBucket: "one",
+  }]);
+  assert.equal(JSON.stringify(result).includes("private"), false);
+});
+
 test("lifecycle diagnostics bound event and cause counts and tolerate missing or malformed state", () => {
   for (const input of [undefined, null, "invalid", 42]) {
     assert.deepEqual(JSON.parse(lifecycleFailureDiagnostic(input)).events, []);

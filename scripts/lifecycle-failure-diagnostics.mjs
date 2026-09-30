@@ -1,3 +1,5 @@
+import { projectWindowsTreeInspectionMetadata } from "../dist/runtime/process/windows-tree-inspection-diagnostics.js";
+
 const phases = new Set([
   "dependency_resolution", "port_selection", "artifact_acquisition", "env_merge",
   "process_spawn", "health_check", "terminal_outcome",
@@ -23,11 +25,14 @@ export function lifecycleFailureDiagnostic(input = {}) {
     let { httpStatus, state, error } = input ?? {};
     const current = state?.runtime?.startTrace?.current;
     const failurePhases = [];
+    const windowsTreeInspections = [];
     let deadlineExceeded = false;
     for (let depth = 0; depth < 4 && error; depth += 1, error = error.cause) {
       const phase = allowed(launchPhases, error.failurePhase);
       if (phase) failurePhases.push(phase);
       deadlineExceeded ||= error.code === "PROCESS_CONTROL_DEADLINE_EXCEEDED";
+      const inspection = projectWindowsTreeInspectionMetadata(error.windowsTreeInspection);
+      if (inspection.windowsTreeInspectionLastRetry) windowsTreeInspections.push(inspection);
     }
     return JSON.stringify({
       kind: "lifecycle-failure",
@@ -40,6 +45,7 @@ export function lifecycleFailureDiagnostic(input = {}) {
       })) : [],
       failurePhases,
       deadlineExceeded,
+      ...(windowsTreeInspections.length ? { windowsTreeInspections } : {}),
     });
   } catch {
     return '{"kind":"lifecycle-failure","diagnostic":"metadata_unavailable"}';
