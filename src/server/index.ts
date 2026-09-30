@@ -146,6 +146,11 @@ import {
 } from "../runtime/operator/command-confirmations.js";
 import { buildRestartSafetyPreflightReport } from "../runtime/operator/restart-safety-preflight.js";
 import { buildServiceCompatibilityReport } from "../runtime/operator/catalog-compatibility.js";
+import {
+  parseRemoteServiceRegistrationRequest,
+  readRemoteServiceRegistrationOperation,
+  registerReleasedService,
+} from "../runtime/operator/remote-service-registration.js";
 import { buildServiceConfigDriftReport } from "../runtime/operator/config-drift.js";
 import { buildServiceConfigApplyPreflightReport } from "../runtime/operator/config-apply-preflight.js";
 import {
@@ -6732,6 +6737,77 @@ async function routeRequestWithoutMutationCoordination(
         portName: url.searchParams.get("portName"),
       }),
     );
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname.startsWith("/api/operator/operations/")) {
+    const operationId = decodeURIComponent(url.pathname.slice("/api/operator/operations/".length));
+    if (!operationId || operationId.includes("/")) {
+      throw new ApiError("operation_not_found", 404, "Service registration operation was not found.");
+    }
+    const actor = permissionActorFromRuntimeAuth(auth);
+    writeJson(response, 200, {
+      operation: await readRemoteServiceRegistrationOperation({
+        workspaceRoot: config.workspaceRoot,
+        actor,
+        operationId,
+      }),
+    });
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/runtime/actions/importService") {
+    const body = parseRemoteServiceRegistrationRequest(await readJsonBody(request));
+    const actor = permissionActorFromRuntimeAuth(auth);
+    const policy = getDurableHttpMutationPolicy("service-registration");
+    try {
+      await enforcePermission({
+        workspaceRoot: config.workspaceRoot,
+        actor,
+        permission: policy.permission,
+        sensitive: policy.sensitive,
+        confirmed: true,
+        method: "POST",
+        routeTemplate: "/api/runtime/actions/importService",
+        subject: body.repo,
+      });
+      const operation = await registerReleasedService({
+        workspaceRoot: config.workspaceRoot,
+        servicesRoot: config.servicesRoot,
+        actor,
+        request: body,
+      });
+      const statusCode = operation.replayed ? 200 : operation.status === "completed" ? 201 : 409;
+      await appendAuditEvent({
+        workspaceRoot: config.workspaceRoot,
+        source: "runtime-api",
+        action: "runtime.importService",
+        actor: actor.id,
+        subject: operation.serviceId,
+        method: "POST",
+        routeTemplate: "/api/runtime/actions/importService",
+        outcome: operation.status === "completed" ? "success" : "failure",
+        statusCode,
+        summary: operation.replayed ? "Replayed service registration operation." : "Recorded service registration operation.",
+        reason: operation.errorCode,
+      });
+      writeJson(response, statusCode, { operation });
+    } catch (error) {
+      await appendAuditEvent({
+        workspaceRoot: config.workspaceRoot,
+        source: "runtime-api",
+        action: "runtime.importService",
+        actor: actor.id,
+        subject: body.repo,
+        method: "POST",
+        routeTemplate: "/api/runtime/actions/importService",
+        outcome: "failure",
+        statusCode: getApiErrorStatusCode(error),
+        summary: "Failed to register released service.",
+        reason: getAuditFailureReason(error),
+      });
+      throw error;
+    }
     return;
   }
 

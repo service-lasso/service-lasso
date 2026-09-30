@@ -1,8 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import os from "node:os";
 import net from "node:net";
+import { createServer } from "node:http";
 import { cp, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { startApiServer } from "../dist/server/index.js";
 import { startRuntimeApp } from "../dist/runtime/app.js";
@@ -38,6 +40,18 @@ async function postJson(url, body) {
     method: "POST",
     headers: body === undefined ? undefined : { "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  return {
+    status: response.status,
+    body: await response.json(),
+  };
+}
+
+async function postJsonWithHeaders(url, body, headers) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...headers },
+    body: JSON.stringify(body),
   });
   return {
     status: response.status,
@@ -1710,6 +1724,291 @@ test("GET /api/runtime/actions/importService/plan previews app-owned import with
     await apiServer.stop();
     resetLifecycleState();
     await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("remote service registration is authenticated, idempotent, durable, and never accepts client paths", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-remote-registration-");
+  const originalFetch = globalThis.fetch;
+  const previousToken = process.env.SERVICE_LASSO_LOCAL_ADMIN_TOKEN;
+  const previousTrustProxy = process.env.SERVICE_LASSO_TRUST_PROXY_HEADERS;
+  const previousGitHubToken = process.env.GITHUB_TOKEN;
+  const previousGitHubApiBaseUrl = process.env.SERVICE_LASSO_GITHUB_API_BASE_URL;
+  process.env.SERVICE_LASSO_LOCAL_ADMIN_TOKEN = "remote-registration-test-token";
+  process.env.SERVICE_LASSO_TRUST_PROXY_HEADERS = "true";
+  process.env.GITHUB_TOKEN = "remote-registration-github-token";
+  const manifest = {
+    id: "remote-registered-service",
+    name: "Remote Registered Service",
+    description: "Released registration fixture.",
+    executable: process.execPath,
+    args: ["runtime/remote-registered-service.mjs"],
+    healthcheck: { type: "process" },
+    artifact: {
+      kind: "archive",
+      source: { type: "github-release", repo: "service-lasso/lasso-node", tag: "v1.0.0" },
+      platforms: {
+        win32: { assetName: "remote-service.zip", archiveType: "zip", command: "remote-service.exe", checksum: { algorithm: "sha256", value: "a".repeat(64) } },
+      },
+    },
+  };
+  let manifestAssetUrl = "https://github.com/service-lasso/lasso-node/releases/download/v1.0.0/service.json";
+  let manifestRedirectLocation = null;
+  let trustedProvenanceAvailable = true;
+  globalThis.fetch = async (input, init) => {
+    const requestUrl = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    if (requestUrl === "https://api.github.com/repos/service-lasso/lasso-node/git/ref/tags/v1.0.0") {
+      if (!trustedProvenanceAvailable) return new Response("trusted API unavailable", { status: 503 });
+      return new Response(JSON.stringify({ object: { type: "commit", sha: "b".repeat(40) } }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    if (requestUrl === "https://api.github.com/repos/service-lasso/lasso-node/releases/tags/v1.0.0") {
+      return new Response(JSON.stringify({
+        tag_name: "v1.0.0",
+        assets: [{ name: "service.json", browser_download_url: manifestAssetUrl }],
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    if (requestUrl === manifestAssetUrl) {
+      if (manifestRedirectLocation) return new Response(null, { status: 302, headers: { location: manifestRedirectLocation } });
+      return new Response(JSON.stringify(manifest), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    return originalFetch(input, init);
+  };
+  let apiServer = await startApiServer({ port: 0, host: "0.0.0.0", servicesRoot, workspaceRoot });
+  const remoteHeaders = {
+    "x-forwarded-for": "203.0.113.10",
+    "x-service-lasso-admin-token": "remote-registration-test-token",
+  };
+  const request = {
+    repo: "service-lasso/lasso-node",
+    tag: "v1.0.0",
+    expectedCommit: "b".repeat(40),
+    expectedManifestSha256: createHash("sha256").update(JSON.stringify(manifest)).digest("hex"),
+    idempotencyKey: "remote-registration-0001",
+    confirm: true,
+  };
+
+  try {
+    const untrustedRequests = [];
+    const provenanceServer = await new Promise((resolve) => {
+      const server = createServer((incoming, outgoing) => {
+        untrustedRequests.push(incoming.headers.authorization);
+        outgoing.writeHead(200, { "content-type": "application/json" });
+        outgoing.end(JSON.stringify({
+          tag_name: request.tag,
+          assets: [{ name: "service.json", browser_download_url: manifestAssetUrl }],
+        }));
+      });
+      server.listen(0, "127.0.0.1", () => resolve(server));
+    });
+    const provenanceAddress = provenanceServer.address();
+    process.env.SERVICE_LASSO_GITHUB_API_BASE_URL = `http://127.0.0.1:${provenanceAddress.port}`;
+    trustedProvenanceAvailable = false;
+    const ignoredUntrustedApi = await postJsonWithHeaders(`${apiServer.url}/api/runtime/actions/importService`, {
+      ...request,
+      idempotencyKey: "remote-registration-untrusted-api-01",
+    }, remoteHeaders);
+    trustedProvenanceAvailable = true;
+    await new Promise((resolve, reject) => provenanceServer.close((error) => error ? reject(error) : resolve()));
+    assert.equal(ignoredUntrustedApi.status, 503);
+    assert.equal(ignoredUntrustedApi.body.error, "release_provenance_unavailable");
+    assert.deepEqual(untrustedRequests, []);
+    await assert.rejects(readFile(path.join(servicesRoot, manifest.id, "service.json"), "utf8"), /ENOENT/);
+
+    const unapproved = await postJsonWithHeaders(`${apiServer.url}/api/runtime/actions/importService`, {
+      ...request,
+      repo: "service-lasso/unapproved-service",
+      idempotencyKey: "remote-registration-unapproved-01",
+    }, remoteHeaders);
+    assert.equal(unapproved.status, 403);
+    assert.equal(unapproved.body.error, "unapproved_release");
+
+    const invalid = await postJsonWithHeaders(`${apiServer.url}/api/runtime/actions/importService`, {
+      ...request,
+      manifestPath: "C:\\client-only\\service.json",
+    }, remoteHeaders);
+    assert.equal(invalid.status, 400);
+    assert.equal(invalid.body.error, "invalid_body");
+
+    const denied = await postJsonWithHeaders(`${apiServer.url}/api/runtime/actions/importService`, request, {
+      "x-forwarded-for": "203.0.113.10",
+    });
+    assert.equal(denied.status, 401);
+    assert.equal(denied.body.error, "remote_auth_required");
+
+    const wrongCommit = await postJsonWithHeaders(`${apiServer.url}/api/runtime/actions/importService`, {
+      ...request,
+      expectedCommit: "c".repeat(40),
+      idempotencyKey: "remote-registration-provenance-01",
+    }, remoteHeaders);
+    assert.equal(wrongCommit.status, 409);
+    assert.equal(wrongCommit.body.error, "release_commit_mismatch");
+    const wrongManifestDigest = await postJsonWithHeaders(`${apiServer.url}/api/runtime/actions/importService`, {
+      ...request,
+      expectedManifestSha256: "d".repeat(64),
+      idempotencyKey: "remote-registration-provenance-02",
+    }, remoteHeaders);
+    assert.equal(wrongManifestDigest.status, 409);
+    assert.equal(wrongManifestDigest.body.error, "release_manifest_digest_mismatch");
+    manifestAssetUrl = "http://untrusted.example/service.json";
+    const unsafeAsset = await postJsonWithHeaders(`${apiServer.url}/api/runtime/actions/importService`, {
+      ...request,
+      idempotencyKey: "remote-registration-provenance-03",
+    }, remoteHeaders);
+    assert.equal(unsafeAsset.status, 409);
+    assert.equal(unsafeAsset.body.error, "release_manifest_mismatch");
+    manifestAssetUrl = "https://github.com/service-lasso/lasso-node/releases/download/v1.0.0/service.json";
+    manifestRedirectLocation = "https://untrusted.example/service.json";
+    const unsafeRedirect = await postJsonWithHeaders(`${apiServer.url}/api/runtime/actions/importService`, {
+      ...request,
+      idempotencyKey: "remote-registration-provenance-04",
+    }, remoteHeaders);
+    assert.equal(unsafeRedirect.status, 409);
+    assert.equal(unsafeRedirect.body.error, "release_manifest_mismatch");
+    manifestRedirectLocation = null;
+
+    const [first, duplicate, competing] = await Promise.all([
+      postJsonWithHeaders(`${apiServer.url}/api/runtime/actions/importService`, request, remoteHeaders),
+      postJsonWithHeaders(`${apiServer.url}/api/runtime/actions/importService`, request, remoteHeaders),
+      postJsonWithHeaders(`${apiServer.url}/api/runtime/actions/importService`, {
+        ...request,
+        idempotencyKey: "remote-registration-0002",
+      }, remoteHeaders),
+    ]);
+    const accepted = [first, duplicate].find((result) => result.status === 201);
+    assert.ok(accepted, JSON.stringify([first.body, duplicate.body]));
+    const sameKeyReplay = [first, duplicate].find((result) => result.status === 200);
+    assert.ok(sameKeyReplay, JSON.stringify([first.body, duplicate.body]));
+    assert.equal(sameKeyReplay.body.operation.id, accepted.body.operation.id);
+    assert.equal(competing.status, 409, JSON.stringify(competing.body));
+    assert.equal(competing.body.operation.status, "conflict");
+
+    assert.equal(accepted.status, 201);
+    assert.equal(accepted.body.operation.status, "completed");
+    assert.equal(accepted.body.operation.replayed, false);
+    assert.equal(accepted.body.operation.serviceId, manifest.id);
+    assert.equal(Object.hasOwn(accepted.body.operation, "targetPath"), false);
+    await readFile(path.join(servicesRoot, manifest.id, "service.json"), "utf8");
+
+    const replay = await postJsonWithHeaders(`${apiServer.url}/api/runtime/actions/importService`, request, remoteHeaders);
+    assert.equal(replay.status, 200);
+    assert.equal(replay.body.operation.id, accepted.body.operation.id);
+    assert.equal(replay.body.operation.replayed, true);
+
+    const altered = await postJsonWithHeaders(`${apiServer.url}/api/runtime/actions/importService`, {
+      ...request,
+      tag: "v2.0.0",
+    }, remoteHeaders);
+    assert.equal(altered.status, 409);
+    assert.equal(altered.body.error, "idempotency_key_reused");
+
+    assert.equal(competing.body.operation.errorCode, "target_manifest_exists");
+
+    const recoveryKey = "remote-registration-0003";
+    const recoveryOperationId = "sro_" + createHash("sha256")
+      .update(`${accepted.body.operation.actorId}\u0000${recoveryKey}`)
+      .digest("hex")
+      .slice(0, 32);
+    const operationStorePath = path.join(workspaceRoot, ".service-lasso", "operator", "service-registration-operations.json");
+    const operationStore = JSON.parse(await readFile(operationStorePath, "utf8"));
+    operationStore.operations.push({
+      id: recoveryOperationId,
+      kind: "service_registration",
+      status: "unknown",
+      actorId: accepted.body.operation.actorId,
+      repo: request.repo,
+      tag: request.tag,
+      sourceCommit: request.expectedCommit,
+      serviceId: manifest.id,
+      version: null,
+      createdAt: new Date().toISOString(),
+      completedAt: null,
+      errorCode: "registration_interrupted",
+      requestFingerprint: createHash("sha256").update(JSON.stringify({
+        repo: request.repo,
+        tag: request.tag,
+        expectedCommit: request.expectedCommit,
+        expectedManifestSha256: request.expectedManifestSha256,
+      })).digest("hex"),
+      manifestSha256: request.expectedManifestSha256,
+    });
+    await writeFile(operationStorePath, JSON.stringify(operationStore));
+
+    await apiServer.stop();
+    apiServer = await startApiServer({ port: 0, host: "0.0.0.0", servicesRoot, workspaceRoot });
+    const readback = await getJsonWithHeaders(
+      `${apiServer.url}/api/operator/operations/${encodeURIComponent(accepted.body.operation.id)}`,
+      remoteHeaders,
+    );
+    assert.equal(readback.status, 200);
+    assert.equal(readback.body.operation.id, accepted.body.operation.id);
+    assert.equal(readback.body.operation.status, "completed");
+    const unknownReadback = await getJsonWithHeaders(
+      `${apiServer.url}/api/operator/operations/${encodeURIComponent(recoveryOperationId)}`,
+      remoteHeaders,
+    );
+    assert.equal(unknownReadback.status, 200);
+    assert.equal(unknownReadback.body.operation.status, "unknown");
+    const reconciled = await postJsonWithHeaders(`${apiServer.url}/api/runtime/actions/importService`, {
+      ...request,
+      idempotencyKey: recoveryKey,
+    }, remoteHeaders);
+    assert.equal(reconciled.status, 200);
+    assert.equal(reconciled.body.operation.status, "completed");
+    assert.equal(reconciled.body.operation.replayed, true);
+
+    const ambiguousKey = "remote-registration-0004";
+    const ambiguousOperationId = "sro_" + createHash("sha256")
+      .update(`${accepted.body.operation.actorId}\u0000${ambiguousKey}`)
+      .digest("hex")
+      .slice(0, 32);
+    const changedManifestBytes = "user changed this manifest";
+    await writeFile(path.join(servicesRoot, manifest.id, "service.json"), changedManifestBytes);
+    const ambiguousStore = JSON.parse(await readFile(operationStorePath, "utf8"));
+    ambiguousStore.operations.push({
+      id: ambiguousOperationId,
+      kind: "service_registration",
+      status: "unknown",
+      actorId: accepted.body.operation.actorId,
+      repo: request.repo,
+      tag: request.tag,
+      sourceCommit: request.expectedCommit,
+      serviceId: manifest.id,
+      version: null,
+      createdAt: new Date().toISOString(),
+      completedAt: null,
+      errorCode: "registration_interrupted",
+      requestFingerprint: createHash("sha256").update(JSON.stringify({
+        repo: request.repo,
+        tag: request.tag,
+        expectedCommit: request.expectedCommit,
+        expectedManifestSha256: request.expectedManifestSha256,
+      })).digest("hex"),
+      manifestSha256: request.expectedManifestSha256,
+    });
+    await writeFile(operationStorePath, JSON.stringify(ambiguousStore));
+    const unresolved = await postJsonWithHeaders(`${apiServer.url}/api/runtime/actions/importService`, {
+      ...request,
+      idempotencyKey: ambiguousKey,
+    }, remoteHeaders);
+    assert.equal(unresolved.status, 200);
+    assert.equal(unresolved.body.operation.status, "unknown");
+    assert.equal(await readFile(path.join(servicesRoot, manifest.id, "service.json"), "utf8"), changedManifestBytes);
+    assert.doesNotMatch(JSON.stringify(readback.body), /client-only|service\.json.*[A-Z]:/i);
+
+  } finally {
+    await apiServer.stop();
+    globalThis.fetch = originalFetch;
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true });
+    if (previousToken === undefined) delete process.env.SERVICE_LASSO_LOCAL_ADMIN_TOKEN;
+    else process.env.SERVICE_LASSO_LOCAL_ADMIN_TOKEN = previousToken;
+    if (previousTrustProxy === undefined) delete process.env.SERVICE_LASSO_TRUST_PROXY_HEADERS;
+    else process.env.SERVICE_LASSO_TRUST_PROXY_HEADERS = previousTrustProxy;
+    if (previousGitHubToken === undefined) delete process.env.GITHUB_TOKEN;
+    else process.env.GITHUB_TOKEN = previousGitHubToken;
+    if (previousGitHubApiBaseUrl === undefined) delete process.env.SERVICE_LASSO_GITHUB_API_BASE_URL;
+    else process.env.SERVICE_LASSO_GITHUB_API_BASE_URL = previousGitHubApiBaseUrl;
   }
 });
 
