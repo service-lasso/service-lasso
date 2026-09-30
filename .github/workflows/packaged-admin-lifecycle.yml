@@ -11,7 +11,9 @@ on:
       - services/@secretsbroker/service.json
       - src/runtime/**
       - src/server/**
+      - scripts/consume-admin-trusted-unlock-receipt.mjs
       - tests/fixtures/real-admin-browser-runner.mjs
+      - tests/consume-admin-trusted-unlock-receipt.test.js
   push:
     branches:
       - develop
@@ -21,7 +23,9 @@ on:
       - services/@secretsbroker/service.json
       - src/runtime/**
       - src/server/**
+      - scripts/consume-admin-trusted-unlock-receipt.mjs
       - tests/fixtures/real-admin-browser-runner.mjs
+      - tests/consume-admin-trusted-unlock-receipt.test.js
 
 concurrency:
   group: packaged-admin-lifecycle-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}

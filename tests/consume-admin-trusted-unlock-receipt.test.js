@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { classify, parseReceipt } from "../scripts/consume-admin-trusted-unlock-receipt.mjs";
+import { classify, consume, parseReceipt } from "../scripts/consume-admin-trusted-unlock-receipt.mjs";
 
 const valid = JSON.stringify({ schema: "service-admin.trusted-unlock-receipt.v1", status: "observed", present: true, verified: false, localRoot: false, loading: true, unavailable: false });
 
@@ -76,5 +76,96 @@ test("AC-4BY.2 records a signal without converting it into success", { skip: pro
     assert.deepEqual(result, { code: null, signal: "SIGTERM" });
     const receipt = JSON.parse(await readFile(output, "utf8"));
     assert.deepEqual(receipt, { schema: "service-lasso.admin-trusted-unlock-consumer.v1", outcome: "signal", exitCode: null, signal: "SIGTERM", trustedUnlock: { classification: "closed", receipt: JSON.parse(valid) } });
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("AC-4BY.2 bounds actual malformed, oversized, and continuing child streams without retaining output", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "admin-receipt-bounds-"));
+  try {
+    const fixture = path.join(root, "stream.mjs");
+    await writeFile(fixture, `
+      process.stderr.write(Buffer.from([0xc3, 0x28]));
+      process.stderr.write(Buffer.alloc(131072, 0x78));
+      setTimeout(() => process.stderr.write("private-continuation"), 5);
+      setTimeout(() => process.exit(7), 15);
+    `);
+    const result = await consume(process.execPath, [fixture], { timeoutMs: 1_000, pipeCloseTimeoutMs: 100 });
+    assert.notEqual(result.code, 0);
+    assert.equal(result.streamFailure, "malformed_utf8");
+    assert.deepEqual(result.trustedUnlock, { classification: "invalid" });
+    assert.doesNotMatch(JSON.stringify(result), /private-continuation/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("AC-4BY.2 closes an actual output flood and timeout through the direct child handle", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "admin-receipt-timeout-"));
+  try {
+    const flood = path.join(root, "flood.mjs");
+    await writeFile(flood, `
+      const bytes = Buffer.alloc(8192, 0x78);
+      for (let index = 0; index < 16; index += 1) process.stderr.write(bytes);
+      setTimeout(() => process.exit(7), 30);
+    `);
+    const flooded = await consume(process.execPath, [flood], { timeoutMs: 1_000, pipeCloseTimeoutMs: 100 });
+    assert.equal(flooded.streamFailure, "stream_budget_exceeded");
+
+    const stalled = path.join(root, "stalled.mjs");
+    await writeFile(stalled, `process.on("SIGTERM", () => {}); setInterval(() => {}, 1_000);`);
+    const started = Date.now();
+    const timedOut = await consume(process.execPath, [stalled], { timeoutMs: 25, pipeCloseTimeoutMs: 100 });
+    assert.ok(Date.now() - started < 1_000);
+    assert.equal(timedOut.streamFailure, "execution_timeout");
+    assert.equal(timedOut.executionFailure, "execution_timeout");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("AC-4BY.2 rejects an actual endless invalid flood and an inherited-pipe hang within its local bounds", { skip: process.platform === "win32" }, async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "admin-receipt-pipes-"));
+  try {
+    const retainedPipe = path.join(root, "retained-pipe.mjs");
+    await writeFile(retainedPipe, `
+      import { spawn } from "node:child_process";
+      const child = spawn(process.execPath, ["-e", "setTimeout(() => process.exit(0), 200)"], { stdio: "inherit" });
+      await new Promise((resolve) => child.once("spawn", resolve));
+      process.exit(7);
+    `);
+    const started = Date.now();
+    const hung = await consume(process.execPath, [retainedPipe], { timeoutMs: 1_000, pipeCloseTimeoutMs: 25 });
+    assert.ok(Date.now() - started < 500);
+    assert.equal(hung.code, 7);
+    assert.equal(hung.streamFailure, "pipe_hang");
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("AC-4BY.2 preserves actual child signal metadata while only propagating allowlisted signals", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "admin-receipt-signals-"));
+  try {
+    const consumer = fileURLToPath(new URL("../scripts/consume-admin-trusted-unlock-receipt.mjs", import.meta.url));
+    const run = async (signal, source = `process.kill(process.pid, ${JSON.stringify(signal)});`) => {
+      const fixture = path.join(root, `${signal}.mjs`), output = path.join(root, `${signal}.json`);
+      await writeFile(fixture, `process.stderr.write(${JSON.stringify(`${valid}\n`)}, () => { ${source} });`);
+      const child = spawn(process.execPath, [consumer, "--receipt", output, "--", process.execPath, fixture], { stdio: "ignore" });
+      const result = await new Promise((resolve, reject) => { child.once("error", reject); child.once("close", (code, childSignal) => resolve({ code, signal: childSignal })); });
+      return { result, receipt: JSON.parse(await readFile(output, "utf8")) };
+    };
+    const allowed = await run("SIGTERM");
+    if (process.platform === "win32") {
+      assert.notEqual(allowed.result.code, 0);
+      assert.equal(allowed.receipt.signal, null);
+      assert.equal(allowed.receipt.outcome, "nonzero_exit");
+    } else {
+      assert.equal(allowed.receipt.outcome, "signal");
+      assert.equal(allowed.receipt.signal, "SIGTERM");
+      assert.equal(allowed.result.signal, "SIGTERM");
+    }
+
+    for (const signal of ["SIGKILL", "SIGABRT"]) {
+      const unsafe = await run(signal, signal === "SIGABRT" ? "process.abort();" : `process.kill(process.pid, ${JSON.stringify(signal)});`);
+      assert.notEqual(unsafe.result.code, 0);
+      assert.equal(unsafe.result.signal, null);
+      assert.notEqual(unsafe.receipt.outcome, "success");
+      assert.notEqual(unsafe.receipt.signal, "SIGTERM");
+    }
   } finally { await rm(root, { recursive: true, force: true }); }
 });

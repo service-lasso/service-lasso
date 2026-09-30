@@ -2,11 +2,17 @@ import { spawn } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { once } from "node:events";
 
 export const SCHEMA = "service-admin.trusted-unlock-receipt.v1";
 const REQUIRED_KEYS = new Set(["schema", "status", "present", "verified", "localRoot", "loading", "unavailable"]);
 const MAX_RECORD_LENGTH = 256;
+const MAX_CHUNK_SLICE_BYTES = 8_192;
+const MAX_OBSERVED_BYTES = 65_536;
+const MAX_DISCARD_BYTES = 16_384;
+const COMMAND_TIMEOUT_MS = 120_000;
+const TERMINATION_GRACE_MS = 500;
+const PIPE_CLOSE_TIMEOUT_MS = 500;
+const PROPAGATED_SIGNALS = new Set(["SIGTERM", "SIGINT", "SIGHUP"]);
 
 function parseString(source, start) {
   if (source[start] !== '"') return null;
@@ -85,7 +91,9 @@ export function classify(lines) {
 function receiptObserver() {
   const decoder = new TextDecoder("utf-8", { fatal: true });
   let line = "", markerIndex = 0, sawSchema = false, oversized = false;
-  let seen = 0, duplicate = false, candidate = null, decodeFailed = false;
+  let seen = 0, duplicate = false, candidate = null, failure = null;
+  let observedBytes = 0, discardBytes = 0, disposed = false;
+  let ended = false, finalObservation = null;
   const complete = () => {
     if (sawSchema) {
       if (seen) duplicate = true;
@@ -108,15 +116,35 @@ function receiptObserver() {
   };
   return {
     write(chunk) {
-      if (decodeFailed) return;
-      try { acceptText(decoder.decode(chunk, { stream: true })); } catch { decodeFailed = true; }
+      if (!Buffer.isBuffer(chunk) || disposed) return;
+      if (failure) {
+        discardBytes += Math.min(chunk.length, MAX_DISCARD_BYTES - discardBytes);
+        if (discardBytes >= MAX_DISCARD_BYTES) disposed = true;
+        return;
+      }
+      if (observedBytes + chunk.length > MAX_OBSERVED_BYTES) {
+        failure = "stream_budget_exceeded";
+        discardBytes = Math.min(chunk.length, MAX_DISCARD_BYTES);
+        if (discardBytes >= MAX_DISCARD_BYTES) disposed = true;
+        return;
+      }
+      observedBytes += chunk.length;
+      try {
+        for (let offset = 0; offset < chunk.length; offset += MAX_CHUNK_SLICE_BYTES) {
+          acceptText(decoder.decode(chunk.subarray(offset, offset + MAX_CHUNK_SLICE_BYTES), { stream: true }));
+        }
+      } catch { failure = "malformed_utf8"; }
     },
+    shouldDispose() { return disposed; },
     end() {
-      if (!decodeFailed) {
-        try { acceptText(decoder.decode()); } catch { decodeFailed = true; }
+      if (ended) return finalObservation;
+      ended = true;
+      if (!failure) {
+        try { acceptText(decoder.decode()); } catch { failure = "malformed_utf8"; }
       }
       if (line || sawSchema) complete();
-      return { seen, duplicate, candidate, decodeFailed };
+      finalObservation = { seen, duplicate, candidate, failure };
+      return finalObservation;
     },
   };
 }
@@ -125,7 +153,7 @@ function classifyObservations(observations) {
   let seen = 0;
   let candidate = null;
   for (const observation of observations) {
-    if (observation.decodeFailed) return { classification: "invalid" };
+    if (observation.failure) return { classification: "invalid" };
     if (!observation.seen) continue;
     if (seen || observation.duplicate || !observation.candidate) return { classification: "invalid" };
     seen = 1;
@@ -139,15 +167,64 @@ export async function consume(command, args, options = {}) {
   const observers = [receiptObserver(), receiptObserver()];
   const streamClosed = [];
   for (const [stream, observer] of [[child.stdout, observers[0]], [child.stderr, observers[1]]]) {
-    stream.on("data", (chunk) => observer.write(chunk));
-    streamClosed.push(once(stream, "end").then(() => observer.end()));
+    const settled = new Promise((resolve) => {
+      let finished = false;
+      const finish = () => {
+        if (finished) return;
+        finished = true;
+        resolve(observer.end());
+      };
+      stream.once("end", finish);
+      stream.once("close", finish);
+      stream.once("error", finish);
+    });
+    stream.on("data", (chunk) => {
+      observer.write(chunk);
+      if (observer.shouldDispose() && !stream.destroyed) stream.destroy();
+    });
+    stream.on("error", () => {});
+    streamClosed.push({ stream, settled });
   }
-  const result = await new Promise((resolve, reject) => { child.once("error", reject); child.once("close", (code, signal) => resolve({ code, signal })); });
-  const observations = await Promise.all(streamClosed);
-  return { ...result, trustedUnlock: result.code === 0 && result.signal === null ? null : classifyObservations(observations) };
+  let timedOut = false;
+  const result = await new Promise((resolve) => {
+    let forceTimer = null;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      if (child.exitCode === null && child.signalCode === null) child.kill("SIGTERM");
+      forceTimer = setTimeout(() => {
+        if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+      }, TERMINATION_GRACE_MS);
+    }, options.timeoutMs ?? COMMAND_TIMEOUT_MS);
+    child.once("error", () => {
+      clearTimeout(timer);
+      clearTimeout(forceTimer);
+      resolve({ code: null, signal: null, executionFailure: "spawn_failed" });
+    });
+    child.once("exit", (code, signal) => {
+      clearTimeout(timer);
+      clearTimeout(forceTimer);
+      resolve({ code, signal, executionFailure: timedOut ? "execution_timeout" : null });
+    });
+  });
+  let pipeHang = false;
+  let pipeTimer;
+  const observations = await Promise.race([
+    Promise.all(streamClosed.map(({ settled }) => settled)),
+    new Promise((resolve) => {
+      pipeTimer = setTimeout(() => { pipeHang = true; resolve(null); }, options.pipeCloseTimeoutMs ?? PIPE_CLOSE_TIMEOUT_MS);
+    }),
+  ]);
+  clearTimeout(pipeTimer);
+  if (pipeHang) {
+    for (const { stream } of streamClosed) if (!stream.destroyed) stream.destroy();
+  }
+  const finalized = observations ?? streamClosed.map(({ stream }) => ({ seen: 0, duplicate: false, candidate: null, failure: stream.destroyed ? "pipe_hang" : null }));
+  const streamFailure = result.executionFailure ?? (pipeHang ? "pipe_hang" : finalized.find((observation) => observation.failure)?.failure ?? null);
+  return { ...result, trustedUnlock: result.code === 0 && result.signal === null && !streamFailure ? null : classifyObservations(finalized), streamFailure };
 }
 
 function outcomeFor(result) {
+  if (result.executionFailure || result.streamFailure) return "observation_failure";
   if (result.signal) return "signal";
   return result.code === 0 ? "success" : "nonzero_exit";
 }
@@ -157,8 +234,8 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
   if (receipt < 0 || separator < 0 || !process.argv[receipt + 1] || !process.argv[separator + 1]) process.exitCode = 2;
   else {
     const result = await consume(process.argv[separator + 1], process.argv.slice(separator + 2), { cwd: process.cwd(), env: process.env });
-    await writeFile(process.argv[receipt + 1], `${JSON.stringify({ schema: "service-lasso.admin-trusted-unlock-consumer.v1", outcome: outcomeFor(result), exitCode: result.code, signal: result.signal, trustedUnlock: result.trustedUnlock })}\n`);
-    if (result.signal && process.platform !== "win32") process.kill(process.pid, result.signal);
-    else process.exitCode = result.code ?? 1;
+    await writeFile(process.argv[receipt + 1], `${JSON.stringify({ schema: "service-lasso.admin-trusted-unlock-consumer.v1", outcome: outcomeFor(result), exitCode: result.code, signal: result.signal, trustedUnlock: result.trustedUnlock, ...(result.streamFailure ? { streamFailure: result.streamFailure } : {}) })}\n`);
+    if (!result.streamFailure && result.signal && process.platform !== "win32" && PROPAGATED_SIGNALS.has(result.signal)) process.kill(process.pid, result.signal);
+    else process.exitCode = result.code === 0 && !result.signal && !result.executionFailure ? 0 : (result.signal || result.executionFailure ? 1 : result.code ?? 1);
   }
 }
