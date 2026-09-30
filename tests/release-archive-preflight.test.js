@@ -20,7 +20,7 @@ function zip(entries, { descriptor = false } = {}) {
   const locals = []; const central = []; let offset = 0;
   for (const entry of entries) {
     const name = Buffer.from(entry.name, "utf8"); const content = Buffer.from(entry.content ?? "");
-    const method = entry.method ?? 0; const payload = method === 8 ? deflateRawSync(content) : content;
+    const method = entry.method ?? 0; const payload = entry.compressedPayload ?? (method === 8 ? deflateRawSync(content) : content);
     const flags = 0x0800 | (descriptor ? 8 : 0); const crc = crc32(content); const directory = entry.name.endsWith("/");
     const local = Buffer.concat([Buffer.from([0x50, 0x4b, 3, 4]), u16(20), u16(flags), u16(method), u16(0), u16(0), u32(descriptor ? 0 : crc), u32(descriptor ? 0 : payload.length), u32(descriptor ? 0 : content.length), u16(name.length), u16(0), name, payload, ...(descriptor ? [Buffer.from([0x50, 0x4b, 7, 8]), u32(crc), u32(payload.length), u32(content.length)] : [])]);
     locals.push(local);
@@ -96,6 +96,18 @@ test("ZIP has one portable filesystem namespace and full default Unicode folding
 test("ZIP bounds are enforced before a caller can observe parser detail", () => {
   unsafe(preflightReleaseArchive({ bytes: zip([{ name: "one", content: "1" }, { name: "two", content: "2" }]), archiveType: "zip", limits: { maxEntries: 1 } }));
   unsafe(preflightReleaseArchive({ bytes: zip([{ name: "large", content: "0".repeat(4096), method: 8 }]), archiveType: "zip", limits: { maxCompressionRatio: 1 } }));
+});
+
+test("ZIP method-8 payloads consume every declared compressed byte", () => {
+  const content = Buffer.from("x");
+  const paddedFinalBlock = Buffer.from([0xab, 0x00, 0x00]);
+  assert.equal(preflightReleaseArchive({ bytes: zip([{ name: "padded.txt", content, method: 8, compressedPayload: paddedFinalBlock }]), archiveType: "zip" }).ok, true, "a final block may leave unused bits in its terminal byte");
+
+  const complete = deflateRawSync(content);
+  for (const descriptor of [false, true]) {
+    unsafe(preflightReleaseArchive({ bytes: zip([{ name: "trailing.txt", content, method: 8, compressedPayload: Buffer.concat([complete, Buffer.from([0xde, 0xad, 0xbe, 0xef])]) }], { descriptor }), archiveType: "zip" }));
+    unsafe(preflightReleaseArchive({ bytes: zip([{ name: "truncated.txt", content, method: 8, compressedPayload: complete.subarray(0, -1) }], { descriptor }), archiveType: "zip" }));
+  }
 });
 
 test("gzip TAR validates USTAR framing and returns only inventory", () => {

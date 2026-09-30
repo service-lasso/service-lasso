@@ -195,6 +195,16 @@ function inflateAndDiscard(payload: Uint8Array, size: number, expectedCrc: numbe
   });
   try {
     for (let offset = 0; offset < payload.length; offset += 16 * 1024) inflater.push(payload.subarray(offset, Math.min(payload.length, offset + 16 * 1024)), offset + 16 * 1024 >= payload.length);
+    // fflate's public streaming API deliberately does not expose consumed input.
+    // Its streaming state retains the final partially-consumed byte in `p`, with
+    // `s.p` giving its consumed bit count; every following byte is unconsumed.
+    // This is the library's own post-push compaction invariant (0.8.3), so use it
+    // only to close the raw-DEFLATE framing contract after its public decoder has
+    // already verified the stream and delivered bounded output chunks.
+    const stream = inflater as unknown as { p: Uint8Array; s: { p?: number; f?: number; l?: unknown } };
+    const bitPosition = stream.s.p;
+    if (stream.s.f !== 1 || stream.s.l != null || !Number.isInteger(bitPosition)
+      || stream.p.length !== 0 && (stream.p.length !== 1 || bitPosition! < 1 || bitPosition! > 7)) fail();
   } catch { fail(); }
 }
 
