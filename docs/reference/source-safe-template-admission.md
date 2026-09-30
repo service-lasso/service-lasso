@@ -51,8 +51,12 @@ the following:
 
 1. a stable `templateId`, immutable full `templateCommit`, semantic
    `templateVersion`, and SHA-256 `contractDigest`;
-2. a closed file inventory with per-file digest and mode, normalized archive
-   path rules, and explicit maximum file/total-byte limits;
+2. a closed file inventory with per-file digest and final materialized mode,
+   normalized archive path rules, and explicit maximum file/total-byte limits.
+   Every allowed-difference path also has an exact catalog path-policy entry
+   with its final mode. The only v1 final modes are non-executable `0644` and
+   executable `0755`; a `0755` entry additionally fixes immutable bytes and
+   digest in the catalog;
 3. an allowlist of each permitted authoring difference: its exact path, type,
    size bound, schema/version, whether it is replaceable, and any value-level
    constraints;
@@ -73,6 +77,13 @@ exist, all source-admission requests fail with `template_contract_unrecognized`
 before a stage is created. A client may create a local project in any
 caller-selected directory, but that local path is never an API field, Audit
 field, operation field, or diagnostic.
+
+The Core catalog approval is a server-side decision over that published template
+tuple and its closed per-path policy. Candidate provenance only proves the
+candidate's asserted derivation under that already-approved policy; it cannot
+select, widen, replace, or become a Core catalog entry. In particular, a
+derived-repository commit in `template-provenance.json` is candidate evidence,
+not a template commit or catalog-approval identity.
 
 ## Closed transport grammar
 
@@ -134,10 +145,14 @@ must name `SLTP-ZIP-1` or a later explicitly versioned replacement.
   this validation. This prevents absolute, empty, dot/traversal,
   backslash-separated, case-colliding, device-like, control, and Unicode
   normalization-colliding paths.
-- Every entry has Unix mode exactly `0644` and external attributes identifying
-  a regular file. Directories, symlinks, hardlinks, devices, FIFOs, sockets,
-  DOS directories, and executable encodings are rejected. Timestamp and host
-  metadata are covered by the raw hash but excluded from normalized identity.
+- Every transport entry has Unix mode exactly `0644` and external attributes
+  identifying a regular file. This is the ZIP transport mode only: it is not
+  the final materialized mode. Directories, symlinks, hardlinks, devices,
+  FIFOs, sockets, DOS directories, and executable encodings are rejected.
+  Timestamp and host metadata are covered by the raw hash but excluded from
+  normalized identity. The recognized immutable template catalog supplies the
+  final mode for every admitted path; it may authorize an executable final mode
+  such as `0755` only for an exact catalog entry.
 - An entry expands to at most `8,388,608` bytes; total expanded bytes are at
   most `67,108,864`. A nonempty compressed payload expands by at most 100x; a
   zero-length payload has both sizes zero. Core streams output to a quota meter
@@ -159,7 +174,7 @@ each entry, append exact UTF-8 records:
 
 ```
 path=<decimal UTF-8 byte length>:<path>\n
-mode=4:0644\n
+transportMode=4:0644\n
 bytes=<decimal ASCII length>:<base-10 uncompressed byte count>\n
 sha256=64:<per-file lowercase SHA-256>\n
 ```
@@ -168,7 +183,36 @@ sha256=64:<per-file lowercase SHA-256>\n
 leading zero. Per-file digest comes from the bounded expanded-byte stream; Core
 does not serialize JSON to obtain this digest. This normalizes ZIP timestamps,
 compression representation, header order, and JSON property order while binding
-each admitted path, mode, byte count, and file byte.
+each admitted path, transport mode, byte count, and file byte.
+
+`materializationDigest` is SHA-256 of `SLTP-MATERIALIZATION-1`: literal UTF-8
+`SLTP-MATERIALIZATION-1\\n`, followed in exactly this order by the recognized
+source-catalog identity records `templateId`, `templateCommit`,
+`templateVersion`, and `contractDigest`, each as
+`<key>=<decimal UTF-8 byte length>:<value>\\n`. It then contains one ordered
+record group for every admitted path. Each path record uses the same length
+framing; each entry group is exactly:
+
+```
+path=<decimal UTF-8 byte length>:<path>\n
+finalMode=4:<catalog-authorized four-octal-digit mode>\n
+bytes=<decimal ASCII length>:<base-10 uncompressed byte count>\n
+sha256=64:<per-file lowercase SHA-256>\n
+```
+
+In every digest grammar in this document, `\\n` denotes exactly one byte `0x0A`,
+not a two-character escape or a platform newline. The byte stream has no BOM,
+CRLF conversion, separators, padding, or implicit final record. `decimal` has
+the grammar defined above; each `path` is the already-validated UTF-8 path
+octets, and each mode/digest/byte-count value has the exact ASCII spelling shown
+in its record. The path groups are ordered by validated ASCII path and the
+digest includes the entire inventory, with no optional, synthetic, or omitted
+entry. `finalMode` is exactly `0644` or `0755` and is the mode that the
+materializer must apply, not the ZIP transport mode: every ZIP entry remains
+`0644`, while only a catalog-authorized immutable executable payload can
+therefore be materialized as `0755`. Core derives every final mode from the
+recognized source catalog during preflight and rederives it during commit and
+recovery; it never trusts an archive mode or a client-provided final mode.
 
 `manifestSha256` is SHA-256 over the exact expanded bytes of the contract's
 designated manifest entry (`service.json`). JSON parsing validates the schema,
@@ -189,6 +233,7 @@ version
 archiveSha256
 stagedDigest
 manifestSha256
+materializationDigest
 effectSet
 ```
 
@@ -205,8 +250,8 @@ algorithms.
 | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `POST /api/service-source-admission/stages`                          | Request: `{ "template": { "templateId", "templateCommit", "templateVersion", "contractDigest" }, "declared": { "serviceId", "version", "archiveSha256", "archiveBytes", "archiveEntries", "manifestSha256" } }`. Success `201`: `{ "stage": { "id", "expiresAt", "maxBytes", "maxEntries" } }`.                                                                                | Requires `service:configure`. Creates an actor-scoped `sas_` reservation. `templateCommit` is 40 lowercase hex; `contractDigest`, `archiveSha256`, and `manifestSha256` are 64 lowercase hex; `serviceId` uses the existing manifest ID grammar; `version` is a bounded declared manifest version. `archiveBytes` is `1..10_485_760`; `archiveEntries` is `1..512`.                                  |
 | `PUT /api/service-source-admission/stages/{stageId}/content`         | Body is one fixed-length `application/vnd.service-lasso.template-project+zip` stream under the upload HTTP grammar. Success `204`.                                                                                                                                                                                                                                             | Actor-scoped opaque `sas_` stage only; no path, URL, token, manifest, or filename parameter. Core verifies exact `archiveSha256` and the complete `SLTP-ZIP-1` profile while streaming to a private stage. A stage is write-once and expires after 15 minutes.                                                                                                                                       |
-| `POST /api/service-source-admission/preflights`                      | Request: `{ "stageId", "archiveSha256" }`. Success `201`: `{ "preflight": { "id", "candidateRevision", "serviceId", "template": { "templateId", "templateCommit", "templateVersion", "contractDigest" }, "stagedDigest", "expiresAt", "confirmation": { "id", "expiresAt" } } }`.                                                                                              | Requires `service:configure`. Parses the staged archive with the recognized template contract, validates the declared manifest digest/schema, computes the normalized staged digest and `candidateRevision`, and issues a server-side single-use confirmation bound to actor, stage, candidate revision, target service ID, template identity, and no-lifecycle effect set. It has no import effect. |
-| `POST /api/service-source-admission/preflights/{preflightId}/commit` | Request: `{ "confirmationId", "idempotencyKey" }`. New durable admission: `202` with `{ "operation": { "id", "kind": "source_admission", "status": "accepted", "replayed": false, "serviceId", "template", "candidateRevision", "stagedDigest", "createdAt", "completedAt": null, "errorCode": null } }`. Exact replay: `200` with the stored projection and `replayed: true`. | Requires `service:configure`, a valid server confirmation, and a unique opaque 8–128-character idempotency key matching `^[A-Za-z0-9][A-Za-z0-9._-]{7,127}$`. The only durable product mutation is atomic direct-child materialization of the complete validated inventory.                                                                                                                                                  |
+| `POST /api/service-source-admission/preflights`                      | Request: `{ "stageId", "archiveSha256" }`. Success `201`: `{ "preflight": { "id", "candidateRevision", "serviceId", "template": { "templateId", "templateCommit", "templateVersion", "contractDigest" }, "stagedDigest", "materializationDigest", "expiresAt", "confirmation": { "id", "expiresAt" } } }`.                                                                              | Requires `service:configure`. Parses the staged archive with the recognized template contract, validates the declared manifest digest/schema, computes the normalized staged digest, canonical complete materialization digest, and `candidateRevision`, and issues a server-side single-use confirmation bound to actor, stage, candidate revision, materialization digest, target service ID, template identity, and no-lifecycle effect set. It has no import effect. |
+| `POST /api/service-source-admission/preflights/{preflightId}/commit` | Request: `{ "confirmationId", "idempotencyKey" }`. New durable admission: `202` with `{ "operation": { "id", "kind": "source_admission", "status": "accepted", "replayed": false, "serviceId", "template", "candidateRevision", "stagedDigest", "materializationDigest", "inventoryCount", "createdAt", "completedAt": null, "errorCode": null } }`. Exact replay: `200` with the stored projection and `replayed: true`. | Requires `service:configure`, a valid server confirmation, and a unique opaque 8–128-character idempotency key matching `^[A-Za-z0-9][A-Za-z0-9._-]{7,127}$`. The only durable product mutation is atomic direct-child materialization of the complete validated inventory.                                                                                                                                                  |
 | `GET /api/service-source-admission/operations/{operationId}`         | Success `200` returns the stored safe operation projection, including `accepted` and every terminal status.                                                                                                                                                                                                                                                                    | Actor-scoped readback only. Unknown, foreign, expired, or malformed IDs return the same `404 operation_not_found`.                                                                                                                                                                                                                                                                                   |
 
 The stage upload credential is the authenticated transport session; the API must
@@ -227,16 +272,20 @@ Core validates the archive before preflight completion in this order:
 5. allowed-difference paths, schemas, value constraints, and aggregate limits;
 6. the closed `service.json` schema, declared `serviceId`, `version`, and
    manifest digest; and
-7. provenance record and the template contract's repository/template-origin
+7. the required `config/example.env` and `template-provenance.json` entries,
+   their exact path-policy/digest-or-allowed-difference rule, and every
+   immutable script or executable catalog payload byte/digest; and
+8. provenance record and the template contract's repository/template-origin
    rules.
 
 Preflight has no service-root effect. It may retain the bounded private stage
 until expiry, but it does not create a target directory or a durable admitted
 project. Commit constructs the fingerprint-bound capsule only from the already
-validated staged bytes, persists it with the `accepted` record, and rechecks its
-complete inventory before the first filesystem write. A stage, preflight, or
-capsule from another actor, service ID, template tuple, candidate revision, or
-fingerprint is unusable.
+validated staged bytes, persists it with the `accepted` record, and recomputes
+the same canonical `materializationDigest` from its complete inventory and
+current recognized source catalog before the first filesystem write. A stage,
+preflight, or capsule from another actor, service ID, template tuple, candidate
+revision, materialization digest, or fingerprint is unusable.
 
 Executable files, command lines, shell/PowerShell/Node scripts, source code,
 workflow files, action/setup/update hooks, artifact source/checksum data,
@@ -263,15 +312,18 @@ adapter proves all of those bindings and single-use storage semantics.
 
 Before creating the service directory, Core durably writes an `accepted`
 operation. `accepted` is the sole nonterminal source-admission status: the
-actor, confirmation, `admissionFingerprint`, idempotency identity, intended
-direct-child mutation, and a private fingerprint-bound materialization capsule
-are durable, but no target write is claimed. The capsule contains the exact
-expanded bytes and validated path, byte count, digest, and catalog-authorized
-mode for **every** admitted inventory entry. It is private implementation
-state, encrypted at rest where Core's storage supports encryption, accessible
-only to the admission worker and reconciliation, and deleted only after a
-completed durable Audit outcome. It is never represented in an operation,
-Audit, HTTP response, CLI output, or diagnostic. The only states are `accepted`
+actor, confirmation, `admissionFingerprint`, `materializationDigest`,
+idempotency identity, intended direct-child mutation, and a private
+fingerprint-bound materialization capsule are durable, but no target write is
+claimed. The capsule contains the exact expanded bytes and the canonical
+complete materialization inventory: source-catalog identity, validated path,
+final catalog-authorized mode, byte count, and digest for **every** admitted
+entry. It is private implementation state, encrypted at rest where Core's
+storage supports encryption, accessible only to the admission worker and
+reconciliation, and deleted only after a completed durable Audit outcome. The
+capsule bytes are never represented in an operation, Audit, HTTP response, CLI
+output, or diagnostic; the safe `materializationDigest` and inventory count are
+represented consistently. The only states are `accepted`
 (nonterminal), then terminal `completed` (complete inventory and exclusive
 discovery prove one admission), `conflict` (collision proven and no admission),
 `denied` (post-acceptance revalidation denied before mutation), `failed` (known
@@ -285,7 +337,7 @@ segment without following links or reparse points; it rejects a substituted,
 redirected, existing, or non-directory root/target. It creates a private
 same-volume direct-child staging directory with exclusive creation, writes each
 capsule entry through no-follow directory handles, verifies its byte count and
-SHA-256 before close, applies only the catalog-authorized mode, fsyncs files and
+SHA-256 before close, applies only the final catalog-authorized mode, fsyncs files and
 directories where supported, then atomically renames that complete staging
 directory to the previously absent service-ID child. It never creates parents
 outside that child, follows a symlink/reparse point, overwrites an existing
@@ -295,16 +347,17 @@ catalog-inventory byte/mode entry; it remains non-executed by admission.
 
 The durable operation record contains only the operation ID, actor ID, stable
 service/template/version identifiers, `admissionFingerprint`/candidate
-revision, safe inventory/capsule digest and count, timestamps, status, and safe
-error code. It stores an HMAC of the idempotency key under a server-held key
+revision, `stagedDigest`, `materializationDigest`, inventory count, timestamps,
+status, and safe error code. It stores an HMAC of the idempotency key under a server-held key
 only for lookup. The private capsule is referenced by an opaque internal handle
 and is not an operation record. Neither record nor Audit stores raw keys,
 confirmations, archives, manifests, paths, URLs, config, logs, credentials, or
 secrets.
 
-Confirmation binds the same `admissionFingerprint`; commit recomputes it before
-consuming confirmation. Idempotency is actor plus key-HMAC: the same actor,
-key, and fingerprint returns the stored operation with `200` and
+Confirmation binds the same `admissionFingerprint` and
+`materializationDigest`; commit recomputes both before consuming confirmation.
+Idempotency is actor plus key-HMAC: the same actor, key, fingerprint, and
+materialization digest returns the stored operation with `200` and
 `replayed: true`, whether `accepted` or terminal. It never creates another
 operation or repeats an import. A changed fingerprint returns `409
 idempotency_key_reused`. Concurrent callers receive `409 idempotency_in_progress`
@@ -312,16 +365,23 @@ only until the first durable `accepted` record is readable, after which they
 receive the exact replay. A different actor cannot read or replay the record.
 
 After a crash or write uncertainty, Core reconciles only an `accepted` record.
-It reopens the trusted root and target with the same no-follow containment
-checks, discovers exactly the recorded service ID, and verifies every target
-file against the capsule's complete path/mode/byte/digest inventory and the
-recorded `stagedDigest`; only then may it record `completed`. If no target was
-ever created and the intact fingerprint-bound capsule is available, Core may
-resume the one atomic materialization under the original operation; it does not
-create a second operation. Any partial staging state is private recovery state
-and may be discarded only after no-follow containment and target absence are
-proved. Any absent-with-uncertain-write, different, redirected, symlinked,
-duplicate, capsule-mismatched, or undiscoverable target becomes `unknown` with
+It first reopens the recognized source catalog and recomputes the complete
+canonical `materializationDigest` from the capsule's full inventory, including
+every path, final mode, byte count, file digest, and source-catalog identity;
+that value must equal the stored operation, the capsule, the confirmation
+binding, and the digest input to the recorded fingerprint. It then reopens the
+trusted root and target with the same no-follow containment checks, discovers
+exactly the recorded service ID, and independently recomputes that complete
+materialization digest from every target file before it may make any completed
+publication, Audit outcome, response claim, or stored status transition to
+`completed`. If no target was ever created and the intact fingerprint-bound
+capsule is available, Core may resume the one atomic materialization under the
+original operation only after the same full recomputation and verification; it
+does not create a second operation. Any partial staging state is private
+recovery state and may be discarded only after no-follow containment and target
+absence are proved. Any absent-with-uncertain-write, different, redirected,
+symlinked, duplicate, catalog-identity-mismatched, materialization-digest-
+mismatched, or undiscoverable target becomes `unknown` with
 `admission_reconciliation_required`; Core never overwrites a target, deletes
 retained content, or infers adoption.
 
@@ -356,7 +416,8 @@ Every allowed, denied, parser-rejected, confirmation-rejected, failed,
 replayed, and reconciled attempt appends one durable safe Audit event. Its
 metadata is limited to correlation ID, action, actor/client identity,
 stage/preflight/operation opaque IDs, template tuple, service ID,
-`admissionFingerprint`, candidate/staged digests, outcome, replay flag, and
+`admissionFingerprint`, candidate/staged/materialization digests, inventory
+count, outcome, replay flag, and
 stable error code. `audit_unavailable` explicitly claims no successful required
 Audit append; its durable safe operation record is recovery evidence, not an
 Audit substitute.
@@ -370,7 +431,7 @@ Implementation must add a contract matrix covering:
 | schema and archive abuse         | Unknown JSON fields, oversized/deep JSON; duplicate/missing upload headers, invalid decimal length, transfer/content coding, trailers, wrong media type; each forbidden ZIP method/flag, descriptor, ZIP64, local/central conflict, UTF-8/path, offset, CRC, count, quota, and no-extract condition; digest mismatch; expired/write-twice stage. |
 | template and provenance variance | Unknown tuple, altered commit/contract digest, missing/changed required file, forbidden executable/command/source/workflow/hook/provider/secret/URL edit, allowed scalar edit, malformed provenance.                                                                                                                                             |
 | authority and confirmation       | unauthenticated, ungranted, cross-actor stage/preflight/operation access, expiry, reuse, and every actor/target/digest/template/candidate binding alteration.                                                                                                                                                                                    |
-| durable outcomes                 | `202 accepted` readback, exact nonterminal/terminal replay, altered-key retry, fingerprint-bound capsule construction, crash before/during/after staging or atomic rename, restart reconciliation of every file/mode/digest, target collision, symlink/reparse/redirection containment denial, and the `503` Audit-outage versus `200` stored-operation distinction. |
+| durable outcomes                 | `202 accepted` readback, exact nonterminal/terminal replay, altered-key retry, fingerprint-bound capsule construction, transport-`0644` versus catalog-final-mode (including catalog-authorized `0755`) distinction, crash before/during/after staging or atomic rename, and restart recomputation of the full source-catalog identity/path/final-mode/byte/digest materialization digest before any completed publication; target collision, symlink/reparse/redirection containment denial, and the `503` Audit-outage versus `200` stored-operation distinction. |
 | output safety                    | Audit, operation, HTTP errors, CLI stdout/stderr, and retained diagnostic artifacts have no raw archive/manifest/path/config/log/token/credential/secret material; capsule access and cleanup are proved without exposing its bytes.                                                                                                         |
 | distribution                     | Exact-head Core CI plus a fresh packaged Core and released external CLI on Windows, Linux, and macOS; direct remote runtime proof remains distinct from mocked transport tests.                                                                                                                                                                  |
 
