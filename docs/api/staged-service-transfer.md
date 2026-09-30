@@ -6,6 +6,8 @@ This protocol does **not** admit a locally authored template project. Such a pro
 
 ## Constants, transport, and grammars
 
+The parser's Windows-alias rule is a closed portability grammar rather than a query of the receiving host. After NFC and version-pinned Unicode Default Full Case Folding, it evaluates every component in a canonical parent together. For a long component, the alias stem removes all periods before the final period; the final extension remains the text after that final period. Its first generated alias uses the first six Unicode code points of that stem, `~1`, and the first three code points of the extension. A literal short-form sibling equal to that first alias is unsafe, and remaining generated aliases are allocated deterministically over the full sibling set. Therefore `pkg/foo.bar.long` and `pkg/foobar~1.lon` are unsafe in either archive order, while `pkg/foo.bar.long` with `pkg/foo.ba~1.lon`, or the former pair in distinct canonical parents, is valid. This retains portable Unicode components and does not assume ASCII-only input, reject literal tildes wholesale, or claim that a particular host has generated an on-disk alias.
+
 JSON bodies reject unknown fields. A public error is exactly `{ "code": "<stable-code>", "message": "<safe text>" }`. Errors, status, operations, Audit, logs, and CLI diagnostics omit paths, URLs, headers, raw bytes/manifests, parser detail, credentials, tokens, and secrets. Tokens are accepted only in their dedicated request headers. The sole body exception is an issuance response: it carries the just-issued opaque credential once and is never returned by GET, replay, error, Audit, operation, or any later response.
 
 | Limit | Value |
