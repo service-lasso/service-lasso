@@ -139,12 +139,15 @@ interface ManagedProcessRecord {
   knownTreeMembers: ProcessFingerprint[];
   verifiedMembersOnly?: boolean;
   terminalWindowsCommandPartialCopy?: boolean;
+  terminalWindowsFinalizerBlocked?: boolean;
   treeMonitorPromise: Promise<void>;
   treeMonitorAbortController: AbortController;
   treeTerminationPromise: Promise<ProcessTreeTerminationResult> | null;
   stopDeadlineMs: number | null;
   exitPromise: Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }>;
   finalizePromise: Promise<void>;
+  lifecycleCompletionPromise: Promise<void> | null;
+  completeLifecycle: ((outcome: { exitCode: number | null; signal: NodeJS.Signals | null }) => Promise<void>) | null;
 }
 
 interface AdoptedProcessRecord {
@@ -181,6 +184,13 @@ export class ManagedProcessFinalizationError extends Error {
     )).join("; ")}.`);
     this.name = "ManagedProcessFinalizationError";
     this.failures = failures;
+  }
+}
+
+class TerminalManagedProcessFinalizationError extends Error {
+  constructor() {
+    super("Managed process finalization requires a new Windows inspection episode.");
+    this.name = "TerminalManagedProcessFinalizationError";
   }
 }
 
@@ -1404,10 +1414,22 @@ async function terminateManagedProcessTree(
     const existing = record.treeTerminationPromise;
     if (existing) {
       try {
-        return await withProcessControlDeadline(
+        const result = await withProcessControlDeadline(
           async () => await existing,
           { deadlineMs },
         );
+        if (!newWindowsInspectionEpisode) {
+          return result;
+        }
+        // A prior automatic root-exit finalizer may have completed control
+        // under its terminal episode but then failed closed before lifecycle
+        // completion. A later explicit action must not reuse that result as
+        // its receipt: clear only the settled shared attempt and create one
+        // fresh bounded inspection episode below.
+        if (record.treeTerminationPromise === existing) {
+          record.treeTerminationPromise = null;
+        }
+        continue;
       } catch (error) {
         if (record.treeTerminationPromise === existing) {
           record.treeTerminationPromise = null;
@@ -1445,6 +1467,21 @@ async function terminateManagedProcessTree(
             record.verifiedMembersOnly ||= snapshot.verifiedMembersOnly;
             record.knownTreeMembers = snapshot.members;
             dependencies.inspectProcess = snapshot.inspectProcess;
+          } else if (
+            process.platform === "win32" &&
+            newWindowsInspectionEpisode &&
+            record.rootIdentity
+          ) {
+            // A terminal automatic episode can retain no descendants at all
+            // when the managed wrapper has already exited. The later explicit
+            // action still needs its own bounded tree receipt; otherwise it
+            // would consume the blocked finalizer from a handle exit alone.
+            const inspection = await managedWindowsTreeInspector(record.rootIdentity, { deadlineMs, signal });
+            if (rootExitObserved && inspection.rootStatus !== "exited") {
+              throw new Error("Fresh Windows tree receipt did not observe the managed root exit.");
+            }
+            record.verifiedMembersOnly ||= inspection.verifiedMembersOnly;
+            record.knownTreeMembers = inspection.members;
           }
           return await managedProcessTreeTerminator(
             managedProcessTreeTarget(record, rootExitObserved),
@@ -1986,6 +2023,8 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
     stopDeadlineMs: null,
     exitPromise,
     finalizePromise: Promise.resolve(),
+    lifecycleCompletionPromise: null,
+    completeLifecycle: null,
   };
   attachRuntimeLogCapture(record);
 
@@ -1998,6 +2037,52 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
     managedProcesses.set(serviceId, record);
     record.treeMonitorPromise = managedProcessTreeMonitor(record).catch(() => undefined);
     const logFinalizePromise = record.finalizePromise;
+    const completeLifecycle = async ({ exitCode, signal }: { exitCode: number | null; signal: NodeJS.Signals | null }): Promise<void> => {
+      const existing = record.lifecycleCompletionPromise;
+      if (existing) {
+        return await existing;
+      }
+      const completion = (async () => {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        record.exitCode = exitCode;
+        record.exitSignal = signal;
+
+        const finalizeLifecycle = async () => {
+          if (record.workspaceRoot) {
+            await transitionProcessOwnership(
+              record.workspaceRoot,
+              "service",
+              serviceId,
+              "stopped",
+              "not_running",
+              child.pid,
+            );
+          }
+
+          const current = managedProcesses.get(serviceId);
+          if (current?.child === child) {
+            managedProcesses.delete(serviceId);
+          }
+
+          if (onExit) {
+            await onExit({
+              service,
+              exitCode,
+              signal,
+              wasStopping: record.stopping,
+            });
+          }
+        };
+        if (record.workspaceRoot) {
+          await withSerializedWorkspaceFinalization(record.workspaceRoot, finalizeLifecycle);
+        } else {
+          await finalizeLifecycle();
+        }
+      })();
+      record.lifecycleCompletionPromise = completion;
+      return await completion;
+    };
+    record.completeLifecycle = completeLifecycle;
     const lifecycleFinalizePromise = exitPromise.then(async ({ exitCode, signal }) => {
       const finalizationDeadlineMs = record.stopDeadlineMs !== null && remainingProcessControlMs(record.stopDeadlineMs) > 0
         ? record.stopDeadlineMs
@@ -2014,43 +2099,10 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
       // #1535 episode forbids reopening the native inspector, so preserve the
       // durable launching record rather than manufacture that final proof.
       if (record.terminalWindowsCommandPartialCopy) {
-        throw new Error("Managed process finalization requires a new Windows inspection episode.");
+        record.terminalWindowsFinalizerBlocked = true;
+        throw new TerminalManagedProcessFinalizationError();
       }
-      await new Promise<void>((resolve) => setImmediate(resolve));
-      record.exitCode = exitCode;
-      record.exitSignal = signal;
-
-      const finalizeLifecycle = async () => {
-        if (record.workspaceRoot) {
-          await transitionProcessOwnership(
-            record.workspaceRoot,
-            "service",
-            serviceId,
-            "stopped",
-            "not_running",
-            child.pid,
-          );
-        }
-
-        const current = managedProcesses.get(serviceId);
-        if (current?.child === child) {
-          managedProcesses.delete(serviceId);
-        }
-
-        if (onExit) {
-          await onExit({
-            service,
-            exitCode,
-            signal,
-            wasStopping: record.stopping,
-          });
-        }
-      };
-      if (record.workspaceRoot) {
-        await withSerializedWorkspaceFinalization(record.workspaceRoot, finalizeLifecycle);
-      } else {
-        await finalizeLifecycle();
-      }
+      await completeLifecycle({ exitCode, signal });
     });
     record.finalizePromise = Promise.all([
       logFinalizePromise,
@@ -2307,6 +2359,9 @@ export async function stopManagedProcess(
   }
 
   const deadlineMs = processControlDeadline(timeoutMs);
+  const terminalBlockedFinalizer = process.platform === "win32" &&
+    options.newWindowsInspectionEpisode === true &&
+    record.terminalWindowsFinalizerBlocked === true;
   // A caller's later explicit stop is a new bounded inspection episode. The
   // automatic monitor/finalizer and stopAll deliberately retain the marker.
   if (process.platform === "win32" && options.newWindowsInspectionEpisode === true) {
@@ -2325,7 +2380,25 @@ export async function stopManagedProcess(
     async () => await record.exitPromise,
     { deadlineMs },
   );
-  await waitForManagedProcessFinalization(serviceId, deadlineMs);
+  if (terminalBlockedFinalizer) {
+    if (!record.completeLifecycle) {
+      throw new ManagedProcessFinalizationError([{
+        serviceId,
+        pid: record.child.pid ?? null,
+        phase: "finalize",
+        code: "FINALIZER_FAILED",
+      }]);
+    }
+    // This explicit action has already completed its fresh bounded tree proof
+    // and observed the managed child exit. The marker remains on the record
+    // because a prior observer may have removed the rejected finalizer from
+    // its map. Completion is single-flight, so onExit cannot run twice.
+    await record.completeLifecycle(result);
+    record.terminalWindowsFinalizerBlocked = false;
+    managedProcessFinalizers.delete(serviceId);
+  } else {
+    await waitForManagedProcessFinalization(serviceId, deadlineMs);
+  }
 
   return result;
 }
