@@ -886,7 +886,7 @@ function publicRecord(record: StoredOperation, actorId: string): McpOperationPub
     status: record.status,
     phase: record.phase,
     progress: record.progress,
-    summary: record.summary,
+    summary: safeSummary(record.summary, "Durable MCP operation state is redacted."),
     createdAt: record.createdAt,
     startedAt: record.startedAt,
     updatedAt: record.updatedAt,
