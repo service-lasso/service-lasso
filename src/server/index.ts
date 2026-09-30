@@ -1297,7 +1297,7 @@ function isUnauthenticatedRuntimeRoute(method: string, pathname: string): boolea
 }
 
 function isMcpOwnedAuthenticationRoute(pathname: string): boolean {
-  return pathname === "/api/mcp" || pathname === MCP_PROTECTED_RESOURCE_METADATA_PATH;
+  return pathname === "/api/mcp" || pathname === MCP_PROTECTED_RESOURCE_METADATA_PATH || pathname === "/api/operator/lifecycle/reconciliation-context";
 }
 
 function writeMcpPolicyError(response: ServerResponse, error: McpHttpPolicyError): void {
@@ -1812,6 +1812,53 @@ const durableLifecycleOperationActions = {
   restart: "service_restart",
 } as const satisfies Record<string, McpGuardedActionName>;
 
+const DURABLE_RECONCILIATION_CONTEXT_CONTRACT_VERSION = "service-lasso-durable-reconciliation-context.v1";
+
+/**
+ * The reconciler needs a durable comparison value, not a transport credential
+ * or a description of the runtime's local topology.  Use the already opaque
+ * runtime-lane identity as an HMAC key so the response is stable across a
+ * restart of the same lane, while a different workspace/lane cannot produce
+ * the same bindings even when it is served at the same HTTP URL.
+ */
+function durableReconciliationBinding(
+  config: Pick<ApiRouteConfig, "servicesRoot" | "workspaceRoot" | "version">,
+  kind: "instance" | "workspace" | "actor" | "client",
+  authorization: McpHttpAuthorization,
+): string {
+  const instanceId = resolveRuntimeInstanceId(config);
+  const identity = authorization.actor;
+  const input = kind === "actor"
+    ? `v1\u0000actor\u0000${identity.kind}\u0000${identity.actorId}`
+    : kind === "client"
+      ? `v1\u0000client\u0000${identity.kind}\u0000${identity.clientId}`
+      : `v1\u0000${kind}`;
+  return `slrc_${createHmac("sha256", instanceId).update(input, "utf8").digest("hex")}`;
+}
+
+function createDurableReconciliationContextResponse(
+  config: Pick<ApiRouteConfig, "servicesRoot" | "workspaceRoot" | "version">,
+  authorization: McpHttpAuthorization,
+): {
+  contractVersion: typeof DURABLE_RECONCILIATION_CONTEXT_CONTRACT_VERSION;
+  context: {
+    instanceBinding: string;
+    workspaceBinding: string;
+    actorBinding: string;
+    clientBinding: string;
+  };
+} {
+  return {
+    contractVersion: DURABLE_RECONCILIATION_CONTEXT_CONTRACT_VERSION,
+    context: {
+      instanceBinding: durableReconciliationBinding(config, "instance", authorization),
+      workspaceBinding: durableReconciliationBinding(config, "workspace", authorization),
+      actorBinding: durableReconciliationBinding(config, "actor", authorization),
+      clientBinding: durableReconciliationBinding(config, "client", authorization),
+    },
+  };
+}
+
 type DurableLifecycleOperationAction = typeof durableLifecycleOperationActions[keyof typeof durableLifecycleOperationActions];
 
 function parseDurableLifecycleOperationBody(input: unknown): {
@@ -1869,6 +1916,27 @@ async function authorizeDurableLifecycleOperationRequest(
     const mode = assertMcpTransportEnabled(config.mcpHttpIdentity);
     assertMcpHostAllowed(request, config.mcpHttpIdentity);
     if (mode !== "guarded") throw new McpHttpPolicyError("mcp_read_only_mode", 403);
+    const authorization = await authorizeMcpHttpRequest(request, auth, config.mcpHttpIdentity);
+    assertMcpRateLimit(config.mcpRateLimiter, authorization, config.mcpHttpIdentity);
+    return authorization;
+  } catch (error) {
+    if (error instanceof McpHttpPolicyError) {
+      writeMcpPolicyError(response, error);
+      return null;
+    }
+    throw error;
+  }
+}
+
+async function authorizeDurableReconciliationContextRequest(
+  request: IncomingMessage,
+  response: ServerResponse,
+  auth: RuntimeAuthPolicyStatus,
+  config: ApiRouteConfig,
+): Promise<McpHttpAuthorization | null> {
+  try {
+    assertMcpTransportEnabled(config.mcpHttpIdentity);
+    assertMcpHostAllowed(request, config.mcpHttpIdentity);
     const authorization = await authorizeMcpHttpRequest(request, auth, config.mcpHttpIdentity);
     assertMcpRateLimit(config.mcpRateLimiter, authorization, config.mcpHttpIdentity);
     return authorization;
@@ -4283,6 +4351,13 @@ async function routeRequestWithoutMutationCoordination(
       authorization,
       operatingMode,
     );
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/operator/lifecycle/reconciliation-context") {
+    const authorization = await authorizeDurableReconciliationContextRequest(request, response, auth, config);
+    if (!authorization) return;
+    writeJson(response, 200, createDurableReconciliationContextResponse(config, authorization));
     return;
   }
 
