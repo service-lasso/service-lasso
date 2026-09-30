@@ -158,8 +158,9 @@ retained as metadata for a later member.
   for a directory and cannot replace physical framing, accounting, or padding.
   `mtime` is unsigned decimal seconds with an optional 1–9 digit fractional
   part, at most 20 bytes. A PAX record with no `path` is allowed only for an
-  otherwise ordinary member; its `size` still controls that member's framing
-  while `mtime` remains validation-only and is never applied. PAX `path` and
+  otherwise ordinary member; its `size` remains an equal redundant declaration
+  only and never controls that member's framing, accounting, or padding, while
+  `mtime` remains validation-only and is never applied. PAX `path` and
   GNU `L` cannot both modify the same member.
 
 These rules admit ordinary USTAR members and the bounded GNU/POSIX long-path
