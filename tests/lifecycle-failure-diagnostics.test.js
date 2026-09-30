@@ -197,6 +197,37 @@ test("lifecycle diagnostics do not invoke error accessors and retain nested own-
   }]);
 });
 
+test("root errors accessor remains closed without changing own-data error traversal", () => {
+  let accessorReads = 0;
+  const sensitive = "synthetic-sensitive-errors-value";
+  const hostile = {};
+  Object.defineProperty(hostile, "errors", {
+    get() {
+      accessorReads += 1;
+      return [{ code: sensitive }];
+    },
+  });
+
+  const closed = lifecycleFailureDiagnostic({ error: hostile });
+  assert.equal(accessorReads, 0);
+  assert.deepEqual(JSON.parse(closed), {
+    kind: "lifecycle-failure",
+    diagnostic: "metadata_unavailable",
+  });
+  assert.equal(closed.includes(sensitive), false);
+
+  const traversed = JSON.parse(lifecycleFailureDiagnostic({
+    error: {
+      errors: [{
+        failurePhase: "target_acknowledgement",
+        code: "PROCESS_CONTROL_DEADLINE_EXCEEDED",
+      }],
+    },
+  }));
+  assert.deepEqual(traversed.failurePhases, ["target_acknowledgement"]);
+  assert.equal(traversed.deadlineExceeded, true);
+});
+
 test("aggregate diagnostic traversal remains bounded across wide and deep error graphs", () => {
   const deadline = { code: "PROCESS_CONTROL_DEADLINE_EXCEEDED" };
   const wide = new AggregateError([...Array.from({ length: 32 }, () => ({ failurePhase: "wrapper_spawn" })), deadline]);
