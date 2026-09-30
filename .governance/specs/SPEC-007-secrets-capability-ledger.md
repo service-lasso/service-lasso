@@ -255,3 +255,17 @@ resolution through a root override and records the exact candidate audit
 result. The separate moderate `fast-uri` advisory is tracked by #1493 and is
 not remediated by this issue. This work does not waive, retry, or alter the
 failed run, and it does not make a release or GA claim.
+
+### Issues #1493 and #1494: exact-head audit integration
+
+The governed integration candidate starts from develop
+`d724258656b582d2e11b12473d5a8499547823b4` and composes only the independently
+reviewed `fast-uri` `3.1.8` lockfile delta from PR #1497 head
+`668879645c2c3c73688459cbf625623e547c8e9b` and the compatible
+`brace-expansion` `1.1.21` root override and lockfile delta from PR #1498 head
+`88efa5dd9c18daa744cb1db9d0be2c0a77328918`. It must pass clean installation,
+zero production and tooling audits, ledger/build validation, and focused build
+checks at its own exact head. These local checks are surrogate evidence pending
+hosted exact-head CI; the historical Docs Site and Windows #1326 failures remain
+separate and unwaived. This integration does not release, deploy, publish, or
+make a GA claim.
