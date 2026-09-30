@@ -26,8 +26,8 @@ const childExecutionSubcodes = new Set([
   "subprocess_exit_nonzero",
   "subprocess_timeout",
   "subprocess_output_limit",
-  "subprocess_killed_sigterm",
-  "subprocess_killed_sigkill",
+  "subprocess_observed_signal_sigterm",
+  "subprocess_observed_signal_sigkill",
 ]);
 
 function ownData(value, key) {
@@ -63,8 +63,8 @@ export function dependencyAcquisitionSubcode(error) {
   if (code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER" || ownData(error, "maxOutputExceeded") === true) return "subprocess_output_limit";
   if (ownData(error, "timedOut") === true) return "subprocess_timeout";
   const signal = ownData(error, "signal");
-  if (ownData(error, "killed") === true && signal === "SIGTERM") return "subprocess_killed_sigterm";
-  if (ownData(error, "killed") === true && signal === "SIGKILL") return "subprocess_killed_sigkill";
+  if (signal === "SIGTERM") return "subprocess_observed_signal_sigterm";
+  if (signal === "SIGKILL") return "subprocess_observed_signal_sigkill";
   if (typeof code !== "number") return undefined;
   return npmSubcodes.get(npmReportedCode(error)) ?? "subprocess_exit_nonzero";
 }

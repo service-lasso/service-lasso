@@ -24,8 +24,8 @@ test("dependency acquisition projects only bounded npm-reported observations and
     [{ code: 1, stderr: secret }, "subprocess_exit_nonzero"],
     [{ timedOut: true, stderr: secret }, "subprocess_timeout"],
     [{ maxOutputExceeded: true, stderr: secret }, "subprocess_output_limit"],
-    [{ killed: true, signal: "SIGTERM", stderr: secret }, "subprocess_killed_sigterm"],
-    [{ killed: true, signal: "SIGKILL", stderr: secret }, "subprocess_killed_sigkill"],
+    [{ signal: "SIGTERM", stderr: secret }, "subprocess_observed_signal_sigterm"],
+    [{ signal: "SIGKILL", stderr: secret }, "subprocess_observed_signal_sigkill"],
     [{ code: 1, stdout: JSON.stringify({ error: { code: "ENOTFOUND", detail: secret } }), stderr: secret }, "npm_reported_network_enotfound"],
     [{ code: 1, stdout: JSON.stringify({ error: { code: "EINTEGRITY", detail: secret } }), stderr: secret }, "npm_reported_checksum_mismatch"],
     [{ code: 1, stdout: JSON.stringify({ error: { code: "E401", detail: secret } }), stderr: secret }, "npm_reported_registry_identity_rejected"],
@@ -78,6 +78,18 @@ test("real child execution observations are closed and secret-safe", async () =>
     const diagnostic = packagedVerificationDiagnostic("dependency_acquisition", undefined, dependencyAcquisitionSubcode(error));
     assert.equal(JSON.stringify(diagnostic).includes(secret), false);
   }
+});
+
+test("real child signal observation is classified only when the host reports it", async (t) => {
+  const observedSignal = await runCommand(process.execPath, ["-e", "process.kill(process.pid, 'SIGTERM')"]).catch(value => value);
+  if (observedSignal.signal !== "SIGTERM") {
+    t.diagnostic(`Host did not report SIGTERM from the child: ${process.platform}`);
+    t.skip("The host does not expose this child signal through Node's spawn result.");
+    return;
+  }
+  assert.equal(dependencyAcquisitionSubcode(observedSignal), "subprocess_observed_signal_sigterm");
+  const diagnostic = packagedVerificationDiagnostic("dependency_acquisition", undefined, dependencyAcquisitionSubcode(observedSignal));
+  assert.deepEqual(diagnostic, { stage: "dependency_acquisition", errorCode: "verification_failed", subcode: "subprocess_observed_signal_sigterm" });
 });
 
 test("real command failure projects only its bounded npm JSON error code", async () => {
