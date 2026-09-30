@@ -1,5 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { once } from "node:events";
+import net from "node:net";
 import path from "node:path";
 import { readFile, readdir, rm, unlink, writeFile } from "node:fs/promises";
 import { startApiServer } from "../dist/server/index.js";
@@ -1016,12 +1018,20 @@ test("GET /api/services/:id/network resolves manifest portmapping", async () => 
   }
 });
 
-test("config negotiates colliding ports deterministically and surfaces resolved network endpoints", async () => {
+test("config retains an owned occupied preferred-port boundary while negotiating distinct resolved endpoints", async () => {
   resetLifecycleState();
   const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-ports-");
+  const workspaceRoot = path.join(tempRoot, "workspace");
+  const occupiedListener = net.createServer();
+  occupiedListener.listen(0, "127.0.0.1");
+  await once(occupiedListener, "listening");
+  const occupiedAddress = occupiedListener.address();
+  assert.ok(occupiedAddress && typeof occupiedAddress !== "string");
+  const preferredPort = occupiedAddress.port;
 
-  await writeExecutableFixtureService(servicesRoot, "alpha-service", {
-    ports: { service: 43100 },
+  const { serviceRoot: alphaServiceRoot } = await writeExecutableFixtureService(servicesRoot, "alpha-service", {
+    captureEnvKeys: ["SERVICE_PORT", "ECHO_PORT"],
+    ports: { service: preferredPort },
     env: { ECHO_PORT: "${SERVICE_PORT}" },
     urls: undefined,
   });
@@ -1034,10 +1044,12 @@ test("config negotiates colliding ports deterministically and surfaces resolved 
     args: ["runtime/fixture-service.mjs"],
     env: {
       FIXTURE_EXIT_CODE: "0",
+      FIXTURE_CAPTURE_ENV_FILE: "./runtime/env.json",
+      FIXTURE_CAPTURE_ENV_KEYS: "[\"SERVICE_PORT\",\"ECHO_PORT\"]",
       ECHO_PORT: "${SERVICE_PORT}",
     },
     ports: {
-      service: 43100,
+      service: preferredPort,
     },
     urls: [
       {
@@ -1048,8 +1060,9 @@ test("config negotiates colliding ports deterministically and surfaces resolved 
     healthcheck: { type: "process" },
   });
 
-  await writeExecutableFixtureService(servicesRoot, "beta-service", {
-    ports: { service: 43100 },
+  const { serviceRoot: betaServiceRoot } = await writeExecutableFixtureService(servicesRoot, "beta-service", {
+    captureEnvKeys: ["SERVICE_PORT", "ECHO_PORT"],
+    ports: { service: preferredPort },
     env: { ECHO_PORT: "${SERVICE_PORT}" },
   });
   await writeManifest(servicesRoot, "beta-service", {
@@ -1060,10 +1073,12 @@ test("config negotiates colliding ports deterministically and surfaces resolved 
     args: ["runtime/fixture-service.mjs"],
     env: {
       FIXTURE_EXIT_CODE: "0",
+      FIXTURE_CAPTURE_ENV_FILE: "./runtime/env.json",
+      FIXTURE_CAPTURE_ENV_KEYS: "[\"SERVICE_PORT\",\"ECHO_PORT\"]",
       ECHO_PORT: "${SERVICE_PORT}",
     },
     ports: {
-      service: 43100,
+      service: preferredPort,
     },
     urls: [
       {
@@ -1074,7 +1089,7 @@ test("config negotiates colliding ports deterministically and surfaces resolved 
     healthcheck: { type: "process" },
   });
 
-  const apiServer = await startApiServer({ port: 0, servicesRoot });
+  const apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
 
   try {
     await postJson(`${apiServer.url}/api/services/alpha-service/install`);
@@ -1085,24 +1100,62 @@ test("config negotiates colliding ports deterministically and surfaces resolved 
 
     assert.equal(alphaConfig.status, 200);
     assert.equal(betaConfig.status, 200);
-    assert.equal(alphaConfig.body.state.runtime.ports.service, 43100);
-    assert.equal(betaConfig.body.state.runtime.ports.service > 43100, true);
+    const alphaPort = alphaConfig.body.state.runtime.ports.service;
+    const betaPort = betaConfig.body.state.runtime.ports.service;
+    assert.equal(alphaPort > preferredPort, true);
+    assert.equal(betaPort > alphaPort, true);
+    assert.equal(occupiedListener.listening, true);
+
+    const repeatedAlphaConfig = await postJson(`${apiServer.url}/api/services/alpha-service/config`);
+    const repeatedBetaConfig = await postJson(`${apiServer.url}/api/services/beta-service/config`);
+    assert.equal(repeatedAlphaConfig.body.state.runtime.ports.service, alphaPort);
+    assert.equal(repeatedBetaConfig.body.state.runtime.ports.service, betaPort);
 
     const alphaNetwork = await fetch(`${apiServer.url}/api/services/alpha-service/network`);
     const alphaBody = await alphaNetwork.json();
     const betaNetwork = await fetch(`${apiServer.url}/api/services/beta-service/network`);
     const betaBody = await betaNetwork.json();
 
-    assert.equal(alphaBody.network.ports.service, 43100);
-    assert.equal(betaBody.network.ports.service > 43100, true);
-    assert.ok(alphaBody.network.endpoints.some((entry) => entry.url === "http://127.0.0.1:43100/health"));
+    assert.equal(alphaBody.network.ports.service, alphaPort);
+    assert.equal(betaBody.network.ports.service, betaPort);
+    assert.ok(alphaBody.network.endpoints.some((entry) => entry.url === `http://127.0.0.1:${alphaPort}/health`));
     assert.ok(
       betaBody.network.endpoints.some(
-        (entry) => entry.url === `http://127.0.0.1:${betaBody.network.ports.service}/health`,
+        (entry) => entry.url === `http://127.0.0.1:${betaPort}/health`,
       ),
     );
+
+    assert.equal((await postJson(`${apiServer.url}/api/services/alpha-service/start`)).status, 200);
+    assert.equal((await postJson(`${apiServer.url}/api/services/beta-service/start`)).status, 200);
+    const alphaEnvironment = JSON.parse(await waitFor(async () => {
+      try {
+        return await readFile(path.join(alphaServiceRoot, "runtime", "env.json"), "utf8");
+      } catch (error) {
+        if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") return null;
+        throw error;
+      }
+    }));
+    const betaEnvironment = JSON.parse(await waitFor(async () => {
+      try {
+        return await readFile(path.join(betaServiceRoot, "runtime", "env.json"), "utf8");
+      } catch (error) {
+        if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") return null;
+        throw error;
+      }
+    }));
+    assert.equal(alphaEnvironment.SERVICE_PORT, String(alphaPort));
+    assert.equal(alphaEnvironment.ECHO_PORT, String(alphaPort));
+    assert.equal(betaEnvironment.SERVICE_PORT, String(betaPort));
+    assert.equal(betaEnvironment.ECHO_PORT, String(betaPort));
+    assert.equal(occupiedListener.listening, true);
+
+    await postJson(`${apiServer.url}/api/services/alpha-service/stop`, { confirm: true });
+    await postJson(`${apiServer.url}/api/services/beta-service/stop`, { confirm: true });
   } finally {
     await apiServer.stop();
+    if (occupiedListener.listening) {
+      await new Promise((resolve) => occupiedListener.close(resolve));
+    }
     resetLifecycleState();
     await rm(tempRoot, { recursive: true, force: true });
   }
