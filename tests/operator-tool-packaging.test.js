@@ -1,8 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { createHash } from "node:crypto";
 import { assertExactCliRelease, assertExactToolRelease, CURRENT_CLI_RELEASE, CURRENT_TUI_RELEASE, bootstrapReleaseMetadataToken, consumeReleaseMetadataToken, operatorToolFailureDiagnostic, takeBootstrappedReleaseMetadataToken, stageOperatorTools, verifyRetainedOperatorTools } from "../scripts/operator-tool-packaging-lib.mjs";
 
@@ -29,6 +30,170 @@ function projectCompleteSuiteEnvironment(workflow, githubToken) {
   assert.doesNotMatch(completeSuiteStep, /(?:echo|printf|Out-File).*SERVICE_LASSO_RELEASE_METADATA_TOKEN/u);
   return { SERVICE_LASSO_RELEASE_METADATA_TOKEN: githubToken };
 }
+
+function projectWorkflowStepEnvironment(workflow, stepName, githubToken) {
+  const stepStart = workflow.indexOf(`      - name: ${stepName}\n`);
+  assert.notEqual(stepStart, -1, `workflow must retain ${stepName}`);
+  const nextStep = workflow.indexOf("\n      - name:", stepStart + 1);
+  const step = workflow.slice(stepStart, nextStep === -1 ? undefined : nextStep);
+  const tokenProjection = step.match(/^          SERVICE_LASSO_RELEASE_METADATA_TOKEN: (.+)$/mu)?.[1];
+  assert.equal(tokenProjection, "${{ github.token }}", `${stepName} must project only the existing GitHub token under the staging contract`);
+  assert.doesNotMatch(step, /(?:echo|printf|Out-File).*SERVICE_LASSO_RELEASE_METADATA_TOKEN/u);
+  return { SERVICE_LASSO_RELEASE_METADATA_TOKEN: githubToken };
+}
+
+function fixtureOperatorToolModule() {
+  return [
+    `export const CURRENT_TUI_RELEASE = ${JSON.stringify(release)};`,
+    `export const CURRENT_CLI_RELEASE = ${JSON.stringify(cliRelease)};`,
+  ].join("\n");
+}
+
+async function importFixtureStagers(root) {
+  const scriptsRoot = path.resolve("scripts");
+  const operatorSource = await readFile(path.join(scriptsRoot, "operator-tool-packaging-lib.mjs"), "utf8");
+  const operatorModulePath = path.join(root, "operator-tool-packaging-lib.mjs");
+  const releaseModulePath = path.join(root, "release-artifact-lib.mjs");
+  const publishModulePath = path.join(root, "publish-package-lib.mjs");
+  const operatorModuleUrl = pathToFileURL(operatorModulePath).href;
+  const releaseModuleUrl = pathToFileURL(releaseModulePath).href;
+  const originalOperatorRecords = operatorSource.slice(
+    operatorSource.indexOf("export const CURRENT_TUI_RELEASE ="),
+    operatorSource.indexOf("export function assertExactToolRelease"),
+  );
+  assert.ok(originalOperatorRecords.startsWith("export const CURRENT_TUI_RELEASE"));
+  await writeFile(operatorModulePath, operatorSource.replace(originalOperatorRecords, fixtureOperatorToolModule()));
+
+  const releaseSource = await readFile(path.join(scriptsRoot, "release-artifact-lib.mjs"), "utf8");
+  await writeFile(releaseModulePath, releaseSource
+    .replace("../dist/runtime/files/safe-zip.js", pathToFileURL(path.join(path.resolve(), "dist", "runtime", "files", "safe-zip.js")).href)
+    .replace("./release-asset-policy.mjs", pathToFileURL(path.join(scriptsRoot, "release-asset-policy.mjs")).href)
+    .replace("./release-version-lib.mjs", pathToFileURL(path.join(scriptsRoot, "release-version-lib.mjs")).href)
+    .replace("./operator-tool-packaging-lib.mjs", operatorModuleUrl));
+
+  const publishSource = await readFile(path.join(scriptsRoot, "publish-package-lib.mjs"), "utf8");
+  await writeFile(publishModulePath, publishSource
+    .replace("./release-artifact-lib.mjs", releaseModuleUrl)
+    .replace("./release-version-lib.mjs", pathToFileURL(path.join(scriptsRoot, "release-version-lib.mjs")).href)
+    .replace("./operator-tool-packaging-lib.mjs", operatorModuleUrl));
+
+  return {
+    ...(await import(`${releaseModuleUrl}?fixture=${Date.now()}`)),
+    ...(await import(`${pathToFileURL(publishModulePath).href}?fixture=${Date.now()}`)),
+  };
+}
+
+function fixtureReleaseFetch({ metadataAuthorization, assetAuthorization }) {
+  const fixtureAssets = new Map([
+    ...assets.map((asset) => [asset.name, Buffer.from(asset.platform)]),
+    [cliRelease.asset.name, Buffer.from("cli")],
+  ]);
+  const candidateAssets = (candidate, includesCli) => {
+    const listed = includesCli
+      ? [cliRelease.asset, cliRelease.checksumManifest, cliRelease.candidateManifest]
+      : [...assets, release.checksumManifest, release.candidateManifest];
+    return listed.map((asset, index) => ({
+      name: asset.name,
+      digest: `sha256:${asset.sha256}`,
+      url: `https://api.github.com/repos/${candidate.repository}/releases/assets/${index + 1}`,
+    }));
+  };
+  return async (url, options = {}) => {
+    const parsed = new URL(url);
+    if (parsed.hostname === "api.github.com") {
+      metadataAuthorization.push(options.headers?.authorization);
+      const isCli = parsed.pathname.includes("service-lasso-cli");
+      const candidate = isCli ? cliRelease : release;
+      assert.equal(parsed.pathname, `/repos/${candidate.repository}/releases/tags/${candidate.tag}`);
+      return Response.json({ tag_name: candidate.tag, target_commitish: candidate.targetCommit, prerelease: true, draft: false, assets: candidateAssets(candidate, isCli) });
+    }
+    assetAuthorization.push(options.headers?.authorization);
+    assert.equal(parsed.hostname, "github.com");
+    const isCli = parsed.pathname.includes("service-lasso-cli");
+    const name = parsed.pathname.split("/").at(-1);
+    const bytes = name === "SHA256SUMS.txt"
+      ? (isCli ? cliSums : tuiSums)
+      : name === "candidate-manifest.json"
+        ? tuiCandidate
+        : name === "candidate.json"
+          ? cliCandidate
+          : fixtureAssets.get(name);
+    assert.ok(bytes, `closed fixture must contain ${parsed.pathname}`);
+    return new Response(bytes, { status: 200 });
+  };
+}
+
+test("every release stage that can retain operator tools projects the restricted metadata token", async () => {
+  const qualification = await readFile(".github/workflows/release-qualification.yml", "utf8");
+  const packagePublication = await readFile(".github/workflows/publish-package.yml", "utf8");
+  const artifactPublication = await readFile(".github/workflows/release-artifact.yml", "utf8");
+
+  for (const [workflow, stepName] of [
+    [qualification, "Run complete test suite"],
+    [qualification, "Verify release artifacts"],
+    [qualification, "Verify publishable package"],
+    [packagePublication, "Run tests"],
+    [packagePublication, "Verify bounded runtime artifact"],
+    [packagePublication, "Verify publishable package"],
+    [artifactPublication, "Run tests"],
+    [artifactPublication, "Verify bounded release artifact"],
+  ]) {
+    assert.deepEqual(projectWorkflowStepEnvironment(workflow, stepName, "projected-read-token"), {
+      SERVICE_LASSO_RELEASE_METADATA_TOKEN: "projected-read-token",
+    });
+  }
+});
+
+test("workflow-projected metadata token stages publish and release artifacts through closed fixture routes", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "operator-tool-stagers-"));
+  const metadataAuthorization = [];
+  const assetAuthorization = [];
+  const originalFetch = globalThis.fetch;
+  const originalToken = process.env.SERVICE_LASSO_RELEASE_METADATA_TOKEN;
+  const originalOffline = process.env.npm_config_offline;
+  const expectedToken = "projected-read-token";
+  try {
+    globalThis.fetch = fixtureReleaseFetch({ metadataAuthorization, assetAuthorization });
+    process.env.npm_config_offline = "true";
+    const { stagePublishedPackage, stageReleaseArtifact } = await importFixtureStagers(root);
+
+    process.env.SERVICE_LASSO_RELEASE_METADATA_TOKEN = expectedToken;
+    const published = stagePublishedPackage({
+      repoRoot: path.resolve(),
+      outputRoot: path.join(root, "package"),
+      version: "0.1.0-stage.fixture",
+    });
+    assert.equal(process.env.SERVICE_LASSO_RELEASE_METADATA_TOKEN, undefined);
+    const stagedPackage = await published;
+    assert.equal(stagedPackage.manifest.operatorToolsManifest, "operator-tools/manifest.json");
+
+    process.env.SERVICE_LASSO_RELEASE_METADATA_TOKEN = expectedToken;
+    const released = stageReleaseArtifact({
+      repoRoot: path.resolve(),
+      outputRoot: path.join(root, "release"),
+      version: "0.1.0-stage.fixture",
+    });
+    assert.equal(process.env.SERVICE_LASSO_RELEASE_METADATA_TOKEN, undefined);
+    const stagedRelease = await released;
+    assert.equal(stagedRelease.manifest.operatorToolsManifest, "operator-tools/manifest.json");
+
+    assert.deepEqual(metadataAuthorization, [
+      "Bearer projected-read-token",
+      "Bearer projected-read-token",
+      "Bearer projected-read-token",
+      "Bearer projected-read-token",
+    ]);
+    assert.ok(assetAuthorization.length > 0);
+    assert.ok(assetAuthorization.every((authorization) => authorization === undefined));
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalToken === undefined) delete process.env.SERVICE_LASSO_RELEASE_METADATA_TOKEN;
+    else process.env.SERVICE_LASSO_RELEASE_METADATA_TOKEN = originalToken;
+    if (originalOffline === undefined) delete process.env.npm_config_offline;
+    else process.env.npm_config_offline = originalOffline;
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test("operator tools stage only checksum-verified release bytes", async () => {
   const sums = tuiSums;
