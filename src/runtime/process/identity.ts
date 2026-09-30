@@ -326,9 +326,17 @@ interface ParsedWindowsCommandPartialCopyReceipt {
 
 function parseWindowsCommandPartialCopyReceipt(value: unknown): ParsedWindowsCommandPartialCopyReceipt | null {
   if (typeof value !== "string") return null;
+  // Console.WriteLine appends one platform newline to the native helper's
+  // canonical receipt. Remove that one boundary only; the exact matcher below
+  // still rejects embedded whitespace, extra lines, and expanded objects.
+  const receiptLine = value.endsWith("\r\n")
+    ? value.slice(0, -2)
+    : value.endsWith("\n")
+      ? value.slice(0, -1)
+      : value;
   // The native helper emits this canonical two-key object. Matching the whole
   // string rejects duplicate JSON keys before JSON.parse could collapse them.
-  const receipt = /^\{"CommandQueryHeldHandleState":"(still_active_or_259|exit_query_failed)","CommandQueryArchitectureRelation":"(same|cross|unknown)"\}$/u.exec(value);
+  const receipt = /^\{"CommandQueryHeldHandleState":"(still_active_or_259|exit_query_failed)","CommandQueryArchitectureRelation":"(same|cross|unknown)"\}$/u.exec(receiptLine);
   return receipt
     ? { heldHandleState: receipt[1] as ParsedWindowsCommandPartialCopyReceipt["heldHandleState"], architectureRelation: receipt[2] as ParsedWindowsCommandPartialCopyReceipt["architectureRelation"] }
     : null;

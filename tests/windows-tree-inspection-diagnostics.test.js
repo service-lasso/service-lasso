@@ -228,6 +228,51 @@ test("partial-copy receipt is closed, failure-specific, and omits raw native det
   });
 });
 
+test("partial-copy receipt accepts exactly one native terminal newline through retry metadata", async () => {
+  const canonicalReceipt = "{\"CommandQueryHeldHandleState\":\"still_active_or_259\",\"CommandQueryArchitectureRelation\":\"same\"}";
+  for (const terminalNewline of ["\r\n", "\n"]) {
+    let calls = 0;
+    await assert.rejects(inspectWindowsProcessTree(root, {
+      deadlineMs: Date.now() + 80,
+      runCommand: async () => {
+        calls += 1;
+        return { exitCode: 138, stdout: canonicalReceipt + terminalNewline };
+      },
+    }), error => {
+      const evidence = windowsTreeInspectionFailureMetadata(error);
+      assert.equal(evidence.windowsTreeInspectionLastRetry, "descendant_command_partial_copy");
+      assert.equal(evidence.windowsTreeInspectionCommandQueryHeldHandleState, "still_active_or_259");
+      assert.equal(evidence.windowsTreeInspectionCommandQueryArchitectureRelation, "same");
+      assert.doesNotMatch(JSON.stringify(evidence), /ProcessId|private|\\r|\\n/i);
+      return true;
+    });
+    assert.ok(calls >= 1);
+  }
+});
+
+test("partial-copy receipt rejects extra boundaries and non-canonical newline variants", async () => {
+  const canonicalReceipt = "{\"CommandQueryHeldHandleState\":\"exit_query_failed\",\"CommandQueryArchitectureRelation\":\"cross\"}";
+  for (const stdout of [
+    canonicalReceipt + "\r",
+    canonicalReceipt + "\r\n\r\n",
+    canonicalReceipt + "\n\n",
+    canonicalReceipt + "\r\n{\"CommandQueryHeldHandleState\":\"exit_query_failed\",\"CommandQueryArchitectureRelation\":\"cross\"}",
+    " " + canonicalReceipt + "\r\n",
+    canonicalReceipt + " \r\n",
+  ]) {
+    await assert.rejects(inspectWindowsProcessTree(root, {
+      deadlineMs: Date.now() + 80,
+      runCommand: async () => ({ exitCode: 138, stdout }),
+    }), error => {
+      const evidence = windowsTreeInspectionFailureMetadata(error);
+      assert.equal(evidence.windowsTreeInspectionLastRetry, "descendant_command_partial_copy");
+      assert.equal(evidence.windowsTreeInspectionCommandQueryHeldHandleState, undefined);
+      assert.equal(evidence.windowsTreeInspectionCommandQueryArchitectureRelation, undefined);
+      return true;
+    });
+  }
+});
+
 test("verified root lifetime excludes an older numeric-parent branch without discarding valid members", async () => {
   const command = "private-command";
   const expected = { ...root, commandHash: hashProcessCommandLine(command) };
