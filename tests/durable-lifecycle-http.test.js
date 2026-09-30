@@ -137,8 +137,10 @@ async function startCrossProcessLifecyclePeer(options) {
     async stop() {
       if (child.exitCode !== null) return;
       const exited = once(child, "exit");
-      child.kill();
+      child.kill("SIGTERM");
       await exited;
+      child.stdout.destroy();
+      child.stderr.destroy();
     },
   };
 }
@@ -155,11 +157,35 @@ async function lifecycleRequest(apiServer, path, method = "GET", body, token) {
   return { status: response.status, body: await response.json() };
 }
 
+async function stopFixtureService(apiServer, serviceId, token) {
+  const plan = await lifecycleRequest(apiServer, "/api/operator/lifecycle/operations", "POST", {
+    action: "stop",
+    serviceId,
+  }, token);
+  if (plan.status !== 200 || plan.body.confirmation?.status !== "pending") return;
+  const accepted = await lifecycleRequest(apiServer, "/api/operator/lifecycle/operations", "POST", {
+    action: "stop",
+    serviceId,
+    execute: true,
+    idempotencyKey: `durable-fixture-stop-${serviceId}`,
+    confirmationId: plan.body.confirmation.id,
+    confirmationPhrase: plan.body.confirmation.confirmationPhrase,
+  }, token);
+  assert.equal(accepted.status, 202);
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    const readback = await lifecycleRequest(apiServer, `/api/operator/lifecycle/operations/${accepted.body.operation.operationId}`, "GET", undefined, token);
+    if (readback.body.operation.outcome !== null) return;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  assert.fail("Fixture stop operation did not reach a terminal state.");
+}
+
 test("#1465 durable lifecycle HTTP operations preserve confirmation, idempotency, readback, and safe cancellation", async () => {
   const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-durable-lifecycle-http-");
   let apiServer;
   try {
     await writeExecutableFixtureService(servicesRoot, "durable-http-service", { autoExitMs: 500 });
+    await writeExecutableFixtureService(servicesRoot, "durable-http-concurrent-service", { autoExitMs: 500 });
     apiServer = await startApiServer({
       port: 0,
       servicesRoot,
@@ -215,7 +241,7 @@ test("#1465 durable lifecycle HTTP operations preserve confirmation, idempotency
     assert.equal(accepted.body.operation.cancellationSupported, false);
 
     const replay = await lifecycleRequest(apiServer, "/api/operator/lifecycle/operations", "POST", execute);
-    assert.equal(replay.status, 202);
+    assert.equal(replay.status, 202, JSON.stringify(replay.body));
     assert.equal(replay.body.operation.operationId, accepted.body.operation.operationId);
 
     const alteredConfirmation = await lifecycleRequest(apiServer, "/api/operator/lifecycle/operations", "POST", {
@@ -228,11 +254,11 @@ test("#1465 durable lifecycle HTTP operations preserve confirmation, idempotency
 
     const concurrentPlan = await lifecycleRequest(apiServer, "/api/operator/lifecycle/operations", "POST", {
       action: "start",
-      serviceId: "durable-http-service",
+      serviceId: "durable-http-concurrent-service",
     });
     const concurrentExecute = {
       action: "start",
-      serviceId: "durable-http-service",
+      serviceId: "durable-http-concurrent-service",
       execute: true,
       idempotencyKey: "durable-http-key-concurrent-0001",
       confirmationId: concurrentPlan.body.confirmation.id,
@@ -256,6 +282,10 @@ test("#1465 durable lifecycle HTTP operations preserve confirmation, idempotency
     assert.equal(status.body.operation.action, "service_start");
     assert.equal(status.body.operation.outcome, "succeeded");
     assert.equal(JSON.stringify(status.body).includes(tempRoot), false);
+
+    const replayAfterCompletion = await lifecycleRequest(apiServer, "/api/operator/lifecycle/operations", "POST", execute);
+    assert.equal(replayAfterCompletion.status, 202, JSON.stringify(replayAfterCompletion.body));
+    assert.equal(replayAfterCompletion.body.operation.operationId, accepted.body.operation.operationId);
 
     const cancelled = await lifecycleRequest(apiServer, `/api/operator/lifecycle/operations/${accepted.body.operation.operationId}/cancel`, "POST", {});
     assert.equal(cancelled.status, 200);
@@ -286,12 +316,74 @@ test("#1465 durable lifecycle HTTP operations preserve confirmation, idempotency
   }
 });
 
+test("#1465 cross-process HTTP replay rejects a changed immutable manifest context before dispatch", async () => {
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-durable-lifecycle-context-conflict-");
+  let apiServer;
+  let peer;
+  try {
+    await writeExecutableFixtureService(servicesRoot, "durable-context-service", { autoExitMs: 100 });
+    apiServer = await startApiServer({
+      port: 0,
+      servicesRoot,
+      workspaceRoot,
+      mcpHttpIdentity: { env: { SERVICE_LASSO_MCP_MODE: "guarded" } },
+    });
+    const plan = await lifecycleRequest(apiServer, "/api/operator/lifecycle/operations", "POST", {
+      action: "start",
+      serviceId: "durable-context-service",
+    });
+    assert.equal(plan.status, 200);
+    const execute = {
+      action: "start",
+      serviceId: "durable-context-service",
+      execute: true,
+      idempotencyKey: "durable-context-conflict-key-0001",
+      confirmationId: plan.body.confirmation.id,
+      confirmationPhrase: plan.body.confirmation.confirmationPhrase,
+    };
+    const accepted = await lifecycleRequest(apiServer, "/api/operator/lifecycle/operations", "POST", execute);
+    assert.equal(accepted.status, 202);
+
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      const readback = await lifecycleRequest(apiServer, `/api/operator/lifecycle/operations/${accepted.body.operation.operationId}`);
+      if (readback.body.operation.outcome !== null) break;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+
+    await writeExecutableFixtureService(servicesRoot, "durable-context-service", {
+      autoExitMs: 100,
+      env: { DURABLE_CONTEXT_REVISION: "changed" },
+    });
+    peer = await startCrossProcessLifecyclePeer({
+      servicesRoot,
+      workspaceRoot,
+      env: { SERVICE_LASSO_MCP_MODE: "guarded" },
+    });
+    const conflicted = await lifecycleRequest(peer, "/api/operator/lifecycle/operations", "POST", execute);
+    assert.equal(conflicted.status, 409);
+    assert.equal(conflicted.body.error, "idempotency_conflict");
+    assert.equal(JSON.stringify(conflicted.body).includes(execute.confirmationPhrase), false);
+
+    const operations = await lifecycleRequest(apiServer, "/api/operator/lifecycle/operations");
+    assert.equal(operations.body.pagination.total, 1);
+  } finally {
+    await peer?.stop().catch(() => undefined);
+    await apiServer?.stop().catch(() => undefined);
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("#1465 concurrent HTTP replay is actor-scoped and rejects changed same-key requests", async () => {
   const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-durable-lifecycle-concurrent-replay-");
   const jwks = await startJwksServer();
   let apiServer;
   try {
     await writeExecutableFixtureService(servicesRoot, "durable-concurrent-replay-service", {
+      autoExitMs: 1_000,
+      readyFileAfterMs: 250,
+      healthcheck: { type: "file", file: "./runtime/ready.txt", retries: 120, interval: 25 },
+    });
+    await writeExecutableFixtureService(servicesRoot, "durable-concurrent-other-service", {
       autoExitMs: 1_000,
       readyFileAfterMs: 250,
       healthcheck: { type: "file", file: "./runtime/ready.txt", retries: 120, interval: 25 },
@@ -330,8 +422,8 @@ test("#1465 concurrent HTTP replay is actor-scoped and rejects changed same-key 
       lifecycleRequest(apiServer, "/api/operator/lifecycle/operations", "POST", execute, ownerToken),
       lifecycleRequest(apiServer, "/api/operator/lifecycle/operations", "POST", execute, ownerToken),
     ]);
-    assert.equal(left.status, 202);
-    assert.equal(right.status, 202);
+    assert.equal(left.status, 202, JSON.stringify(left.body));
+    assert.equal(right.status, 202, JSON.stringify(right.body));
     assert.equal(left.body.operation.operationId, right.body.operation.operationId);
 
     const altered = await lifecycleRequest(apiServer, "/api/operator/lifecycle/operations", "POST", {
@@ -343,11 +435,12 @@ test("#1465 concurrent HTTP replay is actor-scoped and rejects changed same-key 
 
     const otherPlan = await lifecycleRequest(apiServer, "/api/operator/lifecycle/operations", "POST", {
       action: "start",
-      serviceId: "durable-concurrent-replay-service",
+      serviceId: "durable-concurrent-other-service",
     }, otherToken);
     assert.equal(otherPlan.status, 200);
     const other = await lifecycleRequest(apiServer, "/api/operator/lifecycle/operations", "POST", {
       ...execute,
+      serviceId: "durable-concurrent-other-service",
       confirmationId: otherPlan.body.confirmation.id,
       confirmationPhrase: otherPlan.body.confirmation.confirmationPhrase,
     }, otherToken);
@@ -366,6 +459,7 @@ test("#1465 real cross-process HTTP claim binds confirmation context before repl
   const jwks = await startJwksServer();
   let apiServer;
   let peer;
+  let token;
   try {
     await writeExecutableFixtureService(servicesRoot, "durable-cross-process-service", {
       autoExitMs: 1_500,
@@ -381,7 +475,7 @@ test("#1465 real cross-process HTTP claim binds confirmation context before repl
     };
     apiServer = await startDirectApiServer({ servicesRoot, workspaceRoot, mcpHttpIdentity: { env } });
     peer = await startCrossProcessLifecyclePeer({ servicesRoot, workspaceRoot, env });
-    const token = await signAccessToken(jwks.privateKey, "service-lasso:read service-lasso:lifecycle:write", {
+    token = await signAccessToken(jwks.privateKey, "service-lasso:read service-lasso:lifecycle:write", {
       actorId: "durable-cross-process-actor",
       clientId: "durable-cross-process-client",
     });
@@ -411,20 +505,20 @@ test("#1465 real cross-process HTTP claim binds confirmation context before repl
     }, token);
     assert.equal(altered.status, 409);
     assert.equal(JSON.stringify(altered.body).includes(execute.confirmationPhrase), false);
+    let settled;
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      settled = await lifecycleRequest(apiServer, `/api/operator/lifecycle/operations/${left.body.operation.operationId}`, "GET", undefined, token);
+      if (settled.body.operation.outcome !== null) break;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    assert.notEqual(settled.body.operation.outcome, null);
   } finally {
+    if (peer && token) await stopFixtureService(peer, "durable-cross-process-service", token).catch(() => undefined);
+    if (apiServer && token) await stopFixtureService(apiServer, "durable-cross-process-service", token).catch(() => undefined);
     await peer?.stop().catch(() => undefined);
     await apiServer?.stop().catch(() => undefined);
     await jwks.stop().catch(() => undefined);
-    await new Promise((resolve) => setTimeout(resolve, 3_000));
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      try {
-        await rm(tempRoot, { recursive: true, force: true });
-        break;
-      } catch (error) {
-        if (attempt === 2 || error?.code !== "EBUSY") throw error;
-        await new Promise((resolve) => setTimeout(resolve, 1_000));
-      }
-    }
+    await rm(tempRoot, { recursive: true, force: true });
   }
 });
 

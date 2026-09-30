@@ -15,5 +15,10 @@ await once(server, "listening");
 const address = server.address();
 if (!address || typeof address !== "object") throw new Error("Lifecycle peer did not receive a TCP address.");
 process.stdout.write(`${JSON.stringify({ url: `http://127.0.0.1:${address.port}` })}\n`);
-process.once("SIGTERM", () => server.close());
+const closePeer = async () => {
+  server.closeAllConnections?.();
+  if (!server.listening) return;
+  await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+};
+process.once("SIGTERM", () => void closePeer().catch(() => process.exitCode = 1));
 await once(server, "close");

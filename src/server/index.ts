@@ -2660,7 +2660,7 @@ function createMcpGuardedActionFacade(
     return service;
   };
 
-  const dependencyStartTargets = (serviceId: string): string[] => {
+  const dependencyClosureTargets = (serviceId: string): string[] => {
     const selected = new Set<string>();
     const visit = (candidateId: string): void => {
       if (selected.has(candidateId)) return;
@@ -2668,8 +2668,11 @@ function createMcpGuardedActionFacade(
       for (const dependencyId of runtimeModel.graph.getServiceDependencies(candidateId).dependencies) visit(dependencyId);
     };
     visit(serviceId);
-    return runtimeModel.graph.getGlobalStartupOrder()
-      .filter((candidateId) => selected.has(candidateId) && !getLifecycleState(candidateId).running);
+    return runtimeModel.graph.getGlobalStartupOrder().filter((candidateId) => selected.has(candidateId));
+  };
+
+  const dependencyStartTargets = (serviceId: string): string[] => {
+    return dependencyClosureTargets(serviceId).filter((candidateId) => !getLifecycleState(candidateId).running);
   };
 
   const plannedPortEffects = (serviceId: string): string[] => {
@@ -2772,6 +2775,27 @@ function createMcpGuardedActionFacade(
       blockers,
       revision,
     };
+  };
+
+  const stableStartContextRevision = async (serviceIds: string[]): Promise<string> => {
+    const targets = [...new Set(serviceIds)].sort();
+    const executableBindings = await runtimeExecutableBindings();
+    const bindings = await Promise.all(targets.map(async (serviceId) => {
+      const service = runtimeModel.registry.getById(serviceId);
+      if (!service) return [serviceId, "missing"] as const;
+      const definition = await buildServiceMutationDefinitionRevision(service);
+      return [serviceId, {
+        definition,
+      }] as const;
+    }));
+    return `service-start-context-${createHash("sha256").update(JSON.stringify({
+      allocationId: config.endpointAllocationPlan?.allocationId ?? null,
+      bindings,
+      executableFiles: Object.fromEntries(targets.map((serviceId) => [
+        serviceId,
+        executableBindings[serviceId]?.files.map((file) => ({ sha256: file.sha256, size: file.size })) ?? [],
+      ])),
+    })).digest("hex")}`;
   };
 
   const resultingState = (serviceIds: string[]) => [...new Set(serviceIds)]
@@ -2965,6 +2989,7 @@ function createMcpGuardedActionFacade(
         executable: allBlockers.length === 0 && steps.length > 0,
         skippedReason: allBlockers.length > 0 ? "runtime_preflight_blocked" : steps.length > 0 ? null : "no_runtime_targets_require_mutation",
         revision: artifactPlan.revision,
+        contextRevision: artifactPlan.revision,
       };
     }
 
@@ -2976,6 +3001,7 @@ function createMcpGuardedActionFacade(
       const selected = new Set(dependencyStartTargets(serviceId));
       if (!lifecycle.running) selected.add(serviceId);
       const runtimePlan = buildRuntimeOrchestrationDryRunPlan("startAll", runtimeModel.graph, runtimeModel.registry);
+      const stableTargets = dependencyClosureTargets(serviceId);
       const selectedSteps = runtimePlan.steps.filter((step) => selected.has(step.serviceId));
       const blockers = selectedSteps.filter((step) => step.status === "blocked");
       const steps = selectedSteps.filter((step) => step.status === "would_run");
@@ -2991,6 +3017,7 @@ function createMcpGuardedActionFacade(
         executable: !lifecycle.running && allBlockers.length === 0 && steps.length > 0,
         skippedReason: lifecycle.running ? "service_already_running" : allBlockers.length > 0 ? "service_start_preflight_blocked" : steps.length > 0 ? null : "service_not_startable",
         revision: artifactPlan.revision,
+        contextRevision: await stableStartContextRevision(stableTargets),
       };
     }
     if (action === "service_stop") {
@@ -3007,6 +3034,10 @@ function createMcpGuardedActionFacade(
         executable: lifecycle.running,
         skippedReason: lifecycle.running ? null : "service_not_running",
         revision: `service-stop-${createHash("sha256").update(JSON.stringify({
+          definitionRevision,
+          stopExecutableRevision: stopBinding.revision,
+        })).digest("hex")}`,
+        contextRevision: `service-stop-context-${createHash("sha256").update(JSON.stringify({
           definitionRevision,
           stopExecutableRevision: stopBinding.revision,
         })).digest("hex")}`,
@@ -3034,6 +3065,14 @@ function createMcpGuardedActionFacade(
             Object.entries(doctorExecutableBindings).map(([index, binding]) => [index, binding.revision]),
           ),
         })).digest("hex")}`,
+        contextRevision: `service-restart-context-${createHash("sha256").update(JSON.stringify({
+          allocationId: config.endpointAllocationPlan?.allocationId ?? null,
+          definitionRevision,
+          executableRevisions: await runtimeExecutableRevisions(),
+          doctorExecutableRevisions: Object.fromEntries(
+            Object.entries(doctorExecutableBindings).map(([index, binding]) => [index, binding.revision]),
+          ),
+        })).digest("hex")}`,
       };
     }
     if (action === "service_install") {
@@ -3046,6 +3085,7 @@ function createMcpGuardedActionFacade(
         executable,
         skippedReason: lifecycle.installed ? "service_already_installed" : artifactBinding.reason,
         revision: artifactBinding.revision,
+        contextRevision: `service-install-context-${artifactBinding.revision}`,
       };
     }
     if (action === "service_configure") {
@@ -3057,6 +3097,10 @@ function createMcpGuardedActionFacade(
         executable: report.status !== "blocked",
         skippedReason: report.status === "blocked" ? "configuration_preflight_blocked" : null,
         revision: `service-config-${createHash("sha256").update(JSON.stringify({
+          allocationId: config.endpointAllocationPlan?.allocationId ?? null,
+          definitionRevision,
+        })).digest("hex")}`,
+        contextRevision: `service-config-context-${createHash("sha256").update(JSON.stringify({
           allocationId: config.endpointAllocationPlan?.allocationId ?? null,
           definitionRevision,
         })).digest("hex")}`,
