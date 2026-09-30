@@ -126,14 +126,22 @@ It must be 1–4,096 UTF-8 bytes, already Unicode NFC (a normalization change is
 denied), and have at most 16 `/`-separated components. Each component is
 non-empty and not `.` or `..`; the whole name has no NUL, leading slash,
 backslash, colon, drive or UNC form. The admission key is NFC followed by
-Unicode default case folding; a duplicate key is denied, so paths that differ
+version-pinned Unicode Default Full Case Folding from the official UCD (`C`
+and `F` mappings only; never locale or Turkic mappings); a duplicate key is denied, so paths that differ
 only by case or canonical Unicode spelling cannot collide on Windows or a
 case-insensitive macOS volume. Components ending in a dot or space, DOS device
 names (`CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`) even with an
 extension, and an explicit DOS 8.3 alias of another component after Win32
 trim/case rules are denied. The collision check is over the complete logical
 entry set, is performed before any extraction, and must use the documented
-Win32 alias grammar rather than the host filesystem's current 8.3 setting.
+Win32 alias grammar rather than the host filesystem's current 8.3 setting. The
+logical key excludes a directory's terminal presentation `/`: a file and
+directory with the same key and a file that is an ancestor of any entry are
+ambiguous and denied in either archive order; a directory and its distinct
+descendant are valid. DOS aliases are scoped to their canonical parent, so
+equal component aliases under different parents remain legal. Each component
+also rejects U+0001–U+001F and `<`, `>`, `"`, `|`, `?`, and `*` before alias
+derivation.
 Directories end in `/` and have zero payload; regular files do not end in `/`.
 Mode is parsed only to reject setuid, setgid, sticky, and file-type bits other
 than regular/directory; ownership, timestamps, and permissions are never

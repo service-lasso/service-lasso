@@ -68,7 +68,29 @@ test("ZIP validation rejects CRC corruption, pathname collisions, and unsupporte
   unsafe(preflightReleaseArchive({ bytes: zip([{ name: "Readme", content: "a" }, { name: "README", content: "b" }]), archiveType: "zip" }));
   const encrypted = zip([{ name: "safe.txt", content: "a" }]); encrypted[6] |= 1; unsafe(preflightReleaseArchive({ bytes: encrypted, archiveType: "zip" }));
   unsafe(preflightReleaseArchive({ bytes: zip([{ name: "longfilename.txt", content: "a" }, { name: "longfi~1.txt", content: "b" }]), archiveType: "zip" }));
+  unsafe(preflightReleaseArchive({ bytes: zip([{ name: "longfilename.abcdef", content: "a" }, { name: "longfi~1.abc", content: "b" }]), archiveType: "zip" }));
   unsafe(preflightReleaseArchive({ bytes: zip([{ name: "\u0149.txt", content: "a" }, { name: "\u02bcn.txt", content: "b" }]), archiveType: "zip" }));
+});
+
+test("ZIP has one portable filesystem namespace and full default Unicode folding", () => {
+  for (const entries of [
+    [{ name: "dir/", content: "" }, { name: "dir/file", content: "x" }],
+    [{ name: "dir/file", content: "x" }, { name: "dir/", content: "" }],
+  ]) assert.equal(preflightReleaseArchive({ bytes: zip(entries), archiveType: "zip" }).ok, true);
+  for (const entries of [
+    [{ name: "dir", content: "x" }, { name: "dir/file", content: "x" }],
+    [{ name: "dir/file", content: "x" }, { name: "dir", content: "x" }],
+    [{ name: "dir", content: "x" }, { name: "dir/", content: "" }],
+    [{ name: "dir/", content: "" }, { name: "dir", content: "x" }],
+    [{ name: "\ufb00.txt", content: "x" }, { name: "ff.txt", content: "x" }],
+    [{ name: "\u03a3.txt", content: "x" }, { name: "\u03c2.txt", content: "x" }],
+    [{ name: "\u00df.txt", content: "x" }, { name: "ss.txt", content: "x" }],
+  ]) unsafe(preflightReleaseArchive({ bytes: zip(entries), archiveType: "zip" }));
+  assert.equal(preflightReleaseArchive({ bytes: zip([
+    { name: "one/longfilename.abcdef", content: "x" }, { name: "two/longfi~1.abc", content: "x" },
+    { name: "I.txt", content: "x" }, { name: "\u0131.txt", content: "x" },
+  ]), archiveType: "zip" }).ok, true, "default folding must not use a Turkic locale mapping");
+  for (const character of ["\u0001", "<", ">", "\"", "|", "?", "*"]) unsafe(preflightReleaseArchive({ bytes: zip([{ name: `safe${character}.txt`, content: "x" }]), archiveType: "zip" }));
 });
 
 test("ZIP bounds are enforced before a caller can observe parser detail", () => {
@@ -88,6 +110,27 @@ test("TAR rejects concatenated gzip members, links, malformed PAX size, and port
   unsafe(preflightReleaseArchive({ bytes: tar([{ name: "pax", type: "x", content: pax({ size: "3" }) }, { name: "next", content: "xx" }]), archiveType: "tar.gz" }));
   unsafe(preflightReleaseArchive({ bytes: tar([{ name: "Case", content: "a" }, { name: "case", content: "b" }]), archiveType: "tar.gz" }));
   unsafe(preflightReleaseArchive({ bytes: tar([{ name: "safe", content: "x", mode: 0o120644 }]), archiveType: "tar.gz" }));
+});
+
+test("TAR applies the same namespace, alias, and full Unicode folding rules in every order", () => {
+  for (const entries of [
+    [{ name: "bundle/", type: "5" }, { name: "bundle/file", content: "x" }],
+    [{ name: "bundle/file", content: "x" }, { name: "bundle/", type: "5" }],
+  ]) assert.equal(preflightReleaseArchive({ bytes: tar(entries), archiveType: "tar.gz" }).ok, true);
+  for (const entries of [
+    [{ name: "bundle", content: "x" }, { name: "bundle/file", content: "x" }],
+    [{ name: "bundle/file", content: "x" }, { name: "bundle", content: "x" }],
+    [{ name: "bundle", content: "x" }, { name: "bundle/", type: "5" }],
+    [{ name: "bundle/", type: "5" }, { name: "bundle", content: "x" }],
+    [{ name: "\ufb00", content: "x" }, { name: "ff", content: "x" }],
+    [{ name: "\u03a3", content: "x" }, { name: "\u03c2", content: "x" }],
+    [{ name: "\u00df", content: "x" }, { name: "ss", content: "x" }],
+    [{ name: "\u0149", content: "x" }, { name: "\u02bcn", content: "x" }],
+  ]) unsafe(preflightReleaseArchive({ bytes: tar(entries), archiveType: "tar.gz" }));
+  assert.equal(preflightReleaseArchive({ bytes: tar([
+    { name: "one/longfilename.abcdef", content: "x" }, { name: "two/longfi~1.abc", content: "x" },
+    { name: "I", content: "x" }, { name: "\u0131", content: "x" },
+  ]), archiveType: "tar.gz" }).ok, true);
 });
 
 test("TAR PAX equal size and path are validation-only metadata, never physical framing authority", () => {

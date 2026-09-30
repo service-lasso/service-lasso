@@ -1,4 +1,5 @@
 import { Inflate } from "fflate";
+import { caseFold as unicodeCaseFold } from "unicode-case-folding";
 
 /**
  * release-archive-profile-v1 parser.  The caller supplies only Core-held bytes
@@ -115,16 +116,22 @@ function ascii(bytes: Uint8Array): string {
 }
 
 function caseFold(value: string): string {
-  // ECMAScript lowercasing supplies Unicode simple case mapping. These folds
-  // cover the multi-character and final-sigma differences required by default
-  // Unicode case folding without consulting the host filesystem.
-  return value.toLowerCase().replace(/\u00df/gu, "ss").replace(/\u03c2/gu, "\u03c3").replace(/\u0149/gu, "\u02bcn").replace(/\u017f/gu, "s");
+  // unicode-case-folding@1.1.1 is the pinned, generated UCD full folding map.
+  // It uses Default mappings, not the locale-specific Turkic mappings.
+  return unicodeCaseFold(value);
 }
 
 function winTrim(value: string): string { return value.replace(/[ .]+$/u, ""); }
 const dosDevice = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/iu;
 
-function portablePath(raw: string, limits: ReleaseArchiveLimits, directory: boolean): { key: string; components: string[] } {
+interface PortablePath { key: string; components: string[]; }
+
+interface NamespaceNode {
+  kind?: "file" | "directory";
+  children: Map<string, NamespaceNode>;
+}
+
+function portablePath(raw: string, limits: ReleaseArchiveLimits, directory: boolean): PortablePath {
   if (!raw || Buffer.byteLength(raw, "utf8") > 4096 || raw !== raw.normalize("NFC")) fail();
   if (raw.includes("\0") || raw.startsWith("/") || raw.startsWith("\\") || raw.includes("\\") || raw.includes(":")) fail();
   if (directory !== raw.endsWith("/")) fail();
@@ -132,34 +139,50 @@ function portablePath(raw: string, limits: ReleaseArchiveLimits, directory: bool
   const components = body.split("/");
   if (!body || components.length > limits.maxDepth || components.some((part) => !part || part === "." || part === "..")) fail();
   for (const component of components) {
+    if (/[\u0001-\u001f<>"|?*]/u.test(component)) fail();
     const trimmed = winTrim(component);
-    if (!trimmed || dosDevice.test(trimmed)) fail();
+    if (!trimmed || trimmed !== component || dosDevice.test(trimmed)) fail();
   }
-  return { key: caseFold(raw), components };
+  const canonical = components.map(caseFold);
+  return { key: canonical.join("/"), components: canonical };
+}
+
+function aliasesFor(component: string): Set<string> {
+  const dot = component.lastIndexOf(".");
+  const stem = dot > 0 ? component.slice(0, dot) : component;
+  const extension = dot > 0 ? component.slice(dot) : "";
+  const aliases = new Set<string>([component]);
+  if (stem.length > 8 || extension.length > 4) aliases.add(`${stem.slice(0, 6)}~1${extension.slice(0, 4)}`);
+  return aliases;
 }
 
 function registerPath(
-  seen: Set<string>,
-  shortNames: Map<string, string>,
+  root: NamespaceNode,
+  shortNamesByParent: Map<string, Map<string, string>>,
   raw: string,
   limits: ReleaseArchiveLimits,
   directory: boolean,
 ): void {
   const path = portablePath(raw, limits, directory);
-  if (seen.has(path.key)) fail();
-  seen.add(path.key);
-  for (const component of path.components) {
-    const trimmed = caseFold(winTrim(component));
-    const dot = trimmed.lastIndexOf("."); const stem = dot > 0 ? trimmed.slice(0, dot) : trimmed;
-    const ext = dot > 0 ? trimmed.slice(dot, dot + 4) : "";
-    const aliases = new Set<string>([trimmed]);
-    if (stem.length > 8 || ext.length > 4) aliases.add(`${stem.slice(0, 6)}~1${ext}`);
-    for (const alias of aliases) {
-      const previous = shortNames.get(alias);
-      if (previous !== undefined && previous !== trimmed) fail();
-      shortNames.set(alias, trimmed);
+  let node = root;
+  let parentKey = "";
+  for (let index = 0; index < path.components.length; index += 1) {
+    if (node.kind === "file") fail();
+    const component = path.components[index]!;
+    let aliases = shortNamesByParent.get(parentKey);
+    if (!aliases) { aliases = new Map<string, string>(); shortNamesByParent.set(parentKey, aliases); }
+    for (const alias of aliasesFor(component)) {
+      const previous = aliases.get(alias);
+      if (previous !== undefined && previous !== component) fail();
+      aliases.set(alias, component);
     }
+    let child = node.children.get(component);
+    if (!child) { child = { children: new Map() }; node.children.set(component, child); }
+    node = child;
+    parentKey = parentKey ? `${parentKey}/${component}` : component;
   }
+  if (node.kind || !directory && node.children.size > 0) fail();
+  node.kind = directory ? "directory" : "file";
 }
 
 function inflateAndDiscard(payload: Uint8Array, size: number, expectedCrc: number, limits: ReleaseArchiveLimits): void {
@@ -206,8 +229,8 @@ function validateZip(bytes: Uint8Array, limits: ReleaseArchiveLimits): ReleaseAr
   const centralOffset = u32(bytes, eocd + 16);
   if (centralOffset === 0 || centralOffset + centralLength !== eocd || centralOffset >= eocd) fail();
   const records: ZipRecord[] = [];
-  const seen = new Set<string>();
-  const shortNames = new Map<string, string>();
+  const namespace: NamespaceNode = { children: new Map() };
+  const shortNamesByParent = new Map<string, Map<string, string>>();
   let cursor = centralOffset;
   let expanded = 0;
   let regularFiles = 0;
@@ -230,7 +253,7 @@ function validateZip(bytes: Uint8Array, limits: ReleaseArchiveLimits): ReleaseAr
       if ((unixMode & 0o170000) !== expectedType || (unixMode & 0o7000) !== 0 || dosAttributes !== (directory ? 0x10 : 0)) fail();
     } else if (dosAttributes !== (directory ? 0x10 : 0) || unixMode !== 0) fail();
     if (directory ? compressed !== 0 || size !== 0 : false) fail();
-    registerPath(seen, shortNames, name, limits, directory);
+    registerPath(namespace, shortNamesByParent, name, limits, directory);
     if (!directory) { expanded += size; regularFiles += 1; if (!ratioAllowed(expanded, bytes.length, limits)) fail(); } else directories += 1;
     if (localOffset >= centralOffset || u32(bytes, localOffset) !== ZIP_LOCAL || localOffset + 30 > centralOffset) fail();
     const localFlags = u16(bytes, localOffset + 6); const localMethod = u16(bytes, localOffset + 8);
@@ -280,8 +303,8 @@ function tarChecksum(header: Uint8Array): boolean {
 }
 interface PendingExtension { name?: string; pax?: { path?: string; size?: number }; }
 class TarStreamValidator {
-  private readonly seen = new Set<string>();
-  private readonly shortNames = new Map<string, string>();
+  private readonly namespace: NamespaceNode = { children: new Map() };
+  private readonly shortNamesByParent = new Map<string, Map<string, string>>();
   private buffered = new Uint8Array(0);
   private payloadRemaining = 0;
   private paddingRemaining = 0;
@@ -363,7 +386,7 @@ class TarStreamValidator {
     const effective = this.pending?.name ?? this.pending?.pax?.path ?? ordinary;
     if (this.pending?.pax?.size !== undefined && (directory || this.pending.pax.size !== size)) fail();
     this.pending = null; this.entries += 1; if (this.entries > this.limits.maxEntries) fail();
-    registerPath(this.seen, this.shortNames, effective, this.limits, directory);
+    registerPath(this.namespace, this.shortNamesByParent, effective, this.limits, directory);
     if (directory) this.directories += 1;
     else { this.files += 1; this.expanded += size; if (!ratioAllowed(this.expanded, this.bytes.length, this.limits)) fail(); }
   }
