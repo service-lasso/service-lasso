@@ -1,4 +1,4 @@
-import { inflateRawSync } from "node:zlib";
+import { Inflate } from "fflate";
 
 /**
  * release-archive-profile-v1 parser.  The caller supplies only Core-held bytes
@@ -94,8 +94,13 @@ const crcTable = (() => {
 
 function crc32(bytes: Uint8Array): number {
   let value = 0xffffffff;
-  for (const byte of bytes) value = (value >>> 8) ^ crcTable[(value ^ byte) & 0xff]!;
+  value = crc32Update(value, bytes);
   return (value ^ 0xffffffff) >>> 0;
+}
+
+function crc32Update(value: number, bytes: Uint8Array): number {
+  for (const byte of bytes) value = (value >>> 8) ^ crcTable[(value ^ byte) & 0xff]!;
+  return value;
 }
 
 function strictUtf8(bytes: Uint8Array): string {
@@ -113,7 +118,7 @@ function caseFold(value: string): string {
   // ECMAScript lowercasing supplies Unicode simple case mapping. These folds
   // cover the multi-character and final-sigma differences required by default
   // Unicode case folding without consulting the host filesystem.
-  return value.toLowerCase().replace(/\u00df/gu, "ss").replace(/\u03c2/gu, "\u03c3");
+  return value.toLowerCase().replace(/\u00df/gu, "ss").replace(/\u03c2/gu, "\u03c3").replace(/\u0149/gu, "\u02bcn").replace(/\u017f/gu, "s");
 }
 
 function winTrim(value: string): string { return value.replace(/[ .]+$/u, ""); }
@@ -143,15 +148,31 @@ function registerPath(
   const path = portablePath(raw, limits, directory);
   if (seen.has(path.key)) fail();
   seen.add(path.key);
-  // A literal DOS short name can alias a generated short name.  The complete
-  // Win32 numbering algorithm is volume state, so reject ambiguous explicit
-  // short-name forms rather than depending on host 8.3 settings.
   for (const component of path.components) {
     const trimmed = caseFold(winTrim(component));
-    const alias = /^(.{1,6})~[1-9](\.[^.]{0,3})?$/u.exec(trimmed);
-    if (alias && shortNames.has(trimmed)) fail();
-    if (alias) shortNames.set(trimmed, component);
+    const dot = trimmed.lastIndexOf("."); const stem = dot > 0 ? trimmed.slice(0, dot) : trimmed;
+    const ext = dot > 0 ? trimmed.slice(dot, dot + 4) : "";
+    const aliases = new Set<string>([trimmed]);
+    if (stem.length > 8 || ext.length > 4) aliases.add(`${stem.slice(0, 6)}~1${ext}`);
+    for (const alias of aliases) {
+      const previous = shortNames.get(alias);
+      if (previous !== undefined && previous !== trimmed) fail();
+      shortNames.set(alias, trimmed);
+    }
   }
+}
+
+function inflateAndDiscard(payload: Uint8Array, size: number, expectedCrc: number, limits: ReleaseArchiveLimits): void {
+  let total = 0; let checksum = 0xffffffff;
+  const inflater = new Inflate((chunk, final) => {
+    for (const byte of chunk) checksum = (checksum >>> 8) ^ crcTable[(checksum ^ byte) & 0xff]!;
+    total += chunk.length;
+    if (total > size || total > limits.maxExpandedBytes) fail();
+    if (final && (total !== size || ((checksum ^ 0xffffffff) >>> 0) !== expectedCrc)) fail();
+  });
+  try {
+    for (let offset = 0; offset < payload.length; offset += 16 * 1024) inflater.push(payload.subarray(offset, Math.min(payload.length, offset + 16 * 1024)), offset + 16 * 1024 >= payload.length);
+  } catch { fail(); }
 }
 
 function ratioAllowed(expanded: number, archiveLength: number, limits: ReleaseArchiveLimits): boolean {
@@ -224,9 +245,9 @@ function validateZip(bytes: Uint8Array, limits: ReleaseArchiveLimits): ReleaseAr
     } else if (localCrc !== crc || localCompressed !== compressed || localSize !== size) fail();
     if (end > centralOffset) fail();
     const payload = bytes.subarray(payloadStart, payloadStart + compressed);
-    let content: Uint8Array = new Uint8Array();
-    try { content = method === 0 ? payload : inflateRawSync(payload, { maxOutputLength: Math.max(1, Math.min(limits.maxExpandedBytes, size)) }); } catch { fail(); }
-    if (content.length !== size || crc32(content) !== crc) fail();
+    if (method === 0) {
+      if (payload.length !== size || crc32(payload) !== crc) fail();
+    } else inflateAndDiscard(payload, size, crc, limits);
     records.push({ offset: localOffset, end, name, directory, size });
     cursor = recordEnd;
   }
@@ -257,7 +278,108 @@ function tarChecksum(header: Uint8Array): boolean {
   for (let index = 0; index < 512; index += 1) sum += index >= 148 && index < 156 ? 0x20 : header[index]!;
   return expected === sum;
 }
-function readGzip(bytes: Uint8Array, limits: ReleaseArchiveLimits): Uint8Array {
+interface PendingExtension { name?: string; pax?: { path?: string; size?: number }; }
+class TarStreamValidator {
+  private readonly seen = new Set<string>();
+  private readonly shortNames = new Map<string, string>();
+  private buffered = new Uint8Array(0);
+  private payloadRemaining = 0;
+  private paddingRemaining = 0;
+  private extensionPayload: Uint8Array | undefined;
+  private extensionOffset = 0;
+  private extensionType = 0;
+  private pending: PendingExtension | null = null;
+  private firstEnd = false;
+  private ended = false;
+  headers = 0;
+  extensions = 0;
+  entries = 0;
+  files = 0;
+  directories = 0;
+  expanded = 0;
+
+  constructor(private readonly bytes: Uint8Array, private readonly limits: ReleaseArchiveLimits) {}
+
+  write(chunk: Uint8Array): void {
+    let cursor = 0;
+    while (cursor < chunk.length) {
+      if (this.ended) {
+        if (!allZero(chunk.subarray(cursor))) fail();
+        return;
+      }
+      if (this.payloadRemaining > 0) {
+        const count = Math.min(this.payloadRemaining, chunk.length - cursor);
+        if (this.extensionPayload) this.extensionPayload.set(chunk.subarray(cursor, cursor + count), this.extensionOffset);
+        this.extensionOffset += count;
+        this.payloadRemaining -= count;
+        cursor += count;
+        if (this.payloadRemaining === 0) this.finishPayload();
+        continue;
+      }
+      if (this.paddingRemaining > 0) {
+        const count = Math.min(this.paddingRemaining, chunk.length - cursor);
+        if (!allZero(chunk.subarray(cursor, cursor + count))) fail();
+        this.paddingRemaining -= count;
+        cursor += count;
+        continue;
+      }
+      const count = Math.min(512 - this.buffered.length, chunk.length - cursor);
+      const next = new Uint8Array(this.buffered.length + count);
+      next.set(this.buffered); next.set(chunk.subarray(cursor, cursor + count), this.buffered.length);
+      this.buffered = next;
+      cursor += count;
+      if (this.buffered.length === 512) { const header = this.buffered; this.buffered = new Uint8Array(0); this.beginHeader(header); }
+    }
+  }
+
+  finish(): ReleaseArchiveInventory {
+    if (this.buffered.length !== 0 || this.payloadRemaining !== 0 || this.paddingRemaining !== 0 || !this.ended || this.pending) fail();
+    return { archiveType: "tar.gz", entries: this.entries, regularFiles: this.files, directories: this.directories, expandedBytes: this.expanded };
+  }
+
+  private beginHeader(header: Uint8Array): void {
+    if (allZero(header)) {
+      if (!this.firstEnd) { this.firstEnd = true; return; }
+      this.ended = true;
+      return;
+    }
+    if (this.firstEnd) fail();
+    this.headers += 1; if (this.headers > this.limits.maxHeaders || !tarChecksum(header)) fail();
+    if (!equalBytes(header.subarray(257, 263), Buffer.from("ustar\0")) && !equalBytes(header.subarray(257, 263), Buffer.from("ustar "))) fail();
+    if (!equalBytes(header.subarray(263, 265), Buffer.from("00")) && !equalBytes(header.subarray(263, 265), Buffer.from(" \0"))) fail();
+    const mode = tarOctal(header, 100, 8, false); const size = tarOctal(header, 124, 12, true);
+    tarOctal(header, 108, 8, false); tarOctal(header, 116, 8, false); tarOctal(header, 136, 12, false);
+    if ((mode & 0o170000) !== 0 || (mode & 0o7000) !== 0 || tarOctal(header, 329, 8, false) !== 0 || tarOctal(header, 337, 8, false) !== 0 || size > this.limits.maxExpandedBytes || tarString(header, 157, 100)) fail();
+    const type = header[156]!; const name = tarString(header, 0, 100); const prefix = tarString(header, 345, 155); const ordinary = prefix ? `${prefix}/${name}` : name;
+    this.payloadRemaining = size; this.paddingRemaining = (512 - (size % 512)) % 512; this.extensionType = 0;
+    if (type === 76 || type === 120) {
+      if (this.pending || (type === 76 && (size < 2 || size > 4097)) || (type === 120 && (size < 1 || size > 8192))) fail();
+      this.extensions += 1; if (this.extensions > this.limits.maxExtensions) fail();
+      this.extensionPayload = new Uint8Array(size); this.extensionType = type; return;
+    }
+    if (type !== 0 && type !== 48 && type !== 53) fail();
+    const directory = type === 53;
+    if (directory && size !== 0 || this.pending?.name && this.pending.pax?.path) fail();
+    const effective = this.pending?.name ?? this.pending?.pax?.path ?? ordinary;
+    if (this.pending?.pax?.size !== undefined && (directory || this.pending.pax.size !== size)) fail();
+    this.pending = null; this.entries += 1; if (this.entries > this.limits.maxEntries) fail();
+    registerPath(this.seen, this.shortNames, effective, this.limits, directory);
+    if (directory) this.directories += 1;
+    else { this.files += 1; this.expanded += size; if (!ratioAllowed(this.expanded, this.bytes.length, this.limits)) fail(); }
+  }
+
+  private finishPayload(): void {
+    if (!this.extensionPayload) return;
+    const payload = this.extensionPayload; this.extensionPayload = undefined;
+    if (this.extensionType === 76) {
+      if (payload[payload.length - 1] !== 0) fail();
+      this.pending = { name: strictUtf8(payload.subarray(0, payload.length - 1)) };
+    } else this.pending = paxRecords(payload);
+    this.extensionOffset = 0; this.extensionType = 0;
+  }
+}
+
+function streamGzipTar(bytes: Uint8Array, limits: ReleaseArchiveLimits): ReleaseArchiveInventory {
   if (bytes.length < 18 || bytes[0] !== 0x1f || bytes[1] !== 0x8b || bytes[2] !== 8) fail();
   const flags = bytes[3]!; if ((flags & 0xe0) !== 0) fail(); let cursor = 10;
   const bounded = (terminated: boolean): void => {
@@ -268,18 +390,24 @@ function readGzip(bytes: Uint8Array, limits: ReleaseArchiveLimits): Uint8Array {
   };
   if ((flags & 4) !== 0) bounded(false); if ((flags & 8) !== 0) bounded(true); if ((flags & 16) !== 0) bounded(true);
   if ((flags & 2) !== 0) { if (cursor + 2 > bytes.length - 8 || cursor + 2 > 4096) fail(); if (u16(bytes, cursor) !== (crc32(bytes.subarray(0, cursor)) & 0xffff)) fail(); cursor += 2; }
-  const compressed = bytes.subarray(cursor, bytes.length - 8); let inflated: Uint8Array = new Uint8Array();
+  const compressed = bytes.subarray(cursor, bytes.length - 8);
+  const validator = new TarStreamValidator(bytes, limits); let expanded = 0; let checksum = 0xffffffff; let finalSeen = false;
   try {
-    // Node exposes `info` at runtime before its ambient declarations did. The
-    // consumed-byte count is necessary to reject a concatenated gzip member.
-    const result = inflateRawSync(compressed, { maxOutputLength: limits.maxExpandedBytes, info: true } as never) as unknown as { buffer: Uint8Array; engine: { bytesWritten: number } };
-    if (result.engine.bytesWritten !== compressed.length) fail(); inflated = result.buffer;
+    const inflater = new Inflate((chunk, final) => {
+      expanded += chunk.length; checksum = crc32Update(checksum, chunk);
+      if (expanded > limits.maxExpandedBytes) fail();
+      validator.write(chunk); if (final) finalSeen = true;
+    });
+    for (let offset = 0; offset < compressed.length; offset += 16 * 1024) inflater.push(compressed.subarray(offset, Math.min(compressed.length, offset + 16 * 1024)), offset + 16 * 1024 >= compressed.length);
+    const internals = inflater as unknown as { p: Uint8Array; s: { f?: number; p?: number } };
+    // fflate retains the final, partially consumed DEFLATE byte. Its unused
+    // padding bits must be zero; any additional byte is a trailing stream.
+    if (!finalSeen || internals.s.f !== 1 || internals.p.length > 1 || (internals.p.length === 1 && (!(internals.s.p && internals.s.p > 0) || (internals.p[0]! >>> internals.s.p) !== 0))) fail();
   } catch { fail(); }
-  if (crc32(inflated) !== u32(bytes, bytes.length - 8) || (inflated.length >>> 0) !== u32(bytes, bytes.length - 4)) fail();
-  return inflated;
+  if (((checksum ^ 0xffffffff) >>> 0) !== u32(bytes, bytes.length - 8) || (expanded >>> 0) !== u32(bytes, bytes.length - 4)) fail();
+  return validator.finish();
 }
 
-interface PendingExtension { name?: string; pax?: { path?: string; size?: number }; }
 function paxRecords(payload: Uint8Array): PendingExtension {
   if (payload.length < 1 || payload.length > 8192) fail(); const output: PendingExtension = {}; const keys = new Set<string>(); let cursor = 0; let count = 0;
   while (cursor < payload.length) {
@@ -297,35 +425,8 @@ function paxRecords(payload: Uint8Array): PendingExtension {
 }
 
 function validateTar(bytes: Uint8Array, limits: ReleaseArchiveLimits, archiveType: "tar.gz" | "tgz"): ReleaseArchiveInventory {
-  const tar = readGzip(bytes, limits); if (tar.length < 1024 || tar.length % 512 !== 0) fail();
-  const seen = new Set<string>(); const shortNames = new Map<string, string>(); let headers = 0; let extensions = 0; let entries = 0; let files = 0; let directories = 0; let expanded = 0; let cursor = 0; let pending: PendingExtension | null = null; let ended = false;
-  while (cursor < tar.length) {
-    const header = tar.subarray(cursor, cursor + 512); cursor += 512;
-    if (allZero(header)) { if (cursor + 512 > tar.length || !allZero(tar.subarray(cursor, cursor + 512))) fail(); cursor += 512; if (!allZero(tar.subarray(cursor))) fail(); ended = true; break; }
-    if (ended || pending && false) fail(); headers += 1; if (headers > limits.maxHeaders || !tarChecksum(header)) fail();
-    if (!equalBytes(header.subarray(257, 263), Buffer.from("ustar\0")) && !equalBytes(header.subarray(257, 263), Buffer.from("ustar "))) fail();
-    if (!equalBytes(header.subarray(263, 265), Buffer.from("00")) && !equalBytes(header.subarray(263, 265), Buffer.from(" \0"))) fail();
-    const mode = tarOctal(header, 100, 8, false); const size = tarOctal(header, 124, 12, true); tarOctal(header, 108, 8, false); tarOctal(header, 116, 8, false); tarOctal(header, 136, 12, false);
-    if ((mode & 0o7000) !== 0 || tarOctal(header, 329, 8, false) !== 0 || tarOctal(header, 337, 8, false) !== 0 || size > limits.maxExpandedBytes) fail();
-    const type = header[156]!; const name = tarString(header, 0, 100); const prefix = tarString(header, 345, 155); const ordinary = prefix ? `${prefix}/${name}` : name;
-    const payloadEnd = cursor + size; const padding = (512 - (size % 512)) % 512; if (payloadEnd + padding > tar.length || !allZero(tar.subarray(payloadEnd, payloadEnd + padding))) fail();
-    const payload = tar.subarray(cursor, payloadEnd); cursor = payloadEnd + padding;
-    if (type === 76 || type === 120) {
-      if (pending) fail(); extensions += 1; if (extensions > limits.maxExtensions) fail();
-      if (type === 76) { if (size < 2 || size > 4097 || payload[size - 1] !== 0) fail(); pending = { name: strictUtf8(payload.subarray(0, size - 1)) }; }
-      else pending = paxRecords(payload);
-      continue;
-    }
-    if (type !== 0 && type !== 48 && type !== 53) fail();
-    const directory = type === 53; if (directory && size !== 0) fail(); if (pending?.name && pending.pax?.path) fail();
-    const effective = pending?.name ?? pending?.pax?.path ?? ordinary;
-    if (pending?.pax?.size !== undefined && (directory || pending.pax.size !== size)) fail();
-    pending = null; entries += 1; if (entries > limits.maxEntries) fail();
-    registerPath(seen, shortNames, effective, limits, directory);
-    if (directory) directories += 1; else { files += 1; expanded += size; if (!ratioAllowed(expanded, bytes.length, limits)) fail(); }
-  }
-  if (!ended || pending) fail();
-  return { archiveType, entries, regularFiles: files, directories, expandedBytes: expanded };
+  const inventory = streamGzipTar(bytes, limits);
+  return { ...inventory, archiveType };
 }
 
 export function preflightReleaseArchive(input: ReleaseArchivePreflightInput): ReleaseArchivePreflightResult {

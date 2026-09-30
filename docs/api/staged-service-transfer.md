@@ -233,7 +233,7 @@ platform-asset selection and server-derived byte-size/digest equality before
 parser admission; quota-ceiling rejection plus durable actor/workspace counters,
 terminal retention, and crash-recovery reconciliation evidence; actor/header
 precedence and actor-scoped no-leak not-found evidence; every admitted ZIP-parser denial,
-including Unicode/case/Windows alias collisions, without extraction;
+including Unicode/case/Windows alias collisions, bounded chunked inflate with incremental CRC/framing validation and no retained decompressed member/TAR payload, without extraction;
 grammar/range/retry conflicts, including PAX size less-than and greater-than
 header-size denials in parser and importer preflight; retention/GET-after-cleanup;
 confirmation-before-new-only replay order; adapter atomic order, one exact

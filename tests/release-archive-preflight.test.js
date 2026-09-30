@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomBytes } from "node:crypto";
 import test from "node:test";
 import { deflateRawSync, gzipSync } from "node:zlib";
 import { preflightReleaseArchive } from "../dist/runtime/release/release-archive-preflight.js";
@@ -33,13 +34,13 @@ function zip(entries, { descriptor = false } = {}) {
 function octal(value, length) {
   const field = Buffer.alloc(length); Buffer.from(value.toString(8).padStart(length - 1, "0") + "\0").copy(field); return field;
 }
-function tarHeader({ name, size, type = "0" }) {
-  const header = Buffer.alloc(512); Buffer.from(name).copy(header, 0); octal(0o644, 8).copy(header, 100); octal(0, 8).copy(header, 108); octal(0, 8).copy(header, 116); octal(size, 12).copy(header, 124); octal(0, 12).copy(header, 136); header.fill(0x20, 148, 156); Buffer.from(type).copy(header, 156); Buffer.from("ustar\0").copy(header, 257); Buffer.from("00").copy(header, 263);
+function tarHeader({ name, size, type = "0", mode = 0o644 }) {
+  const header = Buffer.alloc(512); Buffer.from(name).copy(header, 0); octal(mode, 8).copy(header, 100); octal(0, 8).copy(header, 108); octal(0, 8).copy(header, 116); octal(size, 12).copy(header, 124); octal(0, 12).copy(header, 136); header.fill(0x20, 148, 156); Buffer.from(type).copy(header, 156); Buffer.from("ustar\0").copy(header, 257); Buffer.from("00").copy(header, 263);
   let sum = 0; for (const byte of header) sum += byte; Buffer.from(sum.toString(8).padStart(6, "0") + "\0 ").copy(header, 148); return header;
 }
 function tar(entries) {
   const parts = [];
-  for (const entry of entries) { const content = Buffer.from(entry.content ?? ""); parts.push(tarHeader({ name: entry.name, size: content.length, type: entry.type }), content, Buffer.alloc((512 - (content.length % 512)) % 512)); }
+  for (const entry of entries) { const content = Buffer.from(entry.content ?? ""); parts.push(tarHeader({ name: entry.name, size: content.length, type: entry.type, mode: entry.mode }), content, Buffer.alloc((512 - (content.length % 512)) % 512)); }
   parts.push(Buffer.alloc(1024)); return gzipSync(Buffer.concat(parts));
 }
 function pax(fields) {
@@ -47,6 +48,12 @@ function pax(fields) {
     const payload = `${key}=${value}\n`; let length = Buffer.byteLength(payload) + 3;
     for (;;) { const record = `${length} ${payload}`; if (Buffer.byteLength(record) === length) return Buffer.from(record); length = Buffer.byteLength(record); }
   })).toString();
+}
+function gzipWithExtraAndHeaderCrc(archive) {
+  const header = Buffer.from(archive.subarray(0, 10)); header[3] = 0x06;
+  const extra = Buffer.from([2, 0, 0xaa, 0x55]);
+  const crc = crc32(Buffer.concat([header, extra]));
+  return Buffer.concat([header, extra, Buffer.from([crc & 0xff, crc >>> 8]), archive.subarray(10)]);
 }
 function unsafe(result) { assert.deepEqual(result, { ok: false, error: { status: 409, code: "archive_unsafe" } }); }
 
@@ -60,6 +67,8 @@ test("ZIP validation rejects CRC corruption, pathname collisions, and unsupporte
   const corrupted = zip([{ name: "app.txt", content: "safe" }]); corrupted[14] ^= 1; unsafe(preflightReleaseArchive({ bytes: corrupted, archiveType: "zip" }));
   unsafe(preflightReleaseArchive({ bytes: zip([{ name: "Readme", content: "a" }, { name: "README", content: "b" }]), archiveType: "zip" }));
   const encrypted = zip([{ name: "safe.txt", content: "a" }]); encrypted[6] |= 1; unsafe(preflightReleaseArchive({ bytes: encrypted, archiveType: "zip" }));
+  unsafe(preflightReleaseArchive({ bytes: zip([{ name: "longfilename.txt", content: "a" }, { name: "longfi~1.txt", content: "b" }]), archiveType: "zip" }));
+  unsafe(preflightReleaseArchive({ bytes: zip([{ name: "\u0149.txt", content: "a" }, { name: "\u02bcn.txt", content: "b" }]), archiveType: "zip" }));
 });
 
 test("ZIP bounds are enforced before a caller can observe parser detail", () => {
@@ -78,6 +87,7 @@ test("TAR rejects concatenated gzip members, links, malformed PAX size, and port
   unsafe(preflightReleaseArchive({ bytes: tar([{ name: "pax", type: "x", content: pax({ size: "1" }) }, { name: "next", content: "xx" }]), archiveType: "tar.gz" }));
   unsafe(preflightReleaseArchive({ bytes: tar([{ name: "pax", type: "x", content: pax({ size: "3" }) }, { name: "next", content: "xx" }]), archiveType: "tar.gz" }));
   unsafe(preflightReleaseArchive({ bytes: tar([{ name: "Case", content: "a" }, { name: "case", content: "b" }]), archiveType: "tar.gz" }));
+  unsafe(preflightReleaseArchive({ bytes: tar([{ name: "safe", content: "x", mode: 0o120644 }]), archiveType: "tar.gz" }));
 });
 
 test("TAR PAX equal size and path are validation-only metadata, never physical framing authority", () => {
@@ -89,4 +99,32 @@ test("TAR GNU longname is immediately bound to one following regular member", ()
   const longName = `bundle/${"long-".repeat(20)}payload.txt`;
   const archive = tar([{ name: "gnu-longname", type: "L", content: `${longName}\0` }, { name: "ignored", content: "ok" }]);
   assert.deepEqual(preflightReleaseArchive({ bytes: archive, archiveType: "tar.gz" }), { ok: true, inventory: { archiveType: "tar.gz", entries: 1, regularFiles: 1, directories: 0, expandedBytes: 2 } });
+});
+
+test("TAR streams large members in bounded chunks and rejects gzip truncation, trailer corruption, and trailing DEFLATE bytes", () => {
+  const content = randomBytes(64 * 1024);
+  const archive = tar([{ name: "bundle/payload.bin", content }]);
+  assert.ok(archive.length > 16 * 1024, "fixture must cross the parser input chunk boundary");
+  assert.deepEqual(preflightReleaseArchive({ bytes: archive, archiveType: "tar.gz" }), { ok: true, inventory: { archiveType: "tar.gz", entries: 1, regularFiles: 1, directories: 0, expandedBytes: content.length } });
+  unsafe(preflightReleaseArchive({ bytes: archive, archiveType: "tar.gz", limits: { maxExpandedBytes: 1024 } }));
+  const corruptTrailer = Buffer.from(archive); corruptTrailer[corruptTrailer.length - 8] ^= 1;
+  unsafe(preflightReleaseArchive({ bytes: corruptTrailer, archiveType: "tar.gz" }));
+  unsafe(preflightReleaseArchive({ bytes: archive.subarray(0, -1), archiveType: "tar.gz" }));
+  const trailingDeflate = Buffer.concat([archive.subarray(0, -8), Buffer.from([0]), archive.subarray(-8)]);
+  unsafe(preflightReleaseArchive({ bytes: trailingDeflate, archiveType: "tar.gz" }));
+});
+
+test("TAR refuses a compressed expansion bomb before a member can become observable", () => {
+  const archive = tar([{ name: "bundle/repeated.txt", content: "0".repeat(64 * 1024) }]);
+  assert.ok(archive.length * 20 < 64 * 1024);
+  unsafe(preflightReleaseArchive({ bytes: archive, archiveType: "tgz" }));
+});
+
+test("TAR verifies bounded gzip extra fields and header CRC before accepting compressed framing", () => {
+  const archive = gzipWithExtraAndHeaderCrc(tar([{ name: "bundle/service.json", content: "{}" }]));
+  assert.deepEqual(preflightReleaseArchive({ bytes: archive, archiveType: "tar.gz" }), { ok: true, inventory: { archiveType: "tar.gz", entries: 1, regularFiles: 1, directories: 0, expandedBytes: 2 } });
+  const corruptHeaderCrc = Buffer.from(archive); corruptHeaderCrc[15] ^= 1;
+  unsafe(preflightReleaseArchive({ bytes: corruptHeaderCrc, archiveType: "tar.gz" }));
+  const reservedFlags = Buffer.from(archive); reservedFlags[3] |= 0x20;
+  unsafe(preflightReleaseArchive({ bytes: reservedFlags, archiveType: "tar.gz" }));
 });
