@@ -3688,12 +3688,15 @@ test("Windows managed terminal monitor keeps stopAll in the same native inspecti
     await waitFor(() => terminalRefreshObserved, 20_000);
     assert.equal(nativeTreeInvocations, initialNativeTreeInvocations + 1);
 
-    await stopAllManagedProcesses();
+    await assert.rejects(stopAllManagedProcesses(), (error) => {
+      assert.equal(error.name, "ManagedProcessFinalizationError");
+      return true;
+    });
     assert.equal(nativeTreeInvocations, initialNativeTreeInvocations + 1);
-    assert.equal(hasManagedProcess(serviceId), false);
-    const stopped = await findProcessOwnership(workspaceRoot, "service", serviceId);
-    assert.equal(stopped.lifecycleState, "stopped");
-    assert.equal(stopped.pid, null);
+    assert.equal(hasManagedProcess(serviceId), true);
+    const retained = await findProcessOwnership(workspaceRoot, "service", serviceId);
+    assert.equal(retained.lifecycleState, "stopping");
+    assert.equal(retained.pid, handle.pid);
   } finally {
     setManagedWindowsTreeInspectorForTests(null);
     await stopAllManagedProcesses().catch(() => null);
@@ -3744,12 +3747,18 @@ test("Windows managed terminal monitor keeps root-exit finalization in the same 
     assert.equal(nativeTreeInvocations, initialNativeTreeInvocations + 1);
 
     assert.equal(process.kill(handle.pid, "SIGKILL"), true);
-    await waitForManagedProcessFinalization(serviceId, Date.now() + 15_000);
+    await assert.rejects(
+      waitForManagedProcessFinalization(serviceId, Date.now() + 15_000),
+      (error) => {
+        assert.equal(error.name, "ManagedProcessFinalizationError");
+        return true;
+      },
+    );
     assert.equal(nativeTreeInvocations, initialNativeTreeInvocations + 1);
-    assert.equal(hasManagedProcess(serviceId), false);
-    const stopped = await findProcessOwnership(workspaceRoot, "service", serviceId);
-    assert.equal(stopped.lifecycleState, "stopped");
-    assert.equal(stopped.pid, null);
+    assert.equal(hasManagedProcess(serviceId), true);
+    const retained = await findProcessOwnership(workspaceRoot, "service", serviceId);
+    assert.equal(retained.lifecycleState, "launching");
+    assert.equal(retained.pid, handle.pid);
   } finally {
     setManagedWindowsTreeInspectorForTests(null);
     await stopAllManagedProcesses().catch(() => null);
