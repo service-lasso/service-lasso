@@ -5,6 +5,7 @@ import type {
 } from "../../contracts/service.js";
 import path from "node:path";
 import { withServiceStartSerialization } from "./start-serialization.js";
+import { windowsTreeInspectionFailureMetadata } from "../process/windows-tree-inspection-diagnostics.js";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { evaluateServiceIsolation, assertIsolationStartAllowed } from "../isolation/evaluate.js";
@@ -1591,6 +1592,7 @@ async function startServiceSerialized(
       provider: executionPlan.provider,
       providerServiceId: executionPlan.providerServiceId,
       processStartFailurePhase: managedProcessStartFailurePhase(error) ?? "unclassified_error",
+      ...windowsTreeInspectionFailureMetadata(error),
     });
     finishStartTrace(serviceId, trace, "failed", message);
     throw new LifecycleStateError(message);

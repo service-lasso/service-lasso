@@ -41,10 +41,7 @@ This repo is therefore the place where the real core behavior must live and cont
   production vulnerability, mutable Action reference, missing shipped-archive
   SBOM/provenance/signature, or failed published-package evidence (`SPEC-007`
   `AC-7G`).
-- Release 1 promotion is additionally fail-closed on independent security
-  review of the exact immutable Core, Admin, Broker, npm, and evidence packet.
-  Internal evidence assembly is not external approval, and a waiver never
-  converts missing technical proof into a pass (`SPEC-007` `AC-7H`, `#1208`).
+- Release authority and readiness follow `gov-09-release-authority.mdc` and `RELEASE_TRACEABILITY.md`. Agents report exact-candidate technical readiness; only the release owner accepts residual risk, declares GA, and authorizes promotion, publication, or deployment. Independent review is required only when the owner explicitly mandates it and names the reviewer (`SPEC-007` `AC-7H`, `#1409`). Missing or failed technical proof is never converted into a pass.
 
 ## Risks
 - Startup recovery sidecars must remain atomically replaceable under transient Windows sharing contention; bounded retries must preserve prior encrypted recovery bytes and reject changed or redirected paths (#1394, AC-4BJ.2a).
@@ -101,13 +98,11 @@ For the first runtime slice, expected proof should include:
 - documented residual gaps/blockers for anything not yet implemented
 - backlog/spec traceability updated to distinguish shipped runtime behavior from remaining planned behavior
 - working-release claims proven from the exact downloaded Core GitHub release and public npm package, with checksum-bound published Admin and Broker behavior on Windows, Ubuntu, and macOS plus exactly three retained metadata-only artifacts and direct artifact API readback; source builds are not publication proof
-- GA promotion claims require a named independent reviewer, exact packet
-  revision, dated decision, and disposition of every finding after all internal
-  release, vulnerability, provenance, runtime, recovery, and ledger gates pass
+- GA decisions require the release owner's dated exact-candidate record (tag, full SHA, package version, qualification evidence) and classification of every open investigation after required technical gates pass. Independent review is optional unless explicitly mandated with a named reviewer
 
 ## Newcomer delivery priority
 
-Issue #1326 must retain secret-safe phase evidence for repeated Windows lifecycle qualification failures before further retries. Diagnostic work must preserve product deadlines, ownership/containment checks and original assertions; collecting evidence is not resolution of the underlying failure.
+Issue #1326 must retain secret-safe phase evidence for repeated Windows lifecycle qualification failures before further retries. The canceled-monitor enrollment boundary records only closed parent/child birth relations to a fingerprint-matching root and a bounded ancestry depth, so a stale parent lifetime can be separated from an ordering-race candidate. Diagnostic work must preserve product deadlines, ownership/containment checks and original assertions; collecting evidence is not resolution of the underlying failure.
 
 The real newcomer runner must also retain a bounded, read-only startup failure snapshot before owned cleanup when a request abort hides the server's eventual failure phase. Keep this diagnostic outside public bundles, preserve the original failure, and never retry mutations or extend their deadlines to collect it.
 
@@ -115,6 +110,52 @@ Issue #1387 repairs the Linux PostgreSQL example's owned-artifact library resolu
 
 Readers should reach a working demo, add a released service, connect a small app, configure it, diagnose failure, and reproduce the app package through centralized task guides. Agent prompts use verified MCP operations where available and coding tools for source/package work, with explicit scope and outcome checks (SPEC-002 AC-4AJ.4).
 
+Issue #1418 resolves the audited starter-host, wrapper, harness and Tini reader guidance under AC-4AJ.3. Centralize the shared host/Admin/Echo task and the harness contract/result starter, preserve exact source provenance, and map existing generic template guidance rather than publishing copied Echo claims as Tini capability. Native desktop compilation, single-file packaging and harness lifecycle execution require their own direct evidence.
+
 For the current newcomer-readiness effort (#1323/#1376), the user's September 2026 decision accepts a fresh owned folder as a new-machine equivalent and requires simultaneous independent folder instances. macOS direct evidence and independent newcomer review are deferred confidence follow-ups, not blockers to this readiness conclusion. Unexecuted scenarios remain Deferred, never Verified. This decision does not authorize release promotion, publication, or a fabricated independent approval; the separate promotion controls above remain unchanged.
 
 Documentation appearance follows the reader's system by default and offers a persistent explicit light/dark override (SPEC-002 AC-4AJ.5, #1272).
+
+Issue #1326 diagnostic evidence must include nested aggregate containment deadlines within a bounded, cycle-safe closed projection; no raw error fields or changed process-control deadlines.
+
+For the reproduced #1326 acknowledgement-containment race, observe the verified Windows native launcher's acknowledgement-publication failure exit while the owned termination helper runs. Native completion may cancel only that helper, and must still prove complete known-tree termination before stopped reconciliation within the existing containment deadline. Signals, other exit codes, adopted roots and other startup phases retain their current fail-closed path. Do not kill the launcher to manufacture containment or release approved files early.
+
+Issue #1420 centralizes 14 audited Broker reader paths under AC-4AJ.3 using exact develop source fc6fc7b481dc8f9b6657a5d397a73b4a88384e2b. Separate Core protected first-run custody from the standalone CLI one-time reveal ceremony. Require IPC identity, connection-scoped operation gating, protected recovery files and metadata-only evidence; preserve bounded source TLS validation, CLI-only shares, adapter transport limits and disabled remote actions. Source contracts do not prove installed-release or live-provider acceptance.
+
+Issue #1326 residual inspection diagnosis must distinguish serialized queue wait, native snapshot execution and bounded retry delay using closed phase/retry codes and bounded counters/timings only. Preserve original errors, deadlines, helper cancellation, identity checks and assertions. Collect the same safe evidence from direct enrollment/rehydration failures and failed API startup traces; no raw helper output or native process identity is diagnostic evidence.
+
+The #1326 unexpected-root-exit qualification fixture must retain a thrown containment handle and its own recorded descendant PIDs even when startup fails. Preserve the original test error alongside cleanup errors. Do not reset ownership or recursively remove a fixture before its observed processes have stopped; retain failed cleanup state rather than masking startup evidence with prolonged filesystem retries. This test hygiene is not resolution of the production deadline failure.
+
+Issue #1418 Harness source reconciliation must distinguish direct archive extraction and synchronous manifest execution from intended real Core lifecycle integration. Accepted alternative health types are not implemented probes, and declared health timeout does not bound the current command. Keep owned workspace replacement and observed completion explicit in reader recovery/cleanup guidance.
+Issue #1326 descendant-open-denied evidence warrants removing the inspector's unused memory-read access request while preserving full native evidence and fail-closed denial. Direct query-only owned-fixture proof supports the required access boundary; no inaccessible descendant may be omitted and no helper deadline or identity requirement may change.
+
+Issue #1326 qualification cleanup must await the observed maxAttempts-service exit finalizer before asserting final stored state and removing the owned fixture. Blocked restart metadata alone does not prove all exit writes have completed. A failed bounded finalization must retain state; restart limits, production behavior and filesystem retry budgets remain unchanged.
+
+Issue #1326 repeated descendant_command_query evidence requires closed native command-query status categories: access denied, length mismatch, unsupported information class, other native failure and invalid result length. Use documented MS-ERREF constants; no raw NTSTATUS, process identity or query output. Preserve all query permissions, bounds, retries, deadlines and fail-closed identity checks; rebuild and verify canonical provenance.
+Issue #1326 maxAttempts finalization must pass an absolute epoch deadline to waitForManagedProcessFinalization, derived from the existing cleanup duration. Do not pass the relative duration as an already-expired timestamp. Preserve the existing budget, observed finalization and failed-fixture retention.
+Issue #1326 provider-role bootstrap qualification must retain closed failed start-trace metadata when the CLI summary drops structured launch causes. Observe only failed fixed-fixture services through the existing bounded projector; preserve the original error, cleanup, deadlines and assertions. No identifiers, errors, process identities or captured output enter the added diagnostic.
+
+Issue #1326 dependency-reuse verification must assert successful provider install, config and start before treating it as already running, and retain only the existing closed lifecycle failure projection for failed provider or consumer responses. Preserve API outcomes, identity/PID equality assertions, cleanup and deadlines; do not report a provider setup failure as dependency-reuse acceptance.
+
+Issue #1326 node-sample fixture stop must await actual managed finalization even when running metadata is already false. Preserve original stop/finalization errors instead of writing synthetic stopped lifecycle metadata. Existing process-control deadlines and sample termination budgets remain unchanged; retain fixture state if finalization fails before cleanup. This is truthful test teardown, not historical runtime root-cause acceptance.
+Issue #1374 hard-crash fixture observation must clear its two-minute timeout and detach observation listeners when the child exits or the observation expires. Preserve the existing deadline, exit-code assertion and caller-owned termination. Verify natural Node exit without force-exit; this bounded fixture repair does not attribute the historical full-suite hang or authorize removing other qualification safeguards without evidence.
+Issue #1419 centralizes the 14 audited app-owned service reader paths under AC-4AJ.3. Preserve explicit prerequisites, expected results, owned cleanup and failure recovery; Dagu managed/custom separation and opt-in pruning; Files workspace authorization and nonpersistent runtime configuration; optional Filebeat output setup; CACAO/SOARCA pairing and app-owned BPMN client calls. Template and packaging paths map to existing Core authoring guides. No new runtime verification or automatic Dagu scheduling integration is claimed.
+
+Issue #1326 repeated ancestry_predates_root snapshots require lifetime-aware membership: only a currently fingerprint-matching root and complete, structurally valid evidence may exclude a positively older unrelated branch. Preserve rejection of unknown identity, invalid ancestry, permission failures and deadlines; never signal numeric-parent candidates without verified lifetime membership.
+
+The lifetime restriction must reach process termination: a filtered snapshot selects verified-member signaling for both graceful and forced control, without taskkill /T rediscovery. Managed records, adopted records and restart reconstruction require explicit propagation and fresh bounded membership before delivery; a standalone controller test is not integration acceptance.
+
+The c627eae hosted argument-roundtrip failure requires narrower closed native command-status evidence under #1326, with no raw NTSTATUS or identity output. Preserve the failure, all rejection rules and unchanged qualification bounds; a successful local replay does not resolve it.
+
+The 20c0c01 dependency-order generation fixture currently hides the start result behind process-file polling. Require immediate success assertion with closed provider/consumer lifecycle evidence before dependent observations; preserve all product behavior, deadlines and single-mutation assertions.
+
+Issue #1382 pre-unlock diagnostic delivery requires an exact qualified Admin harness pin and complete packaged Windows/Linux/macOS evidence against unchanged released Admin/Broker checksums. Preserve original assertions, deadlines, exactly-once mutations and metadata-only evidence; successful diagnostics do not attribute the historical trusted-session failure.
+
+The related Admin #651 passed-spec/CLI-exit investigation may separately observe bounded Cypress executable exit/close outcomes through the pinned harness. Require exact Admin and owning Core qualification before integration; retain original failure outcomes and unchanged released application bytes.
+Issue #1439 qualification audit observation must distinguish bulk and quick advisory requests with closed endpoint/status/timing metadata only. Preserve original npm findings and exit status, production low/tooling high thresholds and all gates. Do not retry audits, log request payloads/credentials, rewrite locks or claim registry root cause from client recovery.
+Issue #1281 capture reconciliation must bind recovered later direct images to their actual candidate, receipt, viewport and archive hash. Preserve historical failed observations, review-only redaction/publication boundaries and Admin #622 literal viewport requirement; do not reconstruct missing original evidence or infer independent approval.
+Issue #1386 requires closed packaged-verifier phase diagnostics that distinguish consumer setup, package staging, dependency acquisition, installed-package binding, consumer execution, result parsing, evidence validation and evidence write. Preserve existing deadlines, isolation, provenance, cleanup and evidence contracts; a successful unchanged retry is recovery evidence, not a root-cause repair.
+
+Issue #1326 confirmed exit-during-query handling requires successful termination evidence from the same held native handle; live/unknown/259 statuses stay fail closed. Preserve native query rights, ancestry, retries, deadlines and original failed observations. Bind native safety tests and exact-head qualification before delivery claims.
+
+Issue #1326 parent-edge lifetime diagnostic follow-up binds AC-4BH: retain the 079eb33 startup rejection and classify only whether the rejected edge crosses before expected-root creation. No process details or membership/deadline relaxation; require bounded rejection and privacy tests plus exact-head qualification.

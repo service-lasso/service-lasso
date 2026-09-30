@@ -1,3 +1,5 @@
+import { projectWindowsTreeInspectionMetadata } from "../dist/runtime/process/windows-tree-inspection-diagnostics.js";
+
 const phases = new Set([
   "dependency_resolution", "port_selection", "artifact_acquisition", "env_merge",
   "process_spawn", "health_check", "terminal_outcome",
@@ -15,20 +17,53 @@ const launchPhases = new Set([
 ]);
 const eventStatuses = new Set(["completed", "blocked", "failed", "skipped"]);
 const attemptStatuses = new Set(["running", "succeeded", "failed", "blocked"]);
+// API response bodies are not diagnostic input. This closed projection only
+// distinguishes the lifecycle conflicts that can explain a post-action 409.
+const lifecycleApiErrorCodes = new Set([
+  "invalid_lifecycle_state",
+  "runtime_generation_active",
+  "runtime_generation_owner_unknown",
+  "startup_transaction_recovery_required",
+]);
 const allowed = (values, value) => values.has(value) ? value : null;
 
 // Deliberately closed: never serialize errors, messages, handles, or raw state.
 export function lifecycleFailureDiagnostic(input = {}) {
   try {
-    let { httpStatus, state, error } = input ?? {};
+    let { httpStatus, state, error, apiErrorCode } = input ?? {};
     const current = state?.runtime?.startTrace?.current;
     const failurePhases = [];
+    const windowsTreeInspections = [];
     let deadlineExceeded = false;
-    for (let depth = 0; depth < 4 && error; depth += 1, error = error.cause) {
-      const phase = allowed(launchPhases, error.failurePhase);
+    const pending = [{ error, depth: 0 }];
+    const seen = new Set();
+    for (let index = 0; index < pending.length && index < 16; index += 1) {
+      const entry = pending[index];
+      const currentError = entry.error;
+      if (!currentError || typeof currentError !== "object" || seen.has(currentError)) continue;
+      seen.add(currentError);
+      const phase = allowed(launchPhases, currentError.failurePhase);
       if (phase) failurePhases.push(phase);
-      deadlineExceeded ||= error.code === "PROCESS_CONTROL_DEADLINE_EXCEEDED";
+      deadlineExceeded ||= currentError.code === "PROCESS_CONTROL_DEADLINE_EXCEEDED";
+      const inspection = projectWindowsTreeInspectionMetadata(currentError.windowsTreeInspection);
+      if (inspection.windowsTreeInspectionPhase) windowsTreeInspections.push(inspection);
+      if (entry.depth < 3) {
+        const children = [currentError.cause];
+        if (Array.isArray(currentError.errors)) children.push(...currentError.errors.slice(0, 16));
+        for (const child of children) {
+          if (pending.length >= 16) break;
+          if (child && typeof child === "object") pending.push({ error: child, depth: entry.depth + 1 });
+        }
+      }
     }
+    if (Array.isArray(current?.events)) {
+      for (const event of current.events.slice(-16)) {
+        if (windowsTreeInspections.length >= 16) break;
+        const inspection = projectWindowsTreeInspectionMetadata(event?.metadata);
+        if (inspection.windowsTreeInspectionPhase) windowsTreeInspections.push(inspection);
+      }
+    }
+    const apiFailure = allowed(lifecycleApiErrorCodes, apiErrorCode);
     return JSON.stringify({
       kind: "lifecycle-failure",
       httpStatus: Number.isInteger(httpStatus) && httpStatus >= 100 && httpStatus <= 599 ? httpStatus : null,
@@ -40,6 +75,8 @@ export function lifecycleFailureDiagnostic(input = {}) {
       })) : [],
       failurePhases,
       deadlineExceeded,
+      ...(apiFailure ? { apiErrorCode: apiFailure } : {}),
+      ...(windowsTreeInspections.length ? { windowsTreeInspections } : {}),
     });
   } catch {
     return '{"kind":"lifecycle-failure","diagnostic":"metadata_unavailable"}';

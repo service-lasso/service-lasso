@@ -122,22 +122,27 @@ provenance metadata, asset inventory readback, and independent repeatable build
 instructions. Publication is explicitly dispatched through an approval-gated
 release environment and never occurs from an ordinary integration push.
 
-### `AC-7H` — Independent Release 1 security review and promotion gate
+### `AC-7H` — Release 1 security evidence and owner decision gate
 
-Before Release 1 promotion, the exact immutable Core, Admin, and Broker
-identities must have a review-ready security packet covering the threat model,
-trust boundaries, cryptography and key lifecycle, IPC and identity enforcement,
+Before Release 1 GA, the exact immutable Core, Admin, and Broker identities
+must have a review-ready security packet covering the threat model, trust
+boundaries, cryptography and key lifecycle, IPC and identity enforcement,
 abuse cases, dependency/SBOM/provenance state, static/dynamic/fuzz evidence,
 three-platform released-artifact qualification, recovery and incident handling,
 explicit non-claims, and repeatable reproduction instructions.
 
-The delivery owner may assemble evidence and resolve internal findings but must
-not self-certify the independent review. A named independent reviewer records
-scope, date, decision, residual findings, and approval against the exact packet
-revision. Until that sign-off exists, the decision is `GA blocked: external
-security approval outstanding`; no branch promotion, GA tag, or completion
-claim is permitted. A waiver records accepted risk but never converts a missing
-or failed technical gate into green evidence.
+Agents independently assess the governed technical gates and may report
+`Technically Ready for GA` for the exact candidate. The project owner/release
+owner alone accepts residual risk, declares GA, and authorizes promotion,
+publication, or deployment. The decision names the release tag, full commit
+SHA, npm package version, qualification evidence and dispositions of open
+investigations. An independent reviewer is optional unless the release owner
+explicitly makes that review mandatory and names the reviewer for the exact
+candidate. Deferred independent review is a follow-up, never a GA blocker.
+Neither owner risk acceptance nor reviewer evidence converts a missing or
+failed technical gate into green evidence. The decision model and linked
+procedures are canonical in `.governance/rules/gov-09-release-authority.mdc`
+and `.governance/project/RELEASE_TRACEABILITY.md`.
 
 ## Tests and Evidence
 
@@ -233,3 +238,35 @@ evidence is a row-specific real-process result.
   for published-package acquisition, startup, readiness sampling, and owned
   cleanup. Historical failed dispatches remain unwaived. Mutation retry stays
   forbidden. This is not a substitute for `AC-7H` independent review.
+
+
+### Issue #1439: audit-request qualification evidence
+
+Under AC-7E, qualification audits retain bounded bulk/quick endpoint, HTTP status and elapsed-time observations without request bodies, credentials or arbitrary URLs. Production audit retains omit-dev/low and tooling audit retains high severity. Original npm findings and failure status remain authoritative; no automatic retry, waiver or lock mutation is introduced. A local successful bulk request is distinct from a hosted failure and does not establish its upstream cause.
+
+### Issue #1494: tooling dependency hygiene
+
+Under AC-7E, Core retains the secret-free failed Docs Site observation from
+`36663989108` / job `109724626749` at develop
+`d724258656b582d2e11b12473d5a8499547823b4`: the high
+`brace-expansion <=1.1.20` advisory reached `minimatch@3.1.5` through its
+declared `^1.1.7` range. Core selects the compatible patched `1.1.21`
+resolution through a root override and records the exact candidate audit
+result. The separate moderate `fast-uri` advisory is tracked by #1493 and is
+not remediated by this issue. This work does not waive, retry, or alter the
+failed run, and it does not make a release or GA claim.
+
+### Issues #1493 and #1494: exact-head audit integration
+
+The independently reviewed source deltas start from develop
+`d724258656b582d2e11b12473d5a8499547823b4`; the integration candidate rebases
+them onto current develop and composes only the reviewed `fast-uri` `3.1.8`
+lockfile delta from PR #1497 head
+`668879645c2c3c73688459cbf625623e547c8e9b` and the compatible
+`brace-expansion` `1.1.21` root override and lockfile delta from PR #1498 head
+`88efa5dd9c18daa744cb1db9d0be2c0a77328918`. It must pass clean installation,
+zero production and tooling audits, ledger/build validation, and focused build
+checks at its own exact head. These local checks are surrogate evidence pending
+hosted exact-head CI; the historical Docs Site and Windows #1326 failures remain
+separate and unwaived. This integration does not release, deploy, publish, or
+make a GA claim.
