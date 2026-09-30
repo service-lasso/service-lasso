@@ -1,9 +1,11 @@
 # Core Standalone Runtime
 
 ## Intent
+
 Create the first real product spec for `service-lasso` by moving from bootstrap-only governance into an executable core runtime slice. This matters because the repository now has a tracked bounded runtime implementation and needs governed traceability as it widens toward production-ready service orchestration. The first core milestone proved that Service Lasso can run as a standalone manager and consume canonical service manifests directly; the current work under this spec is widening that bounded slice carefully with direct verification.
 
 ## Scope
+
 ### Windows sidecar atomic replacement (AC-4BJ.2a)
 
 For #1394, startup materialization sidecar publication may retry only Windows EPERM/EACCES/EBUSY rename failures within a fixed short retry budget. Every attempt must revalidate contained regular source and destination paths and unchanged file identity/content metadata. Close the writer handle before replacement; keep encrypted serialization and durability behavior. Never delete the prior destination or copy over it to work around rename failure. Permanent failure retains the prior record, reports the original rename error, and cleans only the transaction-owned temporary file. Non-Windows failures are not retried. Verify transient recovery, exhaustion, nonretryable errors, unsafe/changed paths, and full materialization rollback regression; repeat paired newcomer evidence before accepting the candidate.
@@ -13,6 +15,7 @@ For #1394, startup materialization sidecar publication may retry only Windows EP
 For #1392, enumerate numeric `/proc` names without directory-type resolution that can implicitly stat an entry after its process exits. Process tree, namespace identity, and listener inspection must retain their subsequent identity/namespace/socket checks and existing bounds. A disappearing individual entry must not abort an otherwise valid scan; a genuine failure to enumerate `/proc` must retain its existing failure/unknown classification, never become an empty successful table or proof of exit. Deterministic regression tests must exercise disappearance, namespace exclusion, malformed entries, and enumeration failures. Full Linux baseline shutdown and required exact-head CI remain acceptance gates.
 
 Included in this spec:
+
 - establish the first tracked source tree for the core runtime inside this repo
 - define the first bounded standalone runtime slice and its execution boundary
 - implement a runnable entrypoint for the core runtime/server
@@ -23,6 +26,7 @@ Included in this spec:
 - update canonical docs/traceability so implemented behavior is mapped to current runtime behavior
 
 Explicitly out of scope for this spec:
+
 - unbounded parity with external/reference systems
 - complete service lifecycle/provider matrix
 - production-ready UI/operator features (those belong in `lasso-@serviceadmin`)
@@ -31,6 +35,7 @@ Explicitly out of scope for this spec:
 - broad service catalog rollout
 
 ## Acceptance Criteria
+
 - `AC-1`: `service-lasso` contains a tracked core runtime source tree instead of being docs/bootstrap-only.
 - `AC-2`: A standalone runtime entrypoint can be executed locally and start successfully in a bounded development mode.
 - `AC-3`: The runtime can discover and parse canonical `service.json` manifests from a defined service root and report the discovered services reliably.
@@ -147,13 +152,17 @@ Explicitly out of scope for this spec:
 - `AC-4CD`: Leftover HTTP durable mutations resolve the trusted request-policy actor, call `enforcePermission` before mutation, deny ungranted callers without side effects, and audit allow/deny/confirmation through the existing store without secret material. Covered routes are `POST /api/updates/check`, service `setup/run`, `recovery/doctor`, `update/download`, `update/install`, and runtime `startAll` / `stopAll` / `autostart` / `reload`. JSON-body actor claims are not authority. Update install, runtime `stopAll`, and runtime `reload` require explicit confirmation. Local-root loopback works without ZITADEL; remote requires ZITADEL or an explicit local token. HTTP action-run, lifecycle projection, and in-process CLI/system actors remain `#826` / `#1026` / `#1207`. Remaining CLI commands stay on parent `#822`.
 - `AC-4CE`: Service isolation is a documented ladder on top of Core-supervised processes, not a Docker execution platform. Default `isolation.mode` is `direct` (L0, already shipped). Later optional rungs are workspace-root containment (L1), CPU/memory/process/IO limits (L2), dedicated service user on server installs (L3), namespace/Landlock/capability hardening (L4), and compose-scripts inside a service repo (L5). A Core Docker/Podman provider (L6) is an explicit non-goal of this requirement. The intended `service.json` shape is `isolation.mode` (`direct` or `compose-scripts`), `isolation.workspace` declared roots, `isolation.limits` for cpu/memory/pids/io, and `isolation.require` (`none`, `limits`, `dedicated-user`, or `hardened`). Unknown OS features report typed unavailable; `require` fails closed when the host cannot satisfy the rung; Windows must not pretend Linux cgroups exist. Runtime parse/enforce is `#1239`. Admin shows effective mode, enforced-versus-degraded limits, workspace roots, and typed unavailable reasons (`lasso-serviceadmin#609`) and must not become a Docker UI. Optional L5 reference remains `service-lasso-app-docker-node-service#1`; do not steal an open PR. SPEC-004 remains CI WSL runners and is not this ladder.
 - `AC-4CF`: The Core operator HTTP API supports remote-safe service registration only from an allowlisted released `owner/repo` reference, a caller-bound commit resolved from the requested release tag, and a caller-bound SHA-256 digest of the downloaded release manifest. Core, rather than the client, resolves and validates the release manifest and writes only through an exclusive direct-child import boundary. Client filesystem paths, arbitrary URLs, inline manifest/archive upload, overwrite, and shell/filesystem control are absent. The authenticated request actor must have `service:configure`, and server-side confirmation is required before a mutation. Each request carries a bounded opaque idempotency key; the Core durably records an `unknown` operation before mutation, serializes registrations in the Core process, replays an exact retry without another registration, rejects altered-key reuse, reconciles after restart only when the direct-child manifest bytes and discovery result match the journal, and exposes safe GET readback. A nonmatching or absent target remains `unknown` for operator recovery. Archive bytes are not acquired by registration and therefore are not claimed verified there; the later install/acquire path verifies each manifest-declared platform checksum. Operations contain only stable state, service/release identifiers, timestamps, and safe failure codes: never tokens, paths, URLs, raw manifests, archive bytes, config, logs, or secrets. `#1462` owns the first HTTP contract and its direct integration proof; CLI/TUI clients remain separate consumers.
+- `AC-4CF.1`: Core separately supports source-safe admission of a caller-selected locally authored project only when it is derived from a server-recognized immutable, versioned `service-template` contract. This is not `AC-4CF` released-reference registration and is not `#1463` release-asset transfer. The closed staged-source, preflight, confirmation, operation, recovery, Audit, error, quota, parser, provenance, and packaged-client grammar is `docs/reference/source-safe-template-admission.md` (`#1513`). Client paths are never transmitted; server paths are never accepted or exposed. The only admitted source is a bounded staged archive whose normalized file inventory and differences are allowed by the owning template contract; executable, command, source, workflow, setup/update-hook, provider, isolation, secret-reference, and URL edits are denied unless that immutable contract explicitly allows them. Core does not install, acquire, run setup, start, stop, restart, reload, resolve secrets, adopt processes, or confer semantic approval as an admission effect. `service:configure`, actor/target/candidate/template-bound single-use server confirmation, durable exact idempotency, actor-scoped readback, restart reconciliation, and safe durable Audit are mandatory. Before implementation, the `service-template` owner must publish the machine-readable immutable contract, allowed-difference policy, provenance schema, fixtures, and verifier named in the `#1513` document; absence fails closed. That owner prerequisite is service-template `#17`. CLI `#1` and `#8` are dependent consumers, and exact-head Core plus fresh packaged Core/external-CLI three-OS proof remains required.
+- `AC-4CF.1a`: The `#1513` reference contract fixes the admission profile as `SLTP-ZIP-1`, exact one-each fixed-length identity-coded upload headers, CSPRNG-generated opaque IDs, and length-framed `SLTP-STAGED-1`/`SLTP-MATERIALIZATION-1`/`SLTP-CANDIDATE-1` SHA-256 algorithms. `archiveSha256` is raw ZIP identity; normalized inventory and raw manifest digest remain distinct. `SLTP-MATERIALIZATION-1` has one byte-exact UTF-8 grammar (including literal `0x0A` record ends, fixed source-catalog record order, validated ASCII path order, no optional inventory entries, and no platform newline or serialization conversion). The canonical complete `materializationDigest` binds source-catalog identity and every final materialized path, catalog-authorized final mode, byte length, and byte digest. ZIP transport entries are always `0644`; the recognized immutable catalog can authorize only final `0644` or an immutable executable `0755` entry. `materializationDigest` is an input to the candidate/fingerprint and is retained consistently in confirmation, idempotency, operation readback, Audit, capsule, and restart recovery. Commit and recovery recompute and verify the same full digest before any completed materialization publication; unresolved divergence fails closed to `unknown`. Commit first persists `accepted` and returns `202`; it can then reach only `completed`, `conflict`, `denied`, `failed`, or `unknown`. A durable unknown due to Audit uncertainty returns `503` at commit and `200` only on actor-scoped stored-operation GET. Candidate provenance is derivation evidence under the template owner's separately approved Core catalog policy: it cannot select, alter, or become a catalog entry, and release-owner approval plus the reviewed Core catalog pin remain mandatory. This clarification does not grant executable, source, lifecycle, path, URL, or template-policy authority.
 - `AC-4CG`: Core may distribute the external `service-lassoctl` API client and `service-lasso-tui` attached-terminal client only as named operator tools, never as managed services. Core retains its `service-lasso` executable. A released package or archive that carries either tool contains a versioned, inspectable operator-tools manifest with each tool's source repository, immutable tag and full target commit, release-asset name and SHA-256, installed relative path, command name, and supported platform. The API client command is `service-lassoctl`; the TUI is launched by a caller in an attached terminal and is never autostarted, catalogued through `service.json`, supervised, or given lifecycle/health state by Core. The TUI inventory must include `windows-amd64`, `linux-amd64`, `darwin-amd64`, and `darwin-arm64`; the Node 22+ CLI may be carried only where the packaged Core supports that runtime, and unsupported platforms fail before extraction or launch. Packaging accepts only an exact reviewed upstream release whose GitHub release target, nonempty complete asset inventory, downloaded checksum manifest, and every downloaded asset digest agree with the pinned manifest. It rejects a mutable release selector, tag/source mismatch, wrong or unsupported platform, missing, extra, duplicate, malformed, redirected, path-traversing, or checksum-mismatched asset before Core staging. Until the exact upstream releases that contain the approved CLI/TUI heads exist, Core must not substitute an earlier foundation release, rebuild from source, or claim the tools are shipped. Qualification requires clean extraction/install and actual Core-connected CLI success/error/confirmation behavior plus TUI startup, safe error rendering, keyboard navigation, and attached-terminal exit on Windows, Linux, and macOS. Retain exact tested heads and direct-versus-surrogate evidence; no GA or publication claim follows from Core integration alone.
   - `AC-4CG.1`: For `#1461`, the Windows ConPTY qualification harness is a child of `AC-4CG`: with the exact pinned packaged TUI and packaged Core API, it proves a controlled unavailable-API outcome and a Core-connected dashboard state, with safe, metadata-only rendering that exposes neither credentials nor raw Core error bodies. In a caller-owned attached Windows ConPTY terminal, it proves `d` / `?` navigation and `q` exit, constrains the helper host to pinned Windows Python 3.12 x64 and hash-pinned `pywinpty`, and completes bounded owned cleanup after success, unavailable handling, or helper/probe failure. This is Windows-only harness evidence; it does not replace `AC-4CG`'s immutable upstream-release, package/archive, CLI, Linux/macOS clean-consumer, publication, promotion, or GA requirements, and does not claim client-source readiness.
 - `AC-5`: Core repo build/validation/release plumbing exists at a minimum viable level so the repo behaves like an actual product repository. The exact locked production graph audits clean, the full contributor/build graph contains no known critical or high vulnerabilities, and CI fails closed when either boundary regresses; any lower-severity exception records reachability, mitigation, ownership, and a review date.
 - `AC-6`: Project docs/backlog/spec traceability clearly identify which runtime behavior is now implemented here versus which behavior is still planned or deferred.
 
 ## Tests and Evidence
+
 Required evidence for this spec:
+
 - direct proof that Core Inbox producers emit durable system, service, workflow, and update items with stable correlation keys, update-in-place on the same condition, and metadata-only text without secrets, tokens, paths, or raw logs
 - local execution proof that the standalone runtime entrypoint starts
 - direct proof of manifest discovery/parsing against one or more fixture/sample service definitions
@@ -253,11 +262,13 @@ Required evidence for this spec:
 - explicit residual-gap notes for lifecycle/provider behaviors not yet implemented
 
 Suggested verification layers for this spec:
+
 - unit or small integration checks for manifest loading/parsing where practical
 - direct manual/runtime smoke proof for entrypoint startup and discovered service output
 - packaging/build verification for the new repo plumbing
 
 ## Documentation Impact
+
 - `.governance/project/PROJECT_INTENT.md`
 - `.governance/project/BACKLOG.md`
 - `.governance/specs/SPEC-002-core-standalone-runtime.md`
@@ -267,7 +278,9 @@ Suggested verification layers for this spec:
 - any new build/run/release docs created for the core runtime
 
 ## Verification
+
 Verify this spec by running the core runtime locally from tracked repo source and proving:
+
 1. the runtime starts,
 2. it loads configured fixture/sample manifests,
 3. discovered services are reported correctly,
@@ -277,6 +290,7 @@ Verify this spec by running the core runtime locally from tracked repo source an
 Classify verification honestly as direct proof, partial proof, or surrogate-only proof where relevant. Passing docs/build checks alone is not sufficient to satisfy this spec.
 
 ## Change Notes
+
 - 2026-09-30: `#1461` adds `AC-4CG` for exact-version external operator-tool packaging. `service-lassoctl` and `service-lasso-tui` are explicitly distinct from Core's `service-lasso` command and from the managed-service catalog. Current CLI/TUI PR heads require their own immutable released assets before Core can stage bytes; existing foundation releases remain ineligible when they do not target those reviewed heads.
 - 2026-09-30: PR `#1503` restores `AC-4CG` after its ConPTY wording narrowed the parent packaging contract, and adds child `AC-4CG.1` for the Windows harness. The child requires controlled unavailable and Core-connected dashboard states, safe rendering, `d` / `?` navigation, `q` exit, pinned Python 3.12 x64, hash-pinned `pywinpty`, and bounded owned cleanup. It remains direct Windows harness evidence only; `#1489` supplies the separate harness implementation and cannot satisfy the retained parent release or cross-platform requirements by itself.
 - 2026-09-14: `#1242` adds `AC-4N.2` so loopback canonical recycle completes first-run vault bootstrap and confirmed `startAll` before `demo:verify-canonical`, without converting a failed recycle into a pass and without logging secret values. Isolation fail-closed `AC-4CE` is unchanged. Parent `#1151` stays open.
@@ -464,16 +478,13 @@ User, operator, integration, and service-authoring guides are authored in servic
 
 For repeated native helper rejection under #1326, classify failure solely through a fixed exit-code map for snapshot creation/enumeration/close, root or descendant open/identity/time/image/parent/command-line/close checks, explicit open access-denial and changed ancestry. Unknown exit codes retain generic helper_failed. Do not emit native exception messages, Win32 payloads, process identities or helper output; nonzero results remain rejected under the existing retry/deadline contract. Rebuild and verify helper provenance with the canonical compiler and normalization gates.
 
-
 For #1326 residual tree-inspection failures, retain closed phases queue_wait/native_snapshot/retry_delay, the attempt/retry counts (bounded to 1000), cumulative queue/native timing (bounded to 600000 ms) and a closed last-retry reason. Attach only this projection to errors and failed start-trace metadata; test evidence may retain at most 16 projections within the existing bounded error traversal. Do not serialize helper output, PID, command, fingerprint, path, credentials or arbitrary error text. Projection failure must preserve the original failure. Queued cancellation must still prevent helper startup and all existing deadlines, retry policy and identity validation remain unchanged.
-
 
 For the acknowledgement-completion path only, reserve at most half the remaining containment budget to observe native exit before starting the external helper. Code 106 still requires fresh stopped-tree proof; any other exit immediately uses ordinary termination, and no exit falls back when this observation window ends. The window is part of the same caller deadline, not an added grace deadline. Cancellation must prevent later helper startup or approval.
 
 For #1326, the verified native managed launcher's unsignalled acknowledgement-publication failure exit (code 106) may race the parent-owned termination helper only during target acknowledgement failure. If native completion wins, cancel only the owned helper and obtain fresh identity-bound evidence that every previously known member has stopped before recording stopped ownership. All work shares the existing five-second containment deadline. Unknown/signal exits, other failure phases and adopted/unverified processes retain existing containment. Preserve native job containment before approved-file release, late-child containment, original phase assertions and negative deadline tests. A passing diagnostic or retry does not resolve the separate inspection failures.
 
 Nested containment errors must retain allowlisted deadline and phase metadata from both cause chains and aggregate members. Traverse at most 16 error objects across four levels, deduplicate cyclic references, and retain the existing closed output fields. Truncation is bounded partial observation, not evidence that no deadline occurred (#1326).
-
 
 For #1326, failing lifecycle qualification must retain a closed metadata-only account of startup phases and typed launch failure phases. It may additionally project only the public lifecycle conflict classifications `invalid_lifecycle_state`, `runtime_generation_active`, `runtime_generation_owner_unknown`, and `startup_transaction_recovery_required`; all other API error strings remain unclassified. Unknown strings and raw messages, paths, commands, credentials, API payloads, process handles and runtime state must not be printed by the added diagnostics. Diagnostic failure must not replace the original test failure. Cover absent, malformed and sensitive fields with focused tests. Preserve production and fixture deadlines, original test assertions and fail-closed process ownership; a successful retry or richer diagnostic is not root-cause resolution.
 
@@ -499,15 +510,16 @@ For #1387 under AC-4AJ.4c, the PostgreSQL example's foreground launcher must res
 
 For #1383, automatic startup and explicit starts targeting the same service root must serialize process launch and initialization. Concurrent callers may adopt the same verified owner or receive an already-running result, but must never launch a second initializer/process. Failed attempts must release the serialization boundary for later recovery. Independent service roots must not share this boundary. Validate actual launch counts, ownership and cleanup, including the automatic-start/HTTP request race.
 
-
 ### Windows artifact publication (AC-4AJ.4b)
 
 Issue #1380 requires bounded retries of startup artifact staging publication on Windows for EPERM, EACCES and EBUSY only. Retries use the same transaction-owned source/destination, never remove or replace an existing destination, and do not report success before rename succeeds. Non-transient/non-Windows errors fail immediately. Exhaustion preserves the original error and normal transaction recovery. Verify transient success, exhaustion, immediate failures and destination preservation before repeating direct Windows newcomer proof.
 
 ### Qualification fixture cleanup (AC-4BH)
+
 For #1326 under AC-4BH, unexpected-root-exit qualification cleanup retains the existing containment error's managed handle and fixture-owned descendant evidence after failed startup. The original exception remains observable if cleanup fails. Cleanup preserves existing stop and convergence deadlines and original lifecycle assertions; ownership reset and recursive directory removal require observed process termination. Retaining failed cleanup state is Invalidated evidence, never a passing result or production fix.
 
 ## Documentation appearance (AC-4AJ.5)
+
 Issue #1272 established documentation theme behaviour. Follow-up #1301 makes the default system-following choice explicit as Auto: documentation defaults to Auto, follows live prefers-color-scheme changes while Auto is selected, and exposes accessible Auto / Light / Dark choices on desktop and mobile. Explicit choices persist across navigation and reload; returning to Auto clears the override. Use Docusaurus color-mode state and pre-hydration handling. Custom catalog panels, inputs, tables and error/empty states must remain legible in both themes. Verify build, browser selection/persistence, live system changes, and keyboard interaction.
 
 ## Packaged Admin restart investigation (#1382)
@@ -521,6 +533,7 @@ For #1326 HTTP service-start fixtures, a non-success response must emit the exis
 ### AC-4AJ.3 Harness current-source reconciliation (#1418)
 
 At harness a8e6d7aede951e76d280f7592a2ab43f9644b1c3, document direct archive extraction and synchronous manifest execution accurately. Distinguish contract-accepted alternative health types, unenforced health timeout, dependency/evidence gaps and intended real Core lifecycle from delivered behavior. Reader steps must select an owned disposable workspace and retain failed local results before cleanup. Documentation tests/builds are not platform runtime acceptance.
+
 ### Windows native inspection access rights (#1326; AC-4BH, AC-4BS.2)
 
 For the retained c627eae hosted descendant_command_native_failure, refine only closed native query-status evidence using Microsoft MS-ERREF: buffer-too-small, partial-copy, process-terminating, unsuccessful and buffer-overflow categories. Retain the generic unknown category for all other statuses; publish no arbitrary NTSTATUS, process data or native message. Verify the shipped native mapping and the root/descendant projection through bounded rejection tests. Every category remains a failure unless the existing exact-held-handle exit proof succeeds. Preserve complete identity, ancestry, query rights, retries, deadlines and qualification gates; this diagnostic refinement alone is not a repair or historical attribution.
@@ -542,4 +555,5 @@ For the passed-spec/nonzero CLI outcome retained under Admin #651, advance only 
 For the directly reproduced #1326 exit-during-query race, an opened native process may be classified not-running only when GetExitCodeProcess succeeds on the exact held handle with a result other than STILL_ACTIVE (259). A live, unknown, failed-query or ambiguous 259 result must retain the original evidence failure. This adds no access rights, retries, deadlines or ancestry exemptions; complete evidence remains required for live processes and handle-close failures remain fatal. Verify native held-handle live/exited/invalid/259 cases and canonical provenance. This repairs only the observed race, not unproven hosted ancestry or command-query causes.
 
 ### Parent-edge lifetime diagnostic distinction (#1326; AC-4BH)
+
 For the retained 079eb33 ancestry_predates_parent failure, distinguish the rejected edge whose child or parent predates the expected root from a rejected edge wholly within that root time range. Emit only closed before_root/within_root categories; no PID, timestamps, commands or raw snapshot. Both remain failures with identical membership, retry, deadline, containment and identity behavior. Prove both classifications and sensitive-field exclusion; passing diagnostics do not establish the original hosted cause.

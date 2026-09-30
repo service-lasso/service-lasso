@@ -100,6 +100,7 @@ This inventory records every Markdown page that existed when issue [#1258](https
 | `reference/service-lockfile.md` | Technical reference | reference | Unlisted: lockfile contract |
 | `reference/service-secret-access-policy.md` | Security and access | reference | Listed: secret-access entry |
 | `reference/service-start-trace-api.md` | Run and manage services | reference | Unlisted: tracing API |
+| `reference/source-safe-template-admission.md` | Technical reference | reference | Listed: source-admission contract |
 | `reference/servicelasso-localhost-sso-test-matrix.md` | Use in your app | evidence record | Unlisted: test matrix |
 | `reference/startup-broker-resolution.md` | Security and access | reference | Unlisted: startup-resolution contract |
 | `reference/startup-endpoint-allocation.md` | Technical reference | reference | Unlisted: allocation detail |
