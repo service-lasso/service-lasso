@@ -40,13 +40,100 @@ Before allocation Core authenticates the actor and `service:configure`, checks q
 
 Finalize rehashes exact complete bytes then validates only immutable bytes using the profile below. It never extracts or writes a member. A changed ordinal/range/digest/body/token/retry fingerprint is `409 chunk_sequence_conflict`. `GET` remains metadata-only after cleanup: `cleaned` has zero received byte/count fields and `quarantined` exposes only its stable code.
 
-## Versioned archive parser profile and current admission
+## Versioned archive parser profile and TAR qualification gate
 
-`release-archive-profile-v1` admits `zip` only. Its ZIP profile is below. A stage whose selected released asset declares `tar.gz` or `tgz` is rejected as `409 archive_unsafe` before upload allocation; a generic extension or a caller-selected parser is never accepted.
+`release-archive-profile-v1` is a closed profile for `zip`, `tar.gz`, and
+`tgz`. The archive type comes only from the server-resolved selected release
+asset name and manifest declaration; a caller cannot select a parser. ZIP is
+specified below. TAR is specified here so the Linux and macOS release assets
+remain part of the intended released-asset transfer surface. It is a parser
+contract for the future implementation, not evidence that the current Core
+already admits TAR: until the evidence gate below is met, an implementation
+must fail closed with `409 archive_unsafe` for `tar.gz`/`tgz`.
 
-The owned release producer currently invokes host `tar -czf` in `scripts/release-artifact-lib.mjs` without `--format`. That host-dependent invocation is not proof of a single TAR record grammar: it can emit PAX/GNU extension records when release paths, including bundled `node_modules`, exceed legacy field limits. Consequently this protocol does not claim TAR admission, and it must not treat a successful generic `tar` extraction as parser evidence.
+The owned producer is `createReleaseArchive` in
+`scripts/release-artifact-lib.mjs`: it invokes the host command
+`tar -czf <archive> -C <output> <artifact>` without `--format`. The current
+release workflow runs that producer on Ubuntu; the same owned source can run
+with GNU tar or BSD tar on Linux/macOS. Neither a generic extractor nor a
+successful Linux build proves the record sequence from either producer. GNU
+tar documents GNU long-name records and POSIX PAX extended headers; the
+profile therefore accepts only the bounded forms below, rather than denying
+the Linux/macOS release formats or accepting general TAR.
 
-TAR admission needs a separate `release-archive-profile-v2` change that pins a producer format and records producer/version evidence from the exact produced release assets. That change must define the complete accepted extension grammar (including bounded path records if the pinned producer emits them), bind each extension to exactly one following regular entry, reject global metadata, links, devices, sparse/unknown records, duplicate or ambiguous paths, and retain all existing entry/byte/ratio/depth quotas. It also requires fixtures with the producer's longest actual bundled paths and byte-level parser tests. Until then, `tar.gz`/`tgz` are intentionally unimplemented release-asset transfer formats.
+**Gzip envelope.** Inflate exactly one gzip member with compression method 8.
+Reject reserved flags, a second member, trailing non-zero decompressed bytes,
+and an invalid header or CRC/ISIZE. Optional gzip extra, name, comment, and
+header-CRC fields are bounded to 4,096 bytes each and consumed only as envelope
+metadata. The implementation streams inflate under the 128 MiB expanded-byte
+cap and stops before any member write or extraction.
+
+**TAR blocks and headers.** The inflated stream is 512-byte blocks. Require a
+valid unsigned TAR checksum for every header, two consecutive all-zero end
+blocks, and only zero padding thereafter. Reject base-256 numbers, malformed
+octal fields, malformed `ustar`/GNU magic or version fields, a non-zero device
+field, sparse markers, continuation/volume records, and unknown typeflags.
+Accept only regular files (`0` or NUL), directories (`5`), POSIX per-file PAX
+headers (`x`), and GNU long-name headers (`L`). Links (`1`, `2`), devices
+(`3`, `4`), FIFOs (`6`), global PAX (`g`), GNU long-link (`K`), sparse records,
+and every other extension are rejected. Regular-file size is strict octal and
+counts toward the existing 128 MiB and 20:1 limits; directory size is zero.
+Header count is at most 2,048, logical file/directory entries at most 1,024,
+and extension headers at most 1,024. Each payload is padded to a 512-byte
+boundary and the parser skips it without materialising a member.
+
+**Names and logical entries.** Decode `name` and `prefix` as strict UTF-8,
+require NUL termination followed only by NUL padding, and combine a non-empty
+prefix as `prefix/name`. The effective name for a regular file or directory is
+the ordinary header name or one immediately preceding accepted extension name.
+It must be at most 4,096 UTF-8 bytes and normalize under the same rules as ZIP:
+no NUL, empty component, `.` or `..`, leading slash, backslash, drive or UNC
+form, normalization change, duplicate normalized path, or more than 16 path
+components. Directories end in `/` and have zero payload; regular files do not
+end in `/`. Mode is parsed only to reject setuid, setgid, sticky, and file-type
+bits other than regular/directory; ownership, timestamps, and permissions are
+never applied.
+
+**Per-file extensions.** An extension is bound to exactly one immediately
+following regular-file or directory header. It cannot follow another extension,
+cannot appear after the terminal blocks, and cannot be shared, reordered, or
+retained as metadata for a later member.
+
+* A GNU `L` record has a payload of 2–4,097 bytes: exactly one strict UTF-8
+  normalized path followed by a single NUL. Its header declares a regular
+  payload and its path/link fields are ignored. The following member receives
+  that path; a GNU long-link record is always denied.
+* A POSIX `x` record has a payload of 1–8,192 bytes containing at most 16 PAX
+  records. Each record is exact ASCII decimal `length`, one space, then
+  `key=value\n`; the declared length equals its complete byte length, has no
+  leading zero except `0`, and no record is duplicated. Only `path`, `size`,
+  and `mtime` keys are permitted. `path` is a strict UTF-8 normalized path of
+  1–4,096 bytes. `size` is ASCII decimal, at most 134,217,728, and must equal
+  the following regular-file effective size (it is forbidden for a directory).
+  `mtime` is unsigned decimal seconds with an optional 1–9 digit fractional
+  part, at most 20 bytes. A PAX record with no `path` is allowed only for an
+  otherwise ordinary member; its values remain validation-only and are never
+  applied. PAX `path` and GNU `L` cannot both modify the same member.
+
+These rules admit ordinary USTAR members and the bounded GNU/POSIX long-path
+forms that the owned GNU/BSD producer can emit. They intentionally reject
+global, sparse, link, device, ownership, ACL, xattr, vendor, and unknown
+metadata instead of silently ignoring it. Any parser failure returns only
+`409 archive_unsafe`, without a member name or parser detail.
+
+**TAR implementation qualification.** Before TAR is enabled, a fresh
+independent review must approve the parser implementation and a producer
+receipt for each supported producer lane: current GNU tar on Linux and current
+BSD tar on macOS, including command/version, exact source revision, archive
+SHA-256, and the server-resolved release/asset IDs. The fixture set must retain
+real produced archives for ordinary paths, the longest actual bundled path,
+GNU `L`, POSIX `x` (`path`, `size`, and `mtime`), and all supported platform
+asset names. Byte-level tests must prove accepted order/bounds and every denial
+above, plus no extraction/write/lifecycle effect. Packaged Core and the
+released CLI/TUI journey must then transfer the checksum-bound Windows ZIP,
+Linux TAR, and macOS TAR assets on all three operating systems. Current
+evidence has not supplied those producer receipts, parser tests, or three-OS
+released-artifact journey; this specification does not claim them delivered.
 
 **ZIP.** Require first local header, one terminal EOCD, and a central directory fully inside the archive. Reject prefix/SFX bytes, multi-disk, trailing bytes, ZIP64 locator/EOCD/extra fields, encrypted or strong-encrypted flags (0/6), patched-data flag 5, central-directory encryption flag 13, and every general-purpose flag except bit 3 and UTF-8 bit 11. Permit only stored (0) and deflate (8), rejecting AES/other methods. Every central record has one local record at its declared offset; filename bytes, method, allowed flags, CRC-32, compressed size, and uncompressed size agree. Bit 3 allows zero local CRC/sizes only where its immediate signed descriptor supplies the same 32-bit values; no ZIP64 descriptor. Reject overlap between local records/descriptors, central directory, EOCD, or declared member ranges; reject nonzero extra fields. Filename is strict UTF-8 with bit 11, or ASCII-only without bit 11; CP437, Unicode-path extras, and non-ASCII unflagged names fail. Count all members; add regular-file uncompressed size; stream regular files under an output cap and verify CRC-32. Directories end `/` and have zero payload; regular files do not end `/`. Reject symlink/device mode bits and unrecognized external attributes.
 
