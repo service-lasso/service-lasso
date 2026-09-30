@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { packagedVerificationDiagnostic } from "../scripts/packaged-verification-diagnostics.mjs";
+import { dependencyAcquisitionSubcode, packagedVerificationDiagnostic } from "../scripts/packaged-verification-diagnostics.mjs";
 
 test("packaged failure phases distinguish acquisition, binding, execution and evidence", () => {
   const phases = ["consumer_setup", "package_staging", "dependency_acquisition", "installed_package_binding",
@@ -13,6 +13,34 @@ test("packaged failure phases distinguish acquisition, binding, execution and ev
 test("safe release-metadata diagnostics carry only a fixed boundary and status", () => {
   assert.deepEqual(packagedVerificationDiagnostic("package_staging", { boundary: "github_release_metadata", httpStatus: 403 }), { stage: "package_staging", errorCode: "verification_failed", external: { boundary: "github_release_metadata", httpStatus: 403 } });
   assert.deepEqual(packagedVerificationDiagnostic("package_staging", { boundary: "github_release_metadata", httpStatus: 200 }), { stage: "package_staging", errorCode: "verification_failed" });
+});
+
+test("dependency acquisition projects only allowlisted subprocess and npm failure subcodes", () => {
+  const secret = "https://registry.example/private-token?credential=secret";
+  const cases = [
+    [{ code: "ENOENT", stderr: secret }, "subprocess_spawn_enoent"],
+    [{ code: "EACCES", stderr: secret }, "subprocess_spawn_eacces"],
+    [{ code: 1, stderr: secret }, "subprocess_exit_nonzero"],
+    [{ stderr: `npm ERR! code ENOTFOUND\nnpm ERR! ${secret}` }, "npm_network_enotfound"],
+    [{ stderr: `npm ERR! code EINTEGRITY\nnpm ERR! ${secret}` }, "npm_checksum_mismatch"],
+    [{ stderr: `npm ERR! code E401\nnpm ERR! ${secret}` }, "npm_registry_identity_rejected"],
+  ];
+  for (const [error, subcode] of cases) {
+    assert.equal(dependencyAcquisitionSubcode(error), subcode);
+    const result = packagedVerificationDiagnostic("dependency_acquisition", undefined, dependencyAcquisitionSubcode(error));
+    assert.deepEqual(result, { stage: "dependency_acquisition", errorCode: "verification_failed", subcode });
+    assert.equal(JSON.stringify(result).includes(secret), false);
+  }
+  for (const error of [{ stderr: `npm ERR! code EUNKNOWN\nnpm ERR! ${secret}` }, { stderr: secret }, new Error(secret)]) {
+    assert.equal(dependencyAcquisitionSubcode(error), undefined);
+    assert.deepEqual(packagedVerificationDiagnostic("dependency_acquisition", undefined, dependencyAcquisitionSubcode(error)), { stage: "dependency_acquisition", errorCode: "verification_failed" });
+  }
+});
+
+test("dependency acquisition ignores hostile getters and cannot project their private values", () => {
+  const hostile = {};
+  Object.defineProperty(hostile, "stderr", { get() { throw new Error("private-token"); } });
+  assert.equal(dependencyAcquisitionSubcode(hostile), undefined);
 });
 
 test("unknown or hostile diagnostic inputs cannot disclose payloads or execute getters", () => {
@@ -40,9 +68,14 @@ test("outer verifier reports the failed boundary, hides captured errors and alwa
     for (const cleanupFails of [false, true]) {
       let cleaned = 0;
       let stderr = "";
-      const fail = () => { throw Object.assign(new Error("private-token and private-path"), { stdout: "private-token", stderr: "private-token" }); };
+      const fail = () => {
+        const stderr = failurePhase === "dependency_acquisition"
+          ? "npm ERR! code ENOTFOUND\nprivate-token and private-path"
+          : "private-token";
+        throw Object.assign(new Error("private-token and private-path"), { stdout: "private-token", stderr });
+      };
       const context = {
-        path, createHash, packagedVerificationDiagnostic, operatorToolFailureDiagnostic: () => undefined, releaseMetadataToken: undefined,
+        path, createHash, packagedVerificationDiagnostic, dependencyAcquisitionSubcode, operatorToolFailureDiagnostic: () => undefined, releaseMetadataToken: undefined,
         tempRoot: "owned-temp", consumerRoot: "owned-temp/consumer", servicesRoot: "owned-temp/services",
         httpWorkspaceRoot: "owned-temp/http", stdioWorkspaceRoot: "owned-temp/stdio",
         repoRoot: "repo", packageOutputRoot: "owned-temp/package-output", version: "0.1.0",
@@ -63,7 +96,11 @@ test("outer verifier reports the failed boundary, hides captured errors and alwa
       const result = JSON.parse(stderr.slice("[mcp-package-verification-error] ".length));
       assert.deepEqual(result, cleanupFails
         ? { stage: "temp_cleanup", errorCode: "cleanup_failed", verificationStage: failurePhase, verificationErrorCode: "verification_failed" }
-        : { stage: failurePhase, errorCode: "verification_failed" });
+        : {
+            stage: failurePhase,
+            errorCode: "verification_failed",
+            ...(failurePhase === "dependency_acquisition" ? { subcode: "npm_network_enotfound" } : {}),
+          });
     }
   }
 });
