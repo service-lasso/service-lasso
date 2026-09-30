@@ -65,6 +65,14 @@ test("operator tools stage only checksum-verified immutable release bytes", asyn
 test("operator tool identity rejects incomplete platform inventory", () => {
   assertExactToolRelease(CURRENT_TUI_RELEASE);
   assertExactCliRelease(CURRENT_CLI_RELEASE);
+  assert.deepEqual(
+    { tag: CURRENT_TUI_RELEASE.tag, targetCommit: CURRENT_TUI_RELEASE.targetCommit, assets: CURRENT_TUI_RELEASE.assets.map((asset) => asset.name) },
+    { tag: "candidate-2026.9.30-727f812", targetCommit: "727f812eaab9537af8a9cb369169c45caec5aa2f", assets: ["service-lasso-tui-2026.9.30-727f812-win32-amd64.zip", "service-lasso-tui-2026.9.30-727f812-linux-amd64.tar.gz", "service-lasso-tui-2026.9.30-727f812-darwin-amd64.tar.gz", "service-lasso-tui-2026.9.30-727f812-darwin-arm64.tar.gz"] },
+  );
+  assert.deepEqual(
+    { tag: CURRENT_CLI_RELEASE.tag, targetCommit: CURRENT_CLI_RELEASE.targetCommit, asset: CURRENT_CLI_RELEASE.asset.name },
+    { tag: "cli-v0.1.0-dev.d3a3814-candidate-d3a3814", targetCommit: "d3a381402c26686aa0b618055a45d525605bdbea", asset: "service-lassoctl-0.1.0-dev.d3a3814.tgz" },
+  );
   assert.throws(() => assertExactToolRelease({ ...release, assets: release.assets.slice(1) }), /incomplete/u);
   assert.throws(() => assertExactCliRelease({ ...cliRelease, repository: "other/cli" }), /identity/u);
   assert.throws(() => assertExactCliRelease({ ...cliRelease, tag: "latest" }), /identity/u);
