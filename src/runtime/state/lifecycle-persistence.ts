@@ -23,6 +23,7 @@ export const ENDPOINT_ALLOCATION_SCHEMA_V1 = "service-lasso.endpoint-allocation.
 export const ENDPOINT_ALLOCATION_SCHEMA_V2 = "service-lasso.endpoint-allocation.v2";
 export const RECONCILIATION_CONTEXT_IDENTITY_SCHEMA_V1 = "service-lasso.reconciliation-context-identity.v1";
 export const RECONCILIATION_CONTEXT_CUSTODY_SCHEMA_V1 = "service-lasso.reconciliation-context-custody.v1";
+export const RECONCILIATION_CONTEXT_AUTHORITY_SCHEMA_V2 = "service-lasso.reconciliation-context-authority.v2";
 
 export const MAX_LIFECYCLE_DOCUMENT_BYTES = 256 * 1024;
 export const MAX_LIFECYCLE_LOCK_BYTES = 16 * 1024;
@@ -169,6 +170,18 @@ export const RECONCILIATION_CONTEXT_CUSTODY_POLICY: LifecycleDocumentPolicy = {
   currentVersion: 1,
   legacyVersion: 0,
   relativePath: path.join(".service-lasso", "reconciliation-context-custody.json"),
+};
+
+/**
+ * One closed record prevents a reader from observing custody without its
+ * authority (or the inverse) during server initialization.
+ */
+export const RECONCILIATION_CONTEXT_AUTHORITY_POLICY: LifecycleDocumentPolicy = {
+  kind: "runtime-instance",
+  currentSchemaVersion: RECONCILIATION_CONTEXT_AUTHORITY_SCHEMA_V2,
+  currentVersion: 2,
+  legacyVersion: 1,
+  relativePath: path.join(".service-lasso", "reconciliation-context-authority.json"),
 };
 
 const WORKSPACE_LIFECYCLE_POLICIES: readonly LifecycleDocumentPolicy[] = [

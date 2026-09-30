@@ -215,6 +215,7 @@ import {
   assertMcpRateLimit,
   assertMcpScopes,
   assertMcpTransportEnabled,
+  authenticateMcpHttpRequest,
   authorizeMcpHttpRequest,
   createMcpRateLimiter,
   createMcpProtectedResourceMetadata,
@@ -1355,6 +1356,7 @@ async function recordMcpAuthorizationAudit(
   authorization?: McpHttpAuthorization,
   reason?: string,
   parsedBody?: unknown,
+  routeTemplate: string = "/api/mcp",
 ): Promise<void> {
   try {
     const appender = config.mcpPolicyTestHooks?.appendAuditEvent ?? appendAuditEvent;
@@ -1364,7 +1366,7 @@ async function recordMcpAuthorizationAudit(
       action: outcome === "success" ? "mcp.auth.allowed" : "mcp.auth.denied",
       actor: authorization?.actor.actorId ?? "mcp-unauthenticated",
       method: request.method ?? "POST",
-      routeTemplate: "/api/mcp",
+      routeTemplate,
       outcome,
       statusCode,
       summary: outcome === "success"
@@ -1947,14 +1949,46 @@ async function authorizeDurableReconciliationContextRequest(
   auth: RuntimeAuthPolicyStatus,
   config: ApiRouteConfig,
 ): Promise<McpHttpAuthorization | null> {
+  let authorization: McpHttpAuthorization | undefined;
   try {
     assertMcpTransportEnabled(config.mcpHttpIdentity);
     assertMcpHostAllowed(request, config.mcpHttpIdentity);
-    const authorization = await authorizeMcpHttpRequest(request, auth, config.mcpHttpIdentity);
+    authorization = await authenticateMcpHttpRequest(request, auth, config.mcpHttpIdentity);
+    assertMcpScopes(authorization, ["service-lasso:read"]);
     assertMcpRateLimit(config.mcpRateLimiter, authorization, config.mcpHttpIdentity);
+    await recordMcpAuthorizationAudit(
+      config,
+      request,
+      "success",
+      200,
+      authorization,
+      undefined,
+      undefined,
+      "/api/operator/lifecycle/reconciliation-context",
+    );
     return authorization;
   } catch (error) {
     if (error instanceof McpHttpPolicyError) {
+      try {
+        await recordMcpAuthorizationAudit(
+          config,
+          request,
+          "failure",
+          error.statusCode,
+          authorization,
+          error.code,
+          undefined,
+          "/api/operator/lifecycle/reconciliation-context",
+        );
+      } catch (auditError) {
+        writeMcpPolicyError(
+          response,
+          auditError instanceof McpHttpPolicyError
+            ? auditError
+            : new McpHttpPolicyError("mcp_audit_unavailable", 503),
+        );
+        return null;
+      }
       writeMcpPolicyError(response, error);
       return null;
     }
