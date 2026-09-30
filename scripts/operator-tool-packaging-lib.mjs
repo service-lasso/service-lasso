@@ -45,25 +45,25 @@ function browserAssetUrl(release, name) {
 // release API and every retained byte before they can enter a Core artifact.
 export const CURRENT_TUI_RELEASE = {
   repository: "service-lasso/service-lasso-tui",
-  tag: "candidate-2026.9.30-9ac25a1",
-  targetCommit: "9ac25a1bb8c63d9f564743e7ee0c8956304b1db3",
-  checksumManifest: { name: "SHA256SUMS.txt", sha256: "485ac6593c773fea099ac1bc482a73050d40b5a6afb71f5c6b99df3f84726e02" },
-  candidateManifest: { name: "candidate-manifest.json", sha256: "e4e0ff1967e0d390425b6d2874bda418e7f186e3237249d70a27b6984fd7b3a2" },
+  tag: "candidate-2026.9.30-97fafb0",
+  targetCommit: "97fafb04c69fce8efdd245eb186e6dfb9915485d",
+  checksumManifest: { name: "SHA256SUMS.txt", sha256: "638ad5e54e06dcb894a4579872e788ddc4521cd3ffca46fb06574c8b78de1cf5" },
+  candidateManifest: { name: "candidate-manifest.json", sha256: "efaa8ed7d433ef6aee4f800efc9b0880a4ae7fa989012bd90191d6afc2cfea04" },
   assets: [
-    { platform: "win32-amd64", name: "service-lasso-tui-2026.9.30-9ac25a1-win32-amd64.zip", sha256: "6304aacae378c98e12b4b1c07c50730ce665595abec55072ee440e4bed1568a0" },
-    { platform: "linux-amd64", name: "service-lasso-tui-2026.9.30-9ac25a1-linux-amd64.tar.gz", sha256: "47064f644b10064d1b99b3a435c8b123331f143ec79e82dde1aa6d10eed47a7c" },
-    { platform: "darwin-amd64", name: "service-lasso-tui-2026.9.30-9ac25a1-darwin-amd64.tar.gz", sha256: "f081ad9691aa76c142382183f1472c23345f2a9e8497d9792bd6e0b2b361ad73" },
-    { platform: "darwin-arm64", name: "service-lasso-tui-2026.9.30-9ac25a1-darwin-arm64.tar.gz", sha256: "efa0e7c772fbf38689a01c94498eaeff9e3248e7eef88d038db82bdc34a2f309" },
+    { platform: "win32-amd64", name: "service-lasso-tui-2026.9.30-97fafb0-win32-amd64.zip", sha256: "b8838f245d4b1d39cac0b51ed2ad14ffd0237779f1a5e9d3e61358066370e479" },
+    { platform: "linux-amd64", name: "service-lasso-tui-2026.9.30-97fafb0-linux-amd64.tar.gz", sha256: "238a8e3f92ae5f9cf28c5cd29af91b698addb9bfa546a7b31c7f7a71b7c33e70" },
+    { platform: "darwin-amd64", name: "service-lasso-tui-2026.9.30-97fafb0-darwin-amd64.tar.gz", sha256: "5d6df8cfa18771e159b7af34c1c5c00d70ae5eef1ddf727896ae2afb30b63638" },
+    { platform: "darwin-arm64", name: "service-lasso-tui-2026.9.30-97fafb0-darwin-arm64.tar.gz", sha256: "a9523555416a1b332107a9a92cfecc2aa3b7cdd23caab1063540496e4e20b33c" },
   ],
 };
 
 export const CURRENT_CLI_RELEASE = {
   repository: "service-lasso/service-lasso-cli",
-  tag: "cli-v0.1.0-dev.0fb93a2-candidate-0fb93a2",
-  targetCommit: "0fb93a23c658f2012cdb33af71551458185498e3",
-  asset: { name: "service-lassoctl-0.1.0-dev.0fb93a2.tgz", sha256: "1062fda830784e05f830540ce3646a4adf9d690ba6d2e4dd250da62669051a91" },
-  checksumManifest: { name: "SHA256SUMS.txt", sha256: "ffb881045a56f20fb5577889befaf1146613dea5f562badabd95af3a195c045d" },
-  candidateManifest: { name: "candidate.json", sha256: "a085f0db0834876d1ccd7725c34c10fa4c7aae0983fcceceeff02ecc3d46447d" },
+  tag: "cli-v0.1.0-dev.d3a3814-candidate-d3a3814",
+  targetCommit: "d3a381402c26686aa0b618055a45d525605bdbea",
+  asset: { name: "service-lassoctl-0.1.0-dev.d3a3814.tgz", sha256: "954f117e41e1cebbdb0f942f35c4e33b9c55150e4880544d51db2d37905b2328" },
+  checksumManifest: { name: "SHA256SUMS.txt", sha256: "f54d41cf8f329ecd1aded1acf43d61c8130152b2536c77fe2671dc9cb6148274" },
+  candidateManifest: { name: "candidate.json", sha256: "9acd2be93ae9f423fa0e5416e5b49b05ec72899943201c67245050d4796b684b" },
   supportedPlatforms: ["win32", "linux", "darwin"],
 };
 
