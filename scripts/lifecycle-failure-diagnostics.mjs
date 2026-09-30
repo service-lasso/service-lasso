@@ -38,6 +38,14 @@ const readOwnErrorDataProperty = (error, property) => {
     return undefined;
   }
 };
+const hasOwnErrorAccessor = (error, property) => {
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(error, property);
+    return Boolean(descriptor && !("value" in descriptor));
+  } catch {
+    return true;
+  }
+};
 const readOwnArrayValues = (value, limit) => {
   if (!Array.isArray(value)) return [];
   const values = [];
@@ -52,6 +60,13 @@ const readOwnArrayValues = (value, limit) => {
 export function lifecycleFailureDiagnostic(input = {}) {
   try {
     let { httpStatus, state, error, apiErrorCode } = input ?? {};
+    // A root traversal accessor used to make this observation throw and return
+    // the closed unavailable marker. Preserve that contract without invoking it.
+    if (error && typeof error === "object" && (
+      hasOwnErrorAccessor(error, "cause") || hasOwnErrorAccessor(error, "errors")
+    )) {
+      return '{"kind":"lifecycle-failure","diagnostic":"metadata_unavailable"}';
+    }
     const current = state?.runtime?.startTrace?.current;
     const failurePhases = [];
     const windowsTreeInspections = [];
