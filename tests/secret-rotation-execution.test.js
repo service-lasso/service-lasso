@@ -11,6 +11,7 @@ import {
   executeSecretRotation,
   readSecretRotationExecutionState,
 } from "../dist/runtime/operator/secret-rotation-execution.js";
+import { LifecycleStateError } from "../dist/server/errors.js";
 
 const ref = "secretsbroker.ROTATE_TOKEN";
 const candidate = "ROTATION_CANDIDATE_MUST_NOT_PERSIST";
@@ -214,11 +215,54 @@ test("consumer convergence failure automatically restores the Broker version and
     });
     assert.equal(result.outcome, "rolled_back");
     assert.equal(result.phase, "rolled_back");
+    assert.equal(result.failureCode, "rotation_consumer_not_ready");
     assert.equal(result.activeVersionId, "version-1");
     assert.equal(startAttempts, 2);
     assert.equal(getLifecycleState("consumer").running, true);
     assert.equal(calls.some((call) => call.path.endsWith("/rollback")), true);
     assert.equal(JSON.stringify(result).includes(candidate), false);
+  } finally {
+    resetLifecycleState();
+    await rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test("a thrown consumer lifecycle-state error rolls back as consumer-not-ready while retaining the original cause", async () => {
+  const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-rotation-thrown-readiness-"));
+  const fixture = service();
+  const services = [fixture];
+  const registry = createServiceRegistry(services);
+  const calls = [];
+  const originalCause = new LifecycleStateError("fixture consumer start is not ready");
+  let startAttempts = 0;
+  resetLifecycleState();
+  setRunning(fixture.manifest.id, true);
+  const plan = buildSecretRotationImpactPlan(services, ref);
+
+  try {
+    const result = await executeSecretRotation(request(plan, "rotation-thrown-readiness"), {
+      workspaceRoot,
+      services,
+      registry,
+      brokerRuntime: fakeBroker(calls),
+      operations: {
+        stop: async (target) => setRunning(target.manifest.id, false),
+        start: async (target) => {
+          startAttempts += 1;
+          if (startAttempts === 1) throw originalCause;
+          setRunning(target.manifest.id, true);
+          return true;
+        },
+      },
+    });
+    assert.equal(result.outcome, "rolled_back");
+    assert.equal(result.phase, "rolled_back");
+    assert.equal(result.failureCode, "rotation_consumer_not_ready");
+    assert.equal(result.activeVersionId, "version-1");
+    assert.equal(startAttempts, 2);
+    assert.equal(getLifecycleState(fixture.manifest.id).running, true);
+    assert.equal(calls.some((call) => call.path.endsWith("/rollback")), true);
+    assert.equal(originalCause.code, "invalid_lifecycle_state");
   } finally {
     resetLifecycleState();
     await rm(workspaceRoot, { recursive: true, force: true });

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdir, open, readFile, readdir, rename, unlink } from "node:fs/promises";
 import path from "node:path";
 import type { DiscoveredService } from "../../contracts/service.js";
-import { ApiError } from "../../server/errors.js";
+import { ApiError, LifecycleStateError } from "../../server/errors.js";
 import { listServiceActionRuns, runServiceAction } from "../actions/runs.js";
 import type { SecretsBrokerRuntimeContext } from "../broker/runtime.js";
 import { waitForServiceReadiness } from "../health/waitForReadiness.js";
@@ -264,6 +264,12 @@ function operationKey(operation: SecretRotationImpactOperation): string {
   return `${operation.serviceId}:${operation.action}:${operation.actionId ?? ""}`;
 }
 
+function rotationConsumerNotReady(serviceId: string, cause?: unknown): ApiError {
+  const error = new ApiError("rotation_consumer_not_ready", 503, `Impacted service "${serviceId}" did not restart.`);
+  if (cause !== undefined) Object.defineProperty(error, "cause", { value: cause });
+  return error;
+}
+
 async function persistLifecycle(service: DiscoveredService): Promise<void> {
   await writeServiceState(service, getLifecycleState(service.manifest.id));
 }
@@ -343,8 +349,15 @@ async function runPlannedOperation(
     if (getLifecycleState(operation.serviceId).running) {
       await executionOperations(options).stop(service);
     }
-    if (!await executionOperations(options).start(service)) {
-      throw new ApiError("rotation_consumer_not_ready", 503, `Impacted service "${operation.serviceId}" did not restart.`);
+    try {
+      if (!await executionOperations(options).start(service)) {
+        throw rotationConsumerNotReady(operation.serviceId);
+      }
+    } catch (error) {
+      if (error instanceof LifecycleStateError && error.code === "invalid_lifecycle_state") {
+        throw rotationConsumerNotReady(operation.serviceId, error);
+      }
+      throw error;
     }
     return;
   }
