@@ -26,12 +26,26 @@ const lifecycleApiErrorCodes = new Set([
   "startup_transaction_recovery_required",
 ]);
 const allowed = (values, value) => values.has(value) ? value : null;
-const readErrorProperty = (error, property) => {
+// Error graphs are trusted in-process error objects. ECMAScript cannot identify
+// a Proxy without reflection that can invoke its traps, so this diagnostic must
+// not receive untrusted Proxies. For ordinary objects, only own data properties
+// participate: accessors and inherited values are deliberately ignored.
+const readOwnErrorDataProperty = (error, property) => {
   try {
-    return error[property];
+    const descriptor = Object.getOwnPropertyDescriptor(error, property);
+    return descriptor && "value" in descriptor ? descriptor.value : undefined;
   } catch {
     return undefined;
   }
+};
+const readOwnArrayValues = (value, limit) => {
+  if (!Array.isArray(value)) return [];
+  const values = [];
+  for (let index = 0; index < limit; index += 1) {
+    const item = readOwnErrorDataProperty(value, String(index));
+    if (item !== undefined) values.push(item);
+  }
+  return values;
 };
 
 // Deliberately closed: never serialize errors, messages, handles, or raw state.
@@ -49,15 +63,15 @@ export function lifecycleFailureDiagnostic(input = {}) {
       const currentError = entry.error;
       if (!currentError || typeof currentError !== "object" || seen.has(currentError)) continue;
       seen.add(currentError);
-      const phase = allowed(launchPhases, readErrorProperty(currentError, "failurePhase"));
+      const phase = allowed(launchPhases, readOwnErrorDataProperty(currentError, "failurePhase"));
       if (phase) failurePhases.push(phase);
-      deadlineExceeded ||= readErrorProperty(currentError, "code") === "PROCESS_CONTROL_DEADLINE_EXCEEDED";
-      const inspection = projectWindowsTreeInspectionMetadata(readErrorProperty(currentError, "windowsTreeInspection"));
+      deadlineExceeded ||= readOwnErrorDataProperty(currentError, "code") === "PROCESS_CONTROL_DEADLINE_EXCEEDED";
+      const inspection = projectWindowsTreeInspectionMetadata(readOwnErrorDataProperty(currentError, "windowsTreeInspection"));
       if (inspection.windowsTreeInspectionPhase) windowsTreeInspections.push(inspection);
       if (entry.depth < 3) {
-        const children = [readErrorProperty(currentError, "cause")];
-        const errors = readErrorProperty(currentError, "errors");
-        if (Array.isArray(errors)) children.push(...errors.slice(0, 16));
+        const children = [readOwnErrorDataProperty(currentError, "cause")];
+        const errors = readOwnErrorDataProperty(currentError, "errors");
+        children.push(...readOwnArrayValues(errors, 16));
         for (const child of children) {
           if (pending.length >= 16) break;
           if (child && typeof child === "object") pending.push({ error: child, depth: entry.depth + 1 });
