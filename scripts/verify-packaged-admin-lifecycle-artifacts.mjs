@@ -8,7 +8,13 @@ const platforms = ["linux", "win32", "darwin"];
 function required(name, pattern = /^.+$/u) { const value = process.env[name]; if (!value || !pattern.test(value)) throw new Error(`Invalid ${name}.`); return value; }
 async function regular(file, label) { const info = await lstat(file).catch(() => null); if (!info?.isFile() || info.isSymbolicLink() || info.size <= 0 || info.size > 16384) throw new Error(`${label} is missing, private, or invalid.`); return readFile(file, "utf8"); }
 function exactKeys(value, keys) { return !!value && typeof value === "object" && !Array.isArray(value) && Object.keys(value).sort().join(",") === [...keys].sort().join(","); }
-function sameValue(left, right) { return JSON.stringify(left) === JSON.stringify(right); }
+function sameValue(left, right) {
+  if (left === right) return true;
+  if (!left || !right || typeof left !== "object" || typeof right !== "object" || Array.isArray(left) !== Array.isArray(right)) return false;
+  if (Array.isArray(left)) return left.length === right.length && left.every((value, index) => sameValue(value, right[index]));
+  const leftKeys = Object.keys(left).sort(), rightKeys = Object.keys(right).sort();
+  return leftKeys.length === rightKeys.length && leftKeys.every((key, index) => key === rightKeys[index] && sameValue(left[key], right[key]));
+}
 function expectedRelease(release, platform) {
   return { revision: release.revision, releaseId: release.id, tag: release.tag, asset: release.platforms[platform].asset, sha256: release.platforms[platform].sha256, checksumSource: "SHA256SUMS.txt" };
 }
