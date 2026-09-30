@@ -319,33 +319,19 @@ interface WindowsProcessTreeJson {
   Processes?: unknown;
 }
 
-interface WindowsCommandPartialCopyReceipt {
-  CommandQueryHeldHandleState?: unknown;
-  CommandQueryArchitectureRelation?: unknown;
-}
-
 interface ParsedWindowsCommandPartialCopyReceipt {
   heldHandleState: "still_active_or_259" | "exit_query_failed";
   architectureRelation: "same" | "cross" | "unknown";
 }
 
 function parseWindowsCommandPartialCopyReceipt(value: unknown): ParsedWindowsCommandPartialCopyReceipt | null {
-  try {
-    if (typeof value !== "string" || !value.trim()) return null;
-    const receipt = JSON.parse(value) as WindowsCommandPartialCopyReceipt;
-    if (
-      !receipt || typeof receipt !== "object" ||
-      Object.keys(receipt).length !== 2 ||
-      receipt.CommandQueryHeldHandleState !== "still_active_or_259" && receipt.CommandQueryHeldHandleState !== "exit_query_failed" ||
-      receipt.CommandQueryArchitectureRelation !== "same" && receipt.CommandQueryArchitectureRelation !== "cross" && receipt.CommandQueryArchitectureRelation !== "unknown"
-    ) return null;
-    return {
-      heldHandleState: receipt.CommandQueryHeldHandleState,
-      architectureRelation: receipt.CommandQueryArchitectureRelation,
-    };
-  } catch {
-    return null;
-  }
+  if (typeof value !== "string") return null;
+  // The native helper emits this canonical two-key object. Matching the whole
+  // string rejects duplicate JSON keys before JSON.parse could collapse them.
+  const receipt = /^\{"CommandQueryHeldHandleState":"(still_active_or_259|exit_query_failed)","CommandQueryArchitectureRelation":"(same|cross|unknown)"\}$/u.exec(value);
+  return receipt
+    ? { heldHandleState: receipt[1] as ParsedWindowsCommandPartialCopyReceipt["heldHandleState"], architectureRelation: receipt[2] as ParsedWindowsCommandPartialCopyReceipt["architectureRelation"] }
+    : null;
 }
 
 export interface WindowsProcessTreeInspection {

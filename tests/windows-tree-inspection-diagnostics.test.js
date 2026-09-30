@@ -82,6 +82,19 @@ test("repeated rejected snapshots retain closed retry evidence and hide raw outp
     assert.equal(lifecycleFailureDiagnostic({ error }).includes("private"), false);
     return true;
   });
+  await assert.rejects(inspectWindowsProcessTree(root, {
+    deadlineMs: Date.now() + 80,
+    runCommand: async () => ({
+      exitCode: 138,
+      stdout: '{"CommandQueryHeldHandleState":"exit_query_failed","CommandQueryHeldHandleState":"still_active_or_259","CommandQueryArchitectureRelation":"same"}',
+    }),
+  }), error => {
+    const evidence = windowsTreeInspectionFailureMetadata(error);
+    assert.equal(evidence.windowsTreeInspectionLastRetry, "descendant_command_partial_copy");
+    assert.equal(evidence.windowsTreeInspectionCommandQueryHeldHandleState, undefined);
+    assert.equal(evidence.windowsTreeInspectionCommandQueryArchitectureRelation, undefined);
+    return true;
+  });
 });
 
 test("projection excludes arbitrary fields, invalid codes and unbounded numbers", () => {
