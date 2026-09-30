@@ -36,6 +36,7 @@ const activeOperations = new Map<string, {
   controller: AbortController;
   completion: Promise<McpOperationCompletion>;
 }>();
+const activeGuardedExecutions = new Map<string, string>();
 const workspaceHeartbeats = new Map<string, { completion: Promise<void> }>();
 const STATE_VERSION = 1;
 const STATE_LOCK_TIMEOUT_MS = 15_000;
@@ -234,13 +235,28 @@ export class McpOperationService {
   }): Promise<{ kind: "completed"; response: McpGuardedActionResponse } | { kind: "accepted"; payload: McpOperationAcceptedPayload }> {
     const authorization = requiredAuthorization(input.authorization);
     const createdAt = this.now();
+    const guardedExecutionId = normalizeGuardedExecutionId(input.guardedExecutionId);
+    const guardedExecutionKey = input.deduplicateByGuardedExecution && guardedExecutionId !== null
+      ? operationGuardedExecutionKey(this.workspaceRoot, authorization, guardedExecutionId)
+      : null;
+    if (guardedExecutionKey) {
+      const activeOperationId = activeGuardedExecutions.get(guardedExecutionKey);
+      if (activeOperationId) {
+        try {
+          const current = await this.get(activeOperationId, authorization);
+          return acceptedOperationPayload(this.now(), current.operation);
+        } catch (error) {
+          if (!(error instanceof McpOperationError) || error.code !== "operation_not_found") throw error;
+          activeGuardedExecutions.delete(guardedExecutionKey);
+        }
+      }
+    }
     const priorState = await this.readAndCleanState();
     for (const prior of priorState.operations.filter((operation) =>
       !isTerminal(operation.status) && Date.parse(operation.expiresAt) <= createdAt.getTime()
     )) {
       await this.reconcileOperation(prior.operationId);
     }
-    const guardedExecutionId = normalizeGuardedExecutionId(input.guardedExecutionId);
     const operationId = `mcp-operation-${randomUUID()}`;
     const correlationId = `mcp-operation-correlation-${randomUUID()}`;
     const targetIds = normalizeTargets(input.targetIds);
@@ -287,20 +303,15 @@ export class McpOperationService {
     });
     if (existingOperationId) {
       const current = await this.get(existingOperationId, authorization);
-      return {
-        kind: "accepted",
-        payload: {
-          contractVersion: MCP_OPERATION_ACCEPTED_CONTRACT_VERSION,
-          generatedAt: this.now().toISOString(),
-          accepted: true,
-          operation: current.operation,
-          safety: operationSafety(true),
-        },
-      };
+      return acceptedOperationPayload(this.now(), current.operation);
     }
+    if (guardedExecutionKey) activeGuardedExecutions.set(guardedExecutionKey, operationId);
     try {
       await auditOperation(this.workspaceRoot, record, "started", "accepted");
     } catch (error) {
+      if (guardedExecutionKey && activeGuardedExecutions.get(guardedExecutionKey) === operationId) {
+        activeGuardedExecutions.delete(guardedExecutionKey);
+      }
       await this.mutateState((state) => {
         state.operations = state.operations.filter((operation) => operation.operationId !== operationId);
       }).catch(() => undefined);
@@ -318,6 +329,13 @@ export class McpOperationService {
       completion,
     });
     this.ensureWorkspaceHeartbeat();
+    if (guardedExecutionKey) {
+      void completion.finally(() => {
+        if (activeGuardedExecutions.get(guardedExecutionKey) === operationId) {
+          activeGuardedExecutions.delete(guardedExecutionKey);
+        }
+      }).catch(() => undefined);
+    }
 
     const requestCancellation = () => {
       if (!input.cancellationSupported) return;
@@ -782,7 +800,11 @@ export class McpOperationService {
 
   private async readAndCleanState(): Promise<OperationState> {
     return await withStateLock(this.workspaceRoot, async () => {
-      const state = await readState(this.workspaceRoot);
+      // A locked mutation decision must read the persisted state, rather than
+      // a process-local cache. Another Core process can commit a guarded
+      // execution record between requests, and using a stale snapshot here
+      // would let its operation record be overwritten before deduplication.
+      const state = await readState(this.workspaceRoot, { fresh: true });
       const changed = cleanupState(state, this.now());
       if (changed) await writeState(this.workspaceRoot, state);
       return state;
@@ -791,7 +813,9 @@ export class McpOperationService {
 
   private async mutateState(update: (state: OperationState) => void): Promise<void> {
     await withStateLock(this.workspaceRoot, async () => {
-      const state = await readState(this.workspaceRoot);
+      // See readAndCleanState: this is the claim point for durable operation
+      // records, so it must observe a concurrent process's committed record.
+      const state = await readState(this.workspaceRoot, { fresh: true });
       cleanupState(state, this.now());
       update(state);
       trimState(state);
@@ -922,6 +946,22 @@ function operationSafety(mutating: boolean): McpOperationSafety {
   };
 }
 
+function acceptedOperationPayload(
+  now: Date,
+  operation: McpOperationPublicRecord,
+): { kind: "accepted"; payload: McpOperationAcceptedPayload } {
+  return {
+    kind: "accepted",
+    payload: {
+      contractVersion: MCP_OPERATION_ACCEPTED_CONTRACT_VERSION,
+      generatedAt: now.toISOString(),
+      accepted: true,
+      operation,
+      safety: operationSafety(true),
+    },
+  };
+}
+
 function cancellationPayload(
   record: StoredOperation,
   actorId: string,
@@ -980,6 +1020,14 @@ function operationKey(workspaceRoot: string, operationId: string): string {
   return `${path.resolve(workspaceRoot)}\0${operationId}`;
 }
 
+function operationGuardedExecutionKey(
+  workspaceRoot: string,
+  authorization: McpHttpAuthorization,
+  guardedExecutionId: string,
+): string {
+  return `${path.resolve(workspaceRoot)}\0${storedIdentity(authorization.actor.actorId, "actor")}\0${storedIdentity(authorization.actor.clientId, "client")}\0${guardedExecutionId}`;
+}
+
 function runnerOwnsLiveOperation(record: StoredOperation, now: Date): boolean {
   return processIsAlive(record.runnerPid) && now.getTime() - Date.parse(record.heartbeatAt) <= RUNNER_HEARTBEAT_STALE_MS;
 }
@@ -1000,7 +1048,7 @@ function trimState(state: OperationState): void {
   state.operations = [...active, ...terminal.slice(0, Math.max(0, MAX_MCP_OPERATIONS - active.length))];
 }
 
-async function readState(workspaceRoot: string): Promise<OperationState> {
+async function readState(workspaceRoot: string, options: { fresh?: boolean } = {}): Promise<OperationState> {
   const statePath = mcpOperationStatePath(workspaceRoot);
   let identity: string | null = null;
   try {
@@ -1016,7 +1064,7 @@ async function readState(workspaceRoot: string): Promise<OperationState> {
     return { version: STATE_VERSION, operations: [] };
   }
   const cached = stateCache.get(statePath);
-  if (cached?.identity === identity) return structuredClone(cached.state);
+  if (!options.fresh && cached?.identity === identity) return structuredClone(cached.state);
   let raw: unknown;
   try {
     raw = await readPrivateJson(workspaceRoot, statePath);

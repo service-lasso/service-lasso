@@ -237,6 +237,81 @@ test("#1465 durable lifecycle HTTP operations preserve confirmation, idempotency
   }
 });
 
+test("#1465 concurrent HTTP replay is actor-scoped and rejects changed same-key requests", async () => {
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-durable-lifecycle-concurrent-replay-");
+  const jwks = await startJwksServer();
+  let apiServer;
+  try {
+    await writeExecutableFixtureService(servicesRoot, "durable-concurrent-replay-service", {
+      autoExitMs: 1_000,
+      readyFileAfterMs: 250,
+      healthcheck: { type: "file", file: "./runtime/ready.txt", retries: 120, interval: 25 },
+    });
+    const env = {
+      SERVICE_LASSO_MCP_MODE: "guarded",
+      SERVICE_LASSO_MCP_OAUTH_ISSUER: issuer,
+      SERVICE_LASSO_MCP_OAUTH_JWKS_URI: jwks.jwksUri,
+      SERVICE_LASSO_MCP_RESOURCE_URI: resource,
+      SERVICE_LASSO_MCP_OAUTH_AUDIENCE: audience,
+    };
+    apiServer = await startDirectApiServer({ servicesRoot, workspaceRoot, mcpHttpIdentity: { env } });
+    const operatorScope = "service-lasso:read service-lasso:lifecycle:write";
+    const ownerToken = await signAccessToken(jwks.privateKey, operatorScope, {
+      actorId: "durable-concurrent-owner",
+      clientId: "durable-concurrent-owner-client",
+    });
+    const otherToken = await signAccessToken(jwks.privateKey, operatorScope, {
+      actorId: "durable-concurrent-other",
+      clientId: "durable-concurrent-other-client",
+    });
+    const plan = await lifecycleRequest(apiServer, "/api/operator/lifecycle/operations", "POST", {
+      action: "start",
+      serviceId: "durable-concurrent-replay-service",
+    }, ownerToken);
+    assert.equal(plan.status, 200);
+    const execute = {
+      action: "start",
+      serviceId: "durable-concurrent-replay-service",
+      execute: true,
+      idempotencyKey: "durable-concurrent-http-key-0001",
+      confirmationId: plan.body.confirmation.id,
+      confirmationPhrase: plan.body.confirmation.confirmationPhrase,
+    };
+    const [left, right] = await Promise.all([
+      lifecycleRequest(apiServer, "/api/operator/lifecycle/operations", "POST", execute, ownerToken),
+      lifecycleRequest(apiServer, "/api/operator/lifecycle/operations", "POST", execute, ownerToken),
+    ]);
+    assert.equal(left.status, 202);
+    assert.equal(right.status, 202);
+    assert.equal(left.body.operation.operationId, right.body.operation.operationId);
+
+    const altered = await lifecycleRequest(apiServer, "/api/operator/lifecycle/operations", "POST", {
+      ...execute,
+      action: "stop",
+    }, ownerToken);
+    assert.equal(altered.status, 409);
+    assert.equal(altered.body.error, "idempotency_conflict");
+
+    const otherPlan = await lifecycleRequest(apiServer, "/api/operator/lifecycle/operations", "POST", {
+      action: "start",
+      serviceId: "durable-concurrent-replay-service",
+    }, otherToken);
+    assert.equal(otherPlan.status, 200);
+    const other = await lifecycleRequest(apiServer, "/api/operator/lifecycle/operations", "POST", {
+      ...execute,
+      confirmationId: otherPlan.body.confirmation.id,
+      confirmationPhrase: otherPlan.body.confirmation.confirmationPhrase,
+    }, otherToken);
+    assert.equal(other.status, 202);
+    assert.notEqual(other.body.operation.operationId, left.body.operation.operationId);
+  } finally {
+    await apiServer?.stop().catch(() => undefined);
+    await jwks.stop();
+    await new Promise((resolve) => setTimeout(resolve, 3_000));
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("#1465 availability applies the complete guarded permission profile and scope policy", async () => {
   const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-durable-lifecycle-availability-");
   const jwks = await startJwksServer();
