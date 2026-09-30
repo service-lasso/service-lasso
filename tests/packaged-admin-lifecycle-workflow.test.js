@@ -29,7 +29,7 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
   );
   assert.match(
     workflow,
-    /ADMIN_HARNESS_REVISION: "7385136072a855ca144594842344a7241a733ab4"/,
+    /ADMIN_HARNESS_REVISION: "3b44b9053665f8f2e54ecba610e4f94e0c1727dd"/,
   );
   assert.match(workflow, /ref: \$\{\{ env\.ADMIN_HARNESS_REVISION \}\}/);
   assert.match(
