@@ -4,9 +4,22 @@ const stages = new Set([
 ]);
 
 // The outer verifier's current phase is the only input. Never inspect a caught error.
-export function packagedVerificationDiagnostic(stage) {
+function safeExternalDiagnostic(value) {
+  if (!value || typeof value !== "object") return undefined;
+  try {
+    const { boundary, httpStatus } = value;
+    if (boundary !== "github_release_metadata" || !Number.isInteger(httpStatus) || httpStatus < 400 || httpStatus > 599) return undefined;
+    return { boundary: "github_release_metadata", httpStatus };
+  } catch {
+    return undefined;
+  }
+}
+
+export function packagedVerificationDiagnostic(stage, external) {
+  const upstream = safeExternalDiagnostic(external);
   return {
     stage: stages.has(stage) ? stage : "packaged_verification",
     errorCode: "verification_failed",
+    ...(upstream ? { external: upstream } : {}),
   };
 }
