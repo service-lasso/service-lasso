@@ -481,7 +481,7 @@ export async function verifyPublishedPackage({
         "  throw new Error(`runtime health version ${health.api.version} did not match ${expectedVersion}`);",
         "}",
         "const cliArchive = fileURLToPath(new URL(\"./operator-cli/service-lassoctl.tgz\", import.meta.url));",
-        "await copyFile(`${packagedRoot}/operator-tools/service-lassoctl/service-lassoctl-0.1.0-dev.d3a3814.tgz`, cliArchive);",
+        "await copyFile(`${packagedRoot}/operator-tools/service-lassoctl/service-lassoctl-0.1.0-dev.24d756e.tgz`, cliArchive);",
         "const npmCommand = process.platform === \"win32\" ? { command: process.env.ComSpec ?? \"cmd.exe\", args: [\"/d\", \"/s\", \"/c\", `npm.cmd install ${cliArchive}`] } : { command: \"npm\", args: [\"install\", cliArchive] };",
         "const install = spawn(npmCommand.command, npmCommand.args, { cwd: toolRootPath, stdio: \"inherit\" });",
         "await new Promise((resolve, reject) => { install.on(\"error\", reject); install.on(\"close\", (code) => code === 0 ? resolve() : reject(new Error(`operator CLI install exited ${code}`))); });",
