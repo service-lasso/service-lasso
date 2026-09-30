@@ -834,10 +834,9 @@ export async function inspectWindowsProcessTree(
       lastRetry = error instanceof Error
         ? (error as Error & { windowsNativeInspectionFailure?: string | null }).windowsNativeInspectionFailure ?? retryReasons[error.message] ?? null
         : null;
-      if (error && typeof error === "object") {
-        const ancestry = (error as { windowsTreeInspectionAncestry?: unknown }).windowsTreeInspectionAncestry;
-        if (ancestry) lastAncestry = ancestry;
-      }
+      lastAncestry = error && typeof error === "object"
+        ? (error as { windowsTreeInspectionAncestry?: unknown }).windowsTreeInspectionAncestry ?? null
+        : null;
       inspectionPhase = "retry_delay";
       await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
     }

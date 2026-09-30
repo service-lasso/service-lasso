@@ -210,7 +210,52 @@ test("ancestry diagnostic fields are retained only as a complete closed discrimi
     windowsTreeInspectionRootFingerprintMatch: true, windowsTreeInspectionAncestryDepthBucket: "private-depth",
   }), { ...base, windowsTreeInspectionAncestryCategory: null,
     windowsTreeInspectionRootFingerprintMatch: null, windowsTreeInspectionAncestryDepthBucket: null });
+  assert.deepEqual(projectWindowsTreeInspectionMetadata({ ...base,
+    windowsTreeInspectionLastRetry: "malformed",
+    windowsTreeInspectionAncestryCategory: "child_before_parent_parent_before_root",
+    windowsTreeInspectionRootFingerprintMatch: true, windowsTreeInspectionAncestryDepthBucket: "two_to_four",
+  }), { ...base, windowsTreeInspectionLastRetry: "malformed",
+    windowsTreeInspectionAncestryCategory: null,
+    windowsTreeInspectionRootFingerprintMatch: null, windowsTreeInspectionAncestryDepthBucket: null });
 });
+
+test("later malformed or native retries clear retained ancestry diagnostics before the unchanged deadline", async () => {
+  const command = "private-command";
+  const expected = { ...root, commandHash: hashProcessCommandLine(command) };
+  const row = (pid, parent, date) => ({ Status: "running", ProcessId: pid,
+    ParentProcessId: parent, CreationDate: date, ExecutablePath: root.executablePath, CommandLine: command });
+  const rootRow = row(root.pid, 9000, root.createdAt);
+  const invalidAncestry = [
+    row(4343, 4344, "2026-07-18T01:02:02.456Z"),
+    row(4344, root.pid, "2026-07-18T01:02:04.456Z"),
+  ];
+  for (const [reason, failure] of [
+    ["malformed", () => ({ stdout: "private-malformed-output" })],
+    ["descendant_open_denied", () => ({ exitCode: 131, stdout: "private-native-output" })],
+  ]) {
+    let calls = 0;
+    await assert.rejects(inspectWindowsProcessTree(expected, {
+      deadlineMs: Date.now() + 180,
+      runCommand: async () => {
+        calls += 1;
+        return calls === 1
+          ? { stdout: JSON.stringify({ Status: "tree", RootStatus: "running", Processes: [rootRow, ...invalidAncestry] }) }
+          : failure();
+      },
+    }), error => {
+      const metadata = windowsTreeInspectionFailureMetadata(error);
+      assert.ok(calls >= 2);
+      assert.ok(metadata.windowsTreeInspectionRetries >= 1);
+      assert.equal(metadata.windowsTreeInspectionLastRetry, reason);
+      assert.equal(metadata.windowsTreeInspectionAncestryCategory, null);
+      assert.equal(metadata.windowsTreeInspectionRootFingerprintMatch, null);
+      assert.equal(metadata.windowsTreeInspectionAncestryDepthBucket, null);
+      assert.doesNotMatch(JSON.stringify(metadata), /private|4343|4344|2026-07/);
+      return true;
+    });
+  }
+});
+
 test("native command status categories remain closed through actual bounded inspection retries", async () => {
   for (const [code, reason] of [[132, "descendant_command_denied"], [133, "descendant_command_length_changed"],
     [134, "descendant_command_unsupported"], [135, "descendant_command_native_failure"], [136, "descendant_command_result_length"],

@@ -46,6 +46,7 @@ export function projectWindowsTreeInspectionMetadata(value: unknown): WindowsTre
     const rootFingerprintMatch = metadata.windowsTreeInspectionRootFingerprintMatch;
     const ancestryDepthBucket = metadata.windowsTreeInspectionAncestryDepthBucket;
     const hasClosedAncestryDiagnostic =
+      reason === "ancestry_predates_parent_before_root" &&
       typeof ancestryCategory === "string" && ancestryCategories.has(ancestryCategory) &&
       typeof rootFingerprintMatch === "boolean" &&
       typeof ancestryDepthBucket === "string" && ancestryDepthBuckets.has(ancestryDepthBucket);
