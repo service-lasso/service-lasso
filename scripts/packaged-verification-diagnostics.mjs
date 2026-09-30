@@ -4,19 +4,21 @@ const stages = new Set([
 ]);
 
 const npmSubcodes = new Map([
-  ["EAI_AGAIN", "npm_network_eai_again"],
-  ["ECONNREFUSED", "npm_network_econnrefused"],
-  ["ECONNRESET", "npm_network_econnreset"],
-  ["EHOSTUNREACH", "npm_network_ehostunreach"],
-  ["ENETDOWN", "npm_network_enetdown"],
-  ["ENETUNREACH", "npm_network_enetunreach"],
-  ["ENOTFOUND", "npm_network_enotfound"],
-  ["ERR_SOCKET_TIMEOUT", "npm_network_socket_timeout"],
-  ["ETIMEDOUT", "npm_network_etimedout"],
-  ["EINTEGRITY", "npm_checksum_mismatch"],
-  ["E401", "npm_registry_identity_rejected"],
-  ["E403", "npm_registry_identity_rejected"],
+  ["EAI_AGAIN", "npm_reported_network_eai_again"],
+  ["ECONNREFUSED", "npm_reported_network_econnrefused"],
+  ["ECONNRESET", "npm_reported_network_econnreset"],
+  ["EHOSTUNREACH", "npm_reported_network_ehostunreach"],
+  ["ENETDOWN", "npm_reported_network_enetdown"],
+  ["ENETUNREACH", "npm_reported_network_enetunreach"],
+  ["ENOTFOUND", "npm_reported_network_enotfound"],
+  ["ERR_SOCKET_TIMEOUT", "npm_reported_network_socket_timeout"],
+  ["ETIMEDOUT", "npm_reported_network_etimedout"],
+  ["EINTEGRITY", "npm_reported_checksum_mismatch"],
+  ["E401", "npm_reported_registry_identity_rejected"],
+  ["E403", "npm_reported_registry_identity_rejected"],
 ]);
+
+const MAX_NPM_JSON_BYTES = 8 * 1024;
 
 function ownData(value, key) {
   if (!value || typeof value !== "object") return undefined;
@@ -28,17 +30,28 @@ function ownData(value, key) {
   }
 }
 
+function npmReportedCode(error) {
+  const stdout = ownData(error, "stdout");
+  if (typeof stdout !== "string" || Buffer.byteLength(stdout, "utf8") > MAX_NPM_JSON_BYTES) return undefined;
+  try {
+    const report = JSON.parse(stdout);
+    if (!report || typeof report !== "object" || Array.isArray(report)) return undefined;
+    const npmError = ownData(report, "error");
+    if (!npmError || typeof npmError !== "object" || Array.isArray(npmError)) return undefined;
+    const code = ownData(npmError, "code");
+    return typeof code === "string" && /^[A-Z0-9_]+$/u.test(code) ? code : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function dependencyAcquisitionSubcode(error) {
   const code = ownData(error, "code");
   if (code === "ENOENT") return "subprocess_spawn_enoent";
   if (code === "EACCES") return "subprocess_spawn_eacces";
   if (code === "EPERM") return "subprocess_spawn_eperm";
-  if (typeof code === "number") return "subprocess_exit_nonzero";
-
-  const stderr = ownData(error, "stderr");
-  if (typeof stderr !== "string") return undefined;
-  const match = /(?:^|\r?\n)npm ERR! code (E(?:[A-Z0-9_]+))(?:\r?\n|$)/u.exec(stderr);
-  return match ? npmSubcodes.get(match[1]) : undefined;
+  if (typeof code !== "number") return undefined;
+  return npmSubcodes.get(npmReportedCode(error)) ?? "subprocess_exit_nonzero";
 }
 
 // The outer verifier's current phase is the only input. Never inspect a caught error.

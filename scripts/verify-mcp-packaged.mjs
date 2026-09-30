@@ -218,6 +218,7 @@ try {
   verificationStage = "dependency_acquisition";
   await runCommand(process.execPath, [npmEntrypoint,
     "install",
+    "--json",
     "--ignore-scripts",
     "--no-audit",
     "--no-fund",

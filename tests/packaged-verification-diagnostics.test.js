@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { dependencyAcquisitionSubcode, packagedVerificationDiagnostic } from "../scripts/packaged-verification-diagnostics.mjs";
+import { runCommand } from "../scripts/mcp-product-acceptance-lib.mjs";
 
 test("packaged failure phases distinguish acquisition, binding, execution and evidence", () => {
   const phases = ["consumer_setup", "package_staging", "dependency_acquisition", "installed_package_binding",
@@ -15,15 +16,15 @@ test("safe release-metadata diagnostics carry only a fixed boundary and status",
   assert.deepEqual(packagedVerificationDiagnostic("package_staging", { boundary: "github_release_metadata", httpStatus: 200 }), { stage: "package_staging", errorCode: "verification_failed" });
 });
 
-test("dependency acquisition projects only allowlisted subprocess and npm failure subcodes", () => {
+test("dependency acquisition projects only bounded npm-reported observations and subprocess subcodes", () => {
   const secret = "https://registry.example/private-token?credential=secret";
   const cases = [
     [{ code: "ENOENT", stderr: secret }, "subprocess_spawn_enoent"],
     [{ code: "EACCES", stderr: secret }, "subprocess_spawn_eacces"],
     [{ code: 1, stderr: secret }, "subprocess_exit_nonzero"],
-    [{ stderr: `npm ERR! code ENOTFOUND\nnpm ERR! ${secret}` }, "npm_network_enotfound"],
-    [{ stderr: `npm ERR! code EINTEGRITY\nnpm ERR! ${secret}` }, "npm_checksum_mismatch"],
-    [{ stderr: `npm ERR! code E401\nnpm ERR! ${secret}` }, "npm_registry_identity_rejected"],
+    [{ code: 1, stdout: JSON.stringify({ error: { code: "ENOTFOUND", detail: secret } }), stderr: secret }, "npm_reported_network_enotfound"],
+    [{ code: 1, stdout: JSON.stringify({ error: { code: "EINTEGRITY", detail: secret } }), stderr: secret }, "npm_reported_checksum_mismatch"],
+    [{ code: 1, stdout: JSON.stringify({ error: { code: "E401", detail: secret } }), stderr: secret }, "npm_reported_registry_identity_rejected"],
   ];
   for (const [error, subcode] of cases) {
     assert.equal(dependencyAcquisitionSubcode(error), subcode);
@@ -31,9 +32,18 @@ test("dependency acquisition projects only allowlisted subprocess and npm failur
     assert.deepEqual(result, { stage: "dependency_acquisition", errorCode: "verification_failed", subcode });
     assert.equal(JSON.stringify(result).includes(secret), false);
   }
-  for (const error of [{ stderr: `npm ERR! code EUNKNOWN\nnpm ERR! ${secret}` }, { stderr: secret }, new Error(secret)]) {
-    assert.equal(dependencyAcquisitionSubcode(error), undefined);
-    assert.deepEqual(packagedVerificationDiagnostic("dependency_acquisition", undefined, dependencyAcquisitionSubcode(error)), { stage: "dependency_acquisition", errorCode: "verification_failed" });
+  for (const error of [
+    { code: 1, stdout: JSON.stringify({ error: { code: "EUNKNOWN", detail: secret } }) },
+    { code: 1, stdout: `${JSON.stringify({ error: { code: "ENOTFOUND" } })}\n${secret}` },
+    { code: 1, stdout: "{malformed" },
+    { code: 1, stdout: "x".repeat(8 * 1024 + 1) },
+    { stderr: `npm ERR! code ENOTFOUND\nnpm ERR! ${secret}` },
+    new Error(secret),
+  ]) {
+    assert.equal(dependencyAcquisitionSubcode(error), typeof error.code === "number" ? "subprocess_exit_nonzero" : undefined);
+    assert.deepEqual(packagedVerificationDiagnostic("dependency_acquisition", undefined, dependencyAcquisitionSubcode(error)), {
+      stage: "dependency_acquisition", errorCode: "verification_failed", ...(typeof error.code === "number" ? { subcode: "subprocess_exit_nonzero" } : {}),
+    });
   }
 });
 
@@ -41,6 +51,66 @@ test("dependency acquisition ignores hostile getters and cannot project their pr
   const hostile = {};
   Object.defineProperty(hostile, "stderr", { get() { throw new Error("private-token"); } });
   assert.equal(dependencyAcquisitionSubcode(hostile), undefined);
+  Object.defineProperty(hostile, "code", { value: 1 });
+  Object.defineProperty(hostile, "stdout", { get() { throw new Error("private-token"); } });
+  assert.equal(dependencyAcquisitionSubcode(hostile), "subprocess_exit_nonzero");
+});
+
+test("real command failure projects only its bounded npm JSON error code", async () => {
+  const { mkdtemp, rm, writeFile } = await import("node:fs/promises");
+  const os = await import("node:os");
+  const path = (await import("node:path")).default;
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-1386-"));
+  const report = path.join(tempRoot, "npm-report.mjs");
+  const secret = "private-token-and-path";
+  try {
+    await writeFile(report, `process.stdout.write(JSON.stringify({ error: { code: "ENOTFOUND", detail: "${secret}" } })); process.stderr.write("${secret}"); process.exit(7);`, "utf8");
+    const error = await runCommand(process.execPath, [report], { cwd: tempRoot }).catch(value => value);
+    assert.equal(error.code, 7);
+    assert.equal(dependencyAcquisitionSubcode(error), "npm_reported_network_enotfound");
+    const diagnostic = packagedVerificationDiagnostic("dependency_acquisition", undefined, dependencyAcquisitionSubcode(error));
+    assert.deepEqual(diagnostic, { stage: "dependency_acquisition", errorCode: "verification_failed", subcode: "npm_reported_network_enotfound" });
+    assert.equal(JSON.stringify(diagnostic).includes(secret), false);
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("the verifier catch branch keeps npm install safeguards and emits only the reported observation", async () => {
+  const { mkdtemp, readFile, rm, writeFile } = await import("node:fs/promises");
+  const { createHash } = await import("node:crypto");
+  const os = await import("node:os");
+  const path = (await import("node:path")).default;
+  const source = await readFile(new URL("../scripts/verify-mcp-packaged.mjs", import.meta.url), "utf8");
+  for (const flag of ["\"--json\"", "\"--ignore-scripts\"", "\"--no-audit\"", "\"--no-fund\"", "timeoutMs: 300_000"]) assert.equal(source.includes(flag), true);
+  const body = source.slice(source.indexOf("let verificationFailure = null;"));
+  const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-1386-verifier-"));
+  const report = path.join(tempRoot, "npm-report.mjs");
+  const secret = "secret-bearing-npm-report";
+  let stderr = "";
+  try {
+    await writeFile(report, `process.stdout.write(JSON.stringify({ error: { code: "EINTEGRITY", detail: "${secret}" } })); process.stderr.write("${secret}"); process.exit(9);`, "utf8");
+    const context = {
+      path, createHash, packagedVerificationDiagnostic, dependencyAcquisitionSubcode, operatorToolFailureDiagnostic: () => undefined, releaseMetadataToken: undefined,
+      tempRoot, consumerRoot: tempRoot, servicesRoot: path.join(tempRoot, "services"),
+      httpWorkspaceRoot: path.join(tempRoot, "http"), stdioWorkspaceRoot: path.join(tempRoot, "stdio"),
+      repoRoot: "repo", packageOutputRoot: path.join(tempRoot, "package-output"), version: "0.1.0",
+      npmEntrypoint: report, pinnedSdkVersion: "1.0.0",
+      mkdir: async () => {}, writeCanonicalService: async () => "fixture",
+      stagePublishedPackage: async () => ({ packageArchivePath: "archive" }),
+      readFile: async () => Buffer.from("archive"), writeFile: async () => {}, runCommand,
+      removeOwnedTempRoot: async () => {},
+      process: { execPath: process.execPath, stderr: { write: value => { stderr += value; } }, exitCode: 0 },
+    };
+    await new AsyncFunction(...Object.keys(context), body)(...Object.values(context));
+    assert.equal(context.process.exitCode, 1);
+    const result = JSON.parse(stderr.slice("[mcp-package-verification-error] ".length));
+    assert.deepEqual(result, { stage: "dependency_acquisition", errorCode: "verification_failed", subcode: "npm_reported_checksum_mismatch" });
+    assert.equal(stderr.includes(secret), false);
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
 });
 
 test("unknown or hostile diagnostic inputs cannot disclose payloads or execute getters", () => {
@@ -69,10 +139,12 @@ test("outer verifier reports the failed boundary, hides captured errors and alwa
       let cleaned = 0;
       let stderr = "";
       const fail = () => {
-        const stderr = failurePhase === "dependency_acquisition"
-          ? "npm ERR! code ENOTFOUND\nprivate-token and private-path"
-          : "private-token";
-        throw Object.assign(new Error("private-token and private-path"), { stdout: "private-token", stderr });
+        const stderr = "private-token";
+        throw Object.assign(new Error("private-token and private-path"), {
+          code: failurePhase === "dependency_acquisition" ? 1 : undefined,
+          stdout: failurePhase === "dependency_acquisition" ? JSON.stringify({ error: { code: "ENOTFOUND", detail: "private-token" } }) : "private-token",
+          stderr,
+        });
       };
       const context = {
         path, createHash, packagedVerificationDiagnostic, dependencyAcquisitionSubcode, operatorToolFailureDiagnostic: () => undefined, releaseMetadataToken: undefined,
@@ -99,7 +171,7 @@ test("outer verifier reports the failed boundary, hides captured errors and alwa
         : {
             stage: failurePhase,
             errorCode: "verification_failed",
-            ...(failurePhase === "dependency_acquisition" ? { subcode: "npm_network_enotfound" } : {}),
+            ...(failurePhase === "dependency_acquisition" ? { subcode: "npm_reported_network_enotfound" } : {}),
           });
     }
   }
