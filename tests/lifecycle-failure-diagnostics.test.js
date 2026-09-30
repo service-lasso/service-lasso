@@ -80,6 +80,82 @@ test("aggregate containment failures retain nested deadlines without disclosing 
   assert.equal(serialized.includes(sensitive), false);
 });
 
+test("deadline receipts retain a closed Windows ancestry projection through mixed failures", () => {
+  const sensitive = "private-pid-command-timestamp";
+  const malformed = {};
+  Object.defineProperty(malformed, "windowsTreeInspection", {
+    get() { throw new Error(sensitive); },
+  });
+  const deadline = {
+    code: "PROCESS_CONTROL_DEADLINE_EXCEEDED",
+    windowsTreeInspection: {
+      windowsTreeInspectionPhase: "retry_delay",
+      windowsTreeInspectionAttempts: 2,
+      windowsTreeInspectionRetries: 1,
+      windowsTreeInspectionQueueMs: 7,
+      windowsTreeInspectionNativeMs: 83,
+      windowsTreeInspectionLastRetry: "ancestry_predates_parent_before_root",
+      windowsTreeInspectionAncestryCategory: "child_before_parent_parent_before_root",
+      windowsTreeInspectionRootFingerprintMatch: true,
+      windowsTreeInspectionAncestryDepthBucket: "two_to_four",
+      command: sensitive,
+    },
+  };
+  malformed.cause = deadline;
+
+  const serialized = lifecycleFailureDiagnostic({ error: malformed });
+  const result = JSON.parse(serialized);
+  assert.equal(result.deadlineExceeded, true);
+  assert.deepEqual(result.windowsTreeInspections, [{
+    windowsTreeInspectionPhase: "retry_delay",
+    windowsTreeInspectionAttempts: 2,
+    windowsTreeInspectionRetries: 1,
+    windowsTreeInspectionQueueMs: 7,
+    windowsTreeInspectionNativeMs: 83,
+    windowsTreeInspectionLastRetry: "ancestry_predates_parent_before_root",
+    windowsTreeInspectionAncestryCategory: "child_before_parent_parent_before_root",
+    windowsTreeInspectionRootFingerprintMatch: true,
+    windowsTreeInspectionAncestryDepthBucket: "two_to_four",
+  }]);
+  assert.equal(serialized.includes(sensitive), false);
+});
+
+test("malformed mixed error properties cannot replace an otherwise valid deadline receipt", () => {
+  const sensitive = "private-error-property";
+  const deadline = {
+    code: "PROCESS_CONTROL_DEADLINE_EXCEEDED",
+    windowsTreeInspection: {
+      windowsTreeInspectionPhase: "queue_wait",
+      windowsTreeInspectionAttempts: 0,
+      windowsTreeInspectionRetries: 0,
+      windowsTreeInspectionQueueMs: 41,
+      windowsTreeInspectionNativeMs: 0,
+      windowsTreeInspectionLastRetry: null,
+      detail: sensitive,
+    },
+  };
+  const error = {};
+  Object.defineProperty(error, "failurePhase", { get() { throw new Error(sensitive); } });
+  Object.defineProperty(error, "code", { get() { throw new Error(sensitive); } });
+  error.cause = deadline;
+
+  const serialized = lifecycleFailureDiagnostic({ error });
+  const result = JSON.parse(serialized);
+  assert.equal(result.deadlineExceeded, true);
+  assert.deepEqual(result.windowsTreeInspections, [{
+    windowsTreeInspectionPhase: "queue_wait",
+    windowsTreeInspectionAttempts: 0,
+    windowsTreeInspectionRetries: 0,
+    windowsTreeInspectionQueueMs: 41,
+    windowsTreeInspectionNativeMs: 0,
+    windowsTreeInspectionLastRetry: null,
+    windowsTreeInspectionAncestryCategory: null,
+    windowsTreeInspectionRootFingerprintMatch: null,
+    windowsTreeInspectionAncestryDepthBucket: null,
+  }]);
+  assert.equal(serialized.includes(sensitive), false);
+});
+
 test("aggregate diagnostic traversal remains bounded across wide and deep error graphs", () => {
   const deadline = { code: "PROCESS_CONTROL_DEADLINE_EXCEEDED" };
   const wide = new AggregateError([...Array.from({ length: 32 }, () => ({ failurePhase: "wrapper_spawn" })), deadline]);
