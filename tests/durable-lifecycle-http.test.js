@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { randomUUID } from "node:crypto";
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { createServer, request as httpRequest } from "node:http";
 import { rm } from "node:fs/promises";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
@@ -102,6 +104,45 @@ async function startDirectApiServer(options) {
   };
 }
 
+async function startCrossProcessLifecyclePeer(options) {
+  const runner = new URL("./fixtures/durable-lifecycle-http-peer.mjs", import.meta.url);
+  const child = spawn(process.execPath, [fileURLToPath(runner)], { stdio: ["pipe", "pipe", "pipe"] });
+  const ready = new Promise((resolve, reject) => {
+    let output = "";
+    let errors = "";
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk) => { errors += chunk; });
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      output += chunk;
+      const newline = output.indexOf("\n");
+      if (newline < 0) return;
+      try {
+        resolve(JSON.parse(output.slice(0, newline)));
+      } catch (error) {
+        reject(error);
+      }
+    });
+    child.once("error", reject);
+    child.once("exit", (code) => reject(new Error(`cross-process lifecycle peer exited before ready: ${code}; ${errors}`)));
+  });
+  child.stdin.end(JSON.stringify(options));
+  const peer = await Promise.race([
+    ready,
+    new Promise((_, reject) => setTimeout(() => reject(new Error("cross-process lifecycle peer did not become ready.")), 10_000)),
+  ]);
+  assert.equal(typeof peer.url, "string");
+  return {
+    url: peer.url,
+    async stop() {
+      if (child.exitCode !== null) return;
+      const exited = once(child, "exit");
+      child.kill();
+      await exited;
+    },
+  };
+}
+
 async function lifecycleRequest(apiServer, path, method = "GET", body, token) {
   const response = await fetch(`${apiServer.url}${path}`, {
     method,
@@ -176,6 +217,14 @@ test("#1465 durable lifecycle HTTP operations preserve confirmation, idempotency
     const replay = await lifecycleRequest(apiServer, "/api/operator/lifecycle/operations", "POST", execute);
     assert.equal(replay.status, 202);
     assert.equal(replay.body.operation.operationId, accepted.body.operation.operationId);
+
+    const alteredConfirmation = await lifecycleRequest(apiServer, "/api/operator/lifecycle/operations", "POST", {
+      ...execute,
+      confirmationPhrase: `${execute.confirmationPhrase} altered`,
+    });
+    assert.equal(alteredConfirmation.status, 409);
+    assert.notEqual(alteredConfirmation.body.error, undefined);
+    assert.equal(JSON.stringify(alteredConfirmation.body).includes(execute.confirmationPhrase), false);
 
     const concurrentPlan = await lifecycleRequest(apiServer, "/api/operator/lifecycle/operations", "POST", {
       action: "start",
@@ -309,6 +358,73 @@ test("#1465 concurrent HTTP replay is actor-scoped and rejects changed same-key 
     await jwks.stop();
     await new Promise((resolve) => setTimeout(resolve, 3_000));
     await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("#1465 real cross-process HTTP claim binds confirmation context before replay", async () => {
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-durable-lifecycle-cross-process-http-");
+  const jwks = await startJwksServer();
+  let apiServer;
+  let peer;
+  try {
+    await writeExecutableFixtureService(servicesRoot, "durable-cross-process-service", {
+      autoExitMs: 1_500,
+      readyFileAfterMs: 200,
+      healthcheck: { type: "file", file: "./runtime/ready.txt", retries: 120, interval: 25 },
+    });
+    const env = {
+      SERVICE_LASSO_MCP_MODE: "guarded",
+      SERVICE_LASSO_MCP_OAUTH_ISSUER: issuer,
+      SERVICE_LASSO_MCP_OAUTH_JWKS_URI: jwks.jwksUri,
+      SERVICE_LASSO_MCP_RESOURCE_URI: resource,
+      SERVICE_LASSO_MCP_OAUTH_AUDIENCE: audience,
+    };
+    apiServer = await startDirectApiServer({ servicesRoot, workspaceRoot, mcpHttpIdentity: { env } });
+    peer = await startCrossProcessLifecyclePeer({ servicesRoot, workspaceRoot, env });
+    const token = await signAccessToken(jwks.privateKey, "service-lasso:read service-lasso:lifecycle:write", {
+      actorId: "durable-cross-process-actor",
+      clientId: "durable-cross-process-client",
+    });
+    const plan = await lifecycleRequest(apiServer, "/api/operator/lifecycle/operations", "POST", {
+      action: "start",
+      serviceId: "durable-cross-process-service",
+    }, token);
+    assert.equal(plan.status, 200);
+    const execute = {
+      action: "start",
+      serviceId: "durable-cross-process-service",
+      execute: true,
+      idempotencyKey: "durable-cross-process-http-key-0001",
+      confirmationId: plan.body.confirmation.id,
+      confirmationPhrase: plan.body.confirmation.confirmationPhrase,
+    };
+    const [left, right] = await Promise.all([
+      lifecycleRequest(apiServer, "/api/operator/lifecycle/operations", "POST", execute, token),
+      lifecycleRequest(peer, "/api/operator/lifecycle/operations", "POST", execute, token),
+    ]);
+    assert.equal(left.status, 202);
+    assert.equal(right.status, 202);
+    assert.equal(left.body.operation.operationId, right.body.operation.operationId);
+    const altered = await lifecycleRequest(peer, "/api/operator/lifecycle/operations", "POST", {
+      ...execute,
+      confirmationPhrase: `${execute.confirmationPhrase} altered`,
+    }, token);
+    assert.equal(altered.status, 409);
+    assert.equal(JSON.stringify(altered.body).includes(execute.confirmationPhrase), false);
+  } finally {
+    await peer?.stop().catch(() => undefined);
+    await apiServer?.stop().catch(() => undefined);
+    await jwks.stop().catch(() => undefined);
+    await new Promise((resolve) => setTimeout(resolve, 3_000));
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        await rm(tempRoot, { recursive: true, force: true });
+        break;
+      } catch (error) {
+        if (attempt === 2 || error?.code !== "EBUSY") throw error;
+        await new Promise((resolve) => setTimeout(resolve, 1_000));
+      }
+    }
   }
 });
 

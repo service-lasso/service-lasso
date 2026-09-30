@@ -4360,21 +4360,11 @@ async function routeRequestWithoutMutationCoordination(
           writeJson(response, 200, await invoke());
           return;
         }
-        if (
-          typeof body.parameters.idempotencyKey !== "string" ||
-          typeof body.parameters.confirmationId !== "string" ||
-          typeof body.parameters.confirmationPhrase !== "string"
-        ) {
-          throw new ApiError(
-            "confirmation_required",
-            409,
-            "Durable lifecycle execution requires its idempotency key and the server-issued confirmation.",
-          );
-        }
         const preflight = await preflightMcpGuardedActionExecution({
           workspaceRoot: config.workspaceRoot,
           operatingMode: "guarded",
           authorization,
+          facade,
           action: body.action,
           parameters: body.parameters,
         });

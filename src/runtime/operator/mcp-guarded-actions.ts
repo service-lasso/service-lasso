@@ -304,6 +304,7 @@ export async function preflightMcpGuardedActionExecution(input: {
   workspaceRoot: string;
   operatingMode: "disabled" | "read-only" | "guarded";
   authorization: McpHttpAuthorization | undefined;
+  facade: McpGuardedActionFacade | undefined;
   action: McpGuardedActionName;
   parameters: McpGuardedActionInput;
 }): Promise<{ guardedExecutionId: string; requestFingerprint: string }> {
@@ -317,22 +318,77 @@ export async function preflightMcpGuardedActionExecution(input: {
   });
   const authorization = input.authorization;
   if (!authorization) throw new McpGuardedActionError("authorization_required", "A validated MCP identity is required.");
+  if (!input.facade) throw new McpGuardedActionError("feature_unavailable", "Guarded actions are unavailable for this runtime.");
   try {
     const idempotencyKey = normalizeIdempotencyKey(input.parameters.idempotencyKey);
     const normalized = normalizeParameters(input.action, input.parameters);
+    const authoritativePlan = await input.facade.preflight(input.action, normalized);
+    const plan = normalizePlan(input.action, authoritativePlan);
+    const planFingerprint = fingerprint({
+      action: authoritativePlan.action,
+      targets: authoritativePlan.targets,
+      effects: authoritativePlan.effects,
+      executable: authoritativePlan.executable,
+      skippedReason: authoritativePlan.skippedReason,
+      revision: authoritativePlan.revision ?? null,
+    });
+    const targetFingerprint = fingerprint(plan.targets);
+    const parameterFingerprint = fingerprint(normalized);
+    let confirmationBinding: { id: string; phrase: string } | null = null;
+    let claimPlanFingerprint = planFingerprint;
+    if (plan.executable) {
+      const confirmationId = normalizeConfirmationId(input.parameters.confirmationId);
+      const confirmationPhrase = normalizeConfirmationPhrase(input.parameters.confirmationPhrase);
+      const statePath = guardedActionStatePath(input.workspaceRoot);
+      const confirmation = await withStateLock(statePath, async () => {
+        const state = await readState(input.workspaceRoot, statePath);
+        const record = state.confirmations.find((entry) => entry.id === confirmationId);
+        try {
+          validateConfirmation(record, {
+            action: input.action,
+            authorization,
+            targetFingerprint,
+            parameterFingerprint,
+            planFingerprint,
+            phrase: confirmationPhrase,
+            now: new Date(),
+          }, { allowClaimedReplay: true });
+        } catch (error) {
+          if (record?.status === "expired") await writeState(input.workspaceRoot, statePath, state);
+          throw error;
+        }
+        return {
+          planFingerprint: record.planFingerprint,
+          replayingClaimedConfirmation: record.status === "claimed" || record.status === "completed",
+        };
+      });
+      confirmationBinding = { id: confirmationId, phrase: confirmationPhrase };
+      if (confirmation.replayingClaimedConfirmation) claimPlanFingerprint = confirmation.planFingerprint;
+    }
     const executionId = guardedActionExecutionId(
       authorization.actor.actorId,
       authorization.actor.clientId,
       idempotencyKey,
     );
-    const existing = await withStateLock(guardedActionStatePath(input.workspaceRoot), async () =>
-      await readIdempotencyRecord(input.workspaceRoot, guardedActionExecutionPath(input.workspaceRoot, executionId)));
-    if (existing && existing.requestFingerprint !== fingerprint({ action: input.action, parameters: normalized })) {
-      throw new McpGuardedActionError("idempotency_conflict", "The idempotency key is already bound to different action parameters.");
-    }
+    const requestFingerprint = fingerprint({
+      action: input.action,
+      parameters: normalized,
+      confirmation: confirmationBinding,
+      authorization: {
+        actorId: authorization.actor.actorId,
+        clientId: authorization.actor.clientId,
+        permissionProfile: authorization.actor.permissionProfile,
+        scopes: [...authorization.actor.scopes].sort(),
+      },
+      workspaceIdentity: fingerprint({ workspaceRoot: path.resolve(input.workspaceRoot) }),
+      // A claimed confirmation already commits the original authoritative
+      // preflight binding. Replays use that stored binding rather than a
+      // post-mutation live preflight, which may now describe a skipped action.
+      preflight: { planFingerprint: claimPlanFingerprint },
+    });
     return {
       guardedExecutionId: executionId,
-      requestFingerprint: fingerprint({ action: input.action, parameters: normalized }),
+      requestFingerprint,
     };
   } catch (error) {
     await audit(
@@ -969,10 +1025,12 @@ function validateConfirmation(
     phrase: string;
     now: Date;
   },
+  options: { allowClaimedReplay?: boolean } = {},
 ): asserts record is StoredConfirmation {
   if (!record) throw new McpGuardedActionError("confirmation_not_found", "The server confirmation was not found.");
-  if (record.status !== "pending") throw new McpGuardedActionError("confirmation_already_used", "The server confirmation is no longer pending.");
-  if (Date.parse(record.expiresAt) <= expected.now.getTime()) {
+  const replayingClaimedConfirmation = options.allowClaimedReplay && (record.status === "claimed" || record.status === "completed");
+  if (record.status !== "pending" && !replayingClaimedConfirmation) throw new McpGuardedActionError("confirmation_already_used", "The server confirmation is no longer pending.");
+  if (!replayingClaimedConfirmation && Date.parse(record.expiresAt) <= expected.now.getTime()) {
     record.status = "expired";
     throw new McpGuardedActionError("confirmation_expired", "The server confirmation expired before execution.");
   }
@@ -980,9 +1038,9 @@ function validateConfirmation(
     throw new McpGuardedActionError("confirmation_actor_mismatch", "The server confirmation is bound to another validated actor or client.");
   }
   if (record.action !== expected.action) throw new McpGuardedActionError("confirmation_action_mismatch", "The server confirmation is bound to another action.");
-  if (record.targetFingerprint !== expected.targetFingerprint) throw new McpGuardedActionError("confirmation_target_mismatch", "The server confirmation targets changed after preflight.");
+  if (!replayingClaimedConfirmation && record.targetFingerprint !== expected.targetFingerprint) throw new McpGuardedActionError("confirmation_target_mismatch", "The server confirmation targets changed after preflight.");
   if (record.parameterFingerprint !== expected.parameterFingerprint) throw new McpGuardedActionError("confirmation_parameter_mismatch", "The server confirmation parameters changed after preflight.");
-  if (record.planFingerprint !== expected.planFingerprint) throw new McpGuardedActionError("confirmation_plan_mismatch", "The authoritative preflight changed before execution.");
+  if (!replayingClaimedConfirmation && record.planFingerprint !== expected.planFingerprint) throw new McpGuardedActionError("confirmation_plan_mismatch", "The authoritative preflight changed before execution.");
   if (record.phraseHash !== fingerprint(expected.phrase)) throw new McpGuardedActionError("confirmation_phrase_mismatch", "The server confirmation phrase did not match.");
 }
 
