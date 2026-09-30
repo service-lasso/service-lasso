@@ -1,9 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
+import { isSea } from "node:sea";
 import { execFile, spawn } from "node:child_process";
 import { constants } from "node:fs";
 import { chmod, lstat, mkdir, open, rename, rm } from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -15,6 +16,7 @@ const WINDOWS_DPAPI_HELPER_PROVENANCE_BYTES = 722;
 const WINDOWS_DPAPI_HELPER_SHA256 = "74608ed9e4733e2102417c9b1b6cc4482b97c99c635e3889f3d90eabdaee3739";
 const WINDOWS_DPAPI_HELPER_PROVENANCE_SHA256 = "3b78a4f86988d257347304c836205e57c5049f9b08caf93ba36c7c8c37ad329e";
 let currentWindowsSid: Promise<string> | null = null;
+const runtimeModuleUrl = (moduleUrl: string): string => isSea() ? pathToFileURL(process.execPath).href : moduleUrl;
 
 export type PrivateJsonErrorCode =
   | "private_state_acl_failed"
@@ -89,8 +91,8 @@ function isCanonicalBase64(value: string): boolean {
 }
 
 async function assertWindowsDpapiHelperIntegrity(signal: AbortSignal): Promise<string> {
-  const helperPath = fileURLToPath(new URL("./windows-dpapi-helper.exe", import.meta.url));
-  const provenancePath = fileURLToPath(new URL("./windows-dpapi-helper.provenance.json", import.meta.url));
+  const helperPath = fileURLToPath(new URL("./windows-dpapi-helper.exe", runtimeModuleUrl(import.meta.url)));
+  const provenancePath = fileURLToPath(new URL("./windows-dpapi-helper.provenance.json", runtimeModuleUrl(import.meta.url)));
   const readExactRegularAsset = async (assetPath: string, expectedBytes: number): Promise<Buffer> => {
     signal.throwIfAborted();
     const beforeOpen = await lstat(assetPath);

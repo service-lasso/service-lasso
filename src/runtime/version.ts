@@ -1,10 +1,15 @@
 import { readFileSync } from "node:fs";
+import { isSea } from "node:sea";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const FALLBACK_VERSION = "0.1.0";
 
 let cachedPackageVersion: string | undefined;
+
+function runtimeModuleUrl(moduleUrl: string): string {
+  return isSea() ? pathToFileURL(process.execPath).href : moduleUrl;
+}
 
 function readPackageVersion(packageJsonPath: string): string | undefined {
   try {
@@ -15,7 +20,7 @@ function readPackageVersion(packageJsonPath: string): string | undefined {
   }
 }
 
-export function resolveRuntimeVersion(fromUrl: string = import.meta.url): string {
+export function resolveRuntimeVersion(fromUrl: string = runtimeModuleUrl(import.meta.url)): string {
   if (cachedPackageVersion) {
     return cachedPackageVersion;
   }

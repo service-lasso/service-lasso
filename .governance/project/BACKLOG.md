@@ -9,10 +9,12 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 - `SPEC-005-local-operator-auth.md`
 - `SPEC-006-operator-mcp.md`
 - `SPEC-007-secrets-capability-ledger.md`
+- `SPEC-CLI-FOUNDATION.md`
 
 ## Issue Register
 | ID | Status | Title | Spec References | Notes |
 | --- | --- | --- | --- | --- |
+| `ISS-1546` | `in_progress` | Distribute standalone Windows, Linux, and macOS CLI executables | `SPEC-CLI-FOUNDATION`, `AC-CLI-01` through `AC-CLI-07`; `SPEC-002`, `AC-4CG`, `AC-4BZ`; `SPEC-007`, `AC-7G` | Native Node 22.23.2 SEA delivery only. The current Core Node archive contract stays unchanged; Windows direct proof is local, Linux/macOS remain pending terminal native CI. |
 | `ISS-1385` | `done` | Qualify Linux newcomer journey in concurrent fresh folders | `SPEC-002`, `AC-4AJ.4`, `AC-4AJ.4c` | Matching Windows/Linux full paired proof at `d0f68e3` is Verified; both inspected ZIPs uploaded and downloaded hashes matched in #1328/#1385. #1396 merged as tree-identical `72148b5`; #1389 merged as `ff3f2b8` and the reconciled product head `77f1cf9` passed Release Qualification. #1397 diagnostics landed via #1398. Dossier and qualification matrix reconciled. macOS remains Deferred (#1330); #1326/#1382 remain open investigations. |
 | `ISS-1323` | `done` | Re-establish clean-machine newcomer journey evidence across Windows, Linux, and macOS | `SPEC-002`, `AC-4AJ.4` | Windows/Linux full paired proofs Verified at `d0f68e3`; macOS Deferred non-blocking (#1330). Final reconciliation completed in `docs/development/newcomer-candidate-qualification.md`; exact-head Release Qualification green at `77f1cf9`. No GA claim. |
 | `ISS-1321` | `done` | Deferred confidence follow-up: independent newcomer evidence and candidate review | `SPEC-002`, `AC-4AJ.4` | Closed as deferred by operator decision; no independent review occurred and no GA is claimed. The review protocol remains available for a future reviewer; macOS direct proof stays in #1330. |

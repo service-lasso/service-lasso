@@ -1,8 +1,9 @@
 import { execFile as execFileCallback } from "node:child_process";
 import { createHash } from "node:crypto";
+import { isSea } from "node:sea";
 import { readFile, readdir, readlink } from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import {
   isProcessControlDeadlineError,
@@ -366,8 +367,9 @@ function parseWindowsProcessJson(
   }
 }
 
+const runtimeModuleUrl = (moduleUrl: string): string => isSea() ? pathToFileURL(process.execPath).href : moduleUrl;
 const WINDOWS_NATIVE_PROCESS_INSPECTOR_PATH = fileURLToPath(
-  new URL("./windows-process-inspector.exe", import.meta.url),
+  new URL("./windows-process-inspector.exe", runtimeModuleUrl(import.meta.url)),
 );
 
 export async function classifyWindowsProcessIdentityFast(

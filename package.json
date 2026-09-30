@@ -14,6 +14,8 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json && node scripts/copy-runtime-assets.mjs",
+    "build:cli:binary": "npm run build && node scripts/build-cli-binary.mjs",
+    "verify:cli:binary": "npm run build && node scripts/verify-cli-binary.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "npm run build && node --test --test-concurrency=1 tests/**/*.test.js",
     "dev": "npm run build && node --enable-source-maps dist/index.js",
@@ -83,6 +85,8 @@
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "selfsigned": "5.5.0",
+    "esbuild": "0.28.2",
+    "postject": "1.0.0-alpha.6",
     "typescript": "^7.0.2"
   },
   "overrides": {

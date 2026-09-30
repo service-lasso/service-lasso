@@ -1,9 +1,10 @@
 import { execFile as execFileCallback } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
+import { isSea } from "node:sea";
 import { copyFile, lstat, mkdir, open, readFile, rename, stat, unlink } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import type { RuntimeConfig } from "../config.js";
 import {
@@ -46,7 +47,8 @@ const ACTIVE_GENERATION_PHASES = new Set<RuntimeGenerationPhase>(["starting", "r
 const TERMINAL_GENERATION_PHASES = new Set<RuntimeGenerationPhase>(["stopped", "failed", "superseded"]);
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const COMMIT_PATTERN = /^[0-9a-f]{7,64}$/i;
-const runtimeRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
+const runtimeModuleUrl = (moduleUrl: string): string => isSea() ? pathToFileURL(process.execPath).href : moduleUrl;
+const runtimeRoot = path.resolve(path.dirname(fileURLToPath(runtimeModuleUrl(import.meta.url))), "../../..");
 
 export const DEFAULT_RUNTIME_INSTANCE_LEASE_TTL_MS = 45_000;
 export const DEFAULT_RUNTIME_INSTANCE_HEARTBEAT_INTERVAL_MS = 15_000;

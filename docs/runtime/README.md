@@ -38,6 +38,24 @@ npx service-lasso start --services-root ./services --workspace-root ./workspace 
 
 The npm package provides the runtime and CLI. Your app still provides its own `services/` manifests and workspace location.
 
+## Standalone CLI binaries
+
+Issue #1546 adds a non-publishing build path for self-contained CLI executables.
+It pins Node `22.23.2`, `esbuild` `0.28.2`, and `postject`
+`1.0.0-alpha.6`; it does not replace the existing Node archive or npm contract.
+
+Build the binary for the current native host after installing dependencies:
+
+```powershell
+npm run build:cli:binary
+```
+
+The output and its metadata-only SHA-256 provenance record are written to
+`artifacts/cli-binaries/`. Native Windows x64 has local direct proof. Native
+Linux x64 and macOS x64 require terminal results from `CLI Standalone Binaries`
+before they can be claimed as verified. The build refuses cross-platform targets;
+cross-compilation is not native execution proof.
+
 ## CLI
 
 Run the API only:
