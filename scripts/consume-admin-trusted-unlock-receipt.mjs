@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { once } from "node:events";
 
 export const SCHEMA = "service-admin.trusted-unlock-receipt.v1";
 const KEYS = "loading,localRoot,present,schema,status,unavailable,verified";
@@ -29,11 +30,14 @@ export function classify(lines) {
 export async function consume(command, args, options = {}) {
   const child = spawn(command, args, { cwd: options.cwd, env: options.env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
   const lines = [];
+  const streamClosed = [];
   for (const [stream, target] of [[child.stdout, process.stdout], [child.stderr, process.stderr]]) {
     let buffer = "";
     stream.on("data", (chunk) => { target.write(chunk); buffer += chunk.toString("utf8"); const parts = buffer.split(/\r?\n/u); buffer = parts.pop() ?? ""; lines.push(...parts); });
+    streamClosed.push(once(stream, "end"));
   }
   const result = await new Promise((resolve, reject) => { child.once("error", reject); child.once("close", (code, signal) => resolve({ code, signal })); });
+  await Promise.all(streamClosed);
   return { ...result, trustedUnlock: result.code === 0 && result.signal === null ? null : classify(lines) };
 }
 
