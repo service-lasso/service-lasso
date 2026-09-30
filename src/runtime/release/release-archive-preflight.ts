@@ -317,7 +317,12 @@ function validateZip(bytes: Uint8Array, limits: ReleaseArchiveLimits): ReleaseAr
   }
   if (cursor !== centralOffset + centralLength) fail();
   records.sort((left, right) => left.offset - right.offset);
-  for (let index = 1; index < records.length; index += 1) if (records[index - 1]!.end > records[index]!.offset) fail();
+  let localCursor = 0;
+  for (const record of records) {
+    if (record.offset !== localCursor) fail();
+    localCursor = record.end;
+  }
+  if (localCursor !== centralOffset) fail();
   validateAliases(componentsByParent);
   return { archiveType: "zip", entries, regularFiles, directories, expandedBytes: expanded };
 }

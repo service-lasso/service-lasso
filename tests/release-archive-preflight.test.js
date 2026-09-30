@@ -70,12 +70,48 @@ function gzipWithNonzeroTerminalPadding(archive) {
   padded[padded.length - 1] |= (0xff << inflater.s.p) & 0xff;
   return Buffer.concat([archive.subarray(0, 10), padded, archive.subarray(-8)]);
 }
+function eocdOffset(archive) { return archive.length - 22; }
+function insertUnclaimedZipBytes(archive, offset) {
+  const original = Buffer.from(archive); const eocd = eocdOffset(original); const centralOffset = original.readUInt32LE(eocd + 16);
+  const inserted = Buffer.concat([original.subarray(0, offset), Buffer.from([0xde, 0xad, 0xbe, 0xef]), original.subarray(offset)]);
+  const nextEocd = eocd + 4; const nextCentralOffset = centralOffset + 4;
+  inserted.writeUInt32LE(nextCentralOffset, nextEocd + 16);
+  let cursor = nextCentralOffset;
+  for (let count = 0; count < inserted.readUInt16LE(nextEocd + 10); count += 1) {
+    const localOffset = inserted.readUInt32LE(cursor + 42); if (localOffset >= offset) inserted.writeUInt32LE(localOffset + 4, cursor + 42);
+    cursor += 46 + inserted.readUInt16LE(cursor + 28) + inserted.readUInt16LE(cursor + 30) + inserted.readUInt16LE(cursor + 32);
+  }
+  return inserted;
+}
+function removeLastCentralRecord(archive) {
+  const original = Buffer.from(archive); const eocd = eocdOffset(original); const centralOffset = original.readUInt32LE(eocd + 16); const centralLength = original.readUInt32LE(eocd + 12);
+  const firstLength = 46 + original.readUInt16LE(centralOffset + 28) + original.readUInt16LE(centralOffset + 30) + original.readUInt16LE(centralOffset + 32);
+  const reduced = Buffer.concat([original.subarray(0, centralOffset + firstLength), original.subarray(centralOffset + centralLength)]); const nextEocd = centralOffset + firstLength;
+  reduced.writeUInt16LE(1, nextEocd + 8); reduced.writeUInt16LE(1, nextEocd + 10); reduced.writeUInt32LE(firstLength, nextEocd + 12);
+  return reduced;
+}
 function unsafe(result) { assert.deepEqual(result, { ok: false, error: { status: 409, code: "archive_unsafe" } }); }
 
 test("release archive profile inventories stored, deflated, and descriptor ZIP members without extraction", () => {
   const archive = zip([{ name: "app/", content: "" }, { name: "app/service.json", content: "{\"id\":\"demo\"}", method: 8 }], { descriptor: true });
   const result = preflightReleaseArchive({ bytes: archive, archiveType: "zip" });
   assert.deepEqual(result, { ok: true, inventory: { archiveType: "zip", entries: 2, regularFiles: 1, directories: 1, expandedBytes: 13 } });
+});
+
+test("ZIP local-region inventory admits complete stored and descriptor-deflated members", () => {
+  assert.equal(preflightReleaseArchive({ bytes: zip([{ name: "stored.txt", content: "stored" }]), archiveType: "zip" }).ok, true);
+  assert.equal(preflightReleaseArchive({ bytes: zip([{ name: "deflated.txt", content: "deflated", method: 8 }], { descriptor: true }), archiveType: "zip" }).ok, true);
+});
+
+test("ZIP local-region inventory rejects every unclaimed byte range and unreferenced local member", () => {
+  const single = zip([{ name: "one.txt", content: "one" }]); const centralOffset = single.readUInt32LE(eocdOffset(single) + 16);
+  unsafe(preflightReleaseArchive({ bytes: insertUnclaimedZipBytes(single, 0), archiveType: "zip" }));
+  unsafe(preflightReleaseArchive({ bytes: insertUnclaimedZipBytes(single, centralOffset), archiveType: "zip" }));
+  const paired = zip([{ name: "one.txt", content: "one" }, { name: "two.txt", content: "two" }]);
+  const secondLocal = paired.indexOf(Buffer.from([0x50, 0x4b, 3, 4]), 4);
+  assert.ok(secondLocal > 0, "fixture must have a second local record");
+  unsafe(preflightReleaseArchive({ bytes: insertUnclaimedZipBytes(paired, secondLocal), archiveType: "zip" }));
+  unsafe(preflightReleaseArchive({ bytes: removeLastCentralRecord(paired), archiveType: "zip" }));
 });
 
 test("ZIP validation rejects CRC corruption, pathname collisions, and unsupported structural flags with one safe public error", () => {
