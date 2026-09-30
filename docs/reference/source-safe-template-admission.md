@@ -17,11 +17,15 @@ starter alone is not a complete create-to-running-service workflow.
 
 Admission is deliberately narrower than generic source ingestion. Core accepts
 only a bounded archive which proves derivation from a **server-recognized,
-immutable, versioned canonical template contract**. It may materialize the
-validated manifest through the same exclusive direct-child import boundary used
-by `AC-4CF`. It does not install, acquire release assets, run setup, start,
-stop, restart, reload, resolve secrets, adopt a running process, or grant
-semantic approval of a service.
+immutable, versioned canonical template contract**. A successful admission
+materializes the complete validated inventory, not only `service.json`, through
+the same exclusive direct-child boundary used by `AC-4CF`: each locked template
+file, every contract-authorized authored file (including the declared example
+configuration and provenance record), and the exact bytes of an immutable
+script or executable payload when the catalog names one. Admission writes those
+bytes; it never interprets or executes them. It does not install, acquire
+release assets, run setup, start, stop, restart, reload, resolve secrets, adopt
+a running process, or grant semantic approval of a service.
 
 `#1463` remains the separate staged transfer of a checksum-bound asset selected
 from an approved published Service Lasso release. Its release identity fields
@@ -31,11 +35,19 @@ or a generic upload route to that protocol.
 
 ## Required template authority before implementation
 
-The current `service-template` draft requires GitHub template origin, but does
-not yet publish the machine-readable immutable contract needed here. Core must
-not invent the missing policy. Before implementation, the owning
-`service-template` work needs to publish a reviewed, versioned template-contract
-release containing all of the following:
+`service-template` issue #17 / PR #18 now supplies a candidate
+`template-contract.json` and verifier. They define a closed inventory with
+hashes and Git modes, allowed `service.json` fields, `config/example.env`, and
+`template-provenance.json`; the verifier checks the immutable baseline and
+allowed differences. That is useful owner evidence, but the current
+`1.0.0-dev` candidate is neither a reviewed published release nor an approved
+immutable Core catalog pin. Core must not treat a repository branch, PR,
+verifier result, or candidate version as catalog authority.
+
+Before implementation, the owning `service-template` work must publish a
+reviewed, versioned template-contract release, and Core must separately approve
+and pin its immutable tuple in its catalog. Together they must provide all of
+the following:
 
 1. a stable `templateId`, immutable full `templateCommit`, semantic
    `templateVersion`, and SHA-256 `contractDigest`;
@@ -56,10 +68,11 @@ release containing all of the following:
 
 This prerequisite is tracked as
 [service-template#17](https://github.com/service-lasso/service-template/issues/17).
-Until a release satisfies that ownership contract, all source-admission requests
-fail with `template_contract_unrecognized` before a stage is created. A client
-may create a local project in any caller-selected directory, but that local path
-is never an API field, Audit field, operation field, or diagnostic.
+Until both the reviewed published candidate and Core's immutable catalog pin
+exist, all source-admission requests fail with `template_contract_unrecognized`
+before a stage is created. A client may create a local project in any
+caller-selected directory, but that local path is never an API field, Audit
+field, operation field, or diagnostic.
 
 ## Closed transport grammar
 
@@ -180,7 +193,7 @@ effectSet
 ```
 
 Each value is the validated preflight value; `effectSet` is exactly
-`direct-child-manifest-admission;no-lifecycle`. Fields are never optional,
+`direct-child-source-materialization;no-lifecycle`. Fields are never optional,
 reordered, truncated, JSON-encoded, Unicode-normalized at digest time, or
 represented as JSON numbers. Declared byte/count values are rechecked against
 the archive and stage before this sequence is made. `candidateRevision` is the
@@ -193,7 +206,7 @@ algorithms.
 | `POST /api/service-source-admission/stages`                          | Request: `{ "template": { "templateId", "templateCommit", "templateVersion", "contractDigest" }, "declared": { "serviceId", "version", "archiveSha256", "archiveBytes", "archiveEntries", "manifestSha256" } }`. Success `201`: `{ "stage": { "id", "expiresAt", "maxBytes", "maxEntries" } }`.                                                                                | Requires `service:configure`. Creates an actor-scoped `sas_` reservation. `templateCommit` is 40 lowercase hex; `contractDigest`, `archiveSha256`, and `manifestSha256` are 64 lowercase hex; `serviceId` uses the existing manifest ID grammar; `version` is a bounded declared manifest version. `archiveBytes` is `1..10_485_760`; `archiveEntries` is `1..512`.                                  |
 | `PUT /api/service-source-admission/stages/{stageId}/content`         | Body is one fixed-length `application/vnd.service-lasso.template-project+zip` stream under the upload HTTP grammar. Success `204`.                                                                                                                                                                                                                                             | Actor-scoped opaque `sas_` stage only; no path, URL, token, manifest, or filename parameter. Core verifies exact `archiveSha256` and the complete `SLTP-ZIP-1` profile while streaming to a private stage. A stage is write-once and expires after 15 minutes.                                                                                                                                       |
 | `POST /api/service-source-admission/preflights`                      | Request: `{ "stageId", "archiveSha256" }`. Success `201`: `{ "preflight": { "id", "candidateRevision", "serviceId", "template": { "templateId", "templateCommit", "templateVersion", "contractDigest" }, "stagedDigest", "expiresAt", "confirmation": { "id", "expiresAt" } } }`.                                                                                              | Requires `service:configure`. Parses the staged archive with the recognized template contract, validates the declared manifest digest/schema, computes the normalized staged digest and `candidateRevision`, and issues a server-side single-use confirmation bound to actor, stage, candidate revision, target service ID, template identity, and no-lifecycle effect set. It has no import effect. |
-| `POST /api/service-source-admission/preflights/{preflightId}/commit` | Request: `{ "confirmationId", "idempotencyKey" }`. New durable admission: `202` with `{ "operation": { "id", "kind": "source_admission", "status": "accepted", "replayed": false, "serviceId", "template", "candidateRevision", "stagedDigest", "createdAt", "completedAt": null, "errorCode": null } }`. Exact replay: `200` with the stored projection and `replayed: true`. | Requires `service:configure`, a valid server confirmation, and a unique opaque 8–128-character idempotency key matching `^[A-Za-z0-9][A-Za-z0-9._-]{7,127}$`. The only durable product mutation is direct-child manifest admission.                                                                                                                                                                  |
+| `POST /api/service-source-admission/preflights/{preflightId}/commit` | Request: `{ "confirmationId", "idempotencyKey" }`. New durable admission: `202` with `{ "operation": { "id", "kind": "source_admission", "status": "accepted", "replayed": false, "serviceId", "template", "candidateRevision", "stagedDigest", "createdAt", "completedAt": null, "errorCode": null } }`. Exact replay: `200` with the stored projection and `replayed: true`. | Requires `service:configure`, a valid server confirmation, and a unique opaque 8–128-character idempotency key matching `^[A-Za-z0-9][A-Za-z0-9._-]{7,127}$`. The only durable product mutation is atomic direct-child materialization of the complete validated inventory.                                                                                                                                                  |
 | `GET /api/service-source-admission/operations/{operationId}`         | Success `200` returns the stored safe operation projection, including `accepted` and every terminal status.                                                                                                                                                                                                                                                                    | Actor-scoped readback only. Unknown, foreign, expired, or malformed IDs return the same `404 operation_not_found`.                                                                                                                                                                                                                                                                                   |
 
 The stage upload credential is the authenticated transport session; the API must
@@ -216,6 +229,14 @@ Core validates the archive before preflight completion in this order:
    manifest digest; and
 7. provenance record and the template contract's repository/template-origin
    rules.
+
+Preflight has no service-root effect. It may retain the bounded private stage
+until expiry, but it does not create a target directory or a durable admitted
+project. Commit constructs the fingerprint-bound capsule only from the already
+validated staged bytes, persists it with the `accepted` record, and rechecks its
+complete inventory before the first filesystem write. A stage, preflight, or
+capsule from another actor, service ID, template tuple, candidate revision, or
+fingerprint is unusable.
 
 Executable files, command lines, shell/PowerShell/Node scripts, source code,
 workflow files, action/setup/update hooks, artifact source/checksum data,
@@ -242,20 +263,44 @@ adapter proves all of those bindings and single-use storage semantics.
 
 Before creating the service directory, Core durably writes an `accepted`
 operation. `accepted` is the sole nonterminal source-admission status: the
-actor, confirmation, `admissionFingerprint`, idempotency identity, and intended
-direct-child mutation are durable, but no write is claimed. The only states are
-`accepted` (nonterminal), then terminal `completed` (recorded manifest digest
-and exclusive discovery prove one admission), `conflict` (collision proven and
-no admission), `denied` (post-acceptance revalidation denied before mutation),
-`failed` (known pre-write failure), or `unknown` (write/reconciliation/Audit
-uncertainty prevents a result claim).
+actor, confirmation, `admissionFingerprint`, idempotency identity, intended
+direct-child mutation, and a private fingerprint-bound materialization capsule
+are durable, but no target write is claimed. The capsule contains the exact
+expanded bytes and validated path, byte count, digest, and catalog-authorized
+mode for **every** admitted inventory entry. It is private implementation
+state, encrypted at rest where Core's storage supports encryption, accessible
+only to the admission worker and reconciliation, and deleted only after a
+completed durable Audit outcome. It is never represented in an operation,
+Audit, HTTP response, CLI output, or diagnostic. The only states are `accepted`
+(nonterminal), then terminal `completed` (complete inventory and exclusive
+discovery prove one admission), `conflict` (collision proven and no admission),
+`denied` (post-acceptance revalidation denied before mutation), `failed` (known
+pre-write failure), or `unknown` (write/reconciliation/Audit uncertainty
+prevents a result claim).
 
-Core serializes admission per workspace and service ID. The record contains only
-the operation ID, actor ID, stable service/template/version identifiers,
-`admissionFingerprint`/candidate revision, safe digests, timestamps, status,
-and safe error code. It stores an HMAC of the idempotency key under a
-server-held key only for lookup; it never stores raw keys, confirmations,
-archives, manifests, paths, URLs, config, logs, credentials, or secrets.
+The materializer uses the existing workspace-root trust boundary, serializes by
+workspace and service ID, and creates only the requested service ID as one
+exclusive direct child of that root. It opens the trusted root and every child
+segment without following links or reparse points; it rejects a substituted,
+redirected, existing, or non-directory root/target. It creates a private
+same-volume direct-child staging directory with exclusive creation, writes each
+capsule entry through no-follow directory handles, verifies its byte count and
+SHA-256 before close, applies only the catalog-authorized mode, fsyncs files and
+directories where supported, then atomically renames that complete staging
+directory to the previously absent service-ID child. It never creates parents
+outside that child, follows a symlink/reparse point, overwrites an existing
+target, merges into retained content, or makes a target visible before the full
+inventory is present. An immutable executable payload may be written only as a
+catalog-inventory byte/mode entry; it remains non-executed by admission.
+
+The durable operation record contains only the operation ID, actor ID, stable
+service/template/version identifiers, `admissionFingerprint`/candidate
+revision, safe inventory/capsule digest and count, timestamps, status, and safe
+error code. It stores an HMAC of the idempotency key under a server-held key
+only for lookup. The private capsule is referenced by an opaque internal handle
+and is not an operation record. Neither record nor Audit stores raw keys,
+confirmations, archives, manifests, paths, URLs, config, logs, credentials, or
+secrets.
 
 Confirmation binds the same `admissionFingerprint`; commit recomputes it before
 consuming confirmation. Idempotency is actor plus key-HMAC: the same actor,
@@ -266,13 +311,19 @@ idempotency_key_reused`. Concurrent callers receive `409 idempotency_in_progress
 only until the first durable `accepted` record is readable, after which they
 receive the exact replay. A different actor cannot read or replay the record.
 
-After a crash or write uncertainty, Core reconciles only an `accepted` record
-and only when the exclusive direct-child target has the recorded manifest digest
-and discovery finds exactly the recorded service ID. It then records
-`completed`. Any absent, different, redirected, symlinked, duplicate, or
-undiscoverable target becomes `unknown` with
-`admission_reconciliation_required`; Core never repeats the import, overwrites
-a target, deletes retained content, or infers adoption.
+After a crash or write uncertainty, Core reconciles only an `accepted` record.
+It reopens the trusted root and target with the same no-follow containment
+checks, discovers exactly the recorded service ID, and verifies every target
+file against the capsule's complete path/mode/byte/digest inventory and the
+recorded `stagedDigest`; only then may it record `completed`. If no target was
+ever created and the intact fingerprint-bound capsule is available, Core may
+resume the one atomic materialization under the original operation; it does not
+create a second operation. Any partial staging state is private recovery state
+and may be discarded only after no-follow containment and target absence are
+proved. Any absent-with-uncertain-write, different, redirected, symlinked,
+duplicate, capsule-mismatched, or undiscoverable target becomes `unknown` with
+`admission_reconciliation_required`; Core never overwrites a target, deletes
+retained content, or infers adoption.
 
 Audit uses the same `admissionFingerprint`. If required Audit cannot be made
 durable before mutation, commit returns `503 audit_unavailable` and creates no
@@ -291,7 +342,7 @@ with `200` and `replayed: true`.
 | 400     | `invalid_body`, `invalid_stage_metadata`, `invalid_stage_content_type`, `invalid_upload_framing`, `invalid_archive_digest`, `invalid_idempotency_key`                                                                                                                                                                                                                                                                                                       | Closed grammar, declared limits, required upload headers/framing, media type, or digest/key syntax failed.                           |
 | 401/403 | `authentication_required`, `permission_denied`                                                                                                                                                                                                                                                                                                                                                                                                              | No trusted actor or no `service:configure`; no stage/import mutation.                                                                |
 | 404     | `stage_not_found`, `preflight_not_found`, `operation_not_found`                                                                                                                                                                                                                                                                                                                                                                                             | Missing, expired, foreign, or malformed opaque reference.                                                                            |
-| 409     | `stage_already_written`, `stage_digest_mismatch`, `stage_expired`, `archive_limit_exceeded`, `archive_unsafe`, `template_contract_unrecognized`, `template_difference_forbidden`, `manifest_contract_mismatch`, `provenance_mismatch`, `confirmation_required`, `confirmation_invalid`, `confirmation_expired`, `confirmation_already_used`, `confirmation_binding_mismatch`, `target_manifest_exists`, `idempotency_key_reused`, `idempotency_in_progress` | Safe conflict or policy denial; response reveals no file/path/source detail.                                                         |
+| 409     | `stage_already_written`, `stage_digest_mismatch`, `stage_expired`, `archive_limit_exceeded`, `archive_unsafe`, `template_contract_unrecognized`, `template_difference_forbidden`, `manifest_contract_mismatch`, `provenance_mismatch`, `confirmation_required`, `confirmation_invalid`, `confirmation_expired`, `confirmation_already_used`, `confirmation_binding_mismatch`, `target_service_exists`, `idempotency_key_reused`, `idempotency_in_progress` | Safe conflict or policy denial; response reveals no file/path/source detail.                                                         |
 | 413     | `archive_too_large`                                                                                                                                                                                                                                                                                                                                                                                                                                         | Declared or streamed compressed/expanded limit exceeded.                                                                             |
 | 422     | `template_contract_invalid`, `manifest_schema_invalid`, `provenance_invalid`                                                                                                                                                                                                                                                                                                                                                                                | A complete but semantically invalid closed contract input.                                                                           |
 | 429     | `admission_rate_limited`                                                                                                                                                                                                                                                                                                                                                                                                                                    | Actor/client stage or preflight quota exceeded.                                                                                      |
@@ -314,13 +365,13 @@ Implementation must add a contract matrix covering:
 
 | Scenario                         | Required proof                                                                                                                                                                                                                                                                                                                                   |
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| valid template-derived project   | Stage, preflight, confirmed admission, direct-child discovery, and no install/setup/start/reload.                                                                                                                                                                                                                                                |
+| valid template-derived project   | Stage, preflight, confirmed admission, atomic direct-child discovery of the full closed inventory (locked files, allowed manifest/configuration, provenance, and immutable script/executable bytes), and no install/setup/start/reload.                                                                                                   |
 | client-selected local output     | CLI packages an arbitrary caller-selected directory; HTTP capture proves no local path is transmitted.                                                                                                                                                                                                                                           |
 | schema and archive abuse         | Unknown JSON fields, oversized/deep JSON; duplicate/missing upload headers, invalid decimal length, transfer/content coding, trailers, wrong media type; each forbidden ZIP method/flag, descriptor, ZIP64, local/central conflict, UTF-8/path, offset, CRC, count, quota, and no-extract condition; digest mismatch; expired/write-twice stage. |
 | template and provenance variance | Unknown tuple, altered commit/contract digest, missing/changed required file, forbidden executable/command/source/workflow/hook/provider/secret/URL edit, allowed scalar edit, malformed provenance.                                                                                                                                             |
 | authority and confirmation       | unauthenticated, ungranted, cross-actor stage/preflight/operation access, expiry, reuse, and every actor/target/digest/template/candidate binding alteration.                                                                                                                                                                                    |
-| durable outcomes                 | `202 accepted` readback, exact nonterminal/terminal replay, altered-key retry, crash before/during/after direct-child write, restart reconciliation, collision, symlink/redirected target, and the `503` Audit-outage versus `200` stored-operation distinction.                                                                                 |
-| output safety                    | Audit, operation, HTTP errors, CLI stdout/stderr, and retained artifacts have no raw archive/manifest/path/config/log/token/credential/secret material.                                                                                                                                                                                          |
+| durable outcomes                 | `202 accepted` readback, exact nonterminal/terminal replay, altered-key retry, fingerprint-bound capsule construction, crash before/during/after staging or atomic rename, restart reconciliation of every file/mode/digest, target collision, symlink/reparse/redirection containment denial, and the `503` Audit-outage versus `200` stored-operation distinction. |
+| output safety                    | Audit, operation, HTTP errors, CLI stdout/stderr, and retained diagnostic artifacts have no raw archive/manifest/path/config/log/token/credential/secret material; capsule access and cleanup are proved without exposing its bytes.                                                                                                         |
 | distribution                     | Exact-head Core CI plus a fresh packaged Core and released external CLI on Windows, Linux, and macOS; direct remote runtime proof remains distinct from mocked transport tests.                                                                                                                                                                  |
 
 The packaged CLI evidence must prove `service init` or its successor produces a
@@ -331,9 +382,10 @@ review are required before implementation.
 
 ## Self-check
 
-This contract has one source-admission mutation (validated manifest admission),
-never accepts either client or server paths, uses template provenance rather
-than release-asset provenance, and does not make `#1463` a general uploader.
-It requires a template-owner contract before implementation, keeps client
-authoring output supportable through a bounded stage, and keeps permission,
-confirmation, idempotency, recovery, Audit, and packaged proof distinct.
+This contract has one source-admission mutation (complete validated source
+materialization), never accepts either client or server paths, uses template
+provenance rather than release-asset provenance, and does not make `#1463` a
+general uploader. It requires both a published template-owner contract and a
+reviewed Core catalog pin before implementation, keeps client authoring output
+supportable through a bounded stage, and keeps permission, confirmation,
+idempotency, recovery, Audit, and packaged proof distinct.
