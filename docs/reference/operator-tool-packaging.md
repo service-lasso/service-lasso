@@ -17,11 +17,11 @@ Neither tool is a Core managed service. Do not add `service.json`, catalog it, s
 
 The API CLI is a Node 22+ package and the operator-tools manifest explicitly declares its supported platforms (`win32`, `linux`, `darwin`). The CLI may be packaged only where the Core package supports that Node runtime. The TUI release inventory must contain `win32-amd64`, `linux-amd64`, `darwin-amd64`, and `darwin-arm64` assets. An unsupported platform must return a stable unavailable result before extraction or process launch.
 
-Core currently stages reviewed candidate releases `candidate-2026.9.30-97fafb0` for the TUI and `cli-v0.1.0-dev.d3a3814-candidate-d3a3814` for the CLI. Candidate releases are distribution evidence, not GA.
+Core currently stages reviewed candidate releases `candidate-2026.9.30-97fafb0` for the TUI and `cli-v0.1.0-dev.24d756e-candidate-24d756e` for the CLI. The CLI candidate is checksum-bound to source `24d756e3706ae06cb4858562ddd6824b1e21d886`; its GitHub release API record is a mutable prerelease (`immutable: false`). Candidate releases are distribution evidence, not GA.
 
 ## Release identity gate
 
-Core may package an external operator tool only after the owning repository supplies an approved immutable release that contains the reviewed source head. The Core packaging record must pin all of the following before staging any tool bytes:
+Core may package an external operator tool only after the owning repository supplies an approved checksum-bound candidate release that contains the reviewed source head. A mutable prerelease is never treated as immutable merely because it has a tag: Core re-reads its release metadata and verifies every retained byte against the pinned checksums before staging. The Core packaging record must pin all of the following before staging any tool bytes:
 
 - source repository, tag, and full release target commit;
 - the exact asset names and SHA-256 values reported by GitHub;
