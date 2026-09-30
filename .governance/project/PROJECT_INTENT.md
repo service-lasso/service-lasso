@@ -32,6 +32,7 @@ This repo is therefore the place where the real core behavior must live and cont
 ## Constraints
 
 - Hard-crash fixture failures before an intentional exit must retain only closed startup-phase and lifecycle metadata over a dedicated test IPC channel; never raw child output, error messages, paths or secrets (#1397, `SPEC-002 AC-4BJ.9a`). This adds observation, not retries or changed deadlines.
+- Windows root-exit fixtures arm the existing controlled exit only after their complete owned process receipt and owned acknowledgement. The separate automatic-root finaliser exposes fixed, bounded phase telemetry only; it never converts unknown ownership or a deadline into stopped state, and excludes process/private detail (#1557, `SPEC-002 AC-4BH.3`, `AC-4BJ.9b`).
 - Governance/spec/backlog traceability must remain in place while product code starts.
 - This repo is private and should preserve clear auditability for decisions and changes.
 - Hardening should stay bounded and staged: stabilize contracts/config/state before widening provider/runtime complexity.

@@ -33,6 +33,7 @@ import {
   setManagedProcessAfterReleaseHookForTests,
   setManagedProcessEnrollmentHookForTests,
   setManagedProcessFilesBoundHookForTests,
+  setManagedProcessFinalizationTelemetryHookForTests,
   setManagedProcessLaunchStateCreatedHookForTests,
   setManagedProcessLaunchStateRemoverForTests,
   setManagedProcessPostResumeDelayForTests,
@@ -159,6 +160,8 @@ async function writeStubbornProcessTreeFixture(serviceRoot, scriptPath, options 
     rootAutoExitMs = null,
     childTriggerFilePath = null,
     rootExitAfterChildMs = null,
+    acknowledgementFilePath = null,
+    suppressAcknowledgement = false,
   } = options;
   const childScriptPath = path.join(serviceRoot, "runtime", "fixture-child.mjs");
   const grandchildScriptPath = path.join(serviceRoot, "runtime", "fixture-grandchild.mjs");
@@ -178,7 +181,7 @@ void heartbeat;
     childScriptPath,
     `
 import { spawn } from "node:child_process";
-import { writeFile } from "node:fs/promises";
+import { rename, writeFile } from "node:fs/promises";
 
 const grandchild = spawn(process.execPath, [${JSON.stringify(grandchildScriptPath)}], {
   stdio: "ignore",
@@ -188,11 +191,14 @@ await new Promise((resolve, reject) => {
   grandchild.once("spawn", resolve);
   grandchild.once("error", reject);
 });
-await writeFile(${JSON.stringify(pidFilePath)}, JSON.stringify({
+const receipt = JSON.stringify({
   rootPid: process.ppid,
   childPid: process.pid,
   grandchildPid: grandchild.pid,
-}));
+});
+const receiptTemp = ${JSON.stringify(`${pidFilePath}.tmp`)};
+await writeFile(receiptTemp, receipt, { flag: "wx" });
+await rename(receiptTemp, ${JSON.stringify(pidFilePath)});
 const heartbeat = setInterval(() => {}, 1000);
 process.on("SIGTERM", () => {});
 process.on("SIGINT", () => {});
@@ -204,7 +210,7 @@ void heartbeat;
     scriptPath,
     `
 import { spawn } from "node:child_process";
-import { access } from "node:fs/promises";
+import { access, readFile, rename, writeFile } from "node:fs/promises";
 
 ${childTriggerFilePath === null ? "" : `while (true) {
   try {
@@ -223,6 +229,28 @@ await new Promise((resolve, reject) => {
   child.once("spawn", resolve);
   child.once("error", reject);
 });
+${acknowledgementFilePath === null ? "" : `while (true) {
+  try {
+    const receipt = JSON.parse(await readFile(${JSON.stringify(pidFilePath)}, "utf8"));
+    if (
+      receipt.rootPid === process.pid &&
+      receipt.childPid === child.pid &&
+      Number.isInteger(receipt.grandchildPid) && receipt.grandchildPid > 0
+    ) {
+      break;
+    }
+  } catch {
+    // Receipt publication remains a prerequisite for the owned acknowledgement.
+  }
+  await new Promise((resolve) => setTimeout(resolve, 25));
+}
+${suppressAcknowledgement ? "await new Promise(() => {});" : `const acknowledgement = JSON.stringify({
+  rootPid: process.pid,
+  childPid: child.pid,
+});
+const acknowledgementTemp = ${JSON.stringify(`${acknowledgementFilePath}.tmp`)};
+await writeFile(acknowledgementTemp, acknowledgement, { flag: "wx" });
+await rename(acknowledgementTemp, ${JSON.stringify(acknowledgementFilePath)});`}`}
 const heartbeat = setInterval(() => {}, 1000);
 process.on("SIGTERM", () => {});
 process.on("SIGINT", () => {});
@@ -244,6 +272,19 @@ async function readProcessTreePids(pidFilePath) {
       return null;
     }
   });
+}
+
+async function readOwnedFixtureAcknowledgement(acknowledgementFilePath, expectedPids, timeoutMs = 3_000) {
+  return await waitFor(async () => {
+    try {
+      const acknowledgement = JSON.parse(await readFile(acknowledgementFilePath, "utf8"));
+      return acknowledgement.rootPid === expectedPids.rootPid && acknowledgement.childPid === expectedPids.childPid
+        ? acknowledgement
+        : null;
+    } catch {
+      return null;
+    }
+  }, timeoutMs);
 }
 
 async function waitForProcessesStopped(pids, timeoutMs = 3_000) {
@@ -3308,9 +3349,11 @@ test("managed Windows job contains a child spawned after enrollment when the ser
   const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-managed-late-child-");
   const { serviceRoot, scriptPath } = await writeExecutableFixtureService(servicesRoot, "managed-late-child-service");
   const triggerPath = path.join(serviceRoot, "runtime", "launch-child.trigger");
+  const acknowledgementPath = path.join(serviceRoot, "runtime", "owned-root-exit.ack.json");
   const pidFilePath = await writeStubbornProcessTreeFixture(serviceRoot, scriptPath, {
     childTriggerFilePath: triggerPath,
     rootExitAfterChildMs: 750,
+    acknowledgementFilePath: acknowledgementPath,
   });
   let handle;
   let rootPid = null;
@@ -3329,6 +3372,7 @@ test("managed Windows job contains a child spawned after enrollment when the ser
     rootPid = pids.rootPid;
     childPid = pids.childPid;
     grandchildPid = pids.grandchildPid;
+    await readOwnedFixtureAcknowledgement(acknowledgementPath, pids);
 
     await waitForManagedProcessFinalization("managed-late-child-service", Date.now() + 15_000);
     await waitForProcessesStopped([handle.pid, rootPid, childPid, grandchildPid], 15_000);
@@ -3344,18 +3388,68 @@ test("managed Windows job contains a child spawned after enrollment when the ser
   }
 });
 
+test("managed Windows late-child fixture suppresses acknowledgement before root-exit containment", {
+  skip: process.platform !== "win32",
+}, async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-managed-late-child-no-ack-");
+  const { serviceRoot, scriptPath } = await writeExecutableFixtureService(servicesRoot, "managed-late-child-no-ack-service");
+  const triggerPath = path.join(serviceRoot, "runtime", "launch-child.trigger");
+  const acknowledgementPath = path.join(serviceRoot, "runtime", "owned-root-exit.ack.json");
+  const pidFilePath = await writeStubbornProcessTreeFixture(serviceRoot, scriptPath, {
+    childTriggerFilePath: triggerPath,
+    rootExitAfterChildMs: 750,
+    acknowledgementFilePath: acknowledgementPath,
+    suppressAcknowledgement: true,
+  });
+  let handle;
+  let rootPid = null;
+  let childPid = null;
+  let grandchildPid = null;
+
+  try {
+    const [service] = await discoverServices(servicesRoot);
+    handle = await startManagedProcess({
+      service,
+      executionPlan: createDirectExecutionPlan(service.manifest),
+      workspaceRoot,
+    });
+    await writeFile(triggerPath, "launch\n", "utf8");
+    const pids = await readProcessTreePids(pidFilePath);
+    rootPid = pids.rootPid;
+    childPid = pids.childPid;
+    grandchildPid = pids.grandchildPid;
+    await assert.rejects(
+      readOwnedFixtureAcknowledgement(acknowledgementPath, pids, 250),
+    );
+    assert.equal(hasManagedProcess("managed-late-child-no-ack-service"), true);
+    assert.equal((await inspectProcess(rootPid)).status, "running");
+  } finally {
+    await stopManagedProcess("managed-late-child-no-ack-service", 100).catch(() => null);
+    forceCleanupProcesses([handle?.pid, rootPid, childPid, grandchildPid]);
+    resetLifecycleState();
+    await removeTempRoot(tempRoot);
+  }
+});
+
 test("managed Windows root auto-exit contains its verified child and grandchild process tree", {
   skip: process.platform !== "win32",
 }, async () => {
   resetLifecycleState();
+  const priorTestHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+  process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
   const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-managed-root-auto-exit-");
   const { serviceRoot, scriptPath } = await writeExecutableFixtureService(servicesRoot, "managed-root-auto-exit-service");
   const pidFilePath = await writeStubbornProcessTreeFixture(serviceRoot, scriptPath, { rootAutoExitMs: 35_000 });
   let handle;
   let childPid = null;
   let grandchildPid = null;
+  let telemetry = null;
 
   try {
+    setManagedProcessFinalizationTelemetryHookForTests((entries) => {
+      telemetry = entries;
+    });
     const [service] = await discoverServices(servicesRoot);
     handle = await startManagedProcess({
       service,
@@ -3372,11 +3466,74 @@ test("managed Windows root auto-exit contains its verified child and grandchild 
     const stoppedOwnership = await findProcessOwnership(workspaceRoot, "service", "managed-root-auto-exit-service");
     assert.equal(stoppedOwnership.lifecycleState, "stopped");
     assert.equal(stoppedOwnership.pid, null);
+    assert.deepEqual(telemetry?.map(({ phase, status, reason }) => ({ phase, status, reason })), [
+      { phase: "root_handle_exit", status: "complete", reason: "observed" },
+      { phase: "snapshot", status: "complete", reason: "observed" },
+      { phase: "member_count", status: "complete", reason: "observed" },
+      { phase: "termination", status: "complete", reason: "observed" },
+      { phase: "registry_reconcile", status: "complete", reason: "observed" },
+    ]);
+    assert.equal(Number.isInteger(telemetry?.[2]?.count), true);
+    assert.equal(telemetry[2].count >= 0 && telemetry[2].count <= 1_000, true);
   } finally {
+    setManagedProcessFinalizationTelemetryHookForTests(null);
     await stopManagedProcess("managed-root-auto-exit-service", 100).catch(() => null);
     forceCleanupProcesses([handle?.pid, childPid, grandchildPid]);
     resetLifecycleState();
     await removeTempRoot(tempRoot);
+    if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+    else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
+  }
+});
+
+test("managed Windows owned automatic root exit records a closed finalization trace", {
+  skip: process.platform !== "win32",
+}, async () => {
+  resetLifecycleState();
+  const priorTestHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+  process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-managed-owned-finalization-trace-");
+  const { serviceRoot, scriptPath } = await writeExecutableFixtureService(servicesRoot, "managed-owned-finalization-trace-service");
+  const pidFilePath = await writeStubbornProcessTreeFixture(serviceRoot, scriptPath, { rootAutoExitMs: 3_000 });
+  let handle;
+  let childPid = null;
+  let grandchildPid = null;
+  let telemetry = null;
+
+  try {
+    setManagedProcessFinalizationTelemetryHookForTests((entries) => {
+      telemetry = entries;
+    });
+    const [service] = await discoverServices(servicesRoot);
+    handle = await startManagedProcess({
+      service,
+      executionPlan: createDirectExecutionPlan(service.manifest),
+      workspaceRoot,
+    });
+    const pids = await readProcessTreePids(pidFilePath);
+    childPid = pids.childPid;
+    grandchildPid = pids.grandchildPid;
+
+    await waitForManagedProcessFinalization("managed-owned-finalization-trace-service", Date.now() + 15_000);
+    await waitForProcessesStopped([handle.pid, childPid, grandchildPid], 15_000);
+    assert.equal(hasManagedProcess("managed-owned-finalization-trace-service"), false);
+    assert.deepEqual(telemetry?.map(({ phase, status, reason }) => ({ phase, status, reason })), [
+      { phase: "root_handle_exit", status: "complete", reason: "observed" },
+      { phase: "snapshot", status: "complete", reason: "observed" },
+      { phase: "member_count", status: "complete", reason: "observed" },
+      { phase: "termination", status: "complete", reason: "observed" },
+      { phase: "registry_reconcile", status: "complete", reason: "observed" },
+    ]);
+    assert.equal(Number.isInteger(telemetry?.[2]?.count), true);
+    assert.equal(telemetry[2].count >= 0 && telemetry[2].count <= 1_000, true);
+  } finally {
+    setManagedProcessFinalizationTelemetryHookForTests(null);
+    await stopManagedProcess("managed-owned-finalization-trace-service", 100).catch(() => null);
+    forceCleanupProcesses([handle?.pid, childPid, grandchildPid]);
+    resetLifecycleState();
+    await removeTempRoot(tempRoot);
+    if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+    else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
   }
 });
 

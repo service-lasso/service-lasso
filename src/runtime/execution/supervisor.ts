@@ -7,6 +7,13 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import type { DiscoveredService } from "../../contracts/service.js";
 import { observeNativeAcknowledgementContainment } from "./native-ack-containment.js";
+import {
+  closedFinalizationTelemetry,
+  type FinalizationTelemetryEntry,
+  type FinalizationTelemetryPhase,
+  type FinalizationTelemetryReason,
+  type FinalizationTelemetryStatus,
+} from "./finalization-telemetry.js";
 import { resolveExecutionArgs, selectPlatformCommandline } from "./commandline.js";
 import { buildServiceVariables, type ServiceVariableResolutionOptions } from "../operator/variables.js";
 import { buildServiceNetwork } from "../operator/network.js";
@@ -143,6 +150,7 @@ interface ManagedProcessRecord {
   stopDeadlineMs: number | null;
   exitPromise: Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }>;
   finalizePromise: Promise<void>;
+  finalizationTelemetry: FinalizationTelemetryEntry[];
 }
 
 interface AdoptedProcessRecord {
@@ -167,6 +175,7 @@ export interface ManagedProcessFinalizationFailure {
   pid: number | null;
   phase: ManagedProcessFinalizationPhase;
   code: string;
+  telemetry?: readonly FinalizationTelemetryEntry[];
 }
 
 export class ManagedProcessFinalizationError extends Error {
@@ -230,7 +239,12 @@ interface AdoptManagedProcessOptions {
 }
 
 const managedProcesses = new Map<string, ManagedProcessRecord>();
-const managedProcessFinalizers = new Map<string, { pid: number | null; promise: Promise<void>; workspaceRoot: string | null }>();
+const managedProcessFinalizers = new Map<string, {
+  pid: number | null;
+  promise: Promise<void>;
+  workspaceRoot: string | null;
+  telemetry: FinalizationTelemetryEntry[];
+}>();
 const adoptedProcesses = new Map<string, AdoptedProcessRecord>();
 const workspaceFinalizationTails = new Map<string, Promise<void>>();
 const managedProcessShutdownQuiescers = new Set<(
@@ -265,6 +279,16 @@ let managedProcessLaunchStateCreatedHook: (() => Promise<void> | void) | null = 
 let managedProcessPostResumeDelayMs = 0;
 let managedProcessSpawner: typeof spawn = spawn;
 let managedProcessSpawnTimeoutMs = MANAGED_PROCESS_SPAWN_TIMEOUT_MS;
+let managedProcessFinalizationTelemetryHook: ((telemetry: readonly FinalizationTelemetryEntry[]) => Promise<void> | void) | null = null;
+
+export function setManagedProcessFinalizationTelemetryHookForTests(
+  hook: ((telemetry: readonly FinalizationTelemetryEntry[]) => Promise<void> | void) | null,
+): void {
+  if (process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS !== "1") {
+    throw new Error("Managed finalization telemetry test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
+  }
+  managedProcessFinalizationTelemetryHook = hook;
+}
 
 export function setManagedProcessTreeTerminatorForTests(
   terminator: typeof terminateOwnedProcessTree | null,
@@ -425,8 +449,14 @@ async function withSerializedWorkspaceFinalization<T>(workspaceRoot: string, act
   }
 }
 
-function trackManagedProcessFinalizer(serviceId: string, pid: number | null, promise: Promise<void>, workspaceRoot: string | null): void {
-  const tracked = { pid, promise, workspaceRoot };
+function trackManagedProcessFinalizer(
+  serviceId: string,
+  pid: number | null,
+  promise: Promise<void>,
+  workspaceRoot: string | null,
+  telemetry: FinalizationTelemetryEntry[],
+): void {
+  const tracked = { pid, promise, workspaceRoot, telemetry };
   managedProcessFinalizers.set(serviceId, tracked);
   const clearFinalizer = () => {
     if (managedProcessFinalizers.get(serviceId) === tracked) {
@@ -470,8 +500,26 @@ export async function waitForManagedProcessFinalization(
       pid: finalizer.pid,
       phase: "finalize",
       code: safeFinalizationErrorCode(error, "FINALIZER_FAILED"),
+      ...(finalizer.telemetry.length > 0 ? { telemetry: closedFinalizationTelemetry(finalizer.telemetry) } : {}),
     }]);
   }
+}
+
+function recordFinalizationTelemetry(
+  record: ManagedProcessRecord,
+  phase: FinalizationTelemetryPhase,
+  status: FinalizationTelemetryStatus,
+  reason: FinalizationTelemetryReason,
+  count?: number,
+): void {
+  if (record.finalizationTelemetry.some((entry) => entry.phase === phase)) {
+    return;
+  }
+  record.finalizationTelemetry.push({ phase, status, reason, ...(phase === "member_count" ? { count: count ?? 0 } : {}) });
+}
+
+function finalizationTelemetryReason(error: unknown): FinalizationTelemetryReason {
+  return isProcessControlDeadlineError(error) ? "deadline_exceeded" : "failed";
 }
 
 async function prepareRuntimeLogStreams(serviceRoot: string, startedAt: string): Promise<{
@@ -1428,17 +1476,32 @@ async function terminateManagedProcessTree(
             record.rootIdentity &&
             record.knownTreeMembers.length > 0
           ) {
-            const snapshot = await inspectKnownWindowsTreeMembers(
-              record.rootIdentity,
-              record.knownTreeMembers,
-              deadlineMs,
-              signal,
-              record.verifiedMembersOnly,
-              { inspectTree: managedWindowsTreeInspector },
-            );
-            record.verifiedMembersOnly ||= snapshot.verifiedMembersOnly;
-            record.knownTreeMembers = snapshot.members;
-            dependencies.inspectProcess = snapshot.inspectProcess;
+            try {
+              const snapshot = await inspectKnownWindowsTreeMembers(
+                record.rootIdentity,
+                record.knownTreeMembers,
+                deadlineMs,
+                signal,
+                record.verifiedMembersOnly,
+                { inspectTree: managedWindowsTreeInspector },
+              );
+              record.verifiedMembersOnly ||= snapshot.verifiedMembersOnly;
+              record.knownTreeMembers = snapshot.members;
+              dependencies.inspectProcess = snapshot.inspectProcess;
+              if (rootExitObserved) {
+                recordFinalizationTelemetry(record, "snapshot", "complete", "observed");
+                recordFinalizationTelemetry(record, "member_count", "complete", "observed", snapshot.members.length);
+              }
+            } catch (error) {
+              if (rootExitObserved) {
+                recordFinalizationTelemetry(record, "snapshot", "failed", finalizationTelemetryReason(error));
+                recordFinalizationTelemetry(record, "member_count", "not_applicable", "not_required", 0);
+              }
+              throw error;
+            }
+          } else if (rootExitObserved) {
+            recordFinalizationTelemetry(record, "snapshot", "not_applicable", "not_required");
+            recordFinalizationTelemetry(record, "member_count", "not_applicable", "not_required", 0);
           }
           return await managedProcessTreeTerminator(
             managedProcessTreeTarget(record, rootExitObserved),
@@ -1771,7 +1834,7 @@ export async function adoptManagedProcess(options: AdoptManagedProcessOptions): 
   };
   await refreshAdoptedProcessTreeMembers(record);
   adoptedProcesses.set(serviceId, record);
-  trackManagedProcessFinalizer(serviceId, pid, monitorAdoptedProcess(record), workspaceRoot);
+  trackManagedProcessFinalizer(serviceId, pid, monitorAdoptedProcess(record), workspaceRoot, []);
 
   return {
     pid,
@@ -1957,6 +2020,7 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
     stopDeadlineMs: null,
     exitPromise,
     finalizePromise: Promise.resolve(),
+    finalizationTelemetry: [],
   };
   attachRuntimeLogCapture(record);
 
@@ -1970,30 +2034,44 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
     record.treeMonitorPromise = managedProcessTreeMonitor(record).catch(() => undefined);
     const logFinalizePromise = record.finalizePromise;
     const lifecycleFinalizePromise = exitPromise.then(async ({ exitCode, signal }) => {
+      recordFinalizationTelemetry(record, "root_handle_exit", "complete", "observed");
       const finalizationDeadlineMs = record.stopDeadlineMs !== null && remainingProcessControlMs(record.stopDeadlineMs) > 0
         ? record.stopDeadlineMs
         : processControlDeadline(UNEXPECTED_PROCESS_FINALIZATION_TIMEOUT_MS);
-      await terminateManagedProcessTree(
-        record,
-        UNEXPECTED_PROCESS_FINALIZATION_TIMEOUT_MS,
-        true,
-        true,
-        finalizationDeadlineMs,
-      );
+      try {
+        await terminateManagedProcessTree(
+          record,
+          UNEXPECTED_PROCESS_FINALIZATION_TIMEOUT_MS,
+          true,
+          true,
+          finalizationDeadlineMs,
+        );
+        recordFinalizationTelemetry(record, "termination", "complete", "observed");
+      } catch (error) {
+        recordFinalizationTelemetry(record, "termination", "failed", finalizationTelemetryReason(error));
+        recordFinalizationTelemetry(record, "registry_reconcile", "not_applicable", "not_required");
+        throw error;
+      }
       await new Promise<void>((resolve) => setImmediate(resolve));
       record.exitCode = exitCode;
       record.exitSignal = signal;
 
       const finalizeLifecycle = async () => {
-        if (record.workspaceRoot) {
-          await transitionProcessOwnership(
-            record.workspaceRoot,
-            "service",
-            serviceId,
-            "stopped",
-            "not_running",
-            child.pid,
-          );
+        try {
+          if (record.workspaceRoot) {
+            await transitionProcessOwnership(
+              record.workspaceRoot,
+              "service",
+              serviceId,
+              "stopped",
+              "not_running",
+              child.pid,
+            );
+          }
+          recordFinalizationTelemetry(record, "registry_reconcile", "complete", "observed");
+        } catch (error) {
+          recordFinalizationTelemetry(record, "registry_reconcile", "failed", finalizationTelemetryReason(error));
+          throw error;
         }
 
         const current = managedProcesses.get(serviceId);
@@ -2019,8 +2097,20 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
     record.finalizePromise = Promise.all([
       logFinalizePromise,
       lifecycleFinalizePromise,
-    ]).then(() => undefined);
-    trackManagedProcessFinalizer(serviceId, child.pid ?? null, record.finalizePromise, workspaceRoot ?? null);
+    ]).then(() => undefined).finally(async () => {
+      try {
+        await managedProcessFinalizationTelemetryHook?.(closedFinalizationTelemetry(record.finalizationTelemetry));
+      } catch {
+        // Test-only observation must not replace the actual finalizer result.
+      }
+    });
+    trackManagedProcessFinalizer(
+      serviceId,
+      child.pid ?? null,
+      record.finalizePromise,
+      workspaceRoot ?? null,
+      record.finalizationTelemetry,
+    );
   };
 
   if (workspaceRoot) {
