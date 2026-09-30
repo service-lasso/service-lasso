@@ -21,7 +21,7 @@ Acceptance authority: `SPEC-007` `AC-7F` through `AC-7H`
 | Core | `f3de46166c03d3feca5b27fa72f941e0ce8472ae`; `2026.9.22-f3de461` | [GitHub release](https://github.com/service-lasso/service-lasso/releases/tag/2026.9.22-f3de461) ID `393972333` and `@service-lasso/service-lasso@2026.9.22-f3de461` (integrity `sha512-Y9sawMjrZkPd95fNHCWHGHjT6CL4cPkYr7i+BvZhImJvU7agiHCzpuC8/X7Tlgip+KD7iRQA8EAIEJeqZZz4DA==`, shasum `ce8672a6705ca1b4a9dffb0c2b2d3131b3da8ffb`) |
 | Service Admin | `f015b4445b0526546a309301270186a697588166`; `2026.8.31-f015b44` | [GitHub release](https://github.com/service-lasso/lasso-serviceadmin/releases/tag/2026.8.31-f015b44) |
 | Secrets Broker | `f340883056ec3cf74b535fb46490b39382e8c823`; `2026.8.31-f340883` | [GitHub release](https://github.com/service-lasso/lasso-secretsbroker/releases/tag/2026.8.31-f340883) |
-| Cross-repository Admin harness | `3b44b9053665f8f2e54ecba610e4f94e0c1727dd` | Pinned by the Core published-package workflow |
+| Cross-repository Admin harness | `f7abf981f8f0bbbbd7fdf352237fd84950d95ca3` | Prior approved harness pinned by the Core published-package workflow |
 
 Previously approved identities retained as history: Core/npm
 `2026.9.11-462f837` / `462f837b25224e98103296b4597807b5beea00c5` (Lane AN,
@@ -32,6 +32,12 @@ Previously approved identities retained as history: Core/npm
 Review applies only to these bytes, manifests, checksums, SBOMs, attestations,
 and evidence. A replacement archive, npm version, commit, workflow, dependency
 graph, or security-control change requires delta review and fresh qualification.
+
+Pending candidate `3b44b9053665f8f2e54ecba610e4f94e0c1727dd` is pinned by the
+integration candidate's packaged workflows and retained-evidence validation. It
+is outside this approval and cannot enter the approved scope until terminal
+exact-head Windows, Linux, and macOS evidence exists and a named independent
+reviewer records a delta-review decision.
 
 ## Candidate revision and gate evidence
 
