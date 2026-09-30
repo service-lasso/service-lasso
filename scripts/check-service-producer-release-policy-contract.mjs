@@ -52,7 +52,7 @@ expect(sha256.test(policy.manifest?.sha256 ?? ""), "manifest must have a lowerca
 
 const platformEntries = Object.entries(policy.platforms ?? {});
 expect(platformEntries.length > 0, "at least one explicit platform must be declared");
-const payloadAssetNames = new Set([policyAssetName, policy.manifest.assetName]);
+const nonChecksumAssetNames = new Set([policyAssetName, policy.manifest.assetName]);
 const checksumAssets = new Map();
 for (const [platform, entry] of platformEntries) {
   expect(allowedPlatforms.has(platform), `unknown or fallback platform ${platform}`);
@@ -62,9 +62,9 @@ for (const [platform, entry] of platformEntries) {
   expectExactKeys(entry?.checksum, ["assetName", "sha256"], `${platform} checksum`);
   expect(assetName.test(entry?.checksum?.assetName ?? ""), `${platform} checksum asset name is invalid`);
   expect(sha256.test(entry?.checksum?.sha256 ?? ""), `${platform} checksum digest is invalid`);
-  expect(!payloadAssetNames.has(entry.assetName), `${platform} archive asset name overlaps a fixed or duplicate asset`);
-  payloadAssetNames.add(entry.assetName);
-  expect(!payloadAssetNames.has(entry.checksum.assetName), `${platform} checksum asset name overlaps a fixed or archive asset`);
+  expect(!nonChecksumAssetNames.has(entry.assetName) && !checksumAssets.has(entry.assetName), `${platform} archive asset name overlaps a fixed, checksum, or duplicate asset`);
+  nonChecksumAssetNames.add(entry.assetName);
+  expect(!nonChecksumAssetNames.has(entry.checksum.assetName), `${platform} checksum asset name overlaps a fixed or archive asset`);
   const previousChecksumDigest = checksumAssets.get(entry.checksum.assetName);
   expect(previousChecksumDigest === undefined || previousChecksumDigest === entry.checksum.sha256, `${platform} shared checksum asset has an incoherent digest`);
   checksumAssets.set(entry.checksum.assetName, entry.checksum.sha256);

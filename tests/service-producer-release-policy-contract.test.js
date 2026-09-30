@@ -114,3 +114,16 @@ test("#1524 policy rejects an archive that impersonates a fixed asset", () => {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("#1524 policy rejects an archive that reuses a checksum identity", () => {
+  const dir = fixture();
+  try {
+    const policyPath = path.join(dir, "fixtures/service-producer-release-policy/valid-policy.json");
+    const policy = JSON.parse(fs.readFileSync(policyPath, "utf8"));
+    policy.platforms.linux.assetName = policy.platforms.win32.checksum.assetName;
+    fs.writeFileSync(policyPath, JSON.stringify(policy));
+    assert.equal(run(dir).status, 1);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
