@@ -14,8 +14,12 @@ This file tracks bootstrap/adoption/remediation work required before product imp
   `docs/api/staged-service-transfer.md`. It uses a new reviewed
   staged-registration adapter over #1462 / PR #1464 (`a83133cc`), rather than
   asserting the old `confirm:true` API already has stage fields. It derives
-  canonical release checksums and exact asset IDs server-side, so client digests
-  are not trusted. `release-archive-profile-v1` keeps the full release surface:
+   canonical release checksums, exact asset IDs, and release API byte sizes
+   server-side, so client lengths and digests are not trusted. It requires only
+   explicit per-OS policy assets (no `default` or generic fallback), exact
+   actor/header precedence, fixed actor/workspace quota ceilings, and durable
+   retention of uncertain recovery capacity. `release-archive-profile-v1` keeps
+   the full release surface:
   ZIP plus a closed gzip TAR grammar for Linux/macOS assets, including bounded
   GNU-longname and POSIX-PAX path records. Current TAR admission remains
   unimplemented and blocked on fresh independent review, GNU/Linux and
