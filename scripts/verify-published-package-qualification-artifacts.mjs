@@ -101,11 +101,15 @@ for (const platform of PLATFORMS) {
   const artifactDirectory = path.join(artifactsRoot, artifactName);
   const entries = await readdir(artifactDirectory, { withFileTypes: true });
   const expectedFile = `published-package-qualification-${platform}.json`;
-  if (entries.length !== 1 || !entries[0].isFile() || entries[0].isSymbolicLink() || entries[0].name !== expectedFile) {
-    throw new Error(`Downloaded ${platform} artifact did not contain exactly one metadata evidence file.`);
+  const expectedReceipt = "admin-trusted-unlock-receipt.json";
+  if (entries.length !== 2 || entries.some((entry) => !entry.isFile() || entry.isSymbolicLink()) || !entries.some((entry) => entry.name === expectedFile) || !entries.some((entry) => entry.name === expectedReceipt)) {
+    throw new Error(`Downloaded ${platform} artifact did not contain its exact metadata evidence and trusted-unlock receipt.`);
   }
   const evidence = JSON.parse(
     await readOnlyFile(path.join(artifactDirectory, expectedFile), `${platform} retained evidence`),
+  );
+  const retainedReceipt = JSON.parse(
+    await readOnlyFile(path.join(artifactDirectory, expectedReceipt), `${platform} retained trusted-unlock receipt`),
   );
   const jobName = `published-package-qualification (${platform})`;
   const matchingJobs = jobs.filter(({ name }) => name === jobName);
@@ -131,6 +135,9 @@ for (const platform of PLATFORMS) {
     coreNpmVersion,
     coreNpmIntegrity,
   });
+  if (JSON.stringify(retainedReceipt) !== JSON.stringify(evidence.adminTrustedUnlockReceipt)) {
+    throw new Error(`${platform} retained trusted-unlock receipt does not match terminal evidence.`);
+  }
   if (evidence.retentionDays !== RETENTION_DAYS) {
     throw new Error(`${platform} retained evidence did not declare the 90-day policy.`);
   }

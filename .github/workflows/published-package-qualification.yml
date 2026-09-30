@@ -156,6 +156,7 @@ jobs:
           PREPARE_OUTCOME: ${{ steps.prepare.outcome }}
           QUALIFICATION_OUTCOME: ${{ steps.qualify.outcome }}
           CLEANUP_OUTCOME: ${{ steps.cleanup.outcome }}
+          ADMIN_TRUSTED_UNLOCK_RECEIPT_PATH: ${{ runner.temp }}/admin-trusted-unlock-receipt.json
         run: node scripts/record-published-package-qualification.mjs
 
       - name: Upload retained platform evidence
@@ -163,7 +164,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: published-package-qualification-${{ matrix.platform }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: artifacts/retained-${{ matrix.platform }}/published-package-qualification-${{ matrix.platform }}.json
+          path: artifacts/retained-${{ matrix.platform }}/
           if-no-files-found: error
           retention-days: 90
 

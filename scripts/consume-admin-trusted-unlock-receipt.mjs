@@ -87,6 +87,32 @@ export function classify(lines) {
   return { classification: "closed", receipt: candidate };
 }
 
+export function parseConsumerReceipt(source) {
+  let value;
+  try { value = JSON.parse(String(source)); } catch { return null; }
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const keys = Object.keys(value).sort();
+  const allowed = ["exitCode", "outcome", "schema", "signal", "streamFailure", "trustedUnlock"];
+  if (keys.some((key) => !allowed.includes(key))) return null;
+  if (value.schema !== "service-lasso.admin-trusted-unlock-consumer.v1" || !["success", "nonzero_exit", "signal", "observation_failure"].includes(value.outcome)) return null;
+  if (!(value.exitCode === null || (Number.isSafeInteger(value.exitCode) && value.exitCode >= 0 && value.exitCode <= 255))) return null;
+  if (!(value.signal === null || /^[A-Z0-9_]{1,32}$/u.test(value.signal))) return null;
+  if (value.outcome === "success" && (value.exitCode !== 0 || value.signal !== null || value.trustedUnlock !== null)) return null;
+  if (value.outcome === "nonzero_exit" && !(value.exitCode > 0) || value.outcome === "signal" && value.signal === null) return null;
+  if (value.streamFailure !== undefined && !["execution_timeout", "spawn_failed", "pipe_hang", "stream_budget_exceeded", "malformed_utf8"].includes(value.streamFailure)) return null;
+  const trusted = value.trustedUnlock;
+  if (trusted === null && value.outcome !== "success") return null;
+  if (trusted !== null) {
+    if (!trusted || typeof trusted !== "object" || Array.isArray(trusted)) return null;
+    if (trusted.classification === "closed") {
+      if (Object.keys(trusted).sort().join(",") !== "classification,receipt" || !parseReceipt(JSON.stringify(trusted.receipt))) return null;
+    } else if ((trusted.classification === "missing" || trusted.classification === "invalid") && Object.keys(trusted).length === 1) {
+      // Closed classifications are the only form permitted to carry primitives.
+    } else return null;
+  }
+  return value;
+}
+
 function receiptObserver() {
   const decoder = new TextDecoder("utf-8", { fatal: true });
   let line = "", markerIndex = 0, sawSchema = false, oversized = false;

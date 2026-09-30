@@ -2,13 +2,102 @@ import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { lstat, readFile, stat } from "node:fs/promises";
 import path from "node:path";
+import { parseConsumerReceipt } from "./consume-admin-trusted-unlock-receipt.mjs";
 
 export const QUALIFICATION_SCHEMA =
   "service-lasso.published-package-qualification.v1";
 export const RETENTION_DAYS = 90;
 export const PACKAGE_NAME = "@service-lasso/service-lasso";
 export const ADMIN_HARNESS_REVISION =
-  "66ea0a5be70a8b3f3f73e4132d92b50ff6d45784";
+  "90caf8cf0f8e3c599a1a5022936813ac8bf0983b";
+
+export const RETAINED_ADMIN_TRUSTED_UNLOCK_RECEIPT_SCHEMA =
+  "service-lasso.admin-trusted-unlock-retained.v1";
+
+export function retainAdminTrustedUnlockReceipt(source, expected) {
+  const parsed = parseConsumerReceipt(source);
+  const trustedUnlock = parsed?.trustedUnlock;
+  const normalizedTrustedUnlock =
+    !source
+      ? { classification: "missing" }
+      : trustedUnlock?.classification === "closed"
+      ? { classification: "closed", receipt: trustedUnlock.receipt }
+      : trustedUnlock?.classification === "missing"
+        ? { classification: "missing" }
+        : { classification: "invalid" };
+  return {
+    schema: RETAINED_ADMIN_TRUSTED_UNLOCK_RECEIPT_SCHEMA,
+    platform: expected.platform,
+    coreRevision: expected.coreRevision,
+    adminReleaseId: expected.adminReleaseId,
+    adminRevision: expected.adminRevision,
+    adminHarnessRevision: expected.adminHarnessRevision,
+    cypressAttempt: "real_browser",
+    consumerOutcome: parsed?.outcome ?? "missing",
+    consumerExitCode: parsed?.exitCode ?? null,
+    consumerSignal: parsed?.signal ?? null,
+    trustedUnlock: normalizedTrustedUnlock,
+  };
+}
+
+export function validateRetainedAdminTrustedUnlockReceipt(receipt, expected) {
+  assertMetadataOnlyEvidence(receipt);
+  const expectedKeys = [
+    "adminHarnessRevision",
+    "adminReleaseId",
+    "adminRevision",
+    "consumerExitCode",
+    "consumerOutcome",
+    "consumerSignal",
+    "coreRevision",
+    "cypressAttempt",
+    "platform",
+    "schema",
+    "trustedUnlock",
+  ];
+  if (
+    Object.keys(receipt ?? {}).sort().join(",") !== expectedKeys.join(",") ||
+    receipt?.schema !== RETAINED_ADMIN_TRUSTED_UNLOCK_RECEIPT_SCHEMA ||
+    receipt.platform !== expected.platform ||
+    receipt.coreRevision !== expected.coreRevision ||
+    receipt.adminReleaseId !== ADMIN_RELEASE.id ||
+    receipt.adminRevision !== ADMIN_RELEASE.revision ||
+    receipt.adminHarnessRevision !== ADMIN_HARNESS_REVISION ||
+    receipt.cypressAttempt !== "real_browser" ||
+    !["success", "nonzero_exit", "signal", "observation_failure", "missing"].includes(receipt.consumerOutcome) ||
+    !(receipt.consumerExitCode === null || (Number.isSafeInteger(receipt.consumerExitCode) && receipt.consumerExitCode >= 0 && receipt.consumerExitCode <= 255)) ||
+    !(receipt.consumerSignal === null || /^[A-Z0-9_]{1,32}$/u.test(receipt.consumerSignal))
+  ) {
+    fail("invalid_retained_trusted_unlock_receipt", "Retained Admin trusted-unlock receipt is invalid.");
+  }
+  const trustedUnlock = receipt.trustedUnlock;
+  if (trustedUnlock?.classification === "closed") {
+    if (Object.keys(trustedUnlock).sort().join(",") !== "classification,receipt") {
+      fail("invalid_retained_trusted_unlock_receipt", "Retained Admin trusted-unlock receipt has expanded fields.");
+    }
+    if (!parseConsumerReceipt(JSON.stringify({
+      schema: "service-lasso.admin-trusted-unlock-consumer.v1",
+      outcome: receipt.consumerOutcome,
+      exitCode: receipt.consumerExitCode,
+      signal: receipt.consumerSignal,
+      trustedUnlock,
+    }))) {
+      fail("invalid_retained_trusted_unlock_receipt", "Retained Admin trusted-unlock receipt is not closed.");
+    }
+  } else if (
+    (trustedUnlock?.classification !== "missing" && trustedUnlock?.classification !== "invalid") ||
+    Object.keys(trustedUnlock ?? {}).join(",") !== "classification"
+  ) {
+    fail("invalid_retained_trusted_unlock_receipt", "Retained Admin trusted-unlock classification is invalid.");
+  }
+  if (receipt.consumerOutcome === "success" && (receipt.consumerExitCode !== 0 || receipt.consumerSignal !== null)) {
+    fail("invalid_retained_trusted_unlock_receipt", "Successful Admin consumer outcome is inconsistent.");
+  }
+  if (receipt.consumerOutcome === "nonzero_exit" && !(receipt.consumerExitCode > 0) || receipt.consumerOutcome === "signal" && receipt.consumerSignal === null) {
+    fail("invalid_retained_trusted_unlock_receipt", "Failed Admin consumer outcome is inconsistent.");
+  }
+  return receipt;
+}
 
 export const ADMIN_RELEASE = Object.freeze({
   repo: "service-lasso/lasso-serviceadmin",
@@ -657,6 +746,17 @@ export function validateRetainedEvidence(evidence, expected) {
     fail(
       "evidence_admin_harness_mismatch",
       `Retained ${expected.platform} Admin harness identity is invalid.`,
+    );
+  }
+  try {
+    validateRetainedAdminTrustedUnlockReceipt(evidence.adminTrustedUnlockReceipt, {
+      platform: expected.platform,
+      coreRevision: expected.coreRevision,
+    });
+  } catch {
+    fail(
+      "evidence_admin_trusted_unlock_receipt_mismatch",
+      `Retained ${expected.platform} Admin trusted-unlock receipt is invalid.`,
     );
   }
   if (

@@ -83,7 +83,7 @@ test("AC-4BZ.1 workflow qualifies only exact downloaded publications on all thre
     workflow.slice(aggregateJobStart, aggregateStepsStart),
     /runner\.temp/,
   );
-  assert.equal((workflow.match(/\$\{\{ runner\.temp \}\}/g) ?? []).length, 4);
+  assert.equal((workflow.match(/\$\{\{ runner\.temp \}\}/g) ?? []).length, 5);
 
   for (const command of [
     "pnpm test:secrets:real-first-run-browser",
@@ -105,6 +105,7 @@ test("AC-4BZ.1 workflow qualifies only exact downloaded publications on all thre
     workflow,
     /actions\/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a[\s\S]*?if-no-files-found: error[\s\S]*?retention-days: 90/,
   );
+  assert.match(workflow, /ADMIN_TRUSTED_UNLOCK_RECEIPT_PATH: \$\{\{ runner\.temp \}\}\/admin-trusted-unlock-receipt\.json/);
   assert.equal(
     (
       workflow.match(
@@ -173,7 +174,8 @@ test("AC-4BZ.1 aggregate verifies current-attempt artifacts and retains prior-at
   const source = await readFile(aggregateUrl, "utf8");
   assert.match(source, /selectCurrentAttemptArtifacts\(artifacts, runId, runAttempt\)/);
   assert.match(source, /validateRetainedArtifactMetadata\(artifact/);
-  assert.match(source, /entries\.length !== 1/);
+  assert.match(source, /entries\.length !== 2/);
+  assert.match(source, /admin-trusted-unlock-receipt\.json/);
   assert.match(source, /validateTerminalJobMetadata\(matchingJobs\[0\]/);
   assert.match(source, /validateRetainedEvidence\(evidence/);
 });

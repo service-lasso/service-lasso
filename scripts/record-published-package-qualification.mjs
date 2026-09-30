@@ -13,6 +13,7 @@ import {
   requirePositiveInteger,
   requireSha,
   requireSha256,
+  retainAdminTrustedUnlockReceipt,
 } from "./published-package-qualification-lib.mjs";
 
 function env(name, pattern = /^.*$/u) {
@@ -67,6 +68,18 @@ const adminHarnessRevision = requireSha(
 if (adminHarnessRevision !== ADMIN_HARNESS_REVISION) {
   throw new Error("Admin browser harness revision is not canonical.");
 }
+const trustedUnlockSourcePath = process.env.ADMIN_TRUSTED_UNLOCK_RECEIPT_PATH;
+let trustedUnlockSource = null;
+if (trustedUnlockSourcePath) {
+  try { trustedUnlockSource = await readFile(path.resolve(trustedUnlockSourcePath), "utf8"); } catch {}
+}
+const adminTrustedUnlockReceipt = retainAdminTrustedUnlockReceipt(trustedUnlockSource, {
+  platform,
+  coreRevision,
+  adminReleaseId: ADMIN_RELEASE.id,
+  adminRevision: ADMIN_RELEASE.revision,
+  adminHarnessRevision,
+});
 
 let evidence;
 try {
@@ -134,6 +147,7 @@ evidence.run = {
   jobId,
   workflowSha,
 };
+evidence.adminTrustedUnlockReceipt = adminTrustedUnlockReceipt;
 evidence.scenarios ??= {};
 evidence.scenarios.firstRun = process.env.QUALIFICATION_FIRST_RUN === "success" ? "success" : "blocked";
 const lifecycleOutcome = process.env.QUALIFICATION_LIFECYCLE === "success" ? "success" : "blocked";
@@ -240,6 +254,7 @@ try {
       checksumSource: "SHA256SUMS.txt",
     },
     adminHarnessRevision,
+    adminTrustedUnlockReceipt,
     retentionDays: RETENTION_DAYS,
     mutationRetry: false,
     acquisitionRetry: false,
@@ -252,6 +267,10 @@ try {
 }
 
 await mkdir(evidenceRoot, { recursive: true });
+await writeFile(
+  path.join(evidenceRoot, "admin-trusted-unlock-receipt.json"),
+  `${JSON.stringify(adminTrustedUnlockReceipt, null, 2)}\n`,
+);
 await writeFile(
   path.join(evidenceRoot, `published-package-qualification-${platform}.json`),
   `${JSON.stringify(evidence, null, 2)}\n`,
