@@ -455,8 +455,10 @@ test("#1538 HTTP update operations use one cross-process claim and persist actua
     const checkCancelled = await lifecycleRequest(apiServer, `/api/operator/lifecycle/operations/${first.body.operation.operationId}/cancel`, "POST", {}, ownerToken);
     assert.equal(checkCancelled.status, 200);
     assert.equal(checkCancelled.body.cancellation.result, "requested");
-    assert.equal(checkCancelled.body.operation.status, "cancelled");
+    assert.equal(["cancelling", "cancelled"].includes(checkCancelled.body.operation.status), true);
     await updates.waitForAbort("release");
+    const checkReadback = await waitForTerminalOperation(apiServer, first.body.operation.operationId, ownerToken);
+    assert.equal(checkReadback.body.operation.status, "cancelled");
 
     updates.release();
     const downloadPlan = await lifecycleRequest(apiServer, "/api/operator/lifecycle/operations", "POST", { action: "update_download", serviceId: "durable-http-update" }, ownerToken);
@@ -503,7 +505,7 @@ test("#1538 HTTP update operations use one cross-process claim and persist actua
   }
 });
 
-test("#1538 accepted HTTP cancellation wins a concurrent successful guarded response before terminal staging", async () => {
+test("#1538 accepted HTTP cancellation preserves a concurrent successful guarded response before terminal staging", async () => {
   const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-durable-http-cancellation-race-");
   const jwks = await startJwksServer();
   const updates = await startHeldUpdateServer();
@@ -566,18 +568,18 @@ test("#1538 accepted HTTP cancellation wins a concurrent successful guarded resp
     releaseTerminal.resolve();
     const cancelled = await cancellation;
     assert.equal(cancelled.status, 200);
-    assert.equal(cancelled.body.cancellation.result, "requested");
-    assert.equal(cancelled.body.operation.status, "cancelled");
+    assert.equal(cancelled.body.cancellation.result, "too_late");
+    assert.equal(cancelled.body.operation.status, "succeeded");
 
     const readback = await lifecycleRequest(apiServer, `/api/operator/lifecycle/operations/${accepted.body.operation.operationId}`, "GET", undefined, ownerToken);
     assert.equal(readback.status, 200);
-    assert.equal(readback.body.operation.status, "cancelled");
-    assert.equal(readback.body.operation.outcome, "cancelled");
+    assert.equal(readback.body.operation.status, "succeeded");
+    assert.equal(readback.body.operation.outcome, "succeeded");
     const audit = await readAuditEvents({ workspaceRoot });
     const terminalEvents = audit.events.filter((event) =>
       event.subject === accepted.body.operation.operationId && ["mcp.operation.succeeded", "mcp.operation.cancelled"].includes(event.action),
     );
-    assert.deepEqual(terminalEvents.map((event) => event.action), ["mcp.operation.cancelled"]);
+    assert.deepEqual(terminalEvents.map((event) => event.action), ["mcp.operation.succeeded"]);
   } finally {
     if (originalHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
     else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = originalHooks;

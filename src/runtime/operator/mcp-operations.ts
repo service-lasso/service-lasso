@@ -754,15 +754,10 @@ export class McpOperationService {
   ): Promise<void> {
     await this.updateRecord(operationId, (record) => {
       if (isTerminal(record.status) || record.pendingTerminal) return;
-      // A cancellation is accepted only while no terminal outcome is committed.
-      // Once it owns that durable state, a concurrently returned success cannot
-      // overwrite it. The cancellation Audit was already persisted and the
-      // terminal Audit below records the matching cancelled result.
-      if (record.status === "cancelling" && outcome === "succeeded") {
-        outcome = "cancelled";
-        summary = "Durable MCP operation cancelled.";
-        phase = "cancelled";
-      }
+      // Cancellation admission is not a terminal-effect claim. The shared
+      // guarded action remains authoritative: it may report a real successful
+      // completion after cancellation was requested, in which case that
+      // committed result must be retained rather than rewritten as cancelled.
       const completedAt = this.now().toISOString();
       record.phase = "finalizing";
       record.progress = 99;
