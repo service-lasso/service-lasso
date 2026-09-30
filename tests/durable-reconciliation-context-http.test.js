@@ -1,9 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { createServer, request as httpRequest } from "node:http";
 import { access, mkdir, rm, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { createApiServer } from "../dist/server/index.js";
 import { mcpOperationStatePath } from "../dist/runtime/operator/mcp-operations.js";
@@ -11,6 +12,8 @@ import {
   getLifecycleDocumentPath,
   RECONCILIATION_CONTEXT_AUTHORITY_POLICY,
   RECONCILIATION_CONTEXT_IDENTITY_POLICY,
+  RECONCILIATION_CONTEXT_PUBLICATION_JOURNAL_POLICY,
+  RECONCILIATION_CONTEXT_PUBLICATION_MARKER_POLICY,
 } from "../dist/runtime/state/lifecycle-persistence.js";
 import { makeTempServicesRoot } from "./test-helpers.js";
 
@@ -303,6 +306,58 @@ test("#1553 refuses the interrupted v1 custody publication rather than adopting 
     await restarted?.stop().catch(() => undefined);
     await api?.stop().catch(() => undefined);
     await jwks.stop().catch(() => undefined);
+    await rm(fixture.tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("#1553 rolls forward only a validated interrupted authority publication and never a lost published authority", async () => {
+  const fixture = await makeTempServicesRoot("service-lasso-reconciliation-publication-recovery-");
+  let api;
+  let restarted;
+  try {
+    api = await startApi({ servicesRoot: fixture.servicesRoot, workspaceRoot: fixture.workspaceRoot });
+    const initial = await readContext(api);
+    assert.equal(initial.status, 200);
+    const port = api.port;
+    await api.stop();
+    api = null;
+
+    const authorityPath = getLifecycleDocumentPath(fixture.workspaceRoot, RECONCILIATION_CONTEXT_AUTHORITY_POLICY);
+    const markerPath = getLifecycleDocumentPath(fixture.workspaceRoot, RECONCILIATION_CONTEXT_PUBLICATION_MARKER_POLICY);
+    await rm(markerPath, { force: true });
+    restarted = await startApi({ servicesRoot: fixture.servicesRoot, workspaceRoot: fixture.workspaceRoot }, port);
+    assert.deepEqual(await readContext(restarted), initial, "authority plus matching journal restores only the marker");
+    await restarted.stop();
+    restarted = null;
+
+    await rm(authorityPath, { force: true });
+    restarted = await startApi({ servicesRoot: fixture.servicesRoot, workspaceRoot: fixture.workspaceRoot }, port);
+    const lostAuthority = await readContext(restarted);
+    assert.equal(lostAuthority.status, 503, "a published marker never permits authority replacement");
+    await restarted.stop();
+    restarted = null;
+
+    await rm(fixture.workspaceRoot, { recursive: true, force: true });
+    await mkdir(fixture.workspaceRoot, { recursive: true });
+    const stagedAuthorityId = "c".repeat(64);
+    const stagedDigest = createHash("sha256").update(stagedAuthorityId, "utf8").digest("hex");
+    const journalPath = getLifecycleDocumentPath(fixture.workspaceRoot, RECONCILIATION_CONTEXT_PUBLICATION_JOURNAL_POLICY);
+    await mkdir(path.dirname(journalPath), { recursive: true });
+    await writeFile(journalPath, JSON.stringify({
+      schemaVersion: "service-lasso.reconciliation-context-publication-journal.v1",
+      version: 1,
+      authorityId: stagedAuthorityId,
+      authorityDigest: stagedDigest,
+    }), "utf8");
+    restarted = await startApi({ servicesRoot: fixture.servicesRoot, workspaceRoot: fixture.workspaceRoot }, port);
+    const journalRecovery = await readContext(restarted);
+    assert.equal(journalRecovery.status, 200);
+    assert.notEqual(journalRecovery.body.context.instanceBinding, initial.body.context.instanceBinding);
+    assert.equal(await pathExists(getLifecycleDocumentPath(fixture.workspaceRoot, RECONCILIATION_CONTEXT_AUTHORITY_POLICY)), true);
+    assert.equal(await pathExists(getLifecycleDocumentPath(fixture.workspaceRoot, RECONCILIATION_CONTEXT_PUBLICATION_MARKER_POLICY)), true);
+  } finally {
+    await restarted?.stop().catch(() => undefined);
+    await api?.stop().catch(() => undefined);
     await rm(fixture.tempRoot, { recursive: true, force: true });
   }
 });

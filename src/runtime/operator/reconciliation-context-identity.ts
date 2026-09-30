@@ -5,6 +5,10 @@ import {
   RECONCILIATION_CONTEXT_AUTHORITY_SCHEMA_V2,
   RECONCILIATION_CONTEXT_CUSTODY_POLICY,
   RECONCILIATION_CONTEXT_IDENTITY_POLICY,
+  RECONCILIATION_CONTEXT_PUBLICATION_JOURNAL_POLICY,
+  RECONCILIATION_CONTEXT_PUBLICATION_JOURNAL_SCHEMA_V1,
+  RECONCILIATION_CONTEXT_PUBLICATION_MARKER_POLICY,
+  RECONCILIATION_CONTEXT_PUBLICATION_MARKER_SCHEMA_V1,
   readLifecycleDocument,
   writeLifecycleDocument,
 } from "../state/lifecycle-persistence.js";
@@ -17,6 +21,13 @@ interface ReconciliationContextAuthority {
   authorityId: string;
   authorityDigest: string;
   phase: "committed";
+}
+
+interface ReconciliationContextPublicationRecord {
+  schemaVersion: typeof RECONCILIATION_CONTEXT_PUBLICATION_JOURNAL_SCHEMA_V1 | typeof RECONCILIATION_CONTEXT_PUBLICATION_MARKER_SCHEMA_V1;
+  version: 1;
+  authorityId: string;
+  authorityDigest: string;
 }
 
 export class ReconciliationContextIdentityError extends Error {
@@ -56,6 +67,27 @@ function parseAuthority(value: unknown): ReconciliationContextAuthority | null {
   };
 }
 
+function parsePublicationRecord(
+  value: unknown,
+  schemaVersion: ReconciliationContextPublicationRecord["schemaVersion"],
+): ReconciliationContextPublicationRecord | null {
+  if (!isRecord(value) || !exactKeys(value, ["authorityDigest", "authorityId", "schemaVersion", "version"])) return null;
+  if (
+    value.schemaVersion !== schemaVersion ||
+    value.version !== 1 ||
+    typeof value.authorityId !== "string" ||
+    !AUTHORITY_ID_PATTERN.test(value.authorityId) ||
+    typeof value.authorityDigest !== "string" ||
+    !AUTHORITY_ID_PATTERN.test(value.authorityDigest) ||
+    value.authorityDigest !== authorityDigest(value.authorityId)
+  ) return null;
+  return { schemaVersion, version: 1, authorityId: value.authorityId, authorityDigest: value.authorityDigest };
+}
+
+function sameAuthority(left: ReconciliationContextPublicationRecord | ReconciliationContextAuthority, right: ReconciliationContextPublicationRecord | ReconciliationContextAuthority): boolean {
+  return left.authorityId === right.authorityId && left.authorityDigest === right.authorityDigest;
+}
+
 function authorityDigest(authorityId: string): string {
   return createHash("sha256").update(authorityId, "utf8").digest("hex");
 }
@@ -67,15 +99,64 @@ function authorityDigest(authorityId: string): string {
 export async function initializeReconciliationContextIdentity(workspaceRoot: string): Promise<string> {
   try {
     return await withWorkspaceLifecycleLock(workspaceRoot, async () => {
-      const result = await readLifecycleDocument(workspaceRoot, RECONCILIATION_CONTEXT_AUTHORITY_POLICY, {
+      const authority = await readLifecycleDocument(workspaceRoot, RECONCILIATION_CONTEXT_AUTHORITY_POLICY, {
         parseCurrent: parseAuthority,
         parseLegacy: () => null,
         allowCrashBackup: false,
       });
-      if (result.document) return result.document.authorityId;
-      if (result.inspection.classification !== "missing") {
+      const journal = await readLifecycleDocument(workspaceRoot, RECONCILIATION_CONTEXT_PUBLICATION_JOURNAL_POLICY, {
+        parseCurrent: (value) => parsePublicationRecord(value, RECONCILIATION_CONTEXT_PUBLICATION_JOURNAL_SCHEMA_V1),
+        parseLegacy: () => null,
+        allowCrashBackup: false,
+      });
+      const marker = await readLifecycleDocument(workspaceRoot, RECONCILIATION_CONTEXT_PUBLICATION_MARKER_POLICY, {
+        parseCurrent: (value) => parsePublicationRecord(value, RECONCILIATION_CONTEXT_PUBLICATION_MARKER_SCHEMA_V1),
+        parseLegacy: () => null,
+        allowCrashBackup: false,
+      });
+      const publishMarker = async (record: ReconciliationContextAuthority) => {
+        await writeLifecycleDocument(workspaceRoot, RECONCILIATION_CONTEXT_PUBLICATION_MARKER_POLICY, {
+          schemaVersion: RECONCILIATION_CONTEXT_PUBLICATION_MARKER_SCHEMA_V1,
+          version: 1,
+          authorityId: record.authorityId,
+          authorityDigest: record.authorityDigest,
+        }, {
+          parseCurrent: (value) => parsePublicationRecord(value, RECONCILIATION_CONTEXT_PUBLICATION_MARKER_SCHEMA_V1),
+          parseLegacy: () => null,
+          serialize: (document) => document,
+        });
+      };
+      if (marker.document) {
+        if (authority.document && journal.document && sameAuthority(marker.document, authority.document) && sameAuthority(marker.document, journal.document)) {
+          return authority.document.authorityId;
+        }
         throw new ReconciliationContextIdentityError();
       }
+      if (marker.inspection.classification !== "missing" || journal.inspection.classification !== "missing" && !journal.document) {
+        throw new ReconciliationContextIdentityError();
+      }
+      if (journal.document) {
+        if (authority.inspection.classification === "missing") {
+          const stagedAuthority: ReconciliationContextAuthority = {
+            schemaVersion: RECONCILIATION_CONTEXT_AUTHORITY_SCHEMA_V2,
+            version: 2,
+            authorityId: journal.document.authorityId,
+            authorityDigest: journal.document.authorityDigest,
+            phase: "committed",
+          };
+          await writeLifecycleDocument(workspaceRoot, RECONCILIATION_CONTEXT_AUTHORITY_POLICY, stagedAuthority, {
+            parseCurrent: parseAuthority, parseLegacy: () => null, serialize: (document) => document,
+          });
+          await publishMarker(stagedAuthority);
+          return stagedAuthority.authorityId;
+        }
+        if (authority.document && sameAuthority(authority.document, journal.document)) {
+          await publishMarker(authority.document);
+          return authority.document.authorityId;
+        }
+        throw new ReconciliationContextIdentityError();
+      }
+      if (authority.inspection.classification !== "missing") throw new ReconciliationContextIdentityError();
       // The split v1 pair must never be silently adopted or replaced.  Even a
       // semantically matching pair cannot prove it was not interrupted.
       const [legacyIdentity, legacyCustody] = await Promise.all([
@@ -101,11 +182,22 @@ export async function initializeReconciliationContextIdentity(workspaceRoot: str
         authorityDigest: authorityDigest(authorityId),
         phase: "committed",
       };
+      await writeLifecycleDocument(workspaceRoot, RECONCILIATION_CONTEXT_PUBLICATION_JOURNAL_POLICY, {
+        schemaVersion: RECONCILIATION_CONTEXT_PUBLICATION_JOURNAL_SCHEMA_V1,
+        version: 1,
+        authorityId,
+        authorityDigest: nextAuthority.authorityDigest,
+      }, {
+        parseCurrent: (value) => parsePublicationRecord(value, RECONCILIATION_CONTEXT_PUBLICATION_JOURNAL_SCHEMA_V1),
+        parseLegacy: () => null,
+        serialize: (document) => document,
+      });
       await writeLifecycleDocument(workspaceRoot, RECONCILIATION_CONTEXT_AUTHORITY_POLICY, nextAuthority, {
         parseCurrent: parseAuthority,
         parseLegacy: () => null,
         serialize: (document) => document,
       });
+      await publishMarker(nextAuthority);
       return authorityId;
     });
   } catch (error) {
