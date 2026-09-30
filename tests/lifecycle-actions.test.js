@@ -56,6 +56,7 @@ async function postJson(url, body) {
         httpStatus: response.status,
         state: getLifecycleState(serviceId),
         apiErrorCode: responseBody?.error,
+        action: new URL(url).pathname.endsWith("/restart") ? "restart" : "start",
       }));
     } catch {
       console.error('{"kind":"lifecycle-failure","diagnostic":"metadata_unavailable"}');
@@ -633,6 +634,10 @@ test("restart fails closed when isolation.require cannot be met", async () => {
     assert.equal(stored.runtime.running, true);
     assert.equal(stored.runtime.pid, start.body.state.runtime.pid);
     assert.equal(hasManagedProcess("restart-isolation-service"), true);
+    assert.deepEqual(
+      getLifecycleState("restart-isolation-service").runtime.restartTrace.current.events.map((event) => event.stage),
+      ["precheck", "response"],
+    );
   } finally {
     await postJson(
       `${apiServer.url}/api/services/restart-isolation-service/stop`,

@@ -49,6 +49,36 @@ test("lifecycle diagnostics project only allowlisted API conflict classification
   assert.equal(JSON.parse(rejected).apiErrorCode, undefined);
 });
 
+test("restart failures select a bounded restart receipt without replacing a successful start receipt", () => {
+  const sensitive = "private-pid-and-path";
+  const result = JSON.parse(lifecycleFailureDiagnostic({
+    action: "restart",
+    httpStatus: 409,
+    apiErrorCode: "invalid_lifecycle_state",
+    state: { runtime: {
+      startTrace: { current: { status: "succeeded", events: [{ phase: "process_spawn", status: "completed", metadata: {} }] } },
+      restartTrace: { current: { status: "blocked", events: [
+        { stage: "precheck", status: "completed", oldNewProcessRelation: "prior_generation_running", pid: sensitive },
+        { stage: "stop_request", status: "completed", oldNewProcessRelation: "prior_generation_running" },
+        { stage: "finalization_settled", status: "completed", oldNewProcessRelation: "prior_generation_running" },
+        { stage: "replacement_spawn", status: "failed", oldNewProcessRelation: sensitive },
+        { stage: "response", status: "blocked", oldNewProcessRelation: "unavailable" },
+      ] } },
+    } },
+  }));
+  assert.equal(result.attemptAction, "restart");
+  assert.deepEqual(result.events.map((event) => event.stage), ["precheck", "stop_request", "finalization_settled", "replacement_spawn", "response"]);
+  assert.equal(result.events[3].oldNewProcessRelation, "unavailable");
+  assert.equal(JSON.stringify(result).includes(sensitive), false);
+});
+
+test("restart diagnostic access failures remain contained", () => {
+  const state = { runtime: { get restartTrace() { throw new Error("private diagnostic sink failure"); } } };
+  assert.deepEqual(JSON.parse(lifecycleFailureDiagnostic({ action: "restart", state })), {
+    kind: "lifecycle-failure", diagnostic: "metadata_unavailable",
+  });
+});
+
 test("lifecycle diagnostics retain only a complete closed parent-lifetime receipt", () => {
   const result = JSON.parse(lifecycleFailureDiagnostic({
     error: {
