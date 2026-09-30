@@ -1,0 +1,11 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { classify, parseReceipt } from "../scripts/consume-admin-trusted-unlock-receipt.mjs";
+const valid = JSON.stringify({ schema: "service-admin.trusted-unlock-receipt.v1", status: "observed", present: true, verified: false, localRoot: false, loading: true, unavailable: false });
+test("AC-4BY.2 accepts only one closed receipt", () => { assert.equal(parseReceipt(valid)?.loading, true); assert.deepEqual(classify([]), { classification: "missing" }); for (const line of [valid + "{", valid.replace("\"loading\":true", "\"loading\":true,\"private\":true"), valid.replace("\"loading\":true", "\"loading\":true,\"loading\":false")]) assert.deepEqual(classify([line]), { classification: "invalid" }); assert.deepEqual(classify([valid, valid]), { classification: "invalid" }); });
+test("AC-4BY.2 preserves a real subprocess nonzero result while projecting its closed receipt", async () => { const root = await mkdtemp(path.join(os.tmpdir(), "admin-receipt-")); try { const fixture = path.join(root, "fixture.mjs"), output = path.join(root, "receipt.json"); await writeFile(fixture, `await new Promise((resolve) => process.stderr.write(${JSON.stringify(valid + "\\n")}, resolve)); process.exitCode=7;`); const consumer = fileURLToPath(new URL("../scripts/consume-admin-trusted-unlock-receipt.mjs", import.meta.url)); const child = spawn(process.execPath, [consumer, "--receipt", output, "--", process.execPath, fixture], { stdio: "ignore" }); const code = await new Promise((resolve, reject) => { child.once("error", reject); child.once("close", resolve); }); assert.equal(code, 7); assert.deepEqual(JSON.parse(await readFile(output, "utf8")).trustedUnlock, { classification: "closed", receipt: JSON.parse(valid) }); } finally { await rm(root, { recursive: true, force: true }); } });

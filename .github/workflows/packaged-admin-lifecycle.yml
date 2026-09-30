@@ -63,7 +63,7 @@ jobs:
       ADMIN_RELEASE_ID: "380051618"
       ADMIN_RELEASE_TAG: "2026.8.31-f015b44"
       ADMIN_REVISION: "f015b4445b0526546a309301270186a697588166"
-      ADMIN_HARNESS_REVISION: "7385136072a855ca144594842344a7241a733ab4"
+      ADMIN_HARNESS_REVISION: "66ea0a5be70a8b3f3f73e4132d92b50ff6d45784"
       BROKER_RELEASE_ID: "379635299"
       BROKER_RELEASE_TAG: "2026.8.31-f340883"
       BROKER_REVISION: "f340883056ec3cf74b535fb46490b39382e8c823"
@@ -227,7 +227,7 @@ jobs:
         run: |
           set -euo pipefail
           pnpm test:secrets:real-first-run-browser
-          pnpm test:secrets:real-browser
+          node "$GITHUB_WORKSPACE/scripts/consume-admin-trusted-unlock-receipt.mjs" --receipt "$RUNNER_TEMP/admin-trusted-unlock-receipt.json" -- pnpm test:secrets:real-browser
           pnpm test:secrets:real-stopped-lifecycle-browser
           if [ "$RUNNER_OS" = "Windows" ]; then
             pnpm test:secrets:real-lockout-browser

@@ -72,7 +72,7 @@ jobs:
       CORE_NPM_INTEGRITY: ${{ inputs.core_npm_integrity }}
       CORE_RELEASE_ASSET: service-lasso-${{ inputs.core_release_tag }}-${{ matrix.core_suffix }}
       CORE_RELEASE_SHA256: ${{ matrix.core_sha256 }}
-      ADMIN_HARNESS_REVISION: f7abf981f8f0bbbbd7fdf352237fd84950d95ca3
+      ADMIN_HARNESS_REVISION: 66ea0a5be70a8b3f3f73e4132d92b50ff6d45784
       QUALIFICATION_PLATFORM: ${{ matrix.platform }}
       QUALIFICATION_SAFE_STATE_PATH: ${{ github.workspace }}/artifacts/qualification-state-${{ matrix.platform }}.json
       QUALIFICATION_EVIDENCE_ROOT: ${{ github.workspace }}/artifacts/retained-${{ matrix.platform }}
@@ -130,7 +130,7 @@ jobs:
           test "$QUALIFICATION_PREPARED" = "1"
           pnpm test:secrets:real-first-run-browser
           echo "QUALIFICATION_FIRST_RUN=success" >> "$GITHUB_ENV"
-          pnpm test:secrets:real-browser
+          node "$GITHUB_WORKSPACE/scripts/consume-admin-trusted-unlock-receipt.mjs" --receipt "$RUNNER_TEMP/admin-trusted-unlock-receipt.json" -- pnpm test:secrets:real-browser
           echo "QUALIFICATION_LIFECYCLE=success" >> "$GITHUB_ENV"
           pnpm test:secrets:real-stopped-lifecycle-browser
           echo "QUALIFICATION_STOPPED_LIFECYCLE=success" >> "$GITHUB_ENV"

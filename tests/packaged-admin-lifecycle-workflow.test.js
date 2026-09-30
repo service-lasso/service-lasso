@@ -29,7 +29,7 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
   );
   assert.match(
     workflow,
-    /ADMIN_HARNESS_REVISION: "7385136072a855ca144594842344a7241a733ab4"/,
+    /ADMIN_HARNESS_REVISION: "66ea0a5be70a8b3f3f73e4132d92b50ff6d45784"/,
   );
   assert.match(workflow, /ref: \$\{\{ env\.ADMIN_HARNESS_REVISION \}\}/);
   assert.match(
@@ -76,6 +76,7 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
     /checksum\.actual\.ToLowerInvariant\(\) -ne \$expectedSha/,
   );
   assert.match(workflow, /SERVICE_LASSO_TEST_ADMIN_ROOT/);
+  assert.match(workflow, /consume-admin-trusted-unlock-receipt\.mjs/);
   assert.match(workflow, /SERVICE_LASSO_REQUIRE_TEST_BROKER_BINARY: "1"/);
   assert.match(workflow, /& chmod \+x \$brokerBinary\.FullName/);
   assert.doesNotMatch(workflow, /& chmod \+x --/);

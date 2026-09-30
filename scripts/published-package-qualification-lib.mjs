@@ -8,7 +8,7 @@ export const QUALIFICATION_SCHEMA =
 export const RETENTION_DAYS = 90;
 export const PACKAGE_NAME = "@service-lasso/service-lasso";
 export const ADMIN_HARNESS_REVISION =
-  "f7abf981f8f0bbbbd7fdf352237fd84950d95ca3";
+  "66ea0a5be70a8b3f3f73e4132d92b50ff6d45784";
 
 export const ADMIN_RELEASE = Object.freeze({
   repo: "service-lasso/lasso-serviceadmin",
