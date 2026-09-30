@@ -1,13 +1,85 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { once } from "node:events";
+import { randomUUID } from "node:crypto";
+import { createServer } from "node:http";
 import { rm } from "node:fs/promises";
-import { startApiServer } from "../dist/server/index.js";
+import { exportJWK, generateKeyPair, SignJWT } from "jose";
+import { createApiServer, startApiServer } from "../dist/server/index.js";
+import { mcpOperationStatePath } from "../dist/runtime/operator/mcp-operations.js";
+import { writePrivateJson } from "../dist/runtime/security/private-json.js";
 import { makeTempServicesRoot, writeExecutableFixtureService } from "./test-helpers.js";
 
-async function lifecycleRequest(apiServer, path, method = "GET", body) {
+const issuer = "https://durable-lifecycle-issuer.example";
+const resource = "https://durable-lifecycle.example/api/mcp";
+const audience = "durable-lifecycle-http";
+const keyId = "durable-lifecycle-http-key";
+
+async function startJwksServer() {
+  const { privateKey, publicKey } = await generateKeyPair("RS256");
+  const jwk = await exportJWK(publicKey);
+  Object.assign(jwk, { kid: keyId, alg: "RS256", use: "sig" });
+  const server = createServer((request, response) => {
+    if (request.url !== "/jwks") {
+      response.statusCode = 404;
+      response.end();
+      return;
+    }
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({ keys: [jwk] }));
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  return {
+    privateKey,
+    jwksUri: `http://127.0.0.1:${address.port}/jwks`,
+    async stop() {
+      const closed = once(server, "close");
+      server.close();
+      server.closeAllConnections?.();
+      await closed;
+    },
+  };
+}
+
+async function signAccessToken(privateKey, scope) {
+  const now = Math.floor(Date.now() / 1_000);
+  return await new SignJWT({ client_id: "durable-lifecycle-client", scope })
+    .setProtectedHeader({ alg: "RS256", kid: keyId })
+    .setIssuer(issuer)
+    .setAudience(audience)
+    .setSubject("durable-lifecycle-actor")
+    .setIssuedAt(now)
+    .setExpirationTime(now + 300)
+    .sign(privateKey);
+}
+
+async function startDirectApiServer(options) {
+  const server = createApiServer(options);
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  return {
+    url: `http://127.0.0.1:${address.port}`,
+    async stop() {
+      const closed = once(server, "close");
+      server.close();
+      server.closeAllConnections?.();
+      await closed;
+    },
+  };
+}
+
+async function lifecycleRequest(apiServer, path, method = "GET", body, token) {
   const response = await fetch(`${apiServer.url}${path}`, {
     method,
-    headers: body === undefined ? undefined : { "content-type": "application/json" },
+    headers: {
+      ...(body === undefined ? {} : { "content-type": "application/json" }),
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+    },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   return { status: response.status, body: await response.json() };
@@ -76,6 +148,26 @@ test("#1465 durable lifecycle HTTP operations preserve confirmation, idempotency
     assert.equal(replay.status, 202);
     assert.equal(replay.body.operation.operationId, accepted.body.operation.operationId);
 
+    const concurrentPlan = await lifecycleRequest(apiServer, "/api/operator/lifecycle/operations", "POST", {
+      action: "start",
+      serviceId: "durable-http-service",
+    });
+    const concurrentExecute = {
+      action: "start",
+      serviceId: "durable-http-service",
+      execute: true,
+      idempotencyKey: "durable-http-key-concurrent-0001",
+      confirmationId: concurrentPlan.body.confirmation.id,
+      confirmationPhrase: concurrentPlan.body.confirmation.confirmationPhrase,
+    };
+    const [concurrentLeft, concurrentRight] = await Promise.all([
+      lifecycleRequest(apiServer, "/api/operator/lifecycle/operations", "POST", concurrentExecute),
+      lifecycleRequest(apiServer, "/api/operator/lifecycle/operations", "POST", concurrentExecute),
+    ]);
+    assert.equal(concurrentLeft.status, 202);
+    assert.equal(concurrentRight.status, 202);
+    assert.equal(concurrentLeft.body.operation.operationId, concurrentRight.body.operation.operationId);
+
     let status;
     for (let attempt = 0; attempt < 30; attempt += 1) {
       status = await lifecycleRequest(apiServer, `/api/operator/lifecycle/operations/${accepted.body.operation.operationId}`);
@@ -112,6 +204,101 @@ test("#1465 durable lifecycle HTTP operations preserve confirmation, idempotency
   } finally {
     await apiServer?.stop().catch(() => undefined);
     await new Promise((resolve) => setTimeout(resolve, 1_000));
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("#1465 availability applies the complete guarded permission profile and scope policy", async () => {
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-durable-lifecycle-availability-");
+  const jwks = await startJwksServer();
+  let apiServer;
+  try {
+    await writeExecutableFixtureService(servicesRoot, "durable-availability-service");
+    const env = {
+      SERVICE_LASSO_MCP_MODE: "guarded",
+      SERVICE_LASSO_MCP_OAUTH_ISSUER: issuer,
+      SERVICE_LASSO_MCP_OAUTH_JWKS_URI: jwks.jwksUri,
+      SERVICE_LASSO_MCP_RESOURCE_URI: resource,
+      SERVICE_LASSO_MCP_OAUTH_AUDIENCE: audience,
+    };
+    apiServer = await startDirectApiServer({ servicesRoot, workspaceRoot, mcpHttpIdentity: { env } });
+    const operatorToken = await signAccessToken(jwks.privateKey, "service-lasso:read service-lasso:lifecycle:write");
+    const availability = await lifecycleRequest(
+      apiServer,
+      "/api/operator/lifecycle/services/durable-availability-service/availability",
+      "GET",
+      undefined,
+      operatorToken,
+    );
+    assert.equal(availability.status, 200);
+    assert.deepEqual(availability.body.actions.find((entry) => entry.action === "start"), {
+      action: "start",
+      available: true,
+      reason: null,
+      permission: "service-lasso:lifecycle:write",
+      requiresConfirmation: true,
+    });
+    assert.deepEqual(availability.body.actions.find((entry) => entry.action === "install"), {
+      action: "install",
+      available: false,
+      reason: "insufficient_profile",
+      permission: "service-lasso:config:write",
+      requiresConfirmation: true,
+    });
+  } finally {
+    await apiServer?.stop().catch(() => undefined);
+    await jwks.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("#1465 HTTP readback marks an unreconciled active guarded operation unknown after restart", async () => {
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-durable-lifecycle-recovery-");
+  let apiServer;
+  try {
+    const now = new Date().toISOString();
+    const operationId = `mcp-operation-${randomUUID()}`;
+    await writePrivateJson(workspaceRoot, mcpOperationStatePath(workspaceRoot), {
+      version: 1,
+      operations: [{
+        operationId,
+        actorId: "local-root",
+        clientId: "service-lasso-loopback",
+        action: "service_start",
+        status: "running",
+        phase: "executing",
+        progress: 50,
+        summary: "Durable guarded operation was active before runtime restart.",
+        createdAt: now,
+        startedAt: now,
+        updatedAt: now,
+        completedAt: null,
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        targetIds: ["durable-recovery-service"],
+        correlationId: `mcp-operation-correlation-${randomUUID()}`,
+        cancellationSupported: false,
+        outcome: null,
+        runnerPid: 2_147_483_647,
+        runnerInstanceId: randomUUID(),
+        heartbeatAt: now,
+        guardedExecutionId: "a".repeat(64),
+        pendingTerminal: null,
+      }],
+    });
+    apiServer = await startApiServer({
+      port: 0,
+      servicesRoot,
+      workspaceRoot,
+      mcpHttpIdentity: { env: { SERVICE_LASSO_MCP_MODE: "guarded" } },
+    });
+    const readback = await lifecycleRequest(apiServer, `/api/operator/lifecycle/operations/${operationId}`);
+    assert.equal(readback.status, 200);
+    assert.equal(readback.body.operation.status, "unknown_after_crash");
+    assert.equal(readback.body.operation.outcome, "unknown_after_crash");
+    assert.equal(readback.body.operation.phase, "unknown_after_crash");
+    assert.equal(readback.body.operation.summary.includes("authoritative guarded result"), true);
+  } finally {
+    await apiServer?.stop().catch(() => undefined);
     await rm(tempRoot, { recursive: true, force: true });
   }
 });

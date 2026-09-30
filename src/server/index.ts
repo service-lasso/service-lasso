@@ -183,9 +183,11 @@ import type {
 } from "../runtime/operator/mcp-guarded-actions.js";
 import {
   guardedActionPolicy,
+  assertMcpGuardedActionAuthorization,
   invokeMcpGuardedAction,
   McpGuardedActionError,
   preflightMcpGuardedActionExecution,
+  readMcpGuardedActionExecution,
   type McpGuardedActionInput,
 } from "../runtime/operator/mcp-guarded-actions.js";
 import {
@@ -4238,7 +4240,42 @@ async function routeRequestWithoutMutationCoordination(
     if (!authorization) return;
     const runtimeModel = await loadRuntimeModel(config.servicesRoot);
     const facade = createMcpGuardedActionFacade(runtimeModel, config);
-    const operationService = new McpOperationService({ workspaceRoot: config.workspaceRoot });
+    const operationService = new McpOperationService({
+      workspaceRoot: config.workspaceRoot,
+      recoverDetached: async (operation) => {
+        if (!operation.guardedExecutionId) {
+          return {
+            status: "unknown_after_crash",
+            phase: "unknown_after_crash",
+            progress: 100,
+            summary: "The durable operation has no persisted guarded execution result after runtime recovery.",
+          };
+        }
+        const completed = await readMcpGuardedActionExecution({
+          workspaceRoot: config.workspaceRoot,
+          executionId: operation.guardedExecutionId,
+          expectedCorrelationId: operation.correlationId,
+        });
+        if (!completed) {
+          return {
+            status: "unknown_after_crash",
+            phase: "unknown_after_crash",
+            progress: 100,
+            summary: "The durable operation has no authoritative guarded result after runtime recovery.",
+          };
+        }
+        return {
+          status: completed.status === "skipped" || completed.status === "replayed"
+            ? "skipped"
+            : completed.ok
+              ? "succeeded"
+              : "failed",
+          phase: completed.status === "replayed" ? "replayed" : "guarded_result_reconciled",
+          progress: 100,
+          summary: completed.summary,
+        };
+      },
+    });
     const pathParts = url.pathname.split("/").filter(Boolean);
     try {
       if (request.method === "GET" && pathParts.length === 6 && pathParts[3] === "services" && pathParts[5] === "availability") {
@@ -4247,12 +4284,23 @@ async function routeRequestWithoutMutationCoordination(
         if (!service) throw new ApiError("service_not_found", 404, "The requested service is not available.");
         const actions = await Promise.all(Object.entries(durableLifecycleOperationActions).map(async ([name, action]) => {
           const policy = guardedActionPolicy(action);
-          const allowed = authorization.actor.scopes.includes(policy.requiredScope);
-          const plan = allowed ? await facade.preflight(action, { serviceId }) : null;
+          let authorizationFailure: McpGuardedActionError | null = null;
+          try {
+            await assertMcpGuardedActionAuthorization({
+              workspaceRoot: config.workspaceRoot,
+              operatingMode: "guarded",
+              authorization,
+              action,
+            });
+          } catch (error) {
+            if (!(error instanceof McpGuardedActionError)) throw error;
+            authorizationFailure = error;
+          }
+          const plan = authorizationFailure ? null : await facade.preflight(action, { serviceId });
           return {
             action: name,
-            available: allowed && plan?.executable === true,
-            reason: !allowed ? "permission_not_granted" : plan?.skippedReason ?? null,
+            available: !authorizationFailure && plan?.executable === true,
+            reason: authorizationFailure?.code ?? plan?.skippedReason ?? null,
             permission: policy.requiredScope,
             requiresConfirmation: policy.confirmationRequired,
           };

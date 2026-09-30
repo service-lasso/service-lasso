@@ -49,8 +49,8 @@ const profileRank: Record<McpPermissionProfile, number> = {
   administrator: 3,
 };
 
-export type McpOperationStatus = "queued" | "running" | "cancelling" | "succeeded" | "failed" | "cancelled" | "skipped";
-export type McpOperationOutcome = "succeeded" | "failed" | "cancelled" | "skipped";
+export type McpOperationStatus = "queued" | "running" | "cancelling" | "succeeded" | "failed" | "cancelled" | "skipped" | "unknown_after_crash";
+export type McpOperationOutcome = "succeeded" | "failed" | "cancelled" | "skipped" | "unknown_after_crash";
 export type McpOperationCancellationResult = "requested" | "unsupported" | "too_late";
 
 export interface McpOperationPublicRecord {
@@ -114,7 +114,7 @@ export interface McpOperationSafety {
 
 interface PendingTerminal {
   status: McpOperationOutcome;
-  phase: "completed" | "failed" | "cancelled" | "skipped" | "replayed" | "interrupted";
+  phase: "completed" | "failed" | "cancelled" | "skipped" | "replayed" | "interrupted" | "unknown_after_crash";
   progress: 100;
   summary: string;
   completedAt: string;
@@ -241,24 +241,6 @@ export class McpOperationService {
       await this.reconcileOperation(prior.operationId);
     }
     const guardedExecutionId = normalizeGuardedExecutionId(input.guardedExecutionId);
-    const existing = input.deduplicateByGuardedExecution ? priorState.operations.find((operation) =>
-      operation.actorId === storedIdentity(authorization.actor.actorId, "actor") &&
-      operation.clientId === storedIdentity(authorization.actor.clientId, "client") &&
-      guardedExecutionId !== null && operation.guardedExecutionId === guardedExecutionId
-    ) : undefined;
-    if (existing) {
-      const current = await this.get(existing.operationId, authorization);
-      return {
-        kind: "accepted",
-        payload: {
-          contractVersion: MCP_OPERATION_ACCEPTED_CONTRACT_VERSION,
-          generatedAt: this.now().toISOString(),
-          accepted: true,
-          operation: current.operation,
-          safety: operationSafety(true),
-        },
-      };
-    }
     const operationId = `mcp-operation-${randomUUID()}`;
     const correlationId = `mcp-operation-correlation-${randomUUID()}`;
     const targetIds = normalizeTargets(input.targetIds);
@@ -287,12 +269,35 @@ export class McpOperationService {
       pendingTerminal: null,
     };
 
+    let existingOperationId: string | null = null;
     await this.mutateState((state) => {
+      const existing = input.deduplicateByGuardedExecution ? state.operations.find((operation) =>
+        operation.actorId === record.actorId &&
+        operation.clientId === record.clientId &&
+        guardedExecutionId !== null && operation.guardedExecutionId === guardedExecutionId
+      ) : undefined;
+      if (existing) {
+        existingOperationId = existing.operationId;
+        return;
+      }
       if (state.operations.filter((operation) => !isTerminal(operation.status)).length >= MAX_MCP_OPERATIONS) {
         throw new McpOperationError("operation_capacity", "Too many durable MCP operations are active.");
       }
       state.operations.push(record);
     });
+    if (existingOperationId) {
+      const current = await this.get(existingOperationId, authorization);
+      return {
+        kind: "accepted",
+        payload: {
+          contractVersion: MCP_OPERATION_ACCEPTED_CONTRACT_VERSION,
+          generatedAt: this.now().toISOString(),
+          accepted: true,
+          operation: current.operation,
+          safety: operationSafety(true),
+        },
+      };
+    }
     try {
       await auditOperation(this.workspaceRoot, record, "started", "accepted");
     } catch (error) {
@@ -726,6 +731,22 @@ export class McpOperationService {
         });
         return;
       }
+      if (Date.parse(record.expiresAt) <= this.now().getTime()) {
+        await this.stageTerminal(
+          operationId,
+          "failed",
+          "The interrupted durable MCP operation expired without an authoritative terminal result.",
+          "interrupted",
+        );
+        await this.finalizePendingTerminal(operationId);
+        return;
+      }
+      await this.updateRecord(operationId, (current) => {
+        current.phase = "detached";
+        current.summary = "Durable runtime work continues outside this MCP process; poll for reconciliation.";
+        current.updatedAt = this.now().toISOString();
+      });
+      return;
     }
     if (Date.parse(record.expiresAt) <= this.now().getTime()) {
       await this.stageTerminal(
@@ -742,7 +763,6 @@ export class McpOperationService {
       current.summary = "Durable runtime work continues outside this MCP process; poll for reconciliation.";
       current.updatedAt = this.now().toISOString();
     });
-    record = await this.readRecord(operationId);
   }
 
   private async readRecord(operationId: string): Promise<StoredOperation> {
@@ -948,11 +968,12 @@ function terminalSummary(outcome: McpOperationOutcome): string {
   if (outcome === "succeeded") return "Durable MCP operation completed.";
   if (outcome === "cancelled") return "Durable MCP operation cancelled.";
   if (outcome === "skipped") return "Durable MCP operation skipped safely.";
+  if (outcome === "unknown_after_crash") return "Durable MCP operation outcome is unknown after runtime recovery.";
   return "Durable MCP operation failed safely.";
 }
 
 function isTerminal(status: McpOperationStatus): status is McpOperationOutcome {
-  return status === "succeeded" || status === "failed" || status === "cancelled" || status === "skipped";
+  return status === "succeeded" || status === "failed" || status === "cancelled" || status === "skipped" || status === "unknown_after_crash";
 }
 
 function operationKey(workspaceRoot: string, operationId: string): string {
@@ -1026,7 +1047,7 @@ function parseStoredOperation(raw: unknown): StoredOperation {
     typeof record.clientId !== "string" || !record.clientId || record.clientId.length > 200 ||
     typeof record.action !== "string" ||
     !["service_start", "service_stop", "service_restart", "service_install", "service_configure", "setup_step_run", "update_check", "update_download", "update_install", "runtime_start_all", "runtime_stop_all"].includes(record.action) ||
-    typeof record.status !== "string" || !["queued", "running", "cancelling", "succeeded", "failed", "cancelled", "skipped"].includes(record.status) ||
+    typeof record.status !== "string" || !["queued", "running", "cancelling", "succeeded", "failed", "cancelled", "skipped", "unknown_after_crash"].includes(record.status) ||
     typeof record.phase !== "string" || !/^[a-z][a-z0-9_]{0,63}$/u.test(record.phase) ||
     typeof record.progress !== "number" || !Number.isInteger(record.progress) || record.progress < 0 || record.progress > 100 ||
     typeof record.summary !== "string" || !record.summary || record.summary.length > 300 ||
@@ -1036,7 +1057,7 @@ function parseStoredOperation(raw: unknown): StoredOperation {
     new Set(record.targetIds).size !== record.targetIds.length ||
     typeof record.correlationId !== "string" || !/^mcp-operation-correlation-[0-9a-f-]{36}$/u.test(record.correlationId) ||
     typeof record.cancellationSupported !== "boolean" ||
-    !(record.outcome === null || (typeof record.outcome === "string" && ["succeeded", "failed", "cancelled", "skipped"].includes(record.outcome))) ||
+    !(record.outcome === null || (typeof record.outcome === "string" && ["succeeded", "failed", "cancelled", "skipped", "unknown_after_crash"].includes(record.outcome))) ||
     typeof record.runnerPid !== "number" || !Number.isSafeInteger(record.runnerPid) || record.runnerPid <= 0 ||
     typeof record.runnerInstanceId !== "string" || !/^[0-9a-f-]{36}$/u.test(record.runnerInstanceId) ||
     !isIso(record.heartbeatAt) ||
@@ -1050,8 +1071,8 @@ function isPendingTerminal(value: unknown): value is PendingTerminal {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const pending = value as Partial<PendingTerminal>;
   return (
-    typeof pending.status === "string" && ["succeeded", "failed", "cancelled", "skipped"].includes(pending.status) &&
-    typeof pending.phase === "string" && ["completed", "failed", "cancelled", "skipped", "replayed", "interrupted"].includes(pending.phase) &&
+    typeof pending.status === "string" && ["succeeded", "failed", "cancelled", "skipped", "unknown_after_crash"].includes(pending.status) &&
+    typeof pending.phase === "string" && ["completed", "failed", "cancelled", "skipped", "replayed", "interrupted", "unknown_after_crash"].includes(pending.phase) &&
     pending.progress === 100 && typeof pending.summary === "string" && pending.summary.length > 0 && pending.summary.length <= 300 &&
     isIso(pending.completedAt)
   );
@@ -1094,8 +1115,8 @@ async function auditOperation(
       subject: record.operationId,
       method: "MCP",
       routeTemplate: `operation:${event}`,
-      outcome: event === "failed" || options.denied ? "failure" : "success",
-      statusCode: options.denied ? 403 : event === "failed" ? 500 : 200,
+      outcome: event === "failed" || event === "unknown_after_crash" || options.denied ? "failure" : "success",
+      statusCode: options.denied ? 403 : event === "failed" || event === "unknown_after_crash" ? 500 : 200,
       summary: event === "cancellation" ? "Durable MCP operation cancellation attempted." : `Durable MCP operation ${event}.`,
       reason,
       correlationId: record.correlationId,
