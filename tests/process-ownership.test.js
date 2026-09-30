@@ -14,6 +14,7 @@ import {
   inspectProcess,
   inspectWindowsProcessTree,
 } from "../dist/runtime/process/identity.js";
+import { windowsTreeInspectionFailureMetadata } from "../dist/runtime/process/windows-tree-inspection-diagnostics.js";
 import {
   findProcessOwnership,
   getProcessRegistryPath,
@@ -555,9 +556,72 @@ test("Windows native command query retries only partial copy on the held handle"
     inspectorSource.indexOf("private static string ReadCommandLine"),
     inspectorSource.indexOf("private static int ReadParentProcessId"),
   );
+  assert.match(inspectorSource, /private const int CommandLineQueryAttempts = 2;/u);
+  assert.match(inspectorSource, /testCommandQueryPartialCopiesRemaining = CommandLineQueryAttempts;/u);
   assert.match(readCommandLine, /for \(int attempt = 0; attempt < CommandLineQueryAttempts/u);
   assert.match(readCommandLine, /status == StatusPartialCopy && attempt \+ 1 < CommandLineQueryAttempts/u);
   assert.doesNotMatch(readCommandLine, /OpenProcess\(/u);
+});
+
+test("Windows direct inspection does not respawn after an exhausted partial-copy helper", async () => {
+  let nativeInvocations = 0;
+  const inspection = await inspectProcess(4242, {
+    platform: "win32",
+    windowsSystemRoot: WINDOWS_TEST_SYSTEM_ROOT,
+    runCommand: async () => {
+      nativeInvocations += 1;
+      return { exitCode: 38, stdout: "" };
+    },
+  });
+  assert.deepEqual(inspection, {
+    status: "unknown",
+    reason: "windows_process_command_partial_copy_exhausted",
+  });
+  assert.equal(nativeInvocations, 1);
+});
+
+test("Windows direct inspection retains its existing retry policy for unrelated helper failures", async () => {
+  let nativeInvocations = 0;
+  const inspection = await inspectProcess(4242, {
+    platform: "win32",
+    windowsSystemRoot: WINDOWS_TEST_SYSTEM_ROOT,
+    runCommand: async () => {
+      nativeInvocations += 1;
+      return { exitCode: 34, stdout: "" };
+    },
+  });
+  assert.deepEqual(inspection, {
+    status: "unknown",
+    reason: "windows_process_helper_failed",
+  });
+  assert.equal(nativeInvocations, 3);
+});
+
+test("Windows tree inspection does not respawn after a closed partial-copy helper", async () => {
+  const root = {
+    pid: 4342,
+    createdAt: "2026-07-18T01:02:03.456Z",
+    executablePath: "C:\\private\\node.exe",
+    commandHash: hashProcessCommandLine("private command"),
+  };
+  for (const [exitCode, failure] of [[38, "root_command_partial_copy"], [138, "descendant_command_partial_copy"]]) {
+    let nativeInvocations = 0;
+    await assert.rejects(inspectWindowsProcessTree(root, {
+      windowsSystemRoot: WINDOWS_TEST_SYSTEM_ROOT,
+      runCommand: async () => {
+        nativeInvocations += 1;
+        return { exitCode, stdout: "" };
+      },
+    }), error => {
+      assert.equal(error.windowsNativeInspectionFailure, failure);
+      const metadata = windowsTreeInspectionFailureMetadata(error);
+      assert.equal(metadata.windowsTreeInspectionAttempts, 1);
+      assert.equal(metadata.windowsTreeInspectionRetries, 0);
+      assert.equal(metadata.windowsTreeInspectionLastRetry, failure);
+      return true;
+    });
+    assert.equal(nativeInvocations, 1);
+  }
 });
 
 test("Windows inspection treats only an explicit absent-process result as not running", async () => {
@@ -3353,6 +3417,47 @@ test("Windows partial native command query reaches the startup hook with a close
     assert.equal(receipt.observations[0].events.some((event) => event.failurePhase === "post_release_hook"), true);
     const closedReceipt = JSON.stringify(receipt);
     assert.equal(closedReceipt.includes("PRIVATE-PARTIAL-COPY-HOOK"), false);
+    assert.equal(closedReceipt.includes("CommandLine"), false);
+  } finally {
+    setManagedProcessAfterReleaseHookForTests(null);
+    await apiServer?.stop();
+    await stopManagedProcess("echo-service", 10_000).catch(() => null);
+    if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+    else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
+    if (priorCommandQuery === undefined) delete process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY;
+    else process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY = priorCommandQuery;
+    resetLifecycleState();
+    await removeTempRoot(tempRoot);
+  }
+});
+
+test("Windows persistent partial native command query fails before the startup hook", {
+  skip: process.platform !== "win32",
+}, async () => {
+  resetLifecycleState();
+  const priorTestHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+  const priorCommandQuery = process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY;
+  process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
+  process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY = "partial_only";
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-persistent-partial-command-query-");
+  const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "echo-service");
+  let apiServer;
+  let startupHookReached = false;
+  try {
+    const stateRoot = path.join(serviceRoot, ".state");
+    await mkdir(stateRoot, { recursive: true });
+    await writeFile(path.join(stateRoot, "install.json"), JSON.stringify({ installed: true }), "utf8");
+    await writeFile(path.join(stateRoot, "config.json"), JSON.stringify({ configured: true }), "utf8");
+    apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
+    setManagedProcessAfterReleaseHookForTests(async () => {
+      startupHookReached = true;
+    });
+    const start = await postJson(`${apiServer.url}/api/services/echo-service/start`);
+    assert.equal(start.response.status, 409);
+    assert.equal(startupHookReached, false);
+    const receipt = await collectStartupFailure(apiServer.url, "echo-service");
+    assert.equal(receipt.observations[0].events.some((event) => event.failurePhase !== null), true);
+    const closedReceipt = JSON.stringify(receipt);
     assert.equal(closedReceipt.includes("CommandLine"), false);
   } finally {
     setManagedProcessAfterReleaseHookForTests(null);
