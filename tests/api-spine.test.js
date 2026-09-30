@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import os from "node:os";
 import net from "node:net";
+import { createServer } from "node:http";
 import { cp, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { startApiServer } from "../dist/server/index.js";
 import { startRuntimeApp } from "../dist/runtime/app.js";
@@ -1732,8 +1733,11 @@ test("remote service registration is authenticated, idempotent, durable, and nev
   const originalFetch = globalThis.fetch;
   const previousToken = process.env.SERVICE_LASSO_LOCAL_ADMIN_TOKEN;
   const previousTrustProxy = process.env.SERVICE_LASSO_TRUST_PROXY_HEADERS;
+  const previousGitHubToken = process.env.GITHUB_TOKEN;
+  const previousGitHubApiBaseUrl = process.env.SERVICE_LASSO_GITHUB_API_BASE_URL;
   process.env.SERVICE_LASSO_LOCAL_ADMIN_TOKEN = "remote-registration-test-token";
   process.env.SERVICE_LASSO_TRUST_PROXY_HEADERS = "true";
+  process.env.GITHUB_TOKEN = "remote-registration-github-token";
   const manifest = {
     id: "remote-registered-service",
     name: "Remote Registered Service",
@@ -1743,20 +1747,20 @@ test("remote service registration is authenticated, idempotent, durable, and nev
     healthcheck: { type: "process" },
     artifact: {
       kind: "archive",
-      source: { type: "github-release", repo: "service-lasso/remote-service", tag: "v1.0.0" },
+      source: { type: "github-release", repo: "service-lasso/lasso-node", tag: "v1.0.0" },
       platforms: {
         win32: { assetName: "remote-service.zip", archiveType: "zip", command: "remote-service.exe", checksum: { algorithm: "sha256", value: "a".repeat(64) } },
       },
     },
   };
-  let manifestAssetUrl = "https://github.com/service-lasso/remote-service/releases/download/v1.0.0/service.json";
+  let manifestAssetUrl = "https://github.com/service-lasso/lasso-node/releases/download/v1.0.0/service.json";
   let manifestRedirectLocation = null;
   globalThis.fetch = async (input, init) => {
     const requestUrl = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-    if (requestUrl === "https://api.github.com/repos/service-lasso/remote-service/git/ref/tags/v1.0.0") {
+    if (requestUrl === "https://api.github.com/repos/service-lasso/lasso-node/git/ref/tags/v1.0.0") {
       return new Response(JSON.stringify({ object: { type: "commit", sha: "b".repeat(40) } }), { status: 200, headers: { "Content-Type": "application/json" } });
     }
-    if (requestUrl === "https://api.github.com/repos/service-lasso/remote-service/releases/tags/v1.0.0") {
+    if (requestUrl === "https://api.github.com/repos/service-lasso/lasso-node/releases/tags/v1.0.0") {
       return new Response(JSON.stringify({
         tag_name: "v1.0.0",
         assets: [{ name: "service.json", browser_download_url: manifestAssetUrl }],
@@ -1774,7 +1778,7 @@ test("remote service registration is authenticated, idempotent, durable, and nev
     "x-service-lasso-admin-token": "remote-registration-test-token",
   };
   const request = {
-    repo: "service-lasso/remote-service",
+    repo: "service-lasso/lasso-node",
     tag: "v1.0.0",
     expectedCommit: "b".repeat(40),
     expectedManifestSha256: createHash("sha256").update(JSON.stringify(manifest)).digest("hex"),
@@ -1783,6 +1787,14 @@ test("remote service registration is authenticated, idempotent, durable, and nev
   };
 
   try {
+    const unapproved = await postJsonWithHeaders(`${apiServer.url}/api/runtime/actions/importService`, {
+      ...request,
+      repo: "service-lasso/unapproved-service",
+      idempotencyKey: "remote-registration-unapproved-01",
+    }, remoteHeaders);
+    assert.equal(unapproved.status, 403);
+    assert.equal(unapproved.body.error, "unapproved_release");
+
     const invalid = await postJsonWithHeaders(`${apiServer.url}/api/runtime/actions/importService`, {
       ...request,
       manifestPath: "C:\\client-only\\service.json",
@@ -1817,7 +1829,7 @@ test("remote service registration is authenticated, idempotent, durable, and nev
     }, remoteHeaders);
     assert.equal(unsafeAsset.status, 409);
     assert.equal(unsafeAsset.body.error, "release_manifest_mismatch");
-    manifestAssetUrl = "https://github.com/service-lasso/remote-service/releases/download/v1.0.0/service.json";
+    manifestAssetUrl = "https://github.com/service-lasso/lasso-node/releases/download/v1.0.0/service.json";
     manifestRedirectLocation = "https://untrusted.example/service.json";
     const unsafeRedirect = await postJsonWithHeaders(`${apiServer.url}/api/runtime/actions/importService`, {
       ...request,
@@ -1955,6 +1967,26 @@ test("remote service registration is authenticated, idempotent, durable, and nev
     assert.equal(unresolved.body.operation.status, "unknown");
     assert.equal(await readFile(path.join(servicesRoot, manifest.id, "service.json"), "utf8"), changedManifestBytes);
     assert.doesNotMatch(JSON.stringify(readback.body), /client-only|service\.json.*[A-Z]:/i);
+
+    const untrustedRequests = [];
+    const provenanceServer = await new Promise((resolve) => {
+      const server = createServer((incoming, outgoing) => {
+        untrustedRequests.push(incoming.headers.authorization);
+        outgoing.writeHead(503, { "content-type": "application/json" });
+        outgoing.end(JSON.stringify({ error: "unavailable" }));
+      });
+      server.listen(0, "127.0.0.1", () => resolve(server));
+    });
+    const provenanceAddress = provenanceServer.address();
+    process.env.SERVICE_LASSO_GITHUB_API_BASE_URL = `http://127.0.0.1:${provenanceAddress.port}`;
+    const untrustedApiBase = await postJsonWithHeaders(`${apiServer.url}/api/runtime/actions/importService`, {
+      ...request,
+      idempotencyKey: "remote-registration-untrusted-api-01",
+    }, remoteHeaders);
+    await new Promise((resolve, reject) => provenanceServer.close((error) => error ? reject(error) : resolve()));
+    assert.equal(untrustedApiBase.status, 503);
+    assert.equal(untrustedApiBase.body.error, "release_provenance_unavailable");
+    assert.deepEqual(untrustedRequests, [undefined]);
   } finally {
     await apiServer.stop();
     globalThis.fetch = originalFetch;
@@ -1964,6 +1996,10 @@ test("remote service registration is authenticated, idempotent, durable, and nev
     else process.env.SERVICE_LASSO_LOCAL_ADMIN_TOKEN = previousToken;
     if (previousTrustProxy === undefined) delete process.env.SERVICE_LASSO_TRUST_PROXY_HEADERS;
     else process.env.SERVICE_LASSO_TRUST_PROXY_HEADERS = previousTrustProxy;
+    if (previousGitHubToken === undefined) delete process.env.GITHUB_TOKEN;
+    else process.env.GITHUB_TOKEN = previousGitHubToken;
+    if (previousGitHubApiBaseUrl === undefined) delete process.env.SERVICE_LASSO_GITHUB_API_BASE_URL;
+    else process.env.SERVICE_LASSO_GITHUB_API_BASE_URL = previousGitHubApiBaseUrl;
   }
 });
 

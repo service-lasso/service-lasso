@@ -56,18 +56,55 @@ const IDEMPOTENCY_KEY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{7,127}$/;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 const COMMIT_PATTERN = /^[a-f0-9]{40}$/;
 const registrationLocks = new Map<string, Promise<void>>();
+const TRUSTED_GITHUB_API_ORIGIN = "https://api.github.com";
+const APPROVED_RELEASE_REPOSITORIES = new Set([
+  "service-lasso/lasso-archive",
+  "service-lasso/lasso-bpmn-server",
+  "service-lasso/lasso-cacao-roaster",
+  "service-lasso/lasso-dagu",
+  "service-lasso/lasso-fastapi",
+  "service-lasso/lasso-filebeat",
+  "service-lasso/lasso-files",
+  "service-lasso/lasso-java",
+  "service-lasso/lasso-jupyterlab",
+  "service-lasso/lasso-keycloak",
+  "service-lasso/lasso-localcert",
+  "service-lasso/lasso-mongo",
+  "service-lasso/lasso-node",
+  "service-lasso/lasso-openobserve",
+  "service-lasso/lasso-pgadmin4",
+  "service-lasso/lasso-postgres",
+  "service-lasso/lasso-python",
+  "service-lasso/lasso-secretsbroker",
+  "service-lasso/lasso-soarca",
+  "service-lasso/lasso-totaljs-flow",
+  "service-lasso/lasso-totaljs-messageservice",
+  "service-lasso/lasso-typedb",
+  "service-lasso/lasso-websight-cms",
+  "service-lasso/lasso-zitadel",
+]);
 
 function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
-function githubHeaders(): Record<string, string> {
+function normalizedGitHubApiBaseUrl(): string {
+  return (process.env.SERVICE_LASSO_GITHUB_API_BASE_URL?.trim() || TRUSTED_GITHUB_API_ORIGIN).replace(/\/+$/, "");
+}
+
+function githubHeaders(apiBaseUrl: string): Record<string, string> {
   const token = process.env.GITHUB_TOKEN?.trim() || process.env.GH_TOKEN?.trim();
   return {
     accept: "application/vnd.github+json",
     "user-agent": "service-lasso-core-runtime",
-    ...(token ? { authorization: `Bearer ${token}` } : {}),
+    ...(apiBaseUrl === TRUSTED_GITHUB_API_ORIGIN && token ? { authorization: `Bearer ${token}` } : {}),
   };
+}
+
+function assertApprovedReleaseRepository(repo: string): void {
+  if (!APPROVED_RELEASE_REPOSITORIES.has(repo)) {
+    throw new ApiError("unapproved_release", 403, "Only explicitly approved Service Lasso publisher releases can be registered.");
+  }
 }
 
 function storePath(workspaceRoot: string): string {
@@ -117,9 +154,7 @@ async function withWorkspaceRegistrationLock<T>(workspaceRoot: string, action: (
 }
 
 function assertApprovedReleaseManifest(manifest: ServiceManifest, request: RemoteServiceRegistrationRequest): void {
-  if (!request.repo.startsWith("service-lasso/")) {
-    throw new ApiError("unapproved_release", 403, "Only approved Service Lasso publisher releases can be registered.");
-  }
+  assertApprovedReleaseRepository(request.repo);
   const artifact = manifest.artifact;
   if (
     !artifact || artifact.kind !== "archive" || artifact.source.type !== "github-release" ||
@@ -134,14 +169,15 @@ function assertApprovedReleaseManifest(manifest: ServiceManifest, request: Remot
 }
 
 async function resolveReleasedManifest(request: RemoteServiceRegistrationRequest): Promise<{ manifest: ServiceManifest; manifestBytes: string }> {
-  const apiBaseUrl = (process.env.SERVICE_LASSO_GITHUB_API_BASE_URL?.trim() || "https://api.github.com").replace(/\/+$/, "");
-  const tagRef = await fetch(`${apiBaseUrl}/repos/${request.repo}/git/ref/tags/${encodeURIComponent(request.tag)}`, { headers: githubHeaders() });
+  const apiBaseUrl = normalizedGitHubApiBaseUrl();
+  const headers = githubHeaders(apiBaseUrl);
+  const tagRef = await fetch(`${apiBaseUrl}/repos/${request.repo}/git/ref/tags/${encodeURIComponent(request.tag)}`, { headers });
   if (!tagRef.ok) throw new ApiError("release_provenance_unavailable", 503, "Release provenance could not be resolved.");
   const ref = await tagRef.json() as GitRefResponse;
   if (ref.object?.type !== "commit" || ref.object.sha !== request.expectedCommit) {
     throw new ApiError("release_commit_mismatch", 409, "The release tag does not resolve to the caller-bound commit.");
   }
-  const releaseResponse = await fetch(`${apiBaseUrl}/repos/${request.repo}/releases/tags/${encodeURIComponent(request.tag)}`, { headers: githubHeaders() });
+  const releaseResponse = await fetch(`${apiBaseUrl}/repos/${request.repo}/releases/tags/${encodeURIComponent(request.tag)}`, { headers });
   if (!releaseResponse.ok) throw new ApiError("release_provenance_unavailable", 503, "Release metadata could not be resolved.");
   const release = await releaseResponse.json() as GitHubReleaseResponse;
   if (release.tag_name !== request.tag || !Array.isArray(release.assets)) {
@@ -268,6 +304,7 @@ export function parseRemoteServiceRegistrationRequest(input: unknown): RemoteSer
   const allowed = new Set(["repo", "tag", "expectedCommit", "expectedManifestSha256", "idempotencyKey", "confirm"]);
   if (Object.keys(candidate).some((key) => !allowed.has(key))) throw new ApiError("invalid_body", 400, "Service registration accepts only release identity, digest, idempotencyKey, and confirm.");
   if (typeof candidate.repo !== "string" || !REPO_PATTERN.test(candidate.repo)) throw new ApiError("invalid_repo", 400, '"repo" must be an owner/repository release reference.');
+  assertApprovedReleaseRepository(candidate.repo);
   if (typeof candidate.tag !== "string" || !TAG_PATTERN.test(candidate.tag)) throw new ApiError("invalid_tag", 400, '"tag" must be a release tag.');
   if (typeof candidate.expectedCommit !== "string" || !COMMIT_PATTERN.test(candidate.expectedCommit)) throw new ApiError("invalid_expected_commit", 400, '"expectedCommit" must be a lowercase 40-character commit SHA.');
   if (typeof candidate.expectedManifestSha256 !== "string" || !SHA256_PATTERN.test(candidate.expectedManifestSha256)) throw new ApiError("invalid_expected_manifest_sha256", 400, '"expectedManifestSha256" must be a lowercase SHA-256 digest.');
