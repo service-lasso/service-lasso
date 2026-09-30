@@ -12,9 +12,11 @@ internal static class ServiceLassoWindowsProcessInspector
     private const int ErrorNoMoreFiles = 18;
     private const int ErrorInvalidParameter = 87;
     private const int ProcessCommandLineInformation = 60;
+    private const ushort ImageFileMachineUnknown = 0;
     private const int ProcessBasicInformation = 0;
     private static int failureExitCode = 1;
     private static int evidenceSubject = 0;
+    private static string commandPartialCopyReceipt;
 
     private static void EvidenceStage(int code)
     {
@@ -74,6 +76,16 @@ internal static class ServiceLassoWindowsProcessInspector
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetExitCodeProcess(IntPtr processHandle, out uint exitCode);
 
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr GetCurrentProcess();
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool IsWow64Process2(
+        IntPtr processHandle,
+        out ushort processMachine,
+        out ushort nativeMachine);
+
     [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetProcessTimes(
@@ -129,6 +141,45 @@ internal static class ServiceLassoWindowsProcessInspector
         else if (value == 0x80000005) EvidenceStage(41);
         else EvidenceStage(35);
     }
+
+    private static string CommandQueryHeldHandleState(IntPtr processHandle)
+    {
+        uint exitCode;
+        if (!GetExitCodeProcess(processHandle, out exitCode))
+        {
+            return "exit_query_failed";
+        }
+        // STILL_ACTIVE is also a legal process exit code, so it is not exit proof.
+        return exitCode == 259 ? "still_active_or_259" : null;
+    }
+
+    private static string CommandQueryArchitectureRelation(IntPtr processHandle)
+    {
+        ushort runtimeProcessMachine;
+        ushort runtimeNativeMachine;
+        ushort subjectProcessMachine;
+        ushort subjectNativeMachine;
+        if (!IsWow64Process2(GetCurrentProcess(), out runtimeProcessMachine, out runtimeNativeMachine) ||
+            !IsWow64Process2(processHandle, out subjectProcessMachine, out subjectNativeMachine))
+        {
+            return "unknown";
+        }
+        ushort runtimeMachine = runtimeProcessMachine == ImageFileMachineUnknown ? runtimeNativeMachine : runtimeProcessMachine;
+        ushort subjectMachine = subjectProcessMachine == ImageFileMachineUnknown ? subjectNativeMachine : subjectProcessMachine;
+        return runtimeMachine == subjectMachine ? "same" : "cross";
+    }
+
+    private static string CommandPartialCopyReceiptJson(IntPtr processHandle)
+    {
+        string heldHandleState = CommandQueryHeldHandleState(processHandle);
+        if (heldHandleState == null)
+        {
+            // A confirmed exit remains omitted by the existing held-handle rule.
+            return null;
+        }
+        return "{\"CommandQueryHeldHandleState\":" + JsonString(heldHandleState) +
+            ",\"CommandQueryArchitectureRelation\":" + JsonString(CommandQueryArchitectureRelation(processHandle)) + "}";
+    }
     private static string ReadCommandLine(IntPtr processHandle)
     {
         EvidenceStage(25);
@@ -158,6 +209,10 @@ internal static class ServiceLassoWindowsProcessInspector
                 out returnedLength);
             if (status != 0)
             {
+                if (unchecked((uint)status) == 0x8000000D)
+                {
+                    commandPartialCopyReceipt = CommandPartialCopyReceiptJson(processHandle);
+                }
                 EvidenceCommandQueryFailure(status);
             }
             else if (returnedLength < headerSize || returnedLength > requiredLength)
@@ -303,12 +358,20 @@ internal static class ServiceLassoWindowsProcessInspector
         }
         catch (Win32Exception)
         {
-            if (IsConfirmedExited(processHandle)) return null;
+            if (IsConfirmedExited(processHandle))
+            {
+                commandPartialCopyReceipt = null;
+                return null;
+            }
             throw;
         }
         catch (InvalidOperationException)
         {
-            if (IsConfirmedExited(processHandle)) return null;
+            if (IsConfirmedExited(processHandle))
+            {
+                commandPartialCopyReceipt = null;
+                return null;
+            }
             throw;
         }
         finally
@@ -516,6 +579,10 @@ internal static class ServiceLassoWindowsProcessInspector
         }
         catch
         {
+            if ((failureExitCode == 38 || failureExitCode == 138) && commandPartialCopyReceipt != null)
+            {
+                Console.WriteLine(commandPartialCopyReceipt);
+            }
             return failureExitCode;
         }
     }

@@ -12,12 +12,12 @@
   },
   "source": {
     "path": "src/runtime/process/windows-process-inspector.cs",
-    "sha256": "d6b5c2b09f2f7591d6123f95bbb41e95ed99f80940e44ae58297f39988a8126f"
+    "sha256": "182878239a11fe061ab7965c28c95e66605701e35311932788b59e3cabe2499c"
   },
   "binary": {
     "path": "src/runtime/process/windows-process-inspector.exe",
-    "sha256": "338c7e671f0b0b5851d0baf7f34d364e9d0e7228ac5ea0417b3bafa3cbadd552",
-    "byteLength": 12288,
+    "sha256": "e9c77d7a1e27bbcfebe12cd749476830d7b7b11e18f05059cac1a26e32872a48",
+    "byteLength": 13312,
     "peTimestamp": "zero",
     "moduleVersionId": "zero"
   }
