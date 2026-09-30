@@ -15,6 +15,21 @@ const cliCandidate = Buffer.from(JSON.stringify({ schemaVersion: 1, candidateTag
 const cliSums = Buffer.from(`${hash("cli")}  service-lassoctl-0.1.0-dev.1234567.tgz\n${hash(cliCandidate)}  candidate.json\n`);
 const cliRelease = { repository: "service-lasso/service-lasso-cli", tag: "cli-v0.1.0-dev.1234567-candidate-1234567", version: "0.1.0-dev.1234567", targetCommit: "1234567890123456789012345678901234567890", asset: { name: "service-lassoctl-0.1.0-dev.1234567.tgz", sha256: hash("cli") }, checksumManifest: { name: "SHA256SUMS.txt", sha256: hash(cliSums) }, candidateManifest: { name: "candidate.json", sha256: hash(cliCandidate) }, supportedPlatforms: ["win32", "linux", "darwin"] };
 
+function projectCompleteSuiteEnvironment(workflow, githubToken) {
+  const productsJob = workflow.match(/^  qualify-products:\r?\n([\s\S]*?)(?=^  [a-z][a-z-]*:\r?$)/mu)?.[1];
+  assert.ok(productsJob, "Release Qualification must retain qualify-products");
+  const completeSuiteStart = productsJob.indexOf("      - name: Run complete test suite\n");
+  assert.notEqual(completeSuiteStart, -1, "Release Qualification must retain the complete-suite step");
+  const nextStep = productsJob.indexOf("\n      - name:", completeSuiteStart + 1);
+  const completeSuiteStep = productsJob.slice(completeSuiteStart, nextStep === -1 ? undefined : nextStep);
+  assert.ok(completeSuiteStep, "Release Qualification must retain the complete-suite step");
+  const tokenProjection = completeSuiteStep.match(/^          SERVICE_LASSO_RELEASE_METADATA_TOKEN: (.+)$/mu)?.[1];
+  assert.equal(tokenProjection, "${{ github.token }}");
+  assert.match(completeSuiteStep, /^        run: npm run build && node --test /mu);
+  assert.doesNotMatch(completeSuiteStep, /(?:echo|printf|Out-File).*SERVICE_LASSO_RELEASE_METADATA_TOKEN/u);
+  return { SERVICE_LASSO_RELEASE_METADATA_TOKEN: githubToken };
+}
+
 test("operator tools stage only checksum-verified release bytes", async () => {
   const sums = tuiSums;
   const root = await mkdtemp(path.join(os.tmpdir(), "operator-tools-"));
@@ -22,6 +37,10 @@ test("operator tools stage only checksum-verified release bytes", async () => {
   const metadataAuthorization = [];
   const assetAuthorization = [];
   try {
+    const workflow = await readFile(".github/workflows/release-qualification.yml", "utf8");
+    const completeSuiteEnvironment = projectCompleteSuiteEnvironment(workflow, "test-read-token");
+    const releaseMetadataToken = consumeReleaseMetadataToken(completeSuiteEnvironment);
+    assert.equal("SERVICE_LASSO_RELEASE_METADATA_TOKEN" in completeSuiteEnvironment, false);
     const fetchImpl = async (url, options = {}) => {
 		const parsed = new URL(url);
 		if (parsed.hostname === "api.github.com" && parsed.pathname.includes("/releases/assets/")) {
@@ -46,7 +65,7 @@ test("operator tools stage only checksum-verified release bytes", async () => {
 		const body = name === "SHA256SUMS.txt" ? (cli ? cliSums : sums) : Buffer.from(assets.find((asset) => asset.name === name)?.platform ?? (name === cliRelease.asset.name ? "cli" : name === "candidate-manifest.json" ? tuiCandidate : name === "candidate.json" ? cliCandidate : ""));
 		return new Response(body, { status: 200 });
     };
-    const manifest = await stageOperatorTools({ artifactRoot: root, fetchImpl, release, cliRelease, releaseMetadataToken: "test-read-token" });
+    const manifest = await stageOperatorTools({ artifactRoot: root, fetchImpl, release, cliRelease, releaseMetadataToken });
     assert.equal(manifest.tools[0].command, "service-lassoctl");
     assert.equal(manifest.tools[0].status, "available");
     assert.equal(manifest.tools[0].candidateManifest.relativePath, "operator-tools/service-lassoctl/candidate.json");

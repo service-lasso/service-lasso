@@ -60,6 +60,8 @@ jobs:
         # test-harness handle on hosted runners. Force exit only after the
         # runner has produced its terminal test result; failures still fail
         # this step and product process-control deadlines are unchanged.
+        env:
+          SERVICE_LASSO_RELEASE_METADATA_TOKEN: ${{ github.token }}
         run: npm run build && node --test --test-concurrency=1 --test-force-exit tests/**/*.test.js
 
       - name: Write exact-head guarded MCP evidence
