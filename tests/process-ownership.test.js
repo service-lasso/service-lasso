@@ -36,10 +36,12 @@ import {
   setManagedProcessLaunchStateCreatedHookForTests,
   setManagedProcessLaunchStateRemoverForTests,
   setManagedProcessPostResumeDelayForTests,
+  setManagedProcessRootInspectorForTests,
   setManagedProcessSpawnTimeoutForTests,
   setManagedProcessSpawnerForTests,
   setManagedProcessTreeMonitorForTests,
   setManagedProcessTreeTerminatorForTests,
+  setManagedWindowsTreeInspectorForTests,
   setWindowsManagedLauncherPathForTests,
   startManagedProcess as startRuntimeManagedProcess,
   stopAllManagedProcesses,
@@ -2497,6 +2499,101 @@ setInterval(() => {}, 1000);
     setManagedProcessPostResumeDelayForTests(null);
     setManagedProcessFilesBoundHookForTests(null);
     await stopManagedProcess("launch-ack-containment-service", 5_000).catch(() => null);
+    if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+    else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
+    resetLifecycleState();
+    await removeTempRoot(tempRoot);
+  }
+});
+
+test("Windows acknowledgement containment retains launching when the final tree reveals a live descendant", {
+  skip: process.platform !== "win32",
+}, async () => {
+  resetLifecycleState();
+  const priorTestHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+  process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-final-containment-union-");
+  const { serviceRoot, scriptPath } = await writeExecutableFixtureService(servicesRoot, "final-containment-union-service");
+  const markerPath = path.join(serviceRoot, "runtime", "final-containment-union.marker");
+  const approvedScript = `
+import { writeFile } from "node:fs/promises";
+await writeFile(${JSON.stringify(markerPath)}, String(process.pid), "utf8");
+setInterval(() => {}, 1000);
+`.trim();
+  const changedScript = approvedScript.replace("final-containment-union.marker", "final_containment_union.marker");
+  const finalMember = {
+    pid: 8675309,
+    createdAt: "2026-10-01T00:00:00.000Z",
+    executablePath: "C:\\Windows\\System32\\cmd.exe",
+    commandHash: "a".repeat(64),
+  };
+  let treeInspectionCount = 0;
+  let handle;
+
+  try {
+    assert.equal(Buffer.byteLength(changedScript), Buffer.byteLength(approvedScript));
+    await writeFile(scriptPath, approvedScript, "utf8");
+    const executableBytes = await readFile(process.execPath);
+    const bindings = [
+      {
+        file: process.execPath,
+        sha256: createHash("sha256").update(executableBytes).digest("hex"),
+        size: executableBytes.byteLength,
+      },
+      {
+        file: scriptPath,
+        sha256: createHash("sha256").update(approvedScript).digest("hex"),
+        size: Buffer.byteLength(approvedScript),
+      },
+    ];
+    setManagedWindowsTreeInspectorForTests(async () => {
+      treeInspectionCount += 1;
+      return treeInspectionCount >= 3
+        ? { rootStatus: "exited", members: [finalMember] }
+        : { rootStatus: "owned", members: [] };
+    });
+    setManagedProcessRootInspectorForTests(async (pid) => pid === finalMember.pid
+      ? { status: "running", identity: finalMember }
+      : { status: "not_running", reason: "process_not_running" });
+    setManagedProcessFilesBoundHookForTests(async () => {
+      const launchStateRoot = path.join(workspaceRoot, ".service-lasso", "runtime", "managed-launch");
+      const stateDirectory = (await readdir(launchStateRoot, { withFileTypes: true })).find((entry) => entry.isDirectory());
+      assert.ok(stateDirectory);
+      await mkdir(path.join(launchStateRoot, stateDirectory.name, "launched.pid"));
+      await writeFile(scriptPath, changedScript, "utf8");
+    });
+    const [service] = await discoverServices(servicesRoot);
+    await assert.rejects(
+      startManagedProcess({
+        service,
+        executionPlan: createDirectExecutionPlan(service.manifest),
+        workspaceRoot,
+        verifyBeforeSpawn: async () => bindings,
+      }),
+      (error) => {
+        assert.equal(error instanceof ManagedProcessEnrollmentContainmentError, true);
+        assert.equal(managedProcessStartFailurePhase(error), "target_acknowledgement");
+        handle = error.handle;
+        return true;
+      },
+    );
+    assert.equal(treeInspectionCount >= 3, true);
+    assert.equal(hasManagedProcess("final-containment-union-service"), true);
+    const retained = await findProcessOwnership(workspaceRoot, "service", "final-containment-union-service");
+    assert.equal(retained.lifecycleState, "launching");
+    assert.equal(retained.pid, handle.pid);
+  } finally {
+    setManagedProcessPostResumeDelayForTests(null);
+    setManagedProcessFilesBoundHookForTests(null);
+    setManagedProcessRootInspectorForTests(null);
+    setManagedWindowsTreeInspectorForTests(null);
+    await stopManagedProcess("final-containment-union-service", 5_000).catch(() => null);
+    try {
+      const pid = Number(await readFile(markerPath, "utf8"));
+      forceCleanupProcesses([handle?.pid, pid]);
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
     if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
     else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
     resetLifecycleState();
