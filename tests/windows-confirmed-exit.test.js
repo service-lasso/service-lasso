@@ -59,6 +59,8 @@ internal static class HeldExit {
       }
       proof=assembly.GetType("ServiceLassoWindowsProcessInspector").GetMethod("IsConfirmedExited", BindingFlags.Static|BindingFlags.NonPublic);
       Require(proof!=null); Require(!Confirm(IntPtr.Zero)); Probe(0); Probe(259);
+      var architecture=assembly.GetType("ServiceLassoWindowsProcessInspector").GetMethod("CommandQueryArchitectureRelation", BindingFlags.Static|BindingFlags.NonPublic);
+      Require(architecture!=null); Require((string)architecture.Invoke(null,new object[]{new IntPtr(123456)})=="unknown");
       Console.WriteLine("held_handle_cases_passed"); return 0;
     } catch { Console.Error.WriteLine("held_handle_cases_failed"); return 1; }
   }

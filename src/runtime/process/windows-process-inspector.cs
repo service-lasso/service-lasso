@@ -155,18 +155,29 @@ internal static class ServiceLassoWindowsProcessInspector
 
     private static string CommandQueryArchitectureRelation(IntPtr processHandle)
     {
-        ushort runtimeProcessMachine;
-        ushort runtimeNativeMachine;
-        ushort subjectProcessMachine;
-        ushort subjectNativeMachine;
-        if (!IsWow64Process2(GetCurrentProcess(), out runtimeProcessMachine, out runtimeNativeMachine) ||
-            !IsWow64Process2(processHandle, out subjectProcessMachine, out subjectNativeMachine))
+        try
+        {
+            ushort runtimeProcessMachine;
+            ushort runtimeNativeMachine;
+            ushort subjectProcessMachine;
+            ushort subjectNativeMachine;
+            if (!IsWow64Process2(GetCurrentProcess(), out runtimeProcessMachine, out runtimeNativeMachine) ||
+                !IsWow64Process2(processHandle, out subjectProcessMachine, out subjectNativeMachine))
+            {
+                return "unknown";
+            }
+            ushort runtimeMachine = runtimeProcessMachine == ImageFileMachineUnknown ? runtimeNativeMachine : runtimeProcessMachine;
+            ushort subjectMachine = subjectProcessMachine == ImageFileMachineUnknown ? subjectNativeMachine : subjectProcessMachine;
+            return runtimeMachine == subjectMachine ? "same" : "cross";
+        }
+        catch (EntryPointNotFoundException)
         {
             return "unknown";
         }
-        ushort runtimeMachine = runtimeProcessMachine == ImageFileMachineUnknown ? runtimeNativeMachine : runtimeProcessMachine;
-        ushort subjectMachine = subjectProcessMachine == ImageFileMachineUnknown ? subjectNativeMachine : subjectProcessMachine;
-        return runtimeMachine == subjectMachine ? "same" : "cross";
+        catch
+        {
+            return "unknown";
+        }
     }
 
     private static string CommandPartialCopyReceiptJson(IntPtr processHandle)
