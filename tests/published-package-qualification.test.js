@@ -22,6 +22,7 @@ import {
   validateRelease,
   validateRetainedArtifactMetadata,
   retainAdminTrustedUnlockReceipt,
+  validateRetainedAdminTrustedUnlockReceipt,
   validateRetainedEvidence,
   validateTerminalJobMetadata,
   verifyFileSha256,
@@ -386,6 +387,14 @@ test("AC-4BY.2 retains only observed consumer receipts and never upgrades a fail
   );
   const success = retainAdminTrustedUnlockReceipt(JSON.stringify({ schema: "service-lasso.admin-trusted-unlock-consumer.v1", outcome: "success", exitCode: 0, signal: null, trustedUnlock: { classification: "not_emitted" } }), expected);
   assert.deepEqual(success.trustedUnlock, { classification: "not_emitted", reason: "no_failure" });
+  const observationFailure = retainAdminTrustedUnlockReceipt(JSON.stringify({ schema: "service-lasso.admin-trusted-unlock-consumer.v1", outcome: "observation_failure", exitCode: 0, signal: null, streamFailure: "malformed_utf8", trustedUnlock: { classification: "closed", receipt: JSON.parse(raw).trustedUnlock.receipt } }), expected);
+  assert.deepEqual(observationFailure.consumerFailure, { source: "stream", classification: "malformed_utf8" });
+  assert.deepEqual(validateRetainedAdminTrustedUnlockReceipt(observationFailure, expected), observationFailure);
+  for (const failure of [
+    { source: "stream", classification: "unknown" },
+    { source: "execution", classification: "spawn_failed", extra: true },
+    { source: "stream", classification: "pipe_hang", executionFailure: "spawn_failed" },
+  ]) expectCode("invalid_retained_trusted_unlock_receipt", () => validateRetainedAdminTrustedUnlockReceipt({ ...observationFailure, consumerFailure: failure }, expected));
 });
 
 test("AC-4BY.2 preparation rejects a stale Admin harness pin before any mutation", async () => {

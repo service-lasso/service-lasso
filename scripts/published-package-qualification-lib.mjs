@@ -22,6 +22,11 @@ export function retainAdminTrustedUnlockReceipt(source, expected) {
   const normalizedTrustedUnlock = parsed.trustedUnlock.classification === "closed"
     ? { classification: "closed", receipt: parsed.trustedUnlock.receipt }
     : { classification: "not_emitted", reason: "no_failure" };
+  const consumerFailure = parsed.outcome === "observation_failure"
+    ? parsed.streamFailure !== undefined
+      ? { source: "stream", classification: parsed.streamFailure }
+      : { source: "execution", classification: parsed.executionFailure }
+    : null;
   return {
     schema: RETAINED_ADMIN_TRUSTED_UNLOCK_RECEIPT_SCHEMA,
     platform: expected.platform,
@@ -33,6 +38,7 @@ export function retainAdminTrustedUnlockReceipt(source, expected) {
     consumerOutcome: parsed?.outcome ?? "missing",
     consumerExitCode: parsed?.exitCode ?? null,
     consumerSignal: parsed?.signal ?? null,
+    consumerFailure,
     trustedUnlock: normalizedTrustedUnlock,
   };
 }
@@ -44,6 +50,7 @@ export function validateRetainedAdminTrustedUnlockReceipt(receipt, expected) {
     "adminReleaseId",
     "adminRevision",
     "consumerExitCode",
+    "consumerFailure",
     "consumerOutcome",
     "consumerSignal",
     "coreRevision",
@@ -68,17 +75,29 @@ export function validateRetainedAdminTrustedUnlockReceipt(receipt, expected) {
     fail("invalid_retained_trusted_unlock_receipt", "Retained Admin trusted-unlock receipt is invalid.");
   }
   const trustedUnlock = receipt.trustedUnlock;
+  const consumerFailure = receipt.consumerFailure;
+  const consumerSource = {
+    schema: "service-lasso.admin-trusted-unlock-consumer.v1",
+    outcome: receipt.consumerOutcome,
+    exitCode: receipt.consumerExitCode,
+    signal: receipt.consumerSignal,
+    trustedUnlock,
+  };
+  if (receipt.consumerOutcome === "observation_failure") {
+    if (!consumerFailure || typeof consumerFailure !== "object" || Array.isArray(consumerFailure) || Object.keys(consumerFailure).sort().join(",") !== "classification,source") {
+      fail("invalid_retained_trusted_unlock_receipt", "Retained Admin observation failure is invalid.");
+    }
+    if (consumerFailure.source === "stream" && ["pipe_hang", "stream_budget_exceeded", "malformed_utf8"].includes(consumerFailure.classification)) consumerSource.streamFailure = consumerFailure.classification;
+    else if (consumerFailure.source === "execution" && ["execution_timeout", "spawn_failed"].includes(consumerFailure.classification)) consumerSource.executionFailure = consumerFailure.classification;
+    else fail("invalid_retained_trusted_unlock_receipt", "Retained Admin observation failure mechanism is invalid.");
+  } else if (consumerFailure !== null) {
+    fail("invalid_retained_trusted_unlock_receipt", "Retained Admin consumer has an unexpected failure mechanism.");
+  }
   if (trustedUnlock?.classification === "closed") {
     if (Object.keys(trustedUnlock).sort().join(",") !== "classification,receipt") {
       fail("invalid_retained_trusted_unlock_receipt", "Retained Admin trusted-unlock receipt has expanded fields.");
     }
-    if (!parseConsumerReceipt(JSON.stringify({
-      schema: "service-lasso.admin-trusted-unlock-consumer.v1",
-      outcome: receipt.consumerOutcome,
-      exitCode: receipt.consumerExitCode,
-      signal: receipt.consumerSignal,
-      trustedUnlock,
-    }))) {
+    if (!parseConsumerReceipt(JSON.stringify(consumerSource))) {
       fail("invalid_retained_trusted_unlock_receipt", "Retained Admin trusted-unlock receipt is not closed.");
     }
   } else if (trustedUnlock?.classification !== "not_emitted" || Object.keys(trustedUnlock ?? {}).sort().join(",") !== "classification,reason" || trustedUnlock.reason !== "no_failure") {

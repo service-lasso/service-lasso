@@ -361,6 +361,7 @@ jobs:
         env:
           PACKAGED_ARTIFACTS_ROOT: ${{ runner.temp }}/packaged-admin-lifecycle-artifacts
           QUALIFICATION_CANDIDATE_SHA: ${{ env.QUALIFICATION_CANDIDATE_SHA }}
+          QUALIFICATION_EVENT_SHA: ${{ env.QUALIFICATION_EVENT_SHA }}
         run: node scripts/verify-packaged-admin-lifecycle-artifacts.mjs
 
       - name: Require all packaged Admin lifecycle platforms

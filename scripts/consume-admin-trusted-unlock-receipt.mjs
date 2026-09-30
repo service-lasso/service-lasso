@@ -149,10 +149,11 @@ export function parseConsumerReceipt(source) {
   if (value.exitCode !== null && value.signal !== null) return null;
   if (value.streamFailure !== undefined && !["pipe_hang", "stream_budget_exceeded", "malformed_utf8"].includes(value.streamFailure)) return null;
   if (value.executionFailure !== undefined && !["execution_timeout", "spawn_failed"].includes(value.executionFailure)) return null;
+  if (value.streamFailure !== undefined && value.executionFailure !== undefined) return null;
   if (value.outcome === "success" && (value.exitCode !== 0 || value.signal !== null || value.streamFailure !== undefined || value.executionFailure !== undefined)) return null;
   if (value.outcome === "nonzero_exit" && (value.exitCode <= 0 || value.signal !== null || value.streamFailure !== undefined || value.executionFailure !== undefined)) return null;
   if (value.outcome === "signal" && (value.exitCode !== null || value.signal === null || value.streamFailure !== undefined || value.executionFailure !== undefined)) return null;
-  if (value.outcome === "observation_failure" && value.streamFailure === undefined && value.executionFailure === undefined) return null;
+  if (value.outcome === "observation_failure" && (value.streamFailure === undefined) === (value.executionFailure === undefined)) return null;
   const trusted = value.trustedUnlock;
   if (trusted === null && value.outcome !== "success") return null;
   if (trusted !== null) {
@@ -333,6 +334,6 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
     const result = await consume(process.argv[separator + 1], process.argv.slice(separator + 2), { cwd: process.cwd(), env: process.env });
     await writeFile(process.argv[receipt + 1], `${JSON.stringify({ schema: "service-lasso.admin-trusted-unlock-consumer.v1", outcome: outcomeFor(result), exitCode: result.code, signal: result.signal, trustedUnlock: result.trustedUnlock, ...(result.streamFailure ? { streamFailure: result.streamFailure } : {}), ...(result.executionFailure ? { executionFailure: result.executionFailure } : {}) })}\n`);
     if (!result.streamFailure && result.signal && process.platform !== "win32" && PROPAGATED_SIGNALS.has(result.signal)) process.kill(process.pid, result.signal);
-    else process.exitCode = result.code === 0 && !result.signal && !result.executionFailure ? 0 : (result.signal || result.executionFailure ? 1 : result.code ?? 1);
+    else process.exitCode = result.code === 0 && !result.signal && !result.executionFailure && !result.streamFailure ? 0 : (result.signal || result.executionFailure || result.streamFailure ? 1 : result.code ?? 1);
   }
 }

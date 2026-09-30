@@ -8,12 +8,35 @@ const workflowUrl = new URL(
   "../.github/workflows/packaged-admin-lifecycle.yml",
   import.meta.url,
 );
+const candidateExpression = "${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}";
+const eventExpression = "${{ github.sha }}";
+
+function assertCandidateProjection(source) {
+  const document = parseDocument(source, { uniqueKeys: true });
+  assert.equal(document.errors.length, 0, document.errors.map(String).join("\n"));
+  const workflow = document.toJS();
+  assert.deepEqual(workflow.env, {
+    QUALIFICATION_CANDIDATE_SHA: candidateExpression,
+    QUALIFICATION_EVENT_SHA: eventExpression,
+  });
+  const lifecycleCheckout = workflow.jobs["packaged-admin-lifecycle"].steps.find((step) => step.name === "Check out candidate Core");
+  const aggregateCheckout = workflow.jobs["require-packaged-admin-lifecycle"].steps.find((step) => step.name === "Check out exact aggregate verifier");
+  assert.equal(lifecycleCheckout.with.ref, "${{ env.QUALIFICATION_CANDIDATE_SHA }}");
+  assert.equal(aggregateCheckout.with.ref, "${{ env.QUALIFICATION_CANDIDATE_SHA }}");
+  const custody = workflow.jobs["require-packaged-admin-lifecycle"].steps.find((step) => step.name === "Validate current-run receipt custody");
+  assert.deepEqual(custody.env, {
+    PACKAGED_ARTIFACTS_ROOT: "${{ runner.temp }}/packaged-admin-lifecycle-artifacts",
+    QUALIFICATION_CANDIDATE_SHA: "${{ env.QUALIFICATION_CANDIDATE_SHA }}",
+    QUALIFICATION_EVENT_SHA: "${{ env.QUALIFICATION_EVENT_SHA }}",
+  });
+}
 
 test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS browser acceptance", async () => {
   const workflow = await readFile(workflowUrl, "utf8");
   const document = parseDocument(workflow, { uniqueKeys: true });
   assert.equal(document.errors.length, 0, document.errors.map(String).join("\n"));
   const parsed = document.toJS();
+  assertCandidateProjection(workflow);
   const expectedPaths = [
     ".github/workflows/packaged-admin-lifecycle.yml",
     "services/@serviceadmin/service.json",
@@ -41,10 +64,6 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
   );
 
   assert.match(workflow, /repository: service-lasso\/lasso-serviceadmin/);
-  assert.match(
-    workflow,
-    /Check out candidate Core[\s\S]*?ref: \$\{\{ github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.sha \|\| github\.sha \}\}/,
-  );
   assert.match(
     workflow,
     /ADMIN_REVISION: "f015b4445b0526546a309301270186a697588166"/,
@@ -160,4 +179,13 @@ test("AC-4BY.2 rejects YAML scalar continuations that silently remove receipt-cu
   const paths = document.toJS().on.pull_request.paths;
   assert.ok(paths.includes("scripts/consume-admin-trusted-unlock-receipt.mjs - scripts/retain-packaged-admin-lifecycle-receipt.mjs"));
   assert.ok(!paths.includes("scripts/retain-packaged-admin-lifecycle-receipt.mjs"));
+});
+
+test("AC-4BY.2 rejects parsed PR-head and synthetic-merge identity regressions", async () => {
+  const workflow = await readFile(workflowUrl, "utf8");
+  for (const [label, invalid] of [
+    ["candidate projection", workflow.replace("QUALIFICATION_CANDIDATE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}", "QUALIFICATION_CANDIDATE_SHA: ${{ github.sha }}")],
+    ["candidate checkout", workflow.replace("ref: ${{ env.QUALIFICATION_CANDIDATE_SHA }}", "ref: ${{ github.sha }}")],
+    ["aggregate event projection", workflow.split("\n").map((line) => line.trim() === "QUALIFICATION_EVENT_SHA: ${{ env.QUALIFICATION_EVENT_SHA }}" ? line.replace("QUALIFICATION_EVENT_SHA", "QUALIFICATION_CANDIDATE_SHA") : line).join("\n")],
+  ]) assert.throws(() => assertCandidateProjection(invalid), label);
 });

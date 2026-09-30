@@ -37,6 +37,7 @@ test("AC-4BY.2 rejects contradictory primary failures and requires observation-f
     { outcome: "nonzero_exit", exitCode: 7, signal: "SIGTERM" },
     { outcome: "signal", exitCode: 7, signal: "SIGTERM" },
     { outcome: "observation_failure", exitCode: 0, signal: null },
+    { outcome: "observation_failure", exitCode: 0, signal: null, streamFailure: "pipe_hang", executionFailure: "spawn_failed" },
     { outcome: "success", exitCode: 0, signal: null, executionFailure: "spawn_failed" },
   ]) assert.equal(parseConsumerReceipt(source(contradictory)), null);
 });
@@ -80,7 +81,7 @@ test("AC-4BY.2 keeps UTF-8 and CRLF receipt framing across arbitrary chunks whil
     assert.equal(split.result.code, 7);
     assert.equal(split.receipt.trustedUnlock.classification, "closed");
     const flood = await run(`for (let i=0;i<2000;i++) process.stderr.write(${JSON.stringify(`${valid}\n`)}); process.exit(7);`);
-    assert.equal(flood.result.code, 7);
+    assert.equal(flood.result.code, 1);
     assert.deepEqual(flood.receipt.trustedUnlock, { classification: "invalid" });
     const overlong = await run(`process.stderr.write(${JSON.stringify(`${"x".repeat(300)}${valid}\n`)}, () => process.exit(7));`);
     assert.equal(overlong.result.code, 7);
@@ -117,6 +118,25 @@ test("AC-4BY.2 bounds actual malformed, oversized, and continuing child streams 
     assert.equal(result.streamFailure, "malformed_utf8");
     assert.deepEqual(result.trustedUnlock, { classification: "invalid" });
     assert.doesNotMatch(JSON.stringify(result), /private-continuation/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("AC-4BY.2 emits a failed observation receipt for controlled malformed and over-budget subprocesses", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "admin-receipt-observation-failure-"));
+  try {
+    const consumer = fileURLToPath(new URL("../scripts/consume-admin-trusted-unlock-receipt.mjs", import.meta.url));
+    for (const [name, body, mechanism] of [
+      ["malformed", "process.stderr.write(Buffer.from([0xc3, 0x28]), () => process.exit(0));", { streamFailure: "malformed_utf8" }],
+      ["budget", "process.stderr.write(Buffer.alloc(65537, 0x78), () => process.exit(0));", { streamFailure: "stream_budget_exceeded" }],
+    ]) {
+      const fixture = path.join(root, `${name}.mjs`), output = path.join(root, `${name}.json`);
+      await writeFile(fixture, body);
+      const child = spawn(process.execPath, [consumer, "--receipt", output, "--", process.execPath, fixture], { stdio: "ignore" });
+      const result = await new Promise((resolve, reject) => { child.once("error", reject); child.once("close", (code, signal) => resolve({ code, signal })); });
+      const receipt = JSON.parse(await readFile(output, "utf8"));
+      assert.deepEqual(result, { code: 1, signal: null });
+      assert.deepEqual(receipt, { schema: "service-lasso.admin-trusted-unlock-consumer.v1", outcome: "observation_failure", exitCode: 0, signal: null, trustedUnlock: { classification: "invalid" }, ...mechanism });
+    }
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 

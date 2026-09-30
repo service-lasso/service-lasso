@@ -12,6 +12,7 @@ const script = new URL("../scripts/verify-packaged-admin-lifecycle-artifacts.mjs
 const workflow = new URL("../.github/workflows/packaged-admin-lifecycle.yml", import.meta.url);
 const runId = "431", runAttempt = "2", candidateSha = "a".repeat(40), eventSha = "b".repeat(40);
 const receipt = { schema: "service-lasso.admin-trusted-unlock-consumer.v1", outcome: "nonzero_exit", exitCode: 1, signal: null, trustedUnlock: { classification: "closed", receipt: { schema: "service-admin.trusted-unlock-receipt.v1", status: "observed", present: true, verified: false, localRoot: false, loading: true, unavailable: false } } };
+const observationFailureReceipt = { ...receipt, outcome: "observation_failure", exitCode: 0, streamFailure: "malformed_utf8" };
 function evidenceFor(platform) {
   const release = (value) => ({ revision: value.revision, releaseId: value.id, tag: value.tag, asset: value.platforms[platform].asset, sha256: value.platforms[platform].sha256, checksumSource: "SHA256SUMS.txt" });
   return { schema: "service-lasso.packaged-admin-lifecycle.v1", retainedContent: "metadata_only", outcome: "failure", platform, core: { revision: candidateSha }, admin: release(ADMIN_RELEASE), adminHarness: { repository: "service-lasso/lasso-serviceadmin", revision: ADMIN_HARNESS_REVISION }, broker: release(BROKER_RELEASE), browser: { modes: platform === "win32" ? ["first_run", "comprehensive_lifecycle", "stopped_lifecycle", "local_operator_lockout"] : ["first_run", "comprehensive_lifecycle", "stopped_lifecycle"], mutationRetry: false, capturesRetained: false, sensitiveEvidenceRetained: false } };
@@ -43,6 +44,10 @@ test("AC-4BY.2 aggregate validates an executable successful no-failure consumer 
   const result = verify(await fixture(undefined, success));
   assert.equal(result.status, 0, result.stderr);
 });
+test("AC-4BY.2 aggregate preserves an executable observation-failure mechanism without qualifying it", async () => {
+  const result = verify(await fixture(undefined, observationFailureReceipt));
+  assert.equal(result.status, 0, result.stderr);
+});
 for (const [label, source] of [
   ["missing read file", null],
   ["truncated duplicate source", '{"schema":"service-lasso.admin-trusted-unlock-consumer.v1","outcome":"nonzero_exit","outcome":"nonzero_exit"}'],
@@ -59,6 +64,7 @@ for (const [label, source] of [
 for (const [label, source] of [
   ["contradictory exit and signal", { ...receipt, exitCode: 7, signal: "SIGTERM" }],
   ["observation failure without mechanism", { ...receipt, outcome: "observation_failure", exitCode: 0 }],
+  ["observation failure with dual mechanisms", { ...observationFailureReceipt, executionFailure: "spawn_failed" }],
   ["private source", { ...receipt, private: true }],
   ["duplicate source", JSON.stringify(receipt).replace('"outcome":"nonzero_exit",', '"outcome":"nonzero_exit","outcome":"nonzero_exit",')],
   ["missing source", null],
