@@ -18,6 +18,7 @@ concurrency:
 
 env:
   CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+  DISPATCH_SHA: ${{ github.sha }}
 
 jobs:
   build-candidate:
@@ -30,6 +31,7 @@ jobs:
       artifact_name: core-development-candidate-${{ env.CANDIDATE_SHA }}
       artifact_id: ${{ steps.upload.outputs.artifact-id }}
       artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+      dispatch_sha: ${{ env.DISPATCH_SHA }}
     steps:
       - name: Check out requested exact candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -74,6 +76,7 @@ jobs:
           DEVELOPMENT_CANDIDATE_ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
           DEVELOPMENT_CANDIDATE_ARTIFACT_NAME: core-development-candidate-${{ env.CANDIDATE_SHA }}
           DEVELOPMENT_CANDIDATE_ARTIFACT_DIGEST: ${{ steps.upload.outputs.artifact-digest }}
+          DEVELOPMENT_CANDIDATE_DISPATCH_SHA: ${{ env.DISPATCH_SHA }}
         run: node scripts/verify-development-candidate-artifact.mjs
 
   smoke-consumer:
@@ -113,6 +116,7 @@ jobs:
           DEVELOPMENT_CANDIDATE_ARTIFACT_ID: ${{ needs.build-candidate.outputs.artifact_id }}
           DEVELOPMENT_CANDIDATE_ARTIFACT_NAME: ${{ needs.build-candidate.outputs.artifact_name }}
           DEVELOPMENT_CANDIDATE_ARTIFACT_DIGEST: ${{ needs.build-candidate.outputs.artifact_digest }}
+          DEVELOPMENT_CANDIDATE_DISPATCH_SHA: ${{ needs.build-candidate.outputs.dispatch_sha }}
         run: node scripts/verify-development-candidate-artifact.mjs
 
       - name: Download candidate artifact

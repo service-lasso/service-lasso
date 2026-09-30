@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const candidateSha = "a".repeat(40);
+const dispatchSha = "c".repeat(40);
 const hash = (value) => createHash("sha256").update(value).digest("hex");
 
 async function run(script, environment) {
@@ -63,13 +64,40 @@ test("AC-4BZ.3 consumer behavior rejects an artifact with extra files before ext
   } finally { await rm(fixture.temporaryRoot, { recursive: true, force: true }); }
 });
 
-test("AC-4BZ.3 artifact readback behavior rejects an API artifact with the wrong source SHA", async () => {
+test("AC-4BZ.3 artifact readback accepts an older valid candidate bound to its trusted dispatch source", async () => {
   const archive = Buffer.from("candidate-archive");
   const server = createServer((request, response) => {
     const payload = request.url.endsWith("/actions/runs/77")
-      ? { head_sha: candidateSha }
+      ? { head_sha: dispatchSha }
       : request.url.endsWith("/actions/artifacts/101")
-        ? { id: 101, name: `core-development-candidate-${candidateSha}`, expired: false, size_in_bytes: archive.length, digest: `sha256:${hash(archive)}`, workflow_run: { head_sha: "b".repeat(40) } }
+        ? { id: 101, name: `core-development-candidate-${candidateSha}`, expired: false, size_in_bytes: archive.length, digest: `sha256:${hash(archive)}`, workflow_run: { id: 77, head_sha: dispatchSha } }
+        : null;
+    if (request.url.endsWith("/zip")) { response.end(archive); return; }
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify(payload));
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  try {
+    await run("scripts/verify-development-candidate-artifact.mjs", {
+      GITHUB_REPOSITORY: "owner/repo", GH_TOKEN: "test-token", GITHUB_RUN_ID: "77", CANDIDATE_SHA: candidateSha,
+      DEVELOPMENT_CANDIDATE_ARTIFACT_ID: "101", DEVELOPMENT_CANDIDATE_ARTIFACT_NAME: `core-development-candidate-${candidateSha}`,
+      DEVELOPMENT_CANDIDATE_ARTIFACT_DIGEST: `sha256:${hash(archive)}`, DEVELOPMENT_CANDIDATE_DISPATCH_SHA: dispatchSha, GITHUB_API_URL: `http://127.0.0.1:${address.port}`,
+    });
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
+});
+
+test("AC-4BZ.3 artifact readback rejects an API artifact detached from its trusted dispatch source", async () => {
+  const archive = Buffer.from("candidate-archive");
+  const server = createServer((request, response) => {
+    const payload = request.url.endsWith("/actions/runs/77")
+      ? { head_sha: dispatchSha }
+      : request.url.endsWith("/actions/artifacts/101")
+        ? { id: 101, name: `core-development-candidate-${candidateSha}`, expired: false, size_in_bytes: archive.length, digest: `sha256:${hash(archive)}`, workflow_run: { id: 77, head_sha: candidateSha } }
         : null;
     if (request.url.endsWith("/zip")) { response.end(archive); return; }
     response.setHeader("content-type", "application/json");
@@ -82,8 +110,35 @@ test("AC-4BZ.3 artifact readback behavior rejects an API artifact with the wrong
     await assert.rejects(run("scripts/verify-development-candidate-artifact.mjs", {
       GITHUB_REPOSITORY: "owner/repo", GH_TOKEN: "test-token", GITHUB_RUN_ID: "77", CANDIDATE_SHA: candidateSha,
       DEVELOPMENT_CANDIDATE_ARTIFACT_ID: "101", DEVELOPMENT_CANDIDATE_ARTIFACT_NAME: `core-development-candidate-${candidateSha}`,
-      DEVELOPMENT_CANDIDATE_ARTIFACT_DIGEST: `sha256:${hash(archive)}`, GITHUB_API_URL: `http://127.0.0.1:${address.port}`,
+      DEVELOPMENT_CANDIDATE_ARTIFACT_DIGEST: `sha256:${hash(archive)}`, DEVELOPMENT_CANDIDATE_DISPATCH_SHA: dispatchSha, GITHUB_API_URL: `http://127.0.0.1:${address.port}`,
     }), /Candidate artifact API source binding is invalid/u);
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
+});
+
+test("AC-4BZ.3 artifact readback rejects a workflow run detached from its trusted dispatch source", async () => {
+  const archive = Buffer.from("candidate-archive");
+  const server = createServer((request, response) => {
+    const payload = request.url.endsWith("/actions/runs/77")
+      ? { head_sha: candidateSha }
+      : request.url.endsWith("/actions/artifacts/101")
+        ? { id: 101, name: `core-development-candidate-${candidateSha}`, expired: false, size_in_bytes: archive.length, digest: `sha256:${hash(archive)}`, workflow_run: { id: 77, head_sha: dispatchSha } }
+        : null;
+    if (request.url.endsWith("/zip")) { response.end(archive); return; }
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify(payload));
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  try {
+    await assert.rejects(run("scripts/verify-development-candidate-artifact.mjs", {
+      GITHUB_REPOSITORY: "owner/repo", GH_TOKEN: "test-token", GITHUB_RUN_ID: "77", CANDIDATE_SHA: candidateSha,
+      DEVELOPMENT_CANDIDATE_ARTIFACT_ID: "101", DEVELOPMENT_CANDIDATE_ARTIFACT_NAME: `core-development-candidate-${candidateSha}`,
+      DEVELOPMENT_CANDIDATE_ARTIFACT_DIGEST: `sha256:${hash(archive)}`, DEVELOPMENT_CANDIDATE_DISPATCH_SHA: dispatchSha, GITHUB_API_URL: `http://127.0.0.1:${address.port}`,
+    }), /Workflow run is not bound to the trusted dispatch SHA/u);
   } finally {
     server.close();
     await once(server, "close");
