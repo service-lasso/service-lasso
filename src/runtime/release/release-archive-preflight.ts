@@ -432,10 +432,13 @@ function streamGzipTar(bytes: Uint8Array, limits: ReleaseArchiveLimits): Release
       validator.write(chunk); if (final) finalSeen = true;
     });
     for (let offset = 0; offset < compressed.length; offset += 16 * 1024) inflater.push(compressed.subarray(offset, Math.min(compressed.length, offset + 16 * 1024)), offset + 16 * 1024 >= compressed.length);
-    const internals = inflater as unknown as { p: Uint8Array; s: { f?: number; p?: number } };
-    // fflate retains the final, partially consumed DEFLATE byte. Its unused
-    // padding bits must be zero; any additional byte is a trailing stream.
-    if (!finalSeen || internals.s.f !== 1 || internals.p.length > 1 || (internals.p.length === 1 && (!(internals.s.p && internals.s.p > 0) || (internals.p[0]! >>> internals.s.p) !== 0))) fail();
+    const internals = inflater as unknown as { p: Uint8Array; s: { f?: number; l?: unknown; p?: number } };
+    // fflate retains the final, partially consumed DEFLATE byte in `p` and
+    // reports its consumed bit count in `s.p`. Unused bits in that terminal
+    // byte are legal DEFLATE padding; a second retained byte is trailing data.
+    const consumedBits = internals.s.p;
+    if (!finalSeen || internals.s.f !== 1 || internals.s.l != null || !Number.isInteger(consumedBits)
+      || internals.p.length !== 0 && (internals.p.length !== 1 || consumedBits! < 1 || consumedBits! > 7)) fail();
   } catch { fail(); }
   if (((checksum ^ 0xffffffff) >>> 0) !== u32(bytes, bytes.length - 8) || (expanded >>> 0) !== u32(bytes, bytes.length - 4)) fail();
   return validator.finish();

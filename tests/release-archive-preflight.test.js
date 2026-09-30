@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import test from "node:test";
 import { deflateRawSync, gzipSync } from "node:zlib";
+import { Inflate } from "fflate";
 import { preflightReleaseArchive } from "../dist/runtime/release/release-archive-preflight.js";
 
 function crc32(bytes) {
@@ -54,6 +55,15 @@ function gzipWithExtraAndHeaderCrc(archive) {
   const extra = Buffer.from([2, 0, 0xaa, 0x55]);
   const crc = crc32(Buffer.concat([header, extra]));
   return Buffer.concat([header, extra, Buffer.from([crc & 0xff, crc >>> 8]), archive.subarray(10)]);
+}
+function gzipWithNonzeroTerminalPadding(archive) {
+  const compressed = Buffer.from(archive.subarray(10, -8));
+  const inflater = new Inflate(() => {});
+  inflater.push(compressed, true);
+  if (inflater.s.f !== 1 || inflater.s.l !== null || inflater.p.length !== 1 || inflater.s.p < 1 || inflater.s.p > 7) return undefined;
+  const padded = Buffer.from(compressed);
+  padded[padded.length - 1] |= (0xff << inflater.s.p) & 0xff;
+  return Buffer.concat([archive.subarray(0, 10), padded, archive.subarray(-8)]);
 }
 function unsafe(result) { assert.deepEqual(result, { ok: false, error: { status: 409, code: "archive_unsafe" } }); }
 
@@ -167,6 +177,17 @@ test("TAR streams large members in bounded chunks and rejects gzip truncation, t
   unsafe(preflightReleaseArchive({ bytes: archive.subarray(0, -1), archiveType: "tar.gz" }));
   const trailingDeflate = Buffer.concat([archive.subarray(0, -8), Buffer.from([0]), archive.subarray(-8)]);
   unsafe(preflightReleaseArchive({ bytes: trailingDeflate, archiveType: "tar.gz" }));
+});
+
+test("TAR permits nonzero unused terminal DEFLATE padding while retaining strict end-state framing", () => {
+  let padded;
+  for (let length = 1; length <= 64 && !padded; length += 1) padded = gzipWithNonzeroTerminalPadding(tar([{ name: "bundle/service.json", content: "x".repeat(length) }]));
+  assert.ok(padded, "fixture must retain one partially consumed terminal DEFLATE byte");
+  assert.equal(preflightReleaseArchive({ bytes: padded, archiveType: "tar.gz" }).ok, true);
+  const compressedEnd = padded.length - 8;
+  const retainedBytes = Buffer.concat([padded.subarray(0, compressedEnd), Buffer.from([0]), padded.subarray(compressedEnd)]);
+  unsafe(preflightReleaseArchive({ bytes: retainedBytes, archiveType: "tar.gz" }));
+  unsafe(preflightReleaseArchive({ bytes: padded.subarray(0, -9), archiveType: "tar.gz" }));
 });
 
 test("TAR refuses a compressed expansion bomb before a member can become observable", () => {
