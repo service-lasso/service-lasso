@@ -53,6 +53,11 @@ const ZIP_EOCD = 0x06054b50;
 const ZIP_DESCRIPTOR = 0x08074b50;
 const ZIP64_EOCD = 0x06064b50;
 const ZIP64_LOCATOR = 0x07064b50;
+const GZIP_OPTIONAL_FIELD_MAX_BYTES = 4_096;
+const GZIP_FHCRC_BYTES = 2;
+// The aggregate is the exact sum of the closed optional-field grammar: at
+// most one extra, name, and comment field, plus the fixed-width FHCRC.
+const GZIP_OPTIONAL_HEADER_MAX_BYTES = GZIP_OPTIONAL_FIELD_MAX_BYTES * 3 + GZIP_FHCRC_BYTES;
 
 class UnsafeArchive extends Error {}
 const fail = (): never => { throw new UnsafeArchive(); };
@@ -443,14 +448,22 @@ class TarStreamValidator {
 function streamGzipTar(bytes: Uint8Array, limits: ReleaseArchiveLimits): ReleaseArchiveInventory {
   if (bytes.length < 18 || bytes[0] !== 0x1f || bytes[1] !== 0x8b || bytes[2] !== 8) fail();
   const flags = bytes[3]!; if ((flags & 0xe0) !== 0) fail(); let cursor = 10;
+  let optionalHeaderBytes = 0;
   const bounded = (terminated: boolean): void => {
     const start = cursor;
     if (terminated) { while (cursor < bytes.length && bytes[cursor] !== 0) cursor += 1; if (cursor >= bytes.length) fail(); cursor += 1; }
     else { if (cursor + 2 > bytes.length) fail(); const length = u16(bytes, cursor); cursor += 2 + length; }
-    if (cursor > bytes.length - 8 || cursor - start > 4096) fail();
+    const fieldBytes = cursor - start;
+    if (cursor > bytes.length - 8 || fieldBytes > GZIP_OPTIONAL_FIELD_MAX_BYTES) fail();
+    optionalHeaderBytes += fieldBytes;
+    if (optionalHeaderBytes > GZIP_OPTIONAL_HEADER_MAX_BYTES) fail();
   };
   if ((flags & 4) !== 0) bounded(false); if ((flags & 8) !== 0) bounded(true); if ((flags & 16) !== 0) bounded(true);
-  if ((flags & 2) !== 0) { if (cursor + 2 > bytes.length - 8 || cursor + 2 > 4096) fail(); if (u16(bytes, cursor) !== (crc32(bytes.subarray(0, cursor)) & 0xffff)) fail(); cursor += 2; }
+  if ((flags & 2) !== 0) {
+    if (cursor + GZIP_FHCRC_BYTES > bytes.length - 8 || optionalHeaderBytes + GZIP_FHCRC_BYTES > GZIP_OPTIONAL_HEADER_MAX_BYTES) fail();
+    if (u16(bytes, cursor) !== (crc32(bytes.subarray(0, cursor)) & 0xffff)) fail();
+    cursor += GZIP_FHCRC_BYTES;
+  }
   const compressed = bytes.subarray(cursor, bytes.length - 8);
   const validator = new TarStreamValidator(bytes, limits); let expanded = 0; let checksum = 0xffffffff; let finalSeen = false;
   try {

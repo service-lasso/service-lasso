@@ -50,11 +50,16 @@ function pax(fields) {
     for (;;) { const record = `${length} ${payload}`; if (Buffer.byteLength(record) === length) return Buffer.from(record); length = Buffer.byteLength(record); }
   })).toString();
 }
-function gzipWithExtraAndHeaderCrc(archive) {
-  const header = Buffer.from(archive.subarray(0, 10)); header[3] = 0x06;
-  const extra = Buffer.from([2, 0, 0xaa, 0x55]);
-  const crc = crc32(Buffer.concat([header, extra]));
-  return Buffer.concat([header, extra, Buffer.from([crc & 0xff, crc >>> 8]), archive.subarray(10)]);
+function gzipWithOptionalHeaders(archive, { extra, name, comment, headerCrc = false } = {}) {
+  const header = Buffer.from(archive.subarray(0, 10)); const fields = []; let flags = 0;
+  if (extra !== undefined) { const value = Buffer.from(extra); flags |= 0x04; fields.push(u16(value.length), value); }
+  if (name !== undefined) { flags |= 0x08; fields.push(Buffer.from(name), Buffer.from([0])); }
+  if (comment !== undefined) { flags |= 0x10; fields.push(Buffer.from(comment), Buffer.from([0])); }
+  if (headerCrc) flags |= 0x02;
+  header[3] = flags;
+  const prefix = Buffer.concat([header, ...fields]);
+  const fhcrc = headerCrc ? Buffer.from([crc32(prefix) & 0xff, crc32(prefix) >>> 8]) : Buffer.alloc(0);
+  return { archive: Buffer.concat([prefix, fhcrc, archive.subarray(10)]), headerCrcOffset: prefix.length, prefix };
 }
 function gzipWithNonzeroTerminalPadding(archive) {
   const compressed = Buffer.from(archive.subarray(10, -8));
@@ -220,11 +225,24 @@ test("TAR refuses a compressed expansion bomb before a member can become observa
   unsafe(preflightReleaseArchive({ bytes: archive, archiveType: "tgz" }));
 });
 
-test("TAR verifies bounded gzip extra fields and header CRC before accepting compressed framing", () => {
-  const archive = gzipWithExtraAndHeaderCrc(tar([{ name: "bundle/service.json", content: "{}" }]));
-  assert.deepEqual(preflightReleaseArchive({ bytes: archive, archiveType: "tar.gz" }), { ok: true, inventory: { archiveType: "tar.gz", entries: 1, regularFiles: 1, directories: 0, expandedBytes: 2 } });
-  const corruptHeaderCrc = Buffer.from(archive); corruptHeaderCrc[15] ^= 1;
+test("TAR accepts legal maximal gzip optional fields and validates FHCRC independently", () => {
+  const source = tar([{ name: "bundle/service.json", content: "{}" }]);
+  const fixture = gzipWithOptionalHeaders(source, {
+    extra: Buffer.alloc(4094, 0xaa),
+    name: Buffer.alloc(4095, 0x6e),
+    comment: Buffer.alloc(4095, 0x63),
+    headerCrc: true,
+  });
+  assert.deepEqual(preflightReleaseArchive({ bytes: fixture.archive, archiveType: "tar.gz" }), { ok: true, inventory: { archiveType: "tar.gz", entries: 1, regularFiles: 1, directories: 0, expandedBytes: 2 } });
+  const corruptHeaderCrc = Buffer.from(fixture.archive); corruptHeaderCrc[fixture.headerCrcOffset] ^= 1;
   unsafe(preflightReleaseArchive({ bytes: corruptHeaderCrc, archiveType: "tar.gz" }));
-  const reservedFlags = Buffer.from(archive); reservedFlags[3] |= 0x20;
+  const truncatedHeaderCrc = Buffer.concat([fixture.prefix, Buffer.from([0]), source.subarray(-8)]);
+  unsafe(preflightReleaseArchive({ bytes: truncatedHeaderCrc, archiveType: "tar.gz" }));
+  for (const options of [
+    { extra: Buffer.alloc(4095) },
+    { name: Buffer.alloc(4096, 0x6e) },
+    { comment: Buffer.alloc(4096, 0x63) },
+  ]) unsafe(preflightReleaseArchive({ bytes: gzipWithOptionalHeaders(source, options).archive, archiveType: "tar.gz" }));
+  const reservedFlags = Buffer.from(fixture.archive); reservedFlags[3] |= 0x20;
   unsafe(preflightReleaseArchive({ bytes: reservedFlags, archiveType: "tar.gz" }));
 });
