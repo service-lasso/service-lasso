@@ -49,6 +49,40 @@ test("lifecycle diagnostics project only allowlisted API conflict classification
   assert.equal(JSON.parse(rejected).apiErrorCode, undefined);
 });
 
+test("lifecycle diagnostics retain only a complete closed parent-lifetime receipt", () => {
+  const result = JSON.parse(lifecycleFailureDiagnostic({
+    error: {
+      windowsTreeInspection: {
+        windowsTreeInspectionPhase: "native_snapshot",
+        windowsTreeInspectionAttempts: 1,
+        windowsTreeInspectionRetries: 0,
+        windowsTreeInspectionQueueMs: 2,
+        windowsTreeInspectionNativeMs: 3,
+        windowsTreeInspectionLastRetry: "ancestry_predates_parent_before_root",
+        windowsTreeInspectionParentBirthRelation: "parent_before_root",
+        windowsTreeInspectionChildBirthRelation: "child_before_root",
+        windowsTreeInspectionRootFingerprintMatch: false,
+        windowsTreeInspectionAncestryDepthBucket: "one",
+        pid: 4343,
+        command: "private-command",
+      },
+    },
+  }));
+  assert.deepEqual(result.windowsTreeInspections, [{
+    windowsTreeInspectionPhase: "native_snapshot",
+    windowsTreeInspectionAttempts: 1,
+    windowsTreeInspectionRetries: 0,
+    windowsTreeInspectionQueueMs: 2,
+    windowsTreeInspectionNativeMs: 3,
+    windowsTreeInspectionLastRetry: "ancestry_predates_parent_before_root",
+    windowsTreeInspectionParentBirthRelation: "parent_before_root",
+    windowsTreeInspectionChildBirthRelation: "child_before_root",
+    windowsTreeInspectionRootFingerprintMatch: false,
+    windowsTreeInspectionAncestryDepthBucket: "one",
+  }]);
+  assert.equal(JSON.stringify(result).includes("private"), false);
+});
+
 test("lifecycle diagnostics bound event and cause counts and tolerate missing or malformed state", () => {
   for (const input of [undefined, null, "invalid", 42]) {
     assert.deepEqual(JSON.parse(lifecycleFailureDiagnostic(input)).events, []);
