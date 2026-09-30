@@ -565,6 +565,10 @@ test("#1538 accepted HTTP cancellation preserves a concurrent successful guarded
 
     const cancellation = lifecycleRequest(apiServer, `/api/operator/lifecycle/operations/${accepted.body.operation.operationId}/cancel`, "POST", {}, ownerToken);
     await cancellationAccepted.promise;
+    const admitted = await lifecycleRequest(apiServer, `/api/operator/lifecycle/operations/${accepted.body.operation.operationId}`, "GET", undefined, ownerToken);
+    assert.equal(admitted.status, 200);
+    assert.equal(admitted.body.operation.status, "cancelling");
+    assert.equal(admitted.body.operation.outcome, null);
     releaseTerminal.resolve();
     const cancelled = await cancellation;
     assert.equal(cancelled.status, 200);
@@ -576,6 +580,9 @@ test("#1538 accepted HTTP cancellation preserves a concurrent successful guarded
     assert.equal(readback.body.operation.status, "succeeded");
     assert.equal(readback.body.operation.outcome, "succeeded");
     const audit = await readAuditEvents({ workspaceRoot });
+    assert.equal(audit.events.some((event) =>
+      event.subject === accepted.body.operation.operationId && event.action === "mcp.operation.cancellation"
+    ), true);
     const terminalEvents = audit.events.filter((event) =>
       event.subject === accepted.body.operation.operationId && ["mcp.operation.succeeded", "mcp.operation.cancelled"].includes(event.action),
     );
