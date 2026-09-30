@@ -23,10 +23,15 @@ test("AC-4BJ.9a crash diagnostics retain only closed phase and lifecycle metadat
 });
 
 test("AC-4BJ.9a unknown values and throwing metadata do not leak or mask failure", () => {
-  const error = { get cause() { throw new Error("PRIVATE-SENTINEL"); } };
+  let getterReads = 0;
+  const error = { get cause() {
+    getterReads += 1;
+    throw new Error("PRIVATE-SENTINEL");
+  } };
   const result = startupCrashFailureDiagnostic("PRIVATE-SENTINEL", error);
   assert.equal(result.lastCompletedPhase, null);
   assert.equal(result.lifecycle.diagnostic, "metadata_unavailable");
+  assert.equal(getterReads, 0);
   assert.doesNotMatch(JSON.stringify(result), /PRIVATE-SENTINEL/);
   assert.equal(startupCrashFailureDiagnostic(null).lastCompletedPhase, null);
 });
