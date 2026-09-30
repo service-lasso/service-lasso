@@ -322,6 +322,18 @@ export async function preflightMcpGuardedActionExecution(input: {
   try {
     const idempotencyKey = normalizeIdempotencyKey(input.parameters.idempotencyKey);
     const normalized = normalizeParameters(input.action, input.parameters);
+    const statePath = guardedActionStatePath(input.workspaceRoot);
+    const idempotencyPath = guardedActionIdempotencyPath(
+      input.workspaceRoot,
+      authorization.actor.actorId,
+      authorization.actor.clientId,
+      idempotencyKey,
+    );
+    const existing = await withStateLock(statePath, async () =>
+      await readIdempotencyRecord(input.workspaceRoot, idempotencyPath));
+    if (existing && existing.requestFingerprint !== fingerprint({ action: input.action, parameters: normalized })) {
+      throw new McpGuardedActionError("idempotency_conflict", "The idempotency key is already bound to different action parameters.");
+    }
     const authoritativePlan = await input.facade.preflight(input.action, normalized);
     const plan = normalizePlan(input.action, authoritativePlan);
     const planFingerprint = fingerprint({
@@ -336,10 +348,16 @@ export async function preflightMcpGuardedActionExecution(input: {
     const parameterFingerprint = fingerprint(normalized);
     let confirmationBinding: { id: string; phrase: string } | null = null;
     let claimPlanFingerprint = planFingerprint;
-    if (plan.executable) {
+    if (
+      guardedActionPolicy(input.action).confirmationRequired &&
+      (
+        plan.executable ||
+        typeof input.parameters.confirmationId === "string" ||
+        typeof input.parameters.confirmationPhrase === "string"
+      )
+    ) {
       const confirmationId = normalizeConfirmationId(input.parameters.confirmationId);
       const confirmationPhrase = normalizeConfirmationPhrase(input.parameters.confirmationPhrase);
-      const statePath = guardedActionStatePath(input.workspaceRoot);
       const confirmation = await withStateLock(statePath, async () => {
         const state = await readState(input.workspaceRoot, statePath);
         const record = state.confirmations.find((entry) => entry.id === confirmationId);

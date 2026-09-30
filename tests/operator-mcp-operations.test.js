@@ -426,6 +426,13 @@ test("#863 supported cancellation reaches a deterministic terminal state and rec
     assert.equal(terminal.outcome, "cancelled");
     assert.equal(fixture.state.executeCount, 1);
 
+    const persisted = await readPrivateJson(workspaceRoot, mcpOperationStatePath(workspaceRoot));
+    const persistedOperation = persisted.operations.find((operation) => operation.operationId === operationId);
+    assert.equal(persistedOperation?.status, "cancelled");
+    assert.equal(persistedOperation?.outcome, "cancelled");
+    assert.equal(JSON.stringify(persistedOperation).includes("fixture aborted"), false);
+    assert.equal(JSON.stringify(persistedOperation).includes(parameters.idempotencyKey), false);
+
     const audit = await readAuditEvents({ workspaceRoot });
     const operationAudit = audit.events.filter((event) => event.subject === operationId);
     assert.equal(operationAudit.some((event) => event.action === "mcp.operation.started"), true);
