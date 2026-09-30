@@ -9,6 +9,11 @@ import type { BootstrapBaselineResult } from "./runtime/cli/bootstrap.js";
 import { runBackupCliAction, type BackupCliAction, type BackupCliResult } from "./runtime/cli/backup.js";
 import { installServiceFromCli } from "./runtime/cli/install.js";
 import { importServiceManifestFromCli, type ImportServiceManifestCliResult } from "./runtime/cli/importService.js";
+import {
+  registerReleasedServiceFromCli,
+  readReleasedServiceRegistrationOperationFromCli,
+  type RemoteServiceRegistrationCliResult,
+} from "./runtime/cli/remote-service-registration.js";
 import { runHealthCliAction, type HealthCliAction, type HealthCliResult } from "./runtime/cli/health.js";
 import { runLockfileCliAction, type LockfileCliAction, type LockfileCliResult } from "./runtime/cli/lockfile.js";
 import { runRecoveryCliAction, type RecoveryCliAction, type RecoveryCliResult } from "./runtime/cli/recovery.js";
@@ -34,7 +39,7 @@ import type { RuntimeInstanceResponse } from "./contracts/api.js";
 interface ParsedCliOptions {
   command: "serve" | "install" | "start" | "stop" | "restart" | "setup" | "updates" | "recovery" | "health" | "plan" | "lockfile" | "instance" | "doctor" | "readiness" | "config-drift" | "config-apply" | "config-snapshot" | "secrets" | "backup" | "diagnostics" | "operator" | "services" | "template" | "release" | "help" | "version";
   readinessAction?: "gate";
-  serviceCommand?: "import";
+  serviceCommand?: "import" | "register" | "operation";
   setupAction?: SetupCliAction;
   updateAction?: UpdateCliAction;
   recoveryAction?: RecoveryCliAction;
@@ -57,6 +62,9 @@ interface ParsedCliOptions {
   repo?: string;
   tag?: string;
   apiBaseUrl?: string;
+  expectedCommit?: string;
+  expectedManifestSha256?: string;
+  idempotencyKey?: string;
   manifestPath?: string;
   assetsRoot?: string;
   releaseVersion?: string;
@@ -128,6 +136,8 @@ function usageText(): string {
     "  service-lasso operator actions reopen <actionId> [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso services import <owner/repo> [--tag <tag>] [--services-root <path>] [--dry-run] [--force] [--json]",
     "  service-lasso services import --archive <path> [--services-root <path>] [--dry-run] [--json]",
+    "  service-lasso services register --api-base-url <url> --repo <owner/repo> --tag <tag> --expected-commit <sha> --expected-manifest-sha256 <sha256> --idempotency-key <key> [--json]",
+    "  service-lasso services operation <operationId> --api-base-url <url> [--json]",
     "  service-lasso template check-upgrade <targetServicesRoot> [--core-services-root <path>] [--json]",
     "  service-lasso release verify-manifest <manifestPath> [--assets-root <path>] [--release-version <version>] [--json]",
     "  service-lasso help",
@@ -149,6 +159,7 @@ function usageText(): string {
     "  - The lockfile command generates or verifies the servicesRoot service-lasso.lock.json.",
     "  - The template check-upgrade command compares an app/template service inventory to current core provider expectations.",
     "  - The release verify-manifest command checks service.json, platform assets, release labels, and SHA-256 checksums.",
+    "  - Remote registration uses SERVICE_LASSO_CLI_LOCAL_ADMIN_TOKEN from the environment; credentials are never CLI arguments.",
   ].join("\n");
 }
 
@@ -462,12 +473,17 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
 
   if (command === "services") {
     const serviceCommand = remaining.shift();
-    if (serviceCommand !== "import") {
-      throw new Error('The "services" command requires one of: import.');
+    if (serviceCommand !== "import" && serviceCommand !== "register" && serviceCommand !== "operation") {
+      throw new Error('The "services" command requires one of: import, register, operation.');
     }
     parsed.serviceCommand = serviceCommand;
-    if (remaining[0] && !remaining[0].startsWith("-")) {
+    if (serviceCommand === "import" && remaining[0] && !remaining[0].startsWith("-")) {
       parsed.repo = remaining.shift();
+    }
+    if (serviceCommand === "operation") {
+      const operationId = remaining.shift();
+      if (!operationId || operationId.startsWith("-")) throw new Error('The "services operation" command requires an <operationId> argument.');
+      parsed.actionId = operationId;
     }
   }
 
@@ -593,8 +609,8 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
         break;
       }
       case "--tag": {
-        if (command !== "services" || parsed.serviceCommand !== "import") {
-          throw new Error("--tag is only supported for the services import command.");
+        if (command !== "services" || (parsed.serviceCommand !== "import" && parsed.serviceCommand !== "register")) {
+          throw new Error("--tag is only supported for services import and register commands.");
         }
         const value = remaining.shift();
         if (!value) {
@@ -604,14 +620,42 @@ function parseCliArgs(argv: string[]): ParsedCliOptions {
         break;
       }
       case "--api-base-url": {
-        if (command !== "services" || parsed.serviceCommand !== "import") {
-          throw new Error("--api-base-url is only supported for the services import command.");
+        if (command !== "services" || (parsed.serviceCommand !== "import" && parsed.serviceCommand !== "register" && parsed.serviceCommand !== "operation")) {
+          throw new Error("--api-base-url is only supported for services import, register, and operation commands.");
         }
         const value = remaining.shift();
         if (!value) {
           throw new Error("Missing value for --api-base-url.");
         }
         parsed.apiBaseUrl = value;
+        break;
+      }
+      case "--repo": {
+        if (command !== "services" || parsed.serviceCommand !== "register") throw new Error("--repo is only supported for the services register command.");
+        const value = remaining.shift();
+        if (!value) throw new Error("Missing value for --repo.");
+        parsed.repo = value;
+        break;
+      }
+      case "--expected-commit": {
+        if (command !== "services" || parsed.serviceCommand !== "register") throw new Error("--expected-commit is only supported for the services register command.");
+        const value = remaining.shift();
+        if (!value) throw new Error("Missing value for --expected-commit.");
+        parsed.expectedCommit = value;
+        break;
+      }
+      case "--expected-manifest-sha256": {
+        if (command !== "services" || parsed.serviceCommand !== "register") throw new Error("--expected-manifest-sha256 is only supported for the services register command.");
+        const value = remaining.shift();
+        if (!value) throw new Error("Missing value for --expected-manifest-sha256.");
+        parsed.expectedManifestSha256 = value;
+        break;
+      }
+      case "--idempotency-key": {
+        if (command !== "services" || parsed.serviceCommand !== "register") throw new Error("--idempotency-key is only supported for the services register command.");
+        const value = remaining.shift();
+        if (!value) throw new Error("Missing value for --idempotency-key.");
+        parsed.idempotencyKey = value;
         break;
       }
       case "--archive": {
@@ -1316,6 +1360,24 @@ function printImportServiceResult(result: ImportServiceManifestCliResult, asJson
   console.log(`- overwritten: ${result.overwritten}`);
 }
 
+function printRemoteRegistrationResult(result: RemoteServiceRegistrationCliResult, asJson: boolean): void {
+  if (asJson) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+  if (!result.ok) {
+    console.log(`[service-lasso] ${result.action} failed`);
+    console.log(`- statusCode: ${result.statusCode ?? "unavailable"}`);
+    console.log(`- error: ${result.error}`);
+    return;
+  }
+  console.log(`[service-lasso] service registration ${result.action}`);
+  console.log(`- operation: ${result.operation.id}`);
+  console.log(`- status: ${result.operation.status}`);
+  console.log(`- replayed: ${result.operation.replayed}`);
+  console.log(`- service: ${result.operation.serviceId}`);
+}
+
 function printInstanceResult(result: RuntimeInstanceResponse, asJson: boolean): void {
   if (asJson) {
     console.log(JSON.stringify(result, null, 2));
@@ -1420,6 +1482,30 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
     if (!result.ok) {
       process.exitCode = 1;
     }
+    return;
+  }
+
+  if (parsed.command === "services" && parsed.serviceCommand === "register") {
+    const result = await registerReleasedServiceFromCli({
+      apiBaseUrl: parsed.apiBaseUrl ?? "",
+      repo: parsed.repo ?? "",
+      tag: parsed.tag ?? "",
+      expectedCommit: parsed.expectedCommit ?? "",
+      expectedManifestSha256: parsed.expectedManifestSha256 ?? "",
+      idempotencyKey: parsed.idempotencyKey ?? "",
+    });
+    printRemoteRegistrationResult(result, parsed.json);
+    if (!result.ok || result.operation.status !== "completed") process.exitCode = 1;
+    return;
+  }
+
+  if (parsed.command === "services" && parsed.serviceCommand === "operation") {
+    const result = await readReleasedServiceRegistrationOperationFromCli({
+      apiBaseUrl: parsed.apiBaseUrl ?? "",
+      operationId: parsed.actionId ?? "",
+    });
+    printRemoteRegistrationResult(result, parsed.json);
+    if (!result.ok || result.operation.status !== "completed") process.exitCode = 1;
     return;
   }
 

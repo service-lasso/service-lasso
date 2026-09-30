@@ -17,3 +17,4 @@
 - [ ] Evidence attached or summarized
 - [ ] Documentation updated if behavior or workflow changed
 - [ ] No product-code scope was added without spec coverage
+- [ ] Remote CLI changes use only documented Core routes and keep credentials out of argv, logs, and JSON output

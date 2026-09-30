@@ -558,7 +558,8 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 `ISS-1387`: repair PostgreSQL newcomer Linux child library resolution (SPEC-002 AC-4AJ.4c); verify pinned binaries and full paired Linux/Windows proof, preserving historical failures and exact candidate identities.
 `ISS-879` is the current `AC-4BM` doctor diagnosis after `#764` closed.
 
-| `ISS-1462` | `in_progress` | Remote-safe service registration and durable operator API | `SPEC-002`, `AC-4CF` | Core owns the released-reference registration, trusted actor/permission/confirmation, idempotent operation readback, and HTTP integration proof. CLI #1 and TUI #1 are dependent consumers; generic upload and client-host paths are excluded. |
+| `ISS-1462` | `done` | Remote-safe service registration and durable operator API | `SPEC-002`, `AC-4CF` | GitHub issue `#1462` closed after PR `#1464` merged at `a83133cc`. Core owns the released-reference registration, trusted actor/permission/confirmation, idempotent operation readback, and HTTP integration proof. CLI `#1510` and TUI #1 are dependent consumers; generic upload and client-host paths are excluded. |
+| `ISS-1510` | `in_progress` | Add authenticated released-service registration CLI slice | `SPEC-006`, `AC-6C`, `AC-6E`; Core `SPEC-002`, `AC-4CF` | GitHub issue `#1510`. The external CLI calls only Core's authenticated `POST /api/runtime/actions/importService` and actor-scoped `GET /api/operator/operations/{id}` routes with the existing allowlisted release contract. CI credentials remain environment-only; staged transfer and lifecycle APIs are excluded. |
 
 | `ISS-1439` | `in_progress` | Classify tooling audit bulk failure and retired fallback | `SPEC-007`, `AC-7E` | Retain failed #1425 candidate and add bounded advisory-request metadata; audit severity thresholds and failure result stay unchanged. |
 ## GA maintenance #1386

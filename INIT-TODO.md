@@ -22,3 +22,4 @@ This file tracks bootstrap/adoption/remediation work required before product imp
   open until independent review of the later bytes or an explicit operator
   close with that residual.
 - Product/bootstrap adoption work is complete; use `.governance/project/BACKLOG.md` and the active service repos for any newly discovered follow-up work instead of treating this file as a live implementation queue.
+- Issue `#1510` is a post-bootstrap CLI consumer slice tracked in the backlog: it may use only the merged Core released-reference registration and actor-scoped operation-read routes. It must use environment-sourced credentials, HTTPS away from loopback, and no staged-transfer or lifecycle contract.
