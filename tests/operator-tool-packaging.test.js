@@ -11,11 +11,11 @@ const assets = ["darwin-amd64", "darwin-arm64", "linux-amd64", "win32-amd64"].ma
 const tuiSums = Buffer.from(assets.map((asset) => `${asset.sha256}  ${asset.name}`).join("\n") + "\n");
 const tuiCandidate = Buffer.from(JSON.stringify({ schemaVersion: 1, kind: "develop-prerelease-candidate", source: { repository: "service-lasso/service-lasso-tui", commit: "9ac25a1bb8c63d9f564743e7ee0c8956304b1db3" }, release: { tag: "candidate-2026.9.30-9ac25a1", prerelease: true }, checksumManifest: { name: "SHA256SUMS.txt", sha256: hash(tuiSums) }, assets }));
 const release = { repository: "service-lasso/service-lasso-tui", tag: "candidate-2026.9.30-9ac25a1", targetCommit: "9ac25a1bb8c63d9f564743e7ee0c8956304b1db3", checksumManifest: { name: "SHA256SUMS.txt", sha256: hash(tuiSums) }, candidateManifest: { name: "candidate-manifest.json", sha256: hash(tuiCandidate) }, assets };
-const cliCandidate = Buffer.from(JSON.stringify({ schemaVersion: 1, candidateTag: "cli-v0.1.0-dev.1234567-candidate-1234567", source: { repository: "service-lasso/service-lasso-cli", commit: "1234567890123456789012345678901234567890" }, package: { command: "service-lassoctl", node: ">=22.12.0" }, platforms: ["win32", "linux", "darwin"], assets: [{ name: "service-lassoctl-0.1.0-dev.1234567.tgz", sha256: hash("cli") }] }));
+const cliCandidate = Buffer.from(JSON.stringify({ schemaVersion: 1, candidateTag: "cli-v0.1.0-dev.1234567-candidate-1234567", version: "0.1.0-dev.1234567", source: { repository: "service-lasso/service-lasso-cli", commit: "1234567890123456789012345678901234567890" }, package: { command: "service-lassoctl", node: ">=22.12.0" }, platforms: ["win32", "linux", "darwin"], assets: [{ name: "service-lassoctl-0.1.0-dev.1234567.tgz", sha256: hash("cli") }] }));
 const cliSums = Buffer.from(`${hash("cli")}  service-lassoctl-0.1.0-dev.1234567.tgz\n${hash(cliCandidate)}  candidate.json\n`);
-const cliRelease = { repository: "service-lasso/service-lasso-cli", tag: "cli-v0.1.0-dev.1234567-candidate-1234567", targetCommit: "1234567890123456789012345678901234567890", asset: { name: "service-lassoctl-0.1.0-dev.1234567.tgz", sha256: hash("cli") }, checksumManifest: { name: "SHA256SUMS.txt", sha256: hash(cliSums) }, candidateManifest: { name: "candidate.json", sha256: hash(cliCandidate) }, supportedPlatforms: ["win32", "linux", "darwin"] };
+const cliRelease = { repository: "service-lasso/service-lasso-cli", tag: "cli-v0.1.0-dev.1234567-candidate-1234567", version: "0.1.0-dev.1234567", targetCommit: "1234567890123456789012345678901234567890", asset: { name: "service-lassoctl-0.1.0-dev.1234567.tgz", sha256: hash("cli") }, checksumManifest: { name: "SHA256SUMS.txt", sha256: hash(cliSums) }, candidateManifest: { name: "candidate.json", sha256: hash(cliCandidate) }, supportedPlatforms: ["win32", "linux", "darwin"] };
 
-test("operator tools stage only checksum-verified immutable release bytes", async () => {
+test("operator tools stage only checksum-verified release bytes", async () => {
   const sums = tuiSums;
   const root = await mkdtemp(path.join(os.tmpdir(), "operator-tools-"));
   const downloadHosts = [];
@@ -70,8 +70,15 @@ test("operator tool identity rejects incomplete platform inventory", () => {
     { tag: "candidate-2026.9.30-97fafb0", targetCommit: "97fafb04c69fce8efdd245eb186e6dfb9915485d", assets: ["service-lasso-tui-2026.9.30-97fafb0-win32-amd64.zip", "service-lasso-tui-2026.9.30-97fafb0-linux-amd64.tar.gz", "service-lasso-tui-2026.9.30-97fafb0-darwin-amd64.tar.gz", "service-lasso-tui-2026.9.30-97fafb0-darwin-arm64.tar.gz"] },
   );
   assert.deepEqual(
-    { tag: CURRENT_CLI_RELEASE.tag, targetCommit: CURRENT_CLI_RELEASE.targetCommit, asset: CURRENT_CLI_RELEASE.asset.name },
-    { tag: "cli-v0.1.0-dev.d3a3814-candidate-d3a3814", targetCommit: "d3a381402c26686aa0b618055a45d525605bdbea", asset: "service-lassoctl-0.1.0-dev.d3a3814.tgz" },
+    { tag: CURRENT_CLI_RELEASE.tag, version: CURRENT_CLI_RELEASE.version, targetCommit: CURRENT_CLI_RELEASE.targetCommit, asset: CURRENT_CLI_RELEASE.asset, checksumManifest: CURRENT_CLI_RELEASE.checksumManifest, candidateManifest: CURRENT_CLI_RELEASE.candidateManifest },
+    {
+      tag: "cli-v0.1.0-dev.24d756e-candidate-24d756e",
+      version: "0.1.0-dev.24d756e",
+      targetCommit: "24d756e3706ae06cb4858562ddd6824b1e21d886",
+      asset: { name: "service-lassoctl-0.1.0-dev.24d756e.tgz", sha256: "2e9f675b1399e5f97c284ca61d508b2f70304de7aa211afcf588e9420dc47e26" },
+      checksumManifest: { name: "SHA256SUMS.txt", sha256: "d8f79fa36307e5369bb452026d2b555de72c4b4121d98a0f5ff1a56d2e74f261" },
+      candidateManifest: { name: "candidate.json", sha256: "6bfd8c776fb936b0bee3921fbbbe7ea7c820a3201f9361d8f64957f3f5ba1530" },
+    },
   );
   assert.throws(() => assertExactToolRelease({ ...release, assets: release.assets.slice(1) }), /incomplete/u);
   assert.throws(() => assertExactCliRelease({ ...cliRelease, repository: "other/cli" }), /identity/u);
