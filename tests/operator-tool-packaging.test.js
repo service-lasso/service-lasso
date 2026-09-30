@@ -67,7 +67,7 @@ test("operator tool identity rejects incomplete platform inventory", () => {
   assertExactCliRelease(CURRENT_CLI_RELEASE);
   assert.deepEqual(
     { tag: CURRENT_TUI_RELEASE.tag, targetCommit: CURRENT_TUI_RELEASE.targetCommit, assets: CURRENT_TUI_RELEASE.assets.map((asset) => asset.name) },
-    { tag: "candidate-2026.9.30-727f812", targetCommit: "727f812eaab9537af8a9cb369169c45caec5aa2f", assets: ["service-lasso-tui-2026.9.30-727f812-win32-amd64.zip", "service-lasso-tui-2026.9.30-727f812-linux-amd64.tar.gz", "service-lasso-tui-2026.9.30-727f812-darwin-amd64.tar.gz", "service-lasso-tui-2026.9.30-727f812-darwin-arm64.tar.gz"] },
+    { tag: "candidate-2026.9.30-97fafb0", targetCommit: "97fafb04c69fce8efdd245eb186e6dfb9915485d", assets: ["service-lasso-tui-2026.9.30-97fafb0-win32-amd64.zip", "service-lasso-tui-2026.9.30-97fafb0-linux-amd64.tar.gz", "service-lasso-tui-2026.9.30-97fafb0-darwin-amd64.tar.gz", "service-lasso-tui-2026.9.30-97fafb0-darwin-arm64.tar.gz"] },
   );
   assert.deepEqual(
     { tag: CURRENT_CLI_RELEASE.tag, targetCommit: CURRENT_CLI_RELEASE.targetCommit, asset: CURRENT_CLI_RELEASE.asset.name },

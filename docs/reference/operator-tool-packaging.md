@@ -17,7 +17,7 @@ Neither tool is a Core managed service. Do not add `service.json`, catalog it, s
 
 The API CLI is a Node 22+ package and the operator-tools manifest explicitly declares its supported platforms (`win32`, `linux`, `darwin`). The CLI may be packaged only where the Core package supports that Node runtime. The TUI release inventory must contain `win32-amd64`, `linux-amd64`, `darwin-amd64`, and `darwin-arm64` assets. An unsupported platform must return a stable unavailable result before extraction or process launch.
 
-Core currently stages reviewed candidate releases `candidate-2026.9.30-727f812` for the TUI and `cli-v0.1.0-dev.d3a3814-candidate-d3a3814` for the CLI. Candidate releases are distribution evidence, not GA.
+Core currently stages reviewed candidate releases `candidate-2026.9.30-97fafb0` for the TUI and `cli-v0.1.0-dev.d3a3814-candidate-d3a3814` for the CLI. Candidate releases are distribution evidence, not GA.
 
 ## Release identity gate
 
