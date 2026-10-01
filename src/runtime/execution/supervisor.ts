@@ -1056,7 +1056,10 @@ async function bindWindowsManagedLauncherFiles(
   launcherProgressPhase: () => {
     phase: ManagedProcessStartFailurePhase | null;
     payloadFailureBoundary: LauncherPayloadFailureBoundary;
-  },
+  } | Promise<{
+    phase: ManagedProcessStartFailurePhase | null;
+    payloadFailureBoundary: LauncherPayloadFailureBoundary;
+  }>,
 ): Promise<void> {
   const deadlineMs = processControlDeadline(WINDOWS_MANAGED_LAUNCH_TIMEOUT_MS);
   try {
@@ -1080,7 +1083,7 @@ async function bindWindowsManagedLauncherFiles(
       }
     }, { deadlineMs });
   } catch (error) {
-    const progress = launcherProgressPhase();
+    const progress = await launcherProgressPhase();
     throw progress.phase ? new ManagedProcessStartError(progress.phase, error, progress.payloadFailureBoundary) : error;
   }
 }
@@ -2143,10 +2146,13 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
             await bindWindowsManagedLauncherFiles(
               child,
               windowsManagedLaunchState,
-              () => ({
-                phase: record.launcherProgressPhase,
-                payloadFailureBoundary: managedLauncherPayloadDiagnostic(record) ?? "unknown",
-              }),
+              async () => {
+                if (probeManagedChildHandle(child) !== "owned") await record.finalizePromise;
+                return {
+                  phase: record.launcherProgressPhase,
+                  payloadFailureBoundary: managedLauncherPayloadDiagnostic(record) ?? "unknown",
+                };
+              },
             );
           } finally {
             record.launcherProgressToken = null;

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import net from "node:net";
 import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
 import { spawn } from "node:child_process";
 import { createHash, createHmac } from "node:crypto";
 import { mkdir, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
@@ -144,6 +145,95 @@ async function postJson(url, body) {
     }
   }
   return result;
+}
+
+async function assertNativePayloadLifecycleProjection(protocolCase, expectedBoundary) {
+  resetLifecycleState();
+  const priorTestHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+  const priorInstanceRegistryPath = process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH;
+  const priorPortRegistryPath = process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH;
+  process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot(`service-lasso-launcher-payload-${protocolCase}-`);
+  const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "echo-service");
+  let apiServer;
+  try {
+    process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH = path.join(tempRoot, "instances.json");
+    process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH = path.join(tempRoot, "ports.json");
+    const stateRoot = path.join(serviceRoot, ".state");
+    await mkdir(stateRoot, { recursive: true });
+    await writeFile(path.join(stateRoot, "install.json"), JSON.stringify({ installed: true }), "utf8");
+    await writeFile(path.join(stateRoot, "config.json"), JSON.stringify({ configured: true }), "utf8");
+    setManagedProcessSpawnerForTests((file, args, options) => {
+      const child = spawn(file, args, {
+        ...options,
+        env: {
+          ...options.env,
+          SERVICE_LASSO_MANAGED_LAUNCH_PAYLOAD: `${options.env.SERVICE_LASSO_MANAGED_LAUNCH_PAYLOAD}\n`,
+        },
+      });
+      if (protocolCase === "canonical") return child;
+      const nativeStderr = child.stderr;
+      assert.ok(nativeStderr);
+      const capturedStderr = new PassThrough();
+      let pending = "";
+      nativeStderr.setEncoding("utf8");
+      nativeStderr.on("data", (chunk) => {
+        pending += chunk;
+        const lines = pending.split(/\r?\n/u);
+        pending = lines.pop() ?? "";
+        for (const line of lines) {
+          const payloadRecord = line.startsWith("__SERVICE_LASSO_LAUNCHER_PROGRESS__:launcher_payload_validation:") && line.split(":").length === 4;
+          if (payloadRecord && protocolCase === "missing") continue;
+          if (payloadRecord && protocolCase === "prefix_chunk") {
+            capturedStderr.write(line.slice(0, 23));
+            capturedStderr.write(`${line.slice(23)}\n`);
+            continue;
+          }
+          if (payloadRecord && protocolCase === "truncated") {
+            capturedStderr.write("__SERVICE_LASSO_LAUNCHER_PROGRESS__:launcher_payload_validation:sem");
+            continue;
+          }
+          if (payloadRecord && protocolCase === "untrusted") {
+            capturedStderr.write(`${line.replace(/[0-9a-f]{64}$/u, "0".repeat(64))}\n`);
+            continue;
+          }
+          capturedStderr.write(`${line}${payloadRecord && (protocolCase === "malformed" || protocolCase === "expanded") ? ":extra" : ""}\n`);
+          if (payloadRecord && protocolCase === "duplicate") capturedStderr.write(`${line}\n`);
+        }
+      });
+      nativeStderr.once("end", () => {
+        if (pending) capturedStderr.write(pending);
+        capturedStderr.end();
+      });
+      nativeStderr.once("error", (error) => capturedStderr.destroy(error));
+      Object.defineProperty(child, "stderr", { value: capturedStderr });
+      return child;
+    });
+    apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
+    const start = await postJson(`${apiServer.url}/api/services/echo-service/start`);
+    assert.equal(start.response.status, 409);
+    const diagnostic = await collectStartupFailure(apiServer.url, "echo-service");
+    assert.equal(diagnostic.observations[0].attemptStatus, "failed");
+    assert.equal(diagnostic.observations[0].launcherPayloadFailureBoundary, expectedBoundary);
+    assert.ok(diagnostic.observations[0].events.some((event) => event.failurePhase === "launcher_payload_validation"));
+    assert.equal(JSON.stringify(diagnostic).includes("SERVICE_LASSO_MANAGED_LAUNCH_PAYLOAD"), false);
+    assert.equal(JSON.stringify(diagnostic).includes(tempRoot), false);
+    await waitForManagedProcessFinalization("echo-service", Date.now() + 10_000);
+    assert.equal(await findProcessOwnership(workspaceRoot, "service", "echo-service"), null);
+    assert.equal(hasManagedProcess("echo-service"), false, `${protocolCase} retained a managed process after native rejection.`);
+  } finally {
+    setManagedProcessSpawnerForTests(null);
+    await apiServer?.stop();
+    await stopManagedProcess("echo-service", 10_000).catch(() => null);
+    if (priorInstanceRegistryPath === undefined) delete process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH;
+    else process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH = priorInstanceRegistryPath;
+    if (priorPortRegistryPath === undefined) delete process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH;
+    else process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH = priorPortRegistryPath;
+    if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+    else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
+    resetLifecycleState();
+    await removeTempRoot(tempRoot);
+  }
 }
 
 function windowsInspector(identity) {
@@ -1945,6 +2035,7 @@ test("AC-4BJ.9b Windows managed launcher projects only authenticated closed payl
   const bootstrapEnvironment = Object.fromEntries(
     Object.entries(process.env).filter(([name]) => !/^(?:COR_|CORECLR_|COMPLUS_|APPDOMAIN_MANAGER)/iu.test(name)),
   );
+  let fixtureCleanupVerified = true;
 
   try {
     for (const [index, payloadCase] of invalidPayloads.entries()) {
@@ -1965,25 +2056,55 @@ test("AC-4BJ.9b Windows managed launcher projects only authenticated closed payl
         });
         const ownedPid = child.pid;
         assert.ok(Number.isInteger(ownedPid) && ownedPid > 0);
+        let ownedIdentity = null;
         let stderr = "";
         let timedOut = false;
         child.stderr.setEncoding("utf8");
         child.stderr.on("data", (chunk) => { stderr += chunk; });
         const timeout = setTimeout(() => {
           timedOut = true;
-          if (child.exitCode === null && child.signalCode === null && !child.kill("SIGKILL")) {
-            reject(new Error("Owned invalid-payload fixture could not be signalled for bounded cleanup."));
-          }
+          void (async () => {
+            if (child.exitCode !== null || child.signalCode !== null) return;
+            const inspection = await inspectProcess(ownedPid);
+            if (inspection.status !== "running") {
+              fixtureCleanupVerified = false;
+              reject(new Error("Owned invalid-payload fixture was not verifiably live at its cleanup boundary."));
+              return;
+            }
+            ownedIdentity = inspection.identity;
+            if (!child.kill("SIGKILL")) {
+              fixtureCleanupVerified = false;
+              reject(new Error("Owned invalid-payload fixture could not be signalled for bounded cleanup."));
+            }
+          })().catch((error) => {
+            fixtureCleanupVerified = false;
+            reject(error);
+          });
         }, 5_000);
-        child.once("error", reject);
+        child.once("error", (error) => {
+          fixtureCleanupVerified = false;
+          reject(error);
+        });
         child.once("close", (exitCode, signal) => {
           clearTimeout(timeout);
-          resolve({ exitCode, signal, stderr, ownedPid, timedOut, terminalExitCode: child.exitCode, terminalSignal: child.signalCode });
+          if (ownedIdentity === null) {
+            resolve({ exitCode, signal, stderr, ownedPid, timedOut, terminalExitCode: child.exitCode, terminalSignal: child.signalCode, terminalIdentity: "not_inspected" });
+            return;
+          }
+          void inspectProcess(ownedPid).then((terminalInspection) => {
+            const terminalIdentity = classifyProcessIdentity(ownedIdentity, terminalInspection);
+            if (terminalIdentity !== "not_running") fixtureCleanupVerified = false;
+            resolve({ exitCode, signal, stderr, ownedPid, timedOut, terminalExitCode: child.exitCode, terminalSignal: child.signalCode, terminalIdentity });
+          }, (error) => {
+            fixtureCleanupVerified = false;
+            reject(error);
+          });
         });
       });
       assert.equal(result.timedOut, false, "Invalid managed-launch payload was not rejected boundedly.");
       assert.equal(result.terminalExitCode, 100);
       assert.equal(result.terminalSignal, null);
+      assert.equal(result.terminalIdentity, "not_inspected");
       assert.equal(result.exitCode, 100);
       assert.equal(result.signal, null);
       const records = result.stderr.trim().split(/\r?\n/u)
@@ -2000,7 +2121,7 @@ test("AC-4BJ.9b Windows managed launcher projects only authenticated closed payl
   } finally {
     if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
     else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
-    await removeTempRoot(tempRoot);
+    if (fixtureCleanupVerified) await removeTempRoot(tempRoot);
   }
 });
 
@@ -2053,6 +2174,15 @@ test("AC-4BJ.9b projects a real native payload rejection through enrollment, lif
     resetLifecycleState();
     await removeTempRoot(tempRoot);
   }
+});
+
+test("AC-4BJ.9b fails closed for duplicate, missing, malformed, untrusted, expanded, truncated, and chunked actual payload diagnostics", {
+  skip: process.platform !== "win32",
+}, async () => {
+  for (const protocolCase of ["duplicate", "missing", "malformed", "untrusted", "expanded", "truncated"]) {
+    await assertNativePayloadLifecycleProjection(protocolCase, "unknown");
+  }
+  await assertNativePayloadLifecycleProjection("prefix_chunk", "canonical_encoding");
 });
 
 test("synchronous wrapper spawn failures retain their typed phase and clean pre-enrollment state", async () => {
