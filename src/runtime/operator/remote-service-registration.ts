@@ -352,11 +352,11 @@ const STAGED_INPUT_BYTES_FILE = "staged-release-input.bin";
 
 type StagedReleaseInputAttachment = {
   schema: "service-lasso.staged-release-input/v1";
-  operationId: string; stageId: string; actorId: string; workspaceId: string; targetServiceId: string;
+  operationId: string; stageId: string; actorId: string; workspaceId: string; targetServiceId: string; idempotencyKey: string;
   byteObject: { id: string; length: number; sha256: string };
   release: {
     id: string; repo: string; tag: string; targetSha: string; assetId: string; assetName: string;
-    archiveType: "zip" | "tar.gz" | "tgz"; manifestAssetId: string | null; checksumAssetId: string | null;
+    archiveType: "zip" | "tar.gz" | "tgz"; platform: "win32" | "linux" | "darwin"; manifestAssetId: string | null; checksumAssetId: string | null;
     manifestSha256: string;
   };
 };
@@ -365,10 +365,11 @@ function stagedInputAttachment(claimed: Omit<Parameters<DirectChildImporter["imp
   return {
     schema: "service-lasso.staged-release-input/v1", operationId: claimed.operationId, stageId: claimed.stageId,
     actorId: claimed.actorId, workspaceId: claimed.workspaceId, targetServiceId: claimed.serviceId,
+    idempotencyKey: claimed.idempotencyKey,
     byteObject: { id: claimed.byteObjectId, length: claimed.byteLength, sha256: claimed.archiveSha256 },
     release: {
       id: claimed.releaseId, repo: claimed.repo, tag: claimed.releaseTag, targetSha: claimed.targetSha,
-      assetId: claimed.assetId, assetName: claimed.assetName, archiveType: claimed.archiveType,
+      assetId: claimed.assetId, assetName: claimed.assetName, archiveType: claimed.archiveType, platform: claimed.platform,
       manifestAssetId: claimed.manifestAssetId ?? null, checksumAssetId: claimed.checksumAssetId ?? null,
       manifestSha256: claimed.manifestSha256,
     },
@@ -468,9 +469,9 @@ export function createStagedReleaseAssetImporter(input: { servicesRoot: string }
         !/^[a-f0-9]{64}$/.test(claimed.archiveSha256) ||
         !/^[a-f0-9]{64}$/.test(claimed.manifestSha256) ||
         !/^[a-f0-9]{40}$/.test(claimed.targetSha) ||
-        !claimed.byteObjectId || !claimed.workspaceId || !claimed.actorId || !claimed.stageId || !claimed.operationId ||
+        !claimed.byteObjectId || !claimed.workspaceId || !claimed.actorId || !claimed.stageId || !claimed.operationId || !IDEMPOTENCY_KEY_PATTERN.test(claimed.idempotencyKey) ||
          !archiveBytes || archiveBytes.byteLength < 1 || archiveBytes.byteLength !== claimed.byteLength ||
-         !claimed.assetId || !claimed.assetName || !["zip", "tar.gz", "tgz"].includes(claimed.archiveType) ||
+         !claimed.assetId || !claimed.assetName || !["zip", "tar.gz", "tgz"].includes(claimed.archiveType) || !["win32", "linux", "darwin"].includes(claimed.platform) ||
         !claimed.manifestBytes || claimed.manifestBytes.byteLength < 1 ||
         createHash("sha256").update(archiveBytes).digest("hex") !== claimed.archiveSha256
       ) {
@@ -509,8 +510,8 @@ export function createStagedReleaseAssetImporter(input: { servicesRoot: string }
     },
     reconcile: async (claimed) => {
       if (
-        !claimed.byteObjectId || !claimed.workspaceId || !claimed.actorId || !claimed.stageId || !claimed.operationId || claimed.byteLength < 1 ||
-         !claimed.assetId || !claimed.assetName || !["zip", "tar.gz", "tgz"].includes(claimed.archiveType) ||
+        !claimed.byteObjectId || !claimed.workspaceId || !claimed.actorId || !claimed.stageId || !claimed.operationId || !IDEMPOTENCY_KEY_PATTERN.test(claimed.idempotencyKey) || claimed.byteLength < 1 ||
+         !claimed.assetId || !claimed.assetName || !["zip", "tar.gz", "tgz"].includes(claimed.archiveType) || !["win32", "linux", "darwin"].includes(claimed.platform) ||
         !/^[a-f0-9]{64}$/.test(claimed.archiveSha256) ||
         !/^[a-f0-9]{64}$/.test(claimed.manifestSha256) ||
         !/^[a-f0-9]{40}$/.test(claimed.targetSha) ||
