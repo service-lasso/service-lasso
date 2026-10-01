@@ -174,6 +174,7 @@ interface ManagedProcessRecord {
   treeTerminationPromise: Promise<ProcessTreeTerminationResult> | null;
   stopDeadlineMs: number | null;
   exitPromise: Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }>;
+  streamsClosedPromise: Promise<void>;
   logCapturePromise: Promise<void>;
   finalizePromise: Promise<void>;
 }
@@ -732,8 +733,15 @@ function attachRuntimeLogCapture(record: ManagedProcessRecord): void {
     flushBufferedLines("stderr");
   });
 
-  record.logCapturePromise = record.exitPromise.then(async () => {
+  record.logCapturePromise = Promise.all([
+    record.exitPromise,
+    record.streamsClosedPromise,
+  ]).then(async () => {
     await outputEnded;
+    // A bridged stderr stream can emit its final authenticated chunk in the
+    // same turn as close. Let its already-registered data listener consume
+    // that chunk before the progress token can be retired below.
+    await new Promise<void>((resolve) => setImmediate(resolve));
     flushBufferedLines("stdout", true);
     flushBufferedLines("stderr", true);
     await record.variableCapturePromise;
@@ -1992,6 +2000,7 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
   }
   let child: ChildProcess | null = null;
   let exitPromise: Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }> | null = null;
+  let streamsClosedPromise: Promise<void> | null = null;
   try {
     if (windowsManagedLaunchState) {
       await verifyWindowsManagedLauncherIntegrity(windowsManagedLaunchState.launcherExecutable);
@@ -2034,6 +2043,9 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
         });
       });
     });
+    streamsClosedPromise = new Promise<void>((resolve) => {
+      spawnedChild.once("close", () => resolve());
+    });
 
     await waitForManagedProcessSpawn(spawnedChild);
   } catch (error) {
@@ -2051,7 +2063,7 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
     );
   }
 
-  if (!child || !exitPromise) {
+  if (!child || !exitPromise || !streamsClosedPromise) {
     throw new Error("Managed process wrapper spawn completed without a child handle.");
   }
 
@@ -2090,6 +2102,7 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
     treeTerminationPromise: null,
     stopDeadlineMs: null,
     exitPromise,
+    streamsClosedPromise,
     logCapturePromise: Promise.resolve(),
     finalizePromise: Promise.resolve(),
   };
@@ -2219,7 +2232,14 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
                   // diagnostic into an unbounded lifecycle wait.
                   await settleWindowsManagedLauncherStderr(child, deadlineMs);
                   await withProcessControlDeadline(
-                    async () => await record.logCapturePromise,
+                    async () => {
+                      // `exit` remains the lifecycle ownership boundary. The
+                      // launch token, however, must survive until stdio is
+                      // closed so a final authenticated stderr chunk reaches
+                      // the parser before its receipt is consumed.
+                      await record.streamsClosedPromise;
+                      await record.logCapturePromise;
+                    },
                     { deadlineMs },
                   );
                 }
