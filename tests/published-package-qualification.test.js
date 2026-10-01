@@ -390,6 +390,11 @@ test("AC-4BY.2 retains only observed consumer receipts and never upgrades a fail
   const observationFailure = retainAdminTrustedUnlockReceipt(JSON.stringify({ schema: "service-lasso.admin-trusted-unlock-consumer.v1", outcome: "observation_failure", exitCode: 0, signal: null, streamFailure: "malformed_utf8", trustedUnlock: { classification: "closed", receipt: JSON.parse(raw).trustedUnlock.receipt } }), expected);
   assert.deepEqual(observationFailure.consumerFailure, { source: "stream", classification: "malformed_utf8" });
   assert.deepEqual(validateRetainedAdminTrustedUnlockReceipt(observationFailure, expected), observationFailure);
+  for (const classification of ["missing", "invalid"]) {
+    const unavailable = retainAdminTrustedUnlockReceipt(JSON.stringify({ schema: "service-lasso.admin-trusted-unlock-consumer.v1", outcome: "nonzero_exit", exitCode: 7, signal: null, trustedUnlock: { classification } }), expected);
+    assert.deepEqual(unavailable.trustedUnlock, { classification });
+    assert.deepEqual(validateRetainedAdminTrustedUnlockReceipt(unavailable, expected), unavailable);
+  }
   for (const failure of [
     { source: "stream", classification: "unknown" },
     { source: "execution", classification: "spawn_failed", extra: true },

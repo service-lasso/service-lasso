@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { lstat, readFile, stat } from "node:fs/promises";
 import path from "node:path";
-import { hasObservedConsumerReceipt, parseConsumerReceipt } from "./consume-admin-trusted-unlock-receipt.mjs";
+import { hasObservedConsumerReceipt, isRetainableConsumerReceipt, parseConsumerReceipt } from "./consume-admin-trusted-unlock-receipt.mjs";
 
 export const QUALIFICATION_SCHEMA =
   "service-lasso.published-package-qualification.v1";
@@ -16,12 +16,14 @@ export const RETAINED_ADMIN_TRUSTED_UNLOCK_RECEIPT_SCHEMA =
 
 export function retainAdminTrustedUnlockReceipt(source, expected) {
   const parsed = parseConsumerReceipt(source);
-  if (!parsed || !hasObservedConsumerReceipt(parsed)) {
-    fail("invalid_retained_trusted_unlock_receipt", "Admin trusted-unlock consumer source is missing, malformed, private, or unobserved.");
+  if (!parsed || !isRetainableConsumerReceipt(parsed)) {
+    fail("invalid_retained_trusted_unlock_receipt", "Admin trusted-unlock consumer source is missing, malformed, private, or invalid.");
   }
   const normalizedTrustedUnlock = parsed.trustedUnlock.classification === "closed"
     ? { classification: "closed", receipt: parsed.trustedUnlock.receipt }
-    : { classification: "not_emitted", reason: "no_failure" };
+    : parsed.trustedUnlock.classification === "not_emitted"
+      ? { classification: "not_emitted", reason: "no_failure" }
+      : { classification: parsed.trustedUnlock.classification };
   const consumerFailure = parsed.outcome === "observation_failure"
     ? parsed.streamFailure !== undefined
       ? { source: "stream", classification: parsed.streamFailure }
@@ -97,16 +99,20 @@ export function validateRetainedAdminTrustedUnlockReceipt(receipt, expected) {
     if (Object.keys(trustedUnlock).sort().join(",") !== "classification,receipt") {
       fail("invalid_retained_trusted_unlock_receipt", "Retained Admin trusted-unlock receipt has expanded fields.");
     }
-    if (!parseConsumerReceipt(JSON.stringify(consumerSource))) {
-      fail("invalid_retained_trusted_unlock_receipt", "Retained Admin trusted-unlock receipt is not closed.");
-    }
-  } else if (trustedUnlock?.classification !== "not_emitted" || Object.keys(trustedUnlock ?? {}).sort().join(",") !== "classification,reason" || trustedUnlock.reason !== "no_failure") {
+  } else if (trustedUnlock?.classification === "not_emitted" && Object.keys(trustedUnlock).sort().join(",") === "classification,reason" && trustedUnlock.reason === "no_failure") {
+    consumerSource.trustedUnlock = { classification: "not_emitted" };
+  } else if (["missing", "invalid"].includes(trustedUnlock?.classification) && Object.keys(trustedUnlock).sort().join(",") === "classification") {
+    // A failed consumer may retain only this closed unavailable diagnostic.
+  } else {
     fail("invalid_retained_trusted_unlock_receipt", "Retained Admin trusted-unlock classification is invalid.");
+  }
+  if (!parseConsumerReceipt(JSON.stringify(consumerSource))) {
+    fail("invalid_retained_trusted_unlock_receipt", "Retained Admin trusted-unlock receipt is not closed.");
   }
   if (receipt.consumerOutcome === "success" && (receipt.consumerExitCode !== 0 || receipt.consumerSignal !== null || trustedUnlock.classification !== "not_emitted")) {
     fail("invalid_retained_trusted_unlock_receipt", "Successful Admin consumer outcome is inconsistent.");
   }
-  if ((receipt.consumerOutcome === "nonzero_exit" && !(receipt.consumerExitCode > 0)) || (receipt.consumerOutcome === "signal" && receipt.consumerSignal === null) || (receipt.consumerOutcome !== "success" && trustedUnlock.classification !== "closed")) {
+  if ((receipt.consumerOutcome === "nonzero_exit" && !(receipt.consumerExitCode > 0)) || (receipt.consumerOutcome === "signal" && receipt.consumerSignal === null) || (receipt.consumerOutcome !== "success" && !["closed", "missing", "invalid"].includes(trustedUnlock.classification))) {
     fail("invalid_retained_trusted_unlock_receipt", "Failed Admin consumer outcome is inconsistent.");
   }
   return receipt;

@@ -175,6 +175,16 @@ export function hasObservedConsumerReceipt(receipt) {
   return receipt.trustedUnlock?.classification === "closed";
 }
 
+// A parsed failed consumer can safely retain only its closed diagnostic
+// classification even when the trusted-unlock record was unavailable. That
+// custody record is not qualification evidence; hasObservedConsumerReceipt
+// remains the stricter successful-observation predicate.
+export function isRetainableConsumerReceipt(receipt) {
+  if (!receipt) return false;
+  if (receipt.outcome === "success") return hasObservedConsumerReceipt(receipt);
+  return ["closed", "missing", "invalid"].includes(receipt.trustedUnlock?.classification);
+}
+
 function receiptObserver() {
   const decoder = new TextDecoder("utf-8", { fatal: true });
   let line = "", markerIndex = 0, sawSchema = false, oversized = false;

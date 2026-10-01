@@ -2,7 +2,7 @@ import { lstat, readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import { hasObservedConsumerReceipt, parseConsumerReceipt, strictJson } from "./consume-admin-trusted-unlock-receipt.mjs";
+import { hasObservedConsumerReceipt, isRetainableConsumerReceipt, parseConsumerReceipt, strictJson } from "./consume-admin-trusted-unlock-receipt.mjs";
 import { ADMIN_HARNESS_REVISION, ADMIN_RELEASE, BROKER_RELEASE } from "./published-package-qualification-lib.mjs";
 const platforms = ["linux", "win32", "darwin"];
 function required(name, pattern = /^.+$/u) { const value = process.env[name]; if (!value || !pattern.test(value)) throw new Error(`Invalid ${name}.`); return value; }
@@ -32,7 +32,8 @@ function validateEvidence(source, platform, runId, runAttempt, candidateSha, eve
   if (!evidence.consumer || typeof evidence.consumer !== "object" || Array.isArray(evidence.consumer) || evidence.consumer.attempt !== "real_browser") throw new Error(`${platform} consumer custody validation failed.`);
   const { attempt: _attempt, ...consumerSource } = evidence.consumer;
   const receipt = parseConsumerReceipt(JSON.stringify(consumerSource));
-  if (!receipt || !hasObservedConsumerReceipt(receipt) || !exactKeys(evidence.consumer, ["attempt", ...Object.keys(receipt)]) || !sameValue(receipt, consumerSource)) throw new Error(`${platform} receipt custody validation failed.`);
+  if (!receipt || !isRetainableConsumerReceipt(receipt) || !exactKeys(evidence.consumer, ["attempt", ...Object.keys(receipt)]) || !sameValue(receipt, consumerSource)) throw new Error(`${platform} receipt custody validation failed.`);
+  if (evidence.outcome === "success" && !hasObservedConsumerReceipt(receipt)) throw new Error(`${platform} unobserved or failed consumer cannot qualify as success.`);
   return receipt;
 }
 export async function verifyArtifacts({ root, runId, runAttempt, candidateSha, eventSha }) {
@@ -46,7 +47,7 @@ export async function verifyArtifacts({ root, runId, runAttempt, candidateSha, e
     const evidenceSource = await regular(path.join(directory, evidenceName), `${platform} evidence`);
     const receipt = parseConsumerReceipt(await regular(path.join(directory, receiptName), `${platform} receipt`));
     const retained = validateEvidence(evidenceSource, platform, runId, runAttempt, candidateSha, eventSha);
-    if (!receipt || !hasObservedConsumerReceipt(receipt) || !sameValue(retained, receipt)) throw new Error(`${platform} retained receipt custody validation failed.`);
+    if (!receipt || !isRetainableConsumerReceipt(receipt) || !sameValue(retained, receipt)) throw new Error(`${platform} retained receipt custody validation failed.`);
   }
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) await verifyArtifacts({ root: required("PACKAGED_ARTIFACTS_ROOT"), runId: required("GITHUB_RUN_ID", /^[1-9][0-9]*$/u), runAttempt: required("GITHUB_RUN_ATTEMPT", /^[1-9][0-9]*$/u), candidateSha: required("QUALIFICATION_CANDIDATE_SHA", /^[0-9a-f]{40}$/u), eventSha: required("QUALIFICATION_EVENT_SHA", /^[0-9a-f]{40}$/u) });

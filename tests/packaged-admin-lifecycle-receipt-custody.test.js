@@ -6,6 +6,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { retainReceipt } from "../scripts/retain-packaged-admin-lifecycle-receipt.mjs";
+import { consume } from "../scripts/consume-admin-trusted-unlock-receipt.mjs";
 import { ADMIN_HARNESS_REVISION, ADMIN_RELEASE, BROKER_RELEASE } from "../scripts/published-package-qualification-lib.mjs";
 
 const script = new URL("../scripts/verify-packaged-admin-lifecycle-artifacts.mjs", import.meta.url);
@@ -13,6 +14,7 @@ const workflow = new URL("../.github/workflows/packaged-admin-lifecycle.yml", im
 const runId = "431", runAttempt = "2", candidateSha = "a".repeat(40), eventSha = "b".repeat(40);
 const receipt = { schema: "service-lasso.admin-trusted-unlock-consumer.v1", outcome: "nonzero_exit", exitCode: 1, signal: null, trustedUnlock: { classification: "closed", receipt: { schema: "service-admin.trusted-unlock-receipt.v1", status: "observed", present: true, verified: false, localRoot: false, loading: true, unavailable: false } } };
 const observationFailureReceipt = { ...receipt, outcome: "observation_failure", exitCode: 0, streamFailure: "malformed_utf8" };
+const unavailableReceipt = (classification) => ({ ...receipt, trustedUnlock: { classification } });
 function evidenceFor(platform) {
   const release = (value) => ({ revision: value.revision, releaseId: value.id, tag: value.tag, asset: value.platforms[platform].asset, sha256: value.platforms[platform].sha256, checksumSource: "SHA256SUMS.txt" });
   return { schema: "service-lasso.packaged-admin-lifecycle.v1", retainedContent: "metadata_only", outcome: "failure", platform, core: { revision: candidateSha }, admin: release(ADMIN_RELEASE), adminHarness: { repository: "service-lasso/lasso-serviceadmin", revision: ADMIN_HARNESS_REVISION }, broker: release(BROKER_RELEASE), browser: { modes: platform === "win32" ? ["first_run", "comprehensive_lifecycle", "stopped_lifecycle", "local_operator_lockout"] : ["first_run", "comprehensive_lifecycle", "stopped_lifecycle"], mutationRetry: false, capturesRetained: false, sensitiveEvidenceRetained: false } };
@@ -30,6 +32,13 @@ async function fixture(mutator, source = receipt) {
   await mutator?.(root); return root;
 }
 function verify(root) { return spawnSync(process.execPath, [fileURLToPath(script)], { env: { ...process.env, PACKAGED_ARTIFACTS_ROOT: root, GITHUB_RUN_ID: runId, GITHUB_RUN_ATTEMPT: runAttempt, QUALIFICATION_CANDIDATE_SHA: candidateSha, QUALIFICATION_EVENT_SHA: eventSha }, encoding: "utf8" }); }
+async function actualConsumerReceipt(root, name, childSource) {
+  const child = path.join(root, `${name}.mjs`), output = path.join(root, `${name}.json`);
+  await writeFile(child, childSource);
+  const result = spawnSync(process.execPath, [fileURLToPath(new URL("../scripts/consume-admin-trusted-unlock-receipt.mjs", import.meta.url)), "--receipt", output, "--", process.execPath, child], { encoding: "utf8" });
+  assert.ok(Number.isInteger(result.status) && result.status >= 0 && result.status <= 255, result.stderr);
+  return JSON.parse(await readFile(output, "utf8"));
+}
 test("AC-4BY.2 workflow binds every checkout and retained artifact to the PR head rather than its synthetic merge", async () => {
   const source = await readFile(workflow, "utf8");
   assert.match(source, /QUALIFICATION_CANDIDATE_SHA: \$\{\{ github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.sha \|\| github\.sha \}\}/);
@@ -47,6 +56,48 @@ test("AC-4BY.2 aggregate validates an executable successful no-failure consumer 
 test("AC-4BY.2 aggregate preserves an executable observation-failure mechanism without qualifying it", async () => {
   const result = verify(await fixture(undefined, observationFailureReceipt));
   assert.equal(result.status, 0, result.stderr);
+});
+test("AC-4BY.2 retains typed missing and invalid failed-consumer diagnostics without qualifying either", async () => {
+  for (const classification of ["missing", "invalid"]) {
+    const retained = verify(await fixture(undefined, unavailableReceipt(classification)));
+    assert.equal(retained.status, 0, retained.stderr);
+    const rejectedAsSuccess = verify(await fixture(async (root) => {
+      for (const platform of ["linux", "win32", "darwin"]) {
+        const evidence = path.join(root, `packaged-admin-lifecycle-${platform}-${runId}-${runAttempt}`, `packaged-admin-lifecycle-${platform}.json`);
+        const value = JSON.parse(await readFile(evidence, "utf8"));
+        value.outcome = "success";
+        await writeFile(evidence, JSON.stringify(value));
+      }
+    }, unavailableReceipt(classification)));
+    assert.notEqual(rejectedAsSuccess.status, 0, `${classification} must not qualify`);
+  }
+});
+test("AC-4BY.2 round-trips actual consumer outcomes through retention and aggregate custody", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "packaged-consumer-roundtrip-"));
+  const valid = JSON.stringify(receipt.trustedUnlock.receipt);
+  const cases = [
+    ["success-not-emitted", "process.exit(0);", "success"],
+    ["nonzero-closed", `process.stderr.write(${JSON.stringify(`${valid}\n`)}, () => process.exit(7));`, "nonzero_exit"],
+    ["nonzero-missing", "process.exit(7);", "nonzero_exit"],
+    ["nonzero-invalid", `process.stderr.write(${JSON.stringify(`${valid.slice(0, -1)},"private":true}\n`)}, () => process.exit(7));`, "nonzero_exit"],
+    ["private", `process.stderr.write(${JSON.stringify(`${valid.slice(0, -1)},"private":true}\n`)}, () => process.exit(7));`, "nonzero_exit"],
+    ["utf8", "process.stderr.write(Buffer.from([0xc3, 0x28]), () => process.exit(0));", "observation_failure"],
+    ["budget", "process.stderr.write(Buffer.alloc(65537, 0x78), () => process.exit(0));", "observation_failure"],
+    ["duplicate", `process.stderr.write(${JSON.stringify(`${valid}\n${valid}\n`)}, () => process.exit(7));`, "nonzero_exit"],
+  ];
+  for (const [name, childSource, outcome] of cases) {
+    const source = await actualConsumerReceipt(root, name, childSource);
+    assert.equal(source.outcome, outcome, name);
+    const result = verify(await fixture(undefined, source));
+    assert.equal(result.status, 0, `${name}: ${result.stderr}`);
+  }
+  const stalled = path.join(root, "timeout-child.mjs");
+  await writeFile(stalled, "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000);");
+  const timed = await consume(process.execPath, [stalled], { timeoutMs: 25, pipeCloseTimeoutMs: 100 });
+  const timeoutReceipt = { schema: "service-lasso.admin-trusted-unlock-consumer.v1", outcome: "observation_failure", exitCode: timed.code, signal: timed.signal, executionFailure: timed.executionFailure, trustedUnlock: timed.trustedUnlock };
+  assert.equal(timeoutReceipt.executionFailure, "execution_timeout");
+  const timeoutResult = verify(await fixture(undefined, timeoutReceipt));
+  assert.equal(timeoutResult.status, 0, timeoutResult.stderr);
 });
 for (const [label, source] of [
   ["missing read file", null],
