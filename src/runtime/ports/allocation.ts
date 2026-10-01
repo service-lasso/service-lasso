@@ -234,7 +234,11 @@ function intersectRanges(
   return range;
 }
 
-function configuredPortRange(): { start: number; end: number } | null {
+/**
+ * Returns the host-wide endpoint constraint applied to every allocation.
+ * A null result is the explicit policy that permits OS ephemeral selection.
+ */
+export function getConfiguredPortRange(): { start: number; end: number } | null {
   const startValue = process.env.SERVICE_LASSO_PORT_RANGE_START;
   const endValue = process.env.SERVICE_LASSO_PORT_RANGE_END;
   if (startValue === undefined && endValue === undefined) return null;
@@ -760,7 +764,7 @@ async function buildRequests(options: PlanRuntimeEndpointAllocationOptions): Pro
       .filter((entry) => entry.stale !== true)
       .map((entry) => [`${entry.ownerId}:${entry.portName}`, entry.port]),
   );
-  const globalRange = configuredPortRange();
+  const globalRange = getConfiguredPortRange();
   const apiHost = normalizeHost(options.api.host);
   const apiAdvertiseHost = normalizeHost(options.api.advertiseHost ?? (isWildcardHost(apiHost) ? DEFAULT_BIND : apiHost));
   const apiPolicy = options.api.policy ?? (options.api.port === 0 ? "automatic" : "preferred");
@@ -858,7 +862,7 @@ async function allocateRequests(
 
   for (const request of requests) {
     if (request.kernelBoundPort !== null) {
-      if (unavailable(request, request.kernelBoundPort)) {
+      if (!inRange(request.kernelBoundPort, request.range) || unavailable(request, request.kernelBoundPort)) {
         throw new RuntimeEndpointAllocationError(
           "endpoint_allocation_conflict",
           request,

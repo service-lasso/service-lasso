@@ -281,11 +281,13 @@ import {
 import type { LifecycleAction, LifecycleActionResult } from "../runtime/lifecycle/types.js";
 import {
   claimRuntimeEndpointAllocation,
+  getConfiguredPortRange,
   planAndReserveRuntimeEndpoints,
   readRuntimeEndpointAllocationPlan,
   releaseRuntimeEndpointAllocation,
   runtimeApiEndpointFromAllocation,
   servicePortsFromEndpointAllocation,
+  RuntimeEndpointAllocationError,
   type RuntimeEndpointAllocationPolicy,
   type RuntimeEndpointAllocationPlan,
 } from "../runtime/ports/allocation.js";
@@ -8108,6 +8110,9 @@ async function startApiServerGeneration(
   const requestedPort = options.port ?? 18080;
   const apiPortPolicy = runtimeApiPortPolicy(options, requestedPort);
   const bindRetryLimit = runtimeBindRetryLimit();
+  const automaticApiRange = requestedPort === 0 && apiPortPolicy === "automatic"
+    ? getConfiguredPortRange()
+    : null;
   const monitor = options.monitor
     ? createRuntimeServiceMonitor({
         registry: bootModel.registry,
@@ -8163,7 +8168,17 @@ async function startApiServerGeneration(
     try {
       if (requestedPort === 0 && apiPortPolicy === "automatic" && !recovery.allocationPlan) {
         candidateServer = createServer();
-        await listenRuntimeApi(candidateServer, 0, bindHost);
+        // An unconstrained automatic API may ask the OS for an ephemeral port.
+        // With a configured range, bind an in-range candidate first and retain
+        // that listener through reservation, materialisation, and ownership
+        // proof so the allocation cannot escape the configured contract.
+        const candidatePort = automaticApiRange
+          ? automaticApiRange.start + attempt - 1
+          : 0;
+        if (automaticApiRange && candidatePort > automaticApiRange.end) {
+          throw new Error(`No automatic runtime API candidate remains in configured range ${automaticApiRange.start}-${automaticApiRange.end}.`);
+        }
+        await listenRuntimeApi(candidateServer, candidatePort, bindHost);
         const candidateAddress = candidateServer.address();
         if (!candidateAddress || typeof candidateAddress === "string" || candidateAddress.port <= 0) {
           throw new Error("Automatic runtime API candidate failed to expose a TCP port.");
@@ -8306,7 +8321,10 @@ async function startApiServerGeneration(
       const materializationFailures = await compensateStartupMaterializations(transaction, bootModel.discovered);
       if (materializationFailures.length > 0) throw error;
       if (recovery.allocationPlan) throw error;
-      if (!isAddressInUse(error) || apiPortPolicy === "fixed" || attempt > bindRetryLimit) throw error;
+      const heldCandidateConflict = kernelBoundPort !== undefined
+        && error instanceof RuntimeEndpointAllocationError
+        && error.ownerId === "runtime-api";
+      if ((!isAddressInUse(error) && !heldCandidateConflict) || apiPortPolicy === "fixed" || attempt > bindRetryLimit) throw error;
     }
   }
   try {
