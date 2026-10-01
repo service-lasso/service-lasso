@@ -64,7 +64,7 @@ test("AC-4BY.2 retains no child output and preserves the original nonzero exit",
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test("AC-4BY.2 keeps UTF-8 and CRLF receipt framing across arbitrary chunks while bounding a schema flood", async () => {
+test("AC-4BY.2 keeps UTF-8 and CRLF receipt framing across arbitrary chunks while bounding a completed finite flood", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "admin-receipt-"));
   try {
     const consumer = fileURLToPath(new URL("../scripts/consume-admin-trusted-unlock-receipt.mjs", import.meta.url));
@@ -80,12 +80,46 @@ test("AC-4BY.2 keeps UTF-8 and CRLF receipt framing across arbitrary chunks whil
     const split = await run(`const bytes=Buffer.from(${JSON.stringify([...bytes])}); process.stderr.write(bytes.subarray(0, ${emojiStart + 2})); setImmediate(() => process.stderr.write(bytes.subarray(${emojiStart + 2}), () => process.exit(7)));`);
     assert.equal(split.result.code, 7);
     assert.equal(split.receipt.trustedUnlock.classification, "closed");
-    const flood = await run(`for (let i=0;i<2000;i++) process.stderr.write(${JSON.stringify(`${valid}\n`)}); process.exit(7);`);
+    const flood = await run(`
+      const bytes = Buffer.alloc(131072, 0x78);
+      const done = () => process.exit(7);
+      if (!process.stderr.write(bytes)) process.stderr.once("drain", done);
+      else done();
+    `);
     assert.equal(flood.result.code, 1);
-    assert.deepEqual(flood.receipt.trustedUnlock, { classification: "invalid" });
+    assert.deepEqual(flood.receipt, {
+      schema: "service-lasso.admin-trusted-unlock-consumer.v1",
+      outcome: "observation_failure",
+      exitCode: 7,
+      signal: null,
+      trustedUnlock: { classification: "invalid" },
+      streamFailure: "stream_budget_exceeded",
+    });
     const overlong = await run(`process.stderr.write(${JSON.stringify(`${"x".repeat(300)}${valid}\n`)}, () => process.exit(7));`);
     assert.equal(overlong.result.code, 7);
     assert.deepEqual(overlong.receipt.trustedUnlock, { classification: "invalid" });
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("AC-4BY.2 Windows invokes the pinned Node entrypoint with literal argv and closes a direct cmd shim", { skip: process.platform !== "win32" }, async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "admin-receipt-windows-"));
+  try {
+    const entrypoint = path.join(root, "pnpm.cjs");
+    const shim = path.join(root, "pnpm.cmd");
+    const metacharacters = "literal & | < > ^ % ! ; $()";
+    await writeFile(entrypoint, `
+      if (process.argv[2] !== "test:secrets:real-browser" || process.argv[3] !== ${JSON.stringify(metacharacters)}) process.exit(8);
+      process.stderr.write(${JSON.stringify(`${valid}\n`)}, () => process.exit(7));
+    `);
+    await writeFile(shim, "@echo off\r\nexit /b 7\r\n");
+    const portable = await consume(process.execPath, [entrypoint, "test:secrets:real-browser", metacharacters]);
+    assert.equal(portable.code, 7);
+    assert.equal(portable.executionFailure, null);
+    assert.deepEqual(portable.trustedUnlock, { classification: "closed", receipt: JSON.parse(valid) });
+    const directShim = await consume(shim, [metacharacters]);
+    assert.equal(directShim.executionFailure, "spawn_failed");
+    assert.equal(directShim.code, null);
+    assert.doesNotMatch(JSON.stringify(directShim), /literal/);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 

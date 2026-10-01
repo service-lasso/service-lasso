@@ -130,7 +130,7 @@ jobs:
           test "$QUALIFICATION_PREPARED" = "1"
           pnpm test:secrets:real-first-run-browser
           echo "QUALIFICATION_FIRST_RUN=success" >> "$GITHUB_ENV"
-          node "$GITHUB_WORKSPACE/scripts/consume-admin-trusted-unlock-receipt.mjs" --receipt "$RUNNER_TEMP/admin-trusted-unlock-receipt.json" -- pnpm test:secrets:real-browser
+          node "$GITHUB_WORKSPACE/scripts/consume-admin-trusted-unlock-receipt.mjs" --receipt "$RUNNER_TEMP/admin-trusted-unlock-receipt.json" -- node "$PNPM_HOME/pnpm.cjs" test:secrets:real-browser
           echo "QUALIFICATION_LIFECYCLE=success" >> "$GITHUB_ENV"
           pnpm test:secrets:real-stopped-lifecycle-browser
           echo "QUALIFICATION_STOPPED_LIFECYCLE=success" >> "$GITHUB_ENV"

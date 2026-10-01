@@ -126,7 +126,7 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
   assert.match(workflow, /consume-admin-trusted-unlock-receipt\.mjs/);
   assert.match(
     workflow,
-    /consume-admin-trusted-unlock-receipt\.mjs[\s\S]*?--receipt[\s\S]*?pnpm test:secrets:real-browser/,
+    /consume-admin-trusted-unlock-receipt\.mjs[\s\S]*?--receipt[\s\S]*?node "\$PNPM_HOME\/pnpm\.cjs" test:secrets:real-browser/,
   );
   assert.match(workflow, /SERVICE_LASSO_REQUIRE_TEST_BROKER_BINARY: "1"/);
   assert.match(workflow, /& chmod \+x \$brokerBinary\.FullName/);
@@ -134,7 +134,6 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
 
   for (const command of [
     "pnpm test:secrets:real-first-run-browser",
-    "pnpm test:secrets:real-browser",
     "pnpm test:secrets:real-stopped-lifecycle-browser",
     "pnpm test:secrets:real-lockout-browser",
   ]) {
@@ -144,6 +143,7 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
       1,
     );
   }
+  assert.doesNotMatch(workflow, /-- pnpm test:secrets:real-browser/);
   assert.match(
     workflow,
     /if \[ "\$RUNNER_OS" = "Windows" \]; then[\s\S]*?real-lockout-browser/,

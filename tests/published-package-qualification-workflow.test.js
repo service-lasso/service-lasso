@@ -61,7 +61,7 @@ test("AC-4BZ.1 workflow qualifies only exact downloaded publications on all thre
   assert.match(workflow, /consume-admin-trusted-unlock-receipt\.mjs/);
   assert.match(
     workflow,
-    /consume-admin-trusted-unlock-receipt\.mjs[\s\S]*?--receipt[\s\S]*?pnpm test:secrets:real-browser/,
+    /consume-admin-trusted-unlock-receipt\.mjs[\s\S]*?--receipt[\s\S]*?node "\$PNPM_HOME\/pnpm\.cjs" test:secrets:real-browser/,
   );
   assert.doesNotMatch(
     workflow,
@@ -88,7 +88,6 @@ test("AC-4BZ.1 workflow qualifies only exact downloaded publications on all thre
 
   for (const command of [
     "pnpm test:secrets:real-first-run-browser",
-    "pnpm test:secrets:real-browser",
     "pnpm test:secrets:real-stopped-lifecycle-browser",
     "pnpm test:secrets:real-lockout-browser",
   ]) {
@@ -98,6 +97,7 @@ test("AC-4BZ.1 workflow qualifies only exact downloaded publications on all thre
       1,
     );
   }
+  assert.doesNotMatch(workflow, /-- pnpm test:secrets:real-browser/);
   assert.match(
     workflow,
     /id: cleanup[\s\S]*?if: always\(\)[\s\S]*?cleanup-published-package-qualification\.mjs/,

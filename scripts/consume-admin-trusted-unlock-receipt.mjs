@@ -8,7 +8,10 @@ const REQUIRED_KEYS = new Set(["schema", "status", "present", "verified", "local
 const MAX_RECORD_LENGTH = 256;
 const MAX_CHUNK_SLICE_BYTES = 8_192;
 const MAX_OBSERVED_BYTES = 65_536;
-const MAX_DISCARD_BYTES = 16_384;
+// After the 64 KiB parser cap, continue draining a bounded finite amount so
+// an owned fixture can acknowledge its complete 128 KiB write before exit.
+// No discarded byte is decoded, retained, or included in a receipt.
+const MAX_DISCARD_BYTES = 131_072;
 const TERMINATION_GRACE_MS = 500;
 const PIPE_CLOSE_TIMEOUT_MS = 500;
 const PROPAGATED_SIGNALS = new Set(["SIGTERM", "SIGINT", "SIGHUP"]);
@@ -260,7 +263,18 @@ function classifyObservations(observations) {
 }
 
 export async function consume(command, args, options = {}) {
-  const child = spawn(command, args, { cwd: options.cwd, env: options.env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+  let child;
+  try {
+    child = spawn(command, args, { cwd: options.cwd, env: options.env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+  } catch {
+    return {
+      code: null,
+      signal: null,
+      executionFailure: "spawn_failed",
+      streamFailure: null,
+      trustedUnlock: { classification: "missing" },
+    };
+  }
   const observers = [receiptObserver(), receiptObserver()];
   const streamClosed = [];
   for (const [stream, observer] of [[child.stdout, observers[0]], [child.stderr, observers[1]]]) {
