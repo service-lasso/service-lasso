@@ -32,21 +32,116 @@ async function inspectPath(filePath) {
   }
 }
 async function sha256File(filePath) { return createHash("sha256").update(await readFile(filePath)).digest("hex"); }
+async function nativeAssetHashes() {
+  const assetPaths = [
+    "runtime/process/windows-process-inspector.cs",
+    "runtime/process/windows-process-inspector.exe",
+    "runtime/process/windows-process-inspector.provenance.json",
+    "runtime/execution/windows-managed-launcher-native.exe",
+    "runtime/execution/windows-managed-launcher-native.provenance.json",
+  ];
+  const result = {};
+  for (const relativePath of assetPaths) {
+    const sourcePath = path.join(process.cwd(), "src", relativePath);
+    const buildPath = path.join(process.cwd(), "dist", relativePath);
+    result[relativePath] = {
+      sourceSha256: (await inspectPath(sourcePath)).state === "present" ? await sha256File(sourcePath) : null,
+      buildSha256: (await inspectPath(buildPath)).state === "present" ? await sha256File(buildPath) : null,
+    };
+  }
+  return result;
+}
 async function gitIdentity() {
   const run = async (args) => (await execFileAsync("git", args, { encoding: "utf8" })).stdout.trim();
   return { head: await run(["rev-parse", "HEAD"]), tree: await run(["rev-parse", "HEAD^{tree}"]) };
 }
 function commandForNpm(args) { return process.platform === "win32" ? { command: "cmd.exe", args: ["/d", "/s", "/c", "npm", ...args] } : { command: "npm", args }; }
+function hashText(value) { return createHash("sha256").update(value, "utf8").digest("hex"); }
+function typedSpawnError(error) {
+  return {
+    kind: "spawn_error",
+    name: typeof error?.name === "string" ? error.name.slice(0, 80) : "Error",
+    code: typeof error?.code === "string" ? error.code.slice(0, 80) : null,
+  };
+}
+function emptyNativeCustody() {
+  return {
+    status: "not_observed",
+    reason: process.platform === "win32" ? "awaiting_spawn" : "platform_not_windows",
+  };
+}
+async function inspectNativeCustody(child, label, launchCwd) {
+  if (process.platform !== "win32") return { status: "not_observed", reason: "platform_not_windows" };
+  if (!Number.isInteger(child.pid) || child.pid <= 0) return { status: "not_observed", reason: "child_not_created" };
+  const inspectorPath = path.join(process.cwd(), "src", "runtime", "process", "windows-process-inspector.exe");
+  try {
+    const { stdout } = await execFileAsync(inspectorPath, [String(child.pid), "--include-descendants"], {
+      windowsHide: true,
+      timeout: 10_000,
+      maxBuffer: 1024 * 1024,
+      encoding: "utf8",
+    });
+    const tree = JSON.parse(stdout);
+    if (tree?.Status !== "tree" || tree?.RootStatus !== "running" || !Array.isArray(tree.Processes)) {
+      return { status: "not_observed", reason: "native_identity_unavailable" };
+    }
+    const root = tree.Processes.find((entry) => entry?.ProcessId === child.pid);
+    if (!root || !Number.isInteger(root.ParentProcessId) || typeof root.CreationDate !== "string" ||
+      typeof root.ExecutablePath !== "string" || typeof root.CommandLine !== "string") {
+      return { status: "not_observed", reason: "native_identity_incomplete" };
+    }
+    const processes = tree.Processes.map((entry) => ({
+      pid: Number.isInteger(entry?.ProcessId) ? entry.ProcessId : null,
+      parentPid: Number.isInteger(entry?.ParentProcessId) ? entry.ParentProcessId : null,
+      createdAt: typeof entry?.CreationDate === "string" ? entry.CreationDate : null,
+      executableSha256: typeof entry?.ExecutablePath === "string" ? hashText(entry.ExecutablePath) : null,
+      commandSha256: typeof entry?.CommandLine === "string" ? hashText(entry.CommandLine) : null,
+    }));
+    if (processes.some((entry) => entry.pid === null || entry.parentPid === null || entry.createdAt === null || entry.executableSha256 === null || entry.commandSha256 === null)) {
+      return { status: "not_observed", reason: "native_identity_incomplete" };
+    }
+    return {
+      status: "observed",
+      source: "windows-process-inspector",
+      label,
+      launchCwdSha256: hashText(launchCwd),
+      root: processes.find((entry) => entry.pid === child.pid),
+      processChain: processes,
+    };
+  } catch {
+    return { status: "not_observed", reason: "native_inspector_failed" };
+  }
+}
 function startProcess(label, command, args, env) {
   const startedAt = new Date().toISOString();
-  const child = spawn(command, args, { stdio: "inherit", env });
-  const ownership = { pid: child.pid ?? null, observedBirthAt: startedAt };
-  const record = { label, ownership, close: null };
-  const closed = new Promise((resolve, reject) => {
-    child.once("error", reject);
+  const injectSpawnFailure = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS === "1" &&
+    process.env.SERVICE_LASSO_ISOLATED_TEST_SPAWN_ERROR === label;
+  const child = spawn(injectSpawnFailure ? `${command}.service-lasso-test-missing` : command, args, { stdio: "inherit", env });
+  const ownership = {
+    childCreated: Number.isInteger(child.pid) && child.pid > 0,
+    pid: Number.isInteger(child.pid) && child.pid > 0 ? child.pid : null,
+    nodeObservedAt: startedAt,
+    nativeCustody: emptyNativeCustody(),
+  };
+  const record = { label, ownership, spawnError: null, close: null };
+  const nativeCustody = new Promise((resolve) => {
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+    child.once("spawn", () => void inspectNativeCustody(child, label, process.cwd()).then(finish));
+    child.once("error", () => finish({ status: "not_observed", reason: "spawn_error" }));
+    child.once("close", () => finish({ status: "not_observed", reason: "child_not_created" }));
+  });
+  const closed = new Promise((resolve) => {
+    // Spawn errors do not establish terminal process state.  Keep their typed
+    // classification, then wait for the actual ChildProcess close event.
+    child.once("error", (error) => { record.spawnError = typedSpawnError(error); });
     child.once("close", (code, signal) => resolve({ code, signal, closedAt: new Date().toISOString() }));
   });
-  return { record, closed };
+  return { record, closed, nativeCustody };
 }
 
 const usesExternalInputs = suppliedInputs.length === inputKeys.length;
@@ -73,6 +168,7 @@ const receipt = {
   version: 1, inputMode: usesExternalInputs ? "external" : "owned-default", rawInputs, actualInputs: inputs,
   initial: initialInputs,
   git: await gitIdentity(), nativeHash: { executable: process.execPath, sha256: await sha256File(process.execPath) },
+  nativeAssets: await nativeAssetHashes(),
   receiptPath, processes: [], terminal: null,
 };
 async function persistReceipt() {
@@ -101,16 +197,28 @@ try {
   await persistReceipt();
   build.record.close = await build.closed;
   await persistReceipt();
+  build.record.ownership.nativeCustody = await build.nativeCustody;
+  await persistReceipt();
   if (build.record.close.code !== 0 || build.record.close.signal) throw new Error("Build did not close successfully.");
+  receipt.nativeAssets = await nativeAssetHashes();
+  await persistReceipt();
   const test = startProcess("test", process.execPath, ["--test", "--test-concurrency=1", ...testFiles], childEnv);
   receipt.processes.push(test.record);
   await persistReceipt();
   test.record.close = await test.closed;
+  await persistReceipt();
+  test.record.ownership.nativeCustody = await test.nativeCustody;
   receipt.terminal = { outcome: test.record.close.code === 0 && !test.record.close.signal ? "passed" : "failed", trueCloseExit: test.record.close };
   await persistReceipt();
   if (receipt.terminal.outcome !== "passed") throw new Error("Test runner did not close successfully.");
 } catch (error) {
-  receipt.terminal = { ...receipt.terminal, outcome: "failed", error: error instanceof Error ? error.message : String(error) };
+  const lastClosedProcess = [...receipt.processes].reverse().find((entry) => entry.close !== null);
+  receipt.terminal = {
+    ...receipt.terminal,
+    outcome: "failed",
+    trueCloseExit: receipt.terminal?.trueCloseExit ?? lastClosedProcess?.close ?? null,
+    error: error instanceof Error ? error.message : String(error),
+  };
   await persistReceipt();
   throw error;
 }
