@@ -122,30 +122,22 @@ async function closeServer(server, timeoutMs) {
 }
 
 async function removeTempRootBoundedly(tempRoot, timeoutMs, removeTempRoot) {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    try {
-      await removeTempRoot(tempRoot, {
-        recursive: true,
-        force: true,
-        maxRetries: 8,
-        retryDelay: 250,
-      });
-      try {
-        await access(tempRoot);
-        const error = new Error(
-          "Temporary root still exists after fixture teardown.",
-        );
-        error.code = "temp_root_still_present";
-        throw error;
-      } catch (error) {
-        if (error?.code === "ENOENT") return;
-        throw error;
-      }
-    } catch (error) {
-      if (Date.now() >= deadline) throw error;
-      await new Promise((resolve) => setTimeout(resolve, 500));
-    }
+  await removeTempRoot(tempRoot, {
+    recursive: true,
+    force: false,
+    maxRetries: 0,
+    retryDelay: 0,
+  });
+  try {
+    await access(tempRoot);
+    const error = new Error(
+      "Temporary root still exists after fixture teardown.",
+    );
+    error.code = "temp_root_still_present";
+    throw error;
+  } catch (error) {
+    if (error?.code === "ENOENT") return;
+    throw error;
   }
 }
 

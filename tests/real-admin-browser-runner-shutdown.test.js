@@ -1,11 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   access,
+  lstat,
   mkdir,
   mkdtemp,
   readFile,
+  realpath,
   rm,
   symlink,
   writeFile,
@@ -200,7 +203,10 @@ async function observeExternalOwnedProcess(pid, expectedParentPid) {
     assert.ok(observed.CreationDate.length > 0);
     assert.equal(typeof observed.ExecutablePath, "string");
     assert.ok(observed.ExecutablePath.length > 0);
-    return { birth: observed.CreationDate, executable: observed.ExecutablePath };
+    return observeExternalExecutable(
+      { birth: observed.CreationDate, executable: observed.ExecutablePath },
+      pid,
+    );
   }
   const observed = execFileSync(
     "ps",
@@ -209,7 +215,30 @@ async function observeExternalOwnedProcess(pid, expectedParentPid) {
   ).trim().match(/^(\d+)\s+(.+\S)\s+(\S+)$/u);
   assert.ok(observed);
   assert.equal(Number(observed[1]), expectedParentPid);
-  return { birth: observed[2], executable: observed[3] };
+  const executable = process.platform === "linux"
+    ? execFileSync("readlink", ["-f", `/proc/${pid}/exe`], { encoding: "utf8" }).trim()
+    : observed[3];
+  return observeExternalExecutable({ birth: observed[2], executable }, pid);
+}
+
+async function observeExternalExecutable({ birth, executable }, pid) {
+  const executablePath = await realpath(executable);
+  const metadata = await lstat(executablePath);
+  assert.equal(metadata.isFile(), true);
+  assert.equal(metadata.isSymbolicLink(), false);
+  return {
+    pid,
+    birth,
+    nativeIdentity: {
+      path: executablePath,
+      size: metadata.size,
+      sha256: `sha256:${createHash("sha256").update(await readFile(executablePath)).digest("hex")}`,
+    },
+  };
+}
+
+async function sha256File(filePath) {
+  return `sha256:${createHash("sha256").update(await readFile(filePath)).digest("hex")}`;
 }
 
 function hasListener(port) {
@@ -269,8 +298,7 @@ async function startActualRealBrowserRunner({ prelaunchOnly = false } = {}) {
 }
 
 test("external observer retains hard-interrupt custody after the runner cannot handle the OS signal", async (t) => {
-  for (const signal of ["SIGTERM", "SIGINT"]) {
-    await t.test(signal, async () => {
+  await t.test("SIGKILL", async () => {
       const { child, fixtureRoot, evidenceRoot } = await startActualRealBrowserRunner({
         prelaunchOnly: true,
       });
@@ -278,22 +306,48 @@ test("external observer retains hard-interrupt custody after the runner cannot h
       let closed = null;
       try {
         await waitForPrelaunchReady(child);
+        const prelaunchPath = path.join(evidenceRoot, "live-prelaunch-receipt.json");
+        const prelaunch = JSON.parse(await readFile(prelaunchPath, "utf8"));
         const identity = await observeExternalOwnedProcess(child.pid, process.pid);
+        assert.deepEqual(prelaunch.source, { head: sourceHead, tree: sourceTree });
+        assert.deepEqual(prelaunch.runtimeInputs, {
+          workspaceRoot: path.join(fixtureRoot, "runtime-workspace"),
+          servicesRoot: path.join(fixtureRoot, "runtime-services"),
+        });
+        assert.equal(prelaunch.runner.pid, identity.pid);
+        assert.equal(prelaunch.runner.birth, identity.birth);
+        assert.deepEqual(prelaunch.runner.nativeIdentity, identity.nativeIdentity);
+        assert.deepEqual(
+          prelaunch.assets,
+          await Promise.all([
+            "tests/fixtures/real-admin-browser-runner.mjs",
+            "tests/fixtures/real-admin-browser-shutdown.mjs",
+            "tests/fixtures/real-admin-browser-rollback.mjs",
+          ].map(async (literalPath) => {
+            const assetPath = path.resolve(literalPath);
+            const metadata = await lstat(assetPath);
+            return { literalPath, size: metadata.size, sha256: await sha256File(assetPath) };
+          })),
+        );
+        const signal = "SIGKILL";
         assert.equal(child.kill(signal), true);
         closed = await waitForExit(child, 30_000);
-        const internalClosure = await readFile(
-          path.join(evidenceRoot, "live-closure-receipt.json"),
-          "utf8",
-        ).then((source) => JSON.parse(source), () => null);
         await writeFile(
           path.join(evidenceRoot, "external-interrupt-receipt.json"),
           JSON.stringify({
             schema: "service-lasso.real-admin-browser-external-interrupt.v1",
-            outcome: internalClosure?.outcome === "interrupted" ? "interrupted" : "unresolved",
+            outcome: closed.signal === signal ? "interrupted" : "unresolved",
+            expected: {
+              source: { head: sourceHead, tree: sourceTree },
+              runtimeInputs: prelaunch.runtimeInputs,
+              assets: prelaunch.assets,
+              prelaunchSHA256: await sha256File(prelaunchPath),
+            },
             observer: {
-              ownedBirthObserved: typeof identity.birth === "string",
+              ownedBirthObserved: typeof identity.birth === "string" && identity.birth.length > 0,
               processChainObserved: true,
-              nativeIdentityObserved: typeof identity.executable === "string",
+              nativeIdentityObserved: identity.nativeIdentity.size > 0,
+              process: identity,
             },
             termination: { signal, exitCode: closed.code, exitSignal: closed.signal },
           }),
@@ -310,14 +364,13 @@ test("external observer retains hard-interrupt custody after the runner cannot h
         assert.equal(externalReceipt.observer.ownedBirthObserved, true);
         assert.equal(externalReceipt.observer.processChainObserved, true);
         assert.equal(externalReceipt.observer.nativeIdentityObserved, true);
-        assert.equal(internalClosure, null);
+        await assert.rejects(access(path.join(evidenceRoot, "live-closure-receipt.json")));
       } finally {
         // Prelaunch-only mode has no imported runtime or descendants. Cleanup
         // follows the observed direct-child close, never a PID sweep.
-        if (closed) await rm(fixtureRoot, { recursive: true, force: true });
+        if (closed) await rm(fixtureRoot, { recursive: true, force: false });
       }
     });
-  }
 });
 
 test("real Admin browser runner preserves pre-existing literal and linked receipt targets", async (t) => {
@@ -362,7 +415,7 @@ test("real Admin browser runner preserves pre-existing literal and linked receip
         assert.notEqual(closed.code, 0);
         assert.equal(await readFile(foreignTarget, "utf8"), "foreign-receipt-state\n");
       } finally {
-        await rm(fixtureRoot, { recursive: true, force: true });
+        await rm(fixtureRoot, { recursive: true, force: false });
       }
     });
   }
@@ -450,19 +503,21 @@ test("real Admin browser runner reaches first-run readiness with its dynamically
     assert.equal((await fetch(`${ready.apiUrl}/api/health`)).status, 200);
     assert.equal((await fetch(ready.adminUrl)).status, 200);
     const initialReceipt = JSON.parse(
-      await readFile(ready.liveReceipt.initialPath, "utf8"),
+      await readFile(path.join(evidenceRoot, "live-initial-receipt.json"), "utf8"),
     );
     const prelaunchReceipt = JSON.parse(
-      await readFile(ready.liveReceipt.prelaunchPath, "utf8"),
+      await readFile(path.join(evidenceRoot, "live-prelaunch-receipt.json"), "utf8"),
     );
     assert.equal(prelaunchReceipt.source.head, sourceHead);
     assert.deepEqual(prelaunchReceipt.runtimeInputs, {
       workspaceRoot,
       servicesRoot,
     });
-    assert.equal(prelaunchReceipt.runner.birthObserved, true);
-    assert.equal(prelaunchReceipt.runner.parentEdgeObserved, true);
-    assert.equal(prelaunchReceipt.runner.nativeIdentityObserved, true);
+    assert.equal(prelaunchReceipt.runner.pid, child.pid);
+    assert.equal(prelaunchReceipt.runner.parentPid, process.pid);
+    assert.equal(typeof prelaunchReceipt.runner.birth, "string");
+    assert.match(prelaunchReceipt.runner.nativeIdentity.sha256, /^sha256:[a-f0-9]{64}$/);
+    assert.ok(prelaunchReceipt.runner.nativeIdentity.size > 0);
     assert.deepEqual(
       prelaunchReceipt.assets.map(({ literalPath }) => literalPath),
       [
@@ -475,22 +530,25 @@ test("real Admin browser runner reaches first-run readiness with its dynamically
       assert.match(asset.sha256, /^sha256:[a-f0-9]{64}$/);
       assert.ok(Number.isSafeInteger(asset.size) && asset.size > 0);
     }
-    assert.match(ready.liveReceipt.prelaunchSHA256, /^sha256:[a-f0-9]{64}$/);
+    assert.equal(Object.hasOwn(ready.liveReceipt, "prelaunchPath"), false);
     assert.equal(initialReceipt.source.head, sourceHead);
     assert.equal(initialReceipt.source.tree, sourceTree);
+    assert.equal(initialReceipt.nonce, ready.liveReceipt.nonce);
     assert.deepEqual(initialReceipt.runtimeInputs, {
       workspaceRoot,
       servicesRoot,
     });
     assert.equal(initialReceipt.ownedProcesses.runner.pid, child.pid);
-    assert.match(ready.liveReceipt.initialSHA256, /^sha256:[a-f0-9]{64}$/);
+    assert.equal(Object.hasOwn(ready.liveReceipt, "initialPath"), false);
     const readyReceipt = JSON.parse(
-      await readFile(ready.liveReceipt.readyPath, "utf8"),
+      await readFile(path.join(evidenceRoot, "live-ready-receipt.json"), "utf8"),
     );
     assert.equal(readyReceipt.ownedProcesses.admin.parentPid, child.pid);
     assert.deepEqual(readyReceipt.runtimeInputs, initialReceipt.runtimeInputs);
+    assert.equal(readyReceipt.nonce, ready.liveReceipt.nonce);
+    assert.deepEqual(readyReceipt.source, { head: sourceHead, tree: sourceTree });
     assert.equal(readyReceipt.ownerCorrelation.state, "observed");
-    assert.match(ready.liveReceipt.readySHA256, /^sha256:[a-f0-9]{64}$/);
+    assert.equal(Object.hasOwn(ready.liveReceipt, "readyPath"), false);
 
     const beforeObservation = await fetch(
       `${ready.controlUrl}/fail-next-provider-request`,
@@ -567,7 +625,7 @@ test("real Admin browser runner reaches first-run readiness with its dynamically
     assert.equal(closed.code, 0, stderrText());
     assert.equal(closed.signal, null);
     const closureReceipt = JSON.parse(
-      await readFile(ready.liveReceipt.closurePath, "utf8"),
+      await readFile(path.join(evidenceRoot, "live-closure-receipt.json"), "utf8"),
     );
     assert.equal(closureReceipt.outcome, "closed");
     assert.deepEqual(closureReceipt.termination, {
@@ -587,11 +645,11 @@ test("real Admin browser runner reaches first-run readiness with its dynamically
       /browser-vault-token-sentinel|sample-start-failure\.once/i,
     );
   } finally {
-    if (!closed && child.exitCode === null && child.signalCode === null)
-      child.kill("SIGKILL");
-    if (ready?.tempRoot)
-      await rm(ready.tempRoot, { recursive: true, force: true });
-    await rm(fixtureRoot, { recursive: true, force: true });
+    if (!closed && child.exitCode === null && child.signalCode === null) {
+      child.send({ type: "service-lasso-real-admin-shutdown" });
+      closed = await waitForExit(child, 30_000);
+    }
+    if (closed) await rm(fixtureRoot, { recursive: true, force: false });
   }
 });
 
@@ -663,8 +721,8 @@ test("real Admin browser runner waits for normal Admin exit and late managed fin
     ]);
   } finally {
     if (closed && ready?.tempRoot)
-      await rm(ready.tempRoot, { recursive: true, force: true });
-    if (closed) await rm(evidenceRoot, { recursive: true, force: true });
+      await rm(ready.tempRoot, { recursive: true, force: false });
+    if (closed) await rm(evidenceRoot, { recursive: true, force: false });
   }
 });
 

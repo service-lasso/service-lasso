@@ -5,6 +5,7 @@ import {
   lstat,
   mkdir,
   readFile,
+  realpath,
   rename,
   writeFile,
 } from "node:fs/promises";
@@ -105,7 +106,10 @@ async function observeOwnedProcess(pid, expectedParentPid) {
       pid,
       parentPid: Number(match[1]),
       birth: match[2],
-      executable: null,
+      executable:
+        process.platform === "linux"
+          ? (await execFileAsync("readlink", ["-f", `/proc/${pid}/exe`])).stdout.trim()
+          : (await execFileAsync("ps", ["-o", "comm=", "-p", String(pid)])).stdout.trim(),
     };
   }
   if (
@@ -113,12 +117,31 @@ async function observeOwnedProcess(pid, expectedParentPid) {
     observed.pid !== pid ||
     observed.parentPid !== expectedParentPid ||
     typeof observed.birth !== "string" ||
-    observed.birth.length === 0
+    observed.birth.length === 0 ||
+    typeof observed.executable !== "string" ||
+    observed.executable.length === 0
   )
     throw new Error(
       "OS process observation did not prove the expected owned parent edge.",
     );
-  return observed;
+  const executablePath = await realpath(observed.executable).catch(() => null);
+  if (!executablePath) {
+    throw new Error("OS process observation did not provide a readable executable identity.");
+  }
+  const executableMetadata = await lstat(executablePath).catch(() => null);
+  if (!executableMetadata?.isFile() || executableMetadata.isSymbolicLink()) {
+    throw new Error("OS process observation did not provide a regular executable identity.");
+  }
+  return {
+    pid: observed.pid,
+    parentPid: observed.parentPid,
+    birth: observed.birth,
+    nativeIdentity: {
+      path: executablePath,
+      size: executableMetadata.size,
+      sha256: await sha256File(executablePath),
+    },
+  };
 }
 
 function rootsOverlap(left, right) {
@@ -236,9 +259,10 @@ const prelaunchReceipt = {
   source: { head: sourceHead, tree: sourceTree },
   runtimeInputs,
   runner: {
-    birthObserved: true,
-    parentEdgeObserved: true,
-    nativeIdentityObserved: true,
+    pid: runnerIdentity.pid,
+    parentPid: runnerIdentity.parentPid,
+    birth: runnerIdentity.birth,
+    nativeIdentity: runnerIdentity.nativeIdentity,
   },
   assets: await observePrelaunchAssets(sourceRoot),
 };
@@ -1138,13 +1162,6 @@ try {
       liveReceipt: {
         schema: readyReceipt.schema,
         nonce: receiptNonce,
-        prelaunchPath: prelaunchReceiptPath,
-        prelaunchSHA256: await sha256File(prelaunchReceiptPath),
-        initialPath: initialReceiptPath,
-        initialSHA256: initialReceiptSHA256,
-        readyPath: readyReceiptPath,
-        readySHA256: readyReceiptSHA256,
-        closurePath: closureReceiptPath,
       },
     })}\n`,
   );
