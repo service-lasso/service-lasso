@@ -15,7 +15,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json && node scripts/copy-runtime-assets.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "npm run build && node --test --test-concurrency=1 tests/**/*.test.js",
+    "test": "npm run build && node scripts/run-tests-isolated.mjs",
     "dev": "npm run build && node --enable-source-maps dist/index.js",
     "start": "npm run build && node --enable-source-maps dist/index.js",
     "release:artifact": "npm run build && node scripts/release-artifact.mjs",
