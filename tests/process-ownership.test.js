@@ -261,6 +261,7 @@ async function writeStubbornProcessTreeFixture(serviceRoot, scriptPath, options 
     receiptMode = "complete",
     custodyReadyFilePath = null,
     jobObservationMode = "complete",
+    jobObservationForeignPid = null,
   } = options;
   const childScriptPath = path.join(serviceRoot, "runtime", "fixture-child.mjs");
   const grandchildScriptPath = path.join(serviceRoot, "runtime", "fixture-grandchild.mjs");
@@ -376,10 +377,16 @@ if (jobObservationRequestPath && jobObservationResponsePath && jobObservationTok
           : observationMode === "incomplete" ? { token: completeRequest.token, rootPid: completeRequest.rootPid, childPid: completeRequest.childPid }
             : observationMode === "mismatched" ? { ...completeRequest, childPid: completeRequest.rootPid }
               : observationMode === "untrusted" ? { ...completeRequest, token: "00".repeat(32) }
+                : observationMode === "foreign" ? { ...completeRequest, grandchildPid: ${JSON.stringify(jobObservationForeignPid)} }
                 : completeRequest,
       );
-  if (observationMode === "replay") {
-    await writeFile(jobObservationResponsePath, JSON.stringify({ token: jobObservationToken, status: "complete", count: 3 }), { flag: "wx" });
+  if (observationMode.startsWith("response_")) {
+    const response = observationMode === "response_malformed" ? "{"
+      : observationMode === "response_extra" ? JSON.stringify({ token: jobObservationToken, status: "complete", count: 3, extra: true })
+        : observationMode === "response_oversized" ? "x".repeat(1025)
+          : observationMode === "response_untrusted" ? JSON.stringify({ token: "00".repeat(32), status: "complete", count: 3 })
+            : JSON.stringify({ token: jobObservationToken, status: "replayed", count: 0 });
+    await writeFile(jobObservationResponsePath, response, { flag: "wx" });
   }
   if (observationMode !== "missing") {
     const requestTemp = jobObservationRequestPath + ".tmp";
@@ -3957,6 +3964,11 @@ for (const jobObservationMode of [
   "incomplete",
   "mismatched",
   "untrusted",
+  "foreign",
+  "response_malformed",
+  "response_extra",
+  "response_oversized",
+  "response_untrusted",
   "replay",
 ]) {
   test(`managed Windows held-job observer rejects an actual ${jobObservationMode} fixture message before fixture acknowledgement`, {
@@ -3972,16 +3984,26 @@ for (const jobObservationMode of [
     const triggerPath = path.join(serviceRoot, "runtime", "launch-child.trigger");
     const acknowledgementPath = path.join(serviceRoot, "runtime", "owned-root-exit.ack.json");
     const custodyReadyPath = path.join(serviceRoot, "runtime", "owned-root-exit.custody-ready");
+    let rootCustody = null;
+    let custody = null;
+    let primaryError;
+    let foreignChild = null;
+    let foreignIdentity = null;
+    if (jobObservationMode === "foreign") {
+      foreignChild = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore", windowsHide: true });
+      await once(foreignChild, "spawn");
+      const inspection = await inspectProcess(foreignChild.pid);
+      assert.equal(inspection.status, "running");
+      foreignIdentity = inspection.identity;
+    }
     const pidFilePath = await writeStubbornProcessTreeFixture(serviceRoot, scriptPath, {
       childTriggerFilePath: triggerPath,
       rootExitAfterChildMs: 750,
       acknowledgementFilePath: acknowledgementPath,
       jobObservationMode,
       custodyReadyFilePath: custodyReadyPath,
+      jobObservationForeignPid: foreignChild?.pid ?? null,
     });
-    let rootCustody = null;
-    let custody = null;
-    let primaryError;
 
     try {
       const [service] = await discoverServices(servicesRoot);
@@ -3992,12 +4014,15 @@ for (const jobObservationMode of [
       custody = await captureOwnedFixtureCustody(receipt);
       await writeFile(custodyReadyPath, "verified\n", { flag: "wx" });
       await assert.rejects(readOwnedFixtureAcknowledgement(acknowledgementPath, receipt, 3_000));
-      await waitForManagedProcessFinalization(serviceId, Date.now() + 8_000);
-      await waitForOwnedFixtureStopped(custody, 8_000);
+      await waitForManagedProcessFinalization(serviceId, Date.now() + 5_000);
+      await waitForOwnedFixtureStopped(custody, 5_000);
       assert.equal(hasManagedProcess(serviceId), false);
       const stopped = await findProcessOwnership(workspaceRoot, "service", serviceId);
       assert.equal(stopped.lifecycleState, "stopped");
       assert.equal(stopped.pid, null);
+      if (foreignIdentity !== null) {
+        assert.equal(classifyProcessIdentity(foreignIdentity, await inspectProcess(foreignIdentity.pid)), "owned");
+      }
     } catch (error) {
       primaryError = error;
       throw error;
@@ -4005,6 +4030,11 @@ for (const jobObservationMode of [
       try {
         if (custody !== null && rootCustody !== null) {
           await cleanupCompleteOwnedFixture({ serviceId, rootCustody, custody, tempRoot, primaryError });
+        }
+        if (foreignChild !== null && foreignIdentity !== null) {
+          assert.equal(classifyProcessIdentity(foreignIdentity, await inspectProcess(foreignIdentity.pid)), "owned");
+          assert.equal(foreignChild.kill("SIGKILL"), true);
+          await waitForProcessesStopped([foreignIdentity.pid], 5_000);
         }
       } finally {
         restoreFixtureTestHooks();

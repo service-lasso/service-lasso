@@ -287,7 +287,7 @@ public static class ServiceLassoManagedLauncherNative
                 String.IsNullOrWhiteSpace(gatePath) ||
                 !IsFullyQualifiedWindowsPath(gatePath))
             {
-                SetPayloadFailureProgress("launch_evidence");
+                SetProgress("launcher_payload_validation:launch_evidence");
                 throw new InvalidOperationException("Managed launch evidence was missing.");
             }
 
@@ -298,7 +298,7 @@ public static class ServiceLassoManagedLauncherNative
             }
             catch
             {
-                SetPayloadFailureProgress("canonical_encoding");
+                SetProgress("launcher_payload_validation:canonical_encoding");
                 throw;
             }
             string payloadJson;
@@ -306,7 +306,7 @@ public static class ServiceLassoManagedLauncherNative
             {
                 if (!String.Equals(Convert.ToBase64String(payloadBytes), encodedPayload, StringComparison.Ordinal))
                 {
-                    SetPayloadFailureProgress("canonical_encoding");
+                    SetProgress("launcher_payload_validation:canonical_encoding");
                     throw new InvalidOperationException("Managed launch payload encoding was invalid.");
                 }
                 try
@@ -315,7 +315,7 @@ public static class ServiceLassoManagedLauncherNative
                 }
                 catch
                 {
-                    SetPayloadFailureProgress("strict_utf8");
+                    SetProgress("launcher_payload_validation:strict_utf8");
                     throw;
                 }
             }
@@ -330,7 +330,7 @@ public static class ServiceLassoManagedLauncherNative
             }
             catch
             {
-                SetPayloadFailureProgress("json_or_schema");
+                SetProgress("launcher_payload_validation:json_or_schema");
                 throw;
             }
             try
@@ -339,7 +339,7 @@ public static class ServiceLassoManagedLauncherNative
             }
             catch
             {
-                SetPayloadFailureProgress("semantic_payload");
+                SetProgress("launcher_payload_validation:semantic_payload");
                 throw;
             }
             ClearLaunchEnvironment();
@@ -1652,27 +1652,23 @@ public static class ServiceLassoManagedLauncherNative
     {
         try
         {
-            if (progressToken == null || !IsProgressPhase(phase))
+            string basePhase = phase;
+            int boundarySeparator = phase == null ? -1 : phase.IndexOf(':');
+            if (boundarySeparator >= 0)
+            {
+                basePhase = phase.Substring(0, boundarySeparator);
+                string boundary = phase.Substring(boundarySeparator + 1);
+                if (!String.Equals(basePhase, "launcher_payload_validation", StringComparison.Ordinal) ||
+                    boundary.IndexOf(':') >= 0 || !IsPayloadFailureBoundary(boundary))
+                {
+                    return;
+                }
+            }
+            if (progressToken == null || !IsProgressPhase(basePhase))
             {
                 return;
             }
             WriteProgressRecord(phase);
-        }
-        catch
-        {
-            // Diagnostic progress is observational and cannot change launch behavior.
-        }
-    }
-
-    private static void SetPayloadFailureProgress(string payloadFailureBoundary)
-    {
-        try
-        {
-            if (progressToken == null || !IsPayloadFailureBoundary(payloadFailureBoundary))
-            {
-                return;
-            }
-            WriteProgressRecord("launcher_payload_validation:" + payloadFailureBoundary);
         }
         catch
         {
