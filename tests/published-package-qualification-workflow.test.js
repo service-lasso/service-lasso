@@ -83,23 +83,19 @@ test("AC-4BZ.1 workflow qualifies only exact downloaded publications on all thre
     aggregateJobStart,
   );
   const matrixJob = workflow.slice(matrixJobStart, matrixStepsStart);
-  assert.match(
-    matrixJob,
-    /QUALIFICATION_WORKSPACE_ROOT: \$\{\{ runner\.temp \}\}\/published-package-qualification-\$\{\{ github\.run_id \}\}-\$\{\{ github\.job \}\}-\$\{\{ github\.run_attempt \}\}-\$\{\{ matrix\.platform \}\}\/workspace/,
-  );
   for (const marker of [
     "SERVICE_LASSO_INSTANCE_REGISTRY_PATH",
     "SERVICE_LASSO_HOST_PORT_REGISTRY_PATH",
     "QUALIFICATION_EVIDENCE_ROOT",
     "QUALIFICATION_INITIAL_RECEIPT_PATH",
-  ]) assert.match(matrixJob, new RegExp(`${marker}:`));
+  ]) assert.doesNotMatch(matrixJob, new RegExp(`${marker}:`));
   assert.doesNotMatch(
     workflow.slice(aggregateJobStart, aggregateStepsStart),
     /runner\.temp/,
   );
   assert.match(
     workflow,
-    /Establish unique qualification custody before dependencies[\s\S]*?mkdir -p "\$QUALIFICATION_WORKSPACE_ROOT" "\$QUALIFICATION_EVIDENCE_ROOT"[\s\S]*?test ! -e "\$SERVICE_LASSO_INSTANCE_REGISTRY_PATH"[\s\S]*?test ! -e "\$SERVICE_LASSO_HOST_PORT_REGISTRY_PATH"[\s\S]*?QUALIFICATION_INITIAL_RECEIPT_PATH/,
+    /Establish unique qualification custody before dependencies[\s\S]*?qualification_root="\$RUNNER_TEMP\/published-package-qualification-\$GITHUB_RUN_ID-\$GITHUB_JOB-\$GITHUB_RUN_ATTEMPT-\$QUALIFICATION_PLATFORM"[\s\S]*?QUALIFICATION_WORKSPACE_ROOT=\$QUALIFICATION_WORKSPACE_ROOT[\s\S]*?SERVICE_LASSO_INSTANCE_REGISTRY_PATH=\$SERVICE_LASSO_INSTANCE_REGISTRY_PATH[\s\S]*?SERVICE_LASSO_HOST_PORT_REGISTRY_PATH=\$SERVICE_LASSO_HOST_PORT_REGISTRY_PATH[\s\S]*?mkdir -p "\$QUALIFICATION_WORKSPACE_ROOT" "\$QUALIFICATION_EVIDENCE_ROOT"[\s\S]*?test -s "\$QUALIFICATION_INITIAL_RECEIPT_PATH"/,
   );
 
   for (const command of [

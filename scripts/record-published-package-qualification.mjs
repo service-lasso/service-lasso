@@ -16,6 +16,7 @@ import {
   retainAdminTrustedUnlockReceipt,
 } from "./published-package-qualification-lib.mjs";
 import { parsePrebrowserFailure } from "./record-admin-trusted-unlock-prebrowser-failure.mjs";
+import { strictJson } from "./consume-admin-trusted-unlock-receipt.mjs";
 
 function env(name, pattern = /^.*$/u) {
   return requirePattern(process.env[name], pattern, name);
@@ -44,12 +45,19 @@ async function findCurrentJobId({ repo, runId, runAttempt, jobName, token }) {
 
 const platform = env("QUALIFICATION_PLATFORM", /^(?:win32|linux|darwin)$/u);
 const evidenceRoot = path.resolve(env("QUALIFICATION_EVIDENCE_ROOT", /^.+$/u));
+const runIdForInitialReceipt = requirePositiveInteger(env("GITHUB_RUN_ID", /^[1-9][0-9]*$/u), "GITHUB_RUN_ID");
+const runAttemptForInitialReceipt = requirePositiveInteger(env("GITHUB_RUN_ATTEMPT", /^[1-9][0-9]*$/u), "GITHUB_RUN_ATTEMPT");
+const initialReceiptPath = path.resolve(env("QUALIFICATION_INITIAL_RECEIPT_PATH", /^.+$/u));
+const initialReceiptSource = await readFile(initialReceiptPath, "utf8").catch(() => null);
+const initialReceipt = initialReceiptSource && strictJson(initialReceiptSource) ? JSON.parse(initialReceiptSource) : null;
+if (!initialReceipt || typeof initialReceipt !== "object" || Array.isArray(initialReceipt) || Object.keys(initialReceipt).sort().join(",") !== "platform,run,schema" || initialReceipt.schema !== "service-lasso.qualification-initial-receipt.v1" || initialReceipt.platform !== platform || !initialReceipt.run || typeof initialReceipt.run !== "object" || Array.isArray(initialReceipt.run) || Object.keys(initialReceipt.run).sort().join(",") !== "attempt,id" || initialReceipt.run.id !== runIdForInitialReceipt || initialReceipt.run.attempt !== runAttemptForInitialReceipt) throw new Error("Initial qualification receipt custody is invalid.");
 const prebrowserPath = process.env.ADMIN_TRUSTED_UNLOCK_PREBROWSER_FAILURE_PATH;
 if (prebrowserPath) {
   const source = await readFile(path.resolve(prebrowserPath), "utf8").catch(() => null);
   const prebrowser = source && parsePrebrowserFailure(source);
   if (!prebrowser || prebrowser.platform !== platform || prebrowser.run.id !== Number(process.env.GITHUB_RUN_ID) || prebrowser.run.attempt !== Number(process.env.GITHUB_RUN_ATTEMPT)) throw new Error("Pre-browser failure custody is invalid.");
   await mkdir(evidenceRoot, { recursive: true });
+  await writeFile(path.join(evidenceRoot, "initial-receipt.json"), `${JSON.stringify(initialReceipt)}\n`);
   await writeFile(path.join(evidenceRoot, "admin-trusted-unlock-prebrowser-failure.json"), `${JSON.stringify(prebrowser)}\n`);
   process.exit(0);
 }

@@ -19,6 +19,16 @@ async function containsPrebrowserArtifact(root) {
   return false;
 }
 function exactKeys(value, keys) { return !!value && typeof value === "object" && !Array.isArray(value) && Object.keys(value).sort().join(",") === [...keys].sort().join(","); }
+function validateInitialReceipt(source, platform, runId, runAttempt) {
+  if (!strictJson(source)) return false;
+  const value = JSON.parse(source);
+  return exactKeys(value, ["schema", "platform", "run"]) &&
+    value.schema === "service-lasso.qualification-initial-receipt.v1" &&
+    value.platform === platform &&
+    exactKeys(value.run, ["id", "attempt"]) &&
+    String(value.run.id) === String(runId) &&
+    String(value.run.attempt) === String(runAttempt);
+}
 function sameValue(left, right) {
   if (left === right) return true;
   if (!left || !right || typeof left !== "object" || typeof right !== "object" || Array.isArray(left) !== Array.isArray(right)) return false;
@@ -119,16 +129,18 @@ export async function verifyArtifacts({ root, runId, runAttempt, candidateSha, e
   if (directories.length !== expected.size || directories.some((entry) => !entry.isDirectory() || !expected.has(entry.name))) throw new Error("Downloaded artifacts are not the exact current attempt.");
   for (const platform of platforms) {
     const name = `packaged-admin-lifecycle-${platform}-${runId}-${runAttempt}`, directory = path.join(root, name), files = await readdir(directory, { withFileTypes: true });
-    const evidenceName = `packaged-admin-lifecycle-${platform}.json`, receiptName = "admin-trusted-unlock-receipt.json";
+    const evidenceName = `packaged-admin-lifecycle-${platform}.json`, receiptName = "admin-trusted-unlock-receipt.json", initialReceiptName = "initial-receipt.json";
     const prebrowserName = "admin-trusted-unlock-prebrowser-failure.json";
-    if (files.length === 1 && files[0]?.isFile() && !files[0]?.isSymbolicLink() && files[0].name === prebrowserName) {
+    if (files.length === 2 && files.every((file) => file.isFile() && !file.isSymbolicLink()) && files.some((file) => file.name === prebrowserName) && files.some((file) => file.name === initialReceiptName)) {
+      if (!validateInitialReceipt(await regular(path.join(directory, initialReceiptName), `${platform} initial receipt`), platform, runId, runAttempt)) throw new Error(`${platform} initial receipt custody validation failed.`);
       const prebrowser = parsePrebrowserFailure(await regular(path.join(directory, prebrowserName), `${platform} pre-browser failure`));
       if (!prebrowser || prebrowser.platform !== platform || String(prebrowser.run.id) !== runId || String(prebrowser.run.attempt) !== runAttempt) throw new Error(`${platform} pre-browser failure custody validation failed.`);
       if (!terminalJobs) throw new Error(`${platform} pre-browser failure terminal job is unobserved.`);
       requireTerminalPrebrowserFailure(terminalJobs, platform, runId, runAttempt);
       continue;
     }
-    if (files.length !== 2 || files.some((entry) => !entry.isFile() || entry.isSymbolicLink()) || !files.some((entry) => entry.name === evidenceName) || !files.some((entry) => entry.name === receiptName)) throw new Error(`${platform} artifact inventory is invalid.`);
+    if (files.length !== 3 || files.some((entry) => !entry.isFile() || entry.isSymbolicLink()) || !files.some((entry) => entry.name === evidenceName) || !files.some((entry) => entry.name === receiptName) || !files.some((entry) => entry.name === initialReceiptName)) throw new Error(`${platform} artifact inventory is invalid.`);
+    if (!validateInitialReceipt(await regular(path.join(directory, initialReceiptName), `${platform} initial receipt`), platform, runId, runAttempt)) throw new Error(`${platform} initial receipt custody validation failed.`);
     const evidenceSource = await regular(path.join(directory, evidenceName), `${platform} evidence`);
     const receipt = parseConsumerReceipt(await regular(path.join(directory, receiptName), `${platform} receipt`));
     const retained = validateEvidence(evidenceSource, platform, runId, runAttempt, candidateSha, eventSha);

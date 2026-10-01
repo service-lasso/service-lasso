@@ -28,6 +28,7 @@ async function fixture(mutator, source = receipt) {
     const directory = path.join(root, `packaged-admin-lifecycle-${platform}-${runId}-${runAttempt}`);
     await mkdir(directory);
     const evidence = path.join(directory, `packaged-admin-lifecycle-${platform}.json`), retained = path.join(directory, "admin-trusted-unlock-receipt.json"), privateReceipt = path.join(await mkdtemp(path.join(tmpdir(), "packaged-private-")), "runner-private-receipt.json");
+    await writeFile(path.join(directory, "initial-receipt.json"), JSON.stringify({ schema: "service-lasso.qualification-initial-receipt.v1", platform, run: { id: Number(runId), attempt: Number(runAttempt) } }));
     await writeFile(evidence, JSON.stringify(evidenceFor(platform)));
     await writeFile(privateReceipt, JSON.stringify(source));
     await retainReceipt({ receiptPath: privateReceipt, evidencePath: evidence, retainedPath: retained, runId, runAttempt, candidateSha, eventSha, platform });
@@ -60,6 +61,23 @@ test("AC-4BY.2 executes each finite pre-browser producer through the packaged ag
     });
     await assert.doesNotReject(verifyArtifacts({ root, runId, runAttempt, candidateSha, eventSha, terminalJobs }), stage);
     await assert.rejects(verifyArtifacts({ root, runId, runAttempt, candidateSha, eventSha }), /terminal job is unobserved/u, stage);
+  }
+});
+test("AC-4BY.2 rejects missing, stale, and expanded initial receipt custody for both normal and pre-browser artifacts", async () => {
+  for (const [label, mutate] of [
+    ["missing", async (directory) => rm(path.join(directory, "initial-receipt.json"))],
+    ["stale", async (directory) => writeFile(path.join(directory, "initial-receipt.json"), JSON.stringify({ schema: "service-lasso.qualification-initial-receipt.v1", platform: "win32", run: { id: Number(runId) - 1, attempt: Number(runAttempt) } }))],
+    ["expanded", async (directory) => writeFile(path.join(directory, "initial-receipt.json"), JSON.stringify({ schema: "service-lasso.qualification-initial-receipt.v1", platform: "win32", run: { id: Number(runId), attempt: Number(runAttempt) }, private: true }))],
+  ]) {
+    const normal = await fixture(async (root) => mutate(path.join(root, `packaged-admin-lifecycle-win32-${runId}-${runAttempt}`)));
+    await assert.rejects(verifyArtifacts({ root: normal, runId, runAttempt, candidateSha, eventSha }), /(?:initial receipt custody|artifact inventory)/u, `normal ${label}`);
+    const prebrowser = await fixture(async (root) => {
+      const directory = path.join(root, `packaged-admin-lifecycle-win32-${runId}-${runAttempt}`);
+      await Promise.all(["packaged-admin-lifecycle-win32.json", "admin-trusted-unlock-receipt.json"].map((name) => rm(path.join(directory, name))));
+      await recordPrebrowserFailure({ output: path.join(directory, "admin-trusted-unlock-prebrowser-failure.json"), platform: "win32", stage: "package_identity", runId, runAttempt });
+      await mutate(directory);
+    });
+    await assert.rejects(verifyArtifacts({ root: prebrowser, runId, runAttempt, candidateSha, eventSha, terminalJobs }), /(?:initial receipt custody|artifact inventory)/u, `pre-browser ${label}`);
   }
 });
 test("AC-4BY.2 public terminal-job read is bounded, unauthenticated, and fails closed for unavailable or malformed provider payloads", async () => {

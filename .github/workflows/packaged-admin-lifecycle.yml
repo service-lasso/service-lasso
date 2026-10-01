@@ -100,11 +100,6 @@ jobs:
       BROKER_RELEASE_ID: "379635299"
       BROKER_RELEASE_TAG: "2026.8.31-f340883"
       BROKER_REVISION: "f340883056ec3cf74b535fb46490b39382e8c823"
-      QUALIFICATION_WORKSPACE_ROOT: ${{ runner.temp }}/packaged-admin-lifecycle-${{ github.run_id }}-${{ github.job }}-${{ github.run_attempt }}-${{ matrix.admin_platform }}/workspace
-      SERVICE_LASSO_INSTANCE_REGISTRY_PATH: ${{ runner.temp }}/packaged-admin-lifecycle-${{ github.run_id }}-${{ github.job }}-${{ github.run_attempt }}-${{ matrix.admin_platform }}/instance-registry.json
-      SERVICE_LASSO_HOST_PORT_REGISTRY_PATH: ${{ runner.temp }}/packaged-admin-lifecycle-${{ github.run_id }}-${{ github.job }}-${{ github.run_attempt }}-${{ matrix.admin_platform }}/host-port-registry.json
-      QUALIFICATION_EVIDENCE_ROOT: ${{ runner.temp }}/packaged-admin-lifecycle-${{ github.run_id }}-${{ github.job }}-${{ github.run_attempt }}-${{ matrix.admin_platform }}/evidence
-      QUALIFICATION_INITIAL_RECEIPT_PATH: ${{ runner.temp }}/packaged-admin-lifecycle-${{ github.run_id }}-${{ github.job }}-${{ github.run_attempt }}-${{ matrix.admin_platform }}/evidence/initial-receipt.json
 
     steps:
       - name: Check out candidate Core
@@ -123,10 +118,24 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          qualification_root="$RUNNER_TEMP/packaged-admin-lifecycle-$GITHUB_RUN_ID-$GITHUB_JOB-$GITHUB_RUN_ATTEMPT-$ADMIN_PLATFORM"
+          export QUALIFICATION_WORKSPACE_ROOT="$qualification_root/workspace"
+          export SERVICE_LASSO_INSTANCE_REGISTRY_PATH="$qualification_root/instance-registry.json"
+          export SERVICE_LASSO_HOST_PORT_REGISTRY_PATH="$qualification_root/host-port-registry.json"
+          export QUALIFICATION_EVIDENCE_ROOT="$qualification_root/evidence"
+          export QUALIFICATION_INITIAL_RECEIPT_PATH="$QUALIFICATION_EVIDENCE_ROOT/initial-receipt.json"
+          printf '%s\n' \
+            "QUALIFICATION_WORKSPACE_ROOT=$QUALIFICATION_WORKSPACE_ROOT" \
+            "SERVICE_LASSO_INSTANCE_REGISTRY_PATH=$SERVICE_LASSO_INSTANCE_REGISTRY_PATH" \
+            "SERVICE_LASSO_HOST_PORT_REGISTRY_PATH=$SERVICE_LASSO_HOST_PORT_REGISTRY_PATH" \
+            "QUALIFICATION_EVIDENCE_ROOT=$QUALIFICATION_EVIDENCE_ROOT" \
+            "QUALIFICATION_INITIAL_RECEIPT_PATH=$QUALIFICATION_INITIAL_RECEIPT_PATH" \
+            >> "$GITHUB_ENV"
           mkdir -p "$QUALIFICATION_WORKSPACE_ROOT" "$QUALIFICATION_EVIDENCE_ROOT"
           test ! -e "$SERVICE_LASSO_INSTANCE_REGISTRY_PATH"
           test ! -e "$SERVICE_LASSO_HOST_PORT_REGISTRY_PATH"
           printf '{"schema":"service-lasso.qualification-initial-receipt.v1","platform":"%s","run":{"id":"%s","attempt":"%s"}}\n' "$ADMIN_PLATFORM" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" > "$QUALIFICATION_INITIAL_RECEIPT_PATH"
+          test -s "$QUALIFICATION_INITIAL_RECEIPT_PATH"
 
       - name: Set up Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -310,8 +319,12 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           if ($env:ADMIN_TRUSTED_UNLOCK_PREBROWSER_FAILURE_PATH -and (Test-Path -LiteralPath $env:ADMIN_TRUSTED_UNLOCK_PREBROWSER_FAILURE_PATH -PathType Leaf)) {
+            if (-not (Test-Path -LiteralPath $env:QUALIFICATION_INITIAL_RECEIPT_PATH -PathType Leaf)) {
+              throw 'Initial qualification receipt is required for pre-browser failure custody.'
+            }
             New-Item -ItemType Directory -Path artifacts -Force | Out-Null
             Copy-Item -LiteralPath $env:ADMIN_TRUSTED_UNLOCK_PREBROWSER_FAILURE_PATH -Destination "artifacts/admin-trusted-unlock-prebrowser-failure.json"
+            Copy-Item -LiteralPath $env:QUALIFICATION_INITIAL_RECEIPT_PATH -Destination "artifacts/initial-receipt.json"
             exit 0
           }
           $hex64 = '^[0-9a-f]{64}$'
@@ -366,6 +379,7 @@ jobs:
           }
           New-Item -ItemType Directory -Path artifacts -Force | Out-Null
           $evidence | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath "artifacts/packaged-admin-lifecycle-$env:ADMIN_PLATFORM.json" -Encoding utf8
+          Copy-Item -LiteralPath $env:QUALIFICATION_INITIAL_RECEIPT_PATH -Destination "artifacts/initial-receipt.json"
           node scripts/retain-packaged-admin-lifecycle-receipt.mjs --receipt "$env:RUNNER_TEMP/admin-trusted-unlock-receipt.json" --evidence "artifacts/packaged-admin-lifecycle-$env:ADMIN_PLATFORM.json" --retained "artifacts/admin-trusted-unlock-receipt.json"
 
       - name: Upload packaged Admin lifecycle evidence
@@ -377,6 +391,7 @@ jobs:
             artifacts/packaged-admin-lifecycle-${{ matrix.admin_platform }}.json
             artifacts/admin-trusted-unlock-receipt.json
             artifacts/admin-trusted-unlock-prebrowser-failure.json
+            artifacts/initial-receipt.json
           if-no-files-found: error
           retention-days: 90
 
