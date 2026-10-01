@@ -45,4 +45,4 @@ jobs:
       - name: Verify occupied preferred-port allocation through a live managed service
         env:
           SERVICE_LASSO_INSTANCE_REGISTRY_PATH: ${{ runner.temp }}/service-lasso-occupied-port-test-instances.json
-        run: node --test --test-concurrency=1 --test-force-exit --test-name-pattern="config retains an owned occupied preferred-port boundary" tests/operator-data.test.js
+        run: node --test --test-concurrency=1 --test-name-pattern="config retains an owned occupied preferred-port boundary" tests/operator-data.test.js
