@@ -1,10 +1,9 @@
-Set-StrictMode -Version Latest
-
 function Get-CompilerBudgetRemainingMilliseconds(
   [int64]$StartedAtMilliseconds,
   [int]$BudgetMilliseconds,
   [scriptblock]$NowMilliseconds
 ) {
+  Set-StrictMode -Version Latest
   [int64]$elapsedMilliseconds = [Math]::Max(0, ([int64](& $NowMilliseconds) - $StartedAtMilliseconds))
   return [Math]::Max(0, $BudgetMilliseconds - $elapsedMilliseconds)
 }
@@ -16,9 +15,35 @@ function Invoke-BoundedOwnedCompilerProcess(
   [scriptblock]$WaitForDrains = {
     param([Threading.Tasks.Task[]]$Tasks, [int]$TimeoutMilliseconds)
     return [Threading.Tasks.Task]::WaitAll($Tasks, $TimeoutMilliseconds)
-  }
+  },
+  [object]$StartedAtMilliseconds = $null,
+  [switch]$StartProcess
 ) {
-  [int64]$startedAtMilliseconds = & $NowMilliseconds
+  Set-StrictMode -Version Latest
+  # The verifier may establish this timestamp before configuring ProcessStartInfo.
+  # Every subsequent launch, wait, termination, and drain uses this same budget.
+  [int64]$startedAtMilliseconds = if ($null -ne $StartedAtMilliseconds) {
+    $StartedAtMilliseconds
+  } else {
+    & $NowMilliseconds
+  }
+
+  if ($StartProcess) {
+    try {
+      if (-not $Process.Start()) {
+        return [pscustomobject]@{
+          outcome = "compiler_launch_failed"
+          retainTemporaryRoot = $true
+        }
+      }
+    } catch {
+      return [pscustomobject]@{
+        outcome = "compiler_launch_failed"
+        retainTemporaryRoot = $true
+      }
+    }
+  }
+
   [Threading.Tasks.Task]$stdoutDrain = $Process.StandardOutput.ReadToEndAsync()
   [Threading.Tasks.Task]$stderrDrain = $Process.StandardError.ReadToEndAsync()
   $timedOut = $false
@@ -50,7 +75,10 @@ function Invoke-BoundedOwnedCompilerProcess(
   if (-not (& $WaitForDrains ([Threading.Tasks.Task[]]@($stdoutDrain, $stderrDrain)) $remainingMilliseconds)) {
     return [pscustomobject]@{
       outcome = $(if ($timedOut) { "compiler_timeout_output_drain_unconfirmed" } else { "compiler_output_drain_unconfirmed" })
-      retainTemporaryRoot = $false
+      # A stream that cannot settle within the single compiler deadline leaves
+      # the phase receipt incomplete. Keep its uniquely-owned root instead of
+      # entering an unbounded recursive deletion after the deadline.
+      retainTemporaryRoot = $true
     }
   }
 

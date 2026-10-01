@@ -9,7 +9,7 @@ $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 . (Join-Path $PSScriptRoot "windows-compiler-process-budget.ps1")
 
-if (-not $IsWindows -and $PSVersionTable.PSEdition -eq "Core") {
+if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
   throw "Windows process-inspector provenance verification requires Windows."
 }
 
@@ -331,10 +331,16 @@ function Get-NormalizedAssemblyBytes([string]$AssemblyPath) {
 }
 
 $temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) ("service-lasso-native-provenance-" + [Guid]::NewGuid().ToString("N"))
-$retainTemporaryRoot = $false
+# The held-exit compiler phase has one 15-second absolute budget. Retain this
+# uniquely-created compiler root rather than run an unbounded Remove-Item after
+# that phase; retention is conservative evidence, including successful runs.
+$retainTemporaryRoot = $HeldExitFixture
 try {
   $null = New-Item -ItemType Directory -Path $temporaryRoot
   $compiledPath = Join-Path $temporaryRoot (Split-Path -Leaf $binaryRelativePath)
+  # Start before assembling the owned compiler command so configuration,
+  # launch, wait, termination and stream settlement share one absolute bound.
+  [int64]$compilerPhaseStartedAtMilliseconds = if ($HeldExitFixture) { [Environment]::TickCount64 } else { 0 }
   $compilerArguments = @($compilerOptions) + @(
     "/out:$compiledPath",
     $sourcePath
@@ -347,16 +353,22 @@ try {
       $compilerProcess.StartInfo.CreateNoWindow = $true
        $compilerProcess.StartInfo.RedirectStandardOutput = $true
        $compilerProcess.StartInfo.RedirectStandardError = $true
-      foreach ($compilerArgument in $compilerArguments) {
-        [void]$compilerProcess.StartInfo.ArgumentList.Add($compilerArgument)
+      if ($null -ne $compilerProcess.StartInfo.ArgumentList) {
+        foreach ($compilerArgument in $compilerArguments) {
+          [void]$compilerProcess.StartInfo.ArgumentList.Add($compilerArgument)
+        }
+      } else {
+        # Windows PowerShell 5's .NET Framework ProcessStartInfo does not
+        # expose ArgumentList. The compiler inputs are fixed, owned paths and
+        # options; quote each one before using its compatible Arguments form.
+        $compilerProcess.StartInfo.Arguments = (($compilerArguments | ForEach-Object {
+          '"' + $_.Replace('"', '\"') + '"'
+        }) -join ' ')
       }
-      if (-not $compilerProcess.Start()) {
-        throw "The Windows held-exit fixture compiler did not start."
-      }
-       $compilerResult = Invoke-BoundedOwnedCompilerProcess $compilerProcess 15000
+       $compilerResult = Invoke-BoundedOwnedCompilerProcess $compilerProcess 15000 -StartedAtMilliseconds $compilerPhaseStartedAtMilliseconds -StartProcess
        if ($compilerResult.outcome -ne "completed") {
          $retainTemporaryRoot = $compilerResult.retainTemporaryRoot
-         throw "The Windows held-exit fixture compiler failed closed with $($compilerResult.outcome) inside its 15000ms total bound."
+         throw "The Windows held-exit fixture compiler failed closed with $($compilerResult.outcome) inside its 15000ms absolute compiler-phase bound."
       }
       if ($compilerProcess.ExitCode -ne 0) {
         throw "The Windows held-exit fixture provenance compilation failed."

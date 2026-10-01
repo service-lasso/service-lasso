@@ -82,7 +82,7 @@ $drainResult = Invoke-BoundedOwnedCompilerProcess $drainFailure 15000 { $drainCl
   return $false
 }
 Assert-Equal $drainResult.outcome "compiler_output_drain_unconfirmed" "stderr drain outcome"
-Assert-Equal $drainResult.retainTemporaryRoot $false "stderr drain retention"
+Assert-Equal $drainResult.retainTemporaryRoot $true "stderr drain retention"
 Assert-Equal $drainFailure.killCount 0 "stderr drain kill count"
 Assert-Sequence $drainFailure.waitArguments.ToArray() @(15000) "stderr drain"
 Assert-Equal $drainBudget 3000 "stderr drain remaining budget"
