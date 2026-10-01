@@ -37,15 +37,16 @@ async function gitIdentity() {
   return { head: await run(["rev-parse", "HEAD"]), tree: await run(["rev-parse", "HEAD^{tree}"]) };
 }
 function commandForNpm(args) { return process.platform === "win32" ? { command: "cmd.exe", args: ["/d", "/s", "/c", "npm", ...args] } : { command: "npm", args }; }
-function closeProcess(label, command, args, env, onStarted) {
+function startProcess(label, command, args, env) {
   const startedAt = new Date().toISOString();
   const child = spawn(command, args, { stdio: "inherit", env });
   const ownership = { pid: child.pid ?? null, observedBirthAt: startedAt };
-  onStarted({ label, ownership });
-  return new Promise((resolve, reject) => {
+  const record = { label, ownership, close: null };
+  const closed = new Promise((resolve, reject) => {
     child.once("error", reject);
-    child.once("close", (code, signal) => resolve({ label, ownership, close: { code, signal, closedAt: new Date().toISOString() } }));
+    child.once("close", (code, signal) => resolve({ code, signal, closedAt: new Date().toISOString() }));
   });
+  return { record, closed };
 }
 
 const usesExternalInputs = suppliedInputs.length === inputKeys.length;
@@ -94,14 +95,18 @@ testFiles.sort();
 if (testFiles.length === 0) throw new Error("No test files were found.");
 
 try {
-  const build = commandForNpm(["run", "build"]);
-  const buildResult = await closeProcess("build", build.command, build.args, childEnv, (started) => receipt.processes.push(started));
-  receipt.processes[receipt.processes.length - 1] = buildResult;
+  const buildCommand = commandForNpm(["run", "build"]);
+  const build = startProcess("build", buildCommand.command, buildCommand.args, childEnv);
+  receipt.processes.push(build.record);
   await persistReceipt();
-  if (buildResult.close.code !== 0 || buildResult.close.signal) throw new Error("Build did not close successfully.");
-  const testResult = await closeProcess("test", process.execPath, ["--test", "--test-concurrency=1", ...testFiles], childEnv, (started) => receipt.processes.push(started));
-  receipt.processes[receipt.processes.length - 1] = testResult;
-  receipt.terminal = { outcome: testResult.close.code === 0 && !testResult.close.signal ? "passed" : "failed", trueCloseExit: testResult.close };
+  build.record.close = await build.closed;
+  await persistReceipt();
+  if (build.record.close.code !== 0 || build.record.close.signal) throw new Error("Build did not close successfully.");
+  const test = startProcess("test", process.execPath, ["--test", "--test-concurrency=1", ...testFiles], childEnv);
+  receipt.processes.push(test.record);
+  await persistReceipt();
+  test.record.close = await test.closed;
+  receipt.terminal = { outcome: test.record.close.code === 0 && !test.record.close.signal ? "passed" : "failed", trueCloseExit: test.record.close };
   await persistReceipt();
   if (receipt.terminal.outcome !== "passed") throw new Error("Test runner did not close successfully.");
 } catch (error) {
