@@ -3971,11 +3971,13 @@ for (const jobObservationMode of [
     const { serviceRoot, scriptPath } = await writeExecutableFixtureService(servicesRoot, serviceId);
     const triggerPath = path.join(serviceRoot, "runtime", "launch-child.trigger");
     const acknowledgementPath = path.join(serviceRoot, "runtime", "owned-root-exit.ack.json");
+    const custodyReadyPath = path.join(serviceRoot, "runtime", "owned-root-exit.custody-ready");
     const pidFilePath = await writeStubbornProcessTreeFixture(serviceRoot, scriptPath, {
       childTriggerFilePath: triggerPath,
       rootExitAfterChildMs: 750,
       acknowledgementFilePath: acknowledgementPath,
       jobObservationMode,
+      custodyReadyFilePath: custodyReadyPath,
     });
     let rootCustody = null;
     let custody = null;
@@ -3988,6 +3990,7 @@ for (const jobObservationMode of [
       await writeFile(triggerPath, "launch\n", "utf8");
       const receipt = await readCompleteOwnedFixtureReceipt(pidFilePath);
       custody = await captureOwnedFixtureCustody(receipt);
+      await writeFile(custodyReadyPath, "verified\n", { flag: "wx" });
       await assert.rejects(readOwnedFixtureAcknowledgement(acknowledgementPath, receipt, 3_000));
       await waitForManagedProcessFinalization(serviceId, Date.now() + 8_000);
       await waitForOwnedFixtureStopped(custody, 8_000);

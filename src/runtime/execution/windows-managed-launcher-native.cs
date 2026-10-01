@@ -287,7 +287,7 @@ public static class ServiceLassoManagedLauncherNative
                 String.IsNullOrWhiteSpace(gatePath) ||
                 !IsFullyQualifiedWindowsPath(gatePath))
             {
-                SetProgress("launcher_payload_validation", "launch_evidence");
+                SetPayloadFailureProgress("launch_evidence");
                 throw new InvalidOperationException("Managed launch evidence was missing.");
             }
 
@@ -298,7 +298,7 @@ public static class ServiceLassoManagedLauncherNative
             }
             catch
             {
-                SetProgress("launcher_payload_validation", "canonical_encoding");
+                SetPayloadFailureProgress("canonical_encoding");
                 throw;
             }
             string payloadJson;
@@ -306,7 +306,7 @@ public static class ServiceLassoManagedLauncherNative
             {
                 if (!String.Equals(Convert.ToBase64String(payloadBytes), encodedPayload, StringComparison.Ordinal))
                 {
-                    SetProgress("launcher_payload_validation", "canonical_encoding");
+                    SetPayloadFailureProgress("canonical_encoding");
                     throw new InvalidOperationException("Managed launch payload encoding was invalid.");
                 }
                 try
@@ -315,7 +315,7 @@ public static class ServiceLassoManagedLauncherNative
                 }
                 catch
                 {
-                    SetProgress("launcher_payload_validation", "strict_utf8");
+                    SetPayloadFailureProgress("strict_utf8");
                     throw;
                 }
             }
@@ -330,7 +330,7 @@ public static class ServiceLassoManagedLauncherNative
             }
             catch
             {
-                SetProgress("launcher_payload_validation", "json_or_schema");
+                SetPayloadFailureProgress("json_or_schema");
                 throw;
             }
             try
@@ -339,7 +339,7 @@ public static class ServiceLassoManagedLauncherNative
             }
             catch
             {
-                SetProgress("launcher_payload_validation", "semantic_payload");
+                SetPayloadFailureProgress("semantic_payload");
                 throw;
             }
             ClearLaunchEnvironment();
@@ -1648,18 +1648,40 @@ public static class ServiceLassoManagedLauncherNative
         }
     }
 
-    private static void SetProgress(string phase, string payloadFailureBoundary = null)
+    private static void SetProgress(string phase)
     {
         try
         {
-            if (progressToken == null || !IsProgressPhase(phase) ||
-                (payloadFailureBoundary != null &&
-                 (!String.Equals(phase, "launcher_payload_validation", StringComparison.Ordinal) ||
-                  !IsPayloadFailureBoundary(payloadFailureBoundary))))
+            if (progressToken == null || !IsProgressPhase(phase))
             {
                 return;
             }
-            string authenticatedRecord = payloadFailureBoundary == null ? phase : phase + ":" + payloadFailureBoundary;
+            WriteProgressRecord(phase);
+        }
+        catch
+        {
+            // Diagnostic progress is observational and cannot change launch behavior.
+        }
+    }
+
+    private static void SetPayloadFailureProgress(string payloadFailureBoundary)
+    {
+        try
+        {
+            if (progressToken == null || !IsPayloadFailureBoundary(payloadFailureBoundary))
+            {
+                return;
+            }
+            WriteProgressRecord("launcher_payload_validation:" + payloadFailureBoundary);
+        }
+        catch
+        {
+            // Diagnostic progress is observational and cannot change launch behavior.
+        }
+    }
+
+    private static void WriteProgressRecord(string authenticatedRecord)
+    {
             byte[] phaseBytes = StrictUtf8.GetBytes(authenticatedRecord);
             byte[] key = StrictUtf8.GetBytes(progressToken);
             byte[] digest;
@@ -1683,11 +1705,6 @@ public static class ServiceLassoManagedLauncherNative
             {
                 Array.Clear(digest, 0, digest.Length);
             }
-        }
-        catch
-        {
-            // Diagnostic progress is observational and cannot change launch behavior.
-        }
     }
 
     private static void RetireProgress()
