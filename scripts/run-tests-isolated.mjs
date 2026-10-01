@@ -1,10 +1,12 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { glob } from "node:fs/promises";
 import { spawn } from "node:child_process";
 
 const testRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-test-host-state-"));
+const workspaceRoot = path.join(testRoot, "workspace");
+await mkdir(workspaceRoot, { recursive: true });
 const testFiles = [];
 for await (const filePath of glob("tests/**/*.test.js")) {
   testFiles.push(filePath);
@@ -22,6 +24,7 @@ try {
       ...process.env,
       SERVICE_LASSO_INSTANCE_REGISTRY_PATH: path.join(testRoot, "instances.json"),
       SERVICE_LASSO_HOST_PORT_REGISTRY_PATH: path.join(testRoot, "endpoint-allocations.json"),
+      SERVICE_LASSO_WORKSPACE_ROOT: workspaceRoot,
     },
   });
   const [code, signal] = await new Promise((resolve, reject) => {
