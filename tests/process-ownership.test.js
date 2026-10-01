@@ -205,7 +205,15 @@ async function assertNativePayloadLifecycleProjection(protocolCase, expectedBoun
       });
       nativeStderr.once("end", () => {
         if (pending) capturedStderr.write(pending);
-        capturedStderr.end();
+        if (protocolCase === "prefix_chunk") {
+          // The owned launcher has already exited, but its final authenticated
+          // record reaches the parser before this delayed stderr end. This
+          // exercises the exit/check/subscribe boundary without extending the
+          // launcher deadline or exposing raw progress in runtime logs.
+          setTimeout(() => capturedStderr.end(), 20);
+        } else {
+          capturedStderr.end();
+        }
       });
       nativeStderr.once("error", (error) => capturedStderr.destroy(error));
       Object.defineProperty(child, "stderr", { value: capturedStderr });
