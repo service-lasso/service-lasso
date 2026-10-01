@@ -392,7 +392,7 @@ async function persistFixtureSettlementReceipt(service, receipt) {
   await writeFile(receiptPath, `${JSON.stringify(receipt)}\n`, "utf8");
 }
 
-async function retainFixtureSettlement(service, receipt, errors, authority = null) {
+async function retainFixtureSettlement(service, receipt, errors, authority = null, throwErrors = true) {
   if (authority !== null) fixtureRemovalAuthority.set(receipt, authority);
   try {
     await persistFixtureSettlementReceipt(service, receipt);
@@ -400,7 +400,7 @@ async function retainFixtureSettlement(service, receipt, errors, authority = nul
     errors.push(error);
   }
   fixtureSettlementErrorCustody.set(receipt, Object.freeze([...errors]));
-  if (errors.length > 0) {
+  if (throwErrors && errors.length > 0) {
     const aggregate = new AggregateError(errors, "Fixture assertion and owned cleanup failures were retained.");
     fixtureSettlementReceiptByError.set(aggregate, receipt);
     throw aggregate;
@@ -487,7 +487,7 @@ async function decideFixtureRemoval({
   } catch (error) {
     // A deadline is an intentionally retained pending observation.  A real
     // finalizer failure is custody, not a status conversion.
-    if (error?.failures?.some((failure) => failure.code !== "PROCESS_CONTROL_DEADLINE_EXCEEDED")) errors.push(error);
+    errors.push(error);
     const receipt = fixtureSettlementReceipt({
       primaryAssertion,
       termination: "verified",
@@ -496,7 +496,7 @@ async function decideFixtureRemoval({
       registry: "stopped",
       cleanup: "retained",
     });
-    return await retainFixtureSettlement(service, receipt, errors, authority);
+    return await retainFixtureSettlement(service, receipt, errors, authority, false);
   }
 
   const stored = await readStoredState(service.serviceRoot);
@@ -4084,6 +4084,10 @@ test("fixture teardown retains owned evidence while a lifecycle finalizer is uns
     });
     assert.equal(retained.cleanup, "retained");
     assert.equal(retained.finalization, "unsettled");
+    const pendingFinalizationErrors = fixtureSettlementErrorCustody.get(retained);
+    assert.equal(pendingFinalizationErrors.length, 1);
+    assert.equal(pendingFinalizationErrors[0].name, "ManagedProcessFinalizationError");
+    assert.equal(pendingFinalizationErrors[0].failures[0].code, "PROCESS_CONTROL_DEADLINE_EXCEEDED");
     assert.equal(await readFile(finalizerMarker, "utf8"), "settling\n");
     assert.match(await readFile(getProcessRegistryPath(workspaceRoot), "utf8"), /finalizer-settlement-service/);
 
