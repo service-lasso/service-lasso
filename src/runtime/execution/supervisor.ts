@@ -1424,7 +1424,7 @@ async function waitForManagedProcessSpawn(child: ChildProcess): Promise<void> {
     // fast native launcher emitted `spawn` during setup. This preserves the
     // existing bounded error path while preventing a terminal stderr receipt
     // from racing ahead of its parser.
-    else if (Number.isInteger(child.pid) && Number(child.pid) > 0) spawned();
+    else if (typeof child.spawnfile === "string" && Number.isInteger(child.pid) && Number(child.pid) > 0) spawned();
   }), { deadlineMs });
 }
 
