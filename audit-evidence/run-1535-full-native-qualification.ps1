@@ -26,6 +26,7 @@ function Get-Sha256Hex {
 $workspaceRoot = Join-Path $InputRoot 'workspace'
 $instanceRegistryPath = Join-Path $InputRoot 'registries\instances.json'
 $hostPortRegistryPath = Join-Path $InputRoot 'registries\ports.json'
+$registryRoot = Split-Path -Parent $instanceRegistryPath
 $stdoutPath = Join-Path $RunRoot 'stdout.log'
 $stderrPath = Join-Path $RunRoot 'stderr.log'
 $childExitCodePath = Join-Path $RunRoot 'child-actual-exit-code.txt'
@@ -43,7 +44,7 @@ if (Test-Path -LiteralPath $InputRoot) {
   throw "Qualification input root already exists: $InputRoot"
 }
 
-New-Item -ItemType Directory -Path $RunRoot, $workspaceRoot, (Split-Path -Parent $instanceRegistryPath), (Split-Path -Parent $hostPortRegistryPath) | Out-Null
+New-Item -ItemType Directory -Path $RunRoot, $workspaceRoot, $registryRoot | Out-Null
 
 # These three values are intentionally distinct and are assigned before the
 # first build/test child is created. DEADLINE_TEST_ROOT is deliberately absent.
