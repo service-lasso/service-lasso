@@ -3,7 +3,9 @@ param(
   [Parameter(Mandatory = $true)]
   [string]$RunRoot,
   [Parameter(Mandatory = $true)]
-  [string]$RepoRoot
+  [string]$RepoRoot,
+  [Parameter(Mandatory = $true)]
+  [string]$InputRoot
 )
 
 $ErrorActionPreference = 'Stop'
@@ -21,15 +23,15 @@ function Get-Sha256Hex {
   }
 }
 
-$workspaceRoot = Join-Path $RunRoot 'workspace'
-$instanceRegistryPath = Join-Path $RunRoot 'registries\instances.json'
-$hostPortRegistryPath = Join-Path $RunRoot 'registries\ports.json'
+$workspaceRoot = Join-Path $InputRoot 'workspace'
+$instanceRegistryPath = Join-Path $InputRoot 'registries\instances.json'
+$hostPortRegistryPath = Join-Path $InputRoot 'registries\ports.json'
 $stdoutPath = Join-Path $RunRoot 'stdout.log'
 $stderrPath = Join-Path $RunRoot 'stderr.log'
 $initialReceiptPath = Join-Path $RunRoot 'receipt.initial.json'
 $finalReceiptPath = Join-Path $RunRoot 'receipt.final.json'
 
-New-Item -ItemType Directory -Force -Path $workspaceRoot, (Split-Path -Parent $instanceRegistryPath), (Split-Path -Parent $hostPortRegistryPath) | Out-Null
+New-Item -ItemType Directory -Force -Path $RunRoot, $workspaceRoot, (Split-Path -Parent $instanceRegistryPath), (Split-Path -Parent $hostPortRegistryPath) | Out-Null
 
 # These three values are intentionally distinct and are assigned before the
 # first build/test child is created. DEADLINE_TEST_ROOT is deliberately absent.
