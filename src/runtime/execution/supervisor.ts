@@ -174,6 +174,7 @@ interface ManagedProcessRecord {
   treeTerminationPromise: Promise<ProcessTreeTerminationResult> | null;
   stopDeadlineMs: number | null;
   exitPromise: Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }>;
+  streamsClosedPromise: Promise<void>;
   finalizePromise: Promise<void>;
 }
 
@@ -709,7 +710,7 @@ function attachRuntimeLogCapture(record: ManagedProcessRecord): void {
     flushBufferedLines("stderr");
   });
 
-  record.finalizePromise = record.exitPromise.then(async () => {
+  record.finalizePromise = record.streamsClosedPromise.then(async () => {
     flushBufferedLines("stdout", true);
     flushBufferedLines("stderr", true);
     await record.variableCapturePromise;
@@ -1928,6 +1929,7 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
   }
   let child: ChildProcess | null = null;
   let exitPromise: Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }> | null = null;
+  let streamsClosedPromise: Promise<void> | null = null;
   try {
     if (windowsManagedLaunchState) {
       await verifyWindowsManagedLauncherIntegrity(windowsManagedLaunchState.launcherExecutable);
@@ -1970,6 +1972,9 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
         });
       });
     });
+    streamsClosedPromise = new Promise<void>((resolve) => {
+      spawnedChild.once("close", () => resolve());
+    });
 
     await waitForManagedProcessSpawn(spawnedChild);
   } catch (error) {
@@ -1987,7 +1992,7 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
     );
   }
 
-  if (!child || !exitPromise) {
+  if (!child || !exitPromise || !streamsClosedPromise) {
     throw new Error("Managed process wrapper spawn completed without a child handle.");
   }
 
@@ -2026,6 +2031,7 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
     treeTerminationPromise: null,
     stopDeadlineMs: null,
     exitPromise,
+    streamsClosedPromise,
     finalizePromise: Promise.resolve(),
   };
   attachRuntimeLogCapture(record);
