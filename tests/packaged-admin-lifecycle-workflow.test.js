@@ -45,6 +45,7 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
     "src/server/**",
     "scripts/consume-admin-trusted-unlock-receipt.mjs",
     "scripts/resolve-pnpm-action-entrypoint.mjs",
+    "scripts/establish-admin-trusted-unlock-receipt-caller.mjs",
     "scripts/record-admin-trusted-unlock-prebrowser-failure.mjs",
     "scripts/retain-packaged-admin-lifecycle-receipt.mjs",
     "scripts/verify-packaged-admin-lifecycle-artifacts.mjs",
@@ -138,7 +139,7 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
   assert.match(workflow, /PNPM_ACTION_BIN_DEST: \$\{\{ steps\.pnpm-action-pinned-entrypoint\.outputs\.bin_dest \}\}/);
   assert.match(workflow, /ADMIN_PLATFORM: \$\{\{ matrix\.admin_platform \}\}/);
   assert.doesNotMatch(workflow, /PNPM_HOME\/pnpm\.cjs|node_modules\/pnpm\/bin\/pnpm\.cjs/);
-  assert.match(workflow, /npm install --prefix "\$ADMIN_PNPM_PREFIX" --ignore-scripts --no-save --package-lock=false --no-audit --no-fund pnpm@10\.34\.5/);
+  assert.match(workflow, /node "\$GITHUB_WORKSPACE\/scripts\/establish-admin-trusted-unlock-receipt-caller\.mjs"/);
   assert.match(workflow, /SERVICE_LASSO_REQUIRE_TEST_BROKER_BINARY: "1"/);
   assert.match(workflow, /& chmod \+x \$brokerBinary\.FullName/);
   assert.doesNotMatch(workflow, /& chmod \+x --/);
@@ -181,8 +182,8 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
 
 test("AC-4BY.2 producer retains each finite pre-browser failure with the matrix platform before record, upload, and aggregate", async () => {
   const workflow = await readFile(workflowUrl, "utf8");
-  for (const stage of ["action_binding", "fresh_prefix", "isolated_install", "package_identity"]) assert.match(workflow, new RegExp(`retain_prebrowser_failure ${stage}`));
-  assert.match(workflow, /ADMIN_PLATFORM: \$\{\{ matrix\.admin_platform \}\}[\s\S]*?record-admin-trusted-unlock-prebrowser-failure\.mjs/);
+  assert.match(workflow, /node "\$GITHUB_WORKSPACE\/scripts\/establish-admin-trusted-unlock-receipt-caller\.mjs"/);
+  assert.match(workflow, /ADMIN_PLATFORM: \$\{\{ matrix\.admin_platform \}\}[\s\S]*?establish-admin-trusted-unlock-receipt-caller\.mjs/);
   assert.match(workflow, /if: always\(\)[\s\S]*?admin-trusted-unlock-prebrowser-failure\.json[\s\S]*?if-no-files-found: error/);
   assert.match(workflow, /require-packaged-admin-lifecycle:[\s\S]*?if: always\(\)[\s\S]*?test '\$\{\{ needs\.packaged-admin-lifecycle\.result \}\}' = 'success'/);
 });

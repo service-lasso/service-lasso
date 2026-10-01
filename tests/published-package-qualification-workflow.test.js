@@ -66,9 +66,9 @@ test("AC-4BZ.1 workflow qualifies only exact downloaded publications on all thre
   assert.match(workflow, /id: pnpm-action-pinned-entrypoint[\s\S]*?dest: \$\{\{ runner\.temp \}\}\/pnpm-action-pinned-entrypoint/);
   assert.match(workflow, /PNPM_ACTION_BIN_DEST: \$\{\{ steps\.pnpm-action-pinned-entrypoint\.outputs\.bin_dest \}\}/);
   assert.match(workflow, /QUALIFICATION_PLATFORM: \$\{\{ matrix\.platform \}\}/);
-  for (const stage of ["action_binding", "fresh_prefix", "isolated_install", "package_identity"]) assert.match(workflow, new RegExp(`retain_prebrowser_failure ${stage}`));
+  assert.match(workflow, /node "\$GITHUB_WORKSPACE\/scripts\/establish-admin-trusted-unlock-receipt-caller\.mjs"/);
   assert.doesNotMatch(workflow, /PNPM_HOME\/pnpm\.cjs|node_modules\/pnpm\/bin\/pnpm\.cjs/);
-  assert.match(workflow, /npm install --prefix "\$ADMIN_PNPM_PREFIX" --ignore-scripts --no-save --package-lock=false --no-audit --no-fund pnpm@10\.34\.5/);
+  assert.doesNotMatch(workflow, /npm install --prefix "\$ADMIN_PNPM_PREFIX"/);
   assert.doesNotMatch(
     workflow,
     /\bnpm ci\b|\bnpm run build\b|\bcontinue-on-error\b|\bmain\b|--force|screenshots|videos/iu,

@@ -13,6 +13,7 @@ on:
       - src/server/**
       - scripts/consume-admin-trusted-unlock-receipt.mjs
       - scripts/resolve-pnpm-action-entrypoint.mjs
+      - scripts/establish-admin-trusted-unlock-receipt-caller.mjs
       - scripts/record-admin-trusted-unlock-prebrowser-failure.mjs
       - scripts/retain-packaged-admin-lifecycle-receipt.mjs
       - scripts/verify-packaged-admin-lifecycle-artifacts.mjs
@@ -35,6 +36,7 @@ on:
       - src/server/**
       - scripts/consume-admin-trusted-unlock-receipt.mjs
       - scripts/resolve-pnpm-action-entrypoint.mjs
+      - scripts/establish-admin-trusted-unlock-receipt-caller.mjs
       - scripts/record-admin-trusted-unlock-prebrowser-failure.mjs
       - scripts/retain-packaged-admin-lifecycle-receipt.mjs
       - scripts/verify-packaged-admin-lifecycle-artifacts.mjs
@@ -147,15 +149,7 @@ jobs:
           ADMIN_PLATFORM: ${{ matrix.admin_platform }}
         run: |
           set -euo pipefail
-          prebrowser="$RUNNER_TEMP/admin-trusted-unlock-prebrowser-failure.json"
-          retain_prebrowser_failure() {
-            node "$GITHUB_WORKSPACE/scripts/record-admin-trusted-unlock-prebrowser-failure.mjs" --output "$prebrowser" --stage "$1"
-            echo "ADMIN_TRUSTED_UNLOCK_PREBROWSER_FAILURE_PATH=$prebrowser" >> "$GITHUB_ENV"
-          }
-          if ! node "$GITHUB_WORKSPACE/scripts/resolve-pnpm-action-entrypoint.mjs" --verify-action-binding; then retain_prebrowser_failure action_binding; exit 1; fi
-          if [ -e "$ADMIN_PNPM_PREFIX" ]; then retain_prebrowser_failure fresh_prefix; exit 1; fi
-          if ! npm install --prefix "$ADMIN_PNPM_PREFIX" --ignore-scripts --no-save --package-lock=false --no-audit --no-fund pnpm@10.34.5; then retain_prebrowser_failure isolated_install; exit 1; fi
-          if ! node "$GITHUB_WORKSPACE/scripts/resolve-pnpm-action-entrypoint.mjs"; then retain_prebrowser_failure package_identity; exit 1; fi
+          node "$GITHUB_WORKSPACE/scripts/establish-admin-trusted-unlock-receipt-caller.mjs"
 
       - name: Acquire checksum-bound published Admin and Broker
         shell: pwsh

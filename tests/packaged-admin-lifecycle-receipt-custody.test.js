@@ -75,8 +75,26 @@ test("AC-4BY.2 public terminal-job read is bounded, unauthenticated, and fails c
     new Response("", { status: 503 }),
     new Response("{", { status: 200 }),
     new Response(JSON.stringify({ jobs: null }), { status: 200 }),
-    new Response("x".repeat(262145), { status: 200, headers: { "content-length": "262145" } }),
-  ]) await assert.rejects(readTerminalJobs({ repository: "service-lasso/service-lasso", runId, runAttempt, fetchImpl: async () => response }));
+    new Response('{"jobs":[],"jobs":[]}', { status: 200 }),
+    new Response(new ReadableStream({ start(controller) { controller.enqueue(new Uint8Array(262145)); } }), { status: 200 }),
+    new Response(new ReadableStream({ start() {} }), { status: 200 }),
+  ]) await assert.rejects(readTerminalJobs({ repository: "service-lasso/service-lasso", runId, runAttempt, timeoutMs: 1, fetchImpl: async () => response }));
+  let oversizedCancelled = false;
+  const oversized = new Response(new ReadableStream({
+    start(controller) { controller.enqueue(new Uint8Array(262145)); },
+    cancel() { oversizedCancelled = true; return new Promise(() => {}); },
+  }), { status: 200 });
+  await assert.rejects(readTerminalJobs({ repository: "service-lasso/service-lasso", runId, runAttempt, timeoutMs: 1, fetchImpl: async () => oversized }));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(oversizedCancelled, true);
+  let stalledCancelled = false;
+  const stalled = new Response(new ReadableStream({
+    start() {},
+    cancel() { stalledCancelled = true; throw new Error("fixture cancellation failure"); },
+  }), { status: 200 });
+  await assert.rejects(readTerminalJobs({ repository: "service-lasso/service-lasso", runId, runAttempt, timeoutMs: 1, fetchImpl: async () => stalled }));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(stalledCancelled, true);
 });
 test("AC-4BY.2 terminal pre-browser job binding rejects incomplete, mismatched, nonterminal, and duplicate provider identities", () => {
   for (const mutation of [

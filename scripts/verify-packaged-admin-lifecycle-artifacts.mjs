@@ -29,22 +29,65 @@ function sameValue(left, right) {
 function expectedRelease(release, platform) {
   return { revision: release.revision, releaseId: release.id, tag: release.tag, asset: release.platforms[platform].asset, sha256: release.platforms[platform].sha256, checksumSource: "SHA256SUMS.txt" };
 }
-export async function readTerminalJobs({ repository, runId, runAttempt, fetchImpl = fetch }) {
+async function boundedBody(response, signal, timeoutMs) {
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error("Packaged pre-browser terminal job API response is invalid.");
+  const chunks = [];
+  let total = 0;
+  let timeout;
+  let complete = false;
+  let rejectAbort;
+  const aborted = new Promise((_, reject) => {
+    rejectAbort = () => reject(new Error("Packaged pre-browser terminal job API readback timed out."));
+    if (signal.aborted) rejectAbort();
+    else signal.addEventListener("abort", rejectAbort, { once: true });
+    timeout = setTimeout(rejectAbort, timeoutMs);
+  });
+  try {
+    for (;;) {
+      const next = await Promise.race([reader.read(), aborted]);
+      if (next.done) { complete = true; break; }
+      if (!(next.value instanceof Uint8Array)) throw new Error("Packaged pre-browser terminal job API response is invalid.");
+      total += next.value.byteLength;
+      if (total > MAX_TERMINAL_JOBS_BYTES) throw new Error("Packaged pre-browser terminal job API response is oversized.");
+      chunks.push(next.value);
+    }
+  } finally {
+    clearTimeout(timeout);
+    signal.removeEventListener("abort", rejectAbort);
+    // A hostile or stalled stream must not make failure classification wait for
+    // cancellation. Begin disposal and relinquish the reader without awaiting it.
+    if (!complete) {
+      try { void Promise.resolve(reader.cancel()).catch(() => {}); } catch {}
+    }
+    try { reader.releaseLock(); } catch {}
+  }
+  if (total === 0) throw new Error("Packaged pre-browser terminal job API response is invalid.");
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+  return bytes;
+}
+export async function readTerminalJobs({ repository, runId, runAttempt, fetchImpl = fetch, timeoutMs = TERMINAL_JOBS_TIMEOUT_MS }) {
+  const signal = AbortSignal.timeout(timeoutMs);
   const response = await fetchImpl(`https://api.github.com/repos/${repository}/actions/runs/${runId}/attempts/${runAttempt}/jobs?per_page=100`, {
     // This repository is public. GitHub documents public workflow-job reads as
     // unauthenticated; retaining that route avoids widening this workflow's
     // permissions merely to classify an already-failed pre-browser job.
     headers: { Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "service-lasso-packaged-admin-lifecycle" },
     redirect: "error",
-    signal: AbortSignal.timeout(TERMINAL_JOBS_TIMEOUT_MS),
+    signal,
   });
   if (!response.ok) throw new Error("Packaged pre-browser terminal job API readback failed.");
   const advertisedSize = Number(response.headers.get("content-length"));
   if ((Number.isFinite(advertisedSize) && advertisedSize > MAX_TERMINAL_JOBS_BYTES) || advertisedSize < 0) throw new Error("Packaged pre-browser terminal job API response is oversized.");
-  const bytes = new Uint8Array(await response.arrayBuffer());
-  if (bytes.byteLength === 0 || bytes.byteLength > MAX_TERMINAL_JOBS_BYTES) throw new Error("Packaged pre-browser terminal job API response is invalid.");
+  const bytes = await boundedBody(response, signal, timeoutMs);
   let payload;
-  try { payload = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)); } catch { throw new Error("Packaged pre-browser terminal job API response is malformed."); }
+  try {
+    const source = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    if (!strictJson(source)) throw new Error("duplicate JSON keys");
+    payload = JSON.parse(source);
+  } catch { throw new Error("Packaged pre-browser terminal job API response is malformed."); }
   if (!payload || typeof payload !== "object" || Array.isArray(payload) || !Array.isArray(payload.jobs)) throw new Error("Packaged pre-browser terminal job API response is incomplete.");
   return payload.jobs;
 }
