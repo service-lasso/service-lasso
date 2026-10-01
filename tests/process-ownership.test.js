@@ -2476,7 +2476,7 @@ test("AC-4BJ.9b Windows managed launcher projects only authenticated closed payl
   }
 });
 
-test("AC-4BJ.9b captures a real native spawn and exit through lifecycle finalization before its public-safe payload diagnostic", {
+test("AC-4BJ.9b persists a real native child spawn, exit, close, and stopped lifecycle record", {
   skip: process.platform !== "win32",
 }, async () => {
   resetLifecycleState();
@@ -2487,6 +2487,7 @@ test("AC-4BJ.9b captures a real native spawn and exit through lifecycle finaliza
   const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-launcher-payload-lifecycle-");
   const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "echo-service");
   let apiServer;
+  const nativeReceipt = { spawnObserved: false, exitObserved: false, closeObserved: false };
   try {
     process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH = path.join(tempRoot, "instances.json");
     process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH = path.join(tempRoot, "ports.json");
@@ -2494,30 +2495,29 @@ test("AC-4BJ.9b captures a real native spawn and exit through lifecycle finaliza
     await mkdir(stateRoot, { recursive: true });
     await writeFile(path.join(stateRoot, "install.json"), JSON.stringify({ installed: true }), "utf8");
     await writeFile(path.join(stateRoot, "config.json"), JSON.stringify({ configured: true }), "utf8");
-    setManagedProcessSpawnerForTests((file, args, options) => spawn(file, args, {
-      ...options,
-      env: {
-        ...options.env,
-        SERVICE_LASSO_MANAGED_LAUNCH_PAYLOAD: `${options.env.SERVICE_LASSO_MANAGED_LAUNCH_PAYLOAD}\n`,
-      },
-    }));
+    setManagedProcessSpawnerForTests((file, args, options) => {
+      const child = spawn(file, args, options);
+      child.once("spawn", () => { nativeReceipt.spawnObserved = true; });
+      child.once("exit", () => { nativeReceipt.exitObserved = true; });
+      child.once("close", () => { nativeReceipt.closeObserved = true; });
+      return child;
+    });
     apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
     const start = await postJson(`${apiServer.url}/api/services/echo-service/start`);
-    assert.equal(start.response.status, 409);
-    const diagnostic = await collectStartupFailure(apiServer.url, "echo-service");
-    assert.equal(diagnostic.observations[0].attemptStatus, "failed");
-    assert.equal(diagnostic.observations[0].launcherPayloadFailureBoundary, "canonical_encoding");
-    assert.ok(diagnostic.observations[0].events.some((event) => event.failurePhase === "launcher_payload_validation"));
-    assert.equal(JSON.stringify(diagnostic).includes("SERVICE_LASSO_MANAGED_LAUNCH_PAYLOAD"), false);
-    assert.equal(JSON.stringify(diagnostic).includes(tempRoot), false);
+    assert.equal(start.response.status, 200);
+    assert.equal(nativeReceipt.spawnObserved, true);
+    const stop = await postJson(`${apiServer.url}/api/services/echo-service/stop`, { confirm: true });
+    assert.equal(stop.response.status, 200);
     await waitForManagedProcessFinalization("echo-service", Date.now() + 10_000);
     const stoppedOwnership = await findProcessOwnership(workspaceRoot, "service", "echo-service");
-    if (stoppedOwnership) {
-      assert.equal(stoppedOwnership.lifecycleState, "stopped");
-      assert.equal(stoppedOwnership.identityStatus, "not_running");
-      assert.equal(stoppedOwnership.pid, null);
-      assert.equal(stoppedOwnership.identity, null);
-    }
+    // This is the real native launcher child, not a PID or spawnfile-shaped
+    // substitute. Its captured lifecycle must reach a durable stopped record.
+    assert.deepEqual(nativeReceipt, { spawnObserved: true, exitObserved: true, closeObserved: true });
+    assert.ok(stoppedOwnership);
+    assert.equal(stoppedOwnership.lifecycleState, "stopped");
+    assert.equal(stoppedOwnership.identityStatus, "not_running");
+    assert.equal(stoppedOwnership.pid, null);
+    assert.equal(stoppedOwnership.identity, null);
     assert.equal(hasManagedProcess("echo-service"), false);
   } finally {
     setManagedProcessSpawnerForTests(null);
