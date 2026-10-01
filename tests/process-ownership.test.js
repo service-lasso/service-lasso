@@ -147,6 +147,23 @@ async function postJson(url, body) {
   return result;
 }
 
+function assertNoLiveRetainedOwnership(record, serviceId) {
+  if (!record) return;
+  assert.equal(record.ownerType, "service");
+  assert.equal(record.ownerId, serviceId);
+  assert.equal(record.serviceId, serviceId);
+  assert.equal(typeof record.generationId, "string");
+  assert.equal(typeof record.workspaceId, "string");
+  assert.equal(typeof record.runtimeInstanceId, "string");
+  assert.equal(record.source, "spawn");
+  assert.equal(record.lifecycleState, "stopped");
+  assert.equal(record.identityStatus, "not_running");
+  assert.equal(record.pid, null);
+  assert.equal(record.identity, null);
+  assert.ok(record.allocation);
+  assert.equal(typeof record.allocation.revision, "string");
+}
+
 async function assertNativePayloadLifecycleProjection(protocolCase, expectedBoundary) {
   resetLifecycleState();
   const priorTestHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
@@ -232,21 +249,7 @@ async function assertNativePayloadLifecycleProjection(protocolCase, expectedBoun
     // launcher has begun its failure path, so that stream cannot prove whether
     // durable enrollment won the race.  It must never leave live authority;
     // if enrollment did win, preserve its recovery metadata as a stopped owner.
-    if (retained) {
-      assert.equal(retained.ownerType, "service");
-      assert.equal(retained.ownerId, "echo-service");
-      assert.equal(retained.serviceId, "echo-service");
-      assert.equal(typeof retained.generationId, "string");
-      assert.equal(typeof retained.workspaceId, "string");
-      assert.equal(typeof retained.runtimeInstanceId, "string");
-      assert.equal(retained.source, "spawn");
-      assert.equal(retained.lifecycleState, "stopped");
-      assert.equal(retained.identityStatus, "not_running");
-      assert.equal(retained.pid, null);
-      assert.equal(retained.identity, null);
-      assert.ok(retained.allocation);
-      assert.equal(typeof retained.allocation.revision, "string");
-    }
+    assertNoLiveRetainedOwnership(retained, "echo-service");
     assert.equal(hasManagedProcess("echo-service"), false, `${protocolCase} retained a managed process after native rejection.`);
   } finally {
     setManagedProcessSpawnerForTests(null);
@@ -2189,7 +2192,7 @@ test("AC-4BJ.9b Windows managed launcher projects only authenticated closed payl
   }
 });
 
-test("AC-4BJ.9b projects a real native payload rejection through enrollment, lifecycle state, and the public-safe diagnostic", {
+test("AC-4BJ.9b projects a real native payload rejection through guarded lifecycle handling and the public-safe diagnostic", {
   skip: process.platform !== "win32",
 }, async () => {
   resetLifecycleState();
@@ -2224,20 +2227,7 @@ test("AC-4BJ.9b projects a real native payload rejection through enrollment, lif
     assert.equal(JSON.stringify(diagnostic).includes("SERVICE_LASSO_MANAGED_LAUNCH_PAYLOAD"), false);
     assert.equal(JSON.stringify(diagnostic).includes(tempRoot), false);
     const retained = await findProcessOwnership(workspaceRoot, "service", "echo-service");
-    assert.ok(retained);
-    assert.equal(retained.ownerType, "service");
-    assert.equal(retained.ownerId, "echo-service");
-    assert.equal(retained.serviceId, "echo-service");
-    assert.equal(typeof retained.generationId, "string");
-    assert.equal(typeof retained.workspaceId, "string");
-    assert.equal(typeof retained.runtimeInstanceId, "string");
-    assert.equal(retained.source, "spawn");
-    assert.equal(retained.lifecycleState, "stopped");
-    assert.equal(retained.identityStatus, "not_running");
-    assert.equal(retained.pid, null);
-    assert.equal(retained.identity, null);
-    assert.ok(retained.allocation);
-    assert.equal(typeof retained.allocation.revision, "string");
+    assertNoLiveRetainedOwnership(retained, "echo-service");
     assert.equal(hasManagedProcess("echo-service"), false);
   } finally {
     setManagedProcessSpawnerForTests(null);
