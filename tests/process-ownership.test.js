@@ -4366,102 +4366,6 @@ test("whole-runtime shutdown waits for a pending managed finalizer before cleanu
   }
 });
 
-test("whole-runtime shutdown reports safe service, pid, and finalization phase on failure", async () => {
-  resetLifecycleState();
-  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-finalizer-diagnostic-");
-  await writeExecutableFixtureService(servicesRoot, "finalizer-diagnostic-service");
-  let releaseFinalizer;
-  const finalizerGate = new Promise((resolve) => {
-    releaseFinalizer = resolve;
-  });
-  let reportFinalizerStarted;
-  const finalizerStarted = new Promise((resolve) => {
-    reportFinalizerStarted = resolve;
-  });
-  let handle;
-
-  try {
-    const [service] = await discoverServices(servicesRoot);
-    handle = await startManagedProcess({
-      service,
-      executionPlan: createDirectExecutionPlan(service.manifest),
-      workspaceRoot,
-      onExit: async () => {
-        reportFinalizerStarted();
-        await finalizerGate;
-        const error = new Error("sensitive command material must not escape");
-        error.code = "EFINALIZE_TEST";
-        throw error;
-      },
-    });
-
-    assert.equal(process.kill(handle.pid, "SIGKILL"), true);
-    await finalizerStarted;
-    releaseFinalizer();
-    // Let the finalizer reject before shutdown begins. The failure must remain
-    // observable at the cleanup boundary rather than being silently discarded.
-    await new Promise((resolve) => setImmediate(resolve));
-    const shutdown = stopAllManagedProcesses();
-
-    await assert.rejects(shutdown, (error) => {
-      assert.equal(error.name, "ManagedProcessFinalizationError");
-      assert.equal(error.failures.length, 1);
-      // The automatic-finaliser failure retains its primary safe identity and
-      // exposes the complete closed diagnostic projection. Assert the whole
-      // allowlisted contract so a future field, phase, count, or private value
-      // cannot be added silently.
-      assert.deepEqual(error.failures[0], {
-        serviceId: "finalizer-diagnostic-service",
-        pid: handle.pid,
-        phase: "finalize",
-        code: "EFINALIZE_TEST",
-        telemetry: process.platform === "win32"
-          ? [
-            { phase: "root_handle_exit", status: "complete", reason: "observed" },
-            { phase: "snapshot", status: "complete", reason: "observed" },
-            { phase: "member_count", status: "complete", reason: "observed", count: 3 },
-            { phase: "termination", status: "complete", reason: "observed" },
-            { phase: "registry_reconcile", status: "complete", reason: "observed" },
-          ]
-          : [
-            { phase: "root_handle_exit", status: "complete", reason: "observed" },
-            { phase: "snapshot", status: "not_applicable", reason: "not_required" },
-            { phase: "member_count", status: "not_applicable", reason: "not_required", count: 0 },
-            { phase: "termination", status: "complete", reason: "observed" },
-            { phase: "registry_reconcile", status: "complete", reason: "observed" },
-          ],
-      });
-      assert.equal(Number.isInteger(error.failures[0].telemetry[2].count), true);
-      assert.equal(error.failures[0].telemetry[2].count >= 0 && error.failures[0].telemetry[2].count <= 1_000, true);
-      assert.match(error.message, /finalizer-diagnostic-service/);
-      assert.match(error.message, new RegExp(`pid ${handle.pid}`));
-      assert.match(error.message, /phase finalize/);
-      assert.equal(error.message.includes("sensitive command material"), false);
-      assert.equal(JSON.stringify(error.failures[0]).includes("sensitive command material"), false);
-      return true;
-    });
-
-    // The failed automatic finalizer remains the service's custody boundary.
-    // A lifecycle reset only clears presentation state; it must not make a
-    // same-id replacement launch possible while cleanup is unresolved.
-    await assert.rejects(
-      startManagedProcess({
-        service,
-        executionPlan: createDirectExecutionPlan(service.manifest),
-        workspaceRoot,
-      }),
-      (error) => error?.name === "ManagedProcessFinalizationError" &&
-        error.failures?.[0]?.code === "EFINALIZE_TEST",
-    );
-  } finally {
-    releaseFinalizer?.();
-    await stopAllManagedProcesses().catch(() => null);
-    forceCleanupProcesses([handle?.pid]);
-    resetLifecycleState();
-    await removeTempRoot(tempRoot);
-  }
-});
-
 test("rehydrated adopted ownership retains and stops the complete persisted process tree", async () => {
   resetLifecycleState();
   const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-adopted-process-tree-");
@@ -4901,6 +4805,102 @@ test("registry identity mismatch clears stale ownership without terminating the 
     assert.equal(ownership.pid, null);
   } finally {
     child.kill("SIGKILL");
+    resetLifecycleState();
+    await removeTempRoot(tempRoot);
+  }
+});
+
+test("whole-runtime shutdown reports safe service, pid, and finalization phase on failure", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-finalizer-diagnostic-");
+  await writeExecutableFixtureService(servicesRoot, "finalizer-diagnostic-service");
+  let releaseFinalizer;
+  const finalizerGate = new Promise((resolve) => {
+    releaseFinalizer = resolve;
+  });
+  let reportFinalizerStarted;
+  const finalizerStarted = new Promise((resolve) => {
+    reportFinalizerStarted = resolve;
+  });
+  let handle;
+
+  try {
+    const [service] = await discoverServices(servicesRoot);
+    handle = await startManagedProcess({
+      service,
+      executionPlan: createDirectExecutionPlan(service.manifest),
+      workspaceRoot,
+      onExit: async () => {
+        reportFinalizerStarted();
+        await finalizerGate;
+        const error = new Error("sensitive command material must not escape");
+        error.code = "EFINALIZE_TEST";
+        throw error;
+      },
+    });
+
+    assert.equal(process.kill(handle.pid, "SIGKILL"), true);
+    await finalizerStarted;
+    releaseFinalizer();
+    // Let the finalizer reject before shutdown begins. The failure must remain
+    // observable at the cleanup boundary rather than being silently discarded.
+    await new Promise((resolve) => setImmediate(resolve));
+    const shutdown = stopAllManagedProcesses();
+
+    await assert.rejects(shutdown, (error) => {
+      assert.equal(error.name, "ManagedProcessFinalizationError");
+      assert.equal(error.failures.length, 1);
+      // The automatic-finaliser failure retains its primary safe identity and
+      // exposes the complete closed diagnostic projection. Assert the whole
+      // allowlisted contract so a future field, phase, count, or private value
+      // cannot be added silently.
+      assert.deepEqual(error.failures[0], {
+        serviceId: "finalizer-diagnostic-service",
+        pid: handle.pid,
+        phase: "finalize",
+        code: "EFINALIZE_TEST",
+        telemetry: process.platform === "win32"
+          ? [
+            { phase: "root_handle_exit", status: "complete", reason: "observed" },
+            { phase: "snapshot", status: "complete", reason: "observed" },
+            { phase: "member_count", status: "complete", reason: "observed", count: 3 },
+            { phase: "termination", status: "complete", reason: "observed" },
+            { phase: "registry_reconcile", status: "complete", reason: "observed" },
+          ]
+          : [
+            { phase: "root_handle_exit", status: "complete", reason: "observed" },
+            { phase: "snapshot", status: "not_applicable", reason: "not_required" },
+            { phase: "member_count", status: "not_applicable", reason: "not_required", count: 0 },
+            { phase: "termination", status: "complete", reason: "observed" },
+            { phase: "registry_reconcile", status: "complete", reason: "observed" },
+          ],
+      });
+      assert.equal(Number.isInteger(error.failures[0].telemetry[2].count), true);
+      assert.equal(error.failures[0].telemetry[2].count >= 0 && error.failures[0].telemetry[2].count <= 1_000, true);
+      assert.match(error.message, /finalizer-diagnostic-service/);
+      assert.match(error.message, new RegExp(`pid ${handle.pid}`));
+      assert.match(error.message, /phase finalize/);
+      assert.equal(error.message.includes("sensitive command material"), false);
+      assert.equal(JSON.stringify(error.failures[0]).includes("sensitive command material"), false);
+      return true;
+    });
+
+    // The failed automatic finalizer remains the service's custody boundary.
+    // A lifecycle reset only clears presentation state; it must not make a
+    // same-id replacement launch possible while cleanup is unresolved.
+    await assert.rejects(
+      startManagedProcess({
+        service,
+        executionPlan: createDirectExecutionPlan(service.manifest),
+        workspaceRoot,
+      }),
+      (error) => error?.name === "ManagedProcessFinalizationError" &&
+        error.failures?.[0]?.code === "EFINALIZE_TEST",
+    );
+  } finally {
+    releaseFinalizer?.();
+    await stopAllManagedProcesses().catch(() => null);
+    forceCleanupProcesses([handle?.pid]);
     resetLifecycleState();
     await removeTempRoot(tempRoot);
   }
