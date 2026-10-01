@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "compiler": {
+    "family": "Microsoft .NET Framework 4.8 C# compiler",
+    "path": "%WINDIR%/Microsoft.NET/Framework64/v4.0.30319/csc.exe",
+    "options": [
+      "/nologo",
+      "/target:exe",
+      "/platform:anycpu",
+      "/optimize+",
+      "/reference:System.Web.Extensions.dll"
+    ]
+  },
+  "source": {
+    "path": "src/runtime/execution/windows-managed-launcher-native.cs",
+    "sha256": "2f79fdb9652d3aa2fb3a8de5169d889cf0943b6baf76bdf4329ceff7925d065b"
+  },
+  "binary": {
+    "path": "src/runtime/execution/windows-managed-launcher-managed.exe",
+    "sha256": "ff1f7fdf44a4419f681e5cd7fe23bd59b495153ad6342ccd321d2c36de3228fa",
+    "byteLength": 39936,
+    "peTimestamp": "zero",
+    "moduleVersionId": "zero"
+  }
+}

@@ -262,6 +262,10 @@ try {
     installedManagedLauncherNativeProvenance,
     reviewedManagedLauncherNative,
     reviewedManagedLauncherNativeProvenance,
+    installedManagedLauncher,
+    installedManagedLauncherProvenance,
+    reviewedManagedLauncher,
+    reviewedManagedLauncherProvenance,
     installedDirectorySyncHelper,
     installedDirectorySyncHelperProvenance,
     reviewedDirectorySyncHelper,
@@ -275,6 +279,10 @@ try {
     readFile(path.join(installedRoot, "dist", "runtime", "execution", "windows-managed-launcher-native.provenance.json")),
     readFile(path.join(repoRoot, "src", "runtime", "execution", "windows-managed-launcher-native.exe")),
     readFile(path.join(repoRoot, "src", "runtime", "execution", "windows-managed-launcher-native.provenance.json")),
+    readFile(path.join(installedRoot, "dist", "runtime", "execution", "windows-managed-launcher-managed.exe")),
+    readFile(path.join(installedRoot, "dist", "runtime", "execution", "windows-managed-launcher-managed.provenance.json")),
+    readFile(path.join(repoRoot, "src", "runtime", "execution", "windows-managed-launcher-managed.exe")),
+    readFile(path.join(repoRoot, "src", "runtime", "execution", "windows-managed-launcher-managed.provenance.json")),
     readFile(path.join(installedRoot, "dist", "runtime", "operator", "windows-directory-sync-helper.exe")),
     readFile(path.join(installedRoot, "dist", "runtime", "operator", "windows-directory-sync-helper.provenance.json")),
     readFile(path.join(repoRoot, "src", "runtime", "operator", "windows-directory-sync-helper.exe")),
@@ -286,6 +294,8 @@ try {
       !installedDpapiProvenance.equals(reviewedDpapiProvenance) ||
       !installedManagedLauncherNative.equals(reviewedManagedLauncherNative) ||
       !installedManagedLauncherNativeProvenance.equals(reviewedManagedLauncherNativeProvenance) ||
+      !installedManagedLauncher.equals(reviewedManagedLauncher) ||
+      !installedManagedLauncherProvenance.equals(reviewedManagedLauncherProvenance) ||
       !installedDirectorySyncHelper.equals(reviewedDirectorySyncHelper) ||
       !installedDirectorySyncHelperProvenance.equals(reviewedDirectorySyncHelperProvenance)
     ) {
@@ -300,6 +310,10 @@ try {
     installedManagedLauncherNativeProvenance.fill(0);
     reviewedManagedLauncherNative.fill(0);
     reviewedManagedLauncherNativeProvenance.fill(0);
+    installedManagedLauncher.fill(0);
+    installedManagedLauncherProvenance.fill(0);
+    reviewedManagedLauncher.fill(0);
+    reviewedManagedLauncherProvenance.fill(0);
     installedDirectorySyncHelper.fill(0);
     installedDirectorySyncHelperProvenance.fill(0);
     reviewedDirectorySyncHelper.fill(0);

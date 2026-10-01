@@ -18,10 +18,23 @@ test("Windows directory-sync helper has reproducible provenance and bounded nati
     ["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", "scripts/verify-windows-process-inspector.ps1", "-DirectorySyncHelper", "-Behavioral"],
     { windowsHide: true, timeout: 60_000 },
   );
-  const receipt = JSON.parse(result.stdout.trim());
+  const receipt = JSON.parse(result.stdout.trim().split(/\r?\n/u).at(-1));
   assert.equal(receipt.result, "passed");
   assert.equal(receipt.negativeCaseCount, 18);
   assert.equal(receipt.behavioralCaseCount, 3);
+});
+
+test("Windows unmanaged bootstrap attests the held managed launcher before any CLR startup", { skip: process.platform !== "win32" }, async () => {
+  const systemRoot = process.env.SystemRoot ?? process.env.WINDIR;
+  assert.ok(systemRoot);
+  const result = await execFileAsync(
+    `${systemRoot}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`,
+    ["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", "scripts/verify-windows-managed-launcher-bootstrap.ps1"],
+    { windowsHide: true, timeout: 60_000 },
+  );
+  const receipt = JSON.parse(result.stdout.trim().split(/\r?\n/u).at(-1));
+  assert.equal(receipt.result, "passed");
+  assert.equal(receipt.clrMetadata, "absent");
 });
 
 test("Windows directory sync keeps the attested helper handle through native launch and rejects a replacement", { skip: process.platform !== "win32" }, async () => {
@@ -77,10 +90,10 @@ test("Windows directory sync keeps the attested helper handle through native lau
         (error) => error?.code === 121 || error?.code === 120,
       );
     }
-    await assert.rejects(
-      execFileAsync(launcher, [], { windowsHide: true, env: { ...process.env, COMPLUS_Version: "v2.0.50727", SERVICE_LASSO_DIRECTORY_SYNC_LAUNCH_PAYLOAD: payload } }),
-      (error) => Number.isInteger(error?.code) && error.code !== 0,
-    );
+    await execFileAsync(launcher, [], {
+      windowsHide: true,
+      env: { ...process.env, COMPLUS_Version: "v2.0.50727", SERVICE_LASSO_DIRECTORY_SYNC_LAUNCH_PAYLOAD: payload },
+    });
   } finally {
     await rm(replacement, { force: true, maxRetries: 0 });
     await rm(root, { recursive: true, force: true, maxRetries: 0 });

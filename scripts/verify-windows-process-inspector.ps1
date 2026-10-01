@@ -34,7 +34,7 @@ $binaryRelativePath = if ($HeldExitFixture) {
 } elseif ($DirectorySyncHelper) {
   "src/runtime/operator/windows-directory-sync-helper.exe"
 } elseif ($ManagedLauncherNative) {
-  "src/runtime/execution/windows-managed-launcher-native.exe"
+  "src/runtime/execution/windows-managed-launcher-managed.exe"
 } else {
   "src/runtime/process/windows-process-inspector.exe"
 }
@@ -43,7 +43,7 @@ $provenanceRelativePath = if ($HeldExitFixture) {
 } elseif ($DirectorySyncHelper) {
   "src/runtime/operator/windows-directory-sync-helper.provenance.json"
 } elseif ($ManagedLauncherNative) {
-  "src/runtime/execution/windows-managed-launcher-native.provenance.json"
+  "src/runtime/execution/windows-managed-launcher-managed.provenance.json"
 } else {
   "src/runtime/process/windows-process-inspector.provenance.json"
 }

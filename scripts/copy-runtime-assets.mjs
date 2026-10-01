@@ -6,6 +6,8 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
 const assets = [
   "runtime/execution/windows-managed-launcher-native.exe",
   "runtime/execution/windows-managed-launcher-native.provenance.json",
+  "runtime/execution/windows-managed-launcher-managed.exe",
+  "runtime/execution/windows-managed-launcher-managed.provenance.json",
   "runtime/process/windows-process-inspector.exe",
   "runtime/process/windows-process-inspector.provenance.json",
   "runtime/security/windows-dpapi-helper.exe",

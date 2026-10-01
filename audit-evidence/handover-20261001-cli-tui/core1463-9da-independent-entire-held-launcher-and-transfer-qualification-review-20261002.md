@@ -35,3 +35,23 @@ Executed in the assigned Windows worktree:
 The direct Windows source/runtime boundary above is repaired and tested. This does not qualify the complete #1463 delivery. The owner-approved service-producer catalog pin is absent; TAR stays denied pending T1--T5; the released checksum-bound CLI/TUI/Core journey remains absent on Windows, Linux, and macOS; the frozen PR has pending/failed hosted checks; and an independent whole-review remains required.
 
 Next executable action: a distinct reviewer should inspect the pushed corrective head, including the native binary/provenance match and the retained HTTP terminal-state failure, then issue an independent review without treating this author record as approval.
+
+## Superseding pre-CLR repair
+
+The earlier corrective description called the C# executable "native". That was
+incorrect for loader-environment ordering: a .NET Framework executable enters
+the CLR before `Main`. The current repair adds a separate unmanaged PE bootstrap
+as the executable invoked by Core. It removes case-insensitive `COR_`,
+`CORECLR_`, `COMPLUS_`, and `APPDOMAIN_MANAGER*` variables before it starts the
+separately named managed launcher; it holds and hashes that managed image using
+the fixed reviewed digest and length compiled into the bootstrap, rejects a
+reparse/final-path mismatch, waits for the non-detached child, and returns its
+exit. The managed component retains the previously repaired payload and helper
+admission boundary. The bootstrap has independent source/binary/managed-image
+provenance and a PE check that CLR metadata is absent. A hostile inherited
+`COMPLUS_Version` directory-sync execution completes through that bootstrap.
+
+This author evidence does not alter the retained HTTP `500` failure: the earlier
+one-run result remains non-reproducible and therefore does not establish stale
+state or refute the original cause. It also does not qualify catalog, TAR,
+released three-OS, hosted exact-head, independent review, or GA gates.

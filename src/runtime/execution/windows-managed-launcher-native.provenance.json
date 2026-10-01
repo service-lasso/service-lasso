@@ -1,25 +1,34 @@
 {
   "schemaVersion": 1,
   "compiler": {
-    "family": "Microsoft .NET Framework 4.8 C# compiler",
-    "path": "%WINDIR%/Microsoft.NET/Framework64/v4.0.30319/csc.exe",
+    "family": "Microsoft Visual C++ Build Tools native compiler",
+    "path": "Visual Studio 2022 Build Tools via VsDevCmd",
     "options": [
       "/nologo",
-      "/target:exe",
-      "/platform:anycpu",
-      "/optimize+",
-      "/reference:System.Web.Extensions.dll"
+      "/TC",
+      "/O2",
+      "/GS",
+      "/MT",
+      "/W4",
+      "/link",
+      "/Brepro",
+      "bcrypt.lib"
     ]
   },
   "source": {
-    "path": "src/runtime/execution/windows-managed-launcher-native.cs",
-    "sha256": "2f79fdb9652d3aa2fb3a8de5169d889cf0943b6baf76bdf4329ceff7925d065b"
+    "path": "src/runtime/execution/windows-managed-launcher-native-bootstrap.c",
+    "sha256": "6e20d417608d39b649dd8e51772c1c5e5827b2518f31011c2261d19114758a60"
+  },
+  "managedLauncher": {
+    "path": "src/runtime/execution/windows-managed-launcher-managed.exe",
+    "sha256": "ff1f7fdf44a4419f681e5cd7fe23bd59b495153ad6342ccd321d2c36de3228fa",
+    "byteLength": 39936
   },
   "binary": {
     "path": "src/runtime/execution/windows-managed-launcher-native.exe",
-    "sha256": "c7aaddac28156d6f5164721d65f2a31bd96393e927526da7c8ddb9ea63b52d40",
-    "byteLength": 39936,
+    "sha256": "1c9f73d04f67c9c10ead8aa8e0a986e88506ad0479508ce49b4e5acf88201abb",
+    "byteLength": 140288,
     "peTimestamp": "zero",
-    "moduleVersionId": "zero"
+    "clrMetadata": "absent"
   }
 }
