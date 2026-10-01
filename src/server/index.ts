@@ -7704,6 +7704,16 @@ async function routeRequest(
   await withRuntimeMutationCoordination(config.workspaceRoot, route);
 }
 
+const apiServerInitialization = new WeakMap<Server, Promise<string>>();
+
+/**
+ * Test-only direct servers do not use startApiServer's awaited startup path.
+ * Expose their owned initialization promise so their teardown can quiesce it.
+ */
+export async function waitForApiServerInitialization(server: Server): Promise<void> {
+  await apiServerInitialization.get(server)?.catch(() => undefined);
+}
+
 export function createApiServer(options: ApiServerOptions = {}): Server {
   if (options.mcpPolicyTestHooks && process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS !== "1") {
     throw new Error("MCP policy test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
@@ -7799,6 +7809,7 @@ export function createApiServer(options: ApiServerOptions = {}): Server {
   Object.defineProperty(server, runtimeApiOwnershipChallengeSymbol, {
     value: ownershipChallenge,
   });
+  apiServerInitialization.set(server, reconciliationContextIdentity);
   return server;
 }
 

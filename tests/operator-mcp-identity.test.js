@@ -4,7 +4,7 @@ import { createServer, request as httpRequest } from "node:http";
 import { once } from "node:events";
 import { rm } from "node:fs/promises";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
-import { createApiServer, startApiServer } from "../dist/server/index.js";
+import { createApiServer, startApiServer, waitForApiServerInitialization } from "../dist/server/index.js";
 import { readAuditEvents } from "../dist/runtime/audit/store.js";
 import {
   MCP_MAX_REQUEST_BODY_BYTES,
@@ -73,6 +73,7 @@ async function startDirectApiServer(options) {
   const server = createApiServer(options);
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
+  await waitForApiServerInitialization(server);
   const address = server.address();
   assert.ok(address && typeof address === "object");
   return {

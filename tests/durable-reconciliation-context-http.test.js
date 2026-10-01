@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { once } from "node:events";
 import { createHash, randomUUID } from "node:crypto";
 import { createServer, request as httpRequest } from "node:http";
-import { access, mkdir, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { createApiServer } from "../dist/server/index.js";
@@ -11,6 +11,7 @@ import { mcpOperationStatePath } from "../dist/runtime/operator/mcp-operations.j
 import {
   getLifecycleDocumentPath,
   RECONCILIATION_CONTEXT_AUTHORITY_POLICY,
+  RECONCILIATION_CONTEXT_CUSTODY_POLICY,
   RECONCILIATION_CONTEXT_IDENTITY_POLICY,
   RECONCILIATION_CONTEXT_PUBLICATION_JOURNAL_POLICY,
   RECONCILIATION_CONTEXT_PUBLICATION_MARKER_POLICY,
@@ -357,6 +358,77 @@ test("#1553 rolls forward only a validated interrupted authority publication and
     assert.equal(await pathExists(getLifecycleDocumentPath(fixture.workspaceRoot, RECONCILIATION_CONTEXT_PUBLICATION_MARKER_POLICY)), true);
   } finally {
     await restarted?.stop().catch(() => undefined);
+    await api?.stop().catch(() => undefined);
+    await rm(fixture.tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("#1553 fails closed without changing any exact custody residue after primary loss", async () => {
+  const custodyPolicies = [
+    RECONCILIATION_CONTEXT_AUTHORITY_POLICY,
+    RECONCILIATION_CONTEXT_PUBLICATION_JOURNAL_POLICY,
+    RECONCILIATION_CONTEXT_PUBLICATION_MARKER_POLICY,
+    RECONCILIATION_CONTEXT_IDENTITY_POLICY,
+    RECONCILIATION_CONTEXT_CUSTODY_POLICY,
+  ];
+  const residueKinds = [
+    { name: "crash backup", suffix: (policy) => ".bak" },
+    { name: "migration backup", suffix: (policy) => `.v${policy.legacyVersion}.bak` },
+    { name: "migration journal", suffix: () => ".migrate.json" },
+    { name: "migration candidate", suffix: () => ".migrate.tmp" },
+    { name: "writer temp", suffix: () => `.123.${randomUUID()}.tmp` },
+  ];
+  for (const policy of custodyPolicies) {
+    for (const residueKind of residueKinds) {
+      const fixture = await makeTempServicesRoot(`service-lasso-reconciliation-residue-${policy.currentVersion}-`);
+      let api;
+      let restarted;
+      try {
+        api = await startApi({ servicesRoot: fixture.servicesRoot, workspaceRoot: fixture.workspaceRoot });
+        const initial = await readContext(api);
+        assert.equal(initial.status, 200);
+        const port = api.port;
+        await api.stop();
+        api = null;
+
+        for (const primaryPolicy of custodyPolicies.slice(0, 3)) {
+          await rm(getLifecycleDocumentPath(fixture.workspaceRoot, primaryPolicy), { force: true });
+        }
+        const primaryPath = getLifecycleDocumentPath(fixture.workspaceRoot, policy);
+        const residuePath = `${primaryPath}${residueKind.suffix(policy)}`;
+        await writeFile(residuePath, "retained-custody-residue", "utf8");
+        const stateDirectory = path.dirname(primaryPath);
+        const beforeEntries = await readdir(stateDirectory);
+        const beforeResidue = await readFile(residuePath, "utf8");
+
+        restarted = await startApi({ servicesRoot: fixture.servicesRoot, workspaceRoot: fixture.workspaceRoot }, port);
+        const response = await readContext(restarted);
+        assert.equal(response.status, 503, `${policy.currentSchemaVersion} ${residueKind.name}`);
+        assert.equal(JSON.stringify(response.body).includes("retained-custody-residue"), false);
+        assert.deepEqual(await readdir(stateDirectory), beforeEntries);
+        assert.equal(await readFile(residuePath, "utf8"), beforeResidue);
+        for (const primaryPolicy of custodyPolicies.slice(0, 3)) {
+          assert.equal(await pathExists(getLifecycleDocumentPath(fixture.workspaceRoot, primaryPolicy)), false);
+        }
+      } finally {
+        await restarted?.stop().catch(() => undefined);
+        await api?.stop().catch(() => undefined);
+        await rm(fixture.tempRoot, { recursive: true, force: true });
+      }
+    }
+  }
+});
+
+test("#1553 ignores unrelated workspace files while creating a legitimately fresh authority", async () => {
+  const fixture = await makeTempServicesRoot("service-lasso-reconciliation-unrelated-");
+  let api;
+  try {
+    const stateDirectory = path.dirname(getLifecycleDocumentPath(fixture.workspaceRoot, RECONCILIATION_CONTEXT_AUTHORITY_POLICY));
+    await mkdir(stateDirectory, { recursive: true });
+    await writeFile(path.join(stateDirectory, "unrelated-lifecycle-note.tmp"), "not-custody", "utf8");
+    api = await startApi({ servicesRoot: fixture.servicesRoot, workspaceRoot: fixture.workspaceRoot });
+    assert.equal((await readContext(api)).status, 200);
+  } finally {
     await api?.stop().catch(() => undefined);
     await rm(fixture.tempRoot, { recursive: true, force: true });
   }
