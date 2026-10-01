@@ -1419,6 +1419,12 @@ async function waitForManagedProcessSpawn(child: ChildProcess): Promise<void> {
     child.once("error", failed);
     signal.addEventListener("abort", aborted, { once: true });
     if (signal.aborted) aborted();
+    // The OS assigns a real child handle synchronously on a successful spawn.
+    // Attach output capture before waiting, then recognise that handle if a
+    // fast native launcher emitted `spawn` during setup. This preserves the
+    // existing bounded error path while preventing a terminal stderr receipt
+    // from racing ahead of its parser.
+    else if (Number.isInteger(child.pid) && Number(child.pid) > 0) spawned();
   }), { deadlineMs });
 }
 
@@ -2049,7 +2055,6 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
       spawnedChild.once("close", () => resolve());
     });
 
-    await waitForManagedProcessSpawn(spawnedChild);
   } catch (error) {
     const cleanupErrors: unknown[] = [];
     await containUnenrolledManagedProcessWrapper(child, exitPromise)
@@ -2112,6 +2117,22 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
   // completes; delaying these listeners until then can lose its only
   // authenticated, public-safe receipt.
   attachRuntimeLogCapture(record);
+  try {
+    await waitForManagedProcessSpawn(child);
+  } catch (error) {
+    const cleanupErrors: unknown[] = [];
+    await containUnenrolledManagedProcessWrapper(child, exitPromise)
+      .catch((cleanupError) => cleanupErrors.push(cleanupError));
+    await closeRuntimeLogStreams(logStreams).catch((cleanupError) => cleanupErrors.push(cleanupError));
+    await removeWindowsManagedLaunchState(windowsManagedLaunchState)
+      .catch((cleanupError) => cleanupErrors.push(cleanupError));
+    throw new ManagedProcessStartError(
+      "wrapper_spawn",
+      cleanupErrors.length > 0
+        ? new AggregateError([error, ...cleanupErrors], "Managed process wrapper spawn and cleanup failed.")
+        : error,
+    );
+  }
   const rootInspection = rootPid > 0 && !workspaceRoot ? await managedProcessRootInspector(rootPid) : null;
   rootIdentity = rootInspection?.status === "running" ? rootInspection.identity : null;
   record.rootIdentity = rootIdentity;
