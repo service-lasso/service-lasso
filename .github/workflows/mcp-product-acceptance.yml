@@ -25,6 +25,7 @@ on:
       - scripts/demo-verify-canonical.mjs
       - scripts/verify-mcp-packaged.mjs
       - scripts/verify-windows-process-inspector.ps1
+      - scripts/windows-compiler-process-budget.ps1
       - scripts/verify-windows-dpapi-helper.ps1
       - src/runtime/operator/windows-directory-sync-helper.cs
       - src/runtime/operator/windows-directory-sync-helper.exe
@@ -59,6 +60,9 @@ on:
       - tests/fixtures/current-process-identity-runner.mjs
       - tests/demo-instance.test.js
       - tests/mcp-product-artifact.test.js
+      - tests/windows-compiler-process-budget.test.ps1
+      - tests/windows-compiler-process-budget-real-adapter.test.ps1
+      - tests/verify-windows-process-inspector-powershell-compatibility.test.ps1
       - docs/reference/secrets-capability-ledger.json
       - docs/reference/secrets-capability-ledger.md
   push:
@@ -84,6 +88,7 @@ on:
       - scripts/demo-verify-canonical.mjs
       - scripts/verify-mcp-packaged.mjs
       - scripts/verify-windows-process-inspector.ps1
+      - scripts/windows-compiler-process-budget.ps1
       - scripts/verify-windows-dpapi-helper.ps1
       - src/runtime/operator/windows-directory-sync-helper.cs
       - src/runtime/operator/windows-directory-sync-helper.exe
@@ -118,6 +123,9 @@ on:
       - tests/fixtures/current-process-identity-runner.mjs
       - tests/demo-instance.test.js
       - tests/mcp-product-artifact.test.js
+      - tests/windows-compiler-process-budget.test.ps1
+      - tests/windows-compiler-process-budget-real-adapter.test.ps1
+      - tests/verify-windows-process-inspector-powershell-compatibility.test.ps1
       - docs/reference/secrets-capability-ledger.json
       - docs/reference/secrets-capability-ledger.md
 
