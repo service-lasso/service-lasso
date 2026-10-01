@@ -56,6 +56,7 @@ import { discoverServices } from "../dist/runtime/discovery/discoverServices.js"
 import { createDirectExecutionPlan } from "../dist/runtime/providers/direct.js";
 import { rehydrateDiscoveredServices, rehydrateLifecycleState as rehydrateRuntimeLifecycleState } from "../dist/runtime/state/rehydrate.js";
 import { readStoredState } from "../dist/runtime/state/readState.js";
+import { writeServiceState } from "../dist/runtime/state/writeState.js";
 import { makeTempServicesRoot, writeExecutableFixtureService } from "./test-helpers.js";
 import { lifecycleFailureDiagnostic } from "./lifecycle-failure-diagnostics.js";
 import { collectStartupFailure } from "../scripts/newcomer-runtime-diagnostics.mjs";
@@ -259,6 +260,124 @@ async function removeTempRoot(tempRoot) {
     force: true,
     maxRetries: process.platform === "win32" ? 10 : 0,
     retryDelay: 100,
+  });
+}
+
+function fixtureSettlementReceipt({
+  primaryAssertion,
+  termination,
+  finalization,
+  lifecycleWriter,
+  registry,
+  cleanup,
+}) {
+  return Object.freeze({
+    version: 1,
+    primaryAssertion,
+    termination,
+    finalization,
+    lifecycleWriter,
+    registry,
+    cleanup,
+  });
+}
+
+async function decideFixtureRemoval({
+  tempRoot,
+  service,
+  workspaceRoot,
+  expectedPid,
+  primaryAssertion,
+  stopAndWrite,
+  finalizationDeadlineMs,
+  ownershipVerified = false,
+  writerSettled = async () => true,
+  removeFixture = true,
+}) {
+  const serviceId = service.manifest.id;
+  const beforeStop = await findProcessOwnership(workspaceRoot, "service", serviceId);
+  if (!ownershipVerified && (beforeStop?.identityStatus !== "owned" || beforeStop.pid !== expectedPid)) {
+    return fixtureSettlementReceipt({
+      primaryAssertion,
+      termination: "unverified",
+      finalization: "unknown",
+      lifecycleWriter: "unknown",
+      registry: "retained",
+      cleanup: "retained",
+    });
+  }
+
+  try {
+    await stopAndWrite();
+  } catch {
+    return fixtureSettlementReceipt({
+      primaryAssertion,
+      termination: "failed",
+      finalization: "unknown",
+      lifecycleWriter: "unknown",
+      registry: "retained",
+      cleanup: "retained",
+    });
+  }
+
+  const exit = await inspectProcess(expectedPid);
+  const ownership = await findProcessOwnership(workspaceRoot, "service", serviceId);
+  if (exit.status !== "not_running" || ownership?.lifecycleState !== "stopped" || ownership.pid !== null) {
+    return fixtureSettlementReceipt({
+      primaryAssertion,
+      termination: "unverified",
+      finalization: "unknown",
+      lifecycleWriter: "unknown",
+      registry: "retained",
+      cleanup: "retained",
+    });
+  }
+
+  try {
+    await waitForManagedProcessFinalization(serviceId, finalizationDeadlineMs);
+  } catch {
+    return fixtureSettlementReceipt({
+      primaryAssertion,
+      termination: "verified",
+      finalization: "unsettled",
+      lifecycleWriter: "unsettled",
+      registry: "stopped",
+      cleanup: "retained",
+    });
+  }
+
+  const stored = await readStoredState(service.serviceRoot);
+  if (stored.runtime?.running || (stored.runtime && stored.runtime.pid !== null) || !await writerSettled()) {
+    return fixtureSettlementReceipt({
+      primaryAssertion,
+      termination: "verified",
+      finalization: "settled",
+      lifecycleWriter: "unsettled",
+      registry: "stopped",
+      cleanup: "retained",
+    });
+  }
+
+  if (!removeFixture) {
+    return fixtureSettlementReceipt({
+      primaryAssertion,
+      termination: "verified",
+      finalization: "settled",
+      lifecycleWriter: "settled",
+      registry: "stopped",
+      cleanup: "permitted",
+    });
+  }
+
+  await removeTempRoot(tempRoot);
+
+  return fixtureSettlementReceipt({
+    primaryAssertion,
+    termination: "verified",
+    finalization: "settled",
+    lifecycleWriter: "settled",
+    registry: "stopped",
+    cleanup: "removed",
   });
 }
 
@@ -1400,6 +1519,8 @@ test("rehydration returns adopted running state with retained ports", async () =
     stdio: "ignore",
     windowsHide: true,
   });
+  let unrelated;
+  let fixtureRemoved = false;
 
   try {
     await new Promise((resolve, reject) => {
@@ -1445,11 +1566,58 @@ test("rehydration returns adopted running state with retained ports", async () =
     assert.equal(ownership.lifecycleState, "running");
     assert.equal(ownership.pid, child.pid);
     assert.deepEqual(ownership.allocation.ports, { service: 18092 });
+
+    unrelated = spawn(process.execPath, [relativeScriptPath], {
+      cwd: serviceRoot,
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    await new Promise((resolve, reject) => {
+      unrelated.once("spawn", resolve);
+      unrelated.once("error", reject);
+    });
+
+    const settlement = await decideFixtureRemoval({
+      tempRoot,
+      service,
+      workspaceRoot,
+      expectedPid: child.pid,
+      primaryAssertion: "verified",
+      stopAndWrite: async () => {
+        const stopped = await stopService(service, { workspaceRoot });
+        await writeServiceState(service, stopped.state);
+      },
+      removeFixture: false,
+    });
+    assert.deepEqual(settlement, {
+      version: 1,
+      primaryAssertion: "verified",
+      termination: "verified",
+      finalization: "settled",
+      lifecycleWriter: "settled",
+      registry: "stopped",
+      cleanup: "permitted",
+    });
+    assert.equal(unrelated.exitCode, null);
+    assert.equal(unrelated.signalCode, null);
+
+    unrelated.kill("SIGTERM");
+    await new Promise((resolve) => unrelated.once("close", resolve));
+    const removed = await decideFixtureRemoval({
+      tempRoot,
+      service,
+      workspaceRoot,
+      expectedPid: child.pid,
+      primaryAssertion: "verified",
+      ownershipVerified: true,
+      stopAndWrite: async () => undefined,
+    });
+    assert.equal(removed.cleanup, "removed");
+    fixtureRemoved = true;
   } finally {
-    await stopManagedProcess("rehydrate-adopted-service", 500).catch(() => null);
-    child.kill("SIGKILL");
-    resetLifecycleState();
-    await removeTempRoot(tempRoot);
+    if (fixtureRemoved) {
+      resetLifecycleState();
+    }
   }
 });
 
@@ -3536,6 +3704,82 @@ test("whole-runtime shutdown reports safe service, pid, and finalization phase o
     forceCleanupProcesses([handle?.pid]);
     resetLifecycleState();
     await removeTempRoot(tempRoot);
+  }
+});
+
+test("fixture teardown retains owned evidence while a lifecycle finalizer is unsettled", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-finalizer-settlement-");
+  const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "finalizer-settlement-service");
+  const finalizerMarker = path.join(serviceRoot, ".state", "fixture-finalizer.marker");
+  let releaseFinalizer;
+  const finalizerGate = new Promise((resolve) => {
+    releaseFinalizer = resolve;
+  });
+  let reportFinalizerStarted;
+  const finalizerStarted = new Promise((resolve) => {
+    reportFinalizerStarted = resolve;
+  });
+  const keepAlive = setInterval(() => {}, 25);
+  let fixtureRemoved = false;
+  let stoppingOutcome;
+  let handle;
+
+  try {
+    const [service] = await discoverServices(servicesRoot);
+    handle = await startManagedProcess({
+      service,
+      executionPlan: createDirectExecutionPlan(service.manifest),
+      workspaceRoot,
+      onExit: async () => {
+        await mkdir(path.dirname(finalizerMarker), { recursive: true });
+        await writeFile(finalizerMarker, "settling\n", "utf8");
+        reportFinalizerStarted();
+        await finalizerGate;
+      },
+    });
+
+    const retained = await decideFixtureRemoval({
+      tempRoot,
+      service,
+      workspaceRoot,
+      expectedPid: handle.pid,
+      primaryAssertion: "verified",
+      stopAndWrite: async () => {
+        const stopping = stopManagedProcess("finalizer-settlement-service", PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS);
+        stoppingOutcome = stopping.then(
+          () => ({ status: "settled" }),
+          (error) => ({ status: "failed", error }),
+        );
+        await finalizerStarted;
+      },
+      finalizationDeadlineMs: Date.now() + 50,
+    });
+    assert.equal(retained.cleanup, "retained");
+    assert.equal(retained.finalization, "unsettled");
+    assert.equal(await readFile(finalizerMarker, "utf8"), "settling\n");
+    assert.match(await readFile(getProcessRegistryPath(workspaceRoot), "utf8"), /finalizer-settlement-service/);
+
+    releaseFinalizer();
+    const stopped = await stoppingOutcome;
+    assert.equal(stopped.status, "settled", stopped.status === "failed" ? stopped.error?.message : "");
+    const removed = await decideFixtureRemoval({
+      tempRoot,
+      service,
+      workspaceRoot,
+      expectedPid: handle.pid,
+      primaryAssertion: "verified",
+      ownershipVerified: true,
+      stopAndWrite: async () => undefined,
+      writerSettled: async () => await readFile(finalizerMarker, "utf8") === "settling\n",
+    });
+    assert.equal(removed.cleanup, "removed");
+    fixtureRemoved = true;
+  } finally {
+    clearInterval(keepAlive);
+    if (fixtureRemoved) {
+      resetLifecycleState();
+    }
   }
 });
 
