@@ -1393,6 +1393,7 @@ async function terminateManagedProcessTree(
   rootExitObserved = false,
   retryAfterSharedFailure = false,
   deadlineMs = record.stopDeadlineMs ?? processControlDeadline(timeoutMs),
+  newWindowsInspectionEpisode = false,
 ): Promise<ProcessTreeTerminationResult> {
   let retryAvailable = retryAfterSharedFailure;
   while (true) {
@@ -1424,9 +1425,9 @@ async function terminateManagedProcessTree(
           const dependencies: Parameters<typeof managedProcessTreeTerminator>[2] = { deadlineMs, signal };
           if (
             process.platform === "win32" &&
-            (rootExitObserved || record.verifiedMembersOnly) &&
+            (rootExitObserved || record.verifiedMembersOnly || newWindowsInspectionEpisode) &&
             record.rootIdentity &&
-            record.knownTreeMembers.length > 0
+            (record.knownTreeMembers.length > 0 || newWindowsInspectionEpisode)
           ) {
             const snapshot = await inspectKnownWindowsTreeMembers(
               record.rootIdentity,
@@ -2267,7 +2268,14 @@ export async function stopManagedProcess(
 
   const deadlineMs = processControlDeadline(timeoutMs);
   await beginManagedProcessStop(serviceId, deadlineMs);
-  await terminateManagedProcessTree(record, timeoutMs, false, false, deadlineMs);
+  await terminateManagedProcessTree(
+    record,
+    timeoutMs,
+    false,
+    false,
+    deadlineMs,
+    options.newWindowsInspectionEpisode === true,
+  );
   const result = await withProcessControlDeadline(
     async () => await record.exitPromise,
     { deadlineMs },
