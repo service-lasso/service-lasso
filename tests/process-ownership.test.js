@@ -162,6 +162,8 @@ async function writeStubbornProcessTreeFixture(serviceRoot, scriptPath, options 
     rootExitAfterChildMs = null,
     acknowledgementFilePath = null,
     suppressAcknowledgement = false,
+    receiptMode = "complete",
+    custodyReadyFilePath = null,
   } = options;
   const childScriptPath = path.join(serviceRoot, "runtime", "fixture-child.mjs");
   const grandchildScriptPath = path.join(serviceRoot, "runtime", "fixture-grandchild.mjs");
@@ -191,11 +193,16 @@ await new Promise((resolve, reject) => {
   grandchild.once("spawn", resolve);
   grandchild.once("error", reject);
 });
-const receipt = JSON.stringify({
+const completeReceipt = {
   rootPid: process.ppid,
   childPid: process.pid,
   grandchildPid: grandchild.pid,
-});
+};
+const receipt = ${JSON.stringify(receiptMode)} === "malformed"
+  ? "{"
+  : JSON.stringify(${JSON.stringify(receiptMode)} === "incomplete"
+    ? { rootPid: completeReceipt.rootPid, childPid: completeReceipt.childPid }
+    : completeReceipt);
 const receiptTemp = ${JSON.stringify(`${pidFilePath}.tmp`)};
 await writeFile(receiptTemp, receipt, { flag: "wx" });
 await rename(receiptTemp, ${JSON.stringify(pidFilePath)});
@@ -229,13 +236,15 @@ await new Promise((resolve, reject) => {
   child.once("spawn", resolve);
   child.once("error", reject);
 });
-${acknowledgementFilePath === null ? "" : `while (true) {
+${acknowledgementFilePath === null ? "" : `let receipt;
+while (true) {
   try {
-    const receipt = JSON.parse(await readFile(${JSON.stringify(pidFilePath)}, "utf8"));
+    receipt = JSON.parse(await readFile(${JSON.stringify(pidFilePath)}, "utf8"));
     if (
       receipt.rootPid === process.pid &&
       receipt.childPid === child.pid &&
-      Number.isInteger(receipt.grandchildPid) && receipt.grandchildPid > 0
+      Number.isInteger(receipt.grandchildPid) && receipt.grandchildPid > 0 &&
+      Object.keys(receipt).length === 3
     ) {
       break;
     }
@@ -244,9 +253,18 @@ ${acknowledgementFilePath === null ? "" : `while (true) {
   }
   await new Promise((resolve) => setTimeout(resolve, 25));
 }
+${custodyReadyFilePath === null ? "" : `while (true) {
+  try {
+    await access(${JSON.stringify(custodyReadyFilePath)});
+    break;
+  } catch {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+}`}
 ${suppressAcknowledgement ? "await new Promise(() => {});" : `const acknowledgement = JSON.stringify({
   rootPid: process.pid,
   childPid: child.pid,
+  grandchildPid: receipt.grandchildPid,
 });
 const acknowledgementTemp = ${JSON.stringify(`${acknowledgementFilePath}.tmp`)};
 await writeFile(acknowledgementTemp, acknowledgement, { flag: "wx" });
@@ -278,13 +296,92 @@ async function readOwnedFixtureAcknowledgement(acknowledgementFilePath, expected
   return await waitFor(async () => {
     try {
       const acknowledgement = JSON.parse(await readFile(acknowledgementFilePath, "utf8"));
-      return acknowledgement.rootPid === expectedPids.rootPid && acknowledgement.childPid === expectedPids.childPid
+      return isCompleteOwnedFixtureReceipt(acknowledgement) &&
+        acknowledgement.rootPid === expectedPids.rootPid &&
+        acknowledgement.childPid === expectedPids.childPid &&
+        acknowledgement.grandchildPid === expectedPids.grandchildPid
         ? acknowledgement
         : null;
     } catch {
       return null;
     }
   }, timeoutMs);
+}
+
+function isCompleteOwnedFixtureReceipt(receipt) {
+  return receipt !== null &&
+    typeof receipt === "object" &&
+    !Array.isArray(receipt) &&
+    Object.keys(receipt).length === 3 &&
+    ["rootPid", "childPid", "grandchildPid"].every((key) => Object.hasOwn(receipt, key)) &&
+    [receipt.rootPid, receipt.childPid, receipt.grandchildPid].every((pid) => Number.isInteger(pid) && pid > 0) &&
+    new Set([receipt.rootPid, receipt.childPid, receipt.grandchildPid]).size === 3;
+}
+
+async function readCompleteOwnedFixtureReceipt(pidFilePath, timeoutMs = 3_000) {
+  return await waitFor(async () => {
+    try {
+      const receipt = JSON.parse(await readFile(pidFilePath, "utf8"));
+      return isCompleteOwnedFixtureReceipt(receipt) ? receipt : null;
+    } catch {
+      return null;
+    }
+  }, timeoutMs);
+}
+
+async function captureOwnedFixtureCustody(receipt) {
+  return await Promise.all([receipt.rootPid, receipt.childPid, receipt.grandchildPid].map(async (pid) => {
+    const inspection = await inspectProcess(pid);
+    assert.equal(inspection.status, "running");
+    assert.equal(inspection.identity.pid, pid);
+    assert.equal(classifyProcessIdentity(inspection.identity, inspection), "owned");
+    return inspection.identity;
+  }));
+}
+
+async function readOwnedFixtureRootCustody(workspaceRoot, serviceId) {
+  const ownership = await findProcessOwnership(workspaceRoot, "service", serviceId);
+  assert.ok(ownership?.identity);
+  assert.equal(ownership?.processGroup?.kind, "windows-job");
+  const inspection = await inspectProcess(ownership.identity.pid);
+  assert.equal(classifyProcessIdentity(ownership.identity, inspection), "owned");
+  return ownership.identity;
+}
+
+async function waitForOwnedFixtureStopped(custody, timeoutMs = 3_000) {
+  await waitFor(async () => {
+    const inspections = await Promise.all(custody.map((identity) => inspectProcess(identity.pid)));
+    return inspections.every((inspection, index) =>
+      classifyProcessIdentity(custody[index], inspection) === "not_running");
+  }, timeoutMs);
+}
+
+async function cleanupCompleteOwnedFixture({ serviceId, custody, tempRoot, primaryError }) {
+  try {
+    if (hasManagedProcess(serviceId)) await stopManagedProcess(serviceId, 5_000);
+    await waitForOwnedFixtureStopped(custody);
+    resetLifecycleState();
+    await removeTempRoot(tempRoot);
+  } catch (cleanupError) {
+    if (primaryError !== undefined) {
+      throw new AggregateError([primaryError, cleanupError],
+        "Owned fixture assertion and verified cleanup both failed.");
+    }
+    throw cleanupError;
+  }
+}
+
+async function retainIncompleteOwnedFixture({ serviceId, rootCustody, primaryError }) {
+  try {
+    if (hasManagedProcess(serviceId)) await stopManagedProcess(serviceId, 5_000);
+    await waitForOwnedFixtureStopped([rootCustody]);
+  } catch (cleanupError) {
+    if (primaryError !== undefined) {
+      throw new AggregateError([primaryError, cleanupError],
+        "Incomplete owned fixture assertion and held-root cleanup both failed.");
+    }
+    throw cleanupError;
+  }
 }
 
 async function waitForProcessesStopped(pids, timeoutMs = 3_000) {
@@ -3350,15 +3447,16 @@ test("managed Windows job contains a child spawned after enrollment when the ser
   const { serviceRoot, scriptPath } = await writeExecutableFixtureService(servicesRoot, "managed-late-child-service");
   const triggerPath = path.join(serviceRoot, "runtime", "launch-child.trigger");
   const acknowledgementPath = path.join(serviceRoot, "runtime", "owned-root-exit.ack.json");
+  const custodyReadyPath = path.join(serviceRoot, "runtime", "owned-root-exit.custody-ready");
   const pidFilePath = await writeStubbornProcessTreeFixture(serviceRoot, scriptPath, {
     childTriggerFilePath: triggerPath,
     rootExitAfterChildMs: 750,
     acknowledgementFilePath: acknowledgementPath,
+    custodyReadyFilePath: custodyReadyPath,
   });
   let handle;
-  let rootPid = null;
-  let childPid = null;
-  let grandchildPid = null;
+  let custody = null;
+  let primaryError;
 
   try {
     const [service] = await discoverServices(servicesRoot);
@@ -3367,24 +3465,31 @@ test("managed Windows job contains a child spawned after enrollment when the ser
       executionPlan: createDirectExecutionPlan(service.manifest),
       workspaceRoot,
     });
+    const rootCustody = await readOwnedFixtureRootCustody(workspaceRoot, "managed-late-child-service");
     await writeFile(triggerPath, "launch\n", "utf8");
-    const pids = await readProcessTreePids(pidFilePath);
-    rootPid = pids.rootPid;
-    childPid = pids.childPid;
-    grandchildPid = pids.grandchildPid;
-    await readOwnedFixtureAcknowledgement(acknowledgementPath, pids);
+    const receipt = await readCompleteOwnedFixtureReceipt(pidFilePath);
+    custody = await captureOwnedFixtureCustody(receipt);
+    await writeFile(custodyReadyPath, "verified\n", { flag: "wx" });
+    await readOwnedFixtureAcknowledgement(acknowledgementPath, receipt);
 
     await waitForManagedProcessFinalization("managed-late-child-service", Date.now() + 15_000);
-    await waitForProcessesStopped([handle.pid, rootPid, childPid, grandchildPid], 15_000);
+    await waitForOwnedFixtureStopped(custody, 15_000);
     assert.equal(hasManagedProcess("managed-late-child-service"), false);
     const stopped = await findProcessOwnership(workspaceRoot, "service", "managed-late-child-service");
     assert.equal(stopped.lifecycleState, "stopped");
     assert.equal(stopped.pid, null);
+  } catch (error) {
+    primaryError = error;
+    throw error;
   } finally {
-    await stopManagedProcess("managed-late-child-service", 100).catch(() => null);
-    forceCleanupProcesses([handle?.pid, rootPid, childPid, grandchildPid]);
-    resetLifecycleState();
-    await removeTempRoot(tempRoot);
+    if (custody !== null) {
+      await cleanupCompleteOwnedFixture({
+        serviceId: "managed-late-child-service",
+        custody,
+        tempRoot,
+        primaryError,
+      });
+    }
   }
 });
 
@@ -3396,16 +3501,17 @@ test("managed Windows late-child fixture suppresses acknowledgement before root-
   const { serviceRoot, scriptPath } = await writeExecutableFixtureService(servicesRoot, "managed-late-child-no-ack-service");
   const triggerPath = path.join(serviceRoot, "runtime", "launch-child.trigger");
   const acknowledgementPath = path.join(serviceRoot, "runtime", "owned-root-exit.ack.json");
+  const custodyReadyPath = path.join(serviceRoot, "runtime", "owned-root-exit.custody-ready");
   const pidFilePath = await writeStubbornProcessTreeFixture(serviceRoot, scriptPath, {
     childTriggerFilePath: triggerPath,
     rootExitAfterChildMs: 750,
     acknowledgementFilePath: acknowledgementPath,
     suppressAcknowledgement: true,
+    custodyReadyFilePath: custodyReadyPath,
   });
   let handle;
-  let rootPid = null;
-  let childPid = null;
-  let grandchildPid = null;
+  let custody = null;
+  let primaryError;
 
   try {
     const [service] = await discoverServices(servicesRoot);
@@ -3414,23 +3520,89 @@ test("managed Windows late-child fixture suppresses acknowledgement before root-
       executionPlan: createDirectExecutionPlan(service.manifest),
       workspaceRoot,
     });
+    const rootCustody = await readOwnedFixtureRootCustody(workspaceRoot, "managed-late-child-no-ack-service");
     await writeFile(triggerPath, "launch\n", "utf8");
-    const pids = await readProcessTreePids(pidFilePath);
-    rootPid = pids.rootPid;
-    childPid = pids.childPid;
-    grandchildPid = pids.grandchildPid;
+    const receipt = await readCompleteOwnedFixtureReceipt(pidFilePath);
+    custody = await captureOwnedFixtureCustody(receipt);
+    await writeFile(custodyReadyPath, "verified\n", { flag: "wx" });
     await assert.rejects(
-      readOwnedFixtureAcknowledgement(acknowledgementPath, pids, 250),
+      readOwnedFixtureAcknowledgement(acknowledgementPath, receipt, 3_000),
     );
     assert.equal(hasManagedProcess("managed-late-child-no-ack-service"), true);
-    assert.equal((await inspectProcess(rootPid)).status, "running");
+    assert.equal((await inspectProcess(custody[0].pid)).status, "running");
+    const ownedBeforeContainment = await findProcessOwnership(
+      workspaceRoot,
+      "service",
+      "managed-late-child-no-ack-service",
+    );
+    assert.equal(ownedBeforeContainment.lifecycleState, "launching");
+    assert.notEqual(ownedBeforeContainment.pid, null);
+  } catch (error) {
+    primaryError = error;
+    throw error;
   } finally {
-    await stopManagedProcess("managed-late-child-no-ack-service", 100).catch(() => null);
-    forceCleanupProcesses([handle?.pid, rootPid, childPid, grandchildPid]);
-    resetLifecycleState();
-    await removeTempRoot(tempRoot);
+    if (custody !== null) {
+      await cleanupCompleteOwnedFixture({
+        serviceId: "managed-late-child-no-ack-service",
+        custody,
+        tempRoot,
+        primaryError,
+      });
+    }
   }
 });
+
+for (const receiptMode of ["incomplete", "malformed"]) {
+  test(`managed Windows late-child fixture retains ${receiptMode} owned receipt before containment`, {
+    skip: process.platform !== "win32",
+  }, async () => {
+    resetLifecycleState();
+    const serviceId = `managed-late-child-${receiptMode}-receipt-service`;
+    const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot(
+      `service-lasso-managed-late-child-${receiptMode}-receipt-`,
+    );
+    const { serviceRoot, scriptPath } = await writeExecutableFixtureService(servicesRoot, serviceId);
+    const triggerPath = path.join(serviceRoot, "runtime", "launch-child.trigger");
+    const acknowledgementPath = path.join(serviceRoot, "runtime", "owned-root-exit.ack.json");
+    const pidFilePath = await writeStubbornProcessTreeFixture(serviceRoot, scriptPath, {
+      childTriggerFilePath: triggerPath,
+      rootExitAfterChildMs: 750,
+      acknowledgementFilePath: acknowledgementPath,
+      receiptMode,
+    });
+    let handle;
+    let rootCustody = null;
+    let primaryError;
+
+    try {
+      const [service] = await discoverServices(servicesRoot);
+      handle = await startManagedProcess({
+        service,
+        executionPlan: createDirectExecutionPlan(service.manifest),
+        workspaceRoot,
+      });
+      rootCustody = await readOwnedFixtureRootCustody(workspaceRoot, serviceId);
+      await writeFile(triggerPath, "launch\n", "utf8");
+
+      await assert.rejects(readCompleteOwnedFixtureReceipt(pidFilePath, 3_000));
+      assert.equal(hasManagedProcess(serviceId), true);
+      assert.equal((await inspectProcess(rootCustody.pid)).status, "running");
+      const ownedBeforeContainment = await findProcessOwnership(workspaceRoot, "service", serviceId);
+      assert.equal(ownedBeforeContainment.lifecycleState, "launching");
+      assert.notEqual(ownedBeforeContainment.pid, null);
+    } catch (error) {
+      primaryError = error;
+      throw error;
+    } finally {
+      if (rootCustody !== null) {
+        // The receipt is intentionally untrustworthy. Stop only through the
+        // manager's held root ownership and retain the fixture, lifecycle
+        // record, and files for diagnosis rather than deleting unknown state.
+        await retainIncompleteOwnedFixture({ serviceId, rootCustody, primaryError });
+      }
+    }
+  });
+}
 
 test("managed Windows root auto-exit contains its verified child and grandchild process tree", {
   skip: process.platform !== "win32",
