@@ -565,7 +565,8 @@ test("#864 retained evidence verifies downloaded content, exact SHA, three OSes,
     assert.equal(managedLauncherNativeProvenance.binary.byteLength, managedLauncherNative.byteLength);
     assert.equal(managedLauncherNativeProvenance.binary.peTimestamp, "zero");
     assert.equal(managedLauncherNativeProvenance.binary.clrMetadata, "absent");
-    assert.match(managedLauncherNativeSource, /SanitizeLoaderEnvironment[\s\S]*?CreateProcessW[\s\S]*?WaitForSingleObject/u);
+    assert.match(managedLauncherNativeSource, /SanitizeLoaderEnvironment[\s\S]*?VerifyPackageDirectory[\s\S]*?CreateProcessW[\s\S]*?WaitForSingleObject/u);
+    assert.match(managedLauncherNativeSource, /VerifyPackageDirectory[\s\S]*?FILE_SHARE_READ \| FILE_SHARE_WRITE[\s\S]*?GetFinalPathNameByHandleW/u);
     assert.match(managedLauncherNativeSource, /MANAGED_LAUNCHER_BYTE_LENGTH[\s\S]*?MANAGED_LAUNCHER_SHA256/u);
     assert.doesNotMatch(managedLauncherNative.toString("ascii"), /BSJB/u);
     assert.deepEqual(

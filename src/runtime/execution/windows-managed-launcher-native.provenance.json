@@ -17,7 +17,7 @@
   },
   "source": {
     "path": "src/runtime/execution/windows-managed-launcher-native-bootstrap.c",
-    "sha256": "6e20d417608d39b649dd8e51772c1c5e5827b2518f31011c2261d19114758a60"
+    "sha256": "fdf92155b1e1b04d9f3e75e4276ae92e9bb2b90cfa7d676626ae218217dc2d5e"
   },
   "managedLauncher": {
     "path": "src/runtime/execution/windows-managed-launcher-managed.exe",
@@ -26,8 +26,8 @@
   },
   "binary": {
     "path": "src/runtime/execution/windows-managed-launcher-native.exe",
-    "sha256": "1c9f73d04f67c9c10ead8aa8e0a986e88506ad0479508ce49b4e5acf88201abb",
-    "byteLength": 140288,
+    "sha256": "401699f683f56e081236e550ab59c06f888929ec5e30588f4e27cce972d4364c",
+    "byteLength": 141824,
     "peTimestamp": "zero",
     "clrMetadata": "absent"
   }

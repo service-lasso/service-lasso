@@ -1,8 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
-import os from "node:os";
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -37,18 +36,34 @@ test("Windows unmanaged bootstrap attests the held managed launcher before any C
   assert.equal(receipt.clrMetadata, "absent");
 });
 
-test("Windows directory sync keeps the attested helper handle through native launch and rejects a replacement", { skip: process.platform !== "win32" }, async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "service-lasso-directory-sync-held-"));
+test("Windows native bootstrap retains managed-package ancestry through the actual managed child exit", { skip: process.platform !== "win32" }, async () => {
   const sourceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-  const launcher = path.join(sourceRoot, "src", "runtime", "execution", "windows-managed-launcher-native.exe");
-  const helper = path.join(sourceRoot, "src", "runtime", "operator", "windows-directory-sync-helper.exe");
-  const replacement = path.join(sourceRoot, "src", "runtime", "operator", "windows-directory-sync-helper-replacement-test.exe");
+  const localAppData = process.env.LOCALAPPDATA;
+  assert.ok(localAppData, "LOCALAPPDATA is required for the isolated managed-package fixture");
+  const root = await mkdtemp(path.join(localAppData, "Temp", "service-lasso-directory-sync-held-"));
+  const sourceExecution = path.join(sourceRoot, "src", "runtime", "execution");
+  const sourceOperator = path.join(sourceRoot, "src", "runtime", "operator");
+  const packageRoot = path.join(root, "managed-package");
+  const execution = path.join(packageRoot, "execution");
+  const operator = path.join(packageRoot, "operator");
+  const launcher = path.join(execution, "windows-managed-launcher-native.exe");
+  const helper = path.join(operator, "windows-directory-sync-helper.exe");
+  const managedLauncher = path.join(execution, "windows-managed-launcher-managed.exe");
+  const replacement = path.join(operator, "windows-directory-sync-helper-replacement-test.exe");
+  const replacementExecution = path.join(packageRoot, "execution-replacement-test");
   const targetDirectory = path.join(root, "flush-target");
   const readyPath = path.join(root, "ready");
   const continuePath = path.join(root, "continue");
   const token = randomBytes(32).toString("hex");
   try {
-    await writeFile(replacement, await readFile(helper), { flag: "wx" });
+    await mkdir(execution, { recursive: true });
+    await mkdir(operator, { recursive: true });
+    await Promise.all([
+      writeFile(launcher, await readFile(path.join(sourceExecution, "windows-managed-launcher-native.exe")), { flag: "wx" }),
+      writeFile(managedLauncher, await readFile(path.join(sourceExecution, "windows-managed-launcher-managed.exe")), { flag: "wx" }),
+      writeFile(helper, await readFile(path.join(sourceOperator, "windows-directory-sync-helper.exe")), { flag: "wx" }),
+      writeFile(replacement, await readFile(path.join(sourceOperator, "windows-directory-sync-helper.exe")), { flag: "wx" }),
+    ]);
     await mkdtemp(`${targetDirectory}-`).then(async (created) => { await rename(created, targetDirectory); });
     const payload = Buffer.from(JSON.stringify({
       directory: targetDirectory,
@@ -69,10 +84,12 @@ test("Windows directory sync keeps the attested helper handle through native lau
       try {
         if ((await readFile(readyPath, "utf8")) === token) break;
       } catch { /* native launch has not finished attestation yet */ }
+      if (child.exitCode !== null) assert.fail(`managed bootstrap exited before the child gate: ${child.exitCode}`);
       await new Promise((resolve) => setTimeout(resolve, 25));
     }
     assert.equal(await readFile(readyPath, "utf8"), token);
-    await assert.rejects(rename(replacement, helper), (error) => error?.code === "EPERM" || error?.code === "EACCES");
+    await assert.rejects(rename(execution, replacementExecution), (error) => error?.code === "EPERM" || error?.code === "EACCES" || error?.code === "EBUSY");
+    await assert.rejects(rename(replacement, helper), (error) => error?.code === "EPERM" || error?.code === "EACCES" || error?.code === "EBUSY");
     await writeFile(continuePath, token, "utf8");
     const outcome = await new Promise((resolve, reject) => {
       child.once("error", reject);
@@ -92,7 +109,14 @@ test("Windows directory sync keeps the attested helper handle through native lau
     }
     await execFileAsync(launcher, [], {
       windowsHide: true,
-      env: { ...process.env, COMPLUS_Version: "v2.0.50727", SERVICE_LASSO_DIRECTORY_SYNC_LAUNCH_PAYLOAD: payload },
+      env: {
+        ...process.env,
+        COMPLUS_Version: "v2.0.50727",
+        COR_ENABLE_PROFILING: "1",
+        CORECLR_ENABLE_PROFILING: "1",
+        APPDOMAIN_MANAGER_ASM: "hostile",
+        SERVICE_LASSO_DIRECTORY_SYNC_LAUNCH_PAYLOAD: payload,
+      },
     });
   } finally {
     await rm(replacement, { force: true, maxRetries: 0 });
