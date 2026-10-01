@@ -12,7 +12,6 @@ const MAX_OBSERVED_BYTES = 65_536;
 // an owned fixture can acknowledge its complete 128 KiB write before exit.
 // No discarded byte is decoded, retained, or included in a receipt.
 const MAX_DISCARD_BYTES = 131_072;
-const TERMINATION_GRACE_MS = 500;
 const PIPE_CLOSE_TIMEOUT_MS = 500;
 const PROPAGATED_SIGNALS = new Set(["SIGTERM", "SIGINT", "SIGHUP"]);
 
@@ -298,27 +297,22 @@ export async function consume(command, args, options = {}) {
   }
   let timedOut = false;
   const result = await new Promise((resolve) => {
-    let forceTimer = null;
     let timer = null;
     let settled = false;
     const finish = (value) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      clearTimeout(forceTimer);
       resolve(value);
     };
     const timeoutMs = options.timeoutMs;
     const onTimeout = () => {
       timedOut = true;
-      if (child.exitCode === null && child.signalCode === null) child.kill("SIGTERM");
-      forceTimer = setTimeout(() => {
-        if (child.exitCode !== null || child.signalCode !== null) return;
-        child.kill("SIGKILL");
-        // A successful signal delivery is not evidence that the child (or any
-        // inherited pipe holder) exited. Do not await that uncertainty forever.
-        finish({ code: null, signal: null, executionFailure: "execution_timeout" });
-      }, TERMINATION_GRACE_MS);
+      // A consumer owns observation, not the provider's lifetime. Keep the
+      // timeout as the primary failure, then wait for this exact child and its
+      // pipes to close naturally. Returning here would retire a still-live
+      // provider without an exit/signal correlation; sending SIGTERM/SIGKILL
+      // would manufacture the outcome being observed.
     };
     if (Number.isFinite(timeoutMs) && timeoutMs >= 0) timer = setTimeout(onTimeout, timeoutMs);
     child.once("error", () => {
@@ -340,7 +334,7 @@ export async function consume(command, args, options = {}) {
   if (pipeHang) {
     for (const { stream } of streamClosed) if (!stream.destroyed) stream.destroy();
   }
-  const finalized = observations ?? streamClosed.map(({ stream }) => ({ seen: 0, duplicate: false, candidate: null, failure: stream.destroyed ? "pipe_hang" : null }));
+  const finalized = observations ?? streamClosed.map(({ stream }) => ({ seen: 0, duplicate: false, candidate: null, failure: pipeHang && stream.destroyed ? "pipe_hang" : null }));
   const streamFailure = pipeHang ? "pipe_hang" : finalized.find((observation) => observation.failure)?.failure ?? null;
   return { ...result, trustedUnlock: result.code === 0 && result.signal === null && !result.executionFailure && !streamFailure ? { classification: "not_emitted" } : classifyObservations(finalized), streamFailure };
 }

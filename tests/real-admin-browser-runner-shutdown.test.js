@@ -35,6 +35,7 @@ const sourceHead = execFileSync("git", ["rev-parse", "HEAD"], {
 const sourceTree = execFileSync("git", ["rev-parse", "HEAD^{tree}"], {
   encoding: "utf8",
 }).trim();
+const providerControlNonce = "7e3e7b477ab1b61c8aa817a5a2cac070f07ccee789fd5a1ef5cb773b7aac8e61";
 
 function captureBoundedText(stream, maxBytes = 65_536) {
   const chunks = [];
@@ -75,14 +76,14 @@ function waitForReady(child, timeoutMs = 5_000) {
   });
 }
 
-function waitForPrelaunchReady(child, timeoutMs = 5_000) {
+function waitForRunnerMessage(child, type, timeoutMs = 5_000) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(
-      () => reject(new Error("Shutdown runner prelaunch readiness timed out.")),
+      () => reject(new Error(`Shutdown runner ${type} readiness timed out.`)),
       timeoutMs,
     );
     const onMessage = (message) => {
-      if (message?.type !== "prelaunch-ready") return;
+      if (message?.type !== type) return;
       clearTimeout(timer);
       child.off("message", onMessage);
       resolve();
@@ -252,7 +253,7 @@ function hasListener(port) {
   });
 }
 
-async function startActualRealBrowserRunner({ prelaunchOnly = false } = {}) {
+async function startActualRealBrowserRunner({ prelaunchOnly = false, initialOnly = false } = {}) {
   const fixtureRoot = await mkdtemp(
     path.join(os.tmpdir(), "service-lasso-real-admin-signal-"),
   );
@@ -289,7 +290,11 @@ async function startActualRealBrowserRunner({ prelaunchOnly = false } = {}) {
       SERVICE_LASSO_TEST_SUPPORT_ROOT: supportRoot,
       SERVICE_LASSO_TEST_SOURCE_HEAD: sourceHead,
       SERVICE_LASSO_TEST_SOURCE_TREE: sourceTree,
+      SERVICE_LASSO_TEST_PROVIDER_CONTROL_NONCE: providerControlNonce,
+      SERVICE_LASSO_TEST_ADMIN_SOURCE_HEAD: sourceHead,
+      SERVICE_LASSO_TEST_ADMIN_SOURCE_TREE: sourceTree,
       ...(prelaunchOnly ? { SERVICE_LASSO_TEST_PRELAUNCH_ONLY: "1" } : {}),
+      ...(initialOnly ? { SERVICE_LASSO_TEST_INITIAL_ONLY: "1" } : {}),
     },
     stdio: ["ignore", "pipe", "pipe", "ipc"],
     windowsHide: true,
@@ -300,19 +305,25 @@ async function startActualRealBrowserRunner({ prelaunchOnly = false } = {}) {
 test("external observer retains hard-interrupt custody after the runner cannot handle the OS signal", async (t) => {
   await t.test("SIGKILL", async () => {
       const { child, fixtureRoot, evidenceRoot } = await startActualRealBrowserRunner({
-        prelaunchOnly: true,
+        initialOnly: true,
       });
       const stderrText = captureBoundedText(child.stderr);
       let closed = null;
       try {
-        await waitForPrelaunchReady(child);
+        await waitForRunnerMessage(child, "initial-ready");
         const prelaunchPath = path.join(evidenceRoot, "live-prelaunch-receipt.json");
         const prelaunch = JSON.parse(await readFile(prelaunchPath, "utf8"));
+        const initialPath = path.join(evidenceRoot, "live-initial-receipt.json");
+        const initial = JSON.parse(await readFile(initialPath, "utf8"));
         const identity = await observeExternalOwnedProcess(child.pid, process.pid);
         assert.deepEqual(prelaunch.source, { head: sourceHead, tree: sourceTree });
         assert.deepEqual(prelaunch.runtimeInputs, {
           workspaceRoot: path.join(fixtureRoot, "runtime-workspace"),
+          instanceRegistryPath: path.join(fixtureRoot, "runtime-instance-registry.json"),
+          hostPortRegistryPath: path.join(fixtureRoot, "runtime-host-port-registry.json"),
           servicesRoot: path.join(fixtureRoot, "runtime-services"),
+          evidenceRoot: path.join(fixtureRoot, "runtime-evidence"),
+          supportRoot: path.join(fixtureRoot, "runtime-support"),
         });
         assert.equal(prelaunch.runner.pid, identity.pid);
         assert.equal(prelaunch.runner.birth, identity.birth);
@@ -329,6 +340,19 @@ test("external observer retains hard-interrupt custody after the runner cannot h
             return { literalPath, size: metadata.size, sha256: await sha256File(assetPath) };
           })),
         );
+        assert.deepEqual(initial.source, { head: sourceHead, tree: sourceTree });
+        assert.equal(initial.nonce, prelaunch.nonce);
+        assert.deepEqual(initial.runtimeInputs, {
+          workspaceRoot: path.join(fixtureRoot, "runtime-workspace"),
+          instanceRegistryPath: path.join(fixtureRoot, "runtime-instance-registry.json"),
+          hostPortRegistryPath: path.join(fixtureRoot, "runtime-host-port-registry.json"),
+          servicesRoot: path.join(fixtureRoot, "runtime-services"),
+          evidenceRoot: path.join(fixtureRoot, "runtime-evidence"),
+          supportRoot: path.join(fixtureRoot, "runtime-support"),
+        });
+        assert.deepEqual(initial.runtimeAssets, prelaunch.runtimeAssets);
+        assert.deepEqual(initial.runtimeInvocation, prelaunch.runtimeInvocation);
+        assert.equal(initial.ownedProcesses.runner.pid, identity.pid);
         const signal = "SIGKILL";
         assert.equal(child.kill(signal), true);
         closed = await waitForExit(child, 30_000);
@@ -339,9 +363,16 @@ test("external observer retains hard-interrupt custody after the runner cannot h
             outcome: closed.signal === signal ? "interrupted" : "unresolved",
             expected: {
               source: { head: sourceHead, tree: sourceTree },
-              runtimeInputs: prelaunch.runtimeInputs,
-              assets: prelaunch.assets,
+              initial: {
+                nonce: initial.nonce,
+                source: initial.source,
+                runtimeInputs: initial.runtimeInputs,
+                runtimeAssets: initial.runtimeAssets,
+                runtimeInvocation: initial.runtimeInvocation,
+                runner: initial.ownedProcesses.runner,
+              },
               prelaunchSHA256: await sha256File(prelaunchPath),
+              initialSHA256: await sha256File(initialPath),
             },
             observer: {
               ownedBirthObserved: typeof identity.birth === "string" && identity.birth.length > 0,
@@ -407,6 +438,9 @@ test("real Admin browser runner preserves pre-existing literal and linked receip
             SERVICE_LASSO_TEST_SUPPORT_ROOT: supportRoot,
             SERVICE_LASSO_TEST_SOURCE_HEAD: sourceHead,
             SERVICE_LASSO_TEST_SOURCE_TREE: sourceTree,
+            SERVICE_LASSO_TEST_PROVIDER_CONTROL_NONCE: providerControlNonce,
+            SERVICE_LASSO_TEST_ADMIN_SOURCE_HEAD: sourceHead,
+            SERVICE_LASSO_TEST_ADMIN_SOURCE_TREE: sourceTree,
           },
           stdio: "ignore",
           windowsHide: true,
@@ -475,6 +509,9 @@ test("real Admin browser runner reaches first-run readiness with its dynamically
       SERVICE_LASSO_TEST_SUPPORT_ROOT: supportRoot,
       SERVICE_LASSO_TEST_SOURCE_HEAD: sourceHead,
       SERVICE_LASSO_TEST_SOURCE_TREE: sourceTree,
+      SERVICE_LASSO_TEST_PROVIDER_CONTROL_NONCE: providerControlNonce,
+      SERVICE_LASSO_TEST_ADMIN_SOURCE_HEAD: sourceHead,
+      SERVICE_LASSO_TEST_ADMIN_SOURCE_TREE: sourceTree,
     },
     stdio: ["ignore", "pipe", "pipe", "ipc"],
     windowsHide: true,
@@ -511,7 +548,11 @@ test("real Admin browser runner reaches first-run readiness with its dynamically
     assert.equal(prelaunchReceipt.source.head, sourceHead);
     assert.deepEqual(prelaunchReceipt.runtimeInputs, {
       workspaceRoot,
+      instanceRegistryPath,
+      hostPortRegistryPath,
       servicesRoot,
+      evidenceRoot,
+      supportRoot,
     });
     assert.equal(prelaunchReceipt.runner.pid, child.pid);
     assert.equal(prelaunchReceipt.runner.parentPid, process.pid);
@@ -536,7 +577,11 @@ test("real Admin browser runner reaches first-run readiness with its dynamically
     assert.equal(initialReceipt.nonce, ready.liveReceipt.nonce);
     assert.deepEqual(initialReceipt.runtimeInputs, {
       workspaceRoot,
+      instanceRegistryPath,
+      hostPortRegistryPath,
       servicesRoot,
+      evidenceRoot,
+      supportRoot,
     });
     assert.equal(initialReceipt.ownedProcesses.runner.pid, child.pid);
     assert.equal(Object.hasOwn(ready.liveReceipt, "initialPath"), false);
@@ -560,8 +605,20 @@ test("real Admin browser runner reaches first-run readiness with its dynamically
       { headers: { "x-vault-token": "browser-vault-token-sentinel-2026-08-14" } },
     );
     assert.equal(initialProviderRequest.status, 404);
+    for (const nonce of [undefined, `${providerControlNonce.slice(0, -1)}0`]) {
+      const forbidden = await fetch(`${ready.controlUrl}/fail-next-provider-request`, {
+        method: "POST",
+        headers: nonce === undefined ? {} : {
+          "x-service-lasso-provider-control-nonce": nonce,
+        },
+      });
+      assert.equal(forbidden.status, 403);
+    }
     const armed = await fetch(`${ready.controlUrl}/fail-next-provider-request`, {
       method: "POST",
+      headers: {
+        "x-service-lasso-provider-control-nonce": providerControlNonce,
+      },
     });
     assert.equal(armed.status, 200);
     const controlledFailure = await fetch(
@@ -573,7 +630,11 @@ test("real Admin browser runner reaches first-run readiness with its dynamically
       `${ready.controlUrl}/v1/secret/data/browser/provider-control`,
       { headers: { "x-vault-token": "browser-vault-token-sentinel-2026-08-14" } },
     );
-    assert.equal(subsequentNormalRequest.status, 404);
+    // The fixture restores the provider's ordinary behavior. For this missing
+    // key it is the same natural 404 seen before arming, rather than a second
+    // synthetic provider fault.
+    assert.equal(subsequentNormalRequest.status, initialProviderRequest.status);
+    assert.notEqual(subsequentNormalRequest.status, 503);
     const providerReceipt = await fetch(`${ready.controlUrl}/provider-fault-receipt`);
     assert.equal(providerReceipt.status, 200);
     assert.deepEqual(await providerReceipt.json(), {
@@ -585,6 +646,22 @@ test("real Admin browser runner reaches first-run readiness with its dynamically
         state: "controlled_fault_consumed",
       },
     });
+    const privateConsumed = JSON.parse(await readFile(
+      path.join(evidenceRoot, "live-provider-control-consumed-receipt.json"),
+      "utf8",
+    ));
+    assert.equal(privateConsumed.nonce, ready.liveReceipt.nonce);
+    assert.equal(privateConsumed.controlNonce, providerControlNonce);
+    assert.deepEqual(privateConsumed.source, { head: sourceHead, tree: sourceTree });
+    assert.deepEqual(privateConsumed.adminSource, { head: sourceHead, tree: sourceTree });
+    assert.equal(privateConsumed.state, "controlled_fault_consumed");
+    const stale = await fetch(`${ready.controlUrl}/fail-next-provider-request`, {
+      method: "POST",
+      headers: {
+        "x-service-lasso-provider-control-nonce": providerControlNonce,
+      },
+    });
+    assert.equal(stale.status, 409);
 
     const sampleConfigState = JSON.parse(
       await readFile(

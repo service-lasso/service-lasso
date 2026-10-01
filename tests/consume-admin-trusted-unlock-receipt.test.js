@@ -187,8 +187,12 @@ test("AC-4BY.2 closes an actual output flood and records a direct-child timeout 
     assert.equal(flooded.streamFailure, "stream_budget_exceeded");
 
     const stalled = path.join(root, "stalled.mjs");
-    await writeFile(stalled, `process.on("SIGTERM", () => {}); setInterval(() => {}, 1_000);`);
+    // The consumer records the timeout, but waits for the real child and its
+    // pipes to close. It neither signals nor retires the provider early.
+    await writeFile(stalled, `setTimeout(() => process.exit(7), 75);`);
     const timedOut = await consume(process.execPath, [stalled], { timeoutMs: 25, pipeCloseTimeoutMs: 100 });
+    assert.equal(timedOut.code, 7);
+    assert.equal(timedOut.signal, null);
     assert.equal(timedOut.streamFailure, null);
     assert.equal(timedOut.executionFailure, "execution_timeout");
     assert.deepEqual(timedOut.trustedUnlock, { classification: "missing" });

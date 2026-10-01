@@ -11,6 +11,7 @@ import {
 } from "node:fs/promises";
 import http from "node:http";
 import https from "node:https";
+import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
@@ -72,6 +73,32 @@ async function observePrelaunchAssets(sourceRoot) {
       };
     }),
   );
+}
+
+const NATIVE_CUSTODY_ASSET_PATHS = [
+  "src/runtime/execution/windows-managed-launcher-native.exe",
+  "src/runtime/execution/windows-managed-launcher-native.provenance.json",
+  "src/runtime/process/windows-process-inspector.exe",
+  "src/runtime/process/windows-process-inspector.provenance.json",
+  "src/runtime/security/windows-dpapi-helper.exe",
+  "src/runtime/security/windows-dpapi-helper.provenance.json",
+];
+
+async function observeBoundAsset(sourceRoot, literalPath) {
+  const assetPath = path.join(sourceRoot, ...literalPath.split("/"));
+  const metadata = await lstat(assetPath);
+  if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.size < 1) {
+    throw new Error("Native qualification asset identity is unavailable.");
+  }
+  return { literalPath, size: metadata.size, sha256: await sha256File(assetPath) };
+}
+
+async function observeExternalBoundAsset(name, assetPath) {
+  const metadata = await lstat(assetPath);
+  if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.size < 1) {
+    throw new Error("Runtime qualification asset identity is unavailable.");
+  }
+  return { name, size: metadata.size, sha256: await sha256File(assetPath) };
 }
 
 async function observeOwnedProcess(pid, expectedParentPid) {
@@ -168,6 +195,16 @@ const evidenceRoot = requireCallerRuntimePath(
 const supportRoot = requireCallerRuntimePath("SERVICE_LASSO_TEST_SUPPORT_ROOT");
 const sourceHead = requireHexIdentity("SERVICE_LASSO_TEST_SOURCE_HEAD", 40);
 const sourceTree = requireHexIdentity("SERVICE_LASSO_TEST_SOURCE_TREE", 40);
+// This is an arm capability, not the public readiness correlation nonce.
+// It must be supplied by the qualified Admin caller before any runtime import.
+const providerControlNonce = requireHexIdentity(
+  "SERVICE_LASSO_TEST_PROVIDER_CONTROL_NONCE",
+  64,
+);
+const adminSource = Object.freeze({
+  head: requireHexIdentity("SERVICE_LASSO_TEST_ADMIN_SOURCE_HEAD", 40),
+  tree: requireHexIdentity("SERVICE_LASSO_TEST_ADMIN_SOURCE_TREE", 40),
+});
 for (const root of [workspaceRoot, servicesRoot, evidenceRoot, supportRoot]) {
   const metadata = await lstat(root).catch(() => null);
   if (!metadata?.isDirectory() || metadata.isSymbolicLink()) {
@@ -251,13 +288,35 @@ for (const receiptPath of [
   await requireAbsentPrivateReceipt(receiptPath);
 }
 const receiptNonce = randomBytes(32).toString("hex");
-const runtimeInputs = Object.freeze({ workspaceRoot, servicesRoot });
+// Every private lifecycle receipt carries the complete caller-owned custody
+// tuple.  The three Core paths are validated as distinct and absent above,
+// before any runtime import or provider call can consume them.
+const runtimeInputs = Object.freeze({
+  workspaceRoot,
+  instanceRegistryPath,
+  hostPortRegistryPath,
+  servicesRoot,
+  evidenceRoot,
+  supportRoot,
+});
+const runtimeAssets = Object.freeze({
+  brokerBinary: await observeExternalBoundAsset("brokerBinary", sourceBrokerBinary),
+  adminServer: await observeExternalBoundAsset("adminServer", path.join(adminRoot, "runtime", "server.js")),
+  native: await Promise.all(NATIVE_CUSTODY_ASSET_PATHS.map((literalPath) => observeBoundAsset(sourceRoot, literalPath))),
+});
+const runtimeInvocation = Object.freeze({
+  runner: { executable: process.execPath, argv: [runnerPath] },
+  admin: { executable: process.execPath, argv: [path.join(adminRoot, "runtime", "server.js")] },
+  os: { platform: process.platform, arch: process.arch, release: os.release() },
+});
 const prelaunchReceipt = {
   schema: "service-lasso.real-admin-browser-live-prelaunch.v1",
   private: true,
   nonce: receiptNonce,
   source: { head: sourceHead, tree: sourceTree },
   runtimeInputs,
+  runtimeAssets,
+  runtimeInvocation,
   runner: {
     pid: runnerIdentity.pid,
     parentPid: runnerIdentity.parentPid,
@@ -281,15 +340,21 @@ const initialReceipt = {
     evidenceRoot,
     supportRoot,
   },
-  runtimeAssets: {
-    brokerBinary: { sha256: await sha256File(sourceBrokerBinary) },
-    adminServer: {
-      sha256: await sha256File(path.join(adminRoot, "runtime", "server.js")),
-    },
-  },
+  runtimeAssets,
+  runtimeInvocation,
   ownedProcesses: { runner: runnerIdentity },
 };
 await createPrivateReceipt(initialReceiptPath, initialReceipt);
+
+// The external-interrupt qualification needs a real immutable initial tuple
+// before any imported runtime can own descendants.  This private mode is not a
+// product path: it holds only the runner so an adverse OS exit is attributable
+// without a PID sweep or synthetic cleanup.
+if (process.env.SERVICE_LASSO_TEST_INITIAL_ONLY === "1") {
+  process.send?.({ type: "initial-ready" });
+  setInterval(() => {}, 1_000);
+  await new Promise(() => {});
+}
 
 if (process.env.SERVICE_LASSO_TEST_PRELAUNCH_ONLY === "1") {
   process.send?.({ type: "prelaunch-ready" });
@@ -380,6 +445,8 @@ async function persistProviderControlReceipt(phase) {
     private: true,
     nonce: receiptNonce,
     source: { head: sourceHead, tree: sourceTree },
+    adminSource,
+    controlNonce: providerControlNonce,
     phase,
     causalSink: "authenticated_vault_provider_request",
     state: "observed_before_controlled_fault",
@@ -461,6 +528,9 @@ function shutdown({ exitCode = 0, trigger = "ipc", signal = null } = {}) {
           private: true,
           nonce: receiptNonce,
           source: { head: sourceHead, tree: sourceTree },
+          runtimeInputs,
+          runtimeAssets,
+          runtimeInvocation,
           outcome: trigger === "signal" ? "interrupted" : "closed",
           termination: { trigger, signal, exitCode },
           teardown,
@@ -478,6 +548,9 @@ function shutdown({ exitCode = 0, trigger = "ipc", signal = null } = {}) {
           private: true,
           nonce: receiptNonce,
           source: { head: sourceHead, tree: sourceTree },
+          runtimeInputs,
+          runtimeAssets,
+          runtimeInvocation,
           outcome: "unresolved",
           termination: { trigger, signal, exitCode },
           failure,
@@ -566,6 +639,16 @@ try {
       if (!providerControlReceipt) {
         response.writeHead(409, { "Content-Type": "application/json" });
         response.end(JSON.stringify({ outcome: "provider_fault_unobserved" }));
+        return;
+      }
+      if (
+        request.headers["x-service-lasso-provider-control-nonce"] !==
+        providerControlNonce
+      ) {
+        // A missing, stale, or mismatched capability cannot arm or consume a
+        // future provider request. Do not disclose the private value.
+        response.writeHead(403, { "Content-Type": "application/json" });
+        response.end(JSON.stringify({ outcome: "provider_fault_forbidden" }));
         return;
       }
       providerFaultState = "armed";
