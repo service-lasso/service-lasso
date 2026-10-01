@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { access, mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, lstat, mkdir, readFile, writeFile } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -352,6 +352,77 @@ async function waitForPrivateObserver(root, names, timeoutMs) {
   return null;
 }
 
+function exactKeys(value, keys) {
+  return !!value && typeof value === "object" && !Array.isArray(value)
+    && Object.keys(value).sort().join(",") === [...keys].sort().join(",");
+}
+
+function sameTuple(value, nonce, source) {
+  return value?.nonce === nonce && value?.source?.head === source.head && value?.source?.tree === source.tree;
+}
+
+function validRuntimeInputs(inputs) {
+  if (!exactKeys(inputs, ["workspaceRoot", "instanceRegistryPath", "hostPortRegistryPath"])) return false;
+  const values = Object.values(inputs);
+  return values.every((value) => typeof value === "string" && path.isAbsolute(value) && !/[\r\n\0]/u.test(value))
+    && new Set(values.map((value) => path.resolve(value))).size === values.length;
+}
+
+async function privateJson(root, name) {
+  const file = path.join(root, name);
+  let metadata, text;
+  try { metadata = await lstat(file); text = await readFile(file, "utf8"); } catch { return null; }
+  if (!metadata.isFile() || metadata.isSymbolicLink() || !strictJson(text)) return null;
+  try { return JSON.parse(text); } catch { return null; }
+}
+
+async function validateObserverTerminal(root, nonce, source, wantClose) {
+  const plan = await privateJson(root, "plan.json");
+  const activation = await privateJson(root, "activation.json");
+  const initial = await privateJson(root, "initial.json");
+  const terminal = await privateJson(root, wantClose ? "close.json" : "unresolved.json");
+  if (!exactKeys(plan, ["schema", "private", "nonce", "source", "state", "startedAt", "provider", "inputs"])
+    || plan.schema !== "service-lasso.admin-provider-observer-plan.v1" || plan.private !== true || plan.state !== "PLAN" || !sameTuple(plan, nonce, source)
+    || !validRuntimeInputs(plan.inputs)
+    || !exactKeys(plan.provider, ["executable"]) || !exactKeys(plan.provider.executable, ["path", "size", "sha256"])
+    || typeof plan.provider.executable.path !== "string" || !Number.isSafeInteger(plan.provider.executable.size) || !/^[0-9a-f]{64}$/u.test(plan.provider.executable.sha256)) return null;
+  if (!exactKeys(activation, ["schema", "private", "nonce", "source", "plan", "state", "provider", "inputs"])
+    || activation.schema !== "service-lasso.admin-provider-observer-activation.v1" || activation.private !== true || activation.plan !== "plan.json" || activation.state !== "ACTIVATED"
+    || !sameTuple(activation, nonce, source) || !validRuntimeInputs(activation.inputs) || JSON.stringify(activation.inputs) !== JSON.stringify(plan.inputs)
+    || JSON.stringify(activation.provider) !== JSON.stringify(plan.provider)) return null;
+  if (!exactKeys(initial, ["schema", "private", "nonce", "source", "observer", "plan", "activation", "witness", "provider", "inputs", "startedAt"])
+    || initial.schema !== "service-lasso.admin-provider-observer-initial.v1" || initial.private !== true || !sameTuple(initial, nonce, source)
+    || !validRuntimeInputs(initial.inputs) || JSON.stringify(initial.inputs) !== JSON.stringify(plan.inputs)
+    || initial.plan !== "plan.json" || initial.activation !== "activation.json" || !["OBSERVED", "UNAVAILABLE"].includes(initial.witness)
+    || !exactKeys(initial.provider, ["pid", "parentPid", "birth", "executable"])
+    || !Number.isSafeInteger(initial.provider.pid) || initial.provider.pid < 1 || !Number.isSafeInteger(initial.provider.parentPid) || initial.provider.parentPid < 1
+    || initial.provider.parentPid !== initial.observer?.pid || initial.provider.executable?.path !== plan.provider.executable.path
+    || initial.provider.executable?.size !== plan.provider.executable.size || initial.provider.executable?.sha256 !== plan.provider.executable.sha256
+    || (initial.witness === "OBSERVED" && (typeof initial.provider.birth !== "string" || initial.provider.birth.length < 1))
+    || (initial.witness === "UNAVAILABLE" && initial.provider.birth !== null)) return null;
+  if (!wantClose) {
+    if (!exactKeys(terminal, ["schema", "private", "nonce", "source", "plan", "activation", "initial", "state", "provider"])
+      || terminal.schema !== "service-lasso.admin-provider-observer-unresolved.v1" || terminal.private !== true || terminal.plan !== "plan.json" || terminal.activation !== "activation.json" || terminal.initial !== "initial.json"
+      || terminal.state !== "UNRESOLVED" || !sameTuple(terminal, nonce, source) || JSON.stringify(terminal.provider) !== JSON.stringify(initial.provider)) return null;
+    return { unresolved: true };
+  }
+  if (!exactKeys(terminal, ["schema", "private", "nonce", "source", "plan", "activation", "unresolved", "initial", "provider", "terminal", "trustedUnlock", "streams"])
+    || terminal.schema !== "service-lasso.admin-provider-observer-close.v1" || terminal.private !== true || terminal.plan !== "plan.json" || terminal.activation !== "activation.json" || terminal.initial !== "initial.json"
+    || !sameTuple(terminal, nonce, source) || JSON.stringify(terminal.provider) !== JSON.stringify(initial.provider)
+    || !exactKeys(terminal.terminal, ["exitCode", "signal", "spawnError"])
+    || typeof terminal.terminal.spawnError !== "boolean" || !Array.isArray(terminal.streams) || terminal.streams.length !== 2
+    || terminal.streams.some((entry) => !exactKeys(entry, ["bytes", "sha256"]) || !Number.isSafeInteger(entry.bytes) || entry.bytes < 0 || !/^[0-9a-f]{64}$/u.test(entry.sha256))
+    || !["missing", "invalid", "closed"].includes(terminal.trustedUnlock?.classification)
+    || (terminal.trustedUnlock.classification === "closed" && (!exactKeys(terminal.trustedUnlock, ["classification", "receipt"]) || !parseReceipt(JSON.stringify(terminal.trustedUnlock.receipt))))
+    || (terminal.trustedUnlock.classification !== "closed" && !exactKeys(terminal.trustedUnlock, ["classification"]))) return null;
+  // An unavailable birth is deliberately useful only as a terminal failure
+  // handoff.  It never authorizes an exit claim for a PID we did not witness.
+  if (initial.witness !== "OBSERVED" || terminal.terminal.spawnError || (terminal.terminal.exitCode === null && terminal.terminal.signal === null)
+    || (terminal.terminal.exitCode !== null && (!Number.isSafeInteger(terminal.terminal.exitCode) || terminal.terminal.exitCode < 0 || terminal.terminal.signal !== null))
+    || (terminal.terminal.signal !== null && (typeof terminal.terminal.signal !== "string" || terminal.terminal.exitCode !== null))) return null;
+  return terminal;
+}
+
 // This route deliberately delegates spawn ownership before the provider starts.
 // The caller can settle on an immutable UNRESOLVED receipt, while the detached
 // observer retains the real PID and pipes until the actual close is recorded.
@@ -365,7 +436,7 @@ export async function consumeWithDurableObserver(command, args, options = {}) {
   const nonce = randomBytes(32).toString("hex");
   const config = {
     root, command, args, cwd: options.cwd, source, nonce, timeoutMs: options.timeoutMs,
-    inputs: options.inputs ?? { workspaceRoot: options.workspaceRoot ?? null },
+    inputs: options.inputs,
   };
   const configPath = path.join(root, "observer-config.json");
   await writeFile(configPath, JSON.stringify(config), { encoding: "utf8", mode: 0o600, flag: "wx" });
@@ -375,9 +446,14 @@ export async function consumeWithDurableObserver(command, args, options = {}) {
   observer.unref();
   const terminal = await waitForPrivateObserver(root, ["close.json", "unresolved.json"], Math.max(250, (options.timeoutMs ?? 300000) + 250));
   if (!terminal) return { code: null, signal: null, executionFailure: "spawn_failed", trustedUnlock: { classification: "missing" }, streamFailure: null };
-  if (terminal.endsWith("unresolved.json")) return { code: null, signal: null, executionFailure: "execution_timeout", trustedUnlock: { classification: "missing" }, streamFailure: null };
-  const close = JSON.parse(await readFile(terminal, "utf8"));
-  return { code: close.terminal.exitCode, signal: close.terminal.signal, executionFailure: null, trustedUnlock: { classification: "missing" }, streamFailure: null };
+  if (terminal.endsWith("unresolved.json")) {
+    const unresolved = await validateObserverTerminal(root, nonce, source, false);
+    return unresolved ? { code: null, signal: null, executionFailure: "execution_timeout", trustedUnlock: { classification: "missing" }, streamFailure: null }
+      : { code: null, signal: null, executionFailure: "spawn_failed", trustedUnlock: { classification: "invalid" }, streamFailure: null };
+  }
+  const close = await validateObserverTerminal(root, nonce, source, true);
+  if (!close) return { code: null, signal: null, executionFailure: "spawn_failed", trustedUnlock: { classification: "invalid" }, streamFailure: null };
+  return { code: close.terminal.exitCode, signal: close.terminal.signal, executionFailure: null, trustedUnlock: close.trustedUnlock, streamFailure: null };
 }
 
 function outcomeFor(result) {
@@ -395,7 +471,11 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
       ? await consumeWithDurableObserver(process.argv[separator + 1], process.argv.slice(separator + 2), {
         cwd: process.cwd(), env: process.env, observerRoot,
         source: { head: process.env.SERVICE_LASSO_TEST_SOURCE_HEAD, tree: process.env.SERVICE_LASSO_TEST_SOURCE_TREE },
-        workspaceRoot: process.env.SERVICE_LASSO_WORKSPACE_ROOT,
+        inputs: {
+          workspaceRoot: process.env.SERVICE_LASSO_WORKSPACE_ROOT,
+          instanceRegistryPath: process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH,
+          hostPortRegistryPath: process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH,
+        },
         timeoutMs: Number(process.env.SERVICE_LASSO_ADMIN_RECEIPT_TIMEOUT_MS ?? 300000),
       })
       : await consume(process.argv[separator + 1], process.argv.slice(separator + 2), { cwd: process.cwd(), env: process.env });

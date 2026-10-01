@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { classify, consume, parseConsumerReceipt, parseReceipt } from "../scripts/consume-admin-trusted-unlock-receipt.mjs";
+import { classify, consume, consumeWithDurableObserver, parseConsumerReceipt, parseReceipt } from "../scripts/consume-admin-trusted-unlock-receipt.mjs";
 
 const valid = JSON.stringify({ schema: "service-admin.trusted-unlock-receipt.v1", status: "observed", present: true, verified: false, localRoot: false, loading: true, unavailable: false });
 
@@ -196,6 +196,30 @@ test("AC-4BY.2 closes an actual output flood and records a direct-child timeout 
     assert.equal(timedOut.streamFailure, null);
     assert.equal(timedOut.executionFailure, "execution_timeout");
     assert.deepEqual(timedOut.trustedUnlock, { classification: "missing" });
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("AC-4BY.2 accepts only the complete observed observer close as a shipped positive receipt", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "admin-receipt-durable-consumer-"));
+  try {
+    const observerRoot = path.join(root, "observer");
+    const inputs = {
+      workspaceRoot: path.join(root, "workspace"),
+      instanceRegistryPath: path.join(root, "instance-registry.json"),
+      hostPortRegistryPath: path.join(root, "host-port-registry.json"),
+    };
+    const result = await consumeWithDurableObserver(process.execPath, ["-e", `process.stderr.write(${JSON.stringify(`${valid}\n`)},()=>setTimeout(()=>process.exit(7),1200))`], {
+      cwd: root, observerRoot, timeoutMs: 5_000,
+      source: { head: "a".repeat(40), tree: "b".repeat(40) }, inputs,
+    });
+    assert.equal(result.code, 7);
+    assert.equal(result.executionFailure, null);
+    assert.deepEqual(result.trustedUnlock, { classification: "closed", receipt: JSON.parse(valid) });
+    const close = JSON.parse(await readFile(path.join(observerRoot, "close.json"), "utf8"));
+    assert.equal(close.initial, "initial.json");
+    assert.equal(close.provider.parentPid > 0, true);
+    assert.equal(close.provider.birth.length > 0, true);
+    assert.doesNotMatch(JSON.stringify(close), /workspace|instance-registry|host-port-registry/iu);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 

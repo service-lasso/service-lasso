@@ -24,6 +24,12 @@ test("AC-4BY.2 durable observer writes immutable unresolved custody then an even
     await writeFile(config, JSON.stringify({ root: observerRoot, command: process.execPath, args: [provider], cwd: root, timeoutMs: 40, nonce: "a".repeat(64), source: { head: "b".repeat(40), tree: "c".repeat(40) }, inputs: { workspaceRoot: root } }));
     const observer = spawn(process.execPath, [fileURLToPath(new URL("../scripts/admin-receipt-provider-observer.mjs", import.meta.url)), config], { stdio: "ignore", windowsHide: true });
     const initial = await waitFor(path.join(observerRoot, "initial.json"));
+    const plan = await waitFor(path.join(observerRoot, "plan.json"));
+    const activation = await waitFor(path.join(observerRoot, "activation.json"));
+    assert.equal(plan.state, "PLAN");
+    assert.equal(activation.state, "ACTIVATED");
+    assert.equal(initial.plan, "plan.json");
+    assert.equal(initial.activation, "activation.json");
     const unresolved = await waitFor(path.join(observerRoot, "unresolved.json"));
     assert.equal(unresolved.state, "UNRESOLVED");
     assert.equal(unresolved.nonce, initial.nonce);
@@ -41,5 +47,22 @@ test("AC-4BY.2 durable observer writes immutable unresolved custody then an even
     // close.json is written only after the observer received the provider's
     // terminal close. Do not wait on a late listener that could miss the
     // already-emitted observer exit event.
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("AC-4BY.2 fast provider exit preserves a closed terminal without inventing a birth witness", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "service-lasso-provider-fast-exit-"));
+  const observerRoot = path.join(root, "private-observer");
+  const config = path.join(root, "config.json");
+  try {
+    await writeFile(config, JSON.stringify({ root: observerRoot, command: process.execPath, args: ["-e", "process.exit(7)"], cwd: root, timeoutMs: 1_000, nonce: "d".repeat(64), source: { head: "e".repeat(40), tree: "f".repeat(40) }, inputs: { workspaceRoot: root } }));
+    spawn(process.execPath, [fileURLToPath(new URL("../scripts/admin-receipt-provider-observer.mjs", import.meta.url)), config], { stdio: "ignore", windowsHide: true });
+    const initial = await waitFor(path.join(observerRoot, "initial.json"));
+    const closed = await waitFor(path.join(observerRoot, "close.json"));
+    assert.equal(closed.initial, "initial.json");
+    assert.equal(closed.plan, "plan.json");
+    assert.equal(closed.provider.pid, initial.provider.pid);
+    assert.equal(closed.terminal.exitCode, 7);
+    if (initial.witness === "UNAVAILABLE") assert.equal(initial.provider.birth, null);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
