@@ -1,7 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  access,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -12,8 +19,12 @@ import {
   teardownRealAdminBrowserFixture,
 } from "./fixtures/real-admin-browser-shutdown.mjs";
 
-const shutdownRunnerPath = path.resolve("tests/fixtures/real-admin-browser-shutdown-runner.mjs");
-const realBrowserRunnerPath = path.resolve("tests/fixtures/real-admin-browser-runner.mjs");
+const shutdownRunnerPath = path.resolve(
+  "tests/fixtures/real-admin-browser-shutdown-runner.mjs",
+);
+const realBrowserRunnerPath = path.resolve(
+  "tests/fixtures/real-admin-browser-runner.mjs",
+);
 
 function captureBoundedText(stream, maxBytes = 65_536) {
   const chunks = [];
@@ -42,7 +53,8 @@ function waitForReady(child, timeoutMs = 5_000) {
       if (message?.type === "ready") finish(message);
     };
     const onError = (error) => finish(null, error);
-    const onExit = () => finish(null, new Error("Shutdown runner exited before readiness."));
+    const onExit = () =>
+      finish(null, new Error("Shutdown runner exited before readiness."));
     const timer = setTimeout(
       () => finish(null, new Error("Shutdown runner readiness timed out.")),
       timeoutMs,
@@ -55,10 +67,17 @@ function waitForReady(child, timeoutMs = 5_000) {
 
 function waitForExit(child, timeoutMs = 10_000) {
   if (child.exitCode !== null || child.signalCode !== null) {
-    return Promise.resolve({ code: child.exitCode, signal: child.signalCode, completedAt: Date.now() });
+    return Promise.resolve({
+      code: child.exitCode,
+      signal: child.signalCode,
+      completedAt: Date.now(),
+    });
   }
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("Shutdown runner exit timed out.")), timeoutMs);
+    const timer = setTimeout(
+      () => reject(new Error("Shutdown runner exit timed out.")),
+      timeoutMs,
+    );
     child.once("exit", (code, signal) => {
       clearTimeout(timer);
       resolve({ code, signal, completedAt: Date.now() });
@@ -87,7 +106,10 @@ function waitForRealBrowserReady(child, timeoutMs = 30_000) {
     const onData = (chunk) => {
       stdout += chunk.toString("utf8");
       if (Buffer.byteLength(stdout) > 65_536) {
-        finish(null, new Error("Real browser runner readiness output exceeded its bound."));
+        finish(
+          null,
+          new Error("Real browser runner readiness output exceeded its bound."),
+        );
         return;
       }
       const newline = stdout.indexOf("\n");
@@ -95,16 +117,25 @@ function waitForRealBrowserReady(child, timeoutMs = 30_000) {
       try {
         const ready = JSON.parse(stdout.slice(0, newline));
         if (ready?.contractVersion !== "service-lasso.real-admin-browser.v1") {
-          finish(null, new Error("Real browser runner returned an unexpected readiness contract."));
+          finish(
+            null,
+            new Error(
+              "Real browser runner returned an unexpected readiness contract.",
+            ),
+          );
           return;
         }
         finish({ ready, stdout });
       } catch {
-        finish(null, new Error("Real browser runner returned invalid readiness JSON."));
+        finish(
+          null,
+          new Error("Real browser runner returned invalid readiness JSON."),
+        );
       }
     };
     const onError = (error) => finish(null, error);
-    const onExit = () => finish(null, new Error("Real browser runner exited before readiness."));
+    const onExit = () =>
+      finish(null, new Error("Real browser runner exited before readiness."));
     const timer = setTimeout(
       () => finish(null, new Error("Real browser runner readiness timed out.")),
       timeoutMs,
@@ -137,21 +168,42 @@ function hasListener(port) {
 }
 
 test("real Admin browser runner reaches first-run readiness with its dynamically planned sample port", async () => {
-  const fixtureRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-real-admin-startup-smoke-"));
+  const fixtureRoot = await mkdtemp(
+    path.join(os.tmpdir(), "service-lasso-real-admin-startup-smoke-"),
+  );
   const adminRoot = path.join(fixtureRoot, "admin");
   const adminRuntime = path.join(adminRoot, "runtime");
+  const workspaceRoot = path.join(fixtureRoot, "runtime-workspace");
+  const servicesRoot = path.join(fixtureRoot, "runtime-services");
+  const evidenceRoot = path.join(fixtureRoot, "runtime-evidence");
+  const instanceRegistryPath = path.join(
+    fixtureRoot,
+    "runtime-instance-registry.json",
+  );
+  const hostPortRegistryPath = path.join(
+    fixtureRoot,
+    "runtime-host-port-registry.json",
+  );
   await mkdir(adminRuntime, { recursive: true });
-  await writeFile(path.join(adminRuntime, "server.js"), [
-    "const http = require('node:http')",
-    "const host = process.env.SERVICE_HOST ?? '127.0.0.1'",
-    "const port = Number(process.env.SERVICE_PORT)",
-    "const server = http.createServer((_request, response) => { response.writeHead(200); response.end('ready') })",
-    "server.listen(port, host)",
-    "let stopping = false",
-    "const stop = () => { if (stopping) return; stopping = true; server.close(() => process.exit(0)) }",
-    "process.on('SIGINT', stop)",
-    "process.on('SIGTERM', stop)",
-  ].join("\n"));
+  await Promise.all(
+    [workspaceRoot, servicesRoot, evidenceRoot].map((directory) =>
+      mkdir(directory, { recursive: true }),
+    ),
+  );
+  await writeFile(
+    path.join(adminRuntime, "server.js"),
+    [
+      "const http = require('node:http')",
+      "const host = process.env.SERVICE_HOST ?? '127.0.0.1'",
+      "const port = Number(process.env.SERVICE_PORT)",
+      "const server = http.createServer((_request, response) => { response.writeHead(200); response.end('ready') })",
+      "server.listen(port, host)",
+      "let stopping = false",
+      "const stop = () => { if (stopping) return; stopping = true; server.close(() => process.exit(0)) }",
+      "process.on('SIGINT', stop)",
+      "process.on('SIGTERM', stop)",
+    ].join("\n"),
+  );
 
   const child = spawn(process.execPath, [realBrowserRunnerPath], {
     cwd: path.resolve("."),
@@ -160,6 +212,11 @@ test("real Admin browser runner reaches first-run readiness with its dynamically
       SERVICE_LASSO_REAL_BROWSER_MODE: "first-run",
       SERVICE_LASSO_TEST_ADMIN_ROOT: adminRoot,
       SERVICE_LASSO_TEST_BROKER_BINARY: process.execPath,
+      SERVICE_LASSO_WORKSPACE_ROOT: workspaceRoot,
+      SERVICE_LASSO_INSTANCE_REGISTRY_PATH: instanceRegistryPath,
+      SERVICE_LASSO_HOST_PORT_REGISTRY_PATH: hostPortRegistryPath,
+      SERVICE_LASSO_TEST_SERVICES_ROOT: servicesRoot,
+      SERVICE_LASSO_TEST_EVIDENCE_ROOT: evidenceRoot,
     },
     stdio: ["ignore", "pipe", "pipe", "ipc"],
     windowsHide: true,
@@ -181,50 +238,74 @@ test("real Admin browser runner reaches first-run readiness with its dynamically
     assert.equal(ready.platform, process.platform);
     assert.match(ready.apiUrl, /^http:\/\/127\.0\.0\.1:\d+$/);
     assert.match(ready.adminUrl, /^http:\/\/127\.0\.0\.1:\d+$/);
-    assert.match(ready.controlUrl, /^http:\/\/127\.0\.0\.1:\d+\/__service_lasso_test$/);
+    assert.match(
+      ready.controlUrl,
+      /^http:\/\/127\.0\.0\.1:\d+\/__service_lasso_test$/,
+    );
     assert.equal((await fetch(`${ready.apiUrl}/api/health`)).status, 200);
     assert.equal((await fetch(ready.adminUrl)).status, 200);
 
-    const sampleConfigState = JSON.parse(await readFile(
-      path.join(ready.tempRoot, "services", "sample-service", ".state", "config.json"),
-      "utf8",
-    ));
-    const sampleRuntimeState = JSON.parse(await readFile(
-      path.join(ready.tempRoot, "services", "sample-service", ".state", "runtime.json"),
-      "utf8",
-    ));
-    const endpointAllocation = JSON.parse(await readFile(
-      path.join(ready.tempRoot, "workspace", "runtime", "endpoint-allocation.json"),
-      "utf8",
-    ));
-    const sampleReadiness = endpointAllocation.endpoints.find((endpoint) =>
-      endpoint.ownerType === "service" &&
-      endpoint.ownerId === "sample-service" &&
-      endpoint.endpointId === "readiness"
+    const sampleConfigState = JSON.parse(
+      await readFile(
+        path.join(servicesRoot, "sample-service", ".state", "config.json"),
+        "utf8",
+      ),
+    );
+    const sampleRuntimeState = JSON.parse(
+      await readFile(
+        path.join(servicesRoot, "sample-service", ".state", "runtime.json"),
+        "utf8",
+      ),
+    );
+    const endpointAllocation = JSON.parse(
+      await readFile(
+        path.join(workspaceRoot, "runtime", "endpoint-allocation.json"),
+        "utf8",
+      ),
+    );
+    const sampleReadiness = endpointAllocation.endpoints.find(
+      (endpoint) =>
+        endpoint.ownerType === "service" &&
+        endpoint.ownerId === "sample-service" &&
+        endpoint.endpointId === "readiness",
     );
     assert.equal(sampleConfigState.configured, false);
     assert.equal(endpointAllocation.phase, "reserved");
     assert.equal(sampleReadiness?.resolution, "automatic");
-    assert.ok(Number.isInteger(sampleReadiness?.port) && sampleReadiness.port > 0);
-    assert.deepEqual(sampleRuntimeState.ports, { readiness: sampleReadiness.port });
+    assert.ok(
+      Number.isInteger(sampleReadiness?.port) && sampleReadiness.port > 0,
+    );
+    assert.deepEqual(sampleRuntimeState.ports, {
+      readiness: sampleReadiness.port,
+    });
 
     child.send({ type: "service-lasso-real-admin-shutdown" });
     closed = await waitForExit(child, 30_000);
     assert.equal(closed.code, 0, stderrText());
     assert.equal(closed.signal, null);
-    await assert.rejects(access(ready.tempRoot), (error) => error?.code === "ENOENT");
+    await assert.rejects(
+      access(ready.tempRoot),
+      (error) => error?.code === "ENOENT",
+    );
 
     const output = `${readiness.stdout}\n${stderrText()}`;
-    assert.doesNotMatch(output, /browser-vault-token-sentinel|sample-start-failure\.once/i);
+    assert.doesNotMatch(
+      output,
+      /browser-vault-token-sentinel|sample-start-failure\.once/i,
+    );
   } finally {
-    if (!closed && child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
-    if (ready?.tempRoot) await rm(ready.tempRoot, { recursive: true, force: true });
+    if (!closed && child.exitCode === null && child.signalCode === null)
+      child.kill("SIGKILL");
+    if (ready?.tempRoot)
+      await rm(ready.tempRoot, { recursive: true, force: true });
     await rm(fixtureRoot, { recursive: true, force: true });
   }
 });
 
 test("real Admin browser runner waits for forced Admin exit and late managed finalization before cleanup", async () => {
-  const evidenceRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-runner-shutdown-evidence-"));
+  const evidenceRoot = await mkdtemp(
+    path.join(os.tmpdir(), "service-lasso-runner-shutdown-evidence-"),
+  );
   const child = spawn(process.execPath, [shutdownRunnerPath], {
     env: {
       ...process.env,
@@ -254,9 +335,16 @@ test("real Admin browser runner waits for forced Admin exit and late managed fin
 
     assert.equal(closed.code, 0, stderrText());
     assert.equal(closed.signal, null);
-    assert.ok(closed.completedAt - shutdownStartedAt >= 250, "runner must await late managed finalization");
-    const managedEvidence = JSON.parse(await readFile(path.join(evidenceRoot, "managed-exit.json"), "utf8"));
-    const adminEvidence = JSON.parse(await readFile(path.join(evidenceRoot, "admin-exit.json"), "utf8"));
+    assert.ok(
+      closed.completedAt - shutdownStartedAt >= 250,
+      "runner must await late managed finalization",
+    );
+    const managedEvidence = JSON.parse(
+      await readFile(path.join(evidenceRoot, "managed-exit.json"), "utf8"),
+    );
+    const adminEvidence = JSON.parse(
+      await readFile(path.join(evidenceRoot, "admin-exit.json"), "utf8"),
+    );
     assert.equal(managedEvidence.outcome, "managed_child_exited");
     assert.equal(adminEvidence.outcome, "admin_exited");
     assert.deepEqual(adminEvidence.signals, ["SIGTERM", "SIGKILL"]);
@@ -265,7 +353,10 @@ test("real Admin browser runner waits for forced Admin exit and late managed fin
     assert.equal(processIsRunning(ready.managedPid), false);
     assert.equal(processIsRunning(ready.adminPid), false);
     assert.equal(await hasListener(ready.apiPort), false);
-    await assert.rejects(access(ready.tempRoot), (error) => error?.code === "ENOENT");
+    await assert.rejects(
+      access(ready.tempRoot),
+      (error) => error?.code === "ENOENT",
+    );
     assert.deepEqual(phases, [
       "teardown_started",
       "admin_exited",
@@ -278,10 +369,14 @@ test("real Admin browser runner waits for forced Admin exit and late managed fin
       "teardown_completed",
     ]);
   } finally {
-    if (!closed && child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
-    if (ready?.managedPid && processIsRunning(ready.managedPid)) process.kill(ready.managedPid, "SIGKILL");
-    if (ready?.adminPid && processIsRunning(ready.adminPid)) process.kill(ready.adminPid, "SIGKILL");
-    if (ready?.tempRoot) await rm(ready.tempRoot, { recursive: true, force: true });
+    if (!closed && child.exitCode === null && child.signalCode === null)
+      child.kill("SIGKILL");
+    if (ready?.managedPid && processIsRunning(ready.managedPid))
+      process.kill(ready.managedPid, "SIGKILL");
+    if (ready?.adminPid && processIsRunning(ready.adminPid))
+      process.kill(ready.adminPid, "SIGKILL");
+    if (ready?.tempRoot)
+      await rm(ready.tempRoot, { recursive: true, force: true });
     await rm(evidenceRoot, { recursive: true, force: true });
   }
 });
@@ -335,7 +430,10 @@ test("teardown preserves both stop failures as metadata and skips unsafe removal
         { phase: "managed_process_convergence", code: "emanaged_test" },
       ]);
       const serialized = JSON.stringify(safeFailure);
-      assert.doesNotMatch(serialized, /secret-sentinel|private-temp-root|api-secret|managed-secret/i);
+      assert.doesNotMatch(
+        serialized,
+        /secret-sentinel|private-temp-root|api-secret|managed-secret/i,
+      );
       return true;
     },
   );
@@ -357,7 +455,10 @@ test("teardown awaits already-closing API and vault servers before removal", asy
     new Promise((resolve) => vaultSocket.once("listening", resolve)),
   ]);
   const apiClient = net.createConnection(apiSocket.address().port, "127.0.0.1");
-  const vaultClient = net.createConnection(vaultSocket.address().port, "127.0.0.1");
+  const vaultClient = net.createConnection(
+    vaultSocket.address().port,
+    "127.0.0.1",
+  );
   await Promise.all([
     new Promise((resolve) => apiClient.once("connect", resolve)),
     new Promise((resolve) => vaultClient.once("connect", resolve)),
@@ -365,8 +466,12 @@ test("teardown awaits already-closing API and vault servers before removal", asy
   let apiCloseObserved = false;
   let vaultCloseObserved = false;
   let removalObserved = false;
-  apiSocket.once("close", () => { apiCloseObserved = true; });
-  vaultSocket.once("close", () => { vaultCloseObserved = true; });
+  apiSocket.once("close", () => {
+    apiCloseObserved = true;
+  });
+  vaultSocket.once("close", () => {
+    vaultCloseObserved = true;
+  });
   const apiClientTimer = setTimeout(() => apiClient.destroy(), 100);
   const vaultClientTimer = setTimeout(() => vaultClient.destroy(), 250);
   const absentTempRoot = path.join(
@@ -403,7 +508,10 @@ test("teardown awaits already-closing API and vault servers before removal", asy
         assert.deepEqual(safeFailure.failures, [
           { phase: "api_server_stop", code: "eapi_close_test" },
         ]);
-        assert.doesNotMatch(JSON.stringify(safeFailure), /secret-sentinel|close-order-absent/i);
+        assert.doesNotMatch(
+          JSON.stringify(safeFailure),
+          /secret-sentinel|close-order-absent/i,
+        );
         return true;
       },
     );
@@ -415,7 +523,9 @@ test("teardown awaits already-closing API and vault servers before removal", asy
     clearTimeout(vaultClientTimer);
     apiClient.destroy();
     vaultClient.destroy();
-    if (apiSocket.listening) await new Promise((resolve) => apiSocket.close(resolve));
-    if (vaultSocket.listening) await new Promise((resolve) => vaultSocket.close(resolve));
+    if (apiSocket.listening)
+      await new Promise((resolve) => apiSocket.close(resolve));
+    if (vaultSocket.listening)
+      await new Promise((resolve) => vaultSocket.close(resolve));
   }
 });

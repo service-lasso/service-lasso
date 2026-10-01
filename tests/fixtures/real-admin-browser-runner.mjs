@@ -1,48 +1,17 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { copyFile, mkdir, mkdtemp, rename, writeFile } from "node:fs/promises";
+import {
+  copyFile,
+  lstat,
+  mkdir,
+  mkdtemp,
+  rename,
+  writeFile,
+} from "node:fs/promises";
 import http from "node:http";
 import https from "node:https";
 import os from "node:os";
 import path from "node:path";
-import { generateLocalhostCertificate } from "./real-admin-browser-certificate.mjs";
-
-import { discoverServices } from "../../dist/runtime/discovery/discoverServices.js";
-import {
-  bootstrapSecretsBrokerVault,
-  loadSecretsBrokerRuntimeContext,
-  provisionFirstRunGeneratedSecrets,
-  readSecretsBrokerRuntimeCredentials,
-} from "../../dist/runtime/broker/runtime.js";
-import { stopAllManagedProcesses } from "../../dist/runtime/execution/supervisor.js";
-import {
-  getLifecycleState,
-  resetLifecycleState,
-  setLifecycleState,
-} from "../../dist/runtime/lifecycle/store.js";
-import { createServiceRegistry } from "../../dist/runtime/manager/DependencyGraph.js";
-import { writeServiceState } from "../../dist/runtime/state/writeState.js";
-import { startApiServer } from "../../dist/server/index.js";
-import {
-  BROKER_LOCKOUT_INVALID_ATTEMPTS,
-  BrokerLockoutFixtureError,
-  classifyBrokerLockoutAttempt,
-  createSafeLockoutFixtureDiagnostic,
-  requestBrokerLockoutWithToken,
-} from "./real-admin-browser-lockout.mjs";
-import {
-  createSafeRealAdminBrowserTeardownFailure,
-  teardownRealAdminBrowserFixture,
-} from "./real-admin-browser-shutdown.mjs";
-import {
-  createRealAdminBrowserSampleSource,
-  FAIL_NEXT_SAMPLE_START_ENV,
-  FAIL_NEXT_SAMPLE_START_PATH,
-  handleFailNextSampleStartRequest,
-  SAMPLE_READINESS_PORT_ENV,
-} from "./real-admin-browser-rollback.mjs";
-import { writeManifest } from "../test-helpers.js";
-
 const sourceBrokerBinary = path.resolve(
   process.env.SERVICE_LASSO_TEST_BROKER_BINARY ?? "",
 );
@@ -50,11 +19,116 @@ const adminRoot = path.resolve(process.env.SERVICE_LASSO_TEST_ADMIN_ROOT ?? "");
 if (!sourceBrokerBinary || !adminRoot)
   throw new Error("Broker binary and Admin root are required.");
 
-const tempRoot = await mkdtemp(
-  path.join(os.tmpdir(), "service-lasso-real-admin-browser-"),
+function requireCallerRuntimePath(name) {
+  const value = process.env[name];
+  if (
+    typeof value !== "string" ||
+    value.length === 0 ||
+    value !== value.trim()
+  ) {
+    throw new Error(`${name} must name a caller-created runtime path.`);
+  }
+  return path.resolve(value);
+}
+
+function rootsOverlap(left, right) {
+  const relative = path.relative(left, right);
+  return (
+    relative === "" ||
+    (!relative.startsWith(`..${path.sep}`) && relative !== "..")
+  );
+}
+
+const workspaceRoot = requireCallerRuntimePath("SERVICE_LASSO_WORKSPACE_ROOT");
+const instanceRegistryPath = requireCallerRuntimePath(
+  "SERVICE_LASSO_INSTANCE_REGISTRY_PATH",
 );
-const servicesRoot = path.join(tempRoot, "services");
-const workspaceRoot = path.join(tempRoot, "workspace");
+const hostPortRegistryPath = requireCallerRuntimePath(
+  "SERVICE_LASSO_HOST_PORT_REGISTRY_PATH",
+);
+const servicesRoot = requireCallerRuntimePath(
+  "SERVICE_LASSO_TEST_SERVICES_ROOT",
+);
+const evidenceRoot = requireCallerRuntimePath(
+  "SERVICE_LASSO_TEST_EVIDENCE_ROOT",
+);
+for (const root of [workspaceRoot, servicesRoot, evidenceRoot]) {
+  const metadata = await lstat(root).catch(() => null);
+  if (!metadata?.isDirectory() || metadata.isSymbolicLink()) {
+    throw new Error(
+      "Caller runtime directories must already exist and cannot be links.",
+    );
+  }
+}
+for (const filePath of [instanceRegistryPath, hostPortRegistryPath]) {
+  const parent = await lstat(path.dirname(filePath)).catch(() => null);
+  const existing = await lstat(filePath).catch(() => null);
+  if (!parent?.isDirectory() || parent.isSymbolicLink() || existing) {
+    throw new Error(
+      "Caller runtime registry paths must be absent beneath direct caller-owned directories.",
+    );
+  }
+}
+for (const [left, right] of [
+  [workspaceRoot, instanceRegistryPath],
+  [workspaceRoot, hostPortRegistryPath],
+  [instanceRegistryPath, hostPortRegistryPath],
+  [workspaceRoot, servicesRoot],
+  [workspaceRoot, evidenceRoot],
+  [servicesRoot, evidenceRoot],
+]) {
+  if (rootsOverlap(left, right) || rootsOverlap(right, left)) {
+    throw new Error(
+      "Caller runtime paths must be distinct and non-overlapping.",
+    );
+  }
+}
+
+// Validate explicit caller custody before importing Core runtime or fixture
+// helpers. This runner has no temp-root fallback for the three live Core
+// paths; callers must establish and pass the exact workspace and registries.
+const { generateLocalhostCertificate } =
+  await import("./real-admin-browser-certificate.mjs");
+const { discoverServices } =
+  await import("../../dist/runtime/discovery/discoverServices.js");
+const {
+  bootstrapSecretsBrokerVault,
+  loadSecretsBrokerRuntimeContext,
+  provisionFirstRunGeneratedSecrets,
+  readSecretsBrokerRuntimeCredentials,
+} = await import("../../dist/runtime/broker/runtime.js");
+const { stopAllManagedProcesses } =
+  await import("../../dist/runtime/execution/supervisor.js");
+const { getLifecycleState, resetLifecycleState, setLifecycleState } =
+  await import("../../dist/runtime/lifecycle/store.js");
+const { createServiceRegistry } =
+  await import("../../dist/runtime/manager/DependencyGraph.js");
+const { writeServiceState } =
+  await import("../../dist/runtime/state/writeState.js");
+const { startApiServer } = await import("../../dist/server/index.js");
+const {
+  BROKER_LOCKOUT_INVALID_ATTEMPTS,
+  BrokerLockoutFixtureError,
+  classifyBrokerLockoutAttempt,
+  createSafeLockoutFixtureDiagnostic,
+  requestBrokerLockoutWithToken,
+} = await import("./real-admin-browser-lockout.mjs");
+const {
+  createSafeRealAdminBrowserTeardownFailure,
+  teardownRealAdminBrowserFixture,
+} = await import("./real-admin-browser-shutdown.mjs");
+const {
+  createRealAdminBrowserSampleSource,
+  FAIL_NEXT_SAMPLE_START_ENV,
+  FAIL_NEXT_SAMPLE_START_PATH,
+  handleFailNextSampleStartRequest,
+  SAMPLE_READINESS_PORT_ENV,
+} = await import("./real-admin-browser-rollback.mjs");
+const { writeManifest } = await import("../test-helpers.js");
+
+const tempRoot = await mkdtemp(
+  path.join(os.tmpdir(), "service-lasso-real-admin-browser-support-"),
+);
 const sampleRoot = path.join(servicesRoot, "sample-service");
 const sampleStartFailureMarker = path.join(
   workspaceRoot,
@@ -85,6 +159,7 @@ let brokerRuntimeCredentials = null;
 let shutdownPromise = null;
 let startupPhase = "initializing";
 const brokerIPCClient = new http.Agent({ keepAlive: true, maxSockets: 1 });
+let providerFaultState = "not_armed";
 
 function safeFailureCode(error) {
   if (
@@ -216,6 +291,45 @@ try {
       }
       return;
     }
+    if (
+      requestUrl.pathname === "/__service_lasso_test/fail-next-provider-request"
+    ) {
+      if (request.method !== "POST") {
+        response.writeHead(405, { Allow: "POST" });
+        response.end();
+        return;
+      }
+      if (providerFaultState !== "not_armed") {
+        response.writeHead(409, { "Content-Type": "application/json" });
+        response.end(JSON.stringify({ outcome: "provider_fault_unavailable" }));
+        return;
+      }
+      providerFaultState = "armed";
+      response.writeHead(200, { "Content-Type": "application/json" });
+      response.end(JSON.stringify({ outcome: "provider_fault_armed" }));
+      return;
+    }
+    if (
+      requestUrl.pathname === "/__service_lasso_test/provider-fault-receipt"
+    ) {
+      if (request.method !== "GET") {
+        response.writeHead(405, { Allow: "GET" });
+        response.end();
+        return;
+      }
+      response.writeHead(providerFaultState === "observed" ? 200 : 409, {
+        "Content-Type": "application/json",
+      });
+      response.end(
+        JSON.stringify({
+          outcome:
+            providerFaultState === "observed"
+              ? "provider_fault_observed"
+              : "provider_fault_unobserved",
+        }),
+      );
+      return;
+    }
     if (requestUrl.pathname === "/__service_lasso_test/unlock-wrapper") {
       if (request.method !== "POST") {
         response.writeHead(405, { Allow: "POST" });
@@ -323,6 +437,14 @@ try {
     if (request.headers["x-vault-token"] !== browserVaultToken) {
       response.writeHead(403, { "Content-Type": "application/json" });
       response.end(JSON.stringify({ errors: ["access denied"] }));
+      return;
+    }
+    if (providerFaultState === "armed") {
+      providerFaultState = "observed";
+      response.writeHead(503, { "Content-Type": "application/json" });
+      response.end(
+        JSON.stringify({ errors: ["provider fixture unavailable"] }),
+      );
       return;
     }
     if (!requestUrl.pathname.startsWith("/v1/secret/data/browser/")) {
@@ -711,16 +833,22 @@ try {
   startupPhase = "admin_readiness";
   await waitFor(`http://127.0.0.1:${adminPort}/`);
   if (typeof adminProcess.exitCode === "number") {
-    throw Object.assign(new Error("Admin process exited after readiness HTTP success."), {
-      code: "admin_startup_failed",
-    });
+    throw Object.assign(
+      new Error("Admin process exited after readiness HTTP success."),
+      {
+        code: "admin_startup_failed",
+      },
+    );
   }
   try {
     process.kill(adminProcess.pid, 0);
   } catch {
-    throw Object.assign(new Error("Admin process was not owned after readiness HTTP success."), {
-      code: "admin_startup_failed",
-    });
+    throw Object.assign(
+      new Error("Admin process was not owned after readiness HTTP success."),
+      {
+        code: "admin_startup_failed",
+      },
+    );
   }
   startupPhase = "ready";
   process.stdout.write(
