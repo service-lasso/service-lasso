@@ -7,4 +7,8 @@ root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 xcrun clang -Wall -Wextra -Werror -fblocks -O2 "$root/service-lasso-host-runner.c" -o "$out" -framework Security -framework CoreFoundation -framework libproc
 codesign --force --options runtime --sign "${SERVICE_LASSO_HOST_RUNNER_SIGNING_IDENTITY:?set owner signing identity}" "$out"
 shasum -a 256 "$out" | awk '{print $1 "  service-lasso-host-runner"}' > "$out.sha256"
+source_sha=$(shasum -a 256 "$root/service-lasso-host-runner.c" | awk '{print $1}')
+binary_sha=$(awk '{print $1}' "$out.sha256")
+printf '{"protocol":"service-lasso.host-runner.v1","source_sha256":"%s","candidate_sha256":"%s","binary":"service-lasso-host-runner"}\n' "$source_sha" "$binary_sha" > "$out.provenance.json"
 chmod 0500 "$out"; chmod 0600 "$out.sha256"
+chmod 0600 "$out.provenance.json"

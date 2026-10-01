@@ -40,3 +40,10 @@ or provider tokens in it. Roll back with
 validator where its native toolchain is present. It is source/build evidence,
 not activation evidence. Native acceptance remains unavailable until an
 authorised owner performs the Darwin install and retains its private receipt.
+
+The handover surface is [host-runner contract v1](../../scripts/host-runner-service/contract-v1.json).
+The owner build emits a checksum manifest and a provenance JSON record that
+binds `service-lasso.host-runner.v1`, source SHA-256 and the signed candidate
+SHA-256. The current package has no CLI acceptance claim. A fresh consumer must
+pin those three files and prove its Core-to-CLI invocation separately before a
+cross-repository acceptance claim is possible.

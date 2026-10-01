@@ -39,3 +39,12 @@ test("AC-8E platform contracts reject mutable pre-open writer paths", () => {
   assert.match(linux, /F_GET_SEALS/); assert.match(linux, /F_SEAL_WRITE/); assert.match(linux, /SHA256/);
   assert.match(windows, /CreateFile/); assert.match(windows, /FileFlagOpenReparsePoint/); assert.match(windows, /GetFileInformationByHandle/); assert.match(windows, /WorldSid/); assert.match(windows, /FileShare\.Write \| FileShare\.Delete/);
 });
+
+test("producer contract is versioned and binds consumer acceptance to a generated candidate hash", () => {
+  const contract = JSON.parse(read("scripts/host-runner-service/contract-v1.json"));
+  const build = read("scripts/host-runner-service/darwin/build.sh");
+  assert.equal(contract.protocol, "service-lasso.host-runner.v1");
+  assert.equal(contract.consumer, "service-lasso-cli");
+  assert.match(JSON.stringify(contract), /capability_fd/); assert.match(build, /candidate_sha256/);
+  assert.match(contract.non_claims[0], /CLI acceptance/);
+});
