@@ -55,3 +55,28 @@ This author evidence does not alter the retained HTTP `500` failure: the earlier
 one-run result remains non-reproducible and therefore does not establish stale
 state or refute the original cause. It also does not qualify catalog, TAR,
 released three-OS, hosted exact-head, independent review, or GA gates.
+
+## Current-develop reconciliation and normal-PowerShell qualification
+
+- The subsequent author branch integrates the current supplied `develop`
+  identity `4e5ec88a4f79d38b75f95b7fe20e24787b5c6c12` through merge commit
+  `2581637093a9fc875abfb60a2ae4d98626cbd681`; it does not use `main`.
+- The Windows verifier tests now invoke Windows PowerShell with
+  `-NoLogo -NoProfile -NonInteractive -File` only. They do not use an
+  execution-policy bypass. On this workstation, normal PowerShell reports
+  `UnauthorizedAccess` because scripts are disabled. That result is a local
+  environment limitation, not native success or a reason to weaken the test;
+  the required direct native proof must run on the hosted Windows worker under
+  normal PowerShell.
+- The standalone held-helper launch test still executes directly and passed.
+  Its hostile `COMPLUS_Version` payload returns a non-success native exit
+  before helper invocation as required.
+- Test fixtures now use an owned temporary host and instance registry. An
+  oversized shared registry remains invalid raw input under the existing bound;
+  it is neither read nor mutated by this qualification. A single owned-fixture
+  journal replacement observed `EPERM`; the exact replay scenario then passed
+  once under unchanged bounds. The first observation is retained as
+  non-reproducible and is not attributed to a historical cause.
+- `verify:mcp:packaged` reaches its Windows native verifier and stops at the
+  same normal-PowerShell policy refusal. It does not establish packaged native
+  acceptance locally. The staged-transfer contract checker passed.

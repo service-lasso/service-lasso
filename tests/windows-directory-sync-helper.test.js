@@ -15,7 +15,7 @@ test("Windows directory-sync helper has reproducible provenance and bounded nati
   assert.ok(systemRoot, "Windows system root is required");
   const result = await execFileAsync(
     `${systemRoot}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`,
-    ["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", "scripts/verify-windows-process-inspector.ps1", "-DirectorySyncHelper", "-Behavioral"],
+    ["-NoLogo", "-NoProfile", "-NonInteractive", "-File", "scripts/verify-windows-process-inspector.ps1", "-DirectorySyncHelper", "-Behavioral"],
     { windowsHide: true, timeout: 60_000 },
   );
   const receipt = JSON.parse(result.stdout.trim().split(/\r?\n/u).at(-1));
@@ -29,7 +29,7 @@ test("Windows unmanaged bootstrap attests the held managed launcher before any C
   assert.ok(systemRoot);
   const result = await execFileAsync(
     `${systemRoot}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`,
-    ["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", "scripts/verify-windows-managed-launcher-bootstrap.ps1"],
+    ["-NoLogo", "-NoProfile", "-NonInteractive", "-File", "scripts/verify-windows-managed-launcher-bootstrap.ps1"],
     { windowsHide: true, timeout: 60_000 },
   );
   const receipt = JSON.parse(result.stdout.trim().split(/\r?\n/u).at(-1));

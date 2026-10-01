@@ -15,7 +15,7 @@ turning local fixtures into release, producer-policy, or GA claims.
 | Redirected or linked configured services authority | `tests/staged-service-transfer.test.js` junction-denial case | Verified locally on Windows. A configured junction is denied before manifest, attachment metadata, or archive bytes are written. |
 | Shared durable operation claim, prepared/claimed/sealed order, recovery without re-fetch or re-import | `tests/staged-service-transfer.test.js` journal and recovery cases | Verified locally. The unified operation/stage document is persisted under the cross-process lock before child invocation. |
 | Abrupt separate-process failure after real child durable input and before outcome seal | `tests/fixtures/staged-transfer-hard-exit.mjs`; `tests/staged-service-transfer.test.js` hard-exit case | Verified locally. The fixture exits with code 73 after the production importer retains bytes; restart reconciles to consumed without resolver access or a second child import. |
-| Receipt-bound atomic direct-child publication and durability failure classification | `tests/staged-service-transfer.test.js` private-publication boundary matrix; `tests/windows-directory-sync-helper.test.js`; managed/bootstrap provenance | The native bootstrap is a non-CLR PE. Before it starts the managed launcher it strips loader-sensitive inherited variables, holds the package-adjacent managed image through a no-write/no-delete handle, verifies its fixed reviewed digest and length, rejects reparse/final-path mismatch, launches non-detached, and returns the managed exit. The managed launcher then validates the closed directory payload and package-adjacent sync helper, holding its verified helper and directory handles across `CreateProcess`; the helper flushes the directory. Binding, launch, open, flush, close, or child-exit failure remains `unknown`. This is source/runtime fault evidence, not a power-loss qualification. |
+| Receipt-bound atomic direct-child publication and durability failure classification | `tests/staged-service-transfer.test.js` private-publication boundary matrix; `tests/windows-directory-sync-helper.test.js`; managed/bootstrap provenance | The native bootstrap is a non-CLR PE. Before it starts the managed launcher it strips loader-sensitive inherited variables, holds the package-adjacent managed image through a no-write/no-delete handle, verifies its fixed reviewed digest and length, rejects reparse/final-path mismatch, launches non-detached, and returns the managed exit. The managed launcher then validates the closed directory payload and package-adjacent sync helper, holding its verified helper and directory handles across `CreateProcess`; the helper flushes the directory. Binding, launch, open, flush, close, or child-exit failure remains `unknown`. The direct native verifier is invoked through normal PowerShell without an execution-policy override. The current local PowerShell policy refuses scripts, so native provenance and behavioral evidence remain unavailable locally and require the hosted Windows direct proof. This is source/runtime fault evidence, not a power-loss qualification. |
 | Corrupt/divergent retained state, orphan records, and unknown retention | `staged transfer fails closed for hostile unified-store permutations without refetching or reimporting` in `tests/staged-service-transfer.test.js`; migration/divergence and unknown-recovery cases | Verified locally. Unknown root/stage fields, duplicate stages, byte-object length substitution, operation/stage byte-object mismatch, orphan outbox, and journal workspace mismatch return `503` before provenance resolution or child import. This is direct source/runtime persistence proof; it is not an independent producer catalog or release qualification. |
 | Audit outbox exactly-once safe retry and privacy | `tests/staged-service-transfer.test.js` append-before-removal restart case | Verified locally. A durable outbox replay after an already durable append retains one deterministic operation-bound event with only actor, target, operation, workspace, outcome, and status metadata; it never invokes the child again. |
 | Closed HTTP header/body/route negative matrix | `staged transfer HTTP rejects malformed route grammar before state disclosure and accepts only strict transfer bodies` in `tests/staged-service-transfer-http.test.js` | Verified locally against a real Core HTTP server. Duplicate Authorization, misplaced transfer-token/confirmation headers, wrong JSON/octet-stream content type, duplicate and unknown JSON members, invalid JSON, query injection, and method/tail misplacement terminate with stable non-success outcomes before child import. |
@@ -33,11 +33,16 @@ npm run build
 node --test --test-concurrency=1 tests/staged-service-transfer.test.js tests/staged-service-transfer-http.test.js tests/staged-service-transfer-contract.test.js tests/service-producer-release-policy-contract.test.js tests/windows-directory-sync-helper.test.js tests/mcp-product-artifact.test.js
 ```
 
-The current focused command completed as 34/34 locally in an isolated
-workspace. The helper probe rebuilds the checked-in C# through the trusted
-.NET Framework compiler, rejects altered provenance/source/binary identities,
-and records actual success, invalid-argument, and directory-open exit paths.
-It is direct local source/runtime evidence for the rows marked verified. It is
-not release qualification, producer acceptance, an external client journey,
-or a GA decision. Owner catalog and TAR gates remain separately owned
-#1524/T1--T5 prerequisites.
+The JavaScript transfer, HTTP, archive, and packaged-layout checks are run in
+an owned temporary registry/workspace. Tests must never consume or mutate a
+shared host or instance registry; an oversized shared registry remains invalid
+input under its existing bounded-size rule. The helper probe rebuilds the
+checked-in C# through the trusted .NET Framework compiler, rejects altered
+provenance/source/binary identities, and records actual success,
+invalid-argument, and directory-open exit paths when normal PowerShell permits
+execution. This workstation's normal PowerShell policy refuses scripts, so
+that native proof and `verify:mcp:packaged` are currently unavailable locally;
+no execution-policy bypass is used. Hosted Windows evidence remains required.
+These checks are not release qualification, producer acceptance, an external
+client journey, or a GA decision. Owner catalog and TAR gates remain separately
+owned #1524/T1--T5 prerequisites.
