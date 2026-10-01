@@ -79,6 +79,7 @@ try {
   $childCommand = "& npm.cmd test; `$npmExitCode = `$LASTEXITCODE; [System.IO.File]::WriteAllText('$escapedExitCodePath', [string]`$npmExitCode); exit `$npmExitCode"
   $child = Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile', '-Command', $childCommand) -WorkingDirectory $repoRoot -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath -PassThru
   $initialReceipt.childProcessId = $child.Id
+  $initialReceipt.childProcessStartedAtUtc = $child.StartTime.ToUniversalTime().ToString('o')
   $initialReceipt | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $initialReceiptPath -Encoding utf8
   $child.WaitForExit()
   if (-not [System.IO.File]::Exists($childExitCodePath)) {
@@ -99,7 +100,10 @@ try {
     candidateTree = $tree
     command = $initialReceipt.command
     childProcessId = $child.Id
-    actualExitCode = $actualExitCode
+    childProcessStartedAtUtc = $initialReceipt.childProcessStartedAtUtc
+    childProcessExitedAtUtc = $child.ExitTime.ToUniversalTime().ToString('o')
+    childActualCloseExitCode = $child.ExitCode
+    actualNpmExitCode = $actualExitCode
     inputIsolation = $initialReceipt.inputIsolation
     nativeSha256 = $nativeHashes
     stdout = $stdoutPath
