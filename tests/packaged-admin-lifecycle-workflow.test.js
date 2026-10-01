@@ -54,6 +54,7 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
     "tests/consume-admin-trusted-unlock-receipt.test.js",
     "tests/resolve-pnpm-action-entrypoint.test.js",
     "tests/packaged-admin-lifecycle-receipt-custody.test.js",
+    "tests/packaged-admin-lifecycle-first-custody-execution.test.js",
     "tests/prebrowser-failure-execution.test.js",
     "package.json",
     "package-lock.json",
@@ -81,6 +82,10 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
   );
   assert.match(workflow, /ref: \$\{\{ env\.ADMIN_HARNESS_REVISION \}\}/);
   assert.match(workflow, /timeout-minutes: 60/);
+  assert.equal(
+    parsed.jobs["packaged-admin-lifecycle"].env.ADMIN_PLATFORM,
+    "${{ matrix.admin_platform }}",
+  );
   for (const marker of [
     "SERVICE_LASSO_INSTANCE_REGISTRY_PATH",
     "SERVICE_LASSO_HOST_PORT_REGISTRY_PATH",

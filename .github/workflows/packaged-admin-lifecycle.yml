@@ -22,6 +22,7 @@ on:
       - tests/consume-admin-trusted-unlock-receipt.test.js
       - tests/resolve-pnpm-action-entrypoint.test.js
       - tests/packaged-admin-lifecycle-receipt-custody.test.js
+      - tests/packaged-admin-lifecycle-first-custody-execution.test.js
       - tests/prebrowser-failure-execution.test.js
       - package.json
       - package-lock.json
@@ -45,6 +46,7 @@ on:
       - tests/consume-admin-trusted-unlock-receipt.test.js
       - tests/resolve-pnpm-action-entrypoint.test.js
       - tests/packaged-admin-lifecycle-receipt-custody.test.js
+      - tests/packaged-admin-lifecycle-first-custody-execution.test.js
       - tests/prebrowser-failure-execution.test.js
       - package.json
       - package-lock.json
@@ -93,6 +95,9 @@ jobs:
             broker_binary: secretsbroker
             broker_sha256: 567b40bbd42881c5a4e12c2b8984ece9b5225d221ecf2d776fb541e330365ce5
     env:
+      # The first custody step runs under `set -u`; project the matrix value at
+      # job scope so it is present before any dependency or receipt work.
+      ADMIN_PLATFORM: ${{ matrix.admin_platform }}
       ADMIN_RELEASE_ID: "380051618"
       ADMIN_RELEASE_TAG: "2026.8.31-f015b44"
       ADMIN_REVISION: "f015b4445b0526546a309301270186a697588166"
