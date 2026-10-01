@@ -39,7 +39,6 @@ async function startJwksServer() {
   });
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
-  await waitForApiServerInitialization(server);
   const address = server.address();
   assert.ok(address && typeof address === "object");
   return {
@@ -97,6 +96,7 @@ async function abandonLifecycleRequest(apiServer, path, body, token) {
 
 async function startDirectApiServer(options) {
   const server = createApiServer(options);
+  await waitForApiServerInitialization(server);
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   const address = server.address();

@@ -67,13 +67,13 @@ async function token(privateKey, actorId, clientId, scope = "service-lasso:read"
 
 async function startApi(options, port = 0, allowInitializationFailure = false) {
   const server = createApiServer(options);
-  server.listen(port, "127.0.0.1");
-  await once(server, "listening");
   if (allowInitializationFailure) {
     await assert.rejects(() => waitForApiServerInitialization(server));
   } else {
     await waitForApiServerInitialization(server);
   }
+  server.listen(port, "127.0.0.1");
+  await once(server, "listening");
   const address = server.address();
   assert.ok(address && typeof address === "object");
   return {
@@ -528,13 +528,16 @@ test("#1553 keeps the shared read boundary's Origin and actor/client rate denial
   }
 });
 
-test("#1553 records exactly one redacted authorization Audit event before GET success or denial and fails closed on Audit outage", async () => {
+test("#1553 records the actual redacted authorization and context outcome before every GET response", async () => {
   const fixture = await makeTempServicesRoot("service-lasso-reconciliation-audit-");
   const jwks = await startJwksServer();
   const previousTestHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
   const events = [];
+  const unavailableFixture = await makeTempServicesRoot("service-lasso-reconciliation-audit-unavailable-context-");
   let api;
   let outageApi;
+  let unavailableApi;
+  let unavailableOutageApi;
   try {
     process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
     const env = {
@@ -570,6 +573,7 @@ test("#1553 records exactly one redacted authorization Audit event before GET su
       assert.equal(JSON.stringify(event).includes(fixture.workspaceRoot), false);
       assert.equal(JSON.stringify(event).includes("Bearer "), false);
       assert.equal(JSON.stringify(event).includes("/api/operator/lifecycle/reconciliation-context"), true);
+      assert.match(event.correlationId, /^mcp-auth-[0-9a-f-]{36}$/u);
     }
 
     outageApi = await startApi({
@@ -583,11 +587,46 @@ test("#1553 records exactly one redacted authorization Audit event before GET su
     assert.equal(outage.body.error, "mcp_audit_unavailable");
     assert.equal(JSON.stringify(outage.body).includes("audit-sensitive-failure"), false);
     assert.equal(JSON.stringify(outage.body).includes(allowed), false);
+
+    const unavailableAuthorityPath = getLifecycleDocumentPath(
+      unavailableFixture.workspaceRoot,
+      RECONCILIATION_CONTEXT_AUTHORITY_POLICY,
+    );
+    await mkdir(path.dirname(unavailableAuthorityPath), { recursive: true });
+    await writeFile(unavailableAuthorityPath, "{malformed", "utf8");
+    const unavailableEvents = [];
+    unavailableApi = await startApi({
+      servicesRoot: unavailableFixture.servicesRoot,
+      workspaceRoot: unavailableFixture.workspaceRoot,
+      mcpHttpIdentity: { env },
+      mcpPolicyTestHooks: { appendAuditEvent: async (event) => { unavailableEvents.push(event); } },
+    }, 0, true);
+    const unavailable = await readContext(unavailableApi, allowed);
+    assert.equal(unavailable.status, 503);
+    assert.equal(unavailable.body.error, "reconciliation_context_unavailable");
+    assert.deepEqual(unavailableEvents.map((event) => [event.action, event.outcome, event.statusCode, event.reason]), [
+      ["mcp.auth.allowed", "failure", 503, "reconciliation_context_unavailable"],
+    ]);
+    assert.match(unavailableEvents[0].correlationId, /^mcp-auth-[0-9a-f-]{36}$/u);
+
+    unavailableOutageApi = await startApi({
+      servicesRoot: unavailableFixture.servicesRoot,
+      workspaceRoot: unavailableFixture.workspaceRoot,
+      mcpHttpIdentity: { env },
+      mcpPolicyTestHooks: { appendAuditEvent: async () => { throw new Error("audit-sensitive-failure"); } },
+    }, 0, true);
+    const unavailableAuditOutage = await readContext(unavailableOutageApi, allowed);
+    assert.equal(unavailableAuditOutage.status, 503);
+    assert.equal(unavailableAuditOutage.body.error, "mcp_audit_unavailable");
+    assert.equal(JSON.stringify(unavailableAuditOutage.body).includes("audit-sensitive-failure"), false);
   } finally {
+    await unavailableOutageApi?.stop().catch(() => undefined);
+    await unavailableApi?.stop().catch(() => undefined);
     await outageApi?.stop().catch(() => undefined);
     await api?.stop().catch(() => undefined);
     await jwks.stop().catch(() => undefined);
     await rm(fixture.tempRoot, { recursive: true, force: true });
+    await rm(unavailableFixture.tempRoot, { recursive: true, force: true });
     if (previousTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
     else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = previousTestHooks;
   }
@@ -596,18 +635,17 @@ test("#1553 records exactly one redacted authorization Audit event before GET su
 test("#1553 direct server initialization rejection remains observable and retains its owned workspace", async () => {
   const fixture = await makeTempServicesRoot("service-lasso-reconciliation-initializer-rejection-");
   const authorityPath = getLifecycleDocumentPath(fixture.workspaceRoot, RECONCILIATION_CONTEXT_AUTHORITY_POLICY);
+  await mkdir(path.dirname(authorityPath), { recursive: true });
+  await writeFile(authorityPath, "{malformed", "utf8");
   const server = createApiServer({ servicesRoot: fixture.servicesRoot, workspaceRoot: fixture.workspaceRoot });
   let closed = false;
   try {
-    await mkdir(path.dirname(authorityPath), { recursive: true });
-    await writeFile(authorityPath, "{malformed", "utf8");
-    server.listen(0, "127.0.0.1");
-    await once(server, "listening");
     await assert.rejects(
       () => waitForApiServerInitialization(server),
       /reconciliation/i,
     );
     assert.equal(await pathExists(authorityPath), true);
+    assert.equal(server.listening, false);
   } finally {
     if (server.listening) {
       const close = once(server, "close");
@@ -617,7 +655,7 @@ test("#1553 direct server initialization rejection remains observable and retain
       closed = true;
     }
   }
-  assert.equal(closed, true);
+  assert.equal(closed, false);
   assert.equal(await pathExists(authorityPath), true);
   await rm(fixture.tempRoot, { recursive: true, force: true });
 });

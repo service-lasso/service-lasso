@@ -548,7 +548,7 @@ interface ApiRouteConfig extends RuntimeConfig {
   mcpPolicyTestHooks?: ApiServerOptions["mcpPolicyTestHooks"];
   secretRotationTestHooks?: ApiServerOptions["secretRotationTestHooks"];
   runtimeShutdownSlot?: RuntimeShutdownSlot;
-  reconciliationContextIdentity: Promise<string>;
+  reconciliationContextIdentity: Promise<ReconciliationContextInitialization>;
 }
 
 export interface RunningApiServer {
@@ -1359,6 +1359,7 @@ async function recordMcpAuthorizationAudit(
   reason?: string,
   parsedBody?: unknown,
   routeTemplate: string = "/api/mcp",
+  authorizationDecision?: "allowed" | "denied",
 ): Promise<void> {
   try {
     const appendAuthorizationAudit = async (event: AppendAuditEventInput): Promise<void> => {
@@ -1369,7 +1370,7 @@ async function recordMcpAuthorizationAudit(
     await appendAuthorizationAudit({
       workspaceRoot: config.workspaceRoot,
       source: "runtime-api",
-      action: outcome === "success" ? "mcp.auth.allowed" : "mcp.auth.denied",
+      action: `mcp.auth.${authorizationDecision ?? (outcome === "success" ? "allowed" : "denied")}`,
       actor: authorization?.actor.actorId ?? "mcp-unauthenticated",
       method: request.method ?? "POST",
       routeTemplate,
@@ -1379,6 +1380,7 @@ async function recordMcpAuthorizationAudit(
         ? "Operator MCP request passed the transport identity and scope boundary."
         : "Operator MCP request was denied by the transport identity or scope boundary.",
       reason: reason ?? (outcome === "success" ? "authorized" : "denied"),
+      correlationId: `mcp-auth-${randomUUID()}`,
       metadata: authorization
         ? {
             actorKind: authorization.actor.kind,
@@ -1860,15 +1862,14 @@ async function createDurableReconciliationContextResponse(
     clientBinding: string;
   };
 }> {
-  let authorityId: string;
-  try {
-    authorityId = await config.reconciliationContextIdentity;
-  } catch (error) {
-    if (error instanceof ReconciliationContextIdentityError) {
+  const initialized = await config.reconciliationContextIdentity;
+  if (!initialized.ok) {
+    if (initialized.error instanceof ReconciliationContextIdentityError) {
       throw new ApiError("reconciliation_context_unavailable", 503, "Durable reconciliation context is unavailable.");
     }
-    throw error;
+    throw initialized.error;
   }
+  const authorityId = initialized.authorityId;
   return {
     contractVersion: DURABLE_RECONCILIATION_CONTEXT_CONTRACT_VERSION,
     context: {
@@ -1962,16 +1963,6 @@ async function authorizeDurableReconciliationContextRequest(
     authorization = await authenticateMcpHttpRequest(request, auth, config.mcpHttpIdentity);
     assertMcpScopes(authorization, ["service-lasso:read"]);
     assertMcpRateLimit(config.mcpRateLimiter, authorization, config.mcpHttpIdentity);
-    await recordMcpAuthorizationAudit(
-      config,
-      request,
-      "success",
-      200,
-      authorization,
-      undefined,
-      undefined,
-      "/api/operator/lifecycle/reconciliation-context",
-    );
     return authorization;
   } catch (error) {
     if (error instanceof McpHttpPolicyError) {
@@ -4410,7 +4401,45 @@ async function routeRequestWithoutMutationCoordination(
   if (request.method === "GET" && url.pathname === "/api/operator/lifecycle/reconciliation-context") {
     const authorization = await authorizeDurableReconciliationContextRequest(request, response, auth, config);
     if (!authorization) return;
-    writeJson(response, 200, await createDurableReconciliationContextResponse(config, authorization));
+    try {
+      const reconciliationContext = await createDurableReconciliationContextResponse(config, authorization);
+      await recordMcpAuthorizationAudit(
+        config,
+        request,
+        "success",
+        200,
+        authorization,
+        undefined,
+        undefined,
+        "/api/operator/lifecycle/reconciliation-context",
+      );
+      writeJson(response, 200, reconciliationContext);
+    } catch (error) {
+      if (error instanceof ApiError && error.code === "reconciliation_context_unavailable") {
+        try {
+          await recordMcpAuthorizationAudit(
+            config,
+            request,
+            "failure",
+            503,
+            authorization,
+            "reconciliation_context_unavailable",
+            undefined,
+            "/api/operator/lifecycle/reconciliation-context",
+            "allowed",
+          );
+        } catch (auditError) {
+          writeMcpPolicyError(
+            response,
+            auditError instanceof McpHttpPolicyError
+              ? auditError
+              : new McpHttpPolicyError("mcp_audit_unavailable", 503),
+          );
+          return;
+        }
+      }
+      throw error;
+    }
     return;
   }
 
@@ -7710,14 +7739,21 @@ async function routeRequest(
   await withRuntimeMutationCoordination(config.workspaceRoot, route);
 }
 
-const apiServerInitialization = new WeakMap<Server, Promise<string>>();
+type ReconciliationContextInitialization =
+  | { ok: true; authorityId: string }
+  | { ok: false; error: unknown };
+
+const apiServerInitialization = new WeakMap<Server, Promise<ReconciliationContextInitialization>>();
 
 /**
  * Test-only direct servers do not use startApiServer's awaited startup path.
  * Expose their owned initialization promise so their teardown can quiesce it.
  */
 export async function waitForApiServerInitialization(server: Server): Promise<void> {
-  await apiServerInitialization.get(server);
+  const initialization = apiServerInitialization.get(server);
+  if (!initialization) throw new Error("Server does not have an owned API initialization.");
+  const initialized = await initialization;
+  if (!initialized.ok) throw initialized.error;
 }
 
 export function createApiServer(options: ApiServerOptions = {}): Server {
@@ -7728,10 +7764,10 @@ export function createApiServer(options: ApiServerOptions = {}): Server {
     throw new Error("Secret rotation test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
   }
   const resolvedConfig = resolveRuntimeConfig(options);
-  const reconciliationContextIdentity = initializeReconciliationContextIdentity(resolvedConfig.workspaceRoot);
-  // Direct listeners remain observable through waitForApiServerInitialization;
-  // this handler prevents an unobserved rejection before their owner awaits it.
-  void reconciliationContextIdentity.catch(() => undefined);
+  const reconciliationContextIdentity = initializeReconciliationContextIdentity(resolvedConfig.workspaceRoot).then(
+    (authorityId): ReconciliationContextInitialization => ({ ok: true, authorityId }),
+    (error: unknown): ReconciliationContextInitialization => ({ ok: false, error }),
+  );
   const routeConfig: ApiRouteConfig = {
     ...resolvedConfig,
     bindHost: options.host ?? process.env.SERVICE_LASSO_HOST ?? "127.0.0.1",
@@ -8341,6 +8377,7 @@ async function startApiServerGeneration(
         secretRotationTestHooks: options.secretRotationTestHooks,
         runtimeShutdownSlot,
       });
+      await waitForApiServerInitialization(candidateServer);
       await recordProcessOwnership(config.workspaceRoot, {
         ownerType: "runtime",
         ownerId: runtimeInstanceId,
