@@ -33,7 +33,6 @@ test("staged transfer migrates an unambiguous v3 sidecar and rejects a divergent
     await assert.rejects(() => transfer.status(actor, created.stageId), (error) => error instanceof TransferError && error.statusCode === 503);
   } finally { await rm(root, { recursive:true, force:true }); }
 });
-
 test("staged transfer reserves actor and workspace capacity, binds exact chunk ranges, and expires before reuse", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "staged-transfer-"));
   let clock = 1000;

@@ -257,4 +257,3 @@ and BSD/macOS producer receipts and real fixtures, byte-level accepted and
 denial/parser-no-effect evidence, and the checksum-bound Windows/Linux/macOS
 released CLI/TUI/Core journey on all three operating systems. It must prove no
 install, start, restart, reload, or lifecycle effect.
-

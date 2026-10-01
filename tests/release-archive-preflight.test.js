@@ -282,4 +282,3 @@ test("TAR accepts legal maximal gzip optional fields and validates FHCRC indepen
   const reservedFlags = Buffer.from(fixture.archive); reservedFlags[3] |= 0x20;
   unsafe(preflightReleaseArchive({ bytes: reservedFlags, archiveType: "tar.gz" }));
 });
-
