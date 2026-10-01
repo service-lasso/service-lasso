@@ -262,6 +262,7 @@ async function writeStubbornProcessTreeFixture(serviceRoot, scriptPath, options 
     custodyReadyFilePath = null,
     jobObservationMode = "complete",
     jobObservationForeignPid = null,
+    extraJobMembers = 0,
   } = options;
   const childScriptPath = path.join(serviceRoot, "runtime", "fixture-child.mjs");
   const grandchildScriptPath = path.join(serviceRoot, "runtime", "fixture-grandchild.mjs");
@@ -291,6 +292,18 @@ await new Promise((resolve, reject) => {
   grandchild.once("spawn", resolve);
   grandchild.once("error", reject);
 });
+const extraMembers = [];
+for (let index = 0; index < ${JSON.stringify(extraJobMembers)}; index += 1) {
+  const member = spawn(process.execPath, [${JSON.stringify(grandchildScriptPath)}], {
+    stdio: "ignore",
+    windowsHide: true,
+  });
+  await new Promise((resolve, reject) => {
+    member.once("spawn", resolve);
+    member.once("error", reject);
+  });
+  extraMembers.push(member.pid);
+}
 const completeReceipt = {
   rootPid: process.ppid,
   childPid: process.pid,
@@ -528,6 +541,13 @@ async function captureHeldFixtureCustody(receipt, heldPids) {
   }));
 }
 
+async function assertHeldFixtureCustodyOwned(custody) {
+  const inspections = await Promise.all(custody.map((identity) => inspectProcess(identity.pid)));
+  for (const [index, inspection] of inspections.entries()) {
+    assert.equal(classifyProcessIdentity(custody[index], inspection), "owned");
+  }
+}
+
 async function readOwnedFixtureRootCustody(workspaceRoot, serviceId) {
   const ownership = await findProcessOwnership(workspaceRoot, "service", serviceId);
   assert.ok(ownership?.identity);
@@ -618,6 +638,7 @@ async function cleanupCompleteOwnedFixture({ serviceId, rootCustody, custody, te
       const ownership = await findProcessOwnership(rootCustody.workspaceRoot, "service", serviceId);
       assertSameProcessFingerprint(ownership?.identity, rootCustody.identity);
       assert.equal(ownership?.processGroup?.kind, "windows-job");
+      await assertHeldFixtureCustodyOwned(custody);
       assertManagedProcessCustodyForTests(rootCustody.managerCustody);
       await stopManagedProcessWithCustodyForTests(rootCustody.managerCustody, 5_000);
     }
@@ -3866,6 +3887,7 @@ test("managed Windows job contains a child spawned after enrollment when the ser
     rootExitAfterChildMs: 750,
     acknowledgementFilePath: acknowledgementPath,
     custodyReadyFilePath: custodyReadyPath,
+    extraJobMembers: 1,
   });
   let handle;
   let custody = null;
@@ -3894,6 +3916,7 @@ test("managed Windows job contains a child spawned after enrollment when the ser
       receipt,
       await readCompleteOwnedFixtureJobObservation(launcherTerminal.jobObservation, receipt),
     );
+    assert.equal(custody.length, 4);
     await writeFile(custodyReadyPath, "verified\n", { flag: "wx" });
     await readOwnedFixtureAcknowledgement(acknowledgementPath, receipt);
 
