@@ -159,11 +159,44 @@ for (const [left, right] of [
 
 const runnerIdentity = await observeOwnedProcess(process.pid, process.ppid);
 const initialReceiptPath = path.join(evidenceRoot, "live-initial-receipt.json");
+const readyReceiptPath = path.join(evidenceRoot, "live-ready-receipt.json");
 const closureReceiptPath = path.join(evidenceRoot, "live-closure-receipt.json");
 const providerReceiptPath = path.join(
   evidenceRoot,
   "live-provider-control-receipt.json",
 );
+const providerConsumedReceiptPath = path.join(
+  evidenceRoot,
+  "live-provider-control-consumed-receipt.json",
+);
+
+async function requireAbsentPrivateReceipt(filePath) {
+  const metadata = await lstat(filePath).catch((error) => {
+    if (error?.code === "ENOENT") return null;
+    throw error;
+  });
+  if (metadata) {
+    throw new Error("Qualification receipt path must be absent before runner startup.");
+  }
+}
+
+async function createPrivateReceipt(filePath, receipt) {
+  await writeFile(filePath, JSON.stringify(receipt), {
+    encoding: "utf8",
+    mode: 0o600,
+    flag: "wx",
+  });
+}
+
+for (const receiptPath of [
+  initialReceiptPath,
+  readyReceiptPath,
+  closureReceiptPath,
+  providerReceiptPath,
+  providerConsumedReceiptPath,
+]) {
+  await requireAbsentPrivateReceipt(receiptPath);
+}
 const receiptNonce = randomBytes(32).toString("hex");
 const initialReceipt = {
   schema: "service-lasso.real-admin-browser-live-initial.v1",
@@ -186,9 +219,7 @@ const initialReceipt = {
   },
   ownedProcesses: { runner: runnerIdentity },
 };
-await writeFile(initialReceiptPath, JSON.stringify(initialReceipt), {
-  mode: 0o600,
-});
+await createPrivateReceipt(initialReceiptPath, initialReceipt);
 
 // Validate explicit caller custody before importing Core runtime or fixture
 // helpers. This runner has no temp-root fallback for the three live Core
@@ -277,9 +308,7 @@ async function persistProviderControlReceipt(phase) {
     causalSink: "authenticated_vault_provider_request",
     state: "observed_before_controlled_fault",
   };
-  await writeFile(providerReceiptPath, JSON.stringify(providerControlReceipt), {
-    mode: 0o600,
-  });
+  await createPrivateReceipt(providerReceiptPath, providerControlReceipt);
   return providerControlReceipt;
 }
 
@@ -334,7 +363,7 @@ async function waitFor(url, timeoutMs = 30_000) {
   throw new Error(`Timed out waiting for ${new URL(url).pathname}`);
 }
 
-function shutdown(exitCode = 0) {
+function shutdown({ exitCode = 0, trigger = "ipc", signal = null } = {}) {
   if (shutdownPromise) return shutdownPromise;
   shutdownPromise = (async () => {
     let resolvedExitCode = exitCode;
@@ -349,36 +378,36 @@ function shutdown(exitCode = 0) {
         resetLifecycle: resetLifecycleState,
         tempRoot,
       });
-      await writeFile(
+      await createPrivateReceipt(
         closureReceiptPath,
-        JSON.stringify({
+        {
           schema: "service-lasso.real-admin-browser-live-closure.v1",
           private: true,
           nonce: receiptNonce,
           source: { head: sourceHead, tree: sourceTree },
-          outcome: "closed",
+          outcome: trigger === "signal" ? "interrupted" : "closed",
+          termination: { trigger, signal, exitCode },
           teardown,
           providerFault:
             providerFaultState === "observed" ? "consumed" : "unresolved",
-        }),
-        { mode: 0o600 },
+        },
       );
     } catch (error) {
       resolvedExitCode = 1;
       const failure = createSafeRealAdminBrowserTeardownFailure(error);
-      await writeFile(
+      await createPrivateReceipt(
         closureReceiptPath,
-        JSON.stringify({
+        {
           schema: "service-lasso.real-admin-browser-live-closure.v1",
           private: true,
           nonce: receiptNonce,
           source: { head: sourceHead, tree: sourceTree },
           outcome: "unresolved",
+          termination: { trigger, signal, exitCode },
           failure,
           providerFault:
             providerFaultState === "observed" ? "consumed" : "unresolved",
-        }),
-        { mode: 0o600 },
+        },
       );
       await new Promise((resolve) => {
         process.stderr.write(`${JSON.stringify(failure)}\n`, resolve);
@@ -389,10 +418,14 @@ function shutdown(exitCode = 0) {
   return shutdownPromise;
 }
 
-process.on("SIGINT", () => void shutdown(0));
-process.on("SIGTERM", () => void shutdown(0));
+process.on("SIGINT", () =>
+  void shutdown({ exitCode: 1, trigger: "signal", signal: "SIGINT" }),
+);
+process.on("SIGTERM", () =>
+  void shutdown({ exitCode: 1, trigger: "signal", signal: "SIGTERM" }),
+);
 process.on("message", (message) => {
-  if (message?.type === "service-lasso-real-admin-shutdown") void shutdown(0);
+  if (message?.type === "service-lasso-real-admin-shutdown") void shutdown();
 });
 
 try {
@@ -487,6 +520,7 @@ try {
                   schema: providerControlReceipt?.schema,
                   phase: providerControlReceipt?.phase,
                   nonce: providerControlReceipt?.nonce,
+                  state: "controlled_fault_consumed",
                 }
               : null,
         }),
@@ -606,14 +640,13 @@ try {
     if (providerFaultState === "armed") {
       providerFaultState = "observed";
       response.writeHead(503, { "Content-Type": "application/json" });
-      await writeFile(
-        providerReceiptPath,
-        JSON.stringify({
+      await createPrivateReceipt(
+        providerConsumedReceiptPath,
+        {
           ...providerControlReceipt,
           state: "controlled_fault_consumed",
           causalSink: "next_authenticated_vault_provider_request",
-        }),
-        { mode: 0o600 },
+        },
       );
       response.end(
         JSON.stringify({ errors: ["provider fixture unavailable"] }),
@@ -1028,7 +1061,7 @@ try {
     adminProcess.pid,
     process.pid,
   );
-  const liveReceipt = {
+  const readyReceipt = {
     ...initialReceipt,
     ownedProcesses: { runner: runnerIdentity, admin: adminIdentity },
     ownerCorrelation: {
@@ -1038,10 +1071,9 @@ try {
       adminParentPid: adminIdentity.parentPid,
     },
   };
-  await writeFile(initialReceiptPath, JSON.stringify(liveReceipt), {
-    mode: 0o600,
-  });
-  const liveReceiptSHA256 = await sha256File(initialReceiptPath);
+  await createPrivateReceipt(readyReceiptPath, readyReceipt);
+  const initialReceiptSHA256 = await sha256File(initialReceiptPath);
+  const readyReceiptSHA256 = await sha256File(readyReceiptPath);
   process.stdout.write(
     `${JSON.stringify({
       contractVersion: "service-lasso.real-admin-browser.v2",
@@ -1052,10 +1084,12 @@ try {
       ref: "services/sample-service/sample.GENERATED_TOKEN",
       tempRoot,
       liveReceipt: {
-        schema: liveReceipt.schema,
+        schema: readyReceipt.schema,
         nonce: receiptNonce,
         initialPath: initialReceiptPath,
-        initialSHA256: liveReceiptSHA256,
+        initialSHA256: initialReceiptSHA256,
+        readyPath: readyReceiptPath,
+        readySHA256: readyReceiptSHA256,
         closurePath: closureReceiptPath,
       },
     })}\n`,
@@ -1070,5 +1104,5 @@ try {
       phase: startupPhase,
     })}\n`,
   );
-  await shutdown(1);
+  await shutdown({ exitCode: 1, trigger: "startup_failure" });
 }
