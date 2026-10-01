@@ -1,5 +1,5 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { mkdir, open, readFile, rename } from "node:fs/promises";
+import { lstat, mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import { appendAuditEvent } from "../audit/store.js";
 import { withCrossProcessFileLock } from "../security/cross-process-file-lock.js";
@@ -101,6 +101,23 @@ function active(state: StageState): boolean { return !["consumed", "cleaned"].in
 function record(value: unknown): value is Record<string, unknown> { return !!value && typeof value === "object" && !Array.isArray(value); }
 function only(recordValue: Record<string, unknown>, allowed: string[]): boolean { return Object.keys(recordValue).every((key) => allowed.includes(key)); }
 
+async function assertSafeJournalPublicationPath(file: string): Promise<void> {
+  try {
+    const existing = await lstat(file);
+    if (!existing.isFile() || existing.isSymbolicLink()) throw new Error("unsafe staged journal target");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  const parent = await lstat(path.dirname(file));
+  if (!parent.isDirectory() || parent.isSymbolicLink()) throw new Error("unsafe staged journal parent");
+}
+
+async function syncJournalDirectory(directoryPath: string): Promise<void> {
+  if (process.platform === "win32") return;
+  const directory = await open(directoryPath, "r");
+  try { await directory.sync(); } finally { await directory.close(); }
+}
+
 /**
  * The durable document is recovery authority.  It must never be "best effort"
  * parsed: a dangling or contradictory relation could otherwise free capacity or
@@ -163,16 +180,21 @@ export class StagedServiceTransfer {
     return await withCrossProcessFileLock(file + ".lock", async () => {
       const store = await this.readStore(file);
       this.recover(store.stagedTransfer);
+      let result: T;
       try {
-        const result = await work(store);
-        await this.writeStore(file, store);
-        return result;
+        result = await work(store);
       } catch (error) {
         // Terminal denials (notably digest mismatch) are durable outcomes, not
         // transient in-memory state that disappears when the request closes.
         await this.writeStore(file, store);
         throw error;
       }
+      // A publication failure is not a domain failure.  In particular, do not
+      // run a second rename after an EPERM/EACCES publication failure: the
+      // first failed replacement has an unknown external owner and the prior
+      // journal remains the only recovery authority.
+      await this.writeStore(file, store);
+      return result;
     }, { unavailableMessage: "staged transfer state unavailable" });
   }
 
@@ -237,7 +259,17 @@ export class StagedServiceTransfer {
     } finally {
       await handle.close();
     }
-    await rename(temporary, file);
+    try {
+      await assertSafeJournalPublicationPath(file);
+      await rename(temporary, file);
+      await syncJournalDirectory(path.dirname(file));
+    } catch (error) {
+      // This name was created exclusively by this transaction.  Clean only it;
+      // never delete, overwrite, or reinterpret the previous journal after a
+      // failed atomic replacement.
+      await rm(temporary, { force: true }).catch(() => undefined);
+      throw error;
+    }
   }
 
   private recover(store: StageSection): void {
