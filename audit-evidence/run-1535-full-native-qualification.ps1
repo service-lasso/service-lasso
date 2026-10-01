@@ -52,7 +52,7 @@ foreach ($relativePath in $nativePaths) {
 Push-Location $repoRoot
 try {
   $head = (& git rev-parse HEAD).Trim()
-  $tree = (& git rev-parse HEAD^{tree}).Trim()
+  $tree = (& git show -s --format=%T $head).Trim()
   $initialReceipt = [ordered]@{
     schema = 'service-lasso.issue-1535.full-native-qualification.v1'
     status = 'running'
