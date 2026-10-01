@@ -1,13 +1,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { createHash, randomUUID } from "node:crypto";
 import { createServer, request as httpRequest } from "node:http";
 import { access, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { createApiServer, waitForApiServerInitialization } from "../dist/server/index.js";
 import { mcpOperationStatePath } from "../dist/runtime/operator/mcp-operations.js";
+import { readAuditEvents } from "../dist/runtime/audit/store.js";
 import {
   getLifecycleDocumentPath,
   RECONCILIATION_CONTEXT_AUTHORITY_POLICY,
@@ -86,6 +89,52 @@ async function startApi(options, port = 0, allowInitializationFailure = false) {
       await closed;
     },
   };
+}
+
+async function startCrossProcessReconciliationPeer(options) {
+  const runner = new URL("./fixtures/durable-lifecycle-http-peer.mjs", import.meta.url);
+  const child = spawn(process.execPath, [fileURLToPath(runner)], { stdio: ["pipe", "pipe", "pipe"] });
+  let timeout;
+  try {
+    const ready = new Promise((resolve, reject) => {
+      let output = "";
+      let errors = "";
+      child.stderr.setEncoding("utf8");
+      child.stderr.on("data", (chunk) => { errors += chunk; });
+      child.stdout.setEncoding("utf8");
+      child.stdout.on("data", (chunk) => {
+        output += chunk;
+        const newline = output.indexOf("\n");
+        if (newline < 0) return;
+        try {
+          resolve(JSON.parse(output.slice(0, newline)));
+        } catch (error) {
+          reject(error);
+        }
+      });
+      child.once("error", reject);
+      child.once("exit", (code) => reject(new Error(`cross-process reconciliation peer exited before ready: ${code}; ${errors}`)));
+    });
+    child.stdin.end(JSON.stringify(options));
+    const peer = await Promise.race([
+      ready,
+      new Promise((_, reject) => { timeout = setTimeout(() => reject(new Error("cross-process reconciliation peer did not become ready.")), 10_000); }),
+    ]);
+    assert.equal(typeof peer.url, "string");
+    return {
+      url: peer.url,
+      async stop() {
+        if (child.exitCode !== null) return;
+        const exited = once(child, "exit");
+        child.kill("SIGTERM");
+        await exited;
+        child.stdout.destroy();
+        child.stderr.destroy();
+      },
+    };
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
 }
 
 async function readContext(api, accessToken, headers = {}) {
@@ -492,6 +541,29 @@ test("#1553 serializes concurrent Core initialization without rotating authority
   }
 });
 
+test("#1553 preserves one authority when independent Core processes initialize the same workspace", async () => {
+  const fixture = await makeTempServicesRoot("service-lasso-reconciliation-cross-process-");
+  let first;
+  let second;
+  try {
+    [first, second] = await Promise.all([
+      startCrossProcessReconciliationPeer({ servicesRoot: fixture.servicesRoot, workspaceRoot: fixture.workspaceRoot, env: {} }),
+      startCrossProcessReconciliationPeer({ servicesRoot: fixture.servicesRoot, workspaceRoot: fixture.workspaceRoot, env: {} }),
+    ]);
+    const [left, right] = await Promise.all([readContext(first), readContext(second)]);
+    assert.equal(left.status, 200);
+    assert.deepEqual(right, left);
+    const authorityPath = getLifecycleDocumentPath(fixture.workspaceRoot, RECONCILIATION_CONTEXT_AUTHORITY_POLICY);
+    const authority = JSON.parse(await readFile(authorityPath, "utf8"));
+    assert.equal(authority.schemaVersion, "service-lasso.reconciliation-context-authority.v2");
+    assert.match(authority.authorityId, /^[a-f0-9]{64}$/u);
+  } finally {
+    if (second) await second.stop();
+    if (first) await first.stop();
+    if (first && second) await rm(fixture.tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("#1553 keeps the shared read boundary's Origin and actor/client rate denials", async () => {
   const fixture = await makeTempServicesRoot("service-lasso-reconciliation-policy-");
   const jwks = await startJwksServer();
@@ -575,6 +647,16 @@ test("#1553 records the actual redacted authorization and context outcome before
       assert.equal(JSON.stringify(event).includes("/api/operator/lifecycle/reconciliation-context"), true);
       assert.match(event.correlationId, /^mcp-auth-[0-9a-f-]{36}$/u);
     }
+    const persistedAudit = await readAuditEvents({ workspaceRoot: fixture.workspaceRoot });
+    const persistedAuthorization = persistedAudit.events
+      .filter((event) => event.routeTemplate === "/api/operator/lifecycle/reconciliation-context")
+      .sort((left, right) => left.sequence - right.sequence);
+    assert.deepEqual(
+      persistedAuthorization.map((event) => [event.action, event.outcome, event.statusCode, event.correlationId]),
+      events.map((event) => [event.action, event.outcome, event.statusCode, event.correlationId]),
+    );
+    assert.equal(persistedAuthorization[0].sequence + 1, persistedAuthorization[1].sequence);
+    assert.equal((await readAuditEvents({ workspaceRoot: unavailableFixture.workspaceRoot })).events.length, 0);
 
     outageApi = await startApi({
       servicesRoot: fixture.servicesRoot,
