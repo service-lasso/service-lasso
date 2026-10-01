@@ -52,7 +52,6 @@ public static class ServiceLassoManagedLauncherNative
 
     private static readonly UTF8Encoding StrictUtf8 = new UTF8Encoding(false, true);
     private static string progressToken;
-    private static HMACSHA256 progressHmac;
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern IntPtr CreateJobObjectW(IntPtr jobAttributes, string name);
@@ -1647,26 +1646,13 @@ public static class ServiceLassoManagedLauncherNative
             progressToken = null;
             return;
         }
-        byte[] key = StrictUtf8.GetBytes(progressToken);
-        try
-        {
-            progressHmac = new HMACSHA256(key);
-        }
-        catch
-        {
-            progressHmac = null;
-        }
-        finally
-        {
-            Array.Clear(key, 0, key.Length);
-        }
     }
 
     private static void SetProgress(string phase, string payloadFailureBoundary = null)
     {
         try
         {
-            if (progressHmac == null || !IsProgressPhase(phase) ||
+            if (progressToken == null || !IsProgressPhase(phase) ||
                 (payloadFailureBoundary != null &&
                  (!String.Equals(phase, "launcher_payload_validation", StringComparison.Ordinal) ||
                   !IsPayloadFailureBoundary(payloadFailureBoundary))))
@@ -1675,14 +1661,19 @@ public static class ServiceLassoManagedLauncherNative
             }
             string authenticatedRecord = payloadFailureBoundary == null ? phase : phase + ":" + payloadFailureBoundary;
             byte[] phaseBytes = StrictUtf8.GetBytes(authenticatedRecord);
+            byte[] key = StrictUtf8.GetBytes(progressToken);
             byte[] digest;
             try
             {
-                digest = progressHmac.ComputeHash(phaseBytes);
+                using (HMACSHA256 hmac = new HMACSHA256(key))
+                {
+                    digest = hmac.ComputeHash(phaseBytes);
+                }
             }
             finally
             {
                 Array.Clear(phaseBytes, 0, phaseBytes.Length);
+                Array.Clear(key, 0, key.Length);
             }
             try
             {
@@ -1702,21 +1693,6 @@ public static class ServiceLassoManagedLauncherNative
     private static void RetireProgress()
     {
         progressToken = null;
-        try
-        {
-            if (progressHmac != null)
-            {
-                progressHmac.Dispose();
-            }
-        }
-        catch
-        {
-            // Diagnostic cleanup cannot change launch or containment behavior.
-        }
-        finally
-        {
-            progressHmac = null;
-        }
     }
 
     private static void ClearLaunchEnvironment()
