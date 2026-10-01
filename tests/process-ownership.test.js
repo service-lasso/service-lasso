@@ -398,8 +398,12 @@ if (jobObservationRequestPath && jobObservationResponsePath && jobObservationTok
       const response = JSON.parse(await readFile(jobObservationResponsePath, "utf8"));
       if (
         response !== null && typeof response === "object" && !Array.isArray(response) &&
-        Object.keys(response).length === 3 && response.token === jobObservationToken &&
-        response.status === "complete" && Number.isInteger(response.count) && response.count >= 3 && response.count <= 256
+        Object.keys(response).length === 4 && response.token === jobObservationToken &&
+        response.status === "complete" && Number.isInteger(response.count) && response.count >= 3 && response.count <= 256 &&
+        Array.isArray(response.pids) && response.pids.length === response.count &&
+        response.pids.every((pid) => Number.isInteger(pid) && pid > 0) &&
+        new Set(response.pids).size === response.pids.length &&
+        [process.pid, child.pid, receipt.grandchildPid].every((pid) => response.pids.includes(pid))
       ) break;
     } catch {
       // The launcher may publish only its one authenticated response.
@@ -488,6 +492,42 @@ async function captureOwnedFixtureCustody(receipt) {
   }));
 }
 
+async function readCompleteOwnedFixtureJobObservation(observation, receipt, timeoutMs = 3_000) {
+  assert.ok(observation?.responsePath);
+  assert.match(observation.token, /^[a-f0-9]{64}$/);
+  return await waitFor(async () => {
+    try {
+      const response = JSON.parse(await readFile(observation.responsePath, "utf8"));
+      const pids = response?.pids;
+      return response !== null && typeof response === "object" && !Array.isArray(response) &&
+        Object.keys(response).length === 4 &&
+        response.token === observation.token && response.status === "complete" &&
+        Number.isInteger(response.count) && response.count >= 3 && response.count <= 256 &&
+        Array.isArray(pids) && pids.length === response.count &&
+        pids.every((pid) => Number.isInteger(pid) && pid > 0) &&
+        new Set(pids).size === pids.length &&
+        [receipt.rootPid, receipt.childPid, receipt.grandchildPid].every((pid) => pids.includes(pid))
+        ? pids
+        : null;
+    } catch {
+      return null;
+    }
+  }, timeoutMs);
+}
+
+async function captureHeldFixtureCustody(receipt, heldPids) {
+  const receiptPids = [receipt.rootPid, receipt.childPid, receipt.grandchildPid];
+  assert.equal(heldPids.length >= receiptPids.length, true);
+  assert.equal(receiptPids.every((pid) => heldPids.includes(pid)), true);
+  return await Promise.all(heldPids.map(async (pid) => {
+    const inspection = await inspectProcess(pid);
+    assert.equal(inspection.status, "running");
+    assert.equal(inspection.identity.pid, pid);
+    assert.equal(classifyProcessIdentity(inspection.identity, inspection), "owned");
+    return inspection.identity;
+  }));
+}
+
 async function readOwnedFixtureRootCustody(workspaceRoot, serviceId) {
   const ownership = await findProcessOwnership(workspaceRoot, "service", serviceId);
   assert.ok(ownership?.identity);
@@ -516,6 +556,10 @@ async function startOwnedFixtureWithNativeJobObservation(options, launcherTermin
     const child = spawn(command, args, spawnOptions);
     if (launcherTerminal !== null) {
       const token = spawnOptions.env?.SERVICE_LASSO_MANAGED_LAUNCH_PROGRESS_TOKEN ?? null;
+      launcherTerminal.jobObservation = {
+        responsePath: spawnOptions.env?.SERVICE_LASSO_TEST_JOB_OBSERVATION_RESPONSE_PATH ?? null,
+        token: spawnOptions.env?.SERVICE_LASSO_TEST_JOB_OBSERVATION_TOKEN ?? null,
+      };
       let stderrBuffer = "";
       child.stderr?.on("data", (chunk) => {
         stderrBuffer += chunk.toString("utf8");
@@ -3846,13 +3890,19 @@ test("managed Windows job contains a child spawned after enrollment when the ser
     rootCustody = await readOwnedFixtureRootCustody(workspaceRoot, "managed-late-child-service");
     await writeFile(triggerPath, "launch\n", "utf8");
     const receipt = await readCompleteOwnedFixtureReceipt(pidFilePath);
-    custody = await captureOwnedFixtureCustody(receipt);
+    custody = await captureHeldFixtureCustody(
+      receipt,
+      await readCompleteOwnedFixtureJobObservation(launcherTerminal.jobObservation, receipt),
+    );
     await writeFile(custodyReadyPath, "verified\n", { flag: "wx" });
     await readOwnedFixtureAcknowledgement(acknowledgementPath, receipt);
 
     await waitForManagedProcessFinalization("managed-late-child-service", Date.now() + 15_000);
     await waitForOwnedFixtureStopped(custody, 15_000);
-    assert.deepEqual(launcherTerminal, {
+    const { jobObservation, ...terminalWithoutPrivateObservation } = launcherTerminal;
+    assert.ok(jobObservation?.responsePath);
+    assert.match(jobObservation.token, /^[a-f0-9]{64}$/);
+    assert.deepEqual(terminalWithoutPrivateObservation, {
       state: "exited",
       pid: handle.pid,
       exitCode: 0,
@@ -3942,11 +3992,9 @@ test("managed Windows late-child fixture suppresses acknowledgement before root-
   } finally {
     try {
       if (custody !== null && rootCustody !== null) {
-        await cleanupCompleteOwnedFixture({
+        await retainIncompleteOwnedFixture({
           serviceId: "managed-late-child-no-ack-service",
           rootCustody,
-          custody,
-          tempRoot,
           primaryError,
         });
       }
@@ -4029,7 +4077,7 @@ for (const jobObservationMode of [
     } finally {
       try {
         if (custody !== null && rootCustody !== null) {
-          await cleanupCompleteOwnedFixture({ serviceId, rootCustody, custody, tempRoot, primaryError });
+          await retainIncompleteOwnedFixture({ serviceId, rootCustody, primaryError });
         }
         if (foreignChild !== null && foreignIdentity !== null) {
           assert.equal(classifyProcessIdentity(foreignIdentity, await inspectProcess(foreignIdentity.pid)), "owned");
@@ -4085,7 +4133,7 @@ for (const acknowledgementMode of ["malformed", "extra", "mismatched"]) {
     } finally {
       try {
         if (rootCustody !== null && custody !== null) {
-          await cleanupCompleteOwnedFixture({ serviceId, rootCustody, custody, tempRoot, primaryError });
+          await retainIncompleteOwnedFixture({ serviceId, rootCustody, primaryError });
         }
       } finally {
         restoreFixtureTestHooks();

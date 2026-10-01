@@ -764,6 +764,7 @@ public static class ServiceLassoManagedLauncherNative
         int bytes = 8 + (IntPtr.Size * MaximumJobObservationMembers);
         IntPtr members = Marshal.AllocHGlobal(bytes);
         uint memberCount = 0;
+        List<long> heldMembers = new List<long>();
         try
         {
             for (int index = 0; index < bytes; index += 1)
@@ -801,6 +802,7 @@ public static class ServiceLassoManagedLauncherNative
                     ? Marshal.ReadInt64(members, 8 + (index * IntPtr.Size))
                     : Marshal.ReadInt32(members, 8 + (index * IntPtr.Size));
                 actual.Add(pid);
+                heldMembers.Add(pid);
             }
             if (actual.Count != listed || !actual.IsSupersetOf(expected))
             {
@@ -812,8 +814,11 @@ public static class ServiceLassoManagedLauncherNative
         {
             Marshal.FreeHGlobal(members);
         }
+        List<long> orderedMembers = new List<long>(heldMembers);
+        orderedMembers.Sort();
         string response = "{\"token\":\"" + observation.token + "\",\"status\":\"complete\",\"count\":" +
-            memberCount.ToString(System.Globalization.CultureInfo.InvariantCulture) + "}";
+            memberCount.ToString(System.Globalization.CultureInfo.InvariantCulture) + ",\"pids\":[" +
+            String.Join(",", orderedMembers.ConvertAll(member => member.ToString(System.Globalization.CultureInfo.InvariantCulture)).ToArray()) + "]}";
         string temporaryResponsePath = observation.responsePath + ".tmp";
         if (File.Exists(observation.responsePath) || File.Exists(temporaryResponsePath))
         {
