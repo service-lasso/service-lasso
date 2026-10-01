@@ -2245,6 +2245,13 @@ function createServiceDetailResponse(service: ServiceSummary): ServiceDetailResp
   };
 }
 
+type LifecycleExecutionContext =
+  | { kind: "authenticated-request"; actor: PermissionActor; confirmed: boolean }
+  // This marker is constructed only by the confirmation executor after its
+  // actor, expiry, plan, and capability revalidation. It is deliberately not
+  // a representation of any caller-supplied request body.
+  | { kind: "confirmed-operator-stop" };
+
 async function executeLifecycleAction(
   action: string,
   service: RuntimeModel["discovered"][number],
@@ -2253,7 +2260,7 @@ async function executeLifecycleAction(
   allocationPlan?: RuntimeEndpointAllocationPlan,
   runtimeGenerationId?: string | null,
   runtimeInstanceId?: string | null,
-  requestContext?: { actor: PermissionActor; confirmed: boolean },
+  requestContext?: LifecycleExecutionContext,
   allowedMutationServiceIds?: ReadonlySet<string>,
   expectedArtifactRevision?: string,
   expectedArtifactRevisionsByService?: Readonly<Record<string, string>>,
@@ -2290,9 +2297,9 @@ async function executeLifecycleAction(
     expectedExecutableFiles,
     expectedStopExecutableBinding,
     expectedDoctorExecutableBindings,
-    // Request-context-backed lifecycle dispatch is the supported explicit
-    // operator surface. Internal shutdown, monitor, and finalizer calls keep
-    // their current episode and cannot reopen terminal native inspection.
+    // Only an authenticated HTTP request or a confirmation executor's
+    // revalidated stop capability may begin a new inspection episode. Internal
+    // shutdown, monitor, and finalizer calls keep their current episode.
     newWindowsInspectionEpisode: action === "stop" && requestContext !== undefined,
   };
   const result = await (async () => {
@@ -2321,7 +2328,7 @@ async function executeLifecycleAction(
       case "restart":
         return await restartService(service, registry, allocationOptions);
       case "reload": {
-        if (!requestContext) {
+        if (requestContext?.kind !== "authenticated-request") {
           throw new ApiError("actor_required", 401, "Reload requires an authenticated runtime actor.");
         }
         if (!service.manifest.actions?.reload) {
@@ -4905,6 +4912,7 @@ async function routeRequestWithoutMutationCoordination(
             config.endpointAllocationPlan,
             config.runtimeGenerationId,
             resolveRuntimeInstanceId(config),
+            record.command === "stop" ? { kind: "confirmed-operator-stop" } : undefined,
           );
         },
       );
@@ -6676,7 +6684,7 @@ async function routeRequestWithoutMutationCoordination(
           config.endpointAllocationPlan,
           config.runtimeGenerationId,
           resolveRuntimeInstanceId(config),
-          { actor: lifecycleActor, confirmed: body.confirm },
+          { kind: "authenticated-request", actor: lifecycleActor, confirmed: body.confirm },
         );
         await appendAuditEvent({
           serviceRoot: service.serviceRoot,

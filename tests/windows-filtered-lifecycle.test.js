@@ -16,10 +16,10 @@ import { startManagedProcess, adoptManagedProcess, stopManagedProcess,
 } from "../dist/runtime/execution/supervisor.js";
 import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
 
-async function postJson(url, body) {
+async function postJson(url, body, headers = {}) {
   const response = await fetch(url, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...headers },
     body: JSON.stringify(body),
   });
   return { status: response.status, body: await response.json() };
@@ -182,6 +182,77 @@ test("Windows request-context stop takes a fresh managed inspection before contr
     await sentinelClosed;
     if (priorHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
     else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorHooks;
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});
+
+test("Windows confirmed operator stop takes a fresh managed inspection before control", {
+  skip: process.platform !== "win32",
+}, async () => {
+  resetLifecycleState();
+  const priorHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+  const priorBridgeToken = process.env.SERVICE_LASSO_CHAT_BRIDGE_TOKEN;
+  process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
+  process.env.SERVICE_LASSO_CHAT_BRIDGE_TOKEN = "SERVICE_LASSO_FILTERED_CONFIRMATION_TEST_TOKEN";
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-filtered-confirmed-http-");
+  const serviceId = "filtered-confirmed-http";
+  const headers = { "x-service-lasso-chat-bridge-token": process.env.SERVICE_LASSO_CHAT_BRIDGE_TOKEN };
+  const actor = { source: "chat-bridge", channel: "telegram", chatId: "-5128051597", senderId: "42", roles: ["operator"] };
+  const plan = { dryRun: true, action: "stop", serviceId, generatedAt: "2026-10-02T00:00:00.000Z", steps: [{ serviceId, action: "stop", status: "would_run" }] };
+  const sentinel = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore", windowsHide: true });
+  const sentinelClosed = new Promise(resolve => sentinel.once("close", resolve));
+  let apiServer;
+  let snapshotCount = 0;
+  let sentinelInspection;
+  try {
+    await new Promise((resolve, reject) => { sentinel.once("spawn", resolve); sentinel.once("error", reject); });
+    const sentinelIdentity = (await inspectProcess(sentinel.pid)).identity;
+    assert.ok(sentinelIdentity);
+    await writeExecutableFixtureService(servicesRoot, serviceId);
+    setManagedWindowsTreeInspectorForTests(async (root, options) => {
+      const snapshot = await inspectWindowsProcessTree(root, options);
+      snapshotCount += 1;
+      return snapshotCount <= 2
+        ? { ...snapshot, members: [...snapshot.members, sentinelIdentity] }
+        : snapshot;
+    });
+    setManagedProcessTreeTerminatorForTests(async (target, timeoutMs, dependencies) => {
+      sentinelInspection = await dependencies.inspectProcess(sentinel.pid);
+      assert.equal(sentinelInspection.status, "not_running");
+      return await terminateOwnedProcessTree(target, timeoutMs, dependencies);
+    });
+    apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
+    assert.equal((await postJson(`${apiServer.url}/api/services/${serviceId}/install`, {})).status, 200);
+    assert.equal((await postJson(`${apiServer.url}/api/services/${serviceId}/config`, {})).status, 200);
+    assert.equal((await postJson(`${apiServer.url}/api/services/${serviceId}/start`, { confirm: true })).status, 200);
+    sentinel.kill("SIGKILL");
+    await sentinelClosed;
+
+    const issued = await postJson(`${apiServer.url}/api/operator/confirmations`, {
+      command: `stop ${serviceId}`, actor, planId: "filtered-confirmed-stop-plan", plan,
+    }, headers);
+    assert.equal(issued.status, 201, JSON.stringify(issued.body));
+    const confirmed = await postJson(`${apiServer.url}/api/operator/confirmations/${encodeURIComponent(issued.body.confirmation.id)}/confirm`, {
+      actor, plan, confirmationPhrase: issued.body.confirmationPhrase,
+    }, headers);
+    assert.equal(confirmed.status, 200, JSON.stringify(confirmed.body));
+    const executed = await postJson(`${apiServer.url}/api/operator/confirmations/${encodeURIComponent(issued.body.confirmation.id)}/execute`, { actor, plan }, headers);
+    assert.equal(executed.status, 200, JSON.stringify(executed.body));
+    assert.equal(executed.body.action.action, "stop");
+    assert.equal(snapshotCount >= 3, true);
+    assert.equal(sentinelInspection.status, "not_running");
+  } finally {
+    setManagedProcessTreeTerminatorForTests(null);
+    setManagedWindowsTreeInspectorForTests(null);
+    await apiServer?.stop();
+    await stopManagedProcess(serviceId, 5_000).catch(() => null);
+    if (sentinel.exitCode === null) sentinel.kill("SIGKILL");
+    await sentinelClosed;
+    if (priorHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+    else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorHooks;
+    if (priorBridgeToken === undefined) delete process.env.SERVICE_LASSO_CHAT_BRIDGE_TOKEN;
+    else process.env.SERVICE_LASSO_CHAT_BRIDGE_TOKEN = priorBridgeToken;
     resetLifecycleState();
     await rm(tempRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
