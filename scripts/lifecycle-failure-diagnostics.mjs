@@ -28,6 +28,9 @@ const lifecycleApiErrorCodes = new Set([
   "startup_transaction_recovery_required",
 ]);
 const allowed = (values, value) => values.has(value) ? value : null;
+const launcherPayloadFailureBoundaries = new Set([
+  "launch_evidence", "canonical_encoding", "strict_utf8", "json_or_schema", "semantic_payload", "unknown",
+]);
 
 // Deliberately closed: never serialize errors, messages, handles, or raw state.
 export function lifecycleFailureDiagnostic(input = {}) {
@@ -42,6 +45,7 @@ export function lifecycleFailureDiagnostic(input = {}) {
       : null;
     const current = action === "restart" ? restart : (restart ?? state?.runtime?.startTrace?.current);
     const failurePhases = [];
+    let launcherPayloadFailureBoundary = null;
     const windowsTreeInspections = [];
     let deadlineExceeded = false;
     const pending = [{ error, depth: 0 }];
@@ -53,6 +57,12 @@ export function lifecycleFailureDiagnostic(input = {}) {
       seen.add(currentError);
       const phase = allowed(launchPhases, currentError.failurePhase);
       if (phase) failurePhases.push(phase);
+      if (phase === "launcher_payload_validation") {
+        launcherPayloadFailureBoundary = allowed(
+          launcherPayloadFailureBoundaries,
+          currentError.launcherPayloadFailureBoundary,
+        ) ?? "unknown";
+      }
       deadlineExceeded ||= currentError.code === "PROCESS_CONTROL_DEADLINE_EXCEEDED";
       const inspection = projectWindowsTreeInspectionMetadata(currentError.windowsTreeInspection);
       if (inspection.windowsTreeInspectionPhase) windowsTreeInspections.push(inspection);
@@ -88,6 +98,7 @@ export function lifecycleFailureDiagnostic(input = {}) {
         failurePhase: allowed(launchPhases, event?.metadata?.processStartFailurePhase),
       })) : [],
       failurePhases,
+      ...(launcherPayloadFailureBoundary ? { launcherPayloadFailureBoundary } : {}),
       deadlineExceeded,
       ...(apiFailure ? { apiErrorCode: apiFailure } : {}),
       ...(windowsTreeInspections.length ? { windowsTreeInspections } : {}),

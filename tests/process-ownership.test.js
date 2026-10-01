@@ -1764,8 +1764,41 @@ test("Windows launcher progress authenticates split records and suppresses malfo
     assert.equal(observedPhase, phase);
     assert.deepEqual(
       filterWindowsManagedLauncherProgressLineForTests(null, checkpoint),
-      { suppressed: true, phase: null },
+      { suppressed: true, phase: null, payloadFailureBoundary: null, invalidPayloadDiagnostic: false },
     );
+  } finally {
+    if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+    else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
+  }
+});
+
+test("Windows launcher payload diagnostic records fail closed for malformed, expanded, duplicate, untrusted, truncated, and missing evidence", () => {
+  const priorTestHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+  process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
+  const token = "cd".repeat(32);
+  const phase = "launcher_payload_validation";
+  const boundary = "semantic_payload";
+  const digest = createHmac("sha256", token).update(`${phase}:${boundary}`, "utf8").digest("hex");
+  const valid = `__SERVICE_LASSO_LAUNCHER_PROGRESS__:${phase}:${boundary}:${digest}`;
+  try {
+    assert.deepEqual(filterWindowsManagedLauncherProgressLineForTests(token, valid), {
+      suppressed: true, phase, payloadFailureBoundary: boundary, invalidPayloadDiagnostic: false,
+    });
+    for (const record of [
+      `__SERVICE_LASSO_LAUNCHER_PROGRESS__:${phase}:private-boundary:${digest}`,
+      `${valid}:expanded`,
+      `__SERVICE_LASSO_LAUNCHER_PROGRESS__:${phase}:${boundary}:${"0".repeat(64)}`,
+      `__SERVICE_LASSO_LAUNCHER_PROGRESS__:${phase}:sem`,
+    ]) {
+      const parsed = filterWindowsManagedLauncherProgressLineForTests(token, record, record.endsWith(":sem"));
+      assert.equal(parsed.suppressed, true);
+      assert.equal(parsed.phase, null);
+      assert.equal(parsed.payloadFailureBoundary, null);
+      assert.equal(parsed.invalidPayloadDiagnostic, true);
+    }
+    assert.deepEqual(filterWindowsManagedLauncherProgressLineForTests(null, valid), {
+      suppressed: true, phase: null, payloadFailureBoundary: null, invalidPayloadDiagnostic: true,
+    });
   } finally {
     if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
     else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
@@ -1872,12 +1905,13 @@ test("Windows managed launcher revalidates its native asset after launch-state c
   }
 });
 
-test("Windows managed launcher rejects non-closed or mistyped payload envelopes", {
+test("AC-4BJ.9b Windows managed launcher projects only authenticated closed payload rejection boundaries", {
   skip: process.platform !== "win32",
 }, async () => {
+  const priorTestHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+  process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
   const { tempRoot } = await makeTempServicesRoot("service-lasso-launcher-payload-");
   const launcherPath = path.resolve("dist/runtime/execution/windows-managed-launcher-native.exe");
-  const gatePath = path.join(tempRoot, "release.gate");
   const basePayload = {
     executable: process.execPath,
     args: [],
@@ -1902,42 +1936,36 @@ test("Windows managed launcher rejects non-closed or mistyped payload envelopes"
     `{"executable":${JSON.stringify(process.execPath)},"executable":`,
   );
   const invalidPayloads = [
-    JSON.stringify({ ...basePayload, unexpected: true }),
-    JSON.stringify({ ...basePayload, args: [null] }),
-    JSON.stringify({ ...basePayload, args: ["before\u0000after"] }),
-    JSON.stringify({ ...basePayload, ackPath: "\\rooted-but-not-qualified" }),
-    JSON.stringify({ ...basePayload, executableBindingIndex: "-1" }),
-    JSON.stringify({
-      ...basePayload,
-      approvedFiles: [{ file: process.execPath, sha256: "aa".repeat(32), size: 1, unexpected: true }],
-    }),
-    JSON.stringify({
-      ...basePayload,
-      args: ["value"],
-      approvedFiles: [{ file: process.execPath, sha256: "aa".repeat(32), size: 1 }],
-      argumentBindings: [{ index: 0, prefix: null, bindingIndex: 0 }],
-    }),
-    JSON.stringify({ ...basePayload, targetEnvironmentOverrides: [{ name: "COR_ENABLE_PROFILING", value: null }] }),
-    duplicatePayload,
+    { boundary: "launch_evidence", encodedPayload: null },
+    { boundary: "canonical_encoding", encodedPayload: Buffer.from(canonicalPayload, "utf8").toString("base64") + "\n" },
+    { boundary: "strict_utf8", encodedPayload: Buffer.from([0xc3, 0x28]).toString("base64") },
+    { boundary: "json_or_schema", encodedPayload: Buffer.from(duplicatePayload, "utf8").toString("base64") },
+    { boundary: "semantic_payload", encodedPayload: Buffer.from(JSON.stringify({ ...basePayload, ackToken: basePayload.releaseToken }), "utf8").toString("base64") },
   ];
   const bootstrapEnvironment = Object.fromEntries(
     Object.entries(process.env).filter(([name]) => !/^(?:COR_|CORECLR_|COMPLUS_|APPDOMAIN_MANAGER)/iu.test(name)),
   );
 
   try {
-    for (const payloadJson of invalidPayloads) {
+    for (const [index, payloadCase] of invalidPayloads.entries()) {
+      const fixtureRoot = path.join(tempRoot, `rejection-${index}`);
+      await mkdir(fixtureRoot, { recursive: true });
+      const gatePath = path.join(fixtureRoot, "release.gate");
       const result = await new Promise((resolve, reject) => {
         const child = spawn(launcherPath, [], {
-          cwd: tempRoot,
+          cwd: fixtureRoot,
           env: {
             ...bootstrapEnvironment,
-            SERVICE_LASSO_MANAGED_LAUNCH_PAYLOAD: Buffer.from(payloadJson, "utf8").toString("base64"),
+            ...(payloadCase.encodedPayload === null ? {} : { SERVICE_LASSO_MANAGED_LAUNCH_PAYLOAD: payloadCase.encodedPayload }),
             SERVICE_LASSO_MANAGED_LAUNCH_GATE: gatePath,
             SERVICE_LASSO_MANAGED_LAUNCH_PROGRESS_TOKEN: "55".repeat(32),
           },
-          stdio: "ignore",
+          stdio: ["ignore", "ignore", "pipe"],
           windowsHide: true,
         });
+        let stderr = "";
+        child.stderr.setEncoding("utf8");
+        child.stderr.on("data", (chunk) => { stderr += chunk; });
         const timeout = setTimeout(() => {
           child.kill("SIGKILL");
           reject(new Error("Invalid managed-launch payload was not rejected boundedly."));
@@ -1945,13 +1973,25 @@ test("Windows managed launcher rejects non-closed or mistyped payload envelopes"
         child.once("error", reject);
         child.once("close", (exitCode, signal) => {
           clearTimeout(timeout);
-          resolve({ exitCode, signal });
+          resolve({ exitCode, signal, stderr });
         });
       });
-      assert.deepEqual(result, { exitCode: 100, signal: null });
+      assert.equal(result.exitCode, 100);
+      assert.equal(result.signal, null);
+      const records = result.stderr.trim().split(/\r?\n/u)
+        .map((line) => filterWindowsManagedLauncherProgressLineForTests("55".repeat(32), line));
+      assert.equal(
+        records.some((record) => record.payloadFailureBoundary === payloadCase.boundary),
+        true,
+        JSON.stringify({ expectedBoundary: payloadCase.boundary, records, stderr: result.stderr }),
+      );
+      assert.equal(records.every((record) => record.suppressed), true);
+      assert.doesNotMatch(result.stderr, /SECRET|release\.gate/u);
       await assert.rejects(readFile(basePayload.filesBoundPath, "utf8"), { code: "ENOENT" });
     }
   } finally {
+    if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+    else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
     await removeTempRoot(tempRoot);
   }
 });
