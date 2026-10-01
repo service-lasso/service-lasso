@@ -67,7 +67,7 @@ test("staged direct-child importer registers the canonical manifest without down
     const result = await createStagedReleaseAssetImporter({ servicesRoot }).import({
       serviceId: "staged-service", bytes: archiveBytes, byteObjectId: "sbo_test", archiveSha256: archiveDigest,
       manifestSha256: manifestDigest, releaseId: "1", targetSha: "a".repeat(40), workspaceId: "trusted-workspace",
-      repo: "service-lasso/lasso-node", releaseTag: "v1",
+      repo: "service-lasso/lasso-node", releaseTag: "v1", manifestBytes: Buffer.from(manifest, "utf8"),
     });
     assert.equal(result, "completed");
     assert.equal(await readFile(path.join(servicesRoot, "staged-service", "service.json"), "utf8"), manifest);
@@ -99,5 +99,38 @@ test("staged registration replays before resolver or confirmation access", async
     assert.equal(replay.replayed, true);
     assert.equal(resolutions, beforeReplay);
   } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("staged registration persists its full prepared claim before the direct child is invoked", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "staged-journal-"));
+  const bytes = Buffer.from(zipSync({ "release.txt": Buffer.from("fixture") }));
+  const digest = createHash("sha256").update(bytes).digest("hex");
+  const identity = { repo:"service-lasso/lasso-example", releaseTag:"v1", commitSha:"a".repeat(40), targetServiceId:"sample-service", platform:"win32", archiveType:"zip", assetName:"sample.zip", assetId:"1", archiveBytes:bytes.length, archiveSha256:digest, manifestSha256:"c".repeat(64), releaseId:"2" };
+  const actor = { id:"actor", workspaceId:"trusted-workspace", canConfigure:true };
+  let imports = 0;
+  const transfer = new StagedServiceTransfer(root, { resolve: async () => identity }, { import: async () => {
+    imports += 1;
+    const stored = JSON.parse(await readFile(path.join(root, ".service-lasso", "operator", "staged-service-transfers.json"), "utf8"));
+    const stage = stored.stages[0];
+    assert.equal(stage.state, "claimed");
+    assert.equal(stage.operation.state, "unknown");
+    assert.equal(stage.journal.phase, "claimed");
+    assert.equal(stage.journal.workspaceId, actor.workspaceId);
+    assert.equal(stage.journal.byteLength, bytes.length);
+    assert.equal(stage.journal.fullDigest, digest);
+    return "completed";
+  }});
+  const input = { targetServiceId:"sample-service", provenance:{repo:identity.repo,releaseTag:identity.releaseTag,commitSha:identity.commitSha},platform:"win32",manifestSchemaVersion:"service-lasso.service-manifest/v1" };
+  try {
+    const stage = await transfer.create(actor, input);
+    await transfer.upload(actor, stage.stageId, 0, stage.uploadToken, digest, bytes, { start: 0, end: bytes.length - 1, total: bytes.length });
+    await transfer.finalize(actor, stage.stageId);
+    const confirmation = await transfer.confirmation(actor, stage.stageId);
+    const first = await transfer.register(actor, stage.stageId, confirmation.confirmationId, "staged-journal-0001");
+    assert.equal(first.status, "consumed");
+    const replay = await transfer.register(actor, stage.stageId, confirmation.confirmationId, "staged-journal-0001");
+    assert.equal(replay.replayed, true);
+    assert.equal(imports, 1);
+  } finally { await rm(root, { recursive:true, force:true }); }
 });
 

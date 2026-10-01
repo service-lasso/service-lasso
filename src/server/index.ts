@@ -151,8 +151,11 @@ import {
   readRemoteServiceRegistrationOperation,
   registerReleasedService,
   createStagedReleaseAssetImporter,
+  claimStagedRegistrationOperation,
+  completeStagedRegistrationOperation,
 } from "../runtime/operator/remote-service-registration.js";
 import { StagedServiceTransfer, TransferError, type DirectChildImporter, type StageResolver } from "../runtime/release/staged-service-transfer.js";
+import { readWorkspaceAuthority } from "../runtime/workspace/authority.js";
 import { ServiceProducerReleaseResolver } from "../runtime/release/service-producer-release-resolver.js";
 import { buildServiceConfigDriftReport } from "../runtime/operator/config-drift.js";
 import { buildServiceConfigApplyPreflightReport } from "../runtime/operator/config-apply-preflight.js";
@@ -506,8 +509,6 @@ export interface ApiServerOptions {
   stagedServiceTransfer?: { resolver: StageResolver; importer: DirectChildImporter };
   /** Owner-approved, persisted producer pins. Without it #1463 remains closed. */
   stagedServiceTransferCatalogPath?: string;
-  /** Trusted Core workspace identity for the actor/workspace quota boundary. */
-  stagedServiceTransferWorkspaceId?: string;
 }
 
 interface RuntimeShutdownSlot {
@@ -552,7 +553,6 @@ interface ApiRouteConfig extends RuntimeConfig {
   runtimeShutdownSlot?: RuntimeShutdownSlot;
   stagedServiceTransfer?: ApiServerOptions["stagedServiceTransfer"];
   stagedServiceTransferCatalogPath?: ApiServerOptions["stagedServiceTransferCatalogPath"];
-  stagedServiceTransferWorkspaceId?: ApiServerOptions["stagedServiceTransferWorkspaceId"];
 }
 
 export interface RunningApiServer {
@@ -7094,14 +7094,31 @@ async function routeRequestWithoutMutationCoordination(
     void authorization; // trusted request-policy authentication remains authoritative.
     const permissionActor = permissionActorFromRuntimeAuth(auth);
     await enforcePermission({ workspaceRoot: config.workspaceRoot, actor: permissionActor, permission: "service:configure", method: request.method ?? "GET", routeTemplate: "/api/v1/service-transfers", subject: "release-asset" });
-    const workspaceId = config.stagedServiceTransferWorkspaceId?.trim();
+    // This is a normal-startup-owned opaque record. The route only reads it;
+    // neither a caller nor an API option can choose or mint a workspace bucket.
+    const workspaceId = await readWorkspaceAuthority({ workspaceRoot: config.workspaceRoot, servicesRoot: config.servicesRoot });
     if (!workspaceId) throw new ApiError("registration_unavailable", 503, "Staged transfer workspace authority is unavailable.");
     const actor = { id: permissionActor.id, workspaceId, canConfigure: true };
     const adapter = config.stagedServiceTransfer ?? {
       resolver: new ServiceProducerReleaseResolver(config.stagedServiceTransferCatalogPath),
       importer: createStagedReleaseAssetImporter({ servicesRoot: config.servicesRoot }),
     };
-    const transfer = new StagedServiceTransfer(config.workspaceRoot, adapter.resolver, adapter.importer);
+    const transfer = new StagedServiceTransfer(config.workspaceRoot, adapter.resolver, adapter.importer, Date.now, {
+      claim: async (input) => {
+        const operation = await claimStagedRegistrationOperation({
+          workspaceRoot: config.workspaceRoot, actorId: input.actorId, workspaceId: input.workspaceId,
+          idempotencyKey: input.idempotencyKey, fingerprint: input.fingerprint, stageId: input.stageId,
+          byteObjectId: input.byteObjectId, byteLength: input.byteLength, fullDigest: input.fullDigest,
+          repo: input.identity.repo, releaseTag: input.identity.releaseTag, commitSha: input.identity.commitSha,
+          serviceId: input.identity.targetServiceId, manifestSha256: input.identity.manifestSha256,
+          releaseId: input.identity.releaseId, platform: input.identity.platform, assetName: input.identity.assetName,
+          archiveType: input.identity.archiveType, manifestAssetId: input.identity.manifestAssetId ?? null,
+          checksumAssetId: input.identity.checksumAssetId ?? null,
+        });
+        return { id: operation.id, state: operation.status, replayed: operation.replayed };
+      },
+      complete: async (input) => await completeStagedRegistrationOperation({ workspaceRoot: config.workspaceRoot, ...input }),
+    });
     try {
       if (request.method === "POST" && url.pathname === "/api/v1/service-transfers") {
         const created = await transfer.create(actor, await readJsonBody(request, { maxBytes: 8 * 1024 }) as { targetServiceId: string; provenance: { repo: string; releaseTag: string; commitSha: string }; platform: string; manifestSchemaVersion: string });
@@ -7699,7 +7716,6 @@ export function createApiServer(options: ApiServerOptions = {}): Server {
     runtimeShutdownSlot: options.runtimeShutdownSlot,
     stagedServiceTransfer: options.stagedServiceTransfer,
     stagedServiceTransferCatalogPath: options.stagedServiceTransferCatalogPath,
-    stagedServiceTransferWorkspaceId: options.stagedServiceTransferWorkspaceId,
   };
   const workflowRunFacadeState = cloneWorkflowRunFacadeState(options.workflowRunFacadeState ?? exampleWorkflowRunFacadeState);
   const apiRequestTelemetryState = options.apiRequestTelemetryState ?? { requests: [], droppedCount: 0 };

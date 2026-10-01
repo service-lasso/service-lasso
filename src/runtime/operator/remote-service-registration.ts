@@ -7,6 +7,7 @@ import { validateServiceManifest } from "../discovery/validateManifest.js";
 import type { PermissionActor } from "../permissions/enforcement.js";
 import type { ServiceManifest } from "../../contracts/service.js";
 import type { DirectChildImporter } from "../release/staged-service-transfer.js";
+import { withCrossProcessFileLock } from "../security/cross-process-file-lock.js";
 
 export interface RemoteServiceRegistrationRequest {
   repo: string;
@@ -35,6 +36,19 @@ export interface RemoteServiceRegistrationOperation {
 interface PersistedOperation extends Omit<RemoteServiceRegistrationOperation, "replayed"> {
   requestFingerprint: string;
   manifestSha256: string;
+  staged?: {
+    source: "staged_release_asset";
+    workspaceId: string;
+    stageId: string;
+    byteObjectId: string;
+    byteLength: number;
+    fullDigest: string;
+    platform: "win32" | "linux" | "darwin";
+    assetName: string;
+    archiveType: "zip" | "tar.gz" | "tgz";
+    manifestAssetId: string | null;
+    checksumAssetId: string | null;
+  };
 }
 
 interface PersistedOperationStore {
@@ -297,9 +311,9 @@ async function importVerifiedManifest(input: { servicesRoot: string; manifest: S
 /**
  * The #1463 adapter deliberately shares the existing direct-child importer.
  * The archive is never downloaded here: the only archive input is the byte
- * object retained and claimed by StagedServiceTransfer.  The dedicated
- * same-release manifest asset is revalidated independently, because it is not
- * an archive member and the transfer grammar expressly forbids extraction.
+ * object retained and claimed by StagedServiceTransfer. The same-release
+ * manifest bytes must travel from the resolver through that held record; the
+ * child never fetches a release asset, extracts an archive, or starts a service.
  */
 export function createStagedReleaseAssetImporter(input: { servicesRoot: string }): DirectChildImporter {
   return {
@@ -310,14 +324,18 @@ export function createStagedReleaseAssetImporter(input: { servicesRoot: string }
         !/^[a-f0-9]{40}$/.test(claimed.targetSha) ||
         !claimed.byteObjectId || !claimed.workspaceId ||
         claimed.bytes.byteLength < 1 ||
+        !claimed.manifestBytes || claimed.manifestBytes.byteLength < 1 ||
         createHash("sha256").update(claimed.bytes).digest("hex") !== claimed.archiveSha256
       ) {
         return "unknown";
       }
 
-      let resolved: { manifest: ServiceManifest; manifestBytes: string };
+      let manifest: ServiceManifest;
+      const manifestBytes = Buffer.from(claimed.manifestBytes).toString("utf8");
       try {
-        resolved = await resolveReleasedManifest({
+        if (sha256(manifestBytes) !== claimed.manifestSha256) return "unknown";
+        manifest = validateServiceManifest(JSON.parse(manifestBytes), `${claimed.repo}@${claimed.releaseTag}:service.json`);
+        assertApprovedReleaseManifest(manifest, {
           repo: claimed.repo,
           tag: claimed.releaseTag,
           expectedCommit: claimed.targetSha,
@@ -329,18 +347,38 @@ export function createStagedReleaseAssetImporter(input: { servicesRoot: string }
       }
 
       if (
-        resolved.manifest.id !== claimed.serviceId ||
-        sha256(resolved.manifestBytes) !== claimed.manifestSha256
+        manifest.id !== claimed.serviceId ||
+        sha256(manifestBytes) !== claimed.manifestSha256
       ) {
         return "unknown";
       }
       return await importVerifiedManifest({
         servicesRoot: input.servicesRoot,
-        manifest: resolved.manifest,
-        manifestBytes: resolved.manifestBytes,
+        manifest,
+        manifestBytes,
       });
     },
+    reconcile: async (claimed) => {
+      if (
+        !claimed.byteObjectId || !claimed.workspaceId || claimed.byteLength < 1 ||
+        !/^[a-f0-9]{64}$/.test(claimed.archiveSha256) ||
+        !/^[a-f0-9]{64}$/.test(claimed.manifestSha256) ||
+        !/^[a-f0-9]{40}$/.test(claimed.targetSha) ||
+        createHash("sha256").update(claimed.manifestBytes).digest("hex") !== claimed.manifestSha256
+      ) return "unknown";
+      const target = await isSafeDirectChildManifest(input.servicesRoot, claimed.serviceId);
+      if (!target) return "unknown";
+      try {
+        return equalBuffer(await readFile(target), claimed.manifestBytes) ? "completed" : "conflict";
+      } catch {
+        return "unknown";
+      }
+    },
   };
+}
+
+function equalBuffer(left: Uint8Array, right: Uint8Array): boolean {
+  return left.byteLength === right.byteLength && left.every((value, index) => value === right[index]);
 }
 
 export function parseRemoteServiceRegistrationRequest(input: unknown): RemoteServiceRegistrationRequest {
@@ -399,4 +437,80 @@ export async function readRemoteServiceRegistrationOperation(input: { workspaceR
   const operation = store.operations.find((candidate) => candidate.id === input.operationId && candidate.actorId === input.actor.id);
   if (!operation) throw new ApiError("operation_not_found", 404, "Service registration operation was not found.");
   return toPublicOperation(operation, false);
+}
+
+export interface StagedRegistrationOperationInput {
+  workspaceRoot: string;
+  actorId: string;
+  workspaceId: string;
+  idempotencyKey: string;
+  fingerprint: string;
+  stageId: string;
+  byteObjectId: string;
+  byteLength: number;
+  fullDigest: string;
+  repo: string;
+  releaseTag: string;
+  commitSha: string;
+  serviceId: string;
+  manifestSha256: string;
+  releaseId: string;
+  platform: "win32" | "linux" | "darwin";
+  assetName: string;
+  archiveType: "zip" | "tar.gz" | "tgz";
+  manifestAssetId: string | null;
+  checksumAssetId: string | null;
+}
+
+/**
+ * #1463's operation is a compatible extension of the existing #1464 durable
+ * store. The stage file keeps only stage/journal state; this is the one
+ * actor-owned operation that operator readback exposes.
+ */
+export async function claimStagedRegistrationOperation(input: StagedRegistrationOperationInput): Promise<RemoteServiceRegistrationOperation> {
+  const operationId = `sro_${sha256(`${input.actorId}\u0000${input.idempotencyKey}`).slice(0, 32)}`;
+  return await withCrossProcessFileLock(storePath(input.workspaceRoot) + ".lock", async () =>
+    await withWorkspaceRegistrationLock(input.workspaceRoot, async () => {
+      const store = await readStore(input.workspaceRoot);
+      const existing = store.operations.find((candidate) => candidate.id === operationId && candidate.actorId === input.actorId);
+      if (existing) {
+        if (existing.requestFingerprint !== input.fingerprint || existing.staged?.workspaceId !== input.workspaceId) {
+          throw new ApiError("idempotency_key_reused", 409, "The idempotency key was already used for a different registration request.");
+        }
+        return toPublicOperation(existing, true);
+      }
+      const now = new Date().toISOString();
+      const operation: PersistedOperation = {
+        id: operationId, kind: "service_registration", status: "unknown", actorId: input.actorId,
+        repo: input.repo, tag: input.releaseTag, sourceCommit: input.commitSha, serviceId: input.serviceId,
+        version: null, createdAt: now, completedAt: null, errorCode: "registration_interrupted",
+        requestFingerprint: input.fingerprint, manifestSha256: input.manifestSha256,
+        staged: {
+          source: "staged_release_asset", workspaceId: input.workspaceId, stageId: input.stageId,
+          byteObjectId: input.byteObjectId, byteLength: input.byteLength, fullDigest: input.fullDigest,
+          platform: input.platform, assetName: input.assetName, archiveType: input.archiveType,
+          manifestAssetId: input.manifestAssetId, checksumAssetId: input.checksumAssetId,
+        },
+      };
+      store.operations.push(operation);
+      await writeStore(input.workspaceRoot, store);
+      return toPublicOperation(operation, false);
+    }), { unavailableMessage: "service registration operation state is unavailable" },
+  );
+}
+
+export async function completeStagedRegistrationOperation(input: {
+  workspaceRoot: string; actorId: string; operationId: string; outcome: "completed" | "conflict" | "unknown";
+}): Promise<void> {
+  await withCrossProcessFileLock(storePath(input.workspaceRoot) + ".lock", async () =>
+    await withWorkspaceRegistrationLock(input.workspaceRoot, async () => {
+      const store = await readStore(input.workspaceRoot);
+      const operation = store.operations.find((candidate) => candidate.id === input.operationId && candidate.actorId === input.actorId && candidate.staged);
+      if (!operation) throw new ApiError("operation_store_invalid", 503, "Service registration operation state is unavailable.");
+      operation.status = input.outcome;
+      operation.completedAt = input.outcome === "unknown" ? null : new Date().toISOString();
+      operation.errorCode = input.outcome === "completed" ? null : input.outcome === "conflict" ? "target_manifest_exists" : "registration_unknown";
+      await writeStore(input.workspaceRoot, store);
+    }), { unavailableMessage: "service registration operation state is unavailable" },
+  );
 }
