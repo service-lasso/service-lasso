@@ -64,12 +64,20 @@ test("dependency acquisition ignores hostile getters and cannot project their pr
 });
 
 test("dependency acquisition records only supported own-data signal observations", () => {
-  const observed = dependencyAcquisitionReceipt({ signal: "SIGTERM" }, "unknown");
-  assert.deepEqual(observed, { outcome: "unknown", subcode: "subprocess_observed_signal_sigterm" });
-  assert.deepEqual(
-    packagedVerificationDiagnostic("dependency_acquisition", undefined, observed),
-    { stage: "dependency_acquisition", errorCode: "verification_failed", outcome: "unknown", subcode: "subprocess_observed_signal_sigterm" },
-  );
+  const secret = "private-token";
+  for (const [signal, subcode] of [
+    ["SIGTERM", "subprocess_observed_signal_sigterm"],
+    ["SIGKILL", "subprocess_observed_signal_sigkill"],
+  ]) {
+    const observed = dependencyAcquisitionReceipt({ signal, stderr: secret }, "unknown");
+    assert.deepEqual(observed, { outcome: "unknown", subcode });
+    const diagnostic = packagedVerificationDiagnostic("dependency_acquisition", undefined, observed);
+    assert.deepEqual(
+      diagnostic,
+      { stage: "dependency_acquisition", errorCode: "verification_failed", outcome: "unknown", subcode },
+    );
+    assert.equal(JSON.stringify(diagnostic).includes(secret), false);
+  }
   assert.deepEqual(dependencyAcquisitionReceipt({ signal: "SIGHUP" }, "unknown"), { outcome: "unknown" });
 
   const inherited = Object.create({ signal: "SIGKILL" });
