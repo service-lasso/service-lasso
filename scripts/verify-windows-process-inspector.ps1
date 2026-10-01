@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
   [switch]$Update,
-  [switch]$ManagedLauncherNative
+  [switch]$ManagedLauncherNative,
+  [switch]$HeldExitFixture
 )
 
 $ErrorActionPreference = "Stop"
@@ -12,17 +13,27 @@ if (-not $IsWindows -and $PSVersionTable.PSEdition -eq "Core") {
 }
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$sourceRelativePath = if ($ManagedLauncherNative) {
+$fixtureCount = $(if ($ManagedLauncherNative) { 1 } else { 0 }) + $(if ($HeldExitFixture) { 1 } else { 0 })
+if ($fixtureCount -gt 1) {
+  throw "Select only one Windows native fixture."
+}
+$sourceRelativePath = if ($HeldExitFixture) {
+  "tests/fixtures/windows-held-exit-probe.cs"
+} elseif ($ManagedLauncherNative) {
   "src/runtime/execution/windows-managed-launcher-native.cs"
 } else {
   "src/runtime/process/windows-process-inspector.cs"
 }
-$binaryRelativePath = if ($ManagedLauncherNative) {
+$binaryRelativePath = if ($HeldExitFixture) {
+  "tests/fixtures/windows-held-exit-probe.exe"
+} elseif ($ManagedLauncherNative) {
   "src/runtime/execution/windows-managed-launcher-native.exe"
 } else {
   "src/runtime/process/windows-process-inspector.exe"
 }
-$provenanceRelativePath = if ($ManagedLauncherNative) {
+$provenanceRelativePath = if ($HeldExitFixture) {
+  "tests/fixtures/windows-held-exit-probe.provenance.json"
+} elseif ($ManagedLauncherNative) {
   "src/runtime/execution/windows-managed-launcher-native.provenance.json"
 } else {
   "src/runtime/process/windows-process-inspector.provenance.json"
@@ -39,6 +50,9 @@ $compilerOptions = @(
 )
 if ($ManagedLauncherNative) {
   $compilerOptions += "/reference:System.Web.Extensions.dll"
+}
+if ($HeldExitFixture) {
+  $compilerOptions += "/debug-"
 }
 
 if (-not [IO.Path]::IsPathRooted($compilerPath) -or -not [IO.File]::Exists($compilerPath)) {
@@ -323,8 +337,33 @@ try {
     "/out:$compiledPath",
     $sourcePath
   )
-  & $compilerPath @compilerArguments
-  if ($LASTEXITCODE -ne 0 -or -not [IO.File]::Exists($compiledPath)) {
+  if ($HeldExitFixture) {
+    $compilerProcess = New-Object Diagnostics.Process
+    try {
+      $compilerProcess.StartInfo.FileName = $compilerPath
+      $compilerProcess.StartInfo.UseShellExecute = $false
+      $compilerProcess.StartInfo.CreateNoWindow = $true
+      foreach ($compilerArgument in $compilerArguments) {
+        [void]$compilerProcess.StartInfo.ArgumentList.Add($compilerArgument)
+      }
+      if (-not $compilerProcess.Start()) {
+        throw "The Windows held-exit fixture compiler did not start."
+      }
+      if (-not $compilerProcess.WaitForExit(15000)) {
+        $compilerProcess.Kill()
+        $compilerProcess.WaitForExit()
+        throw "The Windows held-exit fixture compiler exceeded its 15000ms bound."
+      }
+      if ($compilerProcess.ExitCode -ne 0) {
+        throw "The Windows held-exit fixture provenance compilation failed."
+      }
+    } finally {
+      $compilerProcess.Dispose()
+    }
+  } else {
+    & $compilerPath @compilerArguments
+  }
+  if (-not [IO.File]::Exists($compiledPath)) {
     throw "The Windows process-inspector provenance compilation failed."
   }
 

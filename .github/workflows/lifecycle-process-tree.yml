@@ -37,6 +37,11 @@ jobs:
       - name: Build runtime
         run: npm run build
 
+      - name: Verify Windows held-exit fixture provenance
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: ./scripts/verify-windows-process-inspector.ps1 -HeldExitFixture
+
       - name: Verify lifecycle ownership and process-tree cleanup
         env:
           SERVICE_LASSO_INSTANCE_REGISTRY_PATH: ${{ runner.temp }}/service-lasso-test-instances.json
