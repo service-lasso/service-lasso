@@ -1053,7 +1053,7 @@ const WINDOWS_MANAGED_LAUNCHER_PAYLOAD_FAILURE_BOUNDARIES = new Set<Exclude<Laun
 async function bindWindowsManagedLauncherFiles(
   child: ChildProcess,
   state: WindowsManagedLaunchState,
-  launcherProgressPhase: () => {
+  launcherProgressPhase: (deadlineMs: number) => {
     phase: ManagedProcessStartFailurePhase | null;
     payloadFailureBoundary: LauncherPayloadFailureBoundary;
   } | Promise<{
@@ -1083,9 +1083,37 @@ async function bindWindowsManagedLauncherFiles(
       }
     }, { deadlineMs });
   } catch (error) {
-    const progress = await launcherProgressPhase();
+    const progress = await launcherProgressPhase(deadlineMs);
     throw progress.phase ? new ManagedProcessStartError(progress.phase, error, progress.payloadFailureBoundary) : error;
   }
+}
+
+async function settleWindowsManagedLauncherStderr(
+  child: ChildProcess,
+  deadlineMs: number,
+): Promise<void> {
+  const stderr = child.stderr;
+  if (!stderr || stderr.readableEnded || remainingProcessControlMs(deadlineMs) <= 0) return;
+  await withProcessControlDeadline(async (signal) => {
+    await new Promise<void>((resolve, reject) => {
+      const complete = () => {
+        cleanup();
+        resolve();
+      };
+      const abort = () => {
+        cleanup();
+        reject(signal.reason);
+      };
+      const cleanup = () => {
+        stderr.removeListener("end", complete);
+        stderr.removeListener("close", complete);
+        signal.removeEventListener("abort", abort);
+      };
+      stderr.once("end", complete);
+      stderr.once("close", complete);
+      signal.addEventListener("abort", abort, { once: true });
+    });
+  }, { deadlineMs });
 }
 
 async function continueWindowsManagedLauncher(
@@ -2146,8 +2174,15 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
             await bindWindowsManagedLauncherFiles(
               child,
               windowsManagedLaunchState,
-              async () => {
-                if (probeManagedChildHandle(child) !== "owned") await record.finalizePromise;
+              async (deadlineMs) => {
+                if (probeManagedChildHandle(child) !== "owned") {
+                  await record.finalizePromise;
+                  // The child exit event can precede its final stderr chunk.
+                  // Keep this diagnostic receipt inside the existing launcher
+                  // deadline so the authenticated payload boundary is not
+                  // discarded before the owned stream has settled.
+                  await settleWindowsManagedLauncherStderr(child, deadlineMs).catch(() => undefined);
+                }
                 return {
                   phase: record.launcherProgressPhase,
                   payloadFailureBoundary: managedLauncherPayloadDiagnostic(record) ?? "unknown",
