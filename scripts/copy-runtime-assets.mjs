@@ -10,6 +10,7 @@ const assets = [
   "runtime/process/windows-process-inspector.provenance.json",
   "runtime/security/windows-dpapi-helper.exe",
   "runtime/security/windows-dpapi-helper.provenance.json",
+  "runtime/operator/windows-directory-sync-helper.exe",
 ];
 const retiredAssets = [
   "runtime/execution/windows-managed-launcher.ps1",

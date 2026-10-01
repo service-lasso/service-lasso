@@ -1,6 +1,8 @@
 import { createHash, randomBytes } from "node:crypto";
+import { spawn } from "node:child_process";
 import { lstat, mkdir, open, readFile, realpath, rename, rm, rmdir, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { ApiError } from "../../server/errors.js";
 import { discoverServices } from "../discovery/discoverServices.js";
 import { validateServiceManifest } from "../discovery/validateManifest.js";
@@ -350,8 +352,25 @@ const STAGED_INPUT_PUBLICATION_FILE = "staged-release-input.published";
 // custody of the caller-held release asset; it is never extracted, acquired,
 // installed, or executed here.
 const STAGED_INPUT_BYTES_FILE = "staged-release-input.bin";
+const WINDOWS_DIRECTORY_SYNC_HELPER_PATH = fileURLToPath(new URL("./windows-directory-sync-helper.exe", import.meta.url));
 
-export type StagedAttachmentDurabilityBoundary = "attachment_files_durable" | "publication_renamed" | "publication_durable";
+/**
+ * Test-only observation points for the durable direct-child transaction. They
+ * are deliberately after the named primitive has returned, so a controlled
+ * failure exercises the same uncertain-recovery path as a process loss at
+ * that boundary without making the production importer configurable.
+ */
+export type StagedAttachmentDurabilityBoundary =
+  | "manifest_file_synced"
+  | "attachment_bytes_file_synced"
+  | "attachment_metadata_file_synced"
+  | "publication_receipt_file_synced"
+  | "attachment_directory_synced"
+  | "private_directory_synced"
+  | "attachment_files_durable"
+  | "publication_renamed"
+  | "live_parent_directory_synced"
+  | "publication_durable";
 
 type StagedReleaseInputAttachment = {
   schema: "service-lasso.staged-release-input/v1";
@@ -426,24 +445,36 @@ async function stagedInputPublicationPath(servicesRoot: string, serviceId: strin
   } catch { return null; }
 }
 
-async function syncDirectoryWhenSupported(directory: string): Promise<void> {
-  try {
-    const handle = await open(directory, "r");
-    try { await handle.sync(); } finally { await handle.close(); }
-  } catch (error) {
-    // Windows does not provide a directory handle that Node can fsync.  A
-    // platform that does provide one must surface a failed sync as unknown.
-    const code = (error as NodeJS.ErrnoException).code;
-    if (!["EISDIR", "EPERM", "EACCES", "EINVAL", "ENOTSUP", "ENOSYS"].includes(code ?? "")) throw error;
+async function syncDirectory(directory: string): Promise<void> {
+  // POSIX uses fsync through Node. Windows cannot fsync a directory handle
+  // through Node, so use the checked-in native helper which opens the
+  // directory with FILE_FLAG_BACKUP_SEMANTICS and calls FlushFileBuffers.
+  // Every failed primitive remains an unverifiable publication boundary.
+  if (process.platform === "win32") {
+    await syncWindowsDirectory(directory);
+    return;
   }
+  const handle = await open(directory, "r");
+  try { await handle.sync(); } finally { await handle.close(); }
 }
 
-async function writePrivateDurableFile(file: string, bytes: Uint8Array | string): Promise<void> {
+async function syncWindowsDirectory(directory: string): Promise<void> {
+  const asset = await lstat(WINDOWS_DIRECTORY_SYNC_HELPER_PATH);
+  if (!asset.isFile() || asset.isSymbolicLink()) throw new Error("Windows directory durability helper is unavailable");
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn(WINDOWS_DIRECTORY_SYNC_HELPER_PATH, [directory], { windowsHide: true, stdio: "ignore" });
+    child.once("error", reject);
+    child.once("exit", (code, signal) => code === 0 && signal === null ? resolve() : reject(new Error("Windows directory durability helper failed")));
+  });
+}
+
+async function writePrivateDurableFile(file: string, bytes: Uint8Array | string, onSynced?: () => Promise<void> | void): Promise<void> {
   const handle = await open(file, "wx", 0o600);
   try {
     await handle.writeFile(bytes);
     await handle.sync();
   } finally { await handle.close(); }
+  await onSynced?.();
 }
 
 async function removePrivateTransaction(privateRoot: string): Promise<void> {
@@ -475,23 +506,25 @@ async function importStagedReleaseAttachment(input: { servicesRoot: string; mani
   try {
     await mkdir(privateRoot, { mode: 0o700 });
     privateCreated = true;
-    await writePrivateDurableFile(manifestPath, input.manifestBytes);
+    await writePrivateDurableFile(manifestPath, input.manifestBytes, () => input.onDurabilityBoundary?.("manifest_file_synced"));
     await mkdir(attachmentDirectory, { mode: 0o700 });
     const directory = await lstat(attachmentDirectory);
     if (!directory.isDirectory() || directory.isSymbolicLink() || path.dirname(await realpath(attachmentDirectory)) !== await realpath(privateRoot)) throw new Error("unsafe attachment directory");
-    await writePrivateDurableFile(bytesPath, input.archiveBytes);
-    await writePrivateDurableFile(attachmentPath, attachmentBytes);
-    await syncDirectoryWhenSupported(attachmentDirectory);
-    await syncDirectoryWhenSupported(privateRoot);
+    await writePrivateDurableFile(bytesPath, input.archiveBytes, () => input.onDurabilityBoundary?.("attachment_bytes_file_synced"));
+    await writePrivateDurableFile(attachmentPath, attachmentBytes, () => input.onDurabilityBoundary?.("attachment_metadata_file_synced"));
+    // The receipt binds the manifest, byte attachment and metadata while this
+    // directory is still private. Discovery therefore never sees a child that
+    // lacks its composite receipt.
+    await writePrivateDurableFile(path.join(attachmentDirectory, STAGED_INPUT_PUBLICATION_FILE), stagedInputPublicationReceipt(input.attachment), () => input.onDurabilityBoundary?.("publication_receipt_file_synced"));
+    await syncDirectory(attachmentDirectory);
+    await input.onDurabilityBoundary?.("attachment_directory_synced");
+    await syncDirectory(privateRoot);
+    await input.onDurabilityBoundary?.("private_directory_synced");
     await input.onDurabilityBoundary?.("attachment_files_durable");
     await rename(privateRoot, serviceRoot);
     await input.onDurabilityBoundary?.("publication_renamed");
-    await syncDirectoryWhenSupported(root);
-    const publicationDirectory = path.join(serviceRoot, STAGED_INPUT_DIRECTORY);
-    await writePrivateDurableFile(path.join(publicationDirectory, STAGED_INPUT_PUBLICATION_FILE), stagedInputPublicationReceipt(input.attachment));
-    await syncDirectoryWhenSupported(publicationDirectory);
-    await syncDirectoryWhenSupported(serviceRoot);
-    await syncDirectoryWhenSupported(root);
+    await syncDirectory(root);
+    await input.onDurabilityBoundary?.("live_parent_directory_synced");
     await input.onDurabilityBoundary?.("publication_durable");
     const discovered = await discoverServices(root);
     const publishedManifestPath = path.join(serviceRoot, "service.json");

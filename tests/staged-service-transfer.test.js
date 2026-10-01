@@ -214,12 +214,23 @@ test("staged direct-child attachment stays unknown at every private-publication 
     repo: "service-lasso/lasso-node", releaseTag: "v1", assetId: "asset-durable", assetName: "durable.zip", archiveType: "zip", platform: "win32", manifestAssetId: "manifest-durable", checksumAssetId: "checksums-durable", manifestBytes: Buffer.from(manifest, "utf8"),
   });
   try {
-    for (const boundary of ["attachment_files_durable", "publication_renamed", "publication_durable"]) {
+    const beforeRename = new Set([
+      "manifest_file_synced", "attachment_bytes_file_synced", "attachment_metadata_file_synced",
+      "publication_receipt_file_synced", "attachment_directory_synced", "private_directory_synced", "attachment_files_durable",
+    ]);
+    for (const boundary of [
+      "manifest_file_synced", "attachment_bytes_file_synced", "attachment_metadata_file_synced",
+      "publication_receipt_file_synced", "attachment_directory_synced", "private_directory_synced",
+      "attachment_files_durable", "publication_renamed", "live_parent_directory_synced", "publication_durable",
+    ]) {
       await rm(servicesRoot, { recursive: true, force: true });
       const importer = createStagedReleaseAssetImporter({ servicesRoot, onDurabilityBoundary: (seen) => { if (seen === boundary) throw new Error(`injected ${boundary}`); } });
       assert.equal(await importer.import(claim()), "unknown", `${boundary} must never report completed`);
       const recovered = await importer.reconcile({ ...claim(), manifestBytes: Buffer.from(manifest, "utf8") });
-      assert.equal(recovered, boundary === "publication_durable" ? "completed" : "unknown", `${boundary} must only be recoverable after publication durability is sealed`);
+      assert.equal(recovered, beforeRename.has(boundary) ? "unknown" : "completed", `${boundary} must retain an all-or-nothing composite for reconciliation`);
+      if (!beforeRename.has(boundary)) {
+        await readFile(path.join(servicesRoot, "durable-attachment-service", ".service-lasso", "staged-release-input.published"));
+      }
     }
   } finally { await rm(root, { recursive: true, force: true }); }
 });
@@ -411,7 +422,7 @@ test("separate-process hard exit after real direct-child persistence recovers wi
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test("separate-process crash in the attachment publication window remains unknown without a second import, fetch, or Audit event", async () => {
+test("separate-process crash after the one composite rename reconciles the receipt-bound child without a second import or fetch", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "staged-publication-hard-exit-"));
   const servicesRoot = path.join(root, "services");
   const fixture = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "staged-transfer-hard-exit.mjs");
@@ -419,7 +430,7 @@ test("separate-process crash in the attachment publication window remains unknow
     const child = spawn(process.execPath, [fixture, root, servicesRoot], { stdio: "ignore", env: { ...process.env, SERVICE_LASSO_TEST_STAGED_ATTACHMENT_CRASH_BOUNDARY: "publication_renamed" } });
     const [code, signal] = await once(child, "exit");
     assert.equal(signal, null);
-    assert.equal(code, 74, "fixture must hard exit between publication rename and durable publication receipt");
+    assert.equal(code, 74, "fixture must hard exit after the one composite rename");
     const store = JSON.parse(await readFile(path.join(root, ".service-lasso", "operator", "service-registration-operations.json"), "utf8"));
     const stage = store.stagedTransfer.stages[0];
     let resolutions = 0;
@@ -430,11 +441,11 @@ test("separate-process crash in the attachment publication window remains unknow
     });
     const replay = await restarted.register({ id: "hard-exit-actor", workspaceId: "hard-exit-workspace", canConfigure: true }, stage.id, "scf_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "hard-exit-idempotency-0001");
     assert.equal(replay.replayed, true);
-    assert.equal(replay.status, "claimed");
-    assert.equal(replay.operation.state, "unknown");
+    assert.equal(replay.status, "consumed");
+    assert.equal(replay.operation.state, "completed");
     assert.equal(resolutions, 0, "publication-window recovery must not re-resolve or fetch the release");
     const audit = await readAuditEvents({ workspaceRoot: root, query: { action: "staged_service_registration" } });
-    assert.equal(audit.events.length, 0, "an unverifiable publication must not seal a success Audit event");
+    assert.equal(audit.events.length, 0, "reconciliation does not duplicate or prematurely seal Audit");
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
