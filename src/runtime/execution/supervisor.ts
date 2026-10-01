@@ -685,10 +685,6 @@ function attachRuntimeLogCapture(record: ManagedProcessRecord): void {
     stream.once("error", settle);
     if (stream.readableEnded || stream.destroyed) settle();
   });
-  const outputEnded = Promise.all([
-    record.child.stdout ? waitForOutputEnd(record.child.stdout) : Promise.resolve(),
-    record.child.stderr ? waitForOutputEnd(record.child.stderr) : Promise.resolve(),
-  ]);
   const flushBufferedLines = (level: "stdout" | "stderr", flushRemainder = false) => {
     const bufferKey = level === "stdout" ? "stdoutBuffer" : "stderrBuffer";
     const outputStream = level === "stdout" ? record.logStreams.stdout : record.logStreams.stderr;
@@ -720,6 +716,18 @@ function attachRuntimeLogCapture(record: ManagedProcessRecord): void {
     record[bufferKey] = remainder;
   };
 
+  // Drain and parse each stream at its own terminal event.  Child `close`
+  // only reports the wrapper's stdio state; it cannot stand in for delivery
+  // of a final authenticated record to this parser.
+  const outputEnded = Promise.all([
+    record.child.stdout
+      ? waitForOutputEnd(record.child.stdout).then(() => flushBufferedLines("stdout", true))
+      : Promise.resolve(),
+    record.child.stderr
+      ? waitForOutputEnd(record.child.stderr).then(() => flushBufferedLines("stderr", true))
+      : Promise.resolve(),
+  ]);
+
   record.child.stdout?.setEncoding("utf8");
   record.child.stderr?.setEncoding("utf8");
 
@@ -736,14 +744,8 @@ function attachRuntimeLogCapture(record: ManagedProcessRecord): void {
   record.logCapturePromise = Promise.all([
     record.exitPromise,
     record.streamsClosedPromise,
+    outputEnded,
   ]).then(async () => {
-    await outputEnded;
-    // A bridged stderr stream can emit its final authenticated chunk in the
-    // same turn as close. Let its already-registered data listener consume
-    // that chunk before the progress token can be retired below.
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    flushBufferedLines("stdout", true);
-    flushBufferedLines("stderr", true);
     await record.variableCapturePromise;
     await closeRuntimeLogStreams(record.logStreams);
   });
@@ -2071,8 +2073,7 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
   const processGroup = windowsManagedLaunchState
     ? { kind: "windows-job" as const, id: String(rootPid) }
     : createSpawnProcessGroup(rootPid);
-  const rootInspection = rootPid > 0 && !workspaceRoot ? await managedProcessRootInspector(rootPid) : null;
-  let rootIdentity = rootInspection?.status === "running" ? rootInspection.identity : null;
+  let rootIdentity: ProcessFingerprint | null = null;
 
   const record: ManagedProcessRecord = {
     child,
@@ -2106,7 +2107,14 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
     logCapturePromise: Promise.resolve(),
     finalizePromise: Promise.resolve(),
   };
+  // Start draining the native streams as soon as the wrapper handle exists.
+  // Windows payload validation can fail before the later ownership inspection
+  // completes; delaying these listeners until then can lose its only
+  // authenticated, public-safe receipt.
   attachRuntimeLogCapture(record);
+  const rootInspection = rootPid > 0 && !workspaceRoot ? await managedProcessRootInspector(rootPid) : null;
+  rootIdentity = rootInspection?.status === "running" ? rootInspection.identity : null;
+  record.rootIdentity = rootIdentity;
 
   let managedRecordActivated = false;
   const activateManagedRecord = () => {
