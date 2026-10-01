@@ -74,43 +74,52 @@ async function inspectNativeCustody(child, label, launchCwd) {
   if (process.platform !== "win32") return { status: "not_observed", reason: "platform_not_windows" };
   if (!Number.isInteger(child.pid) || child.pid <= 0) return { status: "not_observed", reason: "child_not_created" };
   const inspectorPath = path.join(process.cwd(), "src", "runtime", "process", "windows-process-inspector.exe");
-  try {
-    const { stdout } = await execFileAsync(inspectorPath, [String(child.pid), "--include-descendants"], {
-      windowsHide: true,
-      timeout: 10_000,
-      maxBuffer: 1024 * 1024,
-      encoding: "utf8",
-    });
-    const tree = JSON.parse(stdout);
-    if (tree?.Status !== "tree" || tree?.RootStatus !== "running" || !Array.isArray(tree.Processes)) {
-      return { status: "not_observed", reason: "native_identity_unavailable" };
+  const deadlineAt = Date.now() + 3_000;
+  let reason = "native_inspector_failed";
+  do {
+    try {
+      const { stdout } = await execFileAsync(inspectorPath, [String(child.pid), "--include-descendants"], {
+        windowsHide: true,
+        timeout: Math.max(250, deadlineAt - Date.now()),
+        maxBuffer: 1024 * 1024,
+        encoding: "utf8",
+      });
+      const tree = JSON.parse(stdout);
+      if (tree?.Status !== "tree" || tree?.RootStatus !== "running" || !Array.isArray(tree.Processes)) {
+        reason = "native_identity_unavailable";
+      } else {
+        const root = tree.Processes.find((entry) => entry?.ProcessId === child.pid);
+        if (!root || !Number.isInteger(root.ParentProcessId) || typeof root.CreationDate !== "string" ||
+          typeof root.ExecutablePath !== "string" || typeof root.CommandLine !== "string") {
+          reason = "native_identity_incomplete";
+        } else {
+          const processes = tree.Processes.map((entry) => ({
+            pid: Number.isInteger(entry?.ProcessId) ? entry.ProcessId : null,
+            parentPid: Number.isInteger(entry?.ParentProcessId) ? entry.ParentProcessId : null,
+            createdAt: typeof entry?.CreationDate === "string" ? entry.CreationDate : null,
+            executableSha256: typeof entry?.ExecutablePath === "string" ? hashText(entry.ExecutablePath) : null,
+            commandSha256: typeof entry?.CommandLine === "string" ? hashText(entry.CommandLine) : null,
+          }));
+          if (processes.some((entry) => entry.pid === null || entry.parentPid === null || entry.createdAt === null || entry.executableSha256 === null || entry.commandSha256 === null)) {
+            reason = "native_identity_incomplete";
+          } else {
+            return {
+              status: "observed",
+              source: "windows-process-inspector",
+              label,
+              launchCwdSha256: hashText(launchCwd),
+              root: processes.find((entry) => entry.pid === child.pid),
+              processChain: processes,
+            };
+          }
+        }
+      }
+    } catch {
+      reason = "native_inspector_failed";
     }
-    const root = tree.Processes.find((entry) => entry?.ProcessId === child.pid);
-    if (!root || !Number.isInteger(root.ParentProcessId) || typeof root.CreationDate !== "string" ||
-      typeof root.ExecutablePath !== "string" || typeof root.CommandLine !== "string") {
-      return { status: "not_observed", reason: "native_identity_incomplete" };
-    }
-    const processes = tree.Processes.map((entry) => ({
-      pid: Number.isInteger(entry?.ProcessId) ? entry.ProcessId : null,
-      parentPid: Number.isInteger(entry?.ParentProcessId) ? entry.ParentProcessId : null,
-      createdAt: typeof entry?.CreationDate === "string" ? entry.CreationDate : null,
-      executableSha256: typeof entry?.ExecutablePath === "string" ? hashText(entry.ExecutablePath) : null,
-      commandSha256: typeof entry?.CommandLine === "string" ? hashText(entry.CommandLine) : null,
-    }));
-    if (processes.some((entry) => entry.pid === null || entry.parentPid === null || entry.createdAt === null || entry.executableSha256 === null || entry.commandSha256 === null)) {
-      return { status: "not_observed", reason: "native_identity_incomplete" };
-    }
-    return {
-      status: "observed",
-      source: "windows-process-inspector",
-      label,
-      launchCwdSha256: hashText(launchCwd),
-      root: processes.find((entry) => entry.pid === child.pid),
-      processChain: processes,
-    };
-  } catch {
-    return { status: "not_observed", reason: "native_inspector_failed" };
-  }
+    if (Date.now() < deadlineAt) await new Promise((resolve) => setTimeout(resolve, 100));
+  } while (Date.now() < deadlineAt);
+  return { status: "not_observed", reason };
 }
 function startProcess(label, command, args, env) {
   const startedAt = new Date().toISOString();
@@ -158,6 +167,7 @@ const instanceRegistryPath = inputs.SERVICE_LASSO_INSTANCE_REGISTRY_PATH;
 const hostPortRegistryPath = inputs.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH;
 const receiptDirectory = path.join(path.dirname(instanceRegistryPath), "isolated-test-receipts");
 const initialInputs = Object.fromEntries(await Promise.all(inputKeys.map(async (key) => [key, await inspectPath(inputs[key])])));
+const initialCapturedAt = new Date().toISOString();
 await mkdir(workspaceRoot, { recursive: true });
 await mkdir(path.dirname(instanceRegistryPath), { recursive: true });
 await mkdir(path.dirname(hostPortRegistryPath), { recursive: true });
@@ -166,7 +176,7 @@ await mkdir(receiptDirectory, { recursive: true });
 const receiptPath = path.join(receiptDirectory, `run-${Date.now()}-${process.pid}.json`);
 const receipt = {
   version: 1, inputMode: usesExternalInputs ? "external" : "owned-default", rawInputs, actualInputs: inputs,
-  initial: initialInputs,
+  initial: initialInputs, initialCapturedAt,
   git: await gitIdentity(), nativeHash: { executable: process.execPath, sha256: await sha256File(process.execPath) },
   nativeAssets: await nativeAssetHashes(),
   receiptPath, processes: [], terminal: null,
