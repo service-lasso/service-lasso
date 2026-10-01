@@ -31,6 +31,9 @@ import {
   managedProcessStartFailurePhase,
   ManagedProcessEnrollmentContainmentError,
   setManagedProcessAfterReleaseHookForTests,
+  assertManagedProcessCustodyForTests,
+  assertManagedProcessCustodySettledForTests,
+  captureManagedProcessCustodyForTests,
   setManagedProcessEnrollmentHookForTests,
   setManagedProcessFilesBoundHookForTests,
   setManagedProcessFinalizationTelemetryHookForTests,
@@ -43,10 +46,12 @@ import {
   setManagedProcessTreeMonitorForTests,
   setManagedProcessTreeTerminatorForTests,
   setManagedWindowsTreeInspectorForTests,
+  setManagedWindowsJobObservationForTests,
   setWindowsManagedLauncherPathForTests,
   startManagedProcess as startRuntimeManagedProcess,
   stopAllManagedProcesses,
   stopManagedProcess,
+  stopManagedProcessWithCustodyForTests,
   waitForManagedProcessFinalization,
   writeManagedProcessStdin,
 } from "../dist/runtime/execution/supervisor.js";
@@ -162,6 +167,7 @@ async function writeStubbornProcessTreeFixture(serviceRoot, scriptPath, options 
     rootExitAfterChildMs = null,
     acknowledgementFilePath = null,
     suppressAcknowledgement = false,
+    acknowledgementMode = "complete",
     receiptMode = "complete",
     custodyReadyFilePath = null,
   } = options;
@@ -261,14 +267,44 @@ ${custodyReadyFilePath === null ? "" : `while (true) {
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
 }`}
-${suppressAcknowledgement ? "await new Promise(() => {});" : `const acknowledgement = JSON.stringify({
-  rootPid: process.pid,
-  childPid: child.pid,
-  grandchildPid: receipt.grandchildPid,
-});
+const jobObservationRequestPath = process.env.SERVICE_LASSO_TEST_JOB_OBSERVATION_REQUEST_PATH;
+const jobObservationResponsePath = process.env.SERVICE_LASSO_TEST_JOB_OBSERVATION_RESPONSE_PATH;
+const jobObservationToken = process.env.SERVICE_LASSO_TEST_JOB_OBSERVATION_TOKEN;
+if (jobObservationRequestPath && jobObservationResponsePath && jobObservationToken) {
+  const request = JSON.stringify({
+    token: jobObservationToken,
+    rootPid: process.pid,
+    childPid: child.pid,
+    grandchildPid: receipt.grandchildPid,
+  });
+  const requestTemp = jobObservationRequestPath + ".tmp";
+  await writeFile(requestTemp, request, { flag: "wx" });
+  await rename(requestTemp, jobObservationRequestPath);
+  while (true) {
+    try {
+      const response = JSON.parse(await readFile(jobObservationResponsePath, "utf8"));
+      if (
+        response !== null && typeof response === "object" && !Array.isArray(response) &&
+        Object.keys(response).length === 3 && response.token === jobObservationToken &&
+        response.status === "complete" && Number.isInteger(response.count) && response.count >= 3 && response.count <= 256
+      ) break;
+    } catch {
+      // The launcher may publish only its one authenticated response.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+}
+${suppressAcknowledgement ? "await new Promise(() => {});" : `const acknowledgement = ${JSON.stringify(acknowledgementMode)} === "malformed"
+  ? "{"
+  : JSON.stringify(${JSON.stringify(acknowledgementMode)} === "extra"
+    ? { rootPid: process.pid, childPid: child.pid, grandchildPid: receipt.grandchildPid, extraPid: process.pid }
+    : ${JSON.stringify(acknowledgementMode)} === "mismatched"
+      ? { rootPid: process.pid, childPid: process.pid, grandchildPid: receipt.grandchildPid }
+      : { rootPid: process.pid, childPid: child.pid, grandchildPid: receipt.grandchildPid });
 const acknowledgementTemp = ${JSON.stringify(`${acknowledgementFilePath}.tmp`)};
 await writeFile(acknowledgementTemp, acknowledgement, { flag: "wx" });
-await rename(acknowledgementTemp, ${JSON.stringify(acknowledgementFilePath)});`}`}
+await rename(acknowledgementTemp, ${JSON.stringify(acknowledgementFilePath)});
+if (${JSON.stringify(acknowledgementMode)} !== "complete") await new Promise(() => {});`}`}
 const heartbeat = setInterval(() => {}, 1000);
 process.on("SIGTERM", () => {});
 process.on("SIGINT", () => {});
@@ -345,7 +381,66 @@ async function readOwnedFixtureRootCustody(workspaceRoot, serviceId) {
   assert.equal(ownership?.processGroup?.kind, "windows-job");
   const inspection = await inspectProcess(ownership.identity.pid);
   assert.equal(classifyProcessIdentity(ownership.identity, inspection), "owned");
-  return ownership.identity;
+  return {
+    workspaceRoot,
+    identity: ownership.identity,
+    processGroup: ownership.processGroup,
+    managerCustody: captureManagedProcessCustodyForTests(serviceId),
+  };
+}
+
+function enableOwnedFixtureTestHooks() {
+  const priorTestHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+  process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
+  return () => {
+    if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+    else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
+  };
+}
+
+async function startOwnedFixtureWithNativeJobObservation(options, launcherTerminal = null) {
+  setManagedProcessSpawnerForTests((command, args, spawnOptions) => {
+    const child = spawn(command, args, spawnOptions);
+    if (launcherTerminal !== null) {
+      const token = spawnOptions.env?.SERVICE_LASSO_MANAGED_LAUNCH_PROGRESS_TOKEN ?? null;
+      let stderrBuffer = "";
+      child.stderr?.on("data", (chunk) => {
+        stderrBuffer += chunk.toString("utf8");
+        const lines = stderrBuffer.replace(/\r\n/g, "\n").split("\n");
+        stderrBuffer = lines.pop() ?? "";
+        for (const line of lines) {
+          const progress = filterWindowsManagedLauncherProgressLineForTests(token, line);
+          if (progress.phase !== null) launcherTerminal.phases.push(progress.phase);
+        }
+      });
+      child.once("exit", (exitCode, signal) => {
+        const progress = filterWindowsManagedLauncherProgressLineForTests(token, stderrBuffer, true);
+        if (progress.phase !== null) launcherTerminal.phases.push(progress.phase);
+        launcherTerminal.state = "exited";
+        launcherTerminal.exitCode = typeof exitCode === "number" ? exitCode : null;
+        launcherTerminal.signal = signal ?? null;
+      });
+    }
+    return child;
+  });
+  setManagedProcessEnrollmentHookForTests((child) => {
+    if (launcherTerminal === null) return;
+    launcherTerminal.state = "open";
+    launcherTerminal.pid = Number.isInteger(child.pid) ? child.pid : null;
+    try {
+      launcherTerminal.enrollmentProbe = child.kill(0) ? "owned" : "exited";
+    } catch {
+      launcherTerminal.enrollmentProbe = "unverifiable";
+    }
+  });
+  setManagedWindowsJobObservationForTests(true);
+  try {
+    return await startManagedProcess(options);
+  } finally {
+    setManagedWindowsJobObservationForTests(false);
+    setManagedProcessEnrollmentHookForTests(null);
+    setManagedProcessSpawnerForTests(null);
+  }
 }
 
 async function waitForOwnedFixtureStopped(custody, timeoutMs = 3_000) {
@@ -356,9 +451,21 @@ async function waitForOwnedFixtureStopped(custody, timeoutMs = 3_000) {
   }, timeoutMs);
 }
 
-async function cleanupCompleteOwnedFixture({ serviceId, custody, tempRoot, primaryError }) {
+function assertSameProcessFingerprint(actual, expected) {
+  assert.deepEqual(actual, expected);
+}
+
+async function cleanupCompleteOwnedFixture({ serviceId, rootCustody, custody, tempRoot, primaryError }) {
   try {
-    if (hasManagedProcess(serviceId)) await stopManagedProcess(serviceId, 5_000);
+    if (hasManagedProcess(serviceId)) {
+      const ownership = await findProcessOwnership(rootCustody.workspaceRoot, "service", serviceId);
+      assertSameProcessFingerprint(ownership?.identity, rootCustody.identity);
+      assert.equal(ownership?.processGroup?.kind, "windows-job");
+      assertManagedProcessCustodyForTests(rootCustody.managerCustody);
+      await stopManagedProcessWithCustodyForTests(rootCustody.managerCustody, 5_000);
+    }
+    await waitForManagedProcessFinalization(serviceId, Date.now() + 5_000);
+    await assertManagedProcessCustodySettledForTests(rootCustody.managerCustody);
     await waitForOwnedFixtureStopped(custody);
     resetLifecycleState();
     await removeTempRoot(tempRoot);
@@ -373,8 +480,16 @@ async function cleanupCompleteOwnedFixture({ serviceId, custody, tempRoot, prima
 
 async function retainIncompleteOwnedFixture({ serviceId, rootCustody, primaryError }) {
   try {
-    if (hasManagedProcess(serviceId)) await stopManagedProcess(serviceId, 5_000);
-    await waitForOwnedFixtureStopped([rootCustody]);
+    const ownership = await findProcessOwnership(rootCustody.workspaceRoot, "service", serviceId);
+    assertSameProcessFingerprint(ownership?.identity, rootCustody.identity);
+    assert.equal(ownership?.processGroup?.kind, "windows-job");
+    if (hasManagedProcess(serviceId)) {
+      assertManagedProcessCustodyForTests(rootCustody.managerCustody);
+      await stopManagedProcessWithCustodyForTests(rootCustody.managerCustody, 5_000);
+    }
+    await waitForManagedProcessFinalization(serviceId, Date.now() + 5_000);
+    await assertManagedProcessCustodySettledForTests(rootCustody.managerCustody);
+    await waitForOwnedFixtureStopped([rootCustody.identity]);
   } catch (cleanupError) {
     if (primaryError !== undefined) {
       throw new AggregateError([primaryError, cleanupError],
@@ -3443,6 +3558,7 @@ test("managed Windows job contains a child spawned after enrollment when the ser
   skip: process.platform !== "win32",
 }, async () => {
   resetLifecycleState();
+  const restoreFixtureTestHooks = enableOwnedFixtureTestHooks();
   const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-managed-late-child-");
   const { serviceRoot, scriptPath } = await writeExecutableFixtureService(servicesRoot, "managed-late-child-service");
   const triggerPath = path.join(serviceRoot, "runtime", "launch-child.trigger");
@@ -3456,16 +3572,25 @@ test("managed Windows job contains a child spawned after enrollment when the ser
   });
   let handle;
   let custody = null;
+  let rootCustody = null;
   let primaryError;
+  const launcherTerminal = {
+    state: "not_enrolled",
+    pid: null,
+    exitCode: null,
+    signal: null,
+    enrollmentProbe: "not_enrolled",
+    phases: [],
+  };
 
   try {
     const [service] = await discoverServices(servicesRoot);
-    handle = await startManagedProcess({
+    handle = await startOwnedFixtureWithNativeJobObservation({
       service,
       executionPlan: createDirectExecutionPlan(service.manifest),
       workspaceRoot,
-    });
-    const rootCustody = await readOwnedFixtureRootCustody(workspaceRoot, "managed-late-child-service");
+    }, launcherTerminal);
+    rootCustody = await readOwnedFixtureRootCustody(workspaceRoot, "managed-late-child-service");
     await writeFile(triggerPath, "launch\n", "utf8");
     const receipt = await readCompleteOwnedFixtureReceipt(pidFilePath);
     custody = await captureOwnedFixtureCustody(receipt);
@@ -3474,6 +3599,20 @@ test("managed Windows job contains a child spawned after enrollment when the ser
 
     await waitForManagedProcessFinalization("managed-late-child-service", Date.now() + 15_000);
     await waitForOwnedFixtureStopped(custody, 15_000);
+    assert.deepEqual(launcherTerminal, {
+      state: "exited",
+      pid: handle.pid,
+      exitCode: 0,
+      signal: null,
+      enrollmentProbe: "owned",
+      phases: [
+        "launcher_initialization",
+        "launcher_native_asset_validation",
+        "launcher_payload_validation",
+        "launcher_gate_observation",
+        "launcher_binding_publication",
+      ],
+    });
     assert.equal(hasManagedProcess("managed-late-child-service"), false);
     const stopped = await findProcessOwnership(workspaceRoot, "service", "managed-late-child-service");
     assert.equal(stopped.lifecycleState, "stopped");
@@ -3482,13 +3621,18 @@ test("managed Windows job contains a child spawned after enrollment when the ser
     primaryError = error;
     throw error;
   } finally {
-    if (custody !== null) {
-      await cleanupCompleteOwnedFixture({
-        serviceId: "managed-late-child-service",
-        custody,
-        tempRoot,
-        primaryError,
-      });
+    try {
+      if (custody !== null && rootCustody !== null) {
+        await cleanupCompleteOwnedFixture({
+          serviceId: "managed-late-child-service",
+          rootCustody,
+          custody,
+          tempRoot,
+          primaryError,
+        });
+      }
+    } finally {
+      restoreFixtureTestHooks();
     }
   }
 });
@@ -3497,6 +3641,7 @@ test("managed Windows late-child fixture suppresses acknowledgement before root-
   skip: process.platform !== "win32",
 }, async () => {
   resetLifecycleState();
+  const restoreFixtureTestHooks = enableOwnedFixtureTestHooks();
   const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-managed-late-child-no-ack-");
   const { serviceRoot, scriptPath } = await writeExecutableFixtureService(servicesRoot, "managed-late-child-no-ack-service");
   const triggerPath = path.join(serviceRoot, "runtime", "launch-child.trigger");
@@ -3511,16 +3656,17 @@ test("managed Windows late-child fixture suppresses acknowledgement before root-
   });
   let handle;
   let custody = null;
+  let rootCustody = null;
   let primaryError;
 
   try {
     const [service] = await discoverServices(servicesRoot);
-    handle = await startManagedProcess({
+    handle = await startOwnedFixtureWithNativeJobObservation({
       service,
       executionPlan: createDirectExecutionPlan(service.manifest),
       workspaceRoot,
     });
-    const rootCustody = await readOwnedFixtureRootCustody(workspaceRoot, "managed-late-child-no-ack-service");
+    rootCustody = await readOwnedFixtureRootCustody(workspaceRoot, "managed-late-child-no-ack-service");
     await writeFile(triggerPath, "launch\n", "utf8");
     const receipt = await readCompleteOwnedFixtureReceipt(pidFilePath);
     custody = await captureOwnedFixtureCustody(receipt);
@@ -3541,22 +3687,79 @@ test("managed Windows late-child fixture suppresses acknowledgement before root-
     primaryError = error;
     throw error;
   } finally {
-    if (custody !== null) {
-      await cleanupCompleteOwnedFixture({
-        serviceId: "managed-late-child-no-ack-service",
-        custody,
-        tempRoot,
-        primaryError,
-      });
+    try {
+      if (custody !== null && rootCustody !== null) {
+        await cleanupCompleteOwnedFixture({
+          serviceId: "managed-late-child-no-ack-service",
+          rootCustody,
+          custody,
+          tempRoot,
+          primaryError,
+        });
+      }
+    } finally {
+      restoreFixtureTestHooks();
     }
   }
 });
+
+for (const acknowledgementMode of ["malformed", "extra", "mismatched"]) {
+  test(`managed Windows late-child fixture rejects a ${acknowledgementMode} acknowledgement before containment`, {
+    skip: process.platform !== "win32",
+  }, async () => {
+    resetLifecycleState();
+    const restoreFixtureTestHooks = enableOwnedFixtureTestHooks();
+    const serviceId = `managed-late-child-${acknowledgementMode}-ack-service`;
+    const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot(
+      `service-lasso-managed-late-child-${acknowledgementMode}-ack-`,
+    );
+    const { serviceRoot, scriptPath } = await writeExecutableFixtureService(servicesRoot, serviceId);
+    const triggerPath = path.join(serviceRoot, "runtime", "launch-child.trigger");
+    const acknowledgementPath = path.join(serviceRoot, "runtime", "owned-root-exit.ack.json");
+    const custodyReadyPath = path.join(serviceRoot, "runtime", "owned-root-exit.custody-ready");
+    const pidFilePath = await writeStubbornProcessTreeFixture(serviceRoot, scriptPath, {
+      childTriggerFilePath: triggerPath,
+      rootExitAfterChildMs: 750,
+      acknowledgementFilePath: acknowledgementPath,
+      acknowledgementMode,
+      custodyReadyFilePath: custodyReadyPath,
+    });
+    let rootCustody = null;
+    let custody = null;
+    let primaryError;
+    try {
+      const [service] = await discoverServices(servicesRoot);
+      await startOwnedFixtureWithNativeJobObservation({ service, executionPlan: createDirectExecutionPlan(service.manifest), workspaceRoot });
+      rootCustody = await readOwnedFixtureRootCustody(workspaceRoot, serviceId);
+      await writeFile(triggerPath, "launch\n", "utf8");
+      const receipt = await readCompleteOwnedFixtureReceipt(pidFilePath);
+      custody = await captureOwnedFixtureCustody(receipt);
+      await writeFile(custodyReadyPath, "verified\n", { flag: "wx" });
+      await assert.rejects(readOwnedFixtureAcknowledgement(acknowledgementPath, receipt, 3_000));
+      assert.equal(hasManagedProcess(serviceId), true);
+      assert.equal((await inspectProcess(rootCustody.identity.pid)).status, "running");
+      assert.equal((await findProcessOwnership(workspaceRoot, "service", serviceId)).lifecycleState, "launching");
+    } catch (error) {
+      primaryError = error;
+      throw error;
+    } finally {
+      try {
+        if (rootCustody !== null && custody !== null) {
+          await cleanupCompleteOwnedFixture({ serviceId, rootCustody, custody, tempRoot, primaryError });
+        }
+      } finally {
+        restoreFixtureTestHooks();
+      }
+    }
+  });
+}
 
 for (const receiptMode of ["incomplete", "malformed"]) {
   test(`managed Windows late-child fixture retains ${receiptMode} owned receipt before containment`, {
     skip: process.platform !== "win32",
   }, async () => {
     resetLifecycleState();
+    const restoreFixtureTestHooks = enableOwnedFixtureTestHooks();
     const serviceId = `managed-late-child-${receiptMode}-receipt-service`;
     const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot(
       `service-lasso-managed-late-child-${receiptMode}-receipt-`,
@@ -3576,7 +3779,7 @@ for (const receiptMode of ["incomplete", "malformed"]) {
 
     try {
       const [service] = await discoverServices(servicesRoot);
-      handle = await startManagedProcess({
+      handle = await startOwnedFixtureWithNativeJobObservation({
         service,
         executionPlan: createDirectExecutionPlan(service.manifest),
         workspaceRoot,
@@ -3586,7 +3789,7 @@ for (const receiptMode of ["incomplete", "malformed"]) {
 
       await assert.rejects(readCompleteOwnedFixtureReceipt(pidFilePath, 3_000));
       assert.equal(hasManagedProcess(serviceId), true);
-      assert.equal((await inspectProcess(rootCustody.pid)).status, "running");
+      assert.equal((await inspectProcess(rootCustody.identity.pid)).status, "running");
       const ownedBeforeContainment = await findProcessOwnership(workspaceRoot, "service", serviceId);
       assert.equal(ownedBeforeContainment.lifecycleState, "launching");
       assert.notEqual(ownedBeforeContainment.pid, null);
@@ -3594,11 +3797,15 @@ for (const receiptMode of ["incomplete", "malformed"]) {
       primaryError = error;
       throw error;
     } finally {
-      if (rootCustody !== null) {
-        // The receipt is intentionally untrustworthy. Stop only through the
-        // manager's held root ownership and retain the fixture, lifecycle
-        // record, and files for diagnosis rather than deleting unknown state.
-        await retainIncompleteOwnedFixture({ serviceId, rootCustody, primaryError });
+      try {
+        if (rootCustody !== null) {
+          // The receipt is intentionally untrustworthy. Stop only through the
+          // manager's held root ownership and retain the fixture, lifecycle
+          // record, and files for diagnosis rather than deleting unknown state.
+          await retainIncompleteOwnedFixture({ serviceId, rootCustody, primaryError });
+        }
+      } finally {
+        restoreFixtureTestHooks();
       }
     }
   });
@@ -3647,6 +3854,12 @@ test("managed Windows root auto-exit contains its verified child and grandchild 
     ]);
     assert.equal(Number.isInteger(telemetry?.[2]?.count), true);
     assert.equal(telemetry[2].count >= 0 && telemetry[2].count <= 1_000, true);
+    for (const entry of telemetry) {
+      assert.deepEqual(Object.keys(entry).sort(), entry.phase === "member_count"
+        ? ["count", "phase", "reason", "status"]
+        : ["phase", "reason", "status"]);
+      assert.equal(Object.values(entry).some((value) => typeof value === "string" && /(?:pid|path|command|error|token)/iu.test(value)), false);
+    }
   } finally {
     setManagedProcessFinalizationTelemetryHookForTests(null);
     await stopManagedProcess("managed-root-auto-exit-service", 100).catch(() => null);
@@ -3698,6 +3911,12 @@ test("managed Windows owned automatic root exit records a closed finalization tr
     ]);
     assert.equal(Number.isInteger(telemetry?.[2]?.count), true);
     assert.equal(telemetry[2].count >= 0 && telemetry[2].count <= 1_000, true);
+    for (const entry of telemetry) {
+      assert.deepEqual(Object.keys(entry).sort(), entry.phase === "member_count"
+        ? ["count", "phase", "reason", "status"]
+        : ["phase", "reason", "status"]);
+      assert.equal(Object.values(entry).some((value) => typeof value === "string" && /(?:pid|path|command|error|token)/iu.test(value)), false);
+    }
   } finally {
     setManagedProcessFinalizationTelemetryHookForTests(null);
     await stopManagedProcess("managed-owned-finalization-trace-service", 100).catch(() => null);
@@ -3847,16 +4066,30 @@ test("whole-runtime shutdown reports safe service, pid, and finalization phase o
     await assert.rejects(shutdown, (error) => {
       assert.equal(error.name, "ManagedProcessFinalizationError");
       assert.equal(error.failures.length, 1);
+      // The automatic-finaliser failure retains its primary safe identity and
+      // exposes the complete closed diagnostic projection. Assert the whole
+      // allowlisted contract so a future field, phase, count, or private value
+      // cannot be added silently.
       assert.deepEqual(error.failures[0], {
         serviceId: "finalizer-diagnostic-service",
         pid: handle.pid,
         phase: "finalize",
         code: "EFINALIZE_TEST",
+        telemetry: [
+          { phase: "root_handle_exit", status: "complete", reason: "observed" },
+          { phase: "snapshot", status: "complete", reason: "observed" },
+          { phase: "member_count", status: "complete", reason: "observed", count: 3 },
+          { phase: "termination", status: "complete", reason: "observed" },
+          { phase: "registry_reconcile", status: "complete", reason: "observed" },
+        ],
       });
+      assert.equal(Number.isInteger(error.failures[0].telemetry[2].count), true);
+      assert.equal(error.failures[0].telemetry[2].count >= 0 && error.failures[0].telemetry[2].count <= 1_000, true);
       assert.match(error.message, /finalizer-diagnostic-service/);
       assert.match(error.message, new RegExp(`pid ${handle.pid}`));
       assert.match(error.message, /phase finalize/);
       assert.equal(error.message.includes("sensitive command material"), false);
+      assert.equal(JSON.stringify(error.failures[0]).includes("sensitive command material"), false);
       return true;
     });
   } finally {

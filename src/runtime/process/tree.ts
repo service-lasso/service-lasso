@@ -29,6 +29,11 @@ export interface OwnedProcessTreeTarget {
   verifiedMembersOnly?: boolean;
   rootExitObserved?: boolean;
   rootOwnershipProbe?: () => "owned" | "exited" | "unverifiable";
+  // A caller may attach an in-memory custody assertion for a test-only
+  // retained fixture.  It runs at each actual signal boundary, including the
+  // root-exited and forced paths where root ownership probing is intentionally
+  // skipped.  Production targets leave this absent.
+  preSignalGuard?: () => void;
   forceImmediately?: boolean;
   preferFastWindowsRootIdentity?: boolean;
 }
@@ -89,6 +94,7 @@ type ProcessTreeSignalEvidence =
       rootPid: number;
       rootIdentity: ProcessFingerprint | null;
       rootOwnershipProbe?: () => "owned" | "exited" | "unverifiable";
+      preSignalGuard?: () => void;
       members: ProcessFingerprint[];
       commandSucceeded: boolean;
     };
@@ -537,6 +543,7 @@ async function signalVerifiedMembers(
   signal: "SIGTERM" | "SIGKILL",
   dependencies: ProcessTreeControlDependencies,
   signalAlreadyAuthorized = false,
+  preSignalGuard?: () => void,
 ): Promise<void> {
   for (const member of members) {
     const identityState = signalAlreadyAuthorized
@@ -549,6 +556,7 @@ async function signalVerifiedMembers(
       continue;
     }
     try {
+      preSignalGuard?.();
       processKiller(dependencies)(member.pid, signal);
     } catch (error) {
       if (!isMissingProcessError(error)) {
@@ -563,6 +571,7 @@ async function signalOwnedProcessTree(
   signal: "SIGTERM" | "SIGKILL",
   dependencies: ProcessTreeControlDependencies,
 ): Promise<ProcessTreeSignalEvidence> {
+  target.preSignalGuard?.();
   if ((dependencies.platform ?? process.platform) === "win32") {
     if (!target.rootExitObserved && !target.rootIdentity) {
       throw new Error(`Cannot control legacy process tree ${target.rootPid} without verified root identity.`);
@@ -590,7 +599,7 @@ async function signalOwnedProcessTree(
       throw new Error(`Cannot control lifetime-filtered process tree ${target.rootPid} without its verified root member.`);
     }
     if (rootStatus === "exited" || target.verifiedMembersOnly) {
-      await signalVerifiedMembers(members, signal, dependencies);
+      await signalVerifiedMembers(members, signal, dependencies, false, target.preSignalGuard);
       return {
         kind: "verified-members",
         rootPid: target.rootPid,
@@ -606,8 +615,11 @@ async function signalOwnedProcessTree(
       rootPid: target.rootPid,
       rootIdentity: target.rootIdentity,
       rootOwnershipProbe: target.rootOwnershipProbe,
+      preSignalGuard: target.preSignalGuard,
       members,
-      commandSucceeded: await waitForCommandExit("taskkill", args, dependencies),
+      // The root check may have awaited native inspection. Reassert custody
+      // immediately before handing control to taskkill.
+      commandSucceeded: (target.preSignalGuard?.(), await waitForCommandExit("taskkill", args, dependencies)),
     };
   }
 
@@ -628,7 +640,7 @@ async function signalOwnedProcessTree(
   const members = target.knownMembers && target.knownMembers.length > 0
     ? target.knownMembers
     : await captureVerifiedMembers(target, dependencies);
-  await signalVerifiedMembers(members, signal, dependencies);
+  await signalVerifiedMembers(members, signal, dependencies, false, target.preSignalGuard);
   return { kind: "verified-members", rootPid: target.rootPid, members };
 }
 
@@ -704,6 +716,7 @@ async function forceSignaledProcessTree(
   }
 
   if (evidence.kind === "windows-taskkill") {
+    evidence.preSignalGuard?.();
     const rootState = evidence.rootOwnershipProbe
       ? evidence.rootOwnershipProbe()
       : evidence.rootIdentity
@@ -720,7 +733,7 @@ async function forceSignaledProcessTree(
           dependencies,
         )
       : evidence.commandSucceeded;
-    await signalVerifiedMembers(evidence.members, "SIGKILL", dependencies, true);
+    await signalVerifiedMembers(evidence.members, "SIGKILL", dependencies, true, evidence.preSignalGuard);
     return {
       ...evidence,
       commandSucceeded,

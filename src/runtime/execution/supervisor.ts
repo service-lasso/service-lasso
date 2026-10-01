@@ -239,6 +239,20 @@ interface AdoptManagedProcessOptions {
 }
 
 const managedProcesses = new Map<string, ManagedProcessRecord>();
+// Test custody is deliberately opaque.  Fixture cleanup must prove that it is
+// still acting on the exact in-memory record that it captured, rather than a
+// later record with the same service id (or an adopted record reconstructed
+// from disk).  It is not runtime ownership state and it must never escape the
+// test boundary into persisted process control.
+const managedProcessCustodyTokensForTests = new WeakMap<object, {
+  serviceId: string;
+  record: ManagedProcessRecord;
+  child: ChildProcess;
+  rootIdentity: ProcessFingerprint;
+  processGroup: ProcessOwnershipEntry["processGroup"];
+  exitPromise: ManagedProcessRecord["exitPromise"];
+  finalizePromise: ManagedProcessRecord["finalizePromise"];
+}>();
 const managedProcessFinalizers = new Map<string, {
   pid: number | null;
   promise: Promise<void>;
@@ -257,8 +271,8 @@ const WINDOWS_TREE_MONITOR_RETRY_DELAY_MS = 5_000;
 const UNEXPECTED_PROCESS_FINALIZATION_TIMEOUT_MS = 5_000;
 const DEFAULT_MANAGED_PROCESS_STOP_TIMEOUT_MS = process.platform === "win32" ? 15_000 : 5_000;
 const WINDOWS_MANAGED_LAUNCHER_PATH = fileURLToPath(new URL("./windows-managed-launcher-native.exe", import.meta.url));
-const WINDOWS_MANAGED_LAUNCHER_BYTES = 34_304;
-const WINDOWS_MANAGED_LAUNCHER_SHA256 = "9fb89ec94c6f3d1930246ca95aa9f7f0d3bd85a1801e3e0b951920a6770ea5f6";
+const WINDOWS_MANAGED_LAUNCHER_BYTES = 38_912;
+const WINDOWS_MANAGED_LAUNCHER_SHA256 = "3c1aa02d65d9388449de9e253c9213393ccd8bc14b771d844a305b67ec17df1a";
 const WINDOWS_MANAGED_LAUNCH_TIMEOUT_MS = 15_000;
 const MANAGED_PROCESS_SPAWN_TIMEOUT_MS = 15_000;
 const WINDOWS_MANAGED_LAUNCH_MAX_PAYLOAD_CHARACTERS = 32_768;
@@ -280,6 +294,14 @@ let managedProcessPostResumeDelayMs = 0;
 let managedProcessSpawner: typeof spawn = spawn;
 let managedProcessSpawnTimeoutMs = MANAGED_PROCESS_SPAWN_TIMEOUT_MS;
 let managedProcessFinalizationTelemetryHook: ((telemetry: readonly FinalizationTelemetryEntry[]) => Promise<void> | void) | null = null;
+let managedWindowsJobObservationForTests = false;
+
+export function setManagedWindowsJobObservationForTests(enabled: boolean): void {
+  if (process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS !== "1") {
+    throw new Error("Windows managed-job observation test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
+  }
+  managedWindowsJobObservationForTests = enabled;
+}
 
 export function setManagedProcessFinalizationTelemetryHookForTests(
   hook: ((telemetry: readonly FinalizationTelemetryEntry[]) => Promise<void> | void) | null,
@@ -783,6 +805,12 @@ interface WindowsManagedLaunchState {
   environment: NodeJS.ProcessEnv;
 }
 
+interface WindowsManagedJobObservationForTests {
+  requestPath: string;
+  responsePath: string;
+  token: string;
+}
+
 async function assertWindowsManagedLauncherIntegrity(
   launcherExecutable: string,
   signal: AbortSignal,
@@ -941,7 +969,8 @@ async function createWindowsManagedLaunchState(
 ): Promise<WindowsManagedLaunchState> {
   const launcherExecutable = windowsManagedLauncherPath;
   await verifyWindowsManagedLauncherIntegrity(launcherExecutable);
-  const { bootstrapEnvironment, targetEnvironmentOverrides } = splitWindowsManagedLaunchEnvironment(environment);
+  const { bootstrapEnvironment, targetEnvironmentOverrides: initialTargetEnvironmentOverrides } = splitWindowsManagedLaunchEnvironment(environment);
+  const targetEnvironmentOverrides = [...initialTargetEnvironmentOverrides];
   const launchStateRoot = path.join(workspaceRoot, ".service-lasso", "runtime", "managed-launch");
   await mkdir(launchStateRoot, { recursive: true });
   const rootPath = await mkdtemp(path.join(launchStateRoot, "service-lasso-managed-launch-"));
@@ -954,6 +983,20 @@ async function createWindowsManagedLaunchState(
   const continueToken = randomBytes(32).toString("hex");
   const ackToken = randomBytes(32).toString("hex");
   const progressToken = randomBytes(32).toString("hex");
+  let jobObservation: WindowsManagedJobObservationForTests | null = null;
+  if (managedWindowsJobObservationForTests) {
+    const observationParent = path.join(workspaceRoot, ".service-lasso", "runtime");
+    await mkdir(observationParent, { recursive: true });
+    const observationRoot = await mkdtemp(path.join(
+      observationParent,
+      "fixture-job-observation-",
+    ));
+    jobObservation = {
+      requestPath: path.join(observationRoot, "request.json"),
+      responsePath: path.join(observationRoot, "response.json"),
+      token: randomBytes(32).toString("hex"),
+    };
+  }
   const bindingIndexByPath = new Map(approvedFiles.map((binding, index) => [
     normalizeWindowsLaunchPath(binding.file),
     index,
@@ -991,6 +1034,7 @@ async function createWindowsManagedLaunchState(
     argumentBindings,
     targetEnvironmentOverrides,
     postResumeDelayMilliseconds: managedProcessPostResumeDelayMs,
+    jobObservation,
   }), "utf8").toString("base64");
   if (payload.length > WINDOWS_MANAGED_LAUNCH_MAX_PAYLOAD_CHARACTERS) {
     throw new Error("Windows managed launcher payload was oversized.");
@@ -1012,6 +1056,11 @@ async function createWindowsManagedLaunchState(
       SERVICE_LASSO_MANAGED_LAUNCH_PAYLOAD: payload,
       SERVICE_LASSO_MANAGED_LAUNCH_GATE: gatePath,
       SERVICE_LASSO_MANAGED_LAUNCH_PROGRESS_TOKEN: progressToken,
+      ...(jobObservation === null ? {} : {
+        SERVICE_LASSO_TEST_JOB_OBSERVATION_REQUEST_PATH: jobObservation.requestPath,
+        SERVICE_LASSO_TEST_JOB_OBSERVATION_RESPONSE_PATH: jobObservation.responsePath,
+        SERVICE_LASSO_TEST_JOB_OBSERVATION_TOKEN: jobObservation.token,
+      }),
     },
   };
 }
@@ -1223,6 +1272,102 @@ export function hasManagedProcess(serviceId: string): boolean {
   return managedProcesses.has(serviceId) || adoptedProcesses.has(serviceId);
 }
 
+/**
+ * Captures an opaque identity for a live, non-adopted manager record.  This is
+ * test-only custody for retained Windows fixtures; ordinary runtime callers
+ * must continue to use the existing process-control APIs.
+ */
+export function captureManagedProcessCustodyForTests(serviceId: string): object {
+  if (process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS !== "1") {
+    throw new Error("Managed fixture custody test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
+  }
+  const record = managedProcesses.get(serviceId);
+  if (!record || adoptedProcesses.has(serviceId) || !record.rootIdentity) {
+    throw new Error("Managed fixture custody is unavailable.");
+  }
+  const token = Object.freeze({});
+  managedProcessCustodyTokensForTests.set(token, {
+    serviceId,
+    record,
+    child: record.child,
+    rootIdentity: { ...record.rootIdentity },
+    processGroup: { ...record.processGroup },
+    exitPromise: record.exitPromise,
+    finalizePromise: record.finalizePromise,
+  });
+  return token;
+}
+
+/**
+ * Rejects record replacement, adoption, or mutable root/process-group drift
+ * before a fixture signals, settles, resets lifecycle state, or removes
+ * evidence.  The caller owns the failure path and intentionally retains the
+ * fixture when this check fails.
+ */
+export function assertManagedProcessCustodyForTests(token: object): void {
+  if (process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS !== "1") {
+    throw new Error("Managed fixture custody test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
+  }
+  const custody = managedProcessCustodyTokensForTests.get(token);
+  if (!custody || adoptedProcesses.has(custody.serviceId) || managedProcesses.get(custody.serviceId) !== custody.record) {
+    throw new Error("Managed fixture custody no longer names the captured manager record.");
+  }
+  if (
+    custody.record.child !== custody.child ||
+    custody.record.rootIdentity?.pid !== custody.rootIdentity.pid ||
+    custody.record.rootIdentity?.createdAt !== custody.rootIdentity.createdAt ||
+    custody.record.rootIdentity?.executablePath !== custody.rootIdentity.executablePath ||
+    custody.record.rootIdentity?.commandHash !== custody.rootIdentity.commandHash ||
+    custody.record.processGroup.kind !== custody.processGroup.kind ||
+    custody.record.processGroup.id !== custody.processGroup.id
+  ) {
+    throw new Error("Managed fixture custody changed after capture.");
+  }
+}
+
+export async function assertManagedProcessCustodySettledForTests(token: object): Promise<void> {
+  if (process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS !== "1") {
+    throw new Error("Managed fixture custody test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
+  }
+  const custody = managedProcessCustodyTokensForTests.get(token);
+  if (!custody || adoptedProcesses.has(custody.serviceId)) {
+    throw new Error("Managed fixture custody settlement is unavailable.");
+  }
+  let current = managedProcesses.get(custody.serviceId);
+  if (current === custody.record) {
+    throw new Error("Managed fixture custody has not reached terminal settlement.");
+  }
+  if (current) {
+    throw new Error("Managed fixture custody was replaced before terminal settlement.");
+  }
+  const deadlineMs = processControlDeadline(UNEXPECTED_PROCESS_FINALIZATION_TIMEOUT_MS);
+  await withProcessControlDeadline(async () => {
+    await custody.exitPromise;
+    await custody.finalizePromise;
+  }, { deadlineMs });
+  current = managedProcesses.get(custody.serviceId);
+  if (adoptedProcesses.has(custody.serviceId) || current === custody.record || current) {
+    throw new Error("Managed fixture custody did not retire the captured record safely.");
+  }
+}
+
+export async function stopManagedProcessWithCustodyForTests(
+  token: object,
+  timeoutMs = DEFAULT_MANAGED_PROCESS_STOP_TIMEOUT_MS,
+): Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }> {
+  assertManagedProcessCustodyForTests(token);
+  const custody = managedProcessCustodyTokensForTests.get(token);
+  if (!custody) {
+    throw new Error("Managed fixture custody is unavailable.");
+  }
+  const result = await stopManagedProcessInternal(custody.serviceId, timeoutMs, custody.record, token);
+  if (!result) {
+    throw new Error("Managed fixture custody cannot report an absent terminal result.");
+  }
+  await assertManagedProcessCustodySettledForTests(token);
+  return result;
+}
+
 export interface ManagedStdinInspection {
   writable: boolean;
 }
@@ -1422,7 +1567,11 @@ async function verifyNativeAcknowledgementFinalContainment(
   }
 }
 
-function managedProcessTreeTarget(record: ManagedProcessRecord, rootExitObserved = false): OwnedProcessTreeTarget {
+function managedProcessTreeTarget(
+  record: ManagedProcessRecord,
+  rootExitObserved = false,
+  custodyToken?: object,
+): OwnedProcessTreeTarget {
   return {
     rootPid: record.child.pid ?? 0,
     rootIdentity: record.rootIdentity,
@@ -1430,7 +1579,19 @@ function managedProcessTreeTarget(record: ManagedProcessRecord, rootExitObserved
     knownMembers: record.knownTreeMembers,
     verifiedMembersOnly: record.verifiedMembersOnly,
     rootExitObserved,
-    rootOwnershipProbe: () => probeManagedChildHandle(record.child),
+    rootOwnershipProbe: () => {
+      // The terminator invokes this probe at its actual control boundary, after
+      // its native snapshots and before it signals any member.  Test custody
+      // therefore remains valid across every awaited preparation step.
+      if (custodyToken) assertManagedProcessCustodyForTests(custodyToken);
+      return probeManagedChildHandle(record.child);
+    },
+    // `rootExitObserved` deliberately bypasses root ownership probing. Keep
+    // test-only custody at the tree controller's per-member/taskkill signal
+    // boundary as well, after any awaited snapshot preparation.
+    preSignalGuard: custodyToken
+      ? () => assertManagedProcessCustodyForTests(custodyToken)
+      : undefined,
     forceImmediately: process.platform === "win32" && rootExitObserved,
   };
 }
@@ -1441,6 +1602,7 @@ async function terminateManagedProcessTree(
   rootExitObserved = false,
   retryAfterSharedFailure = false,
   deadlineMs = record.stopDeadlineMs ?? processControlDeadline(timeoutMs),
+  custodyToken?: object,
 ): Promise<ProcessTreeTerminationResult> {
   let retryAvailable = retryAfterSharedFailure;
   while (true) {
@@ -1504,7 +1666,7 @@ async function terminateManagedProcessTree(
             recordFinalizationTelemetry(record, "member_count", "not_applicable", "not_required", 0);
           }
           return await managedProcessTreeTerminator(
-            managedProcessTreeTarget(record, rootExitObserved),
+            managedProcessTreeTarget(record, rootExitObserved, custodyToken),
             remainingProcessControlMs(deadlineMs),
             dependencies,
           );
@@ -2345,14 +2507,39 @@ export async function stopManagedProcess(
   serviceId: string,
   timeoutMs = DEFAULT_MANAGED_PROCESS_STOP_TIMEOUT_MS,
 ): Promise<{ exitCode: number | null; signal: NodeJS.Signals | null } | null> {
+  return await stopManagedProcessInternal(serviceId, timeoutMs);
+}
+
+async function stopManagedProcessInternal(
+  serviceId: string,
+  timeoutMs: number,
+  expectedRecord?: ManagedProcessRecord,
+  custodyToken?: object,
+): Promise<{ exitCode: number | null; signal: NodeJS.Signals | null } | null> {
   const record = managedProcesses.get(serviceId);
+  if (expectedRecord && record !== expectedRecord) {
+    throw new Error("Managed fixture custody no longer names the captured manager record.");
+  }
   if (!record) {
+    if (expectedRecord) {
+      throw new Error("Managed fixture custody cannot signal an absent or adopted record.");
+    }
     return await stopAdoptedProcess(serviceId, timeoutMs);
   }
 
   const deadlineMs = processControlDeadline(timeoutMs);
   await beginManagedProcessStop(serviceId, deadlineMs);
-  await terminateManagedProcessTree(record, timeoutMs, false, false, deadlineMs);
+  // beginManagedProcessStop persists state and therefore awaits.  A fixture
+  // custody operation must prove the captured in-memory record again at the
+  // immediate control boundary; otherwise a same-id replacement or adoption
+  // could be signalled after that await.
+  if (custodyToken) {
+    assertManagedProcessCustodyForTests(custodyToken);
+  }
+  if (expectedRecord && managedProcesses.get(serviceId) !== expectedRecord) {
+    throw new Error("Managed fixture custody no longer names the captured manager record.");
+  }
+  await terminateManagedProcessTree(record, timeoutMs, false, false, deadlineMs, custodyToken);
   const result = await withProcessControlDeadline(
     async () => await record.exitPromise,
     { deadlineMs },

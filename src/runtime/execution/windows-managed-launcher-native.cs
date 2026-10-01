@@ -14,8 +14,12 @@ public static class ServiceLassoManagedLauncherNative
     private const uint CreateSuspended = 0x00000004;
     private const uint JobObjectLimitKillOnJobClose = 0x00002000;
     private const int JobObjectExtendedLimitInformationClass = 9;
+    private const int JobObjectBasicProcessIdListInformationClass = 3;
+    private const int MaximumJobObservationMembers = 256;
+    private const int JobObservationTimeoutMilliseconds = 3000;
     private const uint Infinite = 0xFFFFFFFF;
     private const uint WaitObject0 = 0;
+    private const uint WaitTimeout = 0x00000102;
     private const int StartfUseShowWindow = 0x00000001;
     private const int StartfUseStdHandles = 0x00000100;
     private const int StdInputHandle = -10;
@@ -67,6 +71,15 @@ public static class ServiceLassoManagedLauncherNative
         IntPtr job,
         int informationClass,
         out JobObjectBasicAccountingInformation information,
+        uint informationLength,
+        IntPtr returnLength);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool QueryInformationJobObject(
+        IntPtr job,
+        int informationClass,
+        IntPtr information,
         uint informationLength,
         IntPtr returnLength);
 
@@ -219,6 +232,7 @@ public static class ServiceLassoManagedLauncherNative
         public ArgumentBinding[] argumentBindings { get; set; }
         public EnvironmentOverride[] targetEnvironmentOverrides { get; set; }
         public int postResumeDelayMilliseconds { get; set; }
+        public JobObservation jobObservation { get; set; }
     }
 
     private sealed class ApprovedFile
@@ -239,6 +253,13 @@ public static class ServiceLassoManagedLauncherNative
     {
         public string name { get; set; }
         public string value { get; set; }
+    }
+
+    private sealed class JobObservation
+    {
+        public string requestPath { get; set; }
+        public string responsePath { get; set; }
+        public string token { get; set; }
     }
 
     public static int Main()
@@ -456,6 +477,10 @@ public static class ServiceLassoManagedLauncherNative
             string acknowledgment = "{\"token\":\"" + payload.ackToken + "\",\"pid\":" +
                 processInformation.dwProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture) + "}";
             File.WriteAllText(payload.ackPath, acknowledgment, StrictUtf8);
+            // This is the launcher's existing private launch acknowledgement.
+            // The fixture's separate root-exit acknowledgement remains gated by
+            // the complete held-Job membership response below.
+            ObserveFixtureJobMembership(jobHandle, processHandle, payload.jobObservation);
 
             if (WaitForSingleObject(processHandle, Infinite) != WaitObject0)
             {
@@ -545,6 +570,7 @@ public static class ServiceLassoManagedLauncherNative
             "argumentBindings",
             "targetEnvironmentOverrides",
             "postResumeDelayMilliseconds",
+            "jobObservation",
         }, "payload");
 
         object[] rawArgs = RequireArray(root["args"], "args", MaximumArguments);
@@ -623,7 +649,170 @@ public static class ServiceLassoManagedLauncherNative
             postResumeDelayMilliseconds = RequireInt(
                 root["postResumeDelayMilliseconds"],
                 "post-resume delay"),
+            jobObservation = ParseJobObservation(root["jobObservation"]),
         };
+    }
+
+    private static JobObservation ParseJobObservation(object value)
+    {
+        if (value == null)
+        {
+            return null;
+        }
+        IDictionary<string, object> raw = RequireObject(value, "job observation");
+        RequireExactKeys(raw, new string[] { "requestPath", "responsePath", "token" }, "job observation");
+        return new JobObservation
+        {
+            requestPath = RequireString(raw["requestPath"], "job observation request path", false),
+            responsePath = RequireString(raw["responsePath"], "job observation response path", false),
+            token = RequireString(raw["token"], "job observation token", false),
+        };
+    }
+
+    private static void ObserveFixtureJobMembership(
+        IntPtr jobHandle,
+        IntPtr processHandle,
+        JobObservation observation)
+    {
+        if (observation == null)
+        {
+            return;
+        }
+        string request = null;
+        while (request == null)
+        {
+            uint wait = WaitForSingleObject(processHandle, 0);
+            if (wait == WaitObject0)
+            {
+                throw new InvalidOperationException("Managed fixture root exited before job observation request.");
+            }
+            if (wait != WaitTimeout)
+            {
+                throw new InvalidOperationException("Managed fixture root wait failed during job observation.");
+            }
+            try
+            {
+                request = ReadBoundedUtf8File(observation.requestPath, 1024);
+            }
+            catch (FileNotFoundException)
+            {
+                Thread.Sleep(25);
+            }
+        }
+        DateTime deadline = DateTime.UtcNow.AddMilliseconds(JobObservationTimeoutMilliseconds);
+        if (DateTime.UtcNow >= deadline)
+        {
+            throw new TimeoutException("Managed fixture job observation timed out.");
+        }
+        ValidateStrictJsonSyntax(request);
+        IDictionary<string, object> root = RequireObject(new JavaScriptSerializer().DeserializeObject(request), "job observation request");
+        RequireExactKeys(root, new string[] { "token", "rootPid", "childPid", "grandchildPid" }, "job observation request");
+        string token = RequireString(root["token"], "job observation token", false);
+        int rootPid = RequireInt(root["rootPid"], "job observation root pid");
+        int childPid = RequireInt(root["childPid"], "job observation child pid");
+        int grandchildPid = RequireInt(root["grandchildPid"], "job observation grandchild pid");
+        if (
+            !String.Equals(token, observation.token, StringComparison.Ordinal) ||
+            rootPid <= 0 || childPid <= 0 || grandchildPid <= 0 ||
+            rootPid == childPid || rootPid == grandchildPid || childPid == grandchildPid)
+        {
+            throw new InvalidOperationException("Managed fixture job observation was invalid.");
+        }
+        if (DateTime.UtcNow >= deadline)
+        {
+            throw new TimeoutException("Managed fixture job observation timed out.");
+        }
+        int bytes = 8 + (IntPtr.Size * MaximumJobObservationMembers);
+        IntPtr members = Marshal.AllocHGlobal(bytes);
+        uint memberCount = 0;
+        try
+        {
+            for (int index = 0; index < bytes; index += 1)
+            {
+                Marshal.WriteByte(members, index, 0);
+            }
+            if (!QueryInformationJobObject(
+                jobHandle,
+                JobObjectBasicProcessIdListInformationClass,
+                members,
+                (uint)bytes,
+                IntPtr.Zero))
+            {
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "Managed fixture job membership query failed.");
+            }
+            if (DateTime.UtcNow >= deadline)
+            {
+                throw new TimeoutException("Managed fixture job observation timed out.");
+            }
+            uint assigned = unchecked((uint)Marshal.ReadInt32(members, 0));
+            uint listed = unchecked((uint)Marshal.ReadInt32(members, 4));
+            // NumberOfAssignedProcesses can exceed the controlled receipt.  The
+            // buffer is complete only when every assigned member was listed; the
+            // receipt itself needs the three requested identities, not an
+            // invented cardinality assertion about all native Job members.
+            if (assigned != listed || assigned < 3 || listed > MaximumJobObservationMembers)
+            {
+                throw new InvalidOperationException("Managed fixture job membership was incomplete.");
+            }
+            HashSet<long> expected = new HashSet<long> { rootPid, childPid, grandchildPid };
+            HashSet<long> actual = new HashSet<long>();
+            for (int index = 0; index < (int)listed; index += 1)
+            {
+                long pid = IntPtr.Size == 8
+                    ? Marshal.ReadInt64(members, 8 + (index * IntPtr.Size))
+                    : Marshal.ReadInt32(members, 8 + (index * IntPtr.Size));
+                actual.Add(pid);
+            }
+            if (actual.Count != listed || !actual.IsSupersetOf(expected))
+            {
+                throw new InvalidOperationException("Managed fixture job membership did not match its receipt.");
+            }
+            memberCount = listed;
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(members);
+        }
+        string response = "{\"token\":\"" + observation.token + "\",\"status\":\"complete\",\"count\":" +
+            memberCount.ToString(System.Globalization.CultureInfo.InvariantCulture) + "}";
+        string temporaryResponsePath = observation.responsePath + ".tmp";
+        File.WriteAllText(temporaryResponsePath, response, StrictUtf8);
+        File.Move(temporaryResponsePath, observation.responsePath);
+    }
+
+    private static string ReadBoundedUtf8File(string filePath, int maximumBytes)
+    {
+        using (FileStream stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            long length = stream.Length;
+            if (length <= 0 || length > maximumBytes)
+            {
+                throw new InvalidOperationException("Managed fixture observation request was oversized.");
+            }
+            byte[] bytes = new byte[(int)length];
+            int offset = 0;
+            while (offset < bytes.Length)
+            {
+                int read = stream.Read(bytes, offset, bytes.Length - offset);
+                if (read <= 0)
+                {
+                    throw new InvalidOperationException("Managed fixture observation request was incomplete.");
+                }
+                offset += read;
+            }
+            if (stream.ReadByte() != -1)
+            {
+                throw new InvalidOperationException("Managed fixture observation request changed while reading.");
+            }
+            try
+            {
+                return StrictUtf8.GetString(bytes);
+            }
+            finally
+            {
+                Array.Clear(bytes, 0, bytes.Length);
+            }
+        }
     }
 
     private static void ValidateStrictJsonSyntax(string json)
@@ -1016,6 +1205,15 @@ public static class ServiceLassoManagedLauncherNative
         if (tokens.Count != 4)
         {
             throw new InvalidOperationException("Managed launch gate evidence was not independent.");
+        }
+        if (payload.jobObservation != null && (
+            String.IsNullOrWhiteSpace(payload.jobObservation.requestPath) ||
+            !IsFullyQualifiedWindowsPath(payload.jobObservation.requestPath) ||
+            String.IsNullOrWhiteSpace(payload.jobObservation.responsePath) ||
+            !IsFullyQualifiedWindowsPath(payload.jobObservation.responsePath) ||
+            !IsLowerHex64(payload.jobObservation.token)))
+        {
+            throw new InvalidOperationException("Managed fixture job observation evidence was invalid.");
         }
         HashSet<int> argumentIndexes = new HashSet<int>();
         foreach (ArgumentBinding binding in payload.argumentBindings)
