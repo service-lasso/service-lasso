@@ -459,7 +459,23 @@ async function acquireWorkspaceLifecycleLock(workspaceRoot: string): Promise<() 
   let lastTransientCreateError: unknown = null;
 
   while (true) {
-    await assertSafeLifecycleArtifact(workspaceRoot, lockPath, "lock", "process-ownership", MAX_LIFECYCLE_LOCK_BYTES);
+    try {
+      await assertSafeLifecycleArtifact(workspaceRoot, lockPath, "lock", "process-ownership", MAX_LIFECYCLE_LOCK_BYTES);
+    } catch (error) {
+      // A closed Windows lock can still be momentarily unavailable to the
+      // metadata read that precedes its exclusive create. Do not infer that
+      // the artifact is safe or absent; retain the same bounded episode and
+      // retry the complete validation before attempting a create again.
+      if (!isRetryableWorkspaceLockCreateError(error)) {
+        throw error;
+      }
+      lastTransientCreateError = error;
+      if (Date.now() >= deadline) {
+        throw lastTransientCreateError;
+      }
+      await new Promise((resolve) => setTimeout(resolve, LOCK_RETRY_MS));
+      continue;
+    }
     try {
       const handle = await open(lockPath, "wx", 0o600);
       try {
@@ -528,6 +544,14 @@ async function acquireWorkspaceLifecycleLock(workspaceRoot: string): Promise<() 
         }
       } catch (statError) {
         if ((statError as NodeJS.ErrnoException).code === "ENOENT") {
+          continue;
+        }
+        if (isRetryableWorkspaceLockCreateError(statError)) {
+          lastTransientCreateError = statError;
+          if (Date.now() >= deadline) {
+            throw lastTransientCreateError;
+          }
+          await new Promise((resolve) => setTimeout(resolve, LOCK_RETRY_MS));
           continue;
         }
         throw statError;
