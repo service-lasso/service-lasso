@@ -2995,8 +2995,15 @@ test("Windows terminal startup containment retains the terminal inspection episo
   } finally {
     setManagedProcessTreeTerminatorForTests(null);
     setManagedWindowsTreeInspectorForTests(null);
-    await stopManagedProcess(serviceId, 5_000).catch(() => null);
-    forceCleanupProcesses([handle?.pid]);
+    // The startup containment fixture owns this retained record. Settle it by
+    // the same explicit fresh inspection episode available to an operator,
+    // then prove its durable record converged before removing test state.
+    await stopManagedProcess(serviceId, 5_000, { newWindowsInspectionEpisode: true });
+    assert.equal(hasManagedProcess(serviceId), false);
+    const stopped = await findProcessOwnership(workspaceRoot, "service", serviceId);
+    assert.equal(stopped.lifecycleState, "stopped");
+    assert.equal(stopped.pid, null);
+    await stopAllManagedProcesses();
     if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
     else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
     resetLifecycleState();

@@ -524,7 +524,7 @@ Issue #1380 requires bounded retries of startup artifact staging publication on 
 
 ### Qualification fixture cleanup (AC-4BH)
 
-For #1326 under AC-4BH, unexpected-root-exit qualification cleanup retains the existing containment error's managed handle and fixture-owned descendant evidence after failed startup. The original exception remains observable if cleanup fails. Cleanup preserves existing stop and convergence deadlines and original lifecycle assertions; ownership reset and recursive directory removal require observed process termination. Retaining failed cleanup state is Invalidated evidence, never a passing result or production fix.
+For #1326 under AC-4BH, unexpected-root-exit qualification cleanup retains the existing containment error's managed handle and fixture-owned descendant evidence after failed startup. The original exception remains observable if cleanup fails. Cleanup preserves existing stop and convergence deadlines and original lifecycle assertions; ownership reset and recursive directory removal require observed process termination. When a test deliberately retains a terminal same-held Windows inspection episode, it must settle that test-owned record through an explicit fresh bounded inspection episode and verify the stopped registry state before clearing hooks or removing its workspace; raw PID termination cannot replace that custody proof. Retaining failed cleanup state is Invalidated evidence, never a passing result or production fix.
 
 ## Documentation appearance (AC-4AJ.5)
 
