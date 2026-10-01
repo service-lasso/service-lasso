@@ -467,6 +467,12 @@ function safeFinalizationErrorCode(error: unknown, fallback: string): string {
   if (error instanceof Error && error.message.startsWith("Timed out waiting for workspace lifecycle lock:")) {
     return "WORKSPACE_LOCK_TIMEOUT";
   }
+  if (error instanceof AggregateError) {
+    for (const nestedError of error.errors) {
+      const nestedCode = safeFinalizationErrorCode(nestedError, fallback);
+      if (nestedCode !== fallback) return nestedCode;
+    }
+  }
   return fallback;
 }
 
