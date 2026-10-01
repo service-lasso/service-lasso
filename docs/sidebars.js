@@ -14,6 +14,7 @@ const sidebars = {
         { type: "doc", id: "getting-started/beginner-todo-app", label: "Beginner — Todo app" },
         { type: "doc", id: "getting-started/intermediate-make-todo-app-durable", label: "Intermediate — Make the Todo durable" },
         { type: "doc", id: "getting-started/advanced-add-go-todo-api-service", label: "Advanced — Add a Go Todo API service" },
+        { type: "doc", id: "getting-started/zitadel-sso-hub", label: "Zitadel SSO Hub" },
       ] },
       "operate-your-service", "package-your-app", "agent-prompts",
       { type: "doc", id: "complete-first-run-setup", label: "Complete first-run setup" },
