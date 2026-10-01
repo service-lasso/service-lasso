@@ -220,13 +220,16 @@ async function assertNativePayloadLifecycleProjection(protocolCase, expectedBoun
     apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
     const start = await postJson(`${apiServer.url}/api/services/echo-service/start`);
     assert.equal(start.response.status, 409);
+    // The native launcher can close before its final authenticated stderr
+    // receipt is consumed. Read the persisted public diagnostic only after the
+    // existing bounded finalizer has observed that receipt.
+    await waitForManagedProcessFinalization("echo-service", Date.now() + 10_000);
     const diagnostic = await collectStartupFailure(apiServer.url, "echo-service");
     assert.equal(diagnostic.observations[0].attemptStatus, "failed");
     assert.equal(diagnostic.observations[0].launcherPayloadFailureBoundary, expectedBoundary);
     assert.ok(diagnostic.observations[0].events.some((event) => event.failurePhase === "launcher_payload_validation"));
     assert.equal(JSON.stringify(diagnostic).includes("SERVICE_LASSO_MANAGED_LAUNCH_PAYLOAD"), false);
     assert.equal(JSON.stringify(diagnostic).includes(tempRoot), false);
-    await waitForManagedProcessFinalization("echo-service", Date.now() + 10_000);
     assert.equal(await findProcessOwnership(workspaceRoot, "service", "echo-service"), null);
     assert.equal(hasManagedProcess("echo-service"), false, `${protocolCase} retained a managed process after native rejection.`);
   } finally {
@@ -2161,6 +2164,10 @@ test("AC-4BJ.9b projects a real native payload rejection through enrollment, lif
     apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
     const start = await postJson(`${apiServer.url}/api/services/echo-service/start`);
     assert.equal(start.response.status, 409);
+    // The native launcher can close before its final authenticated stderr
+    // receipt is consumed. Read the persisted public diagnostic only after the
+    // existing bounded finalizer has observed that receipt.
+    await waitForManagedProcessFinalization("echo-service", Date.now() + 10_000);
     const diagnostic = await collectStartupFailure(apiServer.url, "echo-service");
     assert.equal(diagnostic.observations[0].attemptStatus, "failed");
     assert.equal(diagnostic.observations[0].launcherPayloadFailureBoundary, "canonical_encoding");
