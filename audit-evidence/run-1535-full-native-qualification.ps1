@@ -28,6 +28,7 @@ $instanceRegistryPath = Join-Path $InputRoot 'registries\instances.json'
 $hostPortRegistryPath = Join-Path $InputRoot 'registries\ports.json'
 $stdoutPath = Join-Path $RunRoot 'stdout.log'
 $stderrPath = Join-Path $RunRoot 'stderr.log'
+$childExitCodePath = Join-Path $RunRoot 'child-actual-exit-code.txt'
 $initialReceiptPath = Join-Path $RunRoot 'receipt.initial.json'
 $finalReceiptPath = Join-Path $RunRoot 'receipt.final.json'
 
@@ -70,14 +71,24 @@ try {
     nativeSha256 = $nativeHashes
     stdout = $stdoutPath
     stderr = $stderrPath
+    childActualExitCodeReceipt = $childExitCodePath
   }
   $initialReceipt | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $initialReceiptPath -Encoding utf8
 
-  $child = Start-Process -FilePath 'npm.cmd' -ArgumentList @('test') -WorkingDirectory $repoRoot -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath -PassThru
+  $escapedExitCodePath = $childExitCodePath.Replace("'", "''")
+  $childCommand = "& npm.cmd test; `$npmExitCode = `$LASTEXITCODE; [System.IO.File]::WriteAllText('$escapedExitCodePath', [string]`$npmExitCode); exit `$npmExitCode"
+  $child = Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile', '-Command', $childCommand) -WorkingDirectory $repoRoot -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath -PassThru
   $initialReceipt.childProcessId = $child.Id
   $initialReceipt | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $initialReceiptPath -Encoding utf8
   $child.WaitForExit()
-  $actualExitCode = $child.ExitCode
+  if (-not [System.IO.File]::Exists($childExitCodePath)) {
+    throw 'The owned test child exited without writing its actual npm exit receipt.'
+  }
+  $actualExitCodeText = [System.IO.File]::ReadAllText($childExitCodePath).Trim()
+  if ($actualExitCodeText -notmatch '^-?\d+$') {
+    throw 'The owned test child wrote an invalid actual npm exit receipt.'
+  }
+  $actualExitCode = [int]$actualExitCodeText
 
   $finalReceipt = [ordered]@{
     schema = $initialReceipt.schema
@@ -93,6 +104,7 @@ try {
     nativeSha256 = $nativeHashes
     stdout = $stdoutPath
     stderr = $stderrPath
+    childActualExitCodeReceipt = $childExitCodePath
     stdoutSha256 = Get-Sha256Hex $stdoutPath
     stderrSha256 = Get-Sha256Hex $stderrPath
   }
