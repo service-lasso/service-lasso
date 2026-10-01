@@ -541,6 +541,18 @@ async function captureHeldFixtureCustody(receipt, heldPids) {
   }));
 }
 
+async function captureOrConfirmStoppedFixtureReceipt(receipt) {
+  const pids = [receipt.rootPid, receipt.childPid, receipt.grandchildPid];
+  const inspections = await Promise.all(pids.map((pid) => inspectProcess(pid)));
+  if (inspections.every((inspection) => inspection.status === "not_running")) return null;
+  assert.equal(inspections.every((inspection) => inspection.status === "running"), true);
+  return inspections.map((inspection, index) => {
+    assert.equal(inspection.identity.pid, pids[index]);
+    assert.equal(classifyProcessIdentity(inspection.identity, inspection), "owned");
+    return inspection.identity;
+  });
+}
+
 async function assertHeldFixtureCustodyOwned(custody) {
   const inspections = await Promise.all(custody.map((identity) => inspectProcess(identity.pid)));
   for (const [index, inspection] of inspections.entries()) {
@@ -656,7 +668,7 @@ async function cleanupCompleteOwnedFixture({ serviceId, rootCustody, custody, te
   }
 }
 
-async function retainIncompleteOwnedFixture({ serviceId, rootCustody, primaryError }) {
+async function retainIncompleteOwnedFixture({ serviceId, rootCustody, receiptCustody = null, primaryError }) {
   try {
     const ownership = await findProcessOwnership(rootCustody.workspaceRoot, "service", serviceId);
     if (hasManagedProcess(serviceId)) {
@@ -674,7 +686,7 @@ async function retainIncompleteOwnedFixture({ serviceId, rootCustody, primaryErr
     }
     await waitForManagedProcessFinalization(serviceId, Date.now() + 5_000);
     await assertManagedProcessCustodySettledForTests(rootCustody.managerCustody);
-    await waitForOwnedFixtureStopped([rootCustody.identity]);
+    await waitForOwnedFixtureStopped(receiptCustody ?? [rootCustody.identity]);
   } catch (cleanupError) {
     if (primaryError !== undefined) {
       throw new AggregateError([primaryError, cleanupError],
@@ -4096,9 +4108,15 @@ for (const jobObservationMode of [
       rootCustody = await readOwnedFixtureRootCustody(workspaceRoot, serviceId);
       await writeFile(triggerPath, "launch\n", "utf8");
       const receipt = await readCompleteOwnedFixtureReceipt(pidFilePath);
+      custody = await captureOrConfirmStoppedFixtureReceipt(receipt);
+      // This test-only gate lets the root attempt the same 750 ms exit and
+      // acknowledgement path after its complete receipt is present.  It does
+      // not accept the rejected Job response or select any process for
+      // control; rejection still occurs before acknowledgement success.
+      await writeFile(custodyReadyPath, "verified\n", { flag: "wx" });
       await assert.rejects(readOwnedFixtureAcknowledgement(acknowledgementPath, receipt, 3_000));
       await waitForManagedProcessFinalization(serviceId, Date.now() + 5_000);
-      await waitForOwnedFixtureStopped([rootCustody.identity], 5_000);
+      await waitForOwnedFixtureStopped(custody ?? [rootCustody.identity], 5_000);
       assert.equal(hasManagedProcess(serviceId), false);
       const stopped = await findProcessOwnership(workspaceRoot, "service", serviceId);
       assert.equal(stopped.lifecycleState, "stopped");
@@ -4112,7 +4130,7 @@ for (const jobObservationMode of [
     } finally {
       try {
         if (rootCustody !== null) {
-          await retainIncompleteOwnedFixture({ serviceId, rootCustody, primaryError });
+          await retainIncompleteOwnedFixture({ serviceId, rootCustody, receiptCustody: custody, primaryError });
         }
         if (foreignChild !== null && foreignIdentity !== null) {
           assert.equal(classifyProcessIdentity(foreignIdentity, await inspectProcess(foreignIdentity.pid)), "owned");
