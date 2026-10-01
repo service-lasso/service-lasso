@@ -938,6 +938,32 @@ function exactTransferHeader(request: IncomingMessage, name: string, pattern: Re
   return values[0]!;
 }
 
+/** Parse the complete closed transfer-header grammar before authentication. */
+function parseClosedTransferHeaders(request: IncomingMessage, method: string | undefined, tail: string): void {
+  const routeHeaders = new Set(["authorization", "content-type", "content-length", "content-range", "x-service-transfer-token", "x-service-transfer-confirmation", "x-chunk-sha256"]);
+  const seen = new Map<string, string[]>();
+  for (let index = 0; index < request.rawHeaders.length; index += 2) {
+    const name = request.rawHeaders[index]?.toLowerCase() ?? "";
+    const value = request.rawHeaders[index + 1] ?? "";
+    if (name.startsWith("x-service-transfer-") && !routeHeaders.has(name)) throw new ApiError("invalid_request", 400, "Transfer request headers are invalid.");
+    if (routeHeaders.has(name)) seen.set(name, [...(seen.get(name) ?? []), value]);
+  }
+  const expected = new Set<string>(["authorization"]);
+  if (method === "PUT" && /^chunks\/(0|[1-9][0-9]{0,1})$/u.test(tail)) {
+    expected.add("x-service-transfer-token"); expected.add("x-chunk-sha256"); expected.add("content-range"); expected.add("content-length");
+  }
+  if (method === "POST" && tail === "registration") expected.add("x-service-transfer-confirmation");
+  const allowed = new Set([...expected, "content-type", "content-length"]);
+  for (const [name, values] of seen) if (values.length !== 1 || values[0]!.includes(",") || !allowed.has(name)) throw new ApiError("invalid_request", 400, "Transfer request headers are invalid.");
+  for (const name of expected) if (!seen.has(name)) throw new ApiError("invalid_request", 400, "Transfer request headers are invalid.");
+  exactTransferHeader(request, "authorization", /^Bearer [^\s,]+$/u);
+  if (expected.has("x-service-transfer-token")) exactTransferHeader(request, "x-service-transfer-token", /^sut_[A-Za-z0-9_-]{43}$/u);
+  if (expected.has("x-service-transfer-confirmation")) exactTransferHeader(request, "x-service-transfer-confirmation", /^scf_[A-Za-z0-9_-]{32}$/u);
+  if (expected.has("x-chunk-sha256")) exactTransferHeader(request, "x-chunk-sha256", /^[a-f0-9]{64}$/u);
+  if (expected.has("content-range")) parseTransferRange(exactTransferHeader(request, "content-range", /^bytes [0-9]+-[0-9]+\/[0-9]+$/u));
+  if (expected.has("content-length")) exactTransferHeader(request, "content-length", /^[1-9][0-9]{0,6}$/u);
+}
+
 function parseTransferRange(value: string): { start: number; end: number; total: number } {
   const match = /^bytes (0|[1-9][0-9]*)-(0|[1-9][0-9]*)\/(0|[1-9][0-9]*)$/u.exec(value);
   if (!match) throw new ApiError("invalid_request", 400, "Transfer request headers are invalid.");
@@ -7090,6 +7116,9 @@ async function routeRequestWithoutMutationCoordination(
   // refuses creation until an independently owner-pinned producer catalog is
   // installed; it is not a generic upload endpoint.
   if (url.pathname === "/api/v1/service-transfers" || /^\/api\/v1\/service-transfers\/stg_[A-Za-z0-9_-]{32}(?:\/(?:chunks\/(?:0|[1-9][0-9]{0,1})|finalize|confirmation|registration))?$/u.test(url.pathname)) {
+    if ([...url.searchParams.keys()].length !== 0) throw new ApiError("invalid_request", 400, "Transfer request query is invalid.");
+    const preliminary = /^\/api\/v1\/service-transfers\/stg_[A-Za-z0-9_-]{32}(?:\/(.*))?$/u.exec(url.pathname);
+    parseClosedTransferHeaders(request, request.method, preliminary?.[1] ?? "");
     const authorization = exactTransferHeader(request, "authorization", /^Bearer [^\s,]+$/u);
     void authorization; // trusted request-policy authentication remains authoritative.
     const permissionActor = permissionActorFromRuntimeAuth(auth);

@@ -35,6 +35,22 @@ test("staged transfer reserves actor and workspace capacity, binds exact chunk r
   } finally { await rm(root,{recursive:true,force:true}); }
 });
 
+test("staged transfer keeps Linux TAR provenance eligible and makes a full digest mismatch terminal before parsing", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "staged-tar-digest-"));
+  const bytes = Buffer.from("not-a-tar-but-never-parser-admitted", "utf8");
+  const actualDigest = createHash("sha256").update(bytes).digest("hex");
+  const identity = { repo:"service-lasso/lasso-example", releaseTag:"v1", commitSha:"a".repeat(40), targetServiceId:"sample-service", platform:"linux", archiveType:"tar.gz", assetName:"sample.tar.gz", assetId:"1", archiveBytes:bytes.length, archiveSha256:"d".repeat(64), manifestSha256:"c".repeat(64), releaseId:"2" };
+  const transfer = new StagedServiceTransfer(root, { resolve: async () => identity }, { import: async () => "completed" });
+  const actor = { id:"actor", workspaceId:"trusted-workspace", canConfigure:true };
+  const input = { targetServiceId:"sample-service", provenance:{repo:identity.repo,releaseTag:identity.releaseTag,commitSha:identity.commitSha},platform:"linux",manifestSchemaVersion:"service-lasso.service-manifest/v1" };
+  try {
+    const stage = await transfer.create(actor, input);
+    await transfer.upload(actor, stage.stageId, 0, stage.uploadToken, actualDigest, bytes, { start: 0, end: bytes.length - 1, total: bytes.length });
+    await assert.rejects(() => transfer.finalize(actor, stage.stageId), (error) => error instanceof TransferError && error.code === "digest_mismatch");
+    assert.equal((await transfer.status(actor, stage.stageId)).state, "rejected");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test("staged direct-child importer registers the canonical manifest without downloading or extracting the archive", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "staged-direct-child-"));
   const servicesRoot = path.join(root, "services");
@@ -65,9 +81,9 @@ test("staged direct-child importer registers the canonical manifest without down
   };
   try {
     const result = await createStagedReleaseAssetImporter({ servicesRoot }).import({
-      serviceId: "staged-service", bytes: archiveBytes, byteObjectId: "sbo_test", archiveSha256: archiveDigest,
+      serviceId: "staged-service", bytes: archiveBytes, byteObjectId: "sbo_test", byteLength: archiveBytes.length, archiveSha256: archiveDigest,
       manifestSha256: manifestDigest, releaseId: "1", targetSha: "a".repeat(40), workspaceId: "trusted-workspace",
-      repo: "service-lasso/lasso-node", releaseTag: "v1", manifestBytes: Buffer.from(manifest, "utf8"),
+      repo: "service-lasso/lasso-node", releaseTag: "v1", assetId: "asset-1", assetName: "staged.zip", archiveType: "zip", manifestBytes: Buffer.from(manifest, "utf8"),
     });
     assert.equal(result, "completed");
     assert.equal(await readFile(path.join(servicesRoot, "staged-service", "service.json"), "utf8"), manifest);

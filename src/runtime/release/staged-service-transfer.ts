@@ -26,9 +26,10 @@ export interface StageResolver {
 }
 
 export interface ClaimedStageInput {
-  serviceId: string; bytes: Uint8Array; byteObjectId: string; archiveSha256: string;
+  serviceId: string; bytes: Uint8Array; byteObjectId: string; byteLength: number; archiveSha256: string;
   manifestSha256: string; releaseId: string; targetSha: string; workspaceId: string;
-  repo: string; releaseTag: string; manifestBytes?: Uint8Array;
+  repo: string; releaseTag: string; assetId: string; assetName: string; archiveType: ReleaseArchiveType;
+  manifestAssetId?: string; manifestBytes?: Uint8Array;
 }
 
 /** The child boundary registers one service manifest. It has no lifecycle authority. */
@@ -107,9 +108,16 @@ export class StagedServiceTransfer {
     return await withCrossProcessFileLock(file + ".lock", async () => {
       const store = await this.readStore(file);
       this.recover(store);
-      const result = await work(store);
-      await this.writeStore(file, store);
-      return result;
+      try {
+        const result = await work(store);
+        await this.writeStore(file, store);
+        return result;
+      } catch (error) {
+        // Terminal denials (notably digest mismatch) are durable outcomes, not
+        // transient in-memory state that disappears when the request closes.
+        await this.writeStore(file, store);
+        throw error;
+      }
     }, { unavailableMessage: "staged transfer state unavailable" });
   }
 
@@ -173,7 +181,7 @@ export class StagedServiceTransfer {
   }
 
   private assertIdentity(input: { targetServiceId: string; provenance: { repo: string; releaseTag: string; commitSha: string }; platform: string }, identity: ReleaseIdentity): void {
-    if (identity.targetServiceId !== input.targetServiceId || identity.repo !== input.provenance.repo || identity.releaseTag !== input.provenance.releaseTag || identity.commitSha !== input.provenance.commitSha || identity.platform !== input.platform || identity.archiveType !== "zip" || identity.archiveBytes < 1 || identity.archiveBytes > MAX_BYTES || !digestPattern.test(identity.archiveSha256) || !digestPattern.test(identity.manifestSha256) || !identity.releaseId || !identity.assetId || !identity.assetName) throw new TransferError(identity.archiveType !== "zip" ? "unapproved_release" : "release_provenance_unavailable", identity.archiveType !== "zip" ? 403 : 503);
+    if (identity.targetServiceId !== input.targetServiceId || identity.repo !== input.provenance.repo || identity.releaseTag !== input.provenance.releaseTag || identity.commitSha !== input.provenance.commitSha || identity.platform !== input.platform || !["zip", "tar.gz", "tgz"].includes(identity.archiveType) || identity.archiveBytes < 1 || identity.archiveBytes > MAX_BYTES || !digestPattern.test(identity.archiveSha256) || !digestPattern.test(identity.manifestSha256) || !identity.releaseId || !identity.assetId || !identity.assetName) throw new TransferError("release_provenance_unavailable", 503);
   }
 
   async create(actor: TransferActor, input: { targetServiceId: string; provenance: { repo: string; releaseTag: string; commitSha: string }; platform: string; manifestSchemaVersion: string }) {
@@ -210,7 +218,14 @@ export class StagedServiceTransfer {
       const stage = this.find(store, actor, id);
       if (stage.state !== "uploading" || stage.expiresAt <= this.now() || stage.received !== stage.identity.archiveBytes || stage.chunks.length !== Math.ceil(stage.identity.archiveBytes / this.chunkBytes(stage))) throw new TransferError("digest_mismatch", 409);
       const bytes = Buffer.concat(stage.chunks.map((chunk) => Buffer.from(chunk.bytes, "base64")));
-      if (!equal(hash(bytes), stage.identity.archiveSha256) || !preflightReleaseArchive({ bytes, archiveType: stage.identity.archiveType }).ok) { stage.state = "rejected"; stage.terminalAt = this.now(); throw new TransferError("archive_unsafe", 409); }
+      if (!equal(hash(bytes), stage.identity.archiveSha256)) {
+        stage.state = "rejected"; stage.terminalAt = this.now();
+        throw new TransferError("digest_mismatch", 409);
+      }
+      if (!preflightReleaseArchive({ bytes, archiveType: stage.identity.archiveType }).ok) {
+        stage.state = "rejected"; stage.terminalAt = this.now();
+        throw new TransferError("archive_unsafe", 409);
+      }
       stage.byteObject = { id: "sbo_" + hash(stage.id + "\0" + stage.identity.archiveSha256).slice(0, 32), bytes: bytes.toString("base64"), sha256: stage.identity.archiveSha256, size: bytes.length };
       stage.chunks = []; stage.state = "ready"; stage.expiresAt = this.now() + READY_MS; stage.archiveDigestPrefix = stage.identity.archiveSha256.slice(0, 12);
       return this.public(stage);
@@ -313,7 +328,7 @@ export class StagedServiceTransfer {
       if (!journal || journal.phase !== "claimed" || stage.state !== "claimed" || !byteObject || byteObject.id !== journal.byteObjectId || byteObject.size !== journal.byteLength || byteObject.sha256 !== journal.fullDigest || !this.sameIdentity(stage.identity, journal.releaseIdentity)) return null;
       const manifestBytes = stage.identity.manifestBytes ? Buffer.from(stage.identity.manifestBytes, "base64") : undefined;
       if (manifestBytes && hash(manifestBytes) !== stage.identity.manifestSha256) return null;
-      return { serviceId: stage.identity.targetServiceId, bytes: Buffer.from(byteObject.bytes, "base64"), byteObjectId: byteObject.id, archiveSha256: byteObject.sha256, manifestSha256: stage.identity.manifestSha256, releaseId: stage.identity.releaseId, targetSha: stage.identity.commitSha, workspaceId: stage.workspaceId, repo: stage.identity.repo, releaseTag: stage.identity.releaseTag, manifestBytes };
+       return { serviceId: stage.identity.targetServiceId, bytes: Buffer.from(byteObject.bytes, "base64"), byteObjectId: byteObject.id, byteLength: byteObject.size, archiveSha256: byteObject.sha256, manifestSha256: stage.identity.manifestSha256, releaseId: stage.identity.releaseId, targetSha: stage.identity.commitSha, workspaceId: stage.workspaceId, repo: stage.identity.repo, releaseTag: stage.identity.releaseTag, assetId: stage.identity.assetId, assetName: stage.identity.assetName, archiveType: stage.identity.archiveType, manifestAssetId: stage.identity.manifestAssetId, manifestBytes };
     });
     if (!input || input.bytes.length !== inputBytesLength(input.bytes) || hash(input.bytes) !== input.archiveSha256) return "unknown";
     try { return await this.importer.import(input); } catch { return "unknown"; }
@@ -326,7 +341,7 @@ export class StagedServiceTransfer {
       if (stage.state !== "unknown" || !stage.operation || !journal || !byteObject || journal.phase !== "claimed" || byteObject.id !== journal.byteObjectId || byteObject.size !== journal.byteLength || byteObject.sha256 !== journal.fullDigest || !this.sameIdentity(stage.identity, journal.releaseIdentity) || !stage.identity.manifestBytes) return null;
       const manifestBytes = Buffer.from(stage.identity.manifestBytes, "base64");
       if (hash(manifestBytes) !== stage.identity.manifestSha256) return null;
-      return { serviceId: stage.identity.targetServiceId, byteObjectId: byteObject.id, archiveSha256: byteObject.sha256, manifestSha256: stage.identity.manifestSha256, releaseId: stage.identity.releaseId, targetSha: stage.identity.commitSha, workspaceId: stage.workspaceId, repo: stage.identity.repo, releaseTag: stage.identity.releaseTag, byteLength: byteObject.size, manifestBytes };
+       return { serviceId: stage.identity.targetServiceId, byteObjectId: byteObject.id, archiveSha256: byteObject.sha256, manifestSha256: stage.identity.manifestSha256, releaseId: stage.identity.releaseId, targetSha: stage.identity.commitSha, workspaceId: stage.workspaceId, repo: stage.identity.repo, releaseTag: stage.identity.releaseTag, assetId: stage.identity.assetId, assetName: stage.identity.assetName, archiveType: stage.identity.archiveType, manifestAssetId: stage.identity.manifestAssetId, byteLength: byteObject.size, manifestBytes };
     });
     if (!input) return;
     let outcome: "completed" | "conflict" | "unknown" = "unknown";

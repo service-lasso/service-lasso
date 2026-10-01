@@ -323,7 +323,8 @@ export function createStagedReleaseAssetImporter(input: { servicesRoot: string }
         !/^[a-f0-9]{64}$/.test(claimed.manifestSha256) ||
         !/^[a-f0-9]{40}$/.test(claimed.targetSha) ||
         !claimed.byteObjectId || !claimed.workspaceId ||
-        claimed.bytes.byteLength < 1 ||
+         claimed.bytes.byteLength < 1 || claimed.bytes.byteLength !== claimed.byteLength ||
+         !claimed.assetId || !claimed.assetName || !["zip", "tar.gz", "tgz"].includes(claimed.archiveType) ||
         !claimed.manifestBytes || claimed.manifestBytes.byteLength < 1 ||
         createHash("sha256").update(claimed.bytes).digest("hex") !== claimed.archiveSha256
       ) {
@@ -361,6 +362,7 @@ export function createStagedReleaseAssetImporter(input: { servicesRoot: string }
     reconcile: async (claimed) => {
       if (
         !claimed.byteObjectId || !claimed.workspaceId || claimed.byteLength < 1 ||
+         !claimed.assetId || !claimed.assetName || !["zip", "tar.gz", "tgz"].includes(claimed.archiveType) ||
         !/^[a-f0-9]{64}$/.test(claimed.archiveSha256) ||
         !/^[a-f0-9]{64}$/.test(claimed.manifestSha256) ||
         !/^[a-f0-9]{40}$/.test(claimed.targetSha) ||
