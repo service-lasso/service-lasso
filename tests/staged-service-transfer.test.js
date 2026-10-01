@@ -81,7 +81,7 @@ test("staged direct-child importer registers the canonical manifest without down
   };
   try {
     const result = await createStagedReleaseAssetImporter({ servicesRoot }).import({
-      serviceId: "staged-service", bytes: archiveBytes, byteObjectId: "sbo_test", byteLength: archiveBytes.length, archiveSha256: archiveDigest,
+      serviceId: "staged-service", readByteObject: (() => { let read = false; return () => { if (read) return null; read = true; return Buffer.from(archiveBytes); }; })(), byteObjectId: "sbo_test", byteLength: archiveBytes.length, archiveSha256: archiveDigest,
       manifestSha256: manifestDigest, releaseId: "1", targetSha: "a".repeat(40), workspaceId: "trusted-workspace",
       repo: "service-lasso/lasso-node", releaseTag: "v1", assetId: "asset-1", assetName: "staged.zip", archiveType: "zip", manifestBytes: Buffer.from(manifest, "utf8"),
     });
@@ -126,8 +126,9 @@ test("staged registration persists its full prepared claim before the direct chi
   let imports = 0;
   const transfer = new StagedServiceTransfer(root, { resolve: async () => identity }, { import: async () => {
     imports += 1;
-    const stored = JSON.parse(await readFile(path.join(root, ".service-lasso", "operator", "staged-service-transfers.json"), "utf8"));
-    const stage = stored.stages[0];
+    const stored = JSON.parse(await readFile(path.join(root, ".service-lasso", "operator", "service-registration-operations.json"), "utf8"));
+    assert.equal(stored.version, 1);
+    const stage = stored.stagedTransfer.stages[0];
     assert.equal(stage.state, "claimed");
     assert.equal(stage.operation.state, "unknown");
     assert.equal(stage.journal.phase, "claimed");

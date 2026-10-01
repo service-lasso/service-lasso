@@ -4,6 +4,7 @@ import path from "node:path";
 import { appendAuditEvent } from "../audit/store.js";
 import { withCrossProcessFileLock } from "../security/cross-process-file-lock.js";
 import { preflightReleaseArchive, type ReleaseArchiveType } from "./release-archive-preflight.js";
+import { serviceRegistrationOperationStorePath } from "../operator/remote-service-registration.js";
 
 export type StageState =
   | "uploading" | "ready" | "rejected" | "expired" | "claimed"
@@ -26,16 +27,18 @@ export interface StageResolver {
 }
 
 export interface ClaimedStageInput {
-  serviceId: string; bytes: Uint8Array; byteObjectId: string; byteLength: number; archiveSha256: string;
+  serviceId: string; byteObjectId: string; byteLength: number; archiveSha256: string;
   manifestSha256: string; releaseId: string; targetSha: string; workspaceId: string;
   repo: string; releaseTag: string; assetId: string; assetName: string; archiveType: ReleaseArchiveType;
   manifestAssetId?: string; manifestBytes?: Uint8Array;
+  /** The direct child can consume this Core-held object once and cannot substitute it. */
+  readByteObject(): Uint8Array | null;
 }
 
 /** The child boundary registers one service manifest. It has no lifecycle authority. */
 export interface DirectChildImporter {
   import(input: ClaimedStageInput): Promise<"completed" | "conflict" | "unknown">;
-  reconcile?(input: Omit<ClaimedStageInput, "bytes" | "manifestBytes"> & { byteLength: number; manifestBytes: Uint8Array }): Promise<"completed" | "conflict" | "unknown">;
+  reconcile?(input: Omit<ClaimedStageInput, "readByteObject" | "manifestBytes"> & { byteLength: number; manifestBytes: Uint8Array }): Promise<"completed" | "conflict" | "unknown">;
 }
 
 export interface TransferActor { id: string; workspaceId: string; canConfigure: boolean; }
@@ -65,7 +68,9 @@ interface Stage {
   manifestDigestPrefix: string; byteObject: ByteObject | null; operation: Operation | null;
   journal: Journal | null; terminalAt: number | null;
 }
-interface Store { version: 3; stages: Stage[]; auditOutbox: AuditOutbox[]; }
+interface StageSection { version: 3; stages: Stage[]; auditOutbox: AuditOutbox[]; }
+/** One atomic authority for #1462 operations and #1463 stage/journal state. */
+interface Store { version: 1; operations: unknown[]; stagedTransfer: StageSection; }
 
 const MAX_BYTES = 64 * 1024 * 1024;
 const MAX_CHUNKS = 64;
@@ -100,6 +105,10 @@ export class StagedServiceTransfer {
   ) {}
 
   private statePath() {
+    return serviceRegistrationOperationStorePath(this.workspaceRoot);
+  }
+
+  private legacyStatePath() {
     return path.join(this.workspaceRoot, ".service-lasso", "operator", "staged-service-transfers.json");
   }
 
@@ -107,7 +116,7 @@ export class StagedServiceTransfer {
     const file = this.statePath();
     return await withCrossProcessFileLock(file + ".lock", async () => {
       const store = await this.readStore(file);
-      this.recover(store);
+      this.recover(store.stagedTransfer);
       try {
         const result = await work(store);
         await this.writeStore(file, store);
@@ -123,11 +132,40 @@ export class StagedServiceTransfer {
 
   private async readStore(file: string): Promise<Store> {
     try {
-      const store = JSON.parse(await readFile(file, "utf8")) as Store;
-      if (store.version !== 3 || !Array.isArray(store.stages) || !Array.isArray(store.auditOutbox)) throw new Error("invalid state");
-      return store;
+      const store = JSON.parse(await readFile(file, "utf8")) as Partial<Store>;
+      if (store.version !== 1 || !Array.isArray(store.operations)) throw new Error("invalid state");
+      if (!store.stagedTransfer) {
+        try {
+          const legacy = JSON.parse(await readFile(this.legacyStatePath(), "utf8")) as StageSection;
+          if (legacy.version !== 3 || !Array.isArray(legacy.stages) || !Array.isArray(legacy.auditOutbox)) throw new Error("invalid legacy state");
+          return { version: 1, operations: store.operations, stagedTransfer: legacy };
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+          return { version: 1, operations: store.operations, stagedTransfer: { version: 3, stages: [], auditOutbox: [] } };
+        }
+      }
+      if (store.stagedTransfer.version !== 3 || !Array.isArray(store.stagedTransfer.stages) || !Array.isArray(store.stagedTransfer.auditOutbox)) throw new Error("invalid state");
+      // A legacy v3 sidecar is accepted only when it is an exact retained copy
+      // of the migrated section. A divergent sidecar is evidence of a partial
+      // cross-store commit and must remain unavailable rather than guessed at.
+      try {
+        const legacy = JSON.parse(await readFile(this.legacyStatePath(), "utf8")) as StageSection;
+        if (legacy.version !== 3 || JSON.stringify(legacy) !== JSON.stringify(store.stagedTransfer)) throw new Error("divergent legacy state");
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+      return store as Store;
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return { version: 3, stages: [], auditOutbox: [] };
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        try {
+          const legacy = JSON.parse(await readFile(this.legacyStatePath(), "utf8")) as StageSection;
+          if (legacy.version !== 3 || !Array.isArray(legacy.stages) || !Array.isArray(legacy.auditOutbox)) throw new Error("invalid legacy state");
+          return { version: 1, operations: [], stagedTransfer: legacy };
+        } catch (legacyError) {
+          if ((legacyError as NodeJS.ErrnoException).code === "ENOENT") return { version: 1, operations: [], stagedTransfer: { version: 3, stages: [], auditOutbox: [] } };
+          throw new TransferError("registration_unavailable", 503);
+        }
+      }
       throw new TransferError("registration_unavailable", 503);
     }
   }
@@ -139,7 +177,7 @@ export class StagedServiceTransfer {
     await rename(temporary, file);
   }
 
-  private recover(store: Store): void {
+  private recover(store: StageSection): void {
     const now = this.now();
     for (const stage of store.stages) {
       if ((stage.state === "uploading" || stage.state === "ready") && stage.expiresAt <= now) {
@@ -156,7 +194,7 @@ export class StagedServiceTransfer {
 
   private clean(stage: Stage): void { stage.state = "cleaned"; stage.chunks = []; stage.byteObject = null; }
   private actor(actor: TransferActor): void { if (!actor.canConfigure || !actor.id || !actor.workspaceId) throw new TransferError("forbidden", 403); }
-  private find(store: Store, actor: TransferActor, id: string): Stage {
+  private find(store: StageSection, actor: TransferActor, id: string): Stage {
     this.actor(actor);
     if (!stagePattern.test(id)) throw new TransferError("stage_not_found", 404);
     const stage = store.stages.find((item) => item.id === id && item.actorId === actor.id && item.workspaceId === actor.workspaceId);
@@ -170,7 +208,7 @@ export class StagedServiceTransfer {
       entries: total.entries + MAX_ENTRIES, expanded: total.expanded + MAX_EXPANDED,
     }), { stages: 0, bytes: 0, chunks: 0, entries: 0, expanded: 0 });
   }
-  private quota(store: Store, actor: TransferActor, identity: ReleaseIdentity): void {
+  private quota(store: StageSection, actor: TransferActor, identity: ReleaseIdentity): void {
     const add = (usage: ReturnType<StagedServiceTransfer["usage"]>) => ({
       stages: usage.stages + 1, bytes: usage.bytes + identity.archiveBytes, chunks: usage.chunks + MAX_CHUNKS,
       entries: usage.entries + MAX_ENTRIES, expanded: usage.expanded + MAX_EXPANDED,
@@ -190,10 +228,10 @@ export class StagedServiceTransfer {
     const identity = await this.resolver.resolve({ ...input.provenance, targetServiceId: input.targetServiceId, platform: input.platform });
     this.assertIdentity(input, identity);
     return await this.locked(async (store) => {
-      this.quota(store, actor, identity);
+      this.quota(store.stagedTransfer, actor, identity);
       const token = opaque("sut_", 32), id = opaque("stg_", 24), expiresAt = this.now() + UPLOAD_MS;
       const stage: Stage = { id, actorId: actor.id, workspaceId: actor.workspaceId, state: "uploading", identity, tokenHash: hash(token), confirmationHash: null, confirmationExpiresAt: null, expiresAt, chunks: [], received: 0, archiveDigestPrefix: null, manifestDigestPrefix: identity.manifestSha256.slice(0, 12), byteObject: null, operation: null, journal: null, terminalAt: null };
-      store.stages.push(stage);
+      store.stagedTransfer.stages.push(stage);
       return { stageId: id, state: "uploading" as const, archiveBytes: identity.archiveBytes, chunkBytes: this.chunkBytes(stage), uploadToken: token, expiresAt: new Date(expiresAt).toISOString() };
     });
   }
@@ -201,7 +239,7 @@ export class StagedServiceTransfer {
   async upload(actor: TransferActor, id: string, ordinal: number, token: string, digest: string, bytes: Uint8Array, range?: { start: number; end: number; total: number }) {
     if (!Number.isInteger(ordinal) || ordinal < 0 || ordinal >= MAX_CHUNKS || !tokenPattern.test(token) || !digestPattern.test(digest)) throw new TransferError("invalid_request", 400);
     await this.locked(async (store) => {
-      const stage = this.find(store, actor, id);
+      const stage = this.find(store.stagedTransfer, actor, id);
       if (stage.state !== "uploading" || stage.expiresAt <= this.now() || !equal(stage.tokenHash, hash(token))) throw new TransferError("stage_not_found", 404);
       const unit = this.chunkBytes(stage), start = ordinal * unit, expected = Math.min(unit, stage.identity.archiveBytes - start), end = start + expected - 1;
       if (expected < 1 || bytes.length !== expected || (range && (range.start !== start || range.end !== end || range.total !== stage.identity.archiveBytes))) throw new TransferError("chunk_sequence_conflict", 409);
@@ -215,7 +253,7 @@ export class StagedServiceTransfer {
 
   async finalize(actor: TransferActor, id: string) {
     return await this.locked(async (store) => {
-      const stage = this.find(store, actor, id);
+      const stage = this.find(store.stagedTransfer, actor, id);
       if (stage.state !== "uploading" || stage.expiresAt <= this.now() || stage.received !== stage.identity.archiveBytes || stage.chunks.length !== Math.ceil(stage.identity.archiveBytes / this.chunkBytes(stage))) throw new TransferError("digest_mismatch", 409);
       const bytes = Buffer.concat(stage.chunks.map((chunk) => Buffer.from(chunk.bytes, "base64")));
       if (!equal(hash(bytes), stage.identity.archiveSha256)) {
@@ -234,7 +272,7 @@ export class StagedServiceTransfer {
 
   async confirmation(actor: TransferActor, id: string) {
     return await this.locked(async (store) => {
-      const stage = this.find(store, actor, id);
+      const stage = this.find(store.stagedTransfer, actor, id);
       if (stage.state !== "ready" || stage.expiresAt <= this.now()) throw new TransferError("stage_not_found", 404);
       const confirmationId = opaque("scf_", 24), expiresAt = this.now() + CONFIRM_MS;
       stage.confirmationHash = hash(confirmationId); stage.confirmationExpiresAt = expiresAt;
@@ -260,22 +298,22 @@ export class StagedServiceTransfer {
   async register(actor: TransferActor, id: string, confirmation: string, key: string) {
     if (!confirmationPattern.test(confirmation) || !keyPattern.test(key)) throw new TransferError("invalid_request", 400);
     const replay = await this.locked(async (store) => {
-      const stage = this.find(store, actor, id), operation = this.replay(stage, key);
+      const stage = this.find(store.stagedTransfer, actor, id), operation = this.replay(stage, key);
       return operation ? { operation, status: stage.state } : null;
     });
     if (replay) {
       if (replay.status === "unknown") await this.reconcileUnknown(actor, id);
-      const current = await this.locked(async (store) => this.find(store, actor, id));
+      const current = await this.locked(async (store) => this.find(store.stagedTransfer, actor, id));
       return { operation: current.operation, replayed: true, status: current.state };
     }
 
-    const identity = await this.locked(async (store) => this.find(store, actor, id).identity);
+    const identity = await this.locked(async (store) => this.find(store.stagedTransfer, actor, id).identity);
     let resolved: ReleaseIdentity;
     try { resolved = await this.resolver.resolve({ repo: identity.repo, releaseTag: identity.releaseTag, commitSha: identity.commitSha, targetServiceId: identity.targetServiceId, platform: identity.platform }); } catch { throw new TransferError("release_provenance_unavailable", 503); }
     if (!this.sameIdentity(identity, resolved)) throw new TransferError("release_binding_mismatch", 409);
 
     const prepared = await this.locked(async (store) => {
-      const stage = this.find(store, actor, id), operation = this.replay(stage, key);
+      const stage = this.find(store.stagedTransfer, actor, id), operation = this.replay(stage, key);
       if (operation) return { stage, operation };
       if (stage.state !== "ready" || stage.expiresAt <= this.now() || !stage.byteObject || !this.sameIdentity(stage.identity, resolved)) throw new TransferError("stage_not_found", 404);
       stage.journal ??= this.preparedJournal(stage, actor, key);
@@ -295,7 +333,7 @@ export class StagedServiceTransfer {
       if (shared.id !== journal.operationId) throw new TransferError("registration_unavailable", 503);
       if (shared.replayed && shared.state !== "unknown") {
         const terminal = await this.locked(async (store) => {
-          const stage = this.find(store, actor, id);
+          const stage = this.find(store.stagedTransfer, actor, id);
           if (!stage.operation) stage.operation = { id: shared.id, key, state: shared.state, stageDigest: stage.identity.archiveSha256, targetServiceId: stage.identity.targetServiceId };
           stage.state = shared.state === "completed" ? "consumed" : "quarantined";
           stage.journal!.phase = "sealed";
@@ -306,7 +344,7 @@ export class StagedServiceTransfer {
     }
 
     const claimed = await this.locked(async (store) => {
-      const stage = this.find(store, actor, id), operation = this.replay(stage, key);
+      const stage = this.find(store.stagedTransfer, actor, id), operation = this.replay(stage, key);
       if (operation) return { stage, operation };
       if (!stage.journal || stage.journal.phase !== "prepared" || stage.state !== "ready" || stage.expiresAt <= this.now() || !stage.confirmationHash || !stage.confirmationExpiresAt || stage.confirmationExpiresAt <= this.now() || !equal(stage.confirmationHash, hash(confirmation)) || !stage.byteObject) throw new TransferError("stage_not_found", 404);
       stage.state = "claimed"; stage.confirmationHash = null; stage.confirmationExpiresAt = null; stage.journal.phase = "claimed";
@@ -318,26 +356,29 @@ export class StagedServiceTransfer {
     const outcome = await this.importClaimed(actor, id);
     await this.recordOutcome(actor, id, outcome);
     await this.flushAuditOutbox();
-    const stage = await this.locked(async (store) => this.find(store, actor, id));
+    const stage = await this.locked(async (store) => this.find(store.stagedTransfer, actor, id));
     return { operation: stage.operation, replayed: false, status: stage.state };
   }
 
   private async importClaimed(actor: TransferActor, id: string): Promise<"completed" | "conflict" | "unknown"> {
     const input = await this.locked(async (store) => {
-      const stage = this.find(store, actor, id), journal = stage.journal, byteObject = stage.byteObject;
+      const stage = this.find(store.stagedTransfer, actor, id), journal = stage.journal, byteObject = stage.byteObject;
       if (!journal || journal.phase !== "claimed" || stage.state !== "claimed" || !byteObject || byteObject.id !== journal.byteObjectId || byteObject.size !== journal.byteLength || byteObject.sha256 !== journal.fullDigest || !this.sameIdentity(stage.identity, journal.releaseIdentity)) return null;
       const manifestBytes = stage.identity.manifestBytes ? Buffer.from(stage.identity.manifestBytes, "base64") : undefined;
       if (manifestBytes && hash(manifestBytes) !== stage.identity.manifestSha256) return null;
-       return { serviceId: stage.identity.targetServiceId, bytes: Buffer.from(byteObject.bytes, "base64"), byteObjectId: byteObject.id, byteLength: byteObject.size, archiveSha256: byteObject.sha256, manifestSha256: stage.identity.manifestSha256, releaseId: stage.identity.releaseId, targetSha: stage.identity.commitSha, workspaceId: stage.workspaceId, repo: stage.identity.repo, releaseTag: stage.identity.releaseTag, assetId: stage.identity.assetId, assetName: stage.identity.assetName, archiveType: stage.identity.archiveType, manifestAssetId: stage.identity.manifestAssetId, manifestBytes };
+      let consumed = false;
+      return { serviceId: stage.identity.targetServiceId, byteObjectId: byteObject.id, byteLength: byteObject.size, archiveSha256: byteObject.sha256, manifestSha256: stage.identity.manifestSha256, releaseId: stage.identity.releaseId, targetSha: stage.identity.commitSha, workspaceId: stage.workspaceId, repo: stage.identity.repo, releaseTag: stage.identity.releaseTag, assetId: stage.identity.assetId, assetName: stage.identity.assetName, archiveType: stage.identity.archiveType, manifestAssetId: stage.identity.manifestAssetId, manifestBytes,
+        readByteObject: () => { if (consumed) return null; consumed = true; return Buffer.from(byteObject.bytes, "base64"); },
+      };
     });
-    if (!input || input.bytes.length !== inputBytesLength(input.bytes) || hash(input.bytes) !== input.archiveSha256) return "unknown";
+    if (!input) return "unknown";
     try { return await this.importer.import(input); } catch { return "unknown"; }
   }
 
   private async reconcileUnknown(actor: TransferActor, id: string): Promise<void> {
     if (!this.importer.reconcile) return;
     const input = await this.locked(async (store) => {
-      const stage = this.find(store, actor, id), journal = stage.journal, byteObject = stage.byteObject;
+      const stage = this.find(store.stagedTransfer, actor, id), journal = stage.journal, byteObject = stage.byteObject;
       if (stage.state !== "unknown" || !stage.operation || !journal || !byteObject || journal.phase !== "claimed" || byteObject.id !== journal.byteObjectId || byteObject.size !== journal.byteLength || byteObject.sha256 !== journal.fullDigest || !this.sameIdentity(stage.identity, journal.releaseIdentity) || !stage.identity.manifestBytes) return null;
       const manifestBytes = Buffer.from(stage.identity.manifestBytes, "base64");
       if (hash(manifestBytes) !== stage.identity.manifestSha256) return null;
@@ -351,23 +392,23 @@ export class StagedServiceTransfer {
   }
 
   private async recordOutcome(actor: TransferActor, id: string, outcome: "completed" | "conflict" | "unknown"): Promise<void> {
-    const operation = await this.locked(async (store) => this.find(store, actor, id).operation);
+    const operation = await this.locked(async (store) => this.find(store.stagedTransfer, actor, id).operation);
     if (this.operationStore && operation) {
       try { await this.operationStore.complete({ actorId: actor.id, operationId: operation.id, outcome }); }
       catch { throw new TransferError("registration_unavailable", 503); }
     }
     await this.locked(async (store) => {
-      const stage = this.find(store, actor, id);
+      const stage = this.find(store.stagedTransfer, actor, id);
       if (!stage.operation || !stage.journal || stage.journal.phase !== "claimed") return;
       stage.operation.state = outcome; stage.state = outcome === "completed" ? "consumed" : outcome === "conflict" ? "quarantined" : "unknown";
       stage.terminalAt = outcome === "unknown" ? null : this.now();
       if (outcome !== "unknown") stage.journal.phase = "sealed";
-      if (!store.auditOutbox.some((entry) => entry.operationId === stage.operation!.id)) store.auditOutbox.push({ operationId: stage.operation.id, actorId: stage.actorId, workspaceId: stage.workspaceId, targetServiceId: stage.identity.targetServiceId, outcome });
+      if (!store.stagedTransfer.auditOutbox.some((entry) => entry.operationId === stage.operation!.id)) store.stagedTransfer.auditOutbox.push({ operationId: stage.operation.id, actorId: stage.actorId, workspaceId: stage.workspaceId, targetServiceId: stage.identity.targetServiceId, outcome });
     });
   }
 
   private async flushAuditOutbox(): Promise<void> {
-    const pending = await this.locked(async (store) => [...store.auditOutbox]);
+    const pending = await this.locked(async (store) => [...store.stagedTransfer.auditOutbox]);
     for (const entry of pending) {
       try {
         await appendAuditEvent({
@@ -381,7 +422,7 @@ export class StagedServiceTransfer {
           summary: "staged registration " + entry.outcome,
           metadata: { operationId: entry.operationId, workspaceId: entry.workspaceId },
         });
-        await this.locked(async (store) => { store.auditOutbox = store.auditOutbox.filter((candidate) => candidate.operationId !== entry.operationId); });
+        await this.locked(async (store) => { store.stagedTransfer.auditOutbox = store.stagedTransfer.auditOutbox.filter((candidate) => candidate.operationId !== entry.operationId); });
       } catch {
         // The retained outbox is the sole retry point. Never repeat a child import for Audit.
       }
@@ -390,7 +431,7 @@ export class StagedServiceTransfer {
 
   async status(actor: TransferActor, id: string) {
     await this.flushAuditOutbox();
-    return await this.locked(async (store) => this.public(this.find(store, actor, id)));
+    return await this.locked(async (store) => this.public(this.find(store.stagedTransfer, actor, id)));
   }
 
   private public(stage: Stage) {
@@ -398,5 +439,4 @@ export class StagedServiceTransfer {
   }
 }
 
-function inputBytesLength(bytes: Uint8Array): number { return bytes.byteLength; }
 export class TransferError extends Error { constructor(readonly code: string, readonly statusCode: number, message = "Staged service transfer request denied.") { super(message); } }

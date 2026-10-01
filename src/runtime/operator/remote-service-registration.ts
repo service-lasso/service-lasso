@@ -54,6 +54,12 @@ interface PersistedOperation extends Omit<RemoteServiceRegistrationOperation, "r
 interface PersistedOperationStore {
   version: 1;
   operations: PersistedOperation[];
+  /**
+   * #1463 keeps its stages in this document as well.  It is deliberately
+   * opaque here: the stage owner validates its own schema, while ordinary
+   * #1462 records retain their exact v1 shape.
+   */
+  stagedTransfer?: unknown;
 }
 
 interface GitHubReleaseResponse {
@@ -118,17 +124,20 @@ function assertApprovedReleaseRepository(repo: string): void {
   }
 }
 
-function storePath(workspaceRoot: string): string {
+export function serviceRegistrationOperationStorePath(workspaceRoot: string): string {
   return path.join(workspaceRoot, ".service-lasso", "operator", "service-registration-operations.json");
 }
 
 async function readStore(workspaceRoot: string): Promise<PersistedOperationStore> {
   try {
-    const parsed = JSON.parse(await readFile(storePath(workspaceRoot), "utf8")) as Partial<PersistedOperationStore>;
+    const parsed = JSON.parse(await readFile(serviceRegistrationOperationStorePath(workspaceRoot), "utf8")) as Partial<PersistedOperationStore>;
     if (parsed.version !== 1 || !Array.isArray(parsed.operations)) {
       throw new ApiError("operation_store_invalid", 503, "Service registration operation state is unavailable.");
     }
-    return { version: 1, operations: parsed.operations };
+    // Preserve the co-resident staged journal.  Dropping unknown data here
+    // would recreate the split-store crash window this adapter is meant to
+    // close.
+    return parsed as PersistedOperationStore;
   } catch (error) {
     if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") return { version: 1, operations: [] };
     throw error;
@@ -136,7 +145,7 @@ async function readStore(workspaceRoot: string): Promise<PersistedOperationStore
 }
 
 async function writeStore(workspaceRoot: string, store: PersistedOperationStore): Promise<void> {
-  const targetPath = storePath(workspaceRoot);
+  const targetPath = serviceRegistrationOperationStorePath(workspaceRoot);
   await mkdir(path.dirname(targetPath), { recursive: true });
   const temporaryPath = `${targetPath}.${process.pid}.${Date.now()}.tmp`;
   await writeFile(temporaryPath, `${JSON.stringify(store)}\n`, "utf8");
@@ -157,7 +166,9 @@ async function withWorkspaceRegistrationLock<T>(workspaceRoot: string, action: (
   registrationLocks.set(key, queued);
   await prior;
   try {
-    return await action();
+    return await withCrossProcessFileLock(serviceRegistrationOperationStorePath(workspaceRoot) + ".lock", action, {
+      unavailableMessage: "service registration operation state is unavailable",
+    });
   } finally {
     release();
     if (registrationLocks.get(key) === queued) registrationLocks.delete(key);
@@ -318,15 +329,16 @@ async function importVerifiedManifest(input: { servicesRoot: string; manifest: S
 export function createStagedReleaseAssetImporter(input: { servicesRoot: string }): DirectChildImporter {
   return {
     import: async (claimed) => {
+      const archiveBytes = claimed.readByteObject();
       if (
         !/^[a-f0-9]{64}$/.test(claimed.archiveSha256) ||
         !/^[a-f0-9]{64}$/.test(claimed.manifestSha256) ||
         !/^[a-f0-9]{40}$/.test(claimed.targetSha) ||
         !claimed.byteObjectId || !claimed.workspaceId ||
-         claimed.bytes.byteLength < 1 || claimed.bytes.byteLength !== claimed.byteLength ||
+         !archiveBytes || archiveBytes.byteLength < 1 || archiveBytes.byteLength !== claimed.byteLength ||
          !claimed.assetId || !claimed.assetName || !["zip", "tar.gz", "tgz"].includes(claimed.archiveType) ||
         !claimed.manifestBytes || claimed.manifestBytes.byteLength < 1 ||
-        createHash("sha256").update(claimed.bytes).digest("hex") !== claimed.archiveSha256
+        createHash("sha256").update(archiveBytes).digest("hex") !== claimed.archiveSha256
       ) {
         return "unknown";
       }
@@ -471,8 +483,7 @@ export interface StagedRegistrationOperationInput {
  */
 export async function claimStagedRegistrationOperation(input: StagedRegistrationOperationInput): Promise<RemoteServiceRegistrationOperation> {
   const operationId = `sro_${sha256(`${input.actorId}\u0000${input.idempotencyKey}`).slice(0, 32)}`;
-  return await withCrossProcessFileLock(storePath(input.workspaceRoot) + ".lock", async () =>
-    await withWorkspaceRegistrationLock(input.workspaceRoot, async () => {
+  return await withWorkspaceRegistrationLock(input.workspaceRoot, async () => {
       const store = await readStore(input.workspaceRoot);
       const existing = store.operations.find((candidate) => candidate.id === operationId && candidate.actorId === input.actorId);
       if (existing) {
@@ -497,15 +508,13 @@ export async function claimStagedRegistrationOperation(input: StagedRegistration
       store.operations.push(operation);
       await writeStore(input.workspaceRoot, store);
       return toPublicOperation(operation, false);
-    }), { unavailableMessage: "service registration operation state is unavailable" },
-  );
+  });
 }
 
 export async function completeStagedRegistrationOperation(input: {
   workspaceRoot: string; actorId: string; operationId: string; outcome: "completed" | "conflict" | "unknown";
 }): Promise<void> {
-  await withCrossProcessFileLock(storePath(input.workspaceRoot) + ".lock", async () =>
-    await withWorkspaceRegistrationLock(input.workspaceRoot, async () => {
+  await withWorkspaceRegistrationLock(input.workspaceRoot, async () => {
       const store = await readStore(input.workspaceRoot);
       const operation = store.operations.find((candidate) => candidate.id === input.operationId && candidate.actorId === input.actorId && candidate.staged);
       if (!operation) throw new ApiError("operation_store_invalid", 503, "Service registration operation state is unavailable.");
@@ -513,6 +522,5 @@ export async function completeStagedRegistrationOperation(input: {
       operation.completedAt = input.outcome === "unknown" ? null : new Date().toISOString();
       operation.errorCode = input.outcome === "completed" ? null : input.outcome === "conflict" ? "target_manifest_exists" : "registration_unknown";
       await writeStore(input.workspaceRoot, store);
-    }), { unavailableMessage: "service registration operation state is unavailable" },
-  );
+  });
 }
