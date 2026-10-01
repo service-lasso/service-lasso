@@ -29,10 +29,13 @@ The focused Development check is:
 
 ```text
 npm run build
-node --test --test-concurrency=1 tests/staged-service-transfer.test.js tests/staged-service-transfer-http.test.js tests/staged-service-transfer-contract.test.js tests/service-producer-release-policy-contract.test.js
+node --test --test-concurrency=1 tests/staged-service-transfer.test.js tests/staged-service-transfer-http.test.js tests/staged-service-transfer-contract.test.js tests/service-producer-release-policy-contract.test.js tests/service-producer-release-resolver.test.js
 ```
 
+At `c1d03b23106b8491aff4e4378fdcac524f48c2d6`, this completed as 27/27 in a
+review-owned workspace with distinct instance and host-port registry paths.
 It is direct local source/runtime evidence for the rows marked verified. It is
 not release qualification, producer acceptance, an external client journey,
-or a GA decision. Remaining rows stay open in `ISS-1463-implementation` and
-the separately owned #1524/T1--T5 prerequisites.
+or a GA decision. The multi-actor authorization, confirmation lifecycle, and
+terminal HTTP readback rows remain incomplete; owner catalog and TAR gates
+remain separately owned #1524/T1--T5 prerequisites.
