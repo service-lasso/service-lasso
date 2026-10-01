@@ -13,7 +13,7 @@ if (suppliedInputs.length === inputKeys.length) {
   if (new Set(inputKeys.map((key) => rawInputs[key])).size !== inputKeys.length) throw new Error("Isolated-state inputs must use three distinct literal paths.");
 }
 
-const [{ mkdir, mkdtemp, writeFile, rename, lstat, readFile }, os, path, { glob }, { spawn }, { createHash }, { promisify }, { execFile }, { createWriteStream }] = await Promise.all([
+const [{ mkdir, mkdtemp, writeFile, rename, lstat, readFile }, os, path, { glob }, { spawn }, { createHash }, { promisify }, { execFile }, { openSync, closeSync }] = await Promise.all([
   import("node:fs/promises"), import("node:os"), import("node:path"), import("node:fs/promises"), import("node:child_process"), import("node:crypto"), import("node:util"), import("node:child_process"), import("node:fs"),
 ]);
 const execFileAsync = promisify(execFile);
@@ -126,11 +126,11 @@ function startProcess(label, command, args, env, rawDirectory) {
   const rawId = `${label}-${Date.now()}-${process.pid}`;
   const stdoutPath = path.join(rawDirectory, `${rawId}.stdout.log`);
   const stderrPath = path.join(rawDirectory, `${rawId}.stderr.log`);
-  const stdout = createWriteStream(stdoutPath, { flags: "wx" });
-  const stderr = createWriteStream(stderrPath, { flags: "wx" });
+  const stdoutFd = openSync(stdoutPath, "wx");
+  const stderrFd = openSync(stderrPath, "wx");
   const injectSpawnFailure = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS === "1" &&
     process.env.SERVICE_LASSO_ISOLATED_TEST_SPAWN_ERROR === label;
-  const child = spawn(injectSpawnFailure ? `${command}.service-lasso-test-missing` : command, args, { stdio: ["ignore", stdout, stderr], env });
+  const child = spawn(injectSpawnFailure ? `${command}.service-lasso-test-missing` : command, args, { stdio: ["ignore", stdoutFd, stderrFd], env });
   const ownership = {
     childCreated: Number.isInteger(child.pid) && child.pid > 0,
     pid: Number.isInteger(child.pid) && child.pid > 0 ? child.pid : null,
@@ -154,15 +154,9 @@ function startProcess(label, command, args, env, rawDirectory) {
     // classification, then wait for the actual ChildProcess close event.
     child.once("error", (error) => { record.spawnError = typedSpawnError(error); });
     child.once("close", (code, signal) => {
-      let pending = 2;
-      const complete = () => {
-        pending -= 1;
-        if (pending === 0) resolve({ code, signal, closedAt: new Date().toISOString() });
-      };
-      stdout.once("close", complete);
-      stderr.once("close", complete);
-      stdout.end();
-      stderr.end();
+      closeSync(stdoutFd);
+      closeSync(stderrFd);
+      resolve({ code, signal, closedAt: new Date().toISOString() });
     });
   });
   return { record, closed, nativeCustody };
