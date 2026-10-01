@@ -714,9 +714,14 @@ public static class ServiceLassoManagedLauncherNative
         {
             return;
         }
+        DateTime deadline = DateTime.UtcNow.AddMilliseconds(JobObservationTimeoutMilliseconds);
         string request = null;
         while (request == null)
         {
+            if (DateTime.UtcNow >= deadline)
+            {
+                throw new TimeoutException("Managed fixture job observation timed out.");
+            }
             uint wait = WaitForSingleObject(processHandle, 0);
             if (wait == WaitObject0)
             {
@@ -735,7 +740,6 @@ public static class ServiceLassoManagedLauncherNative
                 Thread.Sleep(25);
             }
         }
-        DateTime deadline = DateTime.UtcNow.AddMilliseconds(JobObservationTimeoutMilliseconds);
         if (DateTime.UtcNow >= deadline)
         {
             throw new TimeoutException("Managed fixture job observation timed out.");

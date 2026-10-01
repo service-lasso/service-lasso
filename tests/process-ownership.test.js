@@ -260,6 +260,7 @@ async function writeStubbornProcessTreeFixture(serviceRoot, scriptPath, options 
     acknowledgementMode = "complete",
     receiptMode = "complete",
     custodyReadyFilePath = null,
+    jobObservationMode = "complete",
   } = options;
   const childScriptPath = path.join(serviceRoot, "runtime", "fixture-child.mjs");
   const grandchildScriptPath = path.join(serviceRoot, "runtime", "fixture-grandchild.mjs");
@@ -361,15 +362,30 @@ const jobObservationRequestPath = process.env.SERVICE_LASSO_TEST_JOB_OBSERVATION
 const jobObservationResponsePath = process.env.SERVICE_LASSO_TEST_JOB_OBSERVATION_RESPONSE_PATH;
 const jobObservationToken = process.env.SERVICE_LASSO_TEST_JOB_OBSERVATION_TOKEN;
 if (jobObservationRequestPath && jobObservationResponsePath && jobObservationToken) {
-  const request = JSON.stringify({
+  const completeRequest = {
     token: jobObservationToken,
     rootPid: process.pid,
     childPid: child.pid,
     grandchildPid: receipt.grandchildPid,
-  });
-  const requestTemp = jobObservationRequestPath + ".tmp";
-  await writeFile(requestTemp, request, { flag: "wx" });
-  await rename(requestTemp, jobObservationRequestPath);
+  };
+  const observationMode = ${JSON.stringify(jobObservationMode)};
+  const request = observationMode === "malformed" ? "{"
+    : observationMode === "oversized" ? "x".repeat(1025)
+      : JSON.stringify(
+        observationMode === "extra" ? { ...completeRequest, extra: true }
+          : observationMode === "incomplete" ? { token: completeRequest.token, rootPid: completeRequest.rootPid, childPid: completeRequest.childPid }
+            : observationMode === "mismatched" ? { ...completeRequest, childPid: completeRequest.rootPid }
+              : observationMode === "untrusted" ? { ...completeRequest, token: "00".repeat(32) }
+                : completeRequest,
+      );
+  if (observationMode === "replay") {
+    await writeFile(jobObservationResponsePath, JSON.stringify({ token: jobObservationToken, status: "complete", count: 3 }), { flag: "wx" });
+  }
+  if (observationMode !== "missing") {
+    const requestTemp = jobObservationRequestPath + ".tmp";
+    await writeFile(requestTemp, request, { flag: "wx" });
+    await rename(requestTemp, jobObservationRequestPath);
+  }
   while (true) {
     try {
       const response = JSON.parse(await readFile(jobObservationResponsePath, "utf8"));
@@ -3932,6 +3948,67 @@ test("managed Windows late-child fixture suppresses acknowledgement before root-
     }
   }
 });
+
+for (const jobObservationMode of [
+  "missing",
+  "malformed",
+  "extra",
+  "oversized",
+  "incomplete",
+  "mismatched",
+  "untrusted",
+  "replay",
+]) {
+  test(`managed Windows held-job observer rejects an actual ${jobObservationMode} fixture message before fixture acknowledgement`, {
+    skip: process.platform !== "win32",
+  }, async () => {
+    resetLifecycleState();
+    const restoreFixtureTestHooks = enableOwnedFixtureTestHooks();
+    const serviceId = `managed-held-job-${jobObservationMode}-service`;
+    const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot(
+      `service-lasso-managed-held-job-${jobObservationMode}-`,
+    );
+    const { serviceRoot, scriptPath } = await writeExecutableFixtureService(servicesRoot, serviceId);
+    const triggerPath = path.join(serviceRoot, "runtime", "launch-child.trigger");
+    const acknowledgementPath = path.join(serviceRoot, "runtime", "owned-root-exit.ack.json");
+    const pidFilePath = await writeStubbornProcessTreeFixture(serviceRoot, scriptPath, {
+      childTriggerFilePath: triggerPath,
+      rootExitAfterChildMs: 750,
+      acknowledgementFilePath: acknowledgementPath,
+      jobObservationMode,
+    });
+    let rootCustody = null;
+    let custody = null;
+    let primaryError;
+
+    try {
+      const [service] = await discoverServices(servicesRoot);
+      await startOwnedFixtureWithNativeJobObservation({ service, executionPlan: createDirectExecutionPlan(service.manifest), workspaceRoot });
+      rootCustody = await readOwnedFixtureRootCustody(workspaceRoot, serviceId);
+      await writeFile(triggerPath, "launch\n", "utf8");
+      const receipt = await readCompleteOwnedFixtureReceipt(pidFilePath);
+      custody = await captureOwnedFixtureCustody(receipt);
+      await assert.rejects(readOwnedFixtureAcknowledgement(acknowledgementPath, receipt, 3_000));
+      await waitForManagedProcessFinalization(serviceId, Date.now() + 8_000);
+      await waitForOwnedFixtureStopped(custody, 8_000);
+      assert.equal(hasManagedProcess(serviceId), false);
+      const stopped = await findProcessOwnership(workspaceRoot, "service", serviceId);
+      assert.equal(stopped.lifecycleState, "stopped");
+      assert.equal(stopped.pid, null);
+    } catch (error) {
+      primaryError = error;
+      throw error;
+    } finally {
+      try {
+        if (custody !== null && rootCustody !== null) {
+          await cleanupCompleteOwnedFixture({ serviceId, rootCustody, custody, tempRoot, primaryError });
+        }
+      } finally {
+        restoreFixtureTestHooks();
+      }
+    }
+  });
+}
 
 for (const acknowledgementMode of ["malformed", "extra", "mismatched"]) {
   test(`managed Windows late-child fixture rejects a ${acknowledgementMode} acknowledgement before containment`, {
