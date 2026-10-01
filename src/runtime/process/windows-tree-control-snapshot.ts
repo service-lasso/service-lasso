@@ -7,22 +7,30 @@ export async function inspectKnownWindowsTreeMembers(
   deadlineMs: number,
   signal: AbortSignal,
   verifiedMembersOnly = false,
-  dependencies: { inspectTree?: typeof inspectWindowsProcessTree; inspectIdentity?: typeof inspectProcess } = {},
+  dependencies: {
+    inspectTree?: typeof inspectWindowsProcessTree;
+    inspectIdentity?: typeof inspectProcess;
+    excludedMemberPids?: ReadonlySet<number>;
+  } = {},
 ): Promise<{
   members: ProcessFingerprint[];
   verifiedMembersOnly: boolean;
   inspectProcess: (pid: number, options?: { deadlineMs?: number; signal?: AbortSignal }) => Promise<ProcessInspection>;
 }> {
   const currentTree = await (dependencies.inspectTree ?? inspectWindowsProcessTree)(rootIdentity, { deadlineMs, signal });
-  const excluded = new Set(currentTree.excludedMemberPids ?? []);
+  const excluded = new Set([
+    ...(currentTree.excludedMemberPids ?? []),
+    ...(dependencies.excludedMemberPids ?? []),
+  ]);
   const retainedMembers = knownMembers.filter(member => !excluded.has(member.pid));
-  const currentPids = new Set(currentTree.members.map(identity => identity.pid));
+  const currentMembers = currentTree.members.filter(identity => !excluded.has(identity.pid));
+  const currentPids = new Set(currentMembers.map(identity => identity.pid));
   const members = [
     ...retainedMembers.filter(identity => !currentPids.has(identity.pid)),
-    ...currentTree.members,
+    ...currentMembers,
   ];
   if (verifiedMembersOnly || currentTree.verifiedMembersOnly) {
-    const currentByPid = new Map(currentTree.members.map(identity => [identity.pid, identity]));
+    const currentByPid = new Map(currentMembers.map(identity => [identity.pid, identity]));
     for (const expected of retainedMembers) {
       const actual = currentByPid.get(expected.pid);
       if (actual && classifyProcessIdentity(expected, { status: "running", identity: actual }, "win32") !== "owned") {
@@ -40,8 +48,8 @@ export async function inspectKnownWindowsTreeMembers(
       }),
     };
   }
-  const currentByPid = new Map(currentTree.members.map((identity) => [identity.pid, identity]));
-  const inspectionByPid = new Map<number, ProcessInspection>(currentTree.members.map((identity) => [
+  const currentByPid = new Map(currentMembers.map((identity) => [identity.pid, identity]));
+  const inspectionByPid = new Map<number, ProcessInspection>(currentMembers.map((identity) => [
     identity.pid,
     { status: "running", identity },
   ]));

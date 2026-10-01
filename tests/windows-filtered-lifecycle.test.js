@@ -30,13 +30,20 @@ for (const mode of ["managed", "adopted", "managed-root-exit", "adopted-root-exi
     let controls = 0;
     try {
       await new Promise((resolve, reject) => { sentinel.once("spawn", resolve); sentinel.once("error", reject); });
+      const sentinelInspection = await inspectProcess(sentinel.pid);
+      assert.equal(sentinelInspection.status, "running");
       setManagedWindowsTreeInspectorForTests(async (root, options) => {
         const snapshot = await inspectWindowsProcessTree(root, options);
         snapshots += 1;
         // Deterministic lifetime-filtered receipt. Parser exclusion has its own
         // complete native-output tests; this exercises real lifecycle records.
         return snapshots === 1
-          ? { ...snapshot, verifiedMembersOnly: true, excludedMemberPids: [sentinel.pid] }
+          ? {
+            ...snapshot,
+            members: [...snapshot.members, sentinelInspection.identity],
+            verifiedMembersOnly: true,
+            excludedMemberPids: [sentinel.pid],
+          }
           : snapshot;
       });
       setManagedProcessTreeTerminatorForTests(async (target, timeoutMs, dependencies) => {

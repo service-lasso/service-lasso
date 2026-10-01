@@ -13,8 +13,8 @@ if (suppliedInputs.length === inputKeys.length) {
   if (new Set(inputKeys.map((key) => rawInputs[key])).size !== inputKeys.length) throw new Error("Isolated-state inputs must use three distinct literal paths.");
 }
 
-const [{ mkdir, mkdtemp, writeFile, rename, lstat, readFile }, os, path, { glob }, { spawn }, { createHash }, { promisify }, { execFile }] = await Promise.all([
-  import("node:fs/promises"), import("node:os"), import("node:path"), import("node:fs/promises"), import("node:child_process"), import("node:crypto"), import("node:util"), import("node:child_process"),
+const [{ mkdir, mkdtemp, writeFile, rename, lstat, readFile }, os, path, { glob }, { spawn }, { createHash }, { promisify }, { execFile }, { createWriteStream }] = await Promise.all([
+  import("node:fs/promises"), import("node:os"), import("node:path"), import("node:fs/promises"), import("node:child_process"), import("node:crypto"), import("node:util"), import("node:child_process"), import("node:fs"),
 ]);
 const execFileAsync = promisify(execFile);
 
@@ -121,18 +121,23 @@ async function inspectNativeCustody(child, label, launchCwd) {
   } while (Date.now() < deadlineAt);
   return { status: "not_observed", reason };
 }
-function startProcess(label, command, args, env) {
+function startProcess(label, command, args, env, rawDirectory) {
   const startedAt = new Date().toISOString();
+  const rawId = `${label}-${Date.now()}-${process.pid}`;
+  const stdoutPath = path.join(rawDirectory, `${rawId}.stdout.log`);
+  const stderrPath = path.join(rawDirectory, `${rawId}.stderr.log`);
+  const stdout = createWriteStream(stdoutPath, { flags: "wx" });
+  const stderr = createWriteStream(stderrPath, { flags: "wx" });
   const injectSpawnFailure = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS === "1" &&
     process.env.SERVICE_LASSO_ISOLATED_TEST_SPAWN_ERROR === label;
-  const child = spawn(injectSpawnFailure ? `${command}.service-lasso-test-missing` : command, args, { stdio: "inherit", env });
+  const child = spawn(injectSpawnFailure ? `${command}.service-lasso-test-missing` : command, args, { stdio: ["ignore", stdout, stderr], env });
   const ownership = {
     childCreated: Number.isInteger(child.pid) && child.pid > 0,
     pid: Number.isInteger(child.pid) && child.pid > 0 ? child.pid : null,
     nodeObservedAt: startedAt,
     nativeCustody: emptyNativeCustody(),
   };
-  const record = { label, ownership, spawnError: null, close: null };
+  const record = { label, ownership, raw: { stdoutPath, stderrPath }, spawnError: null, close: null };
   const nativeCustody = new Promise((resolve) => {
     let settled = false;
     const finish = (value) => {
@@ -148,7 +153,17 @@ function startProcess(label, command, args, env) {
     // Spawn errors do not establish terminal process state.  Keep their typed
     // classification, then wait for the actual ChildProcess close event.
     child.once("error", (error) => { record.spawnError = typedSpawnError(error); });
-    child.once("close", (code, signal) => resolve({ code, signal, closedAt: new Date().toISOString() }));
+    child.once("close", (code, signal) => {
+      let pending = 2;
+      const complete = () => {
+        pending -= 1;
+        if (pending === 0) resolve({ code, signal, closedAt: new Date().toISOString() });
+      };
+      stdout.once("close", complete);
+      stderr.once("close", complete);
+      stdout.end();
+      stderr.end();
+    });
   });
   return { record, closed, nativeCustody };
 }
@@ -202,7 +217,7 @@ if (testFiles.length === 0) throw new Error("No test files were found.");
 
 try {
   const buildCommand = commandForNpm(["run", "build"]);
-  const build = startProcess("build", buildCommand.command, buildCommand.args, childEnv);
+  const build = startProcess("build", buildCommand.command, buildCommand.args, childEnv, receiptDirectory);
   receipt.processes.push(build.record);
   await persistReceipt();
   build.record.close = await build.closed;
@@ -212,7 +227,7 @@ try {
   if (build.record.close.code !== 0 || build.record.close.signal) throw new Error("Build did not close successfully.");
   receipt.nativeAssets = await nativeAssetHashes();
   await persistReceipt();
-  const test = startProcess("test", process.execPath, ["--test", "--test-concurrency=1", ...testFiles], childEnv);
+  const test = startProcess("test", process.execPath, ["--test", "--test-concurrency=1", ...testFiles], childEnv, receiptDirectory);
   receipt.processes.push(test.record);
   await persistReceipt();
   test.record.close = await test.closed;

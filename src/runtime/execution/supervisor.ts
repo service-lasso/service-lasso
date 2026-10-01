@@ -169,6 +169,7 @@ interface ManagedProcessRecord {
   processGroup: ProcessOwnershipEntry["processGroup"];
   knownTreeMembers: ProcessFingerprint[];
   verifiedMembersOnly?: boolean;
+  excludedTreeMemberPids: Set<number>;
   treeMonitorPromise: Promise<void>;
   treeMonitorAbortController: AbortController;
   treeTerminationPromise: Promise<ProcessTreeTerminationResult> | null;
@@ -190,6 +191,7 @@ interface AdoptedProcessRecord {
   processGroup: ProcessOwnershipEntry["processGroup"];
   knownTreeMembers: ProcessFingerprint[];
   verifiedMembersOnly?: boolean;
+  excludedTreeMemberPids: Set<number>;
   monitorAbortController: AbortController;
 }
 
@@ -432,6 +434,15 @@ function safeFinalizationErrorCode(error: unknown, fallback: string): string {
   }
   if (error instanceof Error && error.message.startsWith("Timed out waiting for workspace lifecycle lock:")) {
     return "WORKSPACE_LOCK_TIMEOUT";
+  }
+  // Tree control deliberately keeps process identity details out of public
+  // finalization errors. Retain the causal class when that fail-closed path
+  // is responsible, without carrying a PID, command, path, or inspector text.
+  if (error instanceof Error && error.message.startsWith("Cannot verify process ")) {
+    return "PROCESS_IDENTITY_UNVERIFIABLE";
+  }
+  if (error instanceof Error && error.message.startsWith("Cannot control lifetime-filtered process tree ")) {
+    return "FILTERED_TREE_ROOT_UNVERIFIABLE";
   }
   return fallback;
 }
@@ -1565,7 +1576,10 @@ async function terminateManagedProcessTree(
               deadlineMs,
               signal,
               record.verifiedMembersOnly,
-              { inspectTree: managedWindowsTreeInspector },
+              {
+                inspectTree: managedWindowsTreeInspector,
+                excludedMemberPids: record.excludedTreeMemberPids,
+              },
             );
             record.verifiedMembersOnly ||= snapshot.verifiedMembersOnly;
             record.knownTreeMembers = snapshot.members;
@@ -1641,7 +1655,10 @@ async function refreshAdoptedProcessTreeMembers(
       throw new Error(`Cannot refresh exited adopted process "${record.service.manifest.id}".`);
     }
     record.verifiedMembersOnly ||= inspection.verifiedMembersOnly;
-    record.knownTreeMembers = inspection.members;
+    for (const pid of inspection.excludedMemberPids ?? []) {
+      record.excludedTreeMemberPids.add(pid);
+    }
+    record.knownTreeMembers = inspection.members.filter((member) => !record.excludedTreeMemberPids.has(member.pid));
     return;
   }
   const members = await captureOwnedProcessTreeMembers({
@@ -1681,8 +1698,11 @@ async function monitorManagedProcessTree(record: ManagedProcessRecord): Promise<
         signal: record.treeMonitorAbortController.signal,
       });
       record.verifiedMembersOnly ||= inspection.verifiedMembersOnly;
+      for (const pid of inspection.excludedMemberPids ?? []) {
+        record.excludedTreeMemberPids.add(pid);
+      }
       if (inspection.members.length > 0) {
-        record.knownTreeMembers = inspection.members;
+        record.knownTreeMembers = inspection.members.filter((member) => !record.excludedTreeMemberPids.has(member.pid));
       }
     } catch {
       // Process inspection can fail transiently; retain the last verified snapshot.
@@ -1712,7 +1732,10 @@ async function finalizeAdoptedProcessExit(record: AdoptedProcessRecord): Promise
           deadlineMs,
           signal,
           record.verifiedMembersOnly,
-          { inspectTree: managedWindowsTreeInspector },
+          {
+            inspectTree: managedWindowsTreeInspector,
+            excludedMemberPids: record.excludedTreeMemberPids,
+          },
         );
         record.verifiedMembersOnly ||= snapshot.verifiedMembersOnly;
         record.knownTreeMembers = snapshot.members;
@@ -1898,6 +1921,7 @@ export async function adoptManagedProcess(options: AdoptManagedProcessOptions): 
     rootIdentity: ownership.identity,
     processGroup: ownership.processGroup,
     knownTreeMembers: [],
+    excludedTreeMemberPids: new Set<number>(),
     monitorAbortController: new AbortController(),
   };
   await refreshAdoptedProcessTreeMembers(record);
@@ -2085,6 +2109,7 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
     rootIdentity,
     processGroup,
     knownTreeMembers: [],
+    excludedTreeMemberPids: new Set<number>(),
     treeMonitorPromise: Promise.resolve(),
     treeMonitorAbortController: new AbortController(),
     treeTerminationPromise: null,
@@ -2201,7 +2226,10 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
           deadlineMs: Date.now() + WINDOWS_TREE_MONITOR_INSPECTION_TIMEOUT_MS,
         });
         record.verifiedMembersOnly ||= initialTree.verifiedMembersOnly;
-        record.knownTreeMembers = initialTree.members;
+        for (const pid of initialTree.excludedMemberPids ?? []) {
+          record.excludedTreeMemberPids.add(pid);
+        }
+        record.knownTreeMembers = initialTree.members.filter((member) => !record.excludedTreeMemberPids.has(member.pid));
         if (initialTree.rootStatus !== "owned" || probeManagedChildHandle(child) !== "owned") {
           throw new Error(`Cannot start managed process "${serviceId}": root exited during ownership enrollment.`);
         }
@@ -2251,9 +2279,11 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
           deadlineMs: Date.now() + WINDOWS_TREE_MONITOR_INSPECTION_TIMEOUT_MS,
         });
         record.verifiedMembersOnly ||= stabilizedTree.verifiedMembersOnly;
-        const excluded = new Set(stabilizedTree.excludedMemberPids ?? []);
+        for (const pid of stabilizedTree.excludedMemberPids ?? []) {
+          record.excludedTreeMemberPids.add(pid);
+        }
         record.knownTreeMembers = mergeProcessFingerprints(initialTree.members, stabilizedTree.members)
-          .filter(member => !excluded.has(member.pid));
+          .filter(member => !record.excludedTreeMemberPids.has(member.pid));
         if (stabilizedTree.rootStatus !== "owned" || probeManagedChildHandle(child) !== "owned") {
           throw new Error(`Cannot start managed process "${serviceId}": root exited during ownership enrollment.`);
         }
@@ -2495,7 +2525,10 @@ async function stopAdoptedProcess(
         deadlineMs,
         signal,
         record.verifiedMembersOnly,
-        { inspectTree: managedWindowsTreeInspector },
+        {
+          inspectTree: managedWindowsTreeInspector,
+          excludedMemberPids: record.excludedTreeMemberPids,
+        },
       );
       record.verifiedMembersOnly ||= snapshot.verifiedMembersOnly;
       record.knownTreeMembers = snapshot.members;
