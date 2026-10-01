@@ -1,6 +1,15 @@
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "..\scripts\windows-compiler-process-budget.ps1")
 
+# This explicitly exercises the Windows PowerShell 5-compatible monotonic
+# default instead of relying only on injected synthetic clocks below.
+$monotonicStart = Get-CompilerMonotonicMilliseconds
+Start-Sleep -Milliseconds 1
+$monotonicEnd = Get-CompilerMonotonicMilliseconds
+if ($monotonicEnd -lt $monotonicStart) {
+  throw "Compiler monotonic clock moved backwards."
+}
+
 function Assert-Equal($Actual, $Expected, [string]$Label) {
   if ($Actual -ne $Expected) {
     throw "$Label was '$Actual' instead of '$Expected'."

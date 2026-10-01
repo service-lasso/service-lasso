@@ -340,7 +340,7 @@ try {
   $compiledPath = Join-Path $temporaryRoot (Split-Path -Leaf $binaryRelativePath)
   # Start before assembling the owned compiler command so configuration,
   # launch, wait, termination and stream settlement share one absolute bound.
-  [int64]$compilerPhaseStartedAtMilliseconds = if ($HeldExitFixture) { [Environment]::TickCount64 } else { 0 }
+  [int64]$compilerPhaseStartedAtMilliseconds = if ($HeldExitFixture) { Get-CompilerMonotonicMilliseconds } else { 0 }
   $compilerArguments = @($compilerOptions) + @(
     "/out:$compiledPath",
     $sourcePath

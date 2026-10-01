@@ -1,3 +1,12 @@
+function Get-CompilerMonotonicMilliseconds() {
+  Set-StrictMode -Version Latest
+  # Windows PowerShell 5 runs on .NET Framework, whose Environment does not
+  # expose TickCount64. Stopwatch is monotonic on both supported shells and
+  # keeps the compiler's original absolute budget independent of wall-clock
+  # changes.
+  return [int64](([Diagnostics.Stopwatch]::GetTimestamp() * 1000) / [Diagnostics.Stopwatch]::Frequency)
+}
+
 function Get-CompilerBudgetRemainingMilliseconds(
   [int64]$StartedAtMilliseconds,
   [int]$BudgetMilliseconds,
@@ -11,7 +20,7 @@ function Get-CompilerBudgetRemainingMilliseconds(
 function Invoke-BoundedOwnedCompilerProcess(
   $Process,
   [int]$BudgetMilliseconds = 15000,
-  [scriptblock]$NowMilliseconds = { [Environment]::TickCount64 },
+  [scriptblock]$NowMilliseconds = { Get-CompilerMonotonicMilliseconds },
   [scriptblock]$WaitForDrains = {
     param([Threading.Tasks.Task[]]$Tasks, [int]$TimeoutMilliseconds)
     return [Threading.Tasks.Task]::WaitAll($Tasks, $TimeoutMilliseconds)
