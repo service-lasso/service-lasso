@@ -6,6 +6,8 @@ This protocol does **not** admit a locally authored template project. Such a pro
 
 ## Constants, transport, and grammars
 
+The parser's Windows-alias rule is a closed portability grammar rather than a query of the receiving host. After NFC and version-pinned Unicode Default Full Case Folding, it evaluates every component in a canonical parent together. For a long component, the alias stem removes all periods before the final period; the final extension remains the text after that final period. Its first generated alias uses the first six Unicode code points of that stem, `~1`, and the first three code points of the extension. A literal short-form sibling equal to that first alias is unsafe, and remaining generated aliases are allocated deterministically over the full sibling set. Therefore `pkg/foo.bar.long` and `pkg/foobar~1.lon` are unsafe in either archive order, while `pkg/foo.bar.long` with `pkg/foo.ba~1.lon`, or the former pair in distinct canonical parents, is valid. This retains portable Unicode components and does not assume ASCII-only input, reject literal tildes wholesale, or claim that a particular host has generated an on-disk alias.
+
 JSON bodies reject unknown fields. A public error is exactly `{ "code": "<stable-code>", "message": "<safe text>" }`. Errors, status, operations, Audit, logs, and CLI diagnostics omit paths, URLs, headers, raw bytes/manifests, parser detail, credentials, tokens, and secrets. Tokens are accepted only in their dedicated request headers. The sole body exception is an issuance response: it carries the just-issued opaque credential once and is never returned by GET, replay, error, Audit, operation, or any later response.
 
 | Limit | Value |
@@ -126,14 +128,22 @@ It must be 1–4,096 UTF-8 bytes, already Unicode NFC (a normalization change is
 denied), and have at most 16 `/`-separated components. Each component is
 non-empty and not `.` or `..`; the whole name has no NUL, leading slash,
 backslash, colon, drive or UNC form. The admission key is NFC followed by
-Unicode default case folding; a duplicate key is denied, so paths that differ
+version-pinned Unicode Default Full Case Folding from the official UCD (`C`
+and `F` mappings only; never locale or Turkic mappings); a duplicate key is denied, so paths that differ
 only by case or canonical Unicode spelling cannot collide on Windows or a
 case-insensitive macOS volume. Components ending in a dot or space, DOS device
 names (`CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`) even with an
 extension, and an explicit DOS 8.3 alias of another component after Win32
 trim/case rules are denied. The collision check is over the complete logical
 entry set, is performed before any extraction, and must use the documented
-Win32 alias grammar rather than the host filesystem's current 8.3 setting.
+Win32 alias grammar rather than the host filesystem's current 8.3 setting. The
+logical key excludes a directory's terminal presentation `/`: a file and
+directory with the same key and a file that is an ancestor of any entry are
+ambiguous and denied in either archive order; a directory and its distinct
+descendant are valid. DOS aliases are scoped to their canonical parent, so
+equal component aliases under different parents remain legal. Each component
+also rejects U+0001–U+001F and `<`, `>`, `"`, `|`, `?`, and `*` before alias
+derivation.
 Directories end in `/` and have zero payload; regular files do not end in `/`.
 Mode is parsed only to reject setuid, setgid, sticky, and file-type bits other
 than regular/directory; ownership, timestamps, and permissions are never
@@ -184,11 +194,13 @@ revision, archive SHA-256, and server-resolved release/asset IDs; (T3) real
   lifecycle effect; and
 (T5) packaged Core and the released external CLI/TUI journey transfer the
 checksum-bound Windows ZIP, Linux TAR, and macOS TAR assets on Windows, Linux,
-and macOS. Current evidence supplies none of the required fresh producer
-receipts, parser tests, or three-OS journey. This specification therefore does
-not claim TAR qualification or admission.
+and macOS. Parser-unit tests and fixture-parser receipts are narrower evidence:
+they do not provide independent review, released-asset producer receipts, or
+the checksum-bound three-OS journey. This specification therefore does not
+claim TAR qualification or admission until every T1--T5 gate is complete for
+one exact enabling commit.
 
-**ZIP.** Require first local header, one terminal EOCD, and a central directory fully inside the archive. Reject prefix/SFX bytes, multi-disk, trailing bytes, ZIP64 locator/EOCD/extra fields, encrypted or strong-encrypted flags (0/6), patched-data flag 5, central-directory encryption flag 13, and every general-purpose flag except bit 3 and UTF-8 bit 11. Permit only stored (0) and deflate (8), rejecting AES/other methods. Every central record has one local record at its declared offset; filename bytes, method, allowed flags, CRC-32, compressed size, and uncompressed size agree. Bit 3 allows zero local CRC/sizes only where its immediate signed descriptor supplies the same 32-bit values; no ZIP64 descriptor. Reject overlap between local records/descriptors, central directory, EOCD, or declared member ranges; reject nonzero extra fields. Filename is strict UTF-8 with bit 11, or ASCII-only without bit 11; CP437, Unicode-path extras, and non-ASCII unflagged names fail. Count all members; add regular-file uncompressed size; stream regular files under an output cap and verify CRC-32. Directories end `/` and have zero payload; regular files do not end `/`. Reject symlink/device mode bits and unrecognized external attributes.
+**ZIP.** Require first local header, one terminal EOCD, and a central directory fully inside the archive. Reject prefix/SFX bytes, multi-disk, trailing bytes, ZIP64 locator/EOCD/extra fields, encrypted or strong-encrypted flags (0/6), patched-data flag 5, central-directory encryption flag 13, and every general-purpose flag except bit 3 and UTF-8 bit 11. Permit only stored (0) and deflate (8), rejecting AES/other methods. Every central record has one local record at its declared offset; filename bytes, method, allowed flags, CRC-32, compressed size, and uncompressed size agree. Bit 3 allows zero local CRC/sizes only where its immediate signed descriptor supplies the same 32-bit values; no ZIP64 descriptor. The sorted declared local records, including immediate descriptors, must form one contiguous inventory from byte offset zero to the central-directory offset: every prefix, inter-record gap, suffix, or unreferenced local member fails closed. Reject overlap between local records/descriptors, central directory, EOCD, or declared member ranges; reject nonzero extra fields. Filename is strict UTF-8 with bit 11, or ASCII-only without bit 11; CP437, Unicode-path extras, and non-ASCII unflagged names fail. Count all members; add regular-file uncompressed size; stream regular files under an output cap and verify CRC-32. Directories end `/` and have zero payload; regular files do not end `/`. Reject symlink/device mode bits and unrecognized external attributes.
 
 For the admitted ZIP profile split only `/` and apply the same strict UTF-8,
 NFC, Unicode-default-case-folded, Windows-trim/device/DOS-8.3-alias collision
@@ -231,7 +243,7 @@ platform-asset selection and server-derived byte-size/digest equality before
 parser admission; quota-ceiling rejection plus durable actor/workspace counters,
 terminal retention, and crash-recovery reconciliation evidence; actor/header
 precedence and actor-scoped no-leak not-found evidence; every admitted ZIP-parser denial,
-including Unicode/case/Windows alias collisions, without extraction;
+including Unicode/case/Windows alias collisions, bounded chunked inflate with incremental CRC/framing validation and no retained decompressed member/TAR payload, without extraction;
 grammar/range/retry conflicts, including PAX size less-than and greater-than
 header-size denials in parser and importer preflight; retention/GET-after-cleanup;
 confirmation-before-new-only replay order; adapter atomic order, one exact
@@ -243,3 +255,4 @@ and BSD/macOS producer receipts and real fixtures, byte-level accepted and
 denial/parser-no-effect evidence, and the checksum-bound Windows/Linux/macOS
 released CLI/TUI/Core journey on all three operating systems. It must prove no
 install, start, restart, reload, or lifecycle effect.
+

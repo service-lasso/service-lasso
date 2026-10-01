@@ -12,6 +12,8 @@ This file tracks bootstrap/adoption/remediation work required before product imp
 - Resolution used for this update run: normalize those artifacts into the current bootstrap-update output rather than discard or ignore them.
 
 ## Open Items
+- `ISS-1463-implementation`: retain remote-develop implementation traceability, local direct proof, independent whole review, and separate owner-catalog/TAR T1-T5 blockers.
+
 - #1463 defines a release-asset-only staged transfer prerequisite in
   `docs/api/staged-service-transfer.md`. It uses a new reviewed
    staged-registration adapter over #1462 / PR #1464 (`a83133cc`), rather than
