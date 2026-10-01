@@ -2272,6 +2272,7 @@ test("AC-4BJ.9b Windows managed launcher projects only authenticated closed payl
     argumentBindings: [],
     targetEnvironmentOverrides: [],
     postResumeDelayMilliseconds: 0,
+    jobObservation: null,
   };
   const canonicalPayload = JSON.stringify(basePayload);
   const duplicatePayload = canonicalPayload.replace(
