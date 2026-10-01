@@ -1,23 +1,24 @@
-import { spawn } from "node:child_process";
-import { createHash } from "node:crypto";
+import { execFile, spawn } from "node:child_process";
+import { createHash, randomBytes } from "node:crypto";
 import {
   copyFile,
   lstat,
   mkdir,
-  mkdtemp,
+  readFile,
   rename,
   writeFile,
 } from "node:fs/promises";
 import http from "node:http";
 import https from "node:https";
-import os from "node:os";
 import path from "node:path";
-const sourceBrokerBinary = path.resolve(
-  process.env.SERVICE_LASSO_TEST_BROKER_BINARY ?? "",
-);
-const adminRoot = path.resolve(process.env.SERVICE_LASSO_TEST_ADMIN_ROOT ?? "");
-if (!sourceBrokerBinary || !adminRoot)
+import { promisify } from "node:util";
+const execFileAsync = promisify(execFile);
+const sourceBrokerBinaryInput = process.env.SERVICE_LASSO_TEST_BROKER_BINARY;
+const adminRootInput = process.env.SERVICE_LASSO_TEST_ADMIN_ROOT;
+if (!sourceBrokerBinaryInput || !adminRootInput)
   throw new Error("Broker binary and Admin root are required.");
+const sourceBrokerBinary = path.resolve(sourceBrokerBinaryInput);
+const adminRoot = path.resolve(adminRootInput);
 
 function requireCallerRuntimePath(name) {
   const value = process.env[name];
@@ -29,6 +30,72 @@ function requireCallerRuntimePath(name) {
     throw new Error(`${name} must name a caller-created runtime path.`);
   }
   return path.resolve(value);
+}
+
+function requireHexIdentity(name, length) {
+  const value = process.env[name];
+  if (
+    typeof value !== "string" ||
+    !new RegExp(`^[a-f0-9]{${length}}$`, "i").test(value)
+  )
+    throw new Error(
+      `${name} must be an exact caller-supplied source identity.`,
+    );
+  return value.toLowerCase();
+}
+
+async function sha256File(filePath) {
+  return `sha256:${createHash("sha256")
+    .update(await readFile(filePath))
+    .digest("hex")}`;
+}
+
+async function observeOwnedProcess(pid, expectedParentPid) {
+  let observed;
+  if (process.platform === "win32") {
+    const command = `Get-CimInstance Win32_Process -Filter \"ProcessId = ${pid}\" | Select-Object ProcessId,ParentProcessId,CreationDate,ExecutablePath | ConvertTo-Json -Compress`;
+    const { stdout } = await execFileAsync(
+      "powershell.exe",
+      ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command],
+      { windowsHide: true },
+    );
+    observed = JSON.parse(stdout);
+    observed = {
+      pid: observed.ProcessId,
+      parentPid: observed.ParentProcessId,
+      birth: observed.CreationDate,
+      executable: observed.ExecutablePath,
+    };
+  } else {
+    const { stdout } = await execFileAsync("ps", [
+      "-o",
+      "ppid=",
+      "-o",
+      "lstart=",
+      "-p",
+      String(pid),
+    ]);
+    const match = stdout.trim().match(/^(\d+)\s+(.+)$/u);
+    if (!match)
+      throw new Error("OS process observation returned no owned process.");
+    observed = {
+      pid,
+      parentPid: Number(match[1]),
+      birth: match[2],
+      executable: null,
+    };
+  }
+  if (
+    !Number.isInteger(observed.pid) ||
+    observed.pid !== pid ||
+    observed.parentPid !== expectedParentPid ||
+    typeof observed.birth !== "string" ||
+    observed.birth.length === 0
+  )
+    throw new Error(
+      "OS process observation did not prove the expected owned parent edge.",
+    );
+  return observed;
 }
 
 function rootsOverlap(left, right) {
@@ -52,7 +119,10 @@ const servicesRoot = requireCallerRuntimePath(
 const evidenceRoot = requireCallerRuntimePath(
   "SERVICE_LASSO_TEST_EVIDENCE_ROOT",
 );
-for (const root of [workspaceRoot, servicesRoot, evidenceRoot]) {
+const supportRoot = requireCallerRuntimePath("SERVICE_LASSO_TEST_SUPPORT_ROOT");
+const sourceHead = requireHexIdentity("SERVICE_LASSO_TEST_SOURCE_HEAD", 40);
+const sourceTree = requireHexIdentity("SERVICE_LASSO_TEST_SOURCE_TREE", 40);
+for (const root of [workspaceRoot, servicesRoot, evidenceRoot, supportRoot]) {
   const metadata = await lstat(root).catch(() => null);
   if (!metadata?.isDirectory() || metadata.isSymbolicLink()) {
     throw new Error(
@@ -76,6 +146,9 @@ for (const [left, right] of [
   [workspaceRoot, servicesRoot],
   [workspaceRoot, evidenceRoot],
   [servicesRoot, evidenceRoot],
+  [workspaceRoot, supportRoot],
+  [servicesRoot, supportRoot],
+  [evidenceRoot, supportRoot],
 ]) {
   if (rootsOverlap(left, right) || rootsOverlap(right, left)) {
     throw new Error(
@@ -83,6 +156,39 @@ for (const [left, right] of [
     );
   }
 }
+
+const runnerIdentity = await observeOwnedProcess(process.pid, process.ppid);
+const initialReceiptPath = path.join(evidenceRoot, "live-initial-receipt.json");
+const closureReceiptPath = path.join(evidenceRoot, "live-closure-receipt.json");
+const providerReceiptPath = path.join(
+  evidenceRoot,
+  "live-provider-control-receipt.json",
+);
+const receiptNonce = randomBytes(32).toString("hex");
+const initialReceipt = {
+  schema: "service-lasso.real-admin-browser-live-initial.v1",
+  private: true,
+  nonce: receiptNonce,
+  source: { head: sourceHead, tree: sourceTree },
+  inputs: {
+    workspaceRoot,
+    instanceRegistryPath,
+    hostPortRegistryPath,
+    servicesRoot,
+    evidenceRoot,
+    supportRoot,
+  },
+  runtimeAssets: {
+    brokerBinary: { sha256: await sha256File(sourceBrokerBinary) },
+    adminServer: {
+      sha256: await sha256File(path.join(adminRoot, "runtime", "server.js")),
+    },
+  },
+  ownedProcesses: { runner: runnerIdentity },
+};
+await writeFile(initialReceiptPath, JSON.stringify(initialReceipt), {
+  mode: 0o600,
+});
 
 // Validate explicit caller custody before importing Core runtime or fixture
 // helpers. This runner has no temp-root fallback for the three live Core
@@ -126,9 +232,7 @@ const {
 } = await import("./real-admin-browser-rollback.mjs");
 const { writeManifest } = await import("../test-helpers.js");
 
-const tempRoot = await mkdtemp(
-  path.join(os.tmpdir(), "service-lasso-real-admin-browser-support-"),
-);
+const tempRoot = supportRoot;
 const sampleRoot = path.join(servicesRoot, "sample-service");
 const sampleStartFailureMarker = path.join(
   workspaceRoot,
@@ -160,6 +264,24 @@ let shutdownPromise = null;
 let startupPhase = "initializing";
 const brokerIPCClient = new http.Agent({ keepAlive: true, maxSockets: 1 });
 let providerFaultState = "not_armed";
+let providerControlReceipt = null;
+
+async function persistProviderControlReceipt(phase) {
+  if (providerControlReceipt) return providerControlReceipt;
+  providerControlReceipt = {
+    schema: "service-lasso.real-admin-browser-provider-control.v1",
+    private: true,
+    nonce: receiptNonce,
+    source: { head: sourceHead, tree: sourceTree },
+    phase,
+    causalSink: "authenticated_vault_provider_request",
+    state: "observed_before_controlled_fault",
+  };
+  await writeFile(providerReceiptPath, JSON.stringify(providerControlReceipt), {
+    mode: 0o600,
+  });
+  return providerControlReceipt;
+}
 
 function safeFailureCode(error) {
   if (
@@ -217,7 +339,7 @@ function shutdown(exitCode = 0) {
   shutdownPromise = (async () => {
     let resolvedExitCode = exitCode;
     try {
-      await teardownRealAdminBrowserFixture({
+      const teardown = await teardownRealAdminBrowserFixture({
         adminProcess,
         apiServer,
         stopManagedProcesses: stopAllManagedProcesses,
@@ -227,9 +349,37 @@ function shutdown(exitCode = 0) {
         resetLifecycle: resetLifecycleState,
         tempRoot,
       });
+      await writeFile(
+        closureReceiptPath,
+        JSON.stringify({
+          schema: "service-lasso.real-admin-browser-live-closure.v1",
+          private: true,
+          nonce: receiptNonce,
+          source: { head: sourceHead, tree: sourceTree },
+          outcome: "closed",
+          teardown,
+          providerFault:
+            providerFaultState === "observed" ? "consumed" : "unresolved",
+        }),
+        { mode: 0o600 },
+      );
     } catch (error) {
       resolvedExitCode = 1;
       const failure = createSafeRealAdminBrowserTeardownFailure(error);
+      await writeFile(
+        closureReceiptPath,
+        JSON.stringify({
+          schema: "service-lasso.real-admin-browser-live-closure.v1",
+          private: true,
+          nonce: receiptNonce,
+          source: { head: sourceHead, tree: sourceTree },
+          outcome: "unresolved",
+          failure,
+          providerFault:
+            providerFaultState === "observed" ? "consumed" : "unresolved",
+        }),
+        { mode: 0o600 },
+      );
       await new Promise((resolve) => {
         process.stderr.write(`${JSON.stringify(failure)}\n`, resolve);
       });
@@ -304,6 +454,11 @@ try {
         response.end(JSON.stringify({ outcome: "provider_fault_unavailable" }));
         return;
       }
+      if (!providerControlReceipt) {
+        response.writeHead(409, { "Content-Type": "application/json" });
+        response.end(JSON.stringify({ outcome: "provider_fault_unobserved" }));
+        return;
+      }
       providerFaultState = "armed";
       response.writeHead(200, { "Content-Type": "application/json" });
       response.end(JSON.stringify({ outcome: "provider_fault_armed" }));
@@ -326,6 +481,14 @@ try {
             providerFaultState === "observed"
               ? "provider_fault_observed"
               : "provider_fault_unobserved",
+          receipt:
+            providerFaultState === "observed"
+              ? {
+                  schema: providerControlReceipt?.schema,
+                  phase: providerControlReceipt?.phase,
+                  nonce: providerControlReceipt?.nonce,
+                }
+              : null,
         }),
       );
       return;
@@ -439,9 +602,19 @@ try {
       response.end(JSON.stringify({ errors: ["access denied"] }));
       return;
     }
+    await persistProviderControlReceipt("authenticated_provider_request");
     if (providerFaultState === "armed") {
       providerFaultState = "observed";
       response.writeHead(503, { "Content-Type": "application/json" });
+      await writeFile(
+        providerReceiptPath,
+        JSON.stringify({
+          ...providerControlReceipt,
+          state: "controlled_fault_consumed",
+          causalSink: "next_authenticated_vault_provider_request",
+        }),
+        { mode: 0o600 },
+      );
       response.end(
         JSON.stringify({ errors: ["provider fixture unavailable"] }),
       );
@@ -851,15 +1024,40 @@ try {
     );
   }
   startupPhase = "ready";
+  const adminIdentity = await observeOwnedProcess(
+    adminProcess.pid,
+    process.pid,
+  );
+  const liveReceipt = {
+    ...initialReceipt,
+    ownedProcesses: { runner: runnerIdentity, admin: adminIdentity },
+    ownerCorrelation: {
+      state: "observed",
+      runnerPid: runnerIdentity.pid,
+      adminPid: adminIdentity.pid,
+      adminParentPid: adminIdentity.parentPid,
+    },
+  };
+  await writeFile(initialReceiptPath, JSON.stringify(liveReceipt), {
+    mode: 0o600,
+  });
+  const liveReceiptSHA256 = await sha256File(initialReceiptPath);
   process.stdout.write(
     `${JSON.stringify({
-      contractVersion: "service-lasso.real-admin-browser.v1",
+      contractVersion: "service-lasso.real-admin-browser.v2",
       platform: process.platform,
       adminUrl: `http://127.0.0.1:${adminPort}`,
       apiUrl: apiServer.url,
       controlUrl: `http://127.0.0.1:${controlPort}/__service_lasso_test`,
       ref: "services/sample-service/sample.GENERATED_TOKEN",
       tempRoot,
+      liveReceipt: {
+        schema: liveReceipt.schema,
+        nonce: receiptNonce,
+        initialPath: initialReceiptPath,
+        initialSHA256: liveReceiptSHA256,
+        closurePath: closureReceiptPath,
+      },
     })}\n`,
   );
   setInterval(() => {}, 1_000);

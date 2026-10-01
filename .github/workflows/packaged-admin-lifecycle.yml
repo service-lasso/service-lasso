@@ -129,6 +129,7 @@ jobs:
           export SERVICE_LASSO_HOST_PORT_REGISTRY_PATH="$qualification_root/host-port-registry.json"
           export SERVICE_LASSO_TEST_SERVICES_ROOT="$qualification_root/runtime-services"
           export SERVICE_LASSO_TEST_EVIDENCE_ROOT="$qualification_root/runtime-evidence"
+          export SERVICE_LASSO_TEST_SUPPORT_ROOT="$qualification_root/runtime-support"
           export QUALIFICATION_WORKSPACE_ROOT="$SERVICE_LASSO_WORKSPACE_ROOT"
           export QUALIFICATION_EVIDENCE_ROOT="$qualification_root/evidence"
           export QUALIFICATION_INITIAL_RECEIPT_PATH="$QUALIFICATION_EVIDENCE_ROOT/initial-receipt.json"
@@ -139,10 +140,11 @@ jobs:
             "SERVICE_LASSO_HOST_PORT_REGISTRY_PATH=$SERVICE_LASSO_HOST_PORT_REGISTRY_PATH" \
             "SERVICE_LASSO_TEST_SERVICES_ROOT=$SERVICE_LASSO_TEST_SERVICES_ROOT" \
             "SERVICE_LASSO_TEST_EVIDENCE_ROOT=$SERVICE_LASSO_TEST_EVIDENCE_ROOT" \
+            "SERVICE_LASSO_TEST_SUPPORT_ROOT=$SERVICE_LASSO_TEST_SUPPORT_ROOT" \
             "QUALIFICATION_EVIDENCE_ROOT=$QUALIFICATION_EVIDENCE_ROOT" \
             "QUALIFICATION_INITIAL_RECEIPT_PATH=$QUALIFICATION_INITIAL_RECEIPT_PATH" \
             >> "$GITHUB_ENV"
-          mkdir -p "$QUALIFICATION_WORKSPACE_ROOT" "$QUALIFICATION_EVIDENCE_ROOT" "$SERVICE_LASSO_TEST_SERVICES_ROOT" "$SERVICE_LASSO_TEST_EVIDENCE_ROOT"
+          mkdir -p "$QUALIFICATION_WORKSPACE_ROOT" "$QUALIFICATION_EVIDENCE_ROOT" "$SERVICE_LASSO_TEST_SERVICES_ROOT" "$SERVICE_LASSO_TEST_EVIDENCE_ROOT" "$SERVICE_LASSO_TEST_SUPPORT_ROOT"
           test ! -e "$SERVICE_LASSO_INSTANCE_REGISTRY_PATH"
           test ! -e "$SERVICE_LASSO_HOST_PORT_REGISTRY_PATH"
           printf '{"schema":"service-lasso.qualification-initial-receipt.v1","platform":"%s","run":{"id":"%s","attempt":"%s"}}\n' "$ADMIN_PLATFORM" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" > "$QUALIFICATION_INITIAL_RECEIPT_PATH"
@@ -290,11 +292,15 @@ jobs:
         run: |
           set -euo pipefail
           core_revision="$(git rev-parse HEAD)"
+          core_tree="$(git rev-parse HEAD^{tree})"
           test "$core_revision" = "$QUALIFICATION_CANDIDATE_SHA"
           admin_revision="$(git -C qualification/admin rev-parse HEAD)"
           test "$admin_revision" = "$ADMIN_HARNESS_REVISION"
           echo "core_revision=$core_revision" >> "$GITHUB_OUTPUT"
+          echo "core_tree=$core_tree" >> "$GITHUB_OUTPUT"
           echo "SERVICE_LASSO_TEST_CORE_REVISION=$core_revision" >> "$GITHUB_ENV"
+          echo "SERVICE_LASSO_TEST_SOURCE_HEAD=$core_revision" >> "$GITHUB_ENV"
+          echo "SERVICE_LASSO_TEST_SOURCE_TREE=$core_tree" >> "$GITHUB_ENV"
           echo "SERVICE_LASSO_TEST_BROKER_REVISION=$BROKER_REVISION" >> "$GITHUB_ENV"
 
       - name: Drive released Admin lifecycle browser contracts
@@ -309,6 +315,9 @@ jobs:
           SERVICE_LASSO_HOST_PORT_REGISTRY_PATH: ${{ env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH }}
           SERVICE_LASSO_TEST_SERVICES_ROOT: ${{ env.SERVICE_LASSO_TEST_SERVICES_ROOT }}
           SERVICE_LASSO_TEST_EVIDENCE_ROOT: ${{ env.SERVICE_LASSO_TEST_EVIDENCE_ROOT }}
+          SERVICE_LASSO_TEST_SUPPORT_ROOT: ${{ env.SERVICE_LASSO_TEST_SUPPORT_ROOT }}
+          SERVICE_LASSO_TEST_SOURCE_HEAD: ${{ env.SERVICE_LASSO_TEST_SOURCE_HEAD }}
+          SERVICE_LASSO_TEST_SOURCE_TREE: ${{ env.SERVICE_LASSO_TEST_SOURCE_TREE }}
         run: |
           set -euo pipefail
           pnpm test:secrets:real-first-run-browser

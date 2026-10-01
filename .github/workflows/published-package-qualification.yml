@@ -98,6 +98,7 @@ jobs:
           export SERVICE_LASSO_HOST_PORT_REGISTRY_PATH="$qualification_root/host-port-registry.json"
           export SERVICE_LASSO_TEST_SERVICES_ROOT="$qualification_root/runtime-services"
           export SERVICE_LASSO_TEST_EVIDENCE_ROOT="$qualification_root/runtime-evidence"
+          export SERVICE_LASSO_TEST_SUPPORT_ROOT="$qualification_root/runtime-support"
           export QUALIFICATION_WORKSPACE_ROOT="$SERVICE_LASSO_WORKSPACE_ROOT"
           export QUALIFICATION_EVIDENCE_ROOT="$qualification_root/evidence"
           export QUALIFICATION_SAFE_STATE_PATH="$QUALIFICATION_EVIDENCE_ROOT/qualification-state.json"
@@ -109,11 +110,12 @@ jobs:
             "SERVICE_LASSO_HOST_PORT_REGISTRY_PATH=$SERVICE_LASSO_HOST_PORT_REGISTRY_PATH" \
             "SERVICE_LASSO_TEST_SERVICES_ROOT=$SERVICE_LASSO_TEST_SERVICES_ROOT" \
             "SERVICE_LASSO_TEST_EVIDENCE_ROOT=$SERVICE_LASSO_TEST_EVIDENCE_ROOT" \
+            "SERVICE_LASSO_TEST_SUPPORT_ROOT=$SERVICE_LASSO_TEST_SUPPORT_ROOT" \
             "QUALIFICATION_EVIDENCE_ROOT=$QUALIFICATION_EVIDENCE_ROOT" \
             "QUALIFICATION_SAFE_STATE_PATH=$QUALIFICATION_SAFE_STATE_PATH" \
             "QUALIFICATION_INITIAL_RECEIPT_PATH=$QUALIFICATION_INITIAL_RECEIPT_PATH" \
             >> "$GITHUB_ENV"
-          mkdir -p "$QUALIFICATION_WORKSPACE_ROOT" "$QUALIFICATION_EVIDENCE_ROOT" "$SERVICE_LASSO_TEST_SERVICES_ROOT" "$SERVICE_LASSO_TEST_EVIDENCE_ROOT"
+          mkdir -p "$QUALIFICATION_WORKSPACE_ROOT" "$QUALIFICATION_EVIDENCE_ROOT" "$SERVICE_LASSO_TEST_SERVICES_ROOT" "$SERVICE_LASSO_TEST_EVIDENCE_ROOT" "$SERVICE_LASSO_TEST_SUPPORT_ROOT"
           test ! -e "$SERVICE_LASSO_INSTANCE_REGISTRY_PATH"
           test ! -e "$SERVICE_LASSO_HOST_PORT_REGISTRY_PATH"
           printf '{"schema":"service-lasso.qualification-initial-receipt.v1","platform":"%s","run":{"id":"%s","attempt":"%s"}}\n' "$QUALIFICATION_PLATFORM" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" > "$QUALIFICATION_INITIAL_RECEIPT_PATH"
@@ -161,6 +163,16 @@ jobs:
           test "$(git -C qualification/admin rev-parse HEAD)" = "$ADMIN_HARNESS_REVISION"
           node scripts/prepare-published-package-qualification.mjs
 
+      - name: Bind exact qualification fixture source
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_head="$(git rev-parse HEAD)"
+          source_tree="$(git rev-parse HEAD^{tree})"
+          printf '%s\n' \
+            "SERVICE_LASSO_TEST_SOURCE_HEAD=$source_head" \
+            "SERVICE_LASSO_TEST_SOURCE_TREE=$source_tree" >> "$GITHUB_ENV"
+
       - name: Drive released Admin full browser contracts
         id: qualify
         working-directory: qualification/admin
@@ -172,6 +184,9 @@ jobs:
           SERVICE_LASSO_HOST_PORT_REGISTRY_PATH: ${{ env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH }}
           SERVICE_LASSO_TEST_SERVICES_ROOT: ${{ env.SERVICE_LASSO_TEST_SERVICES_ROOT }}
           SERVICE_LASSO_TEST_EVIDENCE_ROOT: ${{ env.SERVICE_LASSO_TEST_EVIDENCE_ROOT }}
+          SERVICE_LASSO_TEST_SUPPORT_ROOT: ${{ env.SERVICE_LASSO_TEST_SUPPORT_ROOT }}
+          SERVICE_LASSO_TEST_SOURCE_HEAD: ${{ env.SERVICE_LASSO_TEST_SOURCE_HEAD }}
+          SERVICE_LASSO_TEST_SOURCE_TREE: ${{ env.SERVICE_LASSO_TEST_SOURCE_TREE }}
         run: |
           set -euo pipefail
           test "$QUALIFICATION_PREPARED" = "1"

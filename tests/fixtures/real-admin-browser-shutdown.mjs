@@ -306,4 +306,16 @@ export async function teardownRealAdminBrowserFixture({
   }
 
   if (failures.length > 0) throw new RealAdminBrowserTeardownError(failures);
+  return {
+    admin: {
+      exited: adminStop.exited,
+      exitCode: adminProcess?.exitCode ?? null,
+      signalCode: adminProcess?.signalCode ?? null,
+    },
+    apiServerClosed,
+    managedProcessesConverged,
+    brokerIPCClosed,
+    vaultServerClosed,
+    vaultProviderServerClosed,
+  };
 }

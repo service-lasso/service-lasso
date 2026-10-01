@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import {
   access,
   mkdir,
@@ -25,6 +25,12 @@ const shutdownRunnerPath = path.resolve(
 const realBrowserRunnerPath = path.resolve(
   "tests/fixtures/real-admin-browser-runner.mjs",
 );
+const sourceHead = execFileSync("git", ["rev-parse", "HEAD"], {
+  encoding: "utf8",
+}).trim();
+const sourceTree = execFileSync("git", ["rev-parse", "HEAD^{tree}"], {
+  encoding: "utf8",
+}).trim();
 
 function captureBoundedText(stream, maxBytes = 65_536) {
   const chunks = [];
@@ -116,7 +122,7 @@ function waitForRealBrowserReady(child, timeoutMs = 30_000) {
       if (newline < 0) return;
       try {
         const ready = JSON.parse(stdout.slice(0, newline));
-        if (ready?.contractVersion !== "service-lasso.real-admin-browser.v1") {
+        if (ready?.contractVersion !== "service-lasso.real-admin-browser.v2") {
           finish(
             null,
             new Error(
@@ -176,6 +182,7 @@ test("real Admin browser runner reaches first-run readiness with its dynamically
   const workspaceRoot = path.join(fixtureRoot, "runtime-workspace");
   const servicesRoot = path.join(fixtureRoot, "runtime-services");
   const evidenceRoot = path.join(fixtureRoot, "runtime-evidence");
+  const supportRoot = path.join(fixtureRoot, "runtime-support");
   const instanceRegistryPath = path.join(
     fixtureRoot,
     "runtime-instance-registry.json",
@@ -186,7 +193,7 @@ test("real Admin browser runner reaches first-run readiness with its dynamically
   );
   await mkdir(adminRuntime, { recursive: true });
   await Promise.all(
-    [workspaceRoot, servicesRoot, evidenceRoot].map((directory) =>
+    [workspaceRoot, servicesRoot, evidenceRoot, supportRoot].map((directory) =>
       mkdir(directory, { recursive: true }),
     ),
   );
@@ -217,6 +224,9 @@ test("real Admin browser runner reaches first-run readiness with its dynamically
       SERVICE_LASSO_HOST_PORT_REGISTRY_PATH: hostPortRegistryPath,
       SERVICE_LASSO_TEST_SERVICES_ROOT: servicesRoot,
       SERVICE_LASSO_TEST_EVIDENCE_ROOT: evidenceRoot,
+      SERVICE_LASSO_TEST_SUPPORT_ROOT: supportRoot,
+      SERVICE_LASSO_TEST_SOURCE_HEAD: sourceHead,
+      SERVICE_LASSO_TEST_SOURCE_TREE: sourceTree,
     },
     stdio: ["ignore", "pipe", "pipe", "ipc"],
     windowsHide: true,
@@ -244,6 +254,15 @@ test("real Admin browser runner reaches first-run readiness with its dynamically
     );
     assert.equal((await fetch(`${ready.apiUrl}/api/health`)).status, 200);
     assert.equal((await fetch(ready.adminUrl)).status, 200);
+    const liveReceipt = JSON.parse(
+      await readFile(ready.liveReceipt.initialPath, "utf8"),
+    );
+    assert.equal(liveReceipt.source.head, sourceHead);
+    assert.equal(liveReceipt.source.tree, sourceTree);
+    assert.equal(liveReceipt.ownedProcesses.runner.pid, child.pid);
+    assert.equal(liveReceipt.ownedProcesses.admin.parentPid, child.pid);
+    assert.equal(liveReceipt.ownerCorrelation.state, "observed");
+    assert.match(ready.liveReceipt.initialSHA256, /^sha256:[a-f0-9]{64}$/);
 
     const sampleConfigState = JSON.parse(
       await readFile(
@@ -283,6 +302,11 @@ test("real Admin browser runner reaches first-run readiness with its dynamically
     closed = await waitForExit(child, 30_000);
     assert.equal(closed.code, 0, stderrText());
     assert.equal(closed.signal, null);
+    const closureReceipt = JSON.parse(
+      await readFile(ready.liveReceipt.closurePath, "utf8"),
+    );
+    assert.equal(closureReceipt.outcome, "closed");
+    assert.equal(closureReceipt.teardown.admin.exited, true);
     await assert.rejects(
       access(ready.tempRoot),
       (error) => error?.code === "ENOENT",
