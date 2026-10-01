@@ -91,6 +91,45 @@ test("staged transfer keeps a correctly digested TAR asset fail closed until T1-
   } finally { await rm(root, { recursive:true, force:true }); }
 });
 
+test("staged transfer fails closed for hostile unified-store permutations without refetching or reimporting", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "staged-unified-corrupt-"));
+  const archive = Buffer.from(zipSync({ "fixture.txt": Buffer.from("unified-store") }));
+  const digest = createHash("sha256").update(archive).digest("hex");
+  const identity = { repo: "service-lasso/lasso-example", releaseTag: "v1", commitSha: "a".repeat(40), targetServiceId: "unified-corrupt-service", platform: "win32", archiveType: "zip", assetName: "unified.zip", assetId: "asset-unified", archiveBytes: archive.length, archiveSha256: digest, manifestSha256: "b".repeat(64), releaseId: "release-unified", manifestAssetId: "manifest-unified", checksumAssetId: "checksums-unified" };
+  const actor = { id: "unified-actor", workspaceId: "unified-workspace", canConfigure: true };
+  const input = { targetServiceId: identity.targetServiceId, provenance: { repo: identity.repo, releaseTag: identity.releaseTag, commitSha: identity.commitSha }, platform: "win32", manifestSchemaVersion: "service-lasso.service-manifest/v1" };
+  let resolverCalls = 0;
+  let importerCalls = 0;
+  const makeTransfer = () => new StagedServiceTransfer(root, { resolve: async () => { resolverCalls += 1; return identity; } }, { import: async () => { importerCalls += 1; return "completed"; } });
+  try {
+    const transfer = makeTransfer();
+    const created = await transfer.create(actor, input);
+    await transfer.upload(actor, created.stageId, 0, created.uploadToken, digest, archive, { start: 0, end: archive.length - 1, total: archive.length });
+    await transfer.finalize(actor, created.stageId);
+    const confirmation = await transfer.confirmation(actor, created.stageId);
+    await transfer.register(actor, created.stageId, confirmation.confirmationId, "unified-corrupt-key-0001");
+    const statePath = path.join(root, ".service-lasso", "operator", "service-registration-operations.json");
+    const pristine = JSON.parse(await readFile(statePath, "utf8"));
+    const corruptions = [
+      (state) => { state.extra = true; },
+      (state) => { state.stagedTransfer.unexpected = true; },
+      (state) => { state.stagedTransfer.stages.push(structuredClone(state.stagedTransfer.stages[0])); },
+      (state) => { state.stagedTransfer.stages[0].byteObject.size += 1; },
+      (state) => { state.operations[0].staged.byteObjectId = "sbo_substituted"; },
+      (state) => { state.stagedTransfer.auditOutbox.push({ operationId: "sro_orphan", actorId: actor.id, workspaceId: actor.workspaceId, targetServiceId: identity.targetServiceId, outcome: "completed" }); },
+      (state) => { state.stagedTransfer.stages[0].journal.workspaceId = "wrong-workspace"; },
+    ];
+    for (const corrupt of corruptions) {
+      const state = structuredClone(pristine);
+      corrupt(state);
+      await writeFile(statePath, JSON.stringify(state));
+      await assert.rejects(() => makeTransfer().status(actor, created.stageId), (error) => error instanceof TransferError && error.statusCode === 503);
+      assert.equal(resolverCalls, 2, "corrupt state never refetches provenance");
+      assert.equal(importerCalls, 1, "corrupt state never reimports claimed bytes");
+    }
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test("staged direct-child importer registers the canonical manifest without downloading or extracting the archive", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "staged-direct-child-"));
   const servicesRoot = path.join(root, "services");

@@ -979,6 +979,63 @@ function parseClosedTransferHeaders(request: IncomingMessage, method: string | u
   if (expected.has("x-chunk-sha256")) exactTransferHeader(request, "x-chunk-sha256", /^[a-f0-9]{64}$/u);
   if (expected.has("content-range")) parseTransferRange(exactTransferHeader(request, "content-range", /^bytes [0-9]+-[0-9]+\/[0-9]+$/u));
   if (expected.has("content-length")) exactTransferHeader(request, "content-length", /^[1-9][0-9]{0,6}$/u);
+  const jsonBody = method === "POST" && (tail === "" || tail === "registration");
+  if (jsonBody && exactTransferHeader(request, "content-type", /^application\/json$/u) !== "application/json") {
+    throw new ApiError("invalid_request", 400, "Transfer request headers are invalid.");
+  }
+  if (expected.has("x-service-transfer-token") && exactTransferHeader(request, "content-type", /^application\/octet-stream$/u) !== "application/octet-stream") {
+    throw new ApiError("invalid_request", 400, "Transfer request headers are invalid.");
+  }
+}
+
+/** Reject duplicate object members before JSON.parse discards their spelling. */
+function assertNoDuplicateJsonObjectMembers(source: string): void {
+  const stack: Array<Set<string> | null> = [];
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index]!;
+    if (character === '"') {
+      let encoded = "";
+      index += 1;
+      for (; index < source.length; index += 1) {
+        const current = source[index]!;
+        if (current === "\\") { encoded += current + (source[index + 1] ?? ""); index += 1; continue; }
+        if (current === '"') break;
+        encoded += current;
+      }
+      let value: string;
+      try { value = JSON.parse(`"${encoded}"`) as string; }
+      catch { throw new ApiError("invalid_json", 400, "Request body must be valid JSON."); }
+      let next = index + 1;
+      while (/\s/u.test(source[next] ?? "")) next += 1;
+      const object = stack.at(-1);
+      if (source[next] === ":" && object) {
+        if (object.has(value)) throw new ApiError("invalid_request", 400, "Transfer request body is invalid.");
+        object.add(value);
+      }
+      continue;
+    }
+    if (character === "{") stack.push(new Set<string>());
+    else if (character === "[") stack.push(null);
+    else if (character === "}" || character === "]") stack.pop();
+  }
+}
+
+async function readTransferJsonBody(request: IncomingMessage, options: { maxBytes: number }): Promise<unknown> {
+  const chunks: Buffer[] = [];
+  let totalBytes = 0;
+  const contentLength = Number(request.headers["content-length"]);
+  if (Number.isFinite(contentLength) && contentLength > options.maxBytes) throw new ApiError("payload_too_large", 413, "Request body exceeds the allowed size.");
+  for await (const chunk of request) {
+    const buffer = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
+    totalBytes += buffer.length;
+    if (totalBytes > options.maxBytes) throw new ApiError("payload_too_large", 413, "Request body exceeds the allowed size.");
+    chunks.push(buffer);
+  }
+  const body = Buffer.concat(chunks).toString("utf8").trim();
+  if (!body) return {};
+  assertNoDuplicateJsonObjectMembers(body);
+  try { return JSON.parse(body) as unknown; }
+  catch { throw new ApiError("invalid_json", 400, "Request body must be valid JSON."); }
 }
 
 function parseTransferRange(value: string): { start: number; end: number; total: number } {
@@ -7167,7 +7224,16 @@ async function routeRequestWithoutMutationCoordination(
     });
     try {
       if (request.method === "POST" && url.pathname === "/api/v1/service-transfers") {
-        const created = await transfer.create(actor, await readJsonBody(request, { maxBytes: 8 * 1024 }) as { targetServiceId: string; provenance: { repo: string; releaseTag: string; commitSha: string }; platform: string; manifestSchemaVersion: string });
+        const body = await readTransferJsonBody(request, { maxBytes: 8 * 1024 });
+        const provenance = body && typeof body === "object" && !Array.isArray(body) ? (body as { provenance?: unknown }).provenance : null;
+        if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).length !== 4 ||
+          !Object.prototype.hasOwnProperty.call(body, "targetServiceId") || !Object.prototype.hasOwnProperty.call(body, "provenance") ||
+          !Object.prototype.hasOwnProperty.call(body, "platform") || !Object.prototype.hasOwnProperty.call(body, "manifestSchemaVersion") ||
+          !provenance || typeof provenance !== "object" || Array.isArray(provenance) || Object.keys(provenance).length !== 3 ||
+          !Object.prototype.hasOwnProperty.call(provenance, "repo") || !Object.prototype.hasOwnProperty.call(provenance, "releaseTag") || !Object.prototype.hasOwnProperty.call(provenance, "commitSha")) {
+          throw new ApiError("invalid_request", 400, "Transfer create body is invalid.");
+        }
+        const created = await transfer.create(actor, body as { targetServiceId: string; provenance: { repo: string; releaseTag: string; commitSha: string }; platform: string; manifestSchemaVersion: string });
         writeJson(response, 201, created); return;
       }
       const match = /^\/api\/v1\/service-transfers\/(stg_[A-Za-z0-9_-]{32})(?:\/(.*))?$/u.exec(url.pathname);
@@ -7185,7 +7251,7 @@ async function routeRequestWithoutMutationCoordination(
       if (request.method === "POST" && tail === "confirmation") { writeJson(response, 200, await transfer.confirmation(actor, stageId)); return; }
       if (request.method === "POST" && tail === "registration") {
         const confirmation = exactTransferHeader(request, "x-service-transfer-confirmation", /^scf_[A-Za-z0-9_-]{32}$/u);
-        const body = await readJsonBody(request, { maxBytes: 8 * 1024 });
+        const body = await readTransferJsonBody(request, { maxBytes: 8 * 1024 });
         if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).length !== 1 || typeof (body as { idempotencyKey?: unknown }).idempotencyKey !== "string") throw new ApiError("invalid_request", 400, "Transfer registration body is invalid.");
         const registered = await transfer.register(actor, stageId, confirmation, (body as { idempotencyKey: string }).idempotencyKey);
         writeJson(response, registered.replayed ? 200 : 202, { operation: registered.operation, replayed: registered.replayed }); return;

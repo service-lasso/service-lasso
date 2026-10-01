@@ -98,6 +98,48 @@ const tokenPattern = /^sut_[A-Za-z0-9_-]{43}$/;
 const confirmationPattern = /^scf_[A-Za-z0-9_-]{32}$/;
 
 function active(state: StageState): boolean { return !["consumed", "cleaned"].includes(state); }
+function record(value: unknown): value is Record<string, unknown> { return !!value && typeof value === "object" && !Array.isArray(value); }
+function only(recordValue: Record<string, unknown>, allowed: string[]): boolean { return Object.keys(recordValue).every((key) => allowed.includes(key)); }
+
+/**
+ * The durable document is recovery authority.  It must never be "best effort"
+ * parsed: a dangling or contradictory relation could otherwise free capacity or
+ * direct reconciliation at bytes that were not the claimed object.
+ */
+function assertCoherentStagedTransferStore(store: Store): void {
+  if (!only(store as unknown as Record<string, unknown>, ["version", "operations", "stagedTransfer"]) || !record(store.stagedTransfer) || !only(store.stagedTransfer, ["version", "stages", "auditOutbox", "legacySidecarDigest"])) throw new Error("invalid staged state");
+  const stages = store.stagedTransfer.stages;
+  const stageIds = new Set<string>();
+  const operationIds = new Set<string>();
+  for (const candidate of stages) {
+    if (!record(candidate) || !only(candidate, ["id", "actorId", "workspaceId", "state", "identity", "tokenHash", "confirmationHash", "confirmationExpiresAt", "expiresAt", "chunks", "received", "archiveDigestPrefix", "manifestDigestPrefix", "byteObject", "operation", "journal", "terminalAt"])) throw new Error("invalid stage fields");
+    if (typeof candidate.id !== "string" || !stagePattern.test(candidate.id) || stageIds.has(candidate.id) || typeof candidate.actorId !== "string" || !candidate.actorId || typeof candidate.workspaceId !== "string" || !candidate.workspaceId || !["uploading", "ready", "rejected", "expired", "claimed", "consumed", "quarantined", "cleaned", "unknown"].includes(String(candidate.state))) throw new Error("invalid stage identity");
+    stageIds.add(candidate.id);
+    if (!record(candidate.identity) || !only(candidate.identity, ["repo", "releaseTag", "commitSha", "targetServiceId", "platform", "archiveType", "assetName", "assetId", "archiveBytes", "archiveSha256", "manifestSha256", "releaseId", "manifestAssetId", "checksumAssetId", "manifestBytes"]) || typeof candidate.identity.archiveSha256 !== "string" || !digestPattern.test(candidate.identity.archiveSha256) || typeof candidate.identity.archiveBytes !== "number" || !Number.isSafeInteger(candidate.identity.archiveBytes) || candidate.identity.archiveBytes < 1) throw new Error("invalid release identity");
+    if (candidate.byteObject !== null && (!record(candidate.byteObject) || !only(candidate.byteObject, ["id", "bytes", "sha256", "size"]) || typeof candidate.byteObject.id !== "string" || typeof candidate.byteObject.bytes !== "string" || candidate.byteObject.sha256 !== candidate.identity.archiveSha256 || candidate.byteObject.size !== candidate.identity.archiveBytes)) throw new Error("invalid byte object");
+    if (candidate.operation !== null) {
+      if (!record(candidate.operation) || !only(candidate.operation, ["id", "key", "state", "stageDigest", "targetServiceId"]) || typeof candidate.operation.id !== "string" || operationIds.has(candidate.operation.id) || candidate.operation.stageDigest !== candidate.identity.archiveSha256 || candidate.operation.targetServiceId !== candidate.identity.targetServiceId) throw new Error("invalid stage operation");
+      operationIds.add(candidate.operation.id);
+      if (!record(candidate.journal) || candidate.journal.operationId !== candidate.operation.id || candidate.journal.stageId !== candidate.id || candidate.journal.actorId !== candidate.actorId || candidate.journal.workspaceId !== candidate.workspaceId || candidate.journal.byteObjectId !== (candidate.byteObject as Record<string, unknown> | null)?.id || candidate.journal.byteLength !== (candidate.byteObject as Record<string, unknown> | null)?.size || candidate.journal.fullDigest !== candidate.identity.archiveSha256) throw new Error("invalid stage journal");
+    } else if (candidate.journal !== null && (!record(candidate.journal) || candidate.journal.phase !== "prepared" || candidate.journal.stageId !== candidate.id || candidate.journal.actorId !== candidate.actorId || candidate.journal.workspaceId !== candidate.workspaceId || candidate.journal.byteObjectId !== (candidate.byteObject as Record<string, unknown> | null)?.id || candidate.journal.byteLength !== (candidate.byteObject as Record<string, unknown> | null)?.size || candidate.journal.fullDigest !== candidate.identity.archiveSha256)) throw new Error("orphan journal");
+  }
+  const persisted = new Map<string, Record<string, unknown>>();
+  for (const candidate of store.operations) {
+    if (!record(candidate) || typeof candidate.id !== "string" || persisted.has(candidate.id)) throw new Error("invalid operation");
+    persisted.set(candidate.id, candidate);
+  }
+  for (const stage of stages) {
+    if (!record(stage) || !record(stage.operation)) continue;
+    const operation = persisted.get(stage.operation.id);
+    const staged = operation?.staged;
+    if (!record(staged) || staged.stageId !== stage.id || staged.workspaceId !== stage.workspaceId || staged.byteObjectId !== (stage.byteObject as Record<string, unknown> | null)?.id || staged.byteLength !== (stage.byteObject as Record<string, unknown> | null)?.size || staged.fullDigest !== stage.identity.archiveSha256 || operation?.actorId !== stage.actorId) throw new Error("operation-stage mismatch");
+  }
+  for (const entry of store.stagedTransfer.auditOutbox) {
+    if (!record(entry) || !only(entry, ["operationId", "actorId", "workspaceId", "targetServiceId", "outcome"])) throw new Error("invalid audit outbox");
+    const stage = stages.find((candidate) => candidate.operation?.id === entry.operationId);
+    if (!stage || stage.actorId !== entry.actorId || stage.workspaceId !== entry.workspaceId || stage.identity.targetServiceId !== entry.targetServiceId) throw new Error("orphan audit outbox");
+  }
+}
 
 export class StagedServiceTransfer {
   constructor(
@@ -166,6 +208,7 @@ export class StagedServiceTransfer {
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       }
+      assertCoherentStagedTransferStore(store as Store);
       return store as Store;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
