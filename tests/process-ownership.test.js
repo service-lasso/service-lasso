@@ -2476,7 +2476,7 @@ test("AC-4BJ.9b Windows managed launcher projects only authenticated closed payl
   }
 });
 
-test("AC-4BJ.9b projects a real native payload rejection through enrollment, lifecycle state, and the public-safe diagnostic", {
+test("AC-4BJ.9b captures a real native spawn and exit through lifecycle finalization before its public-safe payload diagnostic", {
   skip: process.platform !== "win32",
 }, async () => {
   resetLifecycleState();
@@ -2510,7 +2510,14 @@ test("AC-4BJ.9b projects a real native payload rejection through enrollment, lif
     assert.ok(diagnostic.observations[0].events.some((event) => event.failurePhase === "launcher_payload_validation"));
     assert.equal(JSON.stringify(diagnostic).includes("SERVICE_LASSO_MANAGED_LAUNCH_PAYLOAD"), false);
     assert.equal(JSON.stringify(diagnostic).includes(tempRoot), false);
-    assert.equal(await findProcessOwnership(workspaceRoot, "service", "echo-service"), null);
+    await waitForManagedProcessFinalization("echo-service", Date.now() + 10_000);
+    const stoppedOwnership = await findProcessOwnership(workspaceRoot, "service", "echo-service");
+    if (stoppedOwnership) {
+      assert.equal(stoppedOwnership.lifecycleState, "stopped");
+      assert.equal(stoppedOwnership.identityStatus, "not_running");
+      assert.equal(stoppedOwnership.pid, null);
+      assert.equal(stoppedOwnership.identity, null);
+    }
     assert.equal(hasManagedProcess("echo-service"), false);
   } finally {
     setManagedProcessSpawnerForTests(null);
@@ -2577,7 +2584,43 @@ test("synchronous wrapper spawn failures retain their typed phase and clean pre-
   }
 });
 
-test("wrapper spawn waits are bounded and contain an unresponsive pre-enrollment child", async () => {
+test("wrapper spawn waits retain an actual native spawn error without PID metadata", async () => {
+  resetLifecycleState();
+  const priorTestHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+  process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-native-spawn-error-");
+  await writeExecutableFixtureService(servicesRoot, "native-spawn-error-service");
+
+  try {
+    setManagedProcessSpawnerForTests(() => spawn(path.join(tempRoot, "missing-native-wrapper.exe"), [], {
+      stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
+    }));
+    const [service] = await discoverServices(servicesRoot);
+    await assert.rejects(
+      startManagedProcess({
+        service,
+        executionPlan: createDirectExecutionPlan(service.manifest),
+        workspaceRoot,
+      }),
+      (error) => {
+        assert.equal(managedProcessStartFailurePhase(error), "wrapper_spawn");
+        assert.match(error.message, /ENOENT|spawn/iu);
+        return true;
+      },
+    );
+    assert.equal(await findProcessOwnership(workspaceRoot, "service", "native-spawn-error-service"), null);
+    assert.equal(hasManagedProcess("native-spawn-error-service"), false);
+  } finally {
+    setManagedProcessSpawnerForTests(null);
+    if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+    else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
+    resetLifecycleState();
+    await removeTempRoot(tempRoot);
+  }
+});
+
+test("wrapper spawn waits reject forgeable spawn metadata and contain an unresponsive pre-enrollment child", async () => {
   resetLifecycleState();
   const priorTestHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
   process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
@@ -2585,6 +2628,7 @@ test("wrapper spawn waits are bounded and contain an unresponsive pre-enrollment
   await writeExecutableFixtureService(servicesRoot, "spawn-deadline-service");
   const fakeChild = Object.assign(new EventEmitter(), {
     pid: 424_242,
+    spawnfile: process.execPath,
     exitCode: null,
     signalCode: null,
     kill(signal) {

@@ -300,6 +300,38 @@ let managedProcessPostResumeDelayMs = 0;
 let managedProcessSpawner: typeof spawn = spawn;
 let managedProcessSpawnTimeoutMs = MANAGED_PROCESS_SPAWN_TIMEOUT_MS;
 
+interface ManagedProcessSpawnWitness {
+  readonly child: ChildProcess;
+  hasSpawned(): boolean;
+  spawnError(): Error | null;
+  dispose(): void;
+}
+
+function captureManagedProcessSpawnWitness(child: ChildProcess): ManagedProcessSpawnWitness {
+  // This witness is bound to the exact child returned by the spawn factory.
+  // Do not infer it from PID or spawn metadata: injected child-shaped objects
+  // can forge those descriptive values without a native spawn lifecycle.
+  let spawned = false;
+  let error: Error | null = null;
+  const onSpawn = () => {
+    spawned = true;
+  };
+  const onError = (spawnError: Error) => {
+    error = spawnError;
+  };
+  child.once("spawn", onSpawn);
+  child.once("error", onError);
+  return {
+    child,
+    hasSpawned: () => spawned,
+    spawnError: () => error,
+    dispose: () => {
+      child.removeListener("spawn", onSpawn);
+      child.removeListener("error", onError);
+    },
+  };
+}
+
 export function setManagedProcessTreeTerminatorForTests(
   terminator: typeof terminateOwnedProcessTree | null,
 ): void {
@@ -1395,13 +1427,15 @@ function serviceEnablesStdin(service: DiscoveredService): boolean {
   return service.manifest.stdin?.enabled === true;
 }
 
-async function waitForManagedProcessSpawn(child: ChildProcess): Promise<void> {
+async function waitForManagedProcessSpawn(witness: ManagedProcessSpawnWitness): Promise<void> {
+  const { child } = witness;
   const deadlineMs = processControlDeadline(managedProcessSpawnTimeoutMs);
   await withProcessControlDeadline(async (signal) => await new Promise<void>((resolve, reject) => {
     const cleanup = () => {
       child.removeListener("spawn", spawned);
       child.removeListener("error", failed);
       signal.removeEventListener("abort", aborted);
+      witness.dispose();
     };
     const spawned = () => {
       cleanup();
@@ -1419,12 +1453,11 @@ async function waitForManagedProcessSpawn(child: ChildProcess): Promise<void> {
     child.once("error", failed);
     signal.addEventListener("abort", aborted, { once: true });
     if (signal.aborted) aborted();
-    // The OS assigns a real child handle synchronously on a successful spawn.
-    // Attach output capture before waiting, then recognise that handle if a
-    // fast native launcher emitted `spawn` during setup. This preserves the
-    // existing bounded error path while preventing a terminal stderr receipt
-    // from racing ahead of its parser.
-    else if (typeof child.spawnfile === "string" && Number.isInteger(child.pid) && Number(child.pid) > 0) spawned();
+    // The factory listener is installed before stream/lifecycle setup. It
+    // preserves a real fast child's spawn event without trusting forgeable
+    // ChildProcess-shaped properties such as pid or spawnfile.
+    else if (witness.hasSpawned()) spawned();
+    else if (witness.spawnError() !== null) failed(witness.spawnError() as Error);
   }), { deadlineMs });
 }
 
@@ -2007,6 +2040,7 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
     throw new ManagedProcessStartError("launch_state_creation", error);
   }
   let child: ChildProcess | null = null;
+  let spawnWitness: ManagedProcessSpawnWitness | null = null;
   let exitPromise: Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }> | null = null;
   let streamsClosedPromise: Promise<void> | null = null;
   try {
@@ -2036,6 +2070,8 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
         },
       );
     }
+
+    spawnWitness = captureManagedProcessSpawnWitness(child);
 
     const spawnedChild = child;
     exitPromise = new Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }>((resolve) => {
@@ -2070,7 +2106,7 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
     );
   }
 
-  if (!child || !exitPromise || !streamsClosedPromise) {
+  if (!child || !spawnWitness || !exitPromise || !streamsClosedPromise) {
     throw new Error("Managed process wrapper spawn completed without a child handle.");
   }
 
@@ -2118,7 +2154,7 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
   // authenticated, public-safe receipt.
   attachRuntimeLogCapture(record);
   try {
-    await waitForManagedProcessSpawn(child);
+    await waitForManagedProcessSpawn(spawnWitness);
   } catch (error) {
     const cleanupErrors: unknown[] = [];
     await containUnenrolledManagedProcessWrapper(child, exitPromise)

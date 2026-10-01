@@ -175,4 +175,6 @@ Issue #1386 requires closed packaged-verifier phase diagnostics that distinguish
 
 Issue #1326 confirmed exit-during-query handling requires successful termination evidence from the same held native handle; live/unknown/259 statuses stay fail closed. Preserve native query rights, ancestry, retries, deadlines and original failed observations. Bind native safety tests and exact-head qualification before delivery claims.
 
+Issue #1560 additionally requires a factory-bound managed-wrapper spawn witness. A returned child is eligible for enrollment only after its captured runtime `spawn` event; a captured wrapper `error` or the existing absolute deadline remains terminal. PID and spawn metadata are descriptive and cannot replace that witness. Attach the witness before log capture and ownership work so a genuine fast exit cannot lose its bounded stream/lifecycle receipts; retain the actual exit/close and authenticated delayed-stderr ordering controls.
+
 Issue #1326 parent-edge lifetime diagnostic follow-up binds AC-4BH: retain the 079eb33 startup rejection and classify only whether the rejected edge crosses before expected-root creation. No process details or membership/deadline relaxation; require bounded rejection and privacy tests plus exact-head qualification.
