@@ -268,6 +268,7 @@ async function writeStubbornProcessTreeFixture(serviceRoot, scriptPath, options 
     acknowledgementMode = "complete",
     receiptMode = "complete",
     custodyReadyFilePath = null,
+    jobObservationReadyFilePath = null,
     jobObservationMode = "complete",
     jobObservationForeignPid = null,
     extraJobMembers = 0,
@@ -376,6 +377,14 @@ const jobObservationRequestPath = process.env.SERVICE_LASSO_TEST_JOB_OBSERVATION
 const jobObservationResponsePath = process.env.SERVICE_LASSO_TEST_JOB_OBSERVATION_RESPONSE_PATH;
 const jobObservationToken = process.env.SERVICE_LASSO_TEST_JOB_OBSERVATION_TOKEN;
 if (jobObservationRequestPath && jobObservationResponsePath && jobObservationToken) {
+  ${jobObservationReadyFilePath === null ? "" : `while (true) {
+    try {
+      await access(${JSON.stringify(jobObservationReadyFilePath)});
+      break;
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+  }`}
   const completeRequest = {
     token: jobObservationToken,
     rootPid: process.pid,
@@ -610,7 +619,11 @@ async function readOwnedFixtureRootCustody(workspaceRoot, serviceId) {
     workspaceRoot,
     identity: ownership.identity,
     processGroup: ownership.processGroup,
-    managerCustody: captureManagedProcessCustodyForTests(serviceId),
+    // This is intentionally captured before the launcher release gate. The
+    // managed record is not activated until the native acknowledgement and
+    // stabilization sequence complete, so a test-only record snapshot here
+    // would fabricate authority on a rejected launch.
+    managerCustody: null,
   };
 }
 
@@ -623,7 +636,7 @@ function enableOwnedFixtureTestHooks() {
   };
 }
 
-async function startOwnedFixtureWithNativeJobObservation(options, launcherTerminal = null) {
+async function startOwnedFixtureWithNativeJobObservation(options, launcherTerminal = null, custodyCapture = null) {
   setManagedProcessSpawnerForTests((command, args, spawnOptions) => {
     const child = spawn(command, args, spawnOptions);
     if (launcherTerminal !== null) {
@@ -652,6 +665,28 @@ async function startOwnedFixtureWithNativeJobObservation(options, launcherTermin
     }
     return child;
   });
+  setManagedProcessFilesBoundHookForTests(async () => {
+    if (custodyCapture === null) return;
+    // The native launcher has authenticated the manager and the registry has
+    // recorded its root identity, but the target is still behind the existing
+    // release gate. Capture that exact manager before the test fixture can
+    // publish a rejected Job request or naturally close its Job.
+    custodyCapture.value = await readOwnedFixtureRootCustody(
+      options.workspaceRoot,
+      options.service.manifest.id,
+    );
+  });
+  setManagedProcessAfterReleaseHookForTests(async () => {
+    if (custodyCapture === null || !custodyCapture.jobObservationReadyPath) return;
+    const rootCustody = custodyCapture.value ?? await readOwnedFixtureRootCustody(
+      options.workspaceRoot,
+      options.service.manifest.id,
+    );
+    const receipt = await readCompleteOwnedFixtureReceipt(custodyCapture.pidFilePath, 2_000);
+    const receiptCustody = await captureOwnedFixtureCustody(receipt);
+    custodyCapture.value = { rootCustody, receipt, receiptCustody };
+    await writeFile(custodyCapture.jobObservationReadyPath, "verified\\n", { flag: "wx" });
+  });
   setManagedProcessEnrollmentHookForTests((child) => {
     if (launcherTerminal === null) return;
     launcherTerminal.state = "open";
@@ -664,10 +699,17 @@ async function startOwnedFixtureWithNativeJobObservation(options, launcherTermin
   });
   setManagedWindowsJobObservationForTests(true);
   try {
-    return await startManagedProcess(options);
+    const handle = await startManagedProcess(options);
+    if (custodyCapture !== null && custodyCapture.value !== null) {
+      const rootCustody = custodyCapture.value.rootCustody ?? custodyCapture.value;
+      rootCustody.managerCustody = captureManagedProcessCustodyForTests(options.service.manifest.id);
+    }
+    return handle;
   } finally {
     setManagedWindowsJobObservationForTests(false);
     setManagedProcessEnrollmentHookForTests(null);
+    setManagedProcessFilesBoundHookForTests(null);
+    setManagedProcessAfterReleaseHookForTests(null);
     setManagedProcessSpawnerForTests(null);
   }
 }
@@ -691,10 +733,12 @@ async function cleanupCompleteOwnedFixture({ serviceId, rootCustody, custody, te
       assertSameProcessFingerprint(ownership?.identity, rootCustody.identity);
       assert.equal(ownership?.processGroup?.kind, "windows-job");
       await assertHeldFixtureCustodyOwned(custody);
+      assert.ok(rootCustody.managerCustody);
       assertManagedProcessCustodyForTests(rootCustody.managerCustody);
       await stopManagedProcessWithCustodyForTests(rootCustody.managerCustody, 5_000);
     }
     await waitForManagedProcessFinalization(serviceId, Date.now() + 5_000);
+    assert.ok(rootCustody.managerCustody);
     await assertManagedProcessCustodySettledForTests(rootCustody.managerCustody);
     await waitForOwnedFixtureStopped(custody);
     resetLifecycleState();
@@ -723,6 +767,7 @@ async function retainIncompleteOwnedFixture({ serviceId, rootCustody, receiptCus
         await inspectProcess(rootCustody.identity.pid),
       );
       if (rootClassification === "owned") {
+        assert.ok(rootCustody.managerCustody);
         assertManagedProcessCustodyForTests(rootCustody.managerCustody);
         await stopManagedProcessWithCustodyForTests(rootCustody.managerCustody, 5_000);
       } else {
@@ -736,7 +781,13 @@ async function retainIncompleteOwnedFixture({ serviceId, rootCustody, receiptCus
       assert.equal(ownership?.pid, null);
     }
     await waitForManagedProcessFinalization(serviceId, Date.now() + 5_000);
-    await assertManagedProcessCustodySettledForTests(rootCustody.managerCustody);
+    // A failed pre-activation launch has no managed-record custody by design.
+    // Its natural Job close is observed through the fixed receipt members; it
+    // must never be converted into an invented manager authority merely to
+    // make teardown look uniform.
+    if (rootCustody.managerCustody !== null) {
+      await assertManagedProcessCustodySettledForTests(rootCustody.managerCustody);
+    }
     await waitForOwnedFixtureStopped(receiptCustody ?? [rootCustody.identity]);
   } catch (cleanupError) {
     if (primaryError !== undefined) {
@@ -3949,20 +4000,21 @@ test("managed Windows job contains a child spawned after enrollment when the ser
   const restoreFixtureTestHooks = enableOwnedFixtureTestHooks();
   const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-managed-late-child-");
   const { serviceRoot, scriptPath } = await writeExecutableFixtureService(servicesRoot, "managed-late-child-service");
-  const triggerPath = path.join(serviceRoot, "runtime", "launch-child.trigger");
+  const jobObservationReadyPath = path.join(serviceRoot, "runtime", "owned-job-observation-ready");
   const acknowledgementPath = path.join(serviceRoot, "runtime", "owned-root-exit.ack.json");
   const custodyReadyPath = path.join(serviceRoot, "runtime", "owned-root-exit.custody-ready");
   const pidFilePath = await writeStubbornProcessTreeFixture(serviceRoot, scriptPath, {
-    childTriggerFilePath: triggerPath,
     rootExitAfterChildMs: 750,
     acknowledgementFilePath: acknowledgementPath,
     custodyReadyFilePath: custodyReadyPath,
+    jobObservationReadyFilePath: jobObservationReadyPath,
     extraJobMembers: 1,
   });
   let handle;
   let custody = null;
   let rootCustody = null;
   let primaryError;
+  const custodyCapture = { jobObservationReadyPath, pidFilePath, value: null };
   const launcherTerminal = {
     state: "not_enrolled",
     pid: null,
@@ -3978,10 +4030,9 @@ test("managed Windows job contains a child spawned after enrollment when the ser
       service,
       executionPlan: createDirectExecutionPlan(service.manifest),
       workspaceRoot,
-    }, launcherTerminal);
-    rootCustody = await readOwnedFixtureRootCustody(workspaceRoot, "managed-late-child-service");
-    await writeFile(triggerPath, "launch\n", "utf8");
-    const receipt = await readCompleteOwnedFixtureReceipt(pidFilePath);
+    }, launcherTerminal, custodyCapture);
+    rootCustody = custodyCapture.value.rootCustody;
+    const receipt = custodyCapture.value.receipt;
     custody = await captureHeldFixtureCustody(
       receipt,
       await readCompleteOwnedFixtureJobObservation(launcherTerminal.jobObservation, receipt),
@@ -4047,20 +4098,21 @@ test("managed Windows late-child fixture suppresses acknowledgement before root-
   const restoreFixtureTestHooks = enableOwnedFixtureTestHooks();
   const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-managed-late-child-no-ack-");
   const { serviceRoot, scriptPath } = await writeExecutableFixtureService(servicesRoot, "managed-late-child-no-ack-service");
-  const triggerPath = path.join(serviceRoot, "runtime", "launch-child.trigger");
+  const jobObservationReadyPath = path.join(serviceRoot, "runtime", "owned-job-observation-ready");
   const acknowledgementPath = path.join(serviceRoot, "runtime", "owned-root-exit.ack.json");
   const custodyReadyPath = path.join(serviceRoot, "runtime", "owned-root-exit.custody-ready");
   const pidFilePath = await writeStubbornProcessTreeFixture(serviceRoot, scriptPath, {
-    childTriggerFilePath: triggerPath,
     rootExitAfterChildMs: 750,
     acknowledgementFilePath: acknowledgementPath,
     suppressAcknowledgement: true,
     custodyReadyFilePath: custodyReadyPath,
+    jobObservationReadyFilePath: jobObservationReadyPath,
   });
   let handle;
   let custody = null;
   let rootCustody = null;
   let primaryError;
+  const custodyCapture = { jobObservationReadyPath, pidFilePath, value: null };
 
   try {
     const [service] = await discoverServices(servicesRoot);
@@ -4068,33 +4120,35 @@ test("managed Windows late-child fixture suppresses acknowledgement before root-
       service,
       executionPlan: createDirectExecutionPlan(service.manifest),
       workspaceRoot,
-    });
-    rootCustody = await readOwnedFixtureRootCustody(workspaceRoot, "managed-late-child-no-ack-service");
-    await writeFile(triggerPath, "launch\n", "utf8");
-    const receipt = await readCompleteOwnedFixtureReceipt(pidFilePath);
-    custody = await captureOwnedFixtureCustody(receipt);
+    }, null, custodyCapture);
+    rootCustody = custodyCapture.value?.rootCustody ?? null;
+    const receipt = custodyCapture.value?.receipt ?? await readCompleteOwnedFixtureReceipt(pidFilePath);
+    custody = custodyCapture.value?.receiptCustody ?? null;
+    assert.ok(custody);
     await writeFile(custodyReadyPath, "verified\n", { flag: "wx" });
     await assert.rejects(
       readOwnedFixtureAcknowledgement(acknowledgementPath, receipt, 3_000),
     );
     assert.equal(hasManagedProcess("managed-late-child-no-ack-service"), true);
-    assert.equal((await inspectProcess(custody[0].pid)).status, "running");
+    assert.equal((await inspectProcess(rootCustody.identity.pid)).status, "running");
     const ownedBeforeContainment = await findProcessOwnership(
       workspaceRoot,
       "service",
       "managed-late-child-no-ack-service",
     );
     assert.equal(ownedBeforeContainment.lifecycleState, "launching");
-    assert.notEqual(ownedBeforeContainment.pid, null);
+    assert.equal(ownedBeforeContainment.pid, handle.pid);
   } catch (error) {
     primaryError = error;
     throw error;
   } finally {
     try {
       if (custody !== null && rootCustody !== null) {
-        await retainIncompleteOwnedFixture({
+        await cleanupCompleteOwnedFixture({
           serviceId: "managed-late-child-no-ack-service",
           rootCustody,
+          custody,
+          tempRoot,
           primaryError,
         });
       }
@@ -4129,7 +4183,7 @@ for (const jobObservationMode of [
       `service-lasso-managed-held-job-${jobObservationMode}-`,
     );
     const { serviceRoot, scriptPath } = await writeExecutableFixtureService(servicesRoot, serviceId);
-    const triggerPath = path.join(serviceRoot, "runtime", "launch-child.trigger");
+    const jobObservationReadyPath = path.join(serviceRoot, "runtime", "owned-job-observation-ready");
     const acknowledgementPath = path.join(serviceRoot, "runtime", "owned-root-exit.ack.json");
     const custodyReadyPath = path.join(serviceRoot, "runtime", "owned-root-exit.custody-ready");
     let rootCustody = null;
@@ -4146,32 +4200,40 @@ for (const jobObservationMode of [
       foreignIdentity = inspection.identity;
     }
     const pidFilePath = await writeStubbornProcessTreeFixture(serviceRoot, scriptPath, {
-      childTriggerFilePath: triggerPath,
       rootExitAfterChildMs: 750,
       acknowledgementFilePath: acknowledgementPath,
       jobObservationMode,
       custodyReadyFilePath: custodyReadyPath,
+      jobObservationReadyFilePath: jobObservationReadyPath,
       jobObservationForeignPid: foreignChild?.pid ?? null,
     });
+    const custodyCapture = { jobObservationReadyPath, pidFilePath, value: null };
 
     try {
       const [service] = await discoverServices(servicesRoot);
-      await startOwnedFixtureWithNativeJobObservation({ service, executionPlan: createDirectExecutionPlan(service.manifest), workspaceRoot });
-      rootCustody = await readOwnedFixtureRootCustody(workspaceRoot, serviceId);
-      await writeFile(triggerPath, "launch\n", "utf8");
-      const receipt = await readCompleteOwnedFixtureReceipt(pidFilePath);
-      const initialSettlement = await captureOrConfirmStoppedFixtureReceipt(receipt);
-      custody = initialSettlement.custody;
-      // This test-only gate lets the root attempt the same 750 ms exit and
-      // acknowledgement path after its complete receipt is present.  It does
-      // not accept the rejected Job response or select any process for
-      // control; rejection still occurs before acknowledgement success.
-      await writeFile(custodyReadyPath, "verified\n", { flag: "wx" });
+      const start = startOwnedFixtureWithNativeJobObservation({
+        service,
+        executionPlan: createDirectExecutionPlan(service.manifest),
+        workspaceRoot,
+      }, null, custodyCapture);
+      // A missing request consumes the native observer's unchanged bounded
+      // timeout after the private launcher acknowledgement. Every malformed
+      // or inconsistent request/response rejects during the same start path.
+      // Neither outcome grants a post-rejection control target.
+      if (jobObservationMode === "missing") {
+        await start;
+      } else {
+        await assert.rejects(start);
+      }
+      rootCustody = custodyCapture.value?.rootCustody ?? null;
+      const receipt = custodyCapture.value?.receipt ?? await readCompleteOwnedFixtureReceipt(pidFilePath);
+      custody = custodyCapture.value?.receiptCustody ?? null;
+      // The malformed request has already rejected on the held native Job. Its
+      // natural close is the only fixture termination; this assertion proves
+      // that no fixture acknowledgement can turn the rejection into control.
       await assert.rejects(readOwnedFixtureAcknowledgement(acknowledgementPath, receipt, 3_000));
-      settlement = custody === null
-        ? initialSettlement
-        : await captureOrConfirmStoppedFixtureReceipt(receipt, custody);
-      assert.ok(["all_running", "all_absent", "mixed", "replaced", "unknown"].includes(settlement.state));
+      settlement = await captureOrConfirmStoppedFixtureReceipt(receipt, custody);
+      assert.equal(settlement.state, "all_absent");
       await waitForManagedProcessFinalization(serviceId, Date.now() + 5_000);
       if (custody !== null) await waitForOwnedFixtureStopped(custody, 5_000);
       assert.equal(hasManagedProcess(serviceId), false);
@@ -4212,26 +4274,32 @@ for (const acknowledgementMode of ["malformed", "extra", "mismatched"]) {
       `service-lasso-managed-late-child-${acknowledgementMode}-ack-`,
     );
     const { serviceRoot, scriptPath } = await writeExecutableFixtureService(servicesRoot, serviceId);
-    const triggerPath = path.join(serviceRoot, "runtime", "launch-child.trigger");
+    const jobObservationReadyPath = path.join(serviceRoot, "runtime", "owned-job-observation-ready");
     const acknowledgementPath = path.join(serviceRoot, "runtime", "owned-root-exit.ack.json");
     const custodyReadyPath = path.join(serviceRoot, "runtime", "owned-root-exit.custody-ready");
     const pidFilePath = await writeStubbornProcessTreeFixture(serviceRoot, scriptPath, {
-      childTriggerFilePath: triggerPath,
       rootExitAfterChildMs: 750,
       acknowledgementFilePath: acknowledgementPath,
       acknowledgementMode,
       custodyReadyFilePath: custodyReadyPath,
+      jobObservationReadyFilePath: jobObservationReadyPath,
     });
     let rootCustody = null;
     let custody = null;
     let primaryError;
+    const custodyCapture = { jobObservationReadyPath, pidFilePath, value: null };
     try {
       const [service] = await discoverServices(servicesRoot);
-      await startOwnedFixtureWithNativeJobObservation({ service, executionPlan: createDirectExecutionPlan(service.manifest), workspaceRoot });
-      rootCustody = await readOwnedFixtureRootCustody(workspaceRoot, serviceId);
-      await writeFile(triggerPath, "launch\n", "utf8");
-      const receipt = await readCompleteOwnedFixtureReceipt(pidFilePath);
-      custody = await captureOwnedFixtureCustody(receipt);
+      await startOwnedFixtureWithNativeJobObservation(
+        { service, executionPlan: createDirectExecutionPlan(service.manifest), workspaceRoot },
+        null,
+        custodyCapture,
+      );
+      rootCustody = custodyCapture.value?.rootCustody ?? null;
+      const receipt = custodyCapture.value?.receipt ?? await readCompleteOwnedFixtureReceipt(pidFilePath);
+      custody = custodyCapture.value?.receiptCustody ?? null;
+      assert.ok(rootCustody);
+      assert.ok(custody);
       await writeFile(custodyReadyPath, "verified\n", { flag: "wx" });
       await assert.rejects(readOwnedFixtureAcknowledgement(acknowledgementPath, receipt, 3_000));
       assert.equal(hasManagedProcess(serviceId), true);
