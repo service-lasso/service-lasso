@@ -1,5 +1,5 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, rename } from "node:fs/promises";
 import path from "node:path";
 import { appendAuditEvent } from "../audit/store.js";
 import { withCrossProcessFileLock } from "../security/cross-process-file-lock.js";
@@ -182,7 +182,15 @@ export class StagedServiceTransfer {
   private async writeStore(file: string, store: Store): Promise<void> {
     await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
     const temporary = file + "." + randomBytes(8).toString("hex") + ".tmp";
-    await writeFile(temporary, JSON.stringify(store) + "\n", { encoding: "utf8", mode: 0o600 });
+    // A claimed byte object and its journal are recovery authority.  Do not
+    // publish a rename whose file data has only reached the process cache.
+    const handle = await open(temporary, "wx", 0o600);
+    try {
+      await handle.writeFile(JSON.stringify(store) + "\n", "utf8");
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
     await rename(temporary, file);
   }
 

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { lstat, mkdir, readFile, realpath, rename, rmdir, unlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, open, readFile, realpath, rename, rmdir, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { ApiError } from "../../server/errors.js";
 import { discoverServices } from "../discovery/discoverServices.js";
@@ -148,7 +148,13 @@ async function writeStore(workspaceRoot: string, store: PersistedOperationStore)
   const targetPath = serviceRegistrationOperationStorePath(workspaceRoot);
   await mkdir(path.dirname(targetPath), { recursive: true });
   const temporaryPath = `${targetPath}.${process.pid}.${Date.now()}.tmp`;
-  await writeFile(temporaryPath, `${JSON.stringify(store)}\n`, "utf8");
+  const handle = await open(temporaryPath, "wx", 0o600);
+  try {
+    await handle.writeFile(`${JSON.stringify(store)}\n`, "utf8");
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
   await rename(temporaryPath, targetPath);
 }
 
