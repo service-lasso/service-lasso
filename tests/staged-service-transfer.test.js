@@ -1,10 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { StagedServiceTransfer, TransferError } from "../dist/runtime/release/staged-service-transfer.js";
+import { createStagedReleaseAssetImporter } from "../dist/runtime/operator/remote-service-registration.js";
 
 test("staged transfer stays fail closed when the owner catalog pin is unavailable", async () => { const root=await mkdtemp(path.join(os.tmpdir(),"staged-transfer-")); try { const service=new StagedServiceTransfer(root,{resolve:async()=>{throw new TransferError("release_provenance_unavailable",503)}},{import:async()=> "completed"}); await assert.rejects(service.create({id:"a",workspaceId:"w",canConfigure:true},{targetServiceId:"sample-service",provenance:{repo:"service-lasso/lasso-example",releaseTag:"v1",commitSha:"a".repeat(40)},platform:"win32",manifestSchemaVersion:"service-lasso.service-manifest/v1"}),/denied/); } finally {await rm(root,{recursive:true,force:true});} });
 
@@ -31,5 +32,48 @@ test("staged transfer reserves actor and workspace capacity, binds exact chunk r
     assert.equal(replacement.state, "uploading");
     assert.equal((await transfer.status(actor, first.stageId)).state, "cleaned");
   } finally { await rm(root,{recursive:true,force:true}); }
+});
+
+test("staged direct-child importer registers the canonical manifest without downloading or extracting the archive", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "staged-direct-child-"));
+  const servicesRoot = path.join(root, "services");
+  const archiveBytes = Buffer.from("claimed-release-asset", "utf8");
+  const manifest = JSON.stringify({
+    id: "staged-service",
+    name: "Staged Service",
+    description: "fixture",
+    executable: "node",
+    args: ["fixture.js"],
+    healthcheck: { type: "process" },
+    artifact: {
+      kind: "archive",
+      source: { type: "github-release", repo: "service-lasso/lasso-node", tag: "v1" },
+      platforms: { win32: { assetName: "staged.zip", archiveType: "zip", command: "fixture.js", checksum: { algorithm: "sha256", value: "b".repeat(64) } } },
+    },
+  });
+  const priorFetch = globalThis.fetch;
+  const archiveDigest = createHash("sha256").update(archiveBytes).digest("hex");
+  const manifestDigest = createHash("sha256").update(manifest).digest("hex");
+  const requests = [];
+  globalThis.fetch = async (url) => {
+    requests.push(String(url));
+    if (String(url).includes("/git/ref/tags/v1")) return new Response(JSON.stringify({ object: { type: "commit", sha: "a".repeat(40) } }));
+    if (String(url).includes("/releases/tags/v1")) return new Response(JSON.stringify({ tag_name: "v1", assets: [{ name: "service.json", browser_download_url: "https://github.com/service-lasso/lasso-node/releases/download/v1/service.json" }] }));
+    if (String(url).endsWith("/service.json")) return new Response(manifest);
+    throw new Error(`unexpected release request: ${url}`);
+  };
+  try {
+    const result = await createStagedReleaseAssetImporter({ servicesRoot }).import({
+      serviceId: "staged-service", bytes: archiveBytes, byteObjectId: "sbo_test", archiveSha256: archiveDigest,
+      manifestSha256: manifestDigest, releaseId: "1", targetSha: "a".repeat(40), workspaceId: "trusted-workspace",
+      repo: "service-lasso/lasso-node", releaseTag: "v1",
+    });
+    assert.equal(result, "completed");
+    assert.equal(await readFile(path.join(servicesRoot, "staged-service", "service.json"), "utf8"), manifest);
+    assert.equal(requests.some((url) => url.includes("staged.zip")), false);
+  } finally {
+    globalThis.fetch = priorFetch;
+    await rm(root, { recursive: true, force: true });
+  }
 });
 

@@ -150,6 +150,7 @@ import {
   parseRemoteServiceRegistrationRequest,
   readRemoteServiceRegistrationOperation,
   registerReleasedService,
+  createStagedReleaseAssetImporter,
 } from "../runtime/operator/remote-service-registration.js";
 import { StagedServiceTransfer, TransferError, type DirectChildImporter, type StageResolver } from "../runtime/release/staged-service-transfer.js";
 import { ServiceProducerReleaseResolver } from "../runtime/release/service-producer-release-resolver.js";
@@ -7093,7 +7094,7 @@ async function routeRequestWithoutMutationCoordination(
     const actor = { id: permissionActor.id, workspaceId: `workspace_${createHash("sha256").update(config.workspaceRoot).digest("hex").slice(0, 24)}`, canConfigure: true };
     const adapter = config.stagedServiceTransfer ?? {
       resolver: new ServiceProducerReleaseResolver(config.stagedServiceTransferCatalogPath),
-      importer: { import: async () => "unknown" as const },
+      importer: createStagedReleaseAssetImporter({ servicesRoot: config.servicesRoot }),
     };
     const transfer = new StagedServiceTransfer(config.workspaceRoot, adapter.resolver, adapter.importer);
     try {

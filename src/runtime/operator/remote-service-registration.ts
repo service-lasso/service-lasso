@@ -6,6 +6,7 @@ import { discoverServices } from "../discovery/discoverServices.js";
 import { validateServiceManifest } from "../discovery/validateManifest.js";
 import type { PermissionActor } from "../permissions/enforcement.js";
 import type { ServiceManifest } from "../../contracts/service.js";
+import type { DirectChildImporter } from "../release/staged-service-transfer.js";
 
 export interface RemoteServiceRegistrationRequest {
   repo: string;
@@ -291,6 +292,55 @@ async function importVerifiedManifest(input: { servicesRoot: string; manifest: S
     await rollbackOwnedManifest(serviceRoot, targetPath, input.manifestBytes);
     return "unknown";
   }
+}
+
+/**
+ * The #1463 adapter deliberately shares the existing direct-child importer.
+ * The archive is never downloaded here: the only archive input is the byte
+ * object retained and claimed by StagedServiceTransfer.  The dedicated
+ * same-release manifest asset is revalidated independently, because it is not
+ * an archive member and the transfer grammar expressly forbids extraction.
+ */
+export function createStagedReleaseAssetImporter(input: { servicesRoot: string }): DirectChildImporter {
+  return {
+    import: async (claimed) => {
+      if (
+        !/^[a-f0-9]{64}$/.test(claimed.archiveSha256) ||
+        !/^[a-f0-9]{64}$/.test(claimed.manifestSha256) ||
+        !/^[a-f0-9]{40}$/.test(claimed.targetSha) ||
+        !claimed.byteObjectId || !claimed.workspaceId ||
+        claimed.bytes.byteLength < 1 ||
+        createHash("sha256").update(claimed.bytes).digest("hex") !== claimed.archiveSha256
+      ) {
+        return "unknown";
+      }
+
+      let resolved: { manifest: ServiceManifest; manifestBytes: string };
+      try {
+        resolved = await resolveReleasedManifest({
+          repo: claimed.repo,
+          tag: claimed.releaseTag,
+          expectedCommit: claimed.targetSha,
+          expectedManifestSha256: claimed.manifestSha256,
+          idempotencyKey: "staged-importer-source-read",
+        });
+      } catch {
+        return "unknown";
+      }
+
+      if (
+        resolved.manifest.id !== claimed.serviceId ||
+        sha256(resolved.manifestBytes) !== claimed.manifestSha256
+      ) {
+        return "unknown";
+      }
+      return await importVerifiedManifest({
+        servicesRoot: input.servicesRoot,
+        manifest: resolved.manifest,
+        manifestBytes: resolved.manifestBytes,
+      });
+    },
+  };
 }
 
 export function parseRemoteServiceRegistrationRequest(input: unknown): RemoteServiceRegistrationRequest {
