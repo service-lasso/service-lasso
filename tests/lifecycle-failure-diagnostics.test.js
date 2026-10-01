@@ -57,6 +57,27 @@ test("AC-4BJ.9b lifecycle diagnostics project one closed launcher payload bounda
   }
 });
 
+test("stabilized Windows enrollment diagnostics distinguish only closed root and wrapper status", () => {
+  const sensitive = "do-not-retain-node-sample-details";
+  const result = JSON.parse(lifecycleFailureDiagnostic({ error: {
+    failurePhase: "stabilized_tree_inspection",
+    windowsManagedEnrollmentRootStatus: "exited",
+    windowsManagedEnrollmentWrapperStatus: "unverifiable",
+    pid: 424242,
+    command: sensitive,
+    path: sensitive,
+    message: sensitive,
+  } }));
+
+  assert.deepEqual(result.failurePhases, ["stabilized_tree_inspection"]);
+  assert.deepEqual(result.windowsManagedEnrollment, {
+    rootStatus: "exited",
+    wrapperStatus: "unverifiable",
+  });
+  assert.equal(JSON.stringify(result).includes(sensitive), false);
+  assert.equal(JSON.stringify(result).includes("424242"), false);
+});
+
 test("AC-4BJ.9b lifecycle diagnostics project the closed boundary retained in a failed start trace", () => {
   const privateValue = "private-token-path-command";
   const result = JSON.parse(lifecycleFailureDiagnostic({

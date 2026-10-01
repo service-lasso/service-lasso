@@ -1553,6 +1553,19 @@ function probeManagedChildHandle(child: ChildProcess): "owned" | "exited" | "unv
   }
 }
 
+function windowsManagedEnrollmentFailure(
+  serviceId: string,
+  treeRootStatus: "owned" | "exited",
+  wrapperStatus: ReturnType<typeof probeManagedChildHandle>,
+): Error {
+  // These closed classes distinguish the independent ownership witnesses
+  // without retaining a PID, command, path, or native inspector payload.
+  return Object.assign(
+    new Error(`Cannot start managed process "${serviceId}": root exited during ownership enrollment.`),
+    { windowsManagedEnrollmentRootStatus: treeRootStatus, windowsManagedEnrollmentWrapperStatus: wrapperStatus },
+  );
+}
+
 function mergeProcessFingerprints(...groups: ProcessFingerprint[][]): ProcessFingerprint[] {
   const byPid = new Map<number, ProcessFingerprint>();
   for (const identity of groups.flat()) {
@@ -2428,8 +2441,9 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
         });
         record.verifiedMembersOnly ||= initialTree.verifiedMembersOnly;
         record.knownTreeMembers = initialTree.members;
-        if (initialTree.rootStatus !== "owned" || probeManagedChildHandle(child) !== "owned") {
-          throw new Error(`Cannot start managed process "${serviceId}": root exited during ownership enrollment.`);
+        const initialWrapperStatus = probeManagedChildHandle(child);
+        if (initialTree.rootStatus !== "owned" || initialWrapperStatus !== "owned") {
+          throw windowsManagedEnrollmentFailure(serviceId, initialTree.rootStatus, initialWrapperStatus);
         }
         if (windowsManagedLaunchState) {
           startFailurePhase = "launch_file_binding";
@@ -2480,8 +2494,9 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
         const excluded = new Set(stabilizedTree.excludedMemberPids ?? []);
         record.knownTreeMembers = mergeProcessFingerprints(initialTree.members, stabilizedTree.members)
           .filter(member => !excluded.has(member.pid));
-        if (stabilizedTree.rootStatus !== "owned" || probeManagedChildHandle(child) !== "owned") {
-          throw new Error(`Cannot start managed process "${serviceId}": root exited during ownership enrollment.`);
+        const stabilizedWrapperStatus = probeManagedChildHandle(child);
+        if (stabilizedTree.rootStatus !== "owned" || stabilizedWrapperStatus !== "owned") {
+          throw windowsManagedEnrollmentFailure(serviceId, stabilizedTree.rootStatus, stabilizedWrapperStatus);
         }
         startFailurePhase = "launch_state_cleanup";
         await removeWindowsManagedLaunchState(windowsManagedLaunchState);
