@@ -1,11 +1,12 @@
 [CmdletBinding()]
 param(
   [Parameter(Mandatory = $true)]
-  [string]$RunRoot
+  [string]$RunRoot,
+  [Parameter(Mandatory = $true)]
+  [string]$RepoRoot
 )
 
 $ErrorActionPreference = 'Stop'
-$repoRoot = Split-Path -Parent $PSScriptRoot
 $workspaceRoot = Join-Path $RunRoot 'workspace'
 $instanceRegistryPath = Join-Path $RunRoot 'registries\instances.json'
 $hostPortRegistryPath = Join-Path $RunRoot 'registries\ports.json'
