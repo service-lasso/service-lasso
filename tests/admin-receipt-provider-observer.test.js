@@ -28,6 +28,8 @@ test("AC-4BY.2 durable observer writes immutable unresolved custody then an even
     assert.equal(unresolved.state, "UNRESOLVED");
     assert.equal(unresolved.nonce, initial.nonce);
     assert.equal(unresolved.provider.pid, initial.provider.pid);
+    assert.equal(typeof initial.provider.birth, "string");
+    assert.ok(initial.provider.birth.length > 0);
     // This is the explicit adverse fixture interruption: exact provider PID
     // from the immutable initial receipt, never a process-name sweep.
     process.kill(initial.provider.pid, "SIGKILL");

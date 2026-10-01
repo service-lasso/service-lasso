@@ -2,14 +2,16 @@
 // consumer is permitted to time out; this process is not.  It owns the child
 // and both pipes until the kernel reports their terminal close.
 import { createHash, randomBytes } from "node:crypto";
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { mkdir, open, readFile, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 
 const hex40 = /^[0-9a-f]{40}$/u;
 const hex64 = /^[0-9a-f]{64}$/u;
+const execFileAsync = promisify(execFile);
 
 async function exclusiveJson(file, value) {
   const handle = await open(file, "wx", 0o600);
@@ -26,6 +28,20 @@ async function executableIdentity(executable) {
 
 function required(value, matcher) { return typeof value === "string" && matcher.test(value); }
 
+async function observedBirth(pid) {
+  if (!Number.isSafeInteger(pid) || pid < 1) throw new Error("observer_provider_pid_invalid");
+  if (process.platform === "win32") {
+    const { stdout } = await execFileAsync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", `(Get-Process -Id ${pid}).StartTime.ToUniversalTime().ToString('o')`], { windowsHide: true, timeout: 5_000 });
+    const birth = stdout.trim();
+    if (!/^\d{4}-\d{2}-\d{2}T/u.test(birth)) throw new Error("observer_provider_birth_unavailable");
+    return birth;
+  }
+  const { stdout } = await execFileAsync("ps", ["-o", "lstart=", "-p", String(pid)], { timeout: 5_000 });
+  const birth = stdout.trim();
+  if (!birth) throw new Error("observer_provider_birth_unavailable");
+  return birth;
+}
+
 export async function observeProvider(config) {
   if (!config || typeof config !== "object" || !Array.isArray(config.args) || !required(config.command, /.+/u) || !required(config.root, /.+/u)) throw new Error("observer_config_invalid");
   const source = config.source;
@@ -35,10 +51,11 @@ export async function observeProvider(config) {
   const executable = await executableIdentity(config.command);
   const startedAt = new Date().toISOString();
   const child = spawn(config.command, config.args, { cwd: config.cwd, env: config.env, detached: true, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+  const birth = await observedBirth(child.pid);
   const initial = {
     schema: "service-lasso.admin-provider-observer-initial.v1", private: true,
     nonce: config.nonce, source, observer: { pid: process.pid, parentPid: process.ppid, platform: process.platform, arch: process.arch, release: os.release() },
-    provider: { pid: child.pid, parentPid: process.pid, executable }, inputs: config.inputs, startedAt,
+    provider: { pid: child.pid, parentPid: process.pid, birth, executable }, inputs: config.inputs, startedAt,
   };
   await exclusiveJson(path.join(root, "initial.json"), initial);
   const streams = [child.stdout, child.stderr].map(() => ({ bytes: 0, hash: createHash("sha256") }));
