@@ -7,6 +7,20 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+function Get-Sha256Hex {
+  param([Parameter(Mandatory = $true)][string]$Path)
+  $stream = [System.IO.File]::OpenRead($Path)
+  $hasher = [System.Security.Cryptography.SHA256]::Create()
+  try {
+    return ([System.BitConverter]::ToString($hasher.ComputeHash($stream))).Replace('-', '')
+  }
+  finally {
+    $hasher.Dispose()
+    $stream.Dispose()
+  }
+}
+
 $workspaceRoot = Join-Path $RunRoot 'workspace'
 $instanceRegistryPath = Join-Path $RunRoot 'registries\instances.json'
 $hostPortRegistryPath = Join-Path $RunRoot 'registries\ports.json'
@@ -32,7 +46,7 @@ $nativePaths = @(
 )
 $nativeHashes = @{}
 foreach ($relativePath in $nativePaths) {
-  $nativeHashes[$relativePath] = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $repoRoot $relativePath)).Hash
+  $nativeHashes[$relativePath] = Get-Sha256Hex (Join-Path $repoRoot $relativePath)
 }
 
 Push-Location $repoRoot
@@ -77,8 +91,8 @@ try {
     nativeSha256 = $nativeHashes
     stdout = $stdoutPath
     stderr = $stderrPath
-    stdoutSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $stdoutPath).Hash
-    stderrSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $stderrPath).Hash
+    stdoutSha256 = Get-Sha256Hex $stdoutPath
+    stderrSha256 = Get-Sha256Hex $stderrPath
   }
   $finalReceipt | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $finalReceiptPath -Encoding utf8
   exit $actualExitCode
