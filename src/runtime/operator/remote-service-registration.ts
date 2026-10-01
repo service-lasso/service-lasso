@@ -319,6 +319,89 @@ async function importVerifiedManifest(input: { servicesRoot: string; manifest: S
   }
 }
 
+const STAGED_INPUT_DIRECTORY = ".service-lasso";
+const STAGED_INPUT_FILE = "staged-release-input.json";
+
+type StagedReleaseInputAttachment = {
+  schema: "service-lasso.staged-release-input/v1";
+  operationId: string; stageId: string; actorId: string; workspaceId: string; targetServiceId: string;
+  byteObject: { id: string; length: number; sha256: string };
+  release: {
+    id: string; repo: string; tag: string; targetSha: string; assetId: string; assetName: string;
+    archiveType: "zip" | "tar.gz" | "tgz"; manifestAssetId: string | null; checksumAssetId: string | null;
+    manifestSha256: string;
+  };
+};
+
+function stagedInputAttachment(claimed: Omit<Parameters<DirectChildImporter["import"]>[0], "readByteObject" | "manifestBytes">): StagedReleaseInputAttachment {
+  return {
+    schema: "service-lasso.staged-release-input/v1", operationId: claimed.operationId, stageId: claimed.stageId,
+    actorId: claimed.actorId, workspaceId: claimed.workspaceId, targetServiceId: claimed.serviceId,
+    byteObject: { id: claimed.byteObjectId, length: claimed.byteLength, sha256: claimed.archiveSha256 },
+    release: {
+      id: claimed.releaseId, repo: claimed.repo, tag: claimed.releaseTag, targetSha: claimed.targetSha,
+      assetId: claimed.assetId, assetName: claimed.assetName, archiveType: claimed.archiveType,
+      manifestAssetId: claimed.manifestAssetId ?? null, checksumAssetId: claimed.checksumAssetId ?? null,
+      manifestSha256: claimed.manifestSha256,
+    },
+  };
+}
+
+function isSameStagedInputAttachment(value: unknown, expected: StagedReleaseInputAttachment): boolean {
+  return JSON.stringify(value) === JSON.stringify(expected);
+}
+
+async function stagedInputAttachmentPath(servicesRoot: string, serviceId: string): Promise<string | null> {
+  const manifestPath = await isSafeDirectChildManifest(servicesRoot, serviceId);
+  if (!manifestPath) return null;
+  const serviceRoot = path.dirname(manifestPath);
+  const attachmentDirectory = path.join(serviceRoot, STAGED_INPUT_DIRECTORY);
+  try {
+    const directory = await lstat(attachmentDirectory);
+    if (!directory.isDirectory() || directory.isSymbolicLink()) return null;
+    if (path.dirname(await realpath(attachmentDirectory)) !== await realpath(serviceRoot)) return null;
+    const attachmentPath = path.join(attachmentDirectory, STAGED_INPUT_FILE);
+    const attachment = await lstat(attachmentPath);
+    if (!attachment.isFile() || attachment.isSymbolicLink()) return null;
+    return attachmentPath;
+  } catch { return null; }
+}
+
+async function rollbackOwnedStagedImport(serviceRoot: string, manifestPath: string, manifestBytes: string, attachmentPath: string, attachmentBytes: string): Promise<void> {
+  try {
+    if (await readFile(attachmentPath, "utf8") === attachmentBytes) await unlink(attachmentPath);
+    await rmdir(path.dirname(attachmentPath));
+  } catch { /* preserve unprovable retained state for recovery */ }
+  await rollbackOwnedManifest(serviceRoot, manifestPath, manifestBytes);
+}
+
+async function importStagedReleaseAttachment(input: { servicesRoot: string; manifest: ServiceManifest; manifestBytes: string; attachment: StagedReleaseInputAttachment }): Promise<"completed" | "conflict" | "unknown"> {
+  const root = path.resolve(input.servicesRoot);
+  const serviceRoot = path.resolve(root, input.manifest.id);
+  if (path.dirname(serviceRoot) !== root) return "unknown";
+  const manifestPath = path.join(serviceRoot, "service.json");
+  const attachmentDirectory = path.join(serviceRoot, STAGED_INPUT_DIRECTORY);
+  const attachmentPath = path.join(attachmentDirectory, STAGED_INPUT_FILE);
+  const attachmentBytes = `${JSON.stringify(input.attachment)}\n`;
+  try {
+    await mkdir(root, { recursive: true });
+    await mkdir(serviceRoot);
+    await writeFile(manifestPath, input.manifestBytes, { encoding: "utf8", flag: "wx" });
+    await mkdir(attachmentDirectory, { mode: 0o700 });
+    await writeFile(attachmentPath, attachmentBytes, { encoding: "utf8", mode: 0o600, flag: "wx" });
+    const discovered = await discoverServices(root);
+    if (!discovered.some((service) => service.manifest.id === input.manifest.id && service.manifestPath === manifestPath)) {
+      await rollbackOwnedStagedImport(serviceRoot, manifestPath, input.manifestBytes, attachmentPath, attachmentBytes);
+      return "unknown";
+    }
+    return "completed";
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") return "conflict";
+    await rollbackOwnedStagedImport(serviceRoot, manifestPath, input.manifestBytes, attachmentPath, attachmentBytes);
+    return "unknown";
+  }
+}
+
 /**
  * The #1463 adapter deliberately shares the existing direct-child importer.
  * The archive is never downloaded here: the only archive input is the byte
@@ -334,7 +417,7 @@ export function createStagedReleaseAssetImporter(input: { servicesRoot: string }
         !/^[a-f0-9]{64}$/.test(claimed.archiveSha256) ||
         !/^[a-f0-9]{64}$/.test(claimed.manifestSha256) ||
         !/^[a-f0-9]{40}$/.test(claimed.targetSha) ||
-        !claimed.byteObjectId || !claimed.workspaceId ||
+        !claimed.byteObjectId || !claimed.workspaceId || !claimed.actorId || !claimed.stageId || !claimed.operationId ||
          !archiveBytes || archiveBytes.byteLength < 1 || archiveBytes.byteLength !== claimed.byteLength ||
          !claimed.assetId || !claimed.assetName || !["zip", "tar.gz", "tgz"].includes(claimed.archiveType) ||
         !claimed.manifestBytes || claimed.manifestBytes.byteLength < 1 ||
@@ -365,15 +448,16 @@ export function createStagedReleaseAssetImporter(input: { servicesRoot: string }
       ) {
         return "unknown";
       }
-      return await importVerifiedManifest({
+      return await importStagedReleaseAttachment({
         servicesRoot: input.servicesRoot,
         manifest,
         manifestBytes,
+        attachment: stagedInputAttachment(claimed),
       });
     },
     reconcile: async (claimed) => {
       if (
-        !claimed.byteObjectId || !claimed.workspaceId || claimed.byteLength < 1 ||
+        !claimed.byteObjectId || !claimed.workspaceId || !claimed.actorId || !claimed.stageId || !claimed.operationId || claimed.byteLength < 1 ||
          !claimed.assetId || !claimed.assetName || !["zip", "tar.gz", "tgz"].includes(claimed.archiveType) ||
         !/^[a-f0-9]{64}$/.test(claimed.archiveSha256) ||
         !/^[a-f0-9]{64}$/.test(claimed.manifestSha256) ||
@@ -381,9 +465,11 @@ export function createStagedReleaseAssetImporter(input: { servicesRoot: string }
         createHash("sha256").update(claimed.manifestBytes).digest("hex") !== claimed.manifestSha256
       ) return "unknown";
       const target = await isSafeDirectChildManifest(input.servicesRoot, claimed.serviceId);
-      if (!target) return "unknown";
+      const attachmentPath = await stagedInputAttachmentPath(input.servicesRoot, claimed.serviceId);
+      if (!target || !attachmentPath) return "unknown";
       try {
-        return equalBuffer(await readFile(target), claimed.manifestBytes) ? "completed" : "conflict";
+        const attachment = JSON.parse(await readFile(attachmentPath, "utf8")) as unknown;
+        return equalBuffer(await readFile(target), claimed.manifestBytes) && isSameStagedInputAttachment(attachment, stagedInputAttachment(claimed)) ? "completed" : "conflict";
       } catch {
         return "unknown";
       }

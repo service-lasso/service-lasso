@@ -119,12 +119,30 @@ test("staged direct-child importer registers the canonical manifest without down
     let byteObjectReads = 0;
     const result = await createStagedReleaseAssetImporter({ servicesRoot }).import({
       serviceId: "staged-service", readByteObject: (() => { let read = false; return () => { if (read) return null; read = true; byteObjectReads += 1; return Buffer.from(archiveBytes); }; })(), byteObjectId: "sbo_test", byteLength: archiveBytes.length, archiveSha256: archiveDigest,
-      manifestSha256: manifestDigest, releaseId: "1", targetSha: "a".repeat(40), workspaceId: "trusted-workspace",
-      repo: "service-lasso/lasso-node", releaseTag: "v1", assetId: "asset-1", assetName: "staged.zip", archiveType: "zip", manifestBytes: Buffer.from(manifest, "utf8"),
+      manifestSha256: manifestDigest, releaseId: "1", targetSha: "a".repeat(40), workspaceId: "trusted-workspace", actorId: "trusted-actor", stageId: "stg_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", operationId: "sro_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      repo: "service-lasso/lasso-node", releaseTag: "v1", assetId: "asset-1", assetName: "staged.zip", archiveType: "zip", manifestAssetId: "manifest-1", checksumAssetId: "checksum-1", manifestBytes: Buffer.from(manifest, "utf8"),
     });
     assert.equal(result, "completed");
     assert.equal(byteObjectReads, 1, "the child must consume the held archive exactly once");
     assert.equal(await readFile(path.join(servicesRoot, "staged-service", "service.json"), "utf8"), manifest);
+    const attachment = JSON.parse(await readFile(path.join(servicesRoot, "staged-service", ".service-lasso", "staged-release-input.json"), "utf8"));
+    assert.deepEqual(attachment, {
+      schema: "service-lasso.staged-release-input/v1", operationId: "sro_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", stageId: "stg_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", actorId: "trusted-actor", workspaceId: "trusted-workspace", targetServiceId: "staged-service",
+      byteObject: { id: "sbo_test", length: archiveBytes.length, sha256: archiveDigest },
+      release: { id: "1", repo: "service-lasso/lasso-node", tag: "v1", targetSha: "a".repeat(40), assetId: "asset-1", assetName: "staged.zip", archiveType: "zip", manifestAssetId: "manifest-1", checksumAssetId: "checksum-1", manifestSha256: manifestDigest },
+    });
+    const recovered = await createStagedReleaseAssetImporter({ servicesRoot }).reconcile({
+      serviceId: "staged-service", byteObjectId: "sbo_test", byteLength: archiveBytes.length, archiveSha256: archiveDigest,
+      manifestSha256: manifestDigest, releaseId: "1", targetSha: "a".repeat(40), workspaceId: "trusted-workspace", actorId: "trusted-actor", stageId: "stg_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", operationId: "sro_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      repo: "service-lasso/lasso-node", releaseTag: "v1", assetId: "asset-1", assetName: "staged.zip", archiveType: "zip", manifestAssetId: "manifest-1", checksumAssetId: "checksum-1", manifestBytes: Buffer.from(manifest, "utf8"),
+    });
+    assert.equal(recovered, "completed", "recovery must read back the full durable direct-child binding");
+    const contradictory = await createStagedReleaseAssetImporter({ servicesRoot }).reconcile({
+      serviceId: "staged-service", byteObjectId: "sbo_test", byteLength: archiveBytes.length, archiveSha256: archiveDigest,
+      manifestSha256: manifestDigest, releaseId: "1", targetSha: "a".repeat(40), workspaceId: "other-workspace", actorId: "trusted-actor", stageId: "stg_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", operationId: "sro_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      repo: "service-lasso/lasso-node", releaseTag: "v1", assetId: "asset-1", assetName: "staged.zip", archiveType: "zip", manifestAssetId: "manifest-1", checksumAssetId: "checksum-1", manifestBytes: Buffer.from(manifest, "utf8"),
+    });
+    assert.equal(contradictory, "conflict", "workspace binding cannot be reinterpreted during recovery");
     assert.equal(requests.some((url) => url.includes("staged.zip")), false);
   } finally {
     globalThis.fetch = priorFetch;

@@ -30,7 +30,8 @@ export interface ClaimedStageInput {
   serviceId: string; byteObjectId: string; byteLength: number; archiveSha256: string;
   manifestSha256: string; releaseId: string; targetSha: string; workspaceId: string;
   repo: string; releaseTag: string; assetId: string; assetName: string; archiveType: ReleaseArchiveType;
-  manifestAssetId?: string; manifestBytes?: Uint8Array;
+  actorId: string; stageId: string; operationId: string; manifestAssetId?: string;
+  checksumAssetId?: string | null; manifestBytes?: Uint8Array;
   /** The direct child can consume this Core-held object once and cannot substitute it. */
   readByteObject(): Uint8Array | null;
 }
@@ -377,7 +378,7 @@ export class StagedServiceTransfer {
       const manifestBytes = stage.identity.manifestBytes ? Buffer.from(stage.identity.manifestBytes, "base64") : undefined;
       if (manifestBytes && hash(manifestBytes) !== stage.identity.manifestSha256) return null;
       let consumed = false;
-      return { serviceId: stage.identity.targetServiceId, byteObjectId: byteObject.id, byteLength: byteObject.size, archiveSha256: byteObject.sha256, manifestSha256: stage.identity.manifestSha256, releaseId: stage.identity.releaseId, targetSha: stage.identity.commitSha, workspaceId: stage.workspaceId, repo: stage.identity.repo, releaseTag: stage.identity.releaseTag, assetId: stage.identity.assetId, assetName: stage.identity.assetName, archiveType: stage.identity.archiveType, manifestAssetId: stage.identity.manifestAssetId, manifestBytes,
+      return { serviceId: stage.identity.targetServiceId, byteObjectId: byteObject.id, byteLength: byteObject.size, archiveSha256: byteObject.sha256, manifestSha256: stage.identity.manifestSha256, releaseId: stage.identity.releaseId, targetSha: stage.identity.commitSha, workspaceId: stage.workspaceId, actorId: stage.actorId, stageId: stage.id, operationId: journal.operationId, repo: stage.identity.repo, releaseTag: stage.identity.releaseTag, assetId: stage.identity.assetId, assetName: stage.identity.assetName, archiveType: stage.identity.archiveType, manifestAssetId: stage.identity.manifestAssetId, checksumAssetId: stage.identity.checksumAssetId, manifestBytes,
         readByteObject: () => { if (consumed) return null; consumed = true; return Buffer.from(byteObject.bytes, "base64"); },
       };
     });
@@ -400,7 +401,7 @@ export class StagedServiceTransfer {
         !this.sameIdentity(stage.identity, journal.releaseIdentity) || !stage.identity.manifestBytes) return null;
       const manifestBytes = Buffer.from(stage.identity.manifestBytes, "base64");
       if (hash(manifestBytes) !== stage.identity.manifestSha256) return null;
-       return { serviceId: stage.identity.targetServiceId, byteObjectId: byteObject.id, archiveSha256: byteObject.sha256, manifestSha256: stage.identity.manifestSha256, releaseId: stage.identity.releaseId, targetSha: stage.identity.commitSha, workspaceId: stage.workspaceId, repo: stage.identity.repo, releaseTag: stage.identity.releaseTag, assetId: stage.identity.assetId, assetName: stage.identity.assetName, archiveType: stage.identity.archiveType, manifestAssetId: stage.identity.manifestAssetId, byteLength: byteObject.size, manifestBytes };
+       return { serviceId: stage.identity.targetServiceId, byteObjectId: byteObject.id, archiveSha256: byteObject.sha256, manifestSha256: stage.identity.manifestSha256, releaseId: stage.identity.releaseId, targetSha: stage.identity.commitSha, workspaceId: stage.workspaceId, actorId: stage.actorId, stageId: stage.id, operationId: journal.operationId, repo: stage.identity.repo, releaseTag: stage.identity.releaseTag, assetId: stage.identity.assetId, assetName: stage.identity.assetName, archiveType: stage.identity.archiveType, manifestAssetId: stage.identity.manifestAssetId, checksumAssetId: stage.identity.checksumAssetId, byteLength: byteObject.size, manifestBytes };
     });
     if (!input) return;
     let outcome: "completed" | "conflict" | "unknown" = "unknown";
