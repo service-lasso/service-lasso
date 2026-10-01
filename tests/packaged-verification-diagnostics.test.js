@@ -73,18 +73,23 @@ test("real child execution observations are closed and secret-safe", async () =>
   assert.equal(dependencyAcquisitionSubcode(outputLimit), "subprocess_output_limit");
   const spawnFault = await runCommand("service-lasso-1386-missing-command", []).catch(value => value);
   assert.equal(dependencyAcquisitionSubcode(spawnFault), "subprocess_spawn_enoent");
-  for (const error of [timeout, outputLimit, spawnFault]) {
+  const numericExit = await runCommand(process.execPath, ["-e", "process.exit(19)"]).catch(value => value);
+  assert.equal(numericExit.code, 19);
+  assert.equal(dependencyAcquisitionSubcode(numericExit), "subprocess_exit_nonzero");
+  for (const error of [timeout, outputLimit, spawnFault, numericExit]) {
     Object.defineProperty(error, "message", { value: secret });
     const diagnostic = packagedVerificationDiagnostic("dependency_acquisition", undefined, dependencyAcquisitionSubcode(error));
     assert.equal(JSON.stringify(diagnostic).includes(secret), false);
   }
 });
 
-test("real child signal observation is classified only when the host reports it", async (t) => {
+test("real child signal observation is classified only when the host reports it", async () => {
   const observedSignal = await runCommand(process.execPath, ["-e", "process.kill(process.pid, 'SIGTERM')"]).catch(value => value);
   if (observedSignal.signal !== "SIGTERM") {
-    t.diagnostic(`Host did not report SIGTERM from the child: ${process.platform}`);
-    t.skip("The host does not expose this child signal through Node's spawn result.");
+    // Windows reports this fixture as a numeric exit. That remains a nonzero
+    // subprocess result; it is not evidence of an observed signal.
+    assert.equal(typeof observedSignal.code, "number");
+    assert.equal(dependencyAcquisitionSubcode(observedSignal), "subprocess_exit_nonzero");
     return;
   }
   assert.equal(dependencyAcquisitionSubcode(observedSignal), "subprocess_observed_signal_sigterm");

@@ -18,6 +18,7 @@ on:
       - package-lock.json
       - scripts/copy-runtime-assets.mjs
       - scripts/mcp-product-acceptance-lib.mjs
+      - scripts/packaged-verification-diagnostics.mjs
       - scripts/mcp-packaged-consumer-runner.mjs
       - scripts/demo-verify-canonical.mjs
       - scripts/verify-mcp-packaged.mjs
@@ -49,6 +50,7 @@ on:
       - tests/private-json.test.js
       - tests/service-start-trace.test.js
       - tests/operator-mcp*.test.js
+      - tests/packaged-verification-diagnostics.test.js
       - tests/fixtures/current-process-identity-runner.mjs
       - tests/demo-instance.test.js
       - tests/mcp-product-artifact.test.js
@@ -70,6 +72,7 @@ on:
       - package-lock.json
       - scripts/copy-runtime-assets.mjs
       - scripts/mcp-product-acceptance-lib.mjs
+      - scripts/packaged-verification-diagnostics.mjs
       - scripts/mcp-packaged-consumer-runner.mjs
       - scripts/demo-verify-canonical.mjs
       - scripts/verify-mcp-packaged.mjs
@@ -101,6 +104,7 @@ on:
       - tests/private-json.test.js
       - tests/service-start-trace.test.js
       - tests/operator-mcp*.test.js
+      - tests/packaged-verification-diagnostics.test.js
       - tests/fixtures/current-process-identity-runner.mjs
       - tests/demo-instance.test.js
       - tests/mcp-product-artifact.test.js
