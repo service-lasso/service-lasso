@@ -7595,6 +7595,10 @@ async function routeRequest(
 }
 
 export function createApiServer(options: ApiServerOptions = {}): Server {
+  return createApiServerOnCandidate(options);
+}
+
+function createApiServerOnCandidate(options: ApiServerOptions, existingServer?: Server): Server {
   if (options.mcpPolicyTestHooks && process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS !== "1") {
     throw new Error("MCP policy test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
   }
@@ -7629,7 +7633,8 @@ export function createApiServer(options: ApiServerOptions = {}): Server {
     key: randomBytes(32),
   };
 
-  const server: RuntimeApiServer = createServer((request, response) => {
+  const server: RuntimeApiServer = (existingServer ?? createServer()) as RuntimeApiServer;
+  server.on("request", (request, response) => {
     if (request.method === "GET" && request.url === RUNTIME_API_OWNERSHIP_PROBE_PATH) {
       const challenge = firstHeader(request.headers[RUNTIME_API_OWNERSHIP_CHALLENGE_HEADER]);
       if (!ownershipChallenge.active || !challenge) {
@@ -8153,8 +8158,18 @@ async function startApiServerGeneration(
   for (let attempt = 1; attempt <= bindRetryLimit + 1; attempt += 1) {
     let attemptAllocationPlan: RuntimeEndpointAllocationPlan | null = null;
     let candidateServer: Server | null = null;
+    let kernelBoundPort: number | undefined;
     let ownershipRecorded = false;
     try {
+      if (requestedPort === 0 && apiPortPolicy === "automatic" && !recovery.allocationPlan) {
+        candidateServer = createServer();
+        await listenRuntimeApi(candidateServer, 0, bindHost);
+        const candidateAddress = candidateServer.address();
+        if (!candidateAddress || typeof candidateAddress === "string" || candidateAddress.port <= 0) {
+          throw new Error("Automatic runtime API candidate failed to expose a TCP port.");
+        }
+        kernelBoundPort = candidateAddress.port;
+      }
       attemptAllocationPlan = attempt === 1 && recovery.allocationPlan
         ? await claimRuntimeEndpointAllocation(recovery.allocationPlan)
         : await planAndReserveRuntimeEndpoints({
@@ -8166,6 +8181,7 @@ async function startApiServerGeneration(
             advertiseHost: publicHost,
             port: requestedPort,
             policy: apiPortPolicy,
+            kernelBoundPort,
           },
           services: bootModel.discovered,
           generationId: runtimeGenerationId,
@@ -8190,7 +8206,7 @@ async function startApiServerGeneration(
         { completedActions: [`configuration_materialized:${allocationPlan.allocationId}`] },
       );
       await runStartupTransactionPhaseHook(options, transaction.journal);
-      candidateServer = createApiServer({
+      candidateServer = createApiServerOnCandidate({
         ...config,
         host: bindHost,
         autostart: runtimeAutostart,
@@ -8207,7 +8223,7 @@ async function startApiServerGeneration(
         mcpPolicyTestHooks: options.mcpPolicyTestHooks,
         secretRotationTestHooks: options.secretRotationTestHooks,
         runtimeShutdownSlot,
-      });
+      }, candidateServer ?? undefined);
       await recordProcessOwnership(config.workspaceRoot, {
         ownerType: "runtime",
         ownerId: runtimeInstanceId,
@@ -8228,7 +8244,9 @@ async function startApiServerGeneration(
         }
         await options.endpointAllocationTestHooks.beforeApiBind({ attempt, allocationPlan, endpoint: apiEndpoint });
       }
-      await listenRuntimeApi(candidateServer, apiEndpoint.port, bindHost);
+      if (!candidateServer.listening) {
+        await listenRuntimeApi(candidateServer, apiEndpoint.port, bindHost);
+      }
       await proveRuntimeApiSelectorOwnership(candidateServer, apiEndpoint.selectors.url);
       transaction.journal = await advanceStartupTransaction(
         transaction.journal,

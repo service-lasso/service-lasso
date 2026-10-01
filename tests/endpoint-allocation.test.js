@@ -250,6 +250,56 @@ test("host allocation lock prevents concurrent lanes from claiming the same endp
   });
 });
 
+test("a kernel-held automatic API candidate reserves its actual port without a probe-release gap", async () => {
+  await withAllocationEnvironment("service-lasso-allocation-kernel-held-", { start: 30000, end: 30001 }, async (fixture) => {
+    const candidate = net.createServer();
+    candidate.listen(0, "127.0.0.1");
+    await once(candidate, "listening");
+    const address = candidate.address();
+    assert.ok(address && typeof address !== "string");
+    try {
+      const plan = await planAndReserveRuntimeEndpoints({
+        ...planOptions(fixture, [], { port: 0, policy: "automatic", kernelBoundPort: address.port }),
+        probePort: async () => {
+          throw new Error("kernel-held candidate must not be probe-released");
+        },
+      });
+      try {
+        const endpoint = runtimeApiEndpointFromAllocation(plan);
+        assert.equal(endpoint.port, address.port);
+        assert.equal(endpoint.policy, "automatic");
+        assert.equal(endpoint.resolution, "automatic");
+      } finally {
+        await releaseRuntimeEndpointAllocation(plan);
+      }
+    } finally {
+      await new Promise((resolve) => candidate.close(resolve));
+    }
+  });
+});
+
+test("automatic runtime startup records the listening kernel port as its authoritative allocation", async () => {
+  await withAllocationEnvironment("service-lasso-allocation-kernel-startup-", { start: 30002, end: 30003 }, async (fixture) => {
+    const apiServer = await startApiServer({
+      port: 0,
+      servicesRoot: fixture.servicesRoot,
+      workspaceRoot: fixture.workspaceRoot,
+    });
+    try {
+      const address = apiServer.server.address();
+      assert.ok(address && typeof address !== "string");
+      const endpoint = runtimeApiEndpointFromAllocation(apiServer.endpointAllocationPlan);
+      assert.equal(apiServer.port, address.port);
+      assert.equal(endpoint.port, address.port);
+      assert.equal(endpoint.policy, "automatic");
+      assert.equal(endpoint.resolution, "automatic");
+      assert.equal((await fetch(`${apiServer.url}/api/health`)).status, 200);
+    } finally {
+      await apiServer.stop();
+    }
+  });
+});
+
 test("runtime startup consumes one plan and materializes the renegotiated service port", async () => {
   await withAllocationEnvironment("service-lasso-allocation-startup-", { start: 18230, end: 18232 }, async (fixture) => {
     const { serviceRoot } = await writeExecutableFixtureService(fixture.servicesRoot, "echo-service", {

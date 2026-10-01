@@ -55,6 +55,8 @@ export interface RuntimeEndpointAllocationRequest {
   preferredPorts: number[];
   range: { start: number; end: number } | null;
   pinnedPort: number | null;
+  /** A TCP port already held by this runtime attempt's candidate listener. */
+  kernelBoundPort: number | null;
 }
 
 export interface RuntimeResolvedEndpointAllocation {
@@ -130,6 +132,8 @@ export interface RuntimeApiEndpointProposal {
   port: number;
   policy?: RuntimeEndpointAllocationPolicy;
   range?: { start: number; end: number } | null;
+  /** Internal startup hand-off for an automatic API candidate already bound by the kernel. */
+  kernelBoundPort?: number;
 }
 
 export interface PlanRuntimeEndpointAllocationOptions {
@@ -760,6 +764,10 @@ async function buildRequests(options: PlanRuntimeEndpointAllocationOptions): Pro
   const apiHost = normalizeHost(options.api.host);
   const apiAdvertiseHost = normalizeHost(options.api.advertiseHost ?? (isWildcardHost(apiHost) ? DEFAULT_BIND : apiHost));
   const apiPolicy = options.api.policy ?? (options.api.port === 0 ? "automatic" : "preferred");
+  const apiKernelBoundPort = options.api.kernelBoundPort ?? null;
+  if (apiKernelBoundPort !== null && (apiPolicy !== "automatic" || options.api.port !== 0 || !isUsablePort(apiKernelBoundPort))) {
+    throw new Error("A kernel-bound runtime API candidate requires automatic port 0 policy.");
+  }
   const requests: RuntimeEndpointAllocationRequest[] = [{
     ownerType: "runtime",
     ownerId: "runtime-api",
@@ -771,9 +779,12 @@ async function buildRequests(options: PlanRuntimeEndpointAllocationOptions): Pro
     policy: apiPolicy,
     preferredPorts: apiPolicy === "fixed"
       ? uniqueUsablePorts([options.api.port])
-      : uniqueUsablePorts([ledgerPreferences.get("runtime-api:http"), options.api.port]),
+      : apiKernelBoundPort === null
+        ? uniqueUsablePorts([ledgerPreferences.get("runtime-api:http"), options.api.port])
+        : [],
     range: intersectRanges(options.api.range, globalRange),
     pinnedPort: pinned.get("runtime:runtime-api:http") ?? null,
+    kernelBoundPort: apiKernelBoundPort,
   }];
 
   for (const service of options.services) {
@@ -801,6 +812,7 @@ async function buildRequests(options: PlanRuntimeEndpointAllocationOptions): Pro
         preferredPorts,
         range: intersectRanges(endpoint.portRange, globalRange),
         pinnedPort: pinned.get(`service:${service.manifest.id}:${endpoint.id}`) ?? null,
+        kernelBoundPort: null,
       });
     }
   }
@@ -845,6 +857,18 @@ async function allocateRequests(
   const probe = probePort ?? defaultProbePort;
 
   for (const request of requests) {
+    if (request.kernelBoundPort !== null) {
+      if (unavailable(request, request.kernelBoundPort)) {
+        throw new RuntimeEndpointAllocationError(
+          "endpoint_allocation_conflict",
+          request,
+          `Kernel-bound endpoint ${request.ownerId}.${request.endpointId} conflicts at ${request.host}:${request.kernelBoundPort}.`,
+          request.kernelBoundPort,
+        );
+      }
+      resolved.push(allocationFor(request, request.kernelBoundPort, "automatic"));
+      continue;
+    }
     if (request.pinnedPort) {
       if (!inRange(request.pinnedPort, request.range) || unavailable(request, request.pinnedPort)) {
         throw new RuntimeEndpointAllocationError(
