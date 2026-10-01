@@ -506,6 +506,8 @@ export interface ApiServerOptions {
   stagedServiceTransfer?: { resolver: StageResolver; importer: DirectChildImporter };
   /** Owner-approved, persisted producer pins. Without it #1463 remains closed. */
   stagedServiceTransferCatalogPath?: string;
+  /** Trusted Core workspace identity for the actor/workspace quota boundary. */
+  stagedServiceTransferWorkspaceId?: string;
 }
 
 interface RuntimeShutdownSlot {
@@ -550,6 +552,7 @@ interface ApiRouteConfig extends RuntimeConfig {
   runtimeShutdownSlot?: RuntimeShutdownSlot;
   stagedServiceTransfer?: ApiServerOptions["stagedServiceTransfer"];
   stagedServiceTransferCatalogPath?: ApiServerOptions["stagedServiceTransferCatalogPath"];
+  stagedServiceTransferWorkspaceId?: ApiServerOptions["stagedServiceTransferWorkspaceId"];
 }
 
 export interface RunningApiServer {
@@ -7091,7 +7094,9 @@ async function routeRequestWithoutMutationCoordination(
     void authorization; // trusted request-policy authentication remains authoritative.
     const permissionActor = permissionActorFromRuntimeAuth(auth);
     await enforcePermission({ workspaceRoot: config.workspaceRoot, actor: permissionActor, permission: "service:configure", method: request.method ?? "GET", routeTemplate: "/api/v1/service-transfers", subject: "release-asset" });
-    const actor = { id: permissionActor.id, workspaceId: `workspace_${createHash("sha256").update(config.workspaceRoot).digest("hex").slice(0, 24)}`, canConfigure: true };
+    const workspaceId = config.stagedServiceTransferWorkspaceId?.trim();
+    if (!workspaceId) throw new ApiError("registration_unavailable", 503, "Staged transfer workspace authority is unavailable.");
+    const actor = { id: permissionActor.id, workspaceId, canConfigure: true };
     const adapter = config.stagedServiceTransfer ?? {
       resolver: new ServiceProducerReleaseResolver(config.stagedServiceTransferCatalogPath),
       importer: createStagedReleaseAssetImporter({ servicesRoot: config.servicesRoot }),
@@ -7694,6 +7699,7 @@ export function createApiServer(options: ApiServerOptions = {}): Server {
     runtimeShutdownSlot: options.runtimeShutdownSlot,
     stagedServiceTransfer: options.stagedServiceTransfer,
     stagedServiceTransferCatalogPath: options.stagedServiceTransferCatalogPath,
+    stagedServiceTransferWorkspaceId: options.stagedServiceTransferWorkspaceId,
   };
   const workflowRunFacadeState = cloneWorkflowRunFacadeState(options.workflowRunFacadeState ?? exampleWorkflowRunFacadeState);
   const apiRequestTelemetryState = options.apiRequestTelemetryState ?? { requests: [], droppedCount: 0 };
