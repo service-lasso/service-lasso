@@ -1919,8 +1919,11 @@ test("Windows managed launcher rejects missing, oversized, corrupt, and redirect
   const redirectedRoot = path.join(fixtureRoot, "redirected");
   const redirectedPath = path.join(redirectedRoot, "launcher.exe");
 
+  let trustedHandle;
   try {
-    await writeExecutableFixtureService(servicesRoot, "launcher-integrity-service");
+    const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "launcher-integrity-service", {
+      readyFileAfterMs: 0,
+    });
     await Promise.all([
       mkdir(path.dirname(oversizedPath), { recursive: true }),
       mkdir(path.dirname(corruptPath), { recursive: true }),
@@ -1933,6 +1936,29 @@ test("Windows managed launcher rejects missing, oversized, corrupt, and redirect
     await writeFile(path.join(trustedRoot, "launcher.exe"), nativeBytes);
     await symlink(trustedRoot, redirectedRoot, "junction");
     const [service] = await discoverServices(servicesRoot);
+
+    // This exercises the checked-in launcher through the ordinary supervisor
+    // path. The later altered copies prove that this success is bound to the
+    // reviewed binary identity, rather than merely executing a bootstrap.
+    trustedHandle = await startManagedProcess({
+      service,
+      executionPlan: createDirectExecutionPlan(service.manifest),
+      workspaceRoot,
+    });
+    await waitFor(async () => {
+      try {
+        return (await readFile(path.join(serviceRoot, "runtime", "ready.txt"), "utf8")) === "ready";
+      } catch (error) {
+        if (error?.code === "ENOENT") return false;
+        throw error;
+      }
+    }, 5_000);
+    assert.equal(trustedHandle.pid > 0, true);
+    await stopManagedProcess(service.manifest.id, PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS);
+    await waitForProcessesStopped([trustedHandle.pid], PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS);
+    const stoppedOwnership = await findProcessOwnership(workspaceRoot, "service", service.manifest.id);
+    assert.equal(stoppedOwnership?.lifecycleState, "stopped");
+    assert.equal(stoppedOwnership?.pid, null);
 
     for (const launcherPath of [missingPath, oversizedPath, corruptPath, redirectedPath]) {
       setWindowsManagedLauncherPathForTests(launcherPath);
@@ -1947,10 +1973,16 @@ test("Windows managed launcher rejects missing, oversized, corrupt, and redirect
           return true;
         },
       );
-      assert.equal(await findProcessOwnership(workspaceRoot, "service", service.manifest.id), null);
+      const retainedOwnership = await findProcessOwnership(workspaceRoot, "service", service.manifest.id);
+      assert.equal(retainedOwnership?.lifecycleState, stoppedOwnership?.lifecycleState);
+      assert.equal(retainedOwnership?.pid, stoppedOwnership?.pid);
+      assert.deepEqual(retainedOwnership?.processGroup, stoppedOwnership?.processGroup);
+      assert.equal(retainedOwnership?.identityStatus, stoppedOwnership?.identityStatus);
       assert.equal(hasManagedProcess(service.manifest.id), false);
     }
   } finally {
+    await stopManagedProcess("launcher-integrity-service", PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS).catch(() => null);
+    forceCleanupProcesses([trustedHandle?.pid]);
     setWindowsManagedLauncherPathForTests(null);
     if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
     else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;

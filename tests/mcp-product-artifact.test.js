@@ -590,7 +590,12 @@ test("#864 retained evidence verifies downloaded content, exact SHA, three OSes,
     assert.match(packagedVerifier, /installedManagedLauncherNative[\s\S]*?reviewedManagedLauncherNativeProvenance/u);
     assert.match(packagedVerifier, /requirePathAbsent[\s\S]*?Retired installed PowerShell launcher/u);
     const supervisorSource = await readFile("src/runtime/execution/supervisor.ts", "utf8");
-    assert.match(supervisorSource, /windows-managed-launcher-native\.exe[\s\S]*?1c9f73d04f67c9c10ead8aa8e0a986e88506ad0479508ce49b4e5acf88201abb/u);
+    const runtimeBinding = supervisorSource.match(
+      /WINDOWS_MANAGED_LAUNCHER_BYTES\s*=\s*([0-9_]+);[\s\S]*?WINDOWS_MANAGED_LAUNCHER_SHA256\s*=\s*"([0-9a-f]{64})"/u,
+    );
+    assert.ok(runtimeBinding, "supervisor must bind the native launcher size and SHA-256 before spawning it");
+    assert.equal(Number(runtimeBinding[1].replaceAll("_", "")), managedLauncherNativeProvenance.binary.byteLength);
+    assert.equal(runtimeBinding[2], managedLauncherNativeProvenance.binary.sha256);
     assert.match(supervisorSource, /assertWindowsManagedLauncherIntegrity[\s\S]*?lstat[\s\S]*?realpath[\s\S]*?open[\s\S]*?handle\.stat[\s\S]*?handle\.readFile[\s\S]*?WINDOWS_MANAGED_LAUNCHER_SHA256/u);
     assert.match(supervisorSource, /verifyWindowsManagedLauncherIntegrity[\s\S]*?withProcessControlDeadline[\s\S]*?createWindowsManagedLaunchState[\s\S]*?verifyWindowsManagedLauncherIntegrity\(windowsManagedLaunchState\.launcherExecutable\)[\s\S]*?managedProcessSpawner/u);
     assert.match(supervisorSource, /isWindowsLoaderSensitiveEnvironmentName[\s\S]*?COR_[\s\S]*?CORECLR_[\s\S]*?COMPLUS_[\s\S]*?APPDOMAIN_MANAGER[\s\S]*?targetEnvironmentOverrides/u);
