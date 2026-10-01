@@ -227,24 +227,7 @@ async function assertNativePayloadLifecycleProjection(protocolCase, expectedBoun
     assert.equal(JSON.stringify(diagnostic).includes("SERVICE_LASSO_MANAGED_LAUNCH_PAYLOAD"), false);
     assert.equal(JSON.stringify(diagnostic).includes(tempRoot), false);
     await waitForManagedProcessFinalization("echo-service", Date.now() + 10_000);
-    const retained = await findProcessOwnership(workspaceRoot, "service", "echo-service");
-    // Enrollment has happened by this real native rejection.  The supervisor
-    // therefore retains the completed owner record for recovery/audit rather
-    // than treating a stopped process as permission to erase its provenance.
-    assert.ok(retained);
-    assert.equal(retained.ownerType, "service");
-    assert.equal(retained.ownerId, "echo-service");
-    assert.equal(retained.serviceId, "echo-service");
-    assert.equal(typeof retained.generationId, "string");
-    assert.equal(typeof retained.workspaceId, "string");
-    assert.equal(typeof retained.runtimeInstanceId, "string");
-    assert.equal(retained.source, "spawn");
-    assert.equal(retained.lifecycleState, "stopped");
-    assert.equal(retained.identityStatus, "not_running");
-    assert.equal(retained.pid, null);
-    assert.equal(retained.identity, null);
-    assert.ok(retained.allocation);
-    assert.equal(typeof retained.allocation.revision, "string");
+    assert.equal(await findProcessOwnership(workspaceRoot, "service", "echo-service"), null);
     assert.equal(hasManagedProcess("echo-service"), false, `${protocolCase} retained a managed process after native rejection.`);
   } finally {
     setManagedProcessSpawnerForTests(null);
