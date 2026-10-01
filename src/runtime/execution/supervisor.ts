@@ -233,9 +233,44 @@ class RuntimeLogFinalizationUnknownError extends Error {
   }
 }
 
+const MAX_FINALIZATION_ERROR_DEPTH = 8;
+const MAX_FINALIZATION_ERROR_MEMBERS = 16;
+const SAFE_FINALIZATION_ERROR_CODES = new Set([
+  "EFINALIZE_TEST",
+  "PROCESS_CONTROL_DEADLINE_EXCEEDED",
+]);
+
+function visitBoundedFinalizationErrors(
+  error: unknown,
+  visit: (candidate: unknown) => boolean,
+): boolean {
+  const visited = new WeakSet<object>();
+  let visitedMembers = 0;
+
+  const walk = (candidate: unknown, depth: number): boolean => {
+    if (candidate !== null && typeof candidate === "object") {
+      if (visited.has(candidate)) return false;
+      visited.add(candidate);
+    }
+    if (visit(candidate)) return true;
+    if (!(candidate instanceof AggregateError) || depth >= MAX_FINALIZATION_ERROR_DEPTH || !Array.isArray(candidate.errors)) {
+      return false;
+    }
+    for (const nested of candidate.errors) {
+      if (visitedMembers >= MAX_FINALIZATION_ERROR_MEMBERS) return false;
+      visitedMembers += 1;
+      if (walk(nested, depth + 1)) return true;
+    }
+    return false;
+  };
+
+  return walk(error, 0);
+}
+
 function containsTerminalManagedProcessFinalizationError(error: unknown): boolean {
-  if (error instanceof TerminalManagedProcessFinalizationError) return true;
-  return error instanceof AggregateError && error.errors.some(containsTerminalManagedProcessFinalizationError);
+  return visitBoundedFinalizationErrors(error, (candidate) => (
+    candidate instanceof TerminalManagedProcessFinalizationError
+  ));
 }
 
 interface StartProcessOptions {
@@ -458,22 +493,42 @@ export function registerManagedProcessShutdownQuiescer(
 }
 
 function safeFinalizationErrorCode(error: unknown, fallback: string): string {
-  if (error && typeof error === "object" && "code" in error && typeof error.code === "string") {
-    const normalized = error.code.trim().toUpperCase();
-    if (/^[A-Z0-9_]{1,64}$/.test(normalized)) {
-      return normalized;
+  let projectedCode = fallback;
+  visitBoundedFinalizationErrors(error, (candidate) => {
+    if (candidate && typeof candidate === "object" && "code" in candidate && typeof candidate.code === "string") {
+      const normalized = candidate.code.trim().toUpperCase();
+      if (SAFE_FINALIZATION_ERROR_CODES.has(normalized)) {
+        projectedCode = normalized;
+        return true;
+      }
     }
-  }
-  if (error instanceof Error && error.message.startsWith("Timed out waiting for workspace lifecycle lock:")) {
-    return "WORKSPACE_LOCK_TIMEOUT";
-  }
-  if (error instanceof AggregateError) {
-    for (const nestedError of error.errors) {
-      const nestedCode = safeFinalizationErrorCode(nestedError, fallback);
-      if (nestedCode !== fallback) return nestedCode;
+    if (candidate instanceof Error && candidate.message.startsWith("Timed out waiting for workspace lifecycle lock:")) {
+      projectedCode = "WORKSPACE_LOCK_TIMEOUT";
+      return true;
     }
+    return false;
+  });
+  return projectedCode;
+}
+
+export function projectManagedProcessFinalizationErrorForTests(
+  error: unknown,
+  fallback: string,
+): { code: string; terminal: boolean } {
+  if (process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS !== "1") {
+    throw new Error("Managed process finalization test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
   }
-  return fallback;
+  return {
+    code: safeFinalizationErrorCode(error, fallback),
+    terminal: containsTerminalManagedProcessFinalizationError(error),
+  };
+}
+
+export function createTerminalManagedProcessFinalizationErrorForTests(): Error {
+  if (process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS !== "1") {
+    throw new Error("Managed process finalization test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
+  }
+  return new TerminalManagedProcessFinalizationError();
 }
 
 async function withSerializedWorkspaceFinalization<T>(workspaceRoot: string, action: () => Promise<T>): Promise<T> {

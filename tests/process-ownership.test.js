@@ -28,10 +28,12 @@ import { MAX_LIFECYCLE_ARRAY_LENGTH } from "../dist/runtime/state/lifecycle-pers
 import { startApiServer } from "../dist/server/index.js";
 import {
   adoptManagedProcess,
+  createTerminalManagedProcessFinalizationErrorForTests,
   filterWindowsManagedLauncherProgressLineForTests,
   hasManagedProcess,
   managedProcessStartFailurePhase,
   ManagedProcessEnrollmentContainmentError,
+  projectManagedProcessFinalizationErrorForTests,
   setManagedProcessAfterReleaseHookForTests,
   setManagedProcessEnrollmentHookForTests,
   setManagedProcessFilesBoundHookForTests,
@@ -4553,6 +4555,66 @@ test("whole-runtime shutdown reports safe service, pid, and finalization phase o
     forceCleanupProcesses([handle?.pid]);
     resetLifecycleState();
     await removeTempRoot(tempRoot);
+  }
+});
+
+test("finalization diagnostics bound cyclic aggregate traversal and retain only closed codes", () => {
+  const priorTestHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+  process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
+  try {
+    const nested = new Error("sensitive nested finalizer detail");
+    nested.code = "EFINALIZE_TEST";
+    const preserved = projectManagedProcessFinalizationErrorForTests(
+      new AggregateError([new AggregateError([nested], "sensitive wrapper")], "sensitive aggregate"),
+      "FINALIZER_FAILED",
+    );
+    assert.deepEqual(preserved, { code: "EFINALIZE_TEST", terminal: false });
+
+    const cyclic = new AggregateError([], "sensitive cycle");
+    cyclic.errors.push(cyclic);
+    assert.deepEqual(
+      projectManagedProcessFinalizationErrorForTests(cyclic, "FINALIZER_FAILED"),
+      { code: "FINALIZER_FAILED", terminal: false },
+    );
+
+    const mutualLeft = new AggregateError([], "sensitive left");
+    const mutualRight = new AggregateError([mutualLeft], "sensitive right");
+    mutualLeft.errors.push(mutualRight);
+    assert.deepEqual(
+      projectManagedProcessFinalizationErrorForTests(mutualLeft, "FINALIZER_FAILED"),
+      { code: "FINALIZER_FAILED", terminal: false },
+    );
+
+    const terminal = createTerminalManagedProcessFinalizationErrorForTests();
+    const terminalCycle = new AggregateError([terminal], "sensitive terminal aggregate");
+    terminalCycle.errors.push(terminalCycle);
+    assert.deepEqual(
+      projectManagedProcessFinalizationErrorForTests(terminalCycle, "FINALIZER_FAILED"),
+      { code: "FINALIZER_FAILED", terminal: true },
+    );
+
+    let overDepth = new AggregateError([{ code: "PRIVATE_NESTED_CODE", message: "sensitive deepest detail" }], "sensitive leaf");
+    for (let depth = 0; depth <= 8; depth += 1) {
+      overDepth = new AggregateError([overDepth], "sensitive wrapper");
+    }
+    assert.deepEqual(
+      projectManagedProcessFinalizationErrorForTests(overDepth, "FINALIZER_FAILED"),
+      { code: "FINALIZER_FAILED", terminal: false },
+    );
+
+    const wide = new AggregateError(
+      Array.from({ length: 17 }, (_, index) => index === 16
+        ? { code: "PRIVATE_NESTED_CODE", message: "sensitive wide detail" }
+        : new Error("sensitive padding")),
+      "sensitive wide aggregate",
+    );
+    assert.deepEqual(
+      projectManagedProcessFinalizationErrorForTests(wide, "FINALIZER_FAILED"),
+      { code: "FINALIZER_FAILED", terminal: false },
+    );
+  } finally {
+    if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+    else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
   }
 });
 
