@@ -50,6 +50,29 @@ async function sha256File(filePath) {
     .digest("hex")}`;
 }
 
+const PRELAUNCH_ASSET_PATHS = [
+  "tests/fixtures/real-admin-browser-runner.mjs",
+  "tests/fixtures/real-admin-browser-shutdown.mjs",
+  "tests/fixtures/real-admin-browser-rollback.mjs",
+];
+
+async function observePrelaunchAssets(sourceRoot) {
+  return Promise.all(
+    PRELAUNCH_ASSET_PATHS.map(async (literalPath) => {
+      const assetPath = path.join(sourceRoot, ...literalPath.split("/"));
+      const metadata = await lstat(assetPath);
+      if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.size < 1) {
+        throw new Error("Prelaunch asset identity is unavailable.");
+      }
+      return {
+        literalPath,
+        size: metadata.size,
+        sha256: await sha256File(assetPath),
+      };
+    }),
+  );
+}
+
 async function observeOwnedProcess(pid, expectedParentPid) {
   let observed;
   if (process.platform === "win32") {
@@ -158,7 +181,13 @@ for (const [left, right] of [
 }
 
 const runnerIdentity = await observeOwnedProcess(process.pid, process.ppid);
+const runnerPath = path.resolve(process.argv[1] ?? "");
+const sourceRoot = path.resolve(path.dirname(runnerPath), "..", "..");
+if (runnerPath !== path.join(sourceRoot, ...PRELAUNCH_ASSET_PATHS[0].split("/"))) {
+  throw new Error("Runner must execute from its fixed qualification fixture path.");
+}
 const initialReceiptPath = path.join(evidenceRoot, "live-initial-receipt.json");
+const prelaunchReceiptPath = path.join(evidenceRoot, "live-prelaunch-receipt.json");
 const readyReceiptPath = path.join(evidenceRoot, "live-ready-receipt.json");
 const closureReceiptPath = path.join(evidenceRoot, "live-closure-receipt.json");
 const providerReceiptPath = path.join(
@@ -189,6 +218,7 @@ async function createPrivateReceipt(filePath, receipt) {
 }
 
 for (const receiptPath of [
+  prelaunchReceiptPath,
   initialReceiptPath,
   readyReceiptPath,
   closureReceiptPath,
@@ -198,11 +228,27 @@ for (const receiptPath of [
   await requireAbsentPrivateReceipt(receiptPath);
 }
 const receiptNonce = randomBytes(32).toString("hex");
+const runtimeInputs = Object.freeze({ workspaceRoot, servicesRoot });
+const prelaunchReceipt = {
+  schema: "service-lasso.real-admin-browser-live-prelaunch.v1",
+  private: true,
+  nonce: receiptNonce,
+  source: { head: sourceHead, tree: sourceTree },
+  runtimeInputs,
+  runner: {
+    birthObserved: true,
+    parentEdgeObserved: true,
+    nativeIdentityObserved: true,
+  },
+  assets: await observePrelaunchAssets(sourceRoot),
+};
+await createPrivateReceipt(prelaunchReceiptPath, prelaunchReceipt);
 const initialReceipt = {
   schema: "service-lasso.real-admin-browser-live-initial.v1",
   private: true,
   nonce: receiptNonce,
   source: { head: sourceHead, tree: sourceTree },
+  runtimeInputs,
   inputs: {
     workspaceRoot,
     instanceRegistryPath,
@@ -220,6 +266,12 @@ const initialReceipt = {
   ownedProcesses: { runner: runnerIdentity },
 };
 await createPrivateReceipt(initialReceiptPath, initialReceipt);
+
+if (process.env.SERVICE_LASSO_TEST_PRELAUNCH_ONLY === "1") {
+  process.send?.({ type: "prelaunch-ready" });
+  setInterval(() => {}, 1_000);
+  await new Promise(() => {});
+}
 
 // Validate explicit caller custody before importing Core runtime or fixture
 // helpers. This runner has no temp-root fallback for the three live Core
@@ -1086,6 +1138,8 @@ try {
       liveReceipt: {
         schema: readyReceipt.schema,
         nonce: receiptNonce,
+        prelaunchPath: prelaunchReceiptPath,
+        prelaunchSHA256: await sha256File(prelaunchReceiptPath),
         initialPath: initialReceiptPath,
         initialSHA256: initialReceiptSHA256,
         readyPath: readyReceiptPath,

@@ -1,13 +1,11 @@
 import { access, rm } from "node:fs/promises";
 
 const DEFAULT_ADMIN_GRACEFUL_EXIT_TIMEOUT_MS = 5_000;
-const DEFAULT_ADMIN_FORCED_EXIT_TIMEOUT_MS = 5_000;
 const DEFAULT_SERVER_CLOSE_TIMEOUT_MS = 5_000;
 const DEFAULT_TEMP_CLEANUP_TIMEOUT_MS = 90_000;
 
 const SAFE_TEARDOWN_PHASES = new Set([
   "admin_terminate",
-  "admin_force_kill",
   "admin_exit_wait",
   "api_server_stop",
   "managed_process_convergence",
@@ -86,27 +84,7 @@ async function stopAdminProcess(child, timeouts) {
     );
   }
 
-  const forcedExit = waitForChildExit(child, timeouts.adminForcedExitTimeoutMs);
-  try {
-    if (!child.kill("SIGKILL") && !childHasExited(child)) {
-      failures.push(
-        safeFailure("admin_force_kill", null, "admin_force_kill_failed"),
-      );
-    }
-  } catch (error) {
-    failures.push(
-      safeFailure("admin_force_kill", error, "admin_force_kill_failed"),
-    );
-  }
-  try {
-    if (!(await forcedExit)) {
-      failures.push(safeFailure("admin_exit_wait", null, "admin_exit_timeout"));
-    }
-  } catch (error) {
-    failures.push(
-      safeFailure("admin_exit_wait", error, "admin_exit_wait_failed"),
-    );
-  }
+  failures.push(safeFailure("admin_exit_wait", null, "admin_exit_timeout"));
   return { exited: childHasExited(child), failures };
 }
 
@@ -207,7 +185,6 @@ export async function teardownRealAdminBrowserFixture({
 }) {
   const timeouts = {
     adminGracefulExitTimeoutMs: DEFAULT_ADMIN_GRACEFUL_EXIT_TIMEOUT_MS,
-    adminForcedExitTimeoutMs: DEFAULT_ADMIN_FORCED_EXIT_TIMEOUT_MS,
     serverCloseTimeoutMs: DEFAULT_SERVER_CLOSE_TIMEOUT_MS,
     tempCleanupTimeoutMs: DEFAULT_TEMP_CLEANUP_TIMEOUT_MS,
     ...timeoutOverrides,

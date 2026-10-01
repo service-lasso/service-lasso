@@ -72,6 +72,27 @@ function waitForReady(child, timeoutMs = 5_000) {
   });
 }
 
+function waitForPrelaunchReady(child, timeoutMs = 5_000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error("Shutdown runner prelaunch readiness timed out.")),
+      timeoutMs,
+    );
+    const onMessage = (message) => {
+      if (message?.type !== "prelaunch-ready") return;
+      clearTimeout(timer);
+      child.off("message", onMessage);
+      resolve();
+    };
+    child.on("message", onMessage);
+    child.once("error", (error) => {
+      clearTimeout(timer);
+      child.off("message", onMessage);
+      reject(error);
+    });
+  });
+}
+
 function waitForExit(child, timeoutMs = 10_000) {
   if (child.exitCode !== null || child.signalCode !== null) {
     return Promise.resolve({
@@ -163,6 +184,34 @@ function processIsRunning(pid) {
   }
 }
 
+async function observeExternalOwnedProcess(pid, expectedParentPid) {
+  if (process.platform === "win32") {
+    const command = `Get-CimInstance Win32_Process -Filter "ProcessId = ${pid}" | Select-Object ProcessId,ParentProcessId,CreationDate,ExecutablePath | ConvertTo-Json -Compress`;
+    const observed = JSON.parse(
+      execFileSync(
+        "powershell.exe",
+        ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command],
+        { encoding: "utf8", windowsHide: true },
+      ),
+    );
+    assert.equal(observed.ProcessId, pid);
+    assert.equal(observed.ParentProcessId, expectedParentPid);
+    assert.equal(typeof observed.CreationDate, "string");
+    assert.ok(observed.CreationDate.length > 0);
+    assert.equal(typeof observed.ExecutablePath, "string");
+    assert.ok(observed.ExecutablePath.length > 0);
+    return { birth: observed.CreationDate, executable: observed.ExecutablePath };
+  }
+  const observed = execFileSync(
+    "ps",
+    ["-o", "ppid=", "-o", "lstart=", "-o", "comm=", "-p", String(pid)],
+    { encoding: "utf8" },
+  ).trim().match(/^(\d+)\s+(.+\S)\s+(\S+)$/u);
+  assert.ok(observed);
+  assert.equal(Number(observed[1]), expectedParentPid);
+  return { birth: observed[2], executable: observed[3] };
+}
+
 function hasListener(port) {
   return new Promise((resolve) => {
     const socket = net.createConnection({ host: "127.0.0.1", port });
@@ -174,7 +223,7 @@ function hasListener(port) {
   });
 }
 
-async function startActualRealBrowserRunner() {
+async function startActualRealBrowserRunner({ prelaunchOnly = false } = {}) {
   const fixtureRoot = await mkdtemp(
     path.join(os.tmpdir(), "service-lasso-real-admin-signal-"),
   );
@@ -211,6 +260,7 @@ async function startActualRealBrowserRunner() {
       SERVICE_LASSO_TEST_SUPPORT_ROOT: supportRoot,
       SERVICE_LASSO_TEST_SOURCE_HEAD: sourceHead,
       SERVICE_LASSO_TEST_SOURCE_TREE: sourceTree,
+      ...(prelaunchOnly ? { SERVICE_LASSO_TEST_PRELAUNCH_ONLY: "1" } : {}),
     },
     stdio: ["ignore", "pipe", "pipe", "ipc"],
     windowsHide: true,
@@ -218,33 +268,53 @@ async function startActualRealBrowserRunner() {
   return { child, fixtureRoot, evidenceRoot };
 }
 
-test("real Admin browser runner records received OS signals as interrupted closure", async (t) => {
+test("external observer retains hard-interrupt custody after the runner cannot handle the OS signal", async (t) => {
   for (const signal of ["SIGTERM", "SIGINT"]) {
     await t.test(signal, async () => {
-      const { child, fixtureRoot, evidenceRoot } = await startActualRealBrowserRunner();
+      const { child, fixtureRoot, evidenceRoot } = await startActualRealBrowserRunner({
+        prelaunchOnly: true,
+      });
       const stderrText = captureBoundedText(child.stderr);
       let closed = null;
       try {
-        await waitForRealBrowserReady(child, 60_000);
+        await waitForPrelaunchReady(child);
+        const identity = await observeExternalOwnedProcess(child.pid, process.pid);
         assert.equal(child.kill(signal), true);
         closed = await waitForExit(child, 30_000);
-        if (process.platform === "win32") {
-          assert.equal(closed.code, null, stderrText());
-          assert.equal(closed.signal, signal, stderrText());
-          await assert.rejects(
-            access(path.join(evidenceRoot, "live-closure-receipt.json")),
-            (error) => error?.code === "ENOENT",
-          );
-          return;
-        }
-        assert.equal(closed.code, 1, stderrText());
-        assert.equal(closed.signal, null, stderrText());
-        const closure = JSON.parse(await readFile(path.join(evidenceRoot, "live-closure-receipt.json"), "utf8"));
-        assert.equal(closure.outcome, "interrupted");
-        assert.deepEqual(closure.termination, { trigger: "signal", signal, exitCode: 1 });
+        const internalClosure = await readFile(
+          path.join(evidenceRoot, "live-closure-receipt.json"),
+          "utf8",
+        ).then((source) => JSON.parse(source), () => null);
+        await writeFile(
+          path.join(evidenceRoot, "external-interrupt-receipt.json"),
+          JSON.stringify({
+            schema: "service-lasso.real-admin-browser-external-interrupt.v1",
+            outcome: internalClosure?.outcome === "interrupted" ? "interrupted" : "unresolved",
+            observer: {
+              ownedBirthObserved: typeof identity.birth === "string",
+              processChainObserved: true,
+              nativeIdentityObserved: typeof identity.executable === "string",
+            },
+            termination: { signal, exitCode: closed.code, exitSignal: closed.signal },
+          }),
+          { flag: "wx", mode: 0o600 },
+        );
+        const externalReceipt = JSON.parse(
+          await readFile(path.join(evidenceRoot, "external-interrupt-receipt.json"), "utf8"),
+        );
+        assert.ok(
+          externalReceipt.termination.exitSignal !== null ||
+            externalReceipt.termination.exitCode !== null,
+          stderrText(),
+        );
+        assert.equal(externalReceipt.observer.ownedBirthObserved, true);
+        assert.equal(externalReceipt.observer.processChainObserved, true);
+        assert.equal(externalReceipt.observer.nativeIdentityObserved, true);
+        assert.equal(internalClosure, null);
       } finally {
-        if (!closed && child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
-        await rm(fixtureRoot, { recursive: true, force: true });
+        // Prelaunch-only mode has no imported runtime or descendants. Cleanup
+        // follows the observed direct-child close, never a PID sweep.
+        if (closed) await rm(fixtureRoot, { recursive: true, force: true });
       }
     });
   }
@@ -382,14 +452,43 @@ test("real Admin browser runner reaches first-run readiness with its dynamically
     const initialReceipt = JSON.parse(
       await readFile(ready.liveReceipt.initialPath, "utf8"),
     );
+    const prelaunchReceipt = JSON.parse(
+      await readFile(ready.liveReceipt.prelaunchPath, "utf8"),
+    );
+    assert.equal(prelaunchReceipt.source.head, sourceHead);
+    assert.deepEqual(prelaunchReceipt.runtimeInputs, {
+      workspaceRoot,
+      servicesRoot,
+    });
+    assert.equal(prelaunchReceipt.runner.birthObserved, true);
+    assert.equal(prelaunchReceipt.runner.parentEdgeObserved, true);
+    assert.equal(prelaunchReceipt.runner.nativeIdentityObserved, true);
+    assert.deepEqual(
+      prelaunchReceipt.assets.map(({ literalPath }) => literalPath),
+      [
+        "tests/fixtures/real-admin-browser-runner.mjs",
+        "tests/fixtures/real-admin-browser-shutdown.mjs",
+        "tests/fixtures/real-admin-browser-rollback.mjs",
+      ],
+    );
+    for (const asset of prelaunchReceipt.assets) {
+      assert.match(asset.sha256, /^sha256:[a-f0-9]{64}$/);
+      assert.ok(Number.isSafeInteger(asset.size) && asset.size > 0);
+    }
+    assert.match(ready.liveReceipt.prelaunchSHA256, /^sha256:[a-f0-9]{64}$/);
     assert.equal(initialReceipt.source.head, sourceHead);
     assert.equal(initialReceipt.source.tree, sourceTree);
+    assert.deepEqual(initialReceipt.runtimeInputs, {
+      workspaceRoot,
+      servicesRoot,
+    });
     assert.equal(initialReceipt.ownedProcesses.runner.pid, child.pid);
     assert.match(ready.liveReceipt.initialSHA256, /^sha256:[a-f0-9]{64}$/);
     const readyReceipt = JSON.parse(
       await readFile(ready.liveReceipt.readyPath, "utf8"),
     );
     assert.equal(readyReceipt.ownedProcesses.admin.parentPid, child.pid);
+    assert.deepEqual(readyReceipt.runtimeInputs, initialReceipt.runtimeInputs);
     assert.equal(readyReceipt.ownerCorrelation.state, "observed");
     assert.match(ready.liveReceipt.readySHA256, /^sha256:[a-f0-9]{64}$/);
 
@@ -496,7 +595,7 @@ test("real Admin browser runner reaches first-run readiness with its dynamically
   }
 });
 
-test("real Admin browser runner waits for forced Admin exit and late managed finalization before cleanup", async () => {
+test("real Admin browser runner waits for normal Admin exit and late managed finalization before cleanup", async () => {
   const evidenceRoot = await mkdtemp(
     path.join(os.tmpdir(), "service-lasso-runner-shutdown-evidence-"),
   );
@@ -541,7 +640,7 @@ test("real Admin browser runner waits for forced Admin exit and late managed fin
     );
     assert.equal(managedEvidence.outcome, "managed_child_exited");
     assert.equal(adminEvidence.outcome, "admin_exited");
-    assert.deepEqual(adminEvidence.signals, ["SIGTERM", "SIGKILL"]);
+    assert.deepEqual(adminEvidence.signals, ["SIGTERM"]);
     assert.ok(managedEvidence.completedAt <= closed.completedAt);
     assert.ok(adminEvidence.completedAt <= closed.completedAt);
     assert.equal(processIsRunning(ready.managedPid), false);
@@ -563,15 +662,9 @@ test("real Admin browser runner waits for forced Admin exit and late managed fin
       "teardown_completed",
     ]);
   } finally {
-    if (!closed && child.exitCode === null && child.signalCode === null)
-      child.kill("SIGKILL");
-    if (ready?.managedPid && processIsRunning(ready.managedPid))
-      process.kill(ready.managedPid, "SIGKILL");
-    if (ready?.adminPid && processIsRunning(ready.adminPid))
-      process.kill(ready.adminPid, "SIGKILL");
-    if (ready?.tempRoot)
+    if (closed && ready?.tempRoot)
       await rm(ready.tempRoot, { recursive: true, force: true });
-    await rm(evidenceRoot, { recursive: true, force: true });
+    if (closed) await rm(evidenceRoot, { recursive: true, force: true });
   }
 });
 
