@@ -372,35 +372,92 @@ function fixtureSettlementReceipt({
   });
 }
 
+// The public receipt is deliberately finite and safe to persist.  The original
+// errors remain available only to this fixture so an assertion or lifecycle
+// failure can never be replaced by an attractive-looking receipt.
+const fixtureSettlementErrorCustody = new WeakMap();
+const fixtureRemovalAuthority = new WeakMap();
+const fixtureSettlementReceiptByError = new WeakMap();
+
+function sameProcessIdentity(left, right) {
+  return left?.pid === right?.pid
+    && left?.createdAt === right?.createdAt
+    && left?.executablePath === right?.executablePath
+    && left?.commandHash === right?.commandHash;
+}
+
+async function persistFixtureSettlementReceipt(service, receipt) {
+  const receiptPath = path.join(service.serviceRoot, ".state", "fixture-settlement-receipt.json");
+  await mkdir(path.dirname(receiptPath), { recursive: true });
+  await writeFile(receiptPath, `${JSON.stringify(receipt)}\n`, "utf8");
+}
+
+async function retainFixtureSettlement(service, receipt, errors, authority = null) {
+  if (authority !== null) fixtureRemovalAuthority.set(receipt, authority);
+  try {
+    await persistFixtureSettlementReceipt(service, receipt);
+  } catch (error) {
+    errors.push(error);
+  }
+  fixtureSettlementErrorCustody.set(receipt, Object.freeze([...errors]));
+  if (errors.length > 0) {
+    const aggregate = new AggregateError(errors, "Fixture assertion and owned cleanup failures were retained.");
+    fixtureSettlementReceiptByError.set(aggregate, receipt);
+    throw aggregate;
+  }
+  return receipt;
+}
+
 async function decideFixtureRemoval({
   tempRoot,
   service,
   workspaceRoot,
   expectedPid,
-  primaryAssertion,
+  assertPrimary = async () => undefined,
   stopAndWrite,
   finalizationDeadlineMs,
-  ownershipVerified = false,
-  writerSettled = async () => true,
+  writerSettled,
+  settlementReceipt = null,
   removeFixture = true,
 }) {
   const serviceId = service.manifest.id;
   const beforeStop = await findProcessOwnership(workspaceRoot, "service", serviceId);
-  if (!ownershipVerified && (beforeStop?.identityStatus !== "owned" || beforeStop.pid !== expectedPid)) {
-    return fixtureSettlementReceipt({
-      primaryAssertion,
+  const beforeInspection = await inspectProcess(expectedPid);
+  const priorAuthority = fixtureRemovalAuthority.get(settlementReceipt);
+  const heldAuthority = priorAuthority?.serviceId === serviceId
+    && priorAuthority?.tempRoot === tempRoot
+    && priorAuthority?.expectedPid === expectedPid;
+  if (!heldAuthority && (beforeStop?.identityStatus !== "owned"
+    || beforeStop.pid !== expectedPid
+    || beforeInspection.status !== "running"
+    || !sameProcessIdentity(beforeStop.identity, beforeInspection.identity))) {
+    const receipt = fixtureSettlementReceipt({
+      primaryAssertion: "unverified",
       termination: "unverified",
       finalization: "unknown",
       lifecycleWriter: "unknown",
       registry: "retained",
       cleanup: "retained",
     });
+    return await retainFixtureSettlement(service, receipt, []);
   }
+  const authority = heldAuthority
+    ? priorAuthority
+    : Object.freeze({ serviceId, tempRoot, expectedPid, identity: beforeInspection.identity });
 
+  const errors = [];
+  let primaryAssertion = "verified";
+  try {
+    await assertPrimary();
+  } catch (error) {
+    primaryAssertion = "failed";
+    errors.push(error);
+  }
   try {
     await stopAndWrite();
-  } catch {
-    return fixtureSettlementReceipt({
+  } catch (error) {
+    errors.push(error);
+    const receipt = fixtureSettlementReceipt({
       primaryAssertion,
       termination: "failed",
       finalization: "unknown",
@@ -408,12 +465,13 @@ async function decideFixtureRemoval({
       registry: "retained",
       cleanup: "retained",
     });
+    return await retainFixtureSettlement(service, receipt, errors, authority);
   }
 
   const exit = await inspectProcess(expectedPid);
   const ownership = await findProcessOwnership(workspaceRoot, "service", serviceId);
   if (exit.status !== "not_running" || ownership?.lifecycleState !== "stopped" || ownership.pid !== null) {
-    return fixtureSettlementReceipt({
+    const receipt = fixtureSettlementReceipt({
       primaryAssertion,
       termination: "unverified",
       finalization: "unknown",
@@ -421,12 +479,16 @@ async function decideFixtureRemoval({
       registry: "retained",
       cleanup: "retained",
     });
+    return await retainFixtureSettlement(service, receipt, errors, authority);
   }
 
   try {
     await waitForManagedProcessFinalization(serviceId, finalizationDeadlineMs);
-  } catch {
-    return fixtureSettlementReceipt({
+  } catch (error) {
+    // A deadline is an intentionally retained pending observation.  A real
+    // finalizer failure is custody, not a status conversion.
+    if (error?.failures?.some((failure) => failure.code !== "PROCESS_CONTROL_DEADLINE_EXCEEDED")) errors.push(error);
+    const receipt = fixtureSettlementReceipt({
       primaryAssertion,
       termination: "verified",
       finalization: "unsettled",
@@ -434,22 +496,37 @@ async function decideFixtureRemoval({
       registry: "stopped",
       cleanup: "retained",
     });
+    return await retainFixtureSettlement(service, receipt, errors, authority);
   }
 
   const stored = await readStoredState(service.serviceRoot);
-  if (stored.runtime?.running || (stored.runtime && stored.runtime.pid !== null) || !await writerSettled()) {
-    return fixtureSettlementReceipt({
+  try {
+    if (stored.runtime?.running || (stored.runtime && stored.runtime.pid !== null) || !await writerSettled()) {
+      const receipt = fixtureSettlementReceipt({
       primaryAssertion,
       termination: "verified",
       finalization: "settled",
       lifecycleWriter: "unsettled",
       registry: "stopped",
       cleanup: "retained",
+      });
+      return await retainFixtureSettlement(service, receipt, errors, authority);
+    }
+  } catch (error) {
+    errors.push(error);
+    const receipt = fixtureSettlementReceipt({
+      primaryAssertion,
+      termination: "verified",
+      finalization: "settled",
+      lifecycleWriter: "failed",
+      registry: "stopped",
+      cleanup: "retained",
     });
+    return await retainFixtureSettlement(service, receipt, errors, authority);
   }
 
   if (!removeFixture) {
-    return fixtureSettlementReceipt({
+    const receipt = fixtureSettlementReceipt({
       primaryAssertion,
       termination: "verified",
       finalization: "settled",
@@ -457,11 +534,25 @@ async function decideFixtureRemoval({
       registry: "stopped",
       cleanup: "permitted",
     });
+    return await retainFixtureSettlement(service, receipt, errors, authority);
   }
 
-  await removeTempRoot(tempRoot);
+  try {
+    await removeTempRoot(tempRoot);
+  } catch (error) {
+    errors.push(error);
+    const receipt = fixtureSettlementReceipt({
+      primaryAssertion,
+      termination: "verified",
+      finalization: "settled",
+      lifecycleWriter: "settled",
+      registry: "stopped",
+      cleanup: "retained",
+    });
+    return await retainFixtureSettlement(service, receipt, errors, authority);
+  }
 
-  return fixtureSettlementReceipt({
+  const receipt = fixtureSettlementReceipt({
     primaryAssertion,
     termination: "verified",
     finalization: "settled",
@@ -469,6 +560,7 @@ async function decideFixtureRemoval({
     registry: "stopped",
     cleanup: "removed",
   });
+  return await retainFixtureSettlement(service, receipt, errors, authority);
 }
 
 function forceCleanupProcesses(pids) {
@@ -1672,10 +1764,13 @@ test("rehydration returns adopted running state with retained ports", async () =
       service,
       workspaceRoot,
       expectedPid: child.pid,
-      primaryAssertion: "verified",
       stopAndWrite: async () => {
         const stopped = await stopService(service, { workspaceRoot });
         await writeServiceState(service, stopped.state);
+      },
+      writerSettled: async () => {
+        const state = await readStoredState(service.serviceRoot);
+        return state.runtime?.running !== true && state.runtime?.pid === null;
       },
       removeFixture: false,
     });
@@ -1698,9 +1793,12 @@ test("rehydration returns adopted running state with retained ports", async () =
       service,
       workspaceRoot,
       expectedPid: child.pid,
-      primaryAssertion: "verified",
-      ownershipVerified: true,
       stopAndWrite: async () => undefined,
+      settlementReceipt: settlement,
+      writerSettled: async () => {
+        const state = await readStoredState(service.serviceRoot);
+        return state.runtime?.running !== true && state.runtime?.pid === null;
+      },
     });
     assert.equal(removed.cleanup, "removed");
     fixtureRemoved = true;
@@ -3973,7 +4071,6 @@ test("fixture teardown retains owned evidence while a lifecycle finalizer is uns
       service,
       workspaceRoot,
       expectedPid: handle.pid,
-      primaryAssertion: "verified",
       stopAndWrite: async () => {
         const stopping = stopManagedProcess("finalizer-settlement-service", PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS);
         stoppingOutcome = stopping.then(
@@ -3982,6 +4079,7 @@ test("fixture teardown retains owned evidence while a lifecycle finalizer is uns
         );
         await finalizerStarted;
       },
+      writerSettled: async () => await readFile(finalizerMarker, "utf8") === "settling\n",
       finalizationDeadlineMs: Date.now() + 50,
     });
     assert.equal(retained.cleanup, "retained");
@@ -3997,9 +4095,8 @@ test("fixture teardown retains owned evidence while a lifecycle finalizer is uns
       service,
       workspaceRoot,
       expectedPid: handle.pid,
-      primaryAssertion: "verified",
-      ownershipVerified: true,
       stopAndWrite: async () => undefined,
+      settlementReceipt: retained,
       writerSettled: async () => await readFile(finalizerMarker, "utf8") === "settling\n",
     });
     assert.equal(removed.cleanup, "removed");
@@ -4009,6 +4106,63 @@ test("fixture teardown retains owned evidence while a lifecycle finalizer is uns
     if (fixtureRemoved) {
       resetLifecycleState();
     }
+  }
+});
+
+test("fixture teardown retains the original assertion and lifecycle writer failure in private custody", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-fixture-failure-custody-");
+  const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "fixture-failure-custody-service");
+  let handle;
+
+  try {
+    const [service] = await discoverServices(servicesRoot);
+    handle = await startManagedProcess({
+      service,
+      executionPlan: createDirectExecutionPlan(service.manifest),
+      workspaceRoot,
+    });
+    const primaryFailure = new Error("primary assertion secret must remain private");
+    const writerFailure = new Error("writer secret must remain private");
+
+    await assert.rejects(
+      decideFixtureRemoval({
+        tempRoot,
+        service,
+        workspaceRoot,
+        expectedPid: handle.pid,
+        assertPrimary: async () => { throw primaryFailure; },
+        stopAndWrite: async () => {
+          await stopManagedProcess("fixture-failure-custody-service", PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS);
+          throw writerFailure;
+        },
+        writerSettled: async () => true,
+      }),
+      (error) => {
+        assert.equal(error instanceof AggregateError, true);
+        assert.deepEqual(error.errors, [primaryFailure, writerFailure]);
+        const receipt = fixtureSettlementReceiptByError.get(error);
+        assert.deepEqual(receipt, {
+          version: 1,
+          primaryAssertion: "failed",
+          termination: "failed",
+          finalization: "unknown",
+          lifecycleWriter: "unknown",
+          registry: "retained",
+          cleanup: "retained",
+        });
+        assert.deepEqual(fixtureSettlementErrorCustody.get(receipt), [primaryFailure, writerFailure]);
+        assert.equal(error.message.includes("secret"), false);
+        return true;
+      },
+    );
+    const receiptText = await readFile(path.join(serviceRoot, ".state", "fixture-settlement-receipt.json"), "utf8");
+    assert.equal(receiptText.includes("secret"), false);
+  } finally {
+    // The failed writer's workspace, registry and log evidence intentionally
+    // remain in its unique fixture root; only an already-stopped owned child is
+    // converged if a precondition failed before the controlled stop.
+    await stopManagedProcess("fixture-failure-custody-service", 100).catch(() => null);
   }
 });
 
