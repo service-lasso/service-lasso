@@ -68,7 +68,7 @@ interface Stage {
   manifestDigestPrefix: string; byteObject: ByteObject | null; operation: Operation | null;
   journal: Journal | null; terminalAt: number | null;
 }
-interface StageSection { version: 3; stages: Stage[]; auditOutbox: AuditOutbox[]; }
+interface StageSection { version: 3; stages: Stage[]; auditOutbox: AuditOutbox[]; legacySidecarDigest?: string; }
 /** One atomic authority for #1462 operations and #1463 stage/journal state. */
 interface Store { version: 1; operations: unknown[]; stagedTransfer: StageSection; }
 
@@ -138,7 +138,7 @@ export class StagedServiceTransfer {
         try {
           const legacy = JSON.parse(await readFile(this.legacyStatePath(), "utf8")) as StageSection;
           if (legacy.version !== 3 || !Array.isArray(legacy.stages) || !Array.isArray(legacy.auditOutbox)) throw new Error("invalid legacy state");
-          return { version: 1, operations: store.operations, stagedTransfer: legacy };
+          return { version: 1, operations: store.operations, stagedTransfer: { ...legacy, legacySidecarDigest: hash(JSON.stringify(legacy)) } };
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
           return { version: 1, operations: store.operations, stagedTransfer: { version: 3, stages: [], auditOutbox: [] } };
@@ -150,7 +150,15 @@ export class StagedServiceTransfer {
       // cross-store commit and must remain unavailable rather than guessed at.
       try {
         const legacy = JSON.parse(await readFile(this.legacyStatePath(), "utf8")) as StageSection;
-        if (legacy.version !== 3 || JSON.stringify(legacy) !== JSON.stringify(store.stagedTransfer)) throw new Error("divergent legacy state");
+        const legacyDigest = hash(JSON.stringify(legacy));
+        if (legacy.version !== 3 || !Array.isArray(legacy.stages) || !Array.isArray(legacy.auditOutbox)) throw new Error("invalid legacy state");
+        if (store.stagedTransfer.legacySidecarDigest) {
+          if (store.stagedTransfer.legacySidecarDigest !== legacyDigest) throw new Error("divergent legacy state");
+        } else {
+          const { legacySidecarDigest: _legacySidecarDigest, ...section } = store.stagedTransfer;
+          if (JSON.stringify(legacy) !== JSON.stringify(section)) throw new Error("divergent legacy state");
+          store.stagedTransfer.legacySidecarDigest = legacyDigest;
+        }
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       }
@@ -160,7 +168,7 @@ export class StagedServiceTransfer {
         try {
           const legacy = JSON.parse(await readFile(this.legacyStatePath(), "utf8")) as StageSection;
           if (legacy.version !== 3 || !Array.isArray(legacy.stages) || !Array.isArray(legacy.auditOutbox)) throw new Error("invalid legacy state");
-          return { version: 1, operations: [], stagedTransfer: legacy };
+          return { version: 1, operations: [], stagedTransfer: { ...legacy, legacySidecarDigest: hash(JSON.stringify(legacy)) } };
         } catch (legacyError) {
           if ((legacyError as NodeJS.ErrnoException).code === "ENOENT") return { version: 1, operations: [], stagedTransfer: { version: 3, stages: [], auditOutbox: [] } };
           throw new TransferError("registration_unavailable", 503);

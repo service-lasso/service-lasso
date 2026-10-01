@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
@@ -9,6 +9,26 @@ import { StagedServiceTransfer, TransferError } from "../dist/runtime/release/st
 import { createStagedReleaseAssetImporter } from "../dist/runtime/operator/remote-service-registration.js";
 
 test("staged transfer stays fail closed when the owner catalog pin is unavailable", async () => { const root=await mkdtemp(path.join(os.tmpdir(),"staged-transfer-")); try { const service=new StagedServiceTransfer(root,{resolve:async()=>{throw new TransferError("release_provenance_unavailable",503)}},{import:async()=> "completed"}); await assert.rejects(service.create({id:"a",workspaceId:"w",canConfigure:true},{targetServiceId:"sample-service",provenance:{repo:"service-lasso/lasso-example",releaseTag:"v1",commitSha:"a".repeat(40)},platform:"win32",manifestSchemaVersion:"service-lasso.service-manifest/v1"}),/denied/); } finally {await rm(root,{recursive:true,force:true});} });
+
+test("staged transfer migrates an unambiguous v3 sidecar and rejects a divergent retained copy", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "staged-migration-"));
+  const operator = path.join(root, ".service-lasso", "operator");
+  const identity = { repo:"service-lasso/lasso-example", releaseTag:"v1", commitSha:"a".repeat(40), targetServiceId:"sample-service", platform:"win32", archiveType:"zip", assetName:"sample.zip", assetId:"1", archiveBytes:1, archiveSha256:"b".repeat(64), manifestSha256:"c".repeat(64), releaseId:"2" };
+  const actor = { id:"actor", workspaceId:"trusted-workspace", canConfigure:true };
+  const input = { targetServiceId:"sample-service", provenance:{repo:identity.repo,releaseTag:identity.releaseTag,commitSha:identity.commitSha},platform:"win32",manifestSchemaVersion:"service-lasso.service-manifest/v1" };
+  try {
+    await mkdir(operator, { recursive:true });
+    await writeFile(path.join(operator, "staged-service-transfers.json"), JSON.stringify({ version:3, stages:[], auditOutbox:[] }));
+    const transfer = new StagedServiceTransfer(root, { resolve:async () => identity }, { import:async () => "completed" });
+    const created = await transfer.create(actor, input);
+    const unified = JSON.parse(await readFile(path.join(operator, "service-registration-operations.json"), "utf8"));
+    assert.equal(unified.version, 1);
+    assert.equal(unified.stagedTransfer.version, 3);
+    assert.equal(unified.stagedTransfer.stages[0].id, created.stageId);
+    await writeFile(path.join(operator, "staged-service-transfers.json"), JSON.stringify({ version:3, stages:[{ id:"contradiction" }], auditOutbox:[] }));
+    await assert.rejects(() => transfer.status(actor, created.stageId), (error) => error instanceof TransferError && error.statusCode === 503);
+  } finally { await rm(root, { recursive:true, force:true }); }
+});
 
 test("staged transfer reserves actor and workspace capacity, binds exact chunk ranges, and expires before reuse", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "staged-transfer-"));
