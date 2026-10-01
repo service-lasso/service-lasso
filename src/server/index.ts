@@ -151,6 +151,8 @@ import {
   readRemoteServiceRegistrationOperation,
   registerReleasedService,
 } from "../runtime/operator/remote-service-registration.js";
+import { StagedServiceTransfer, TransferError, type DirectChildImporter, type StageResolver } from "../runtime/release/staged-service-transfer.js";
+import { ServiceProducerReleaseResolver } from "../runtime/release/service-producer-release-resolver.js";
 import { buildServiceConfigDriftReport } from "../runtime/operator/config-drift.js";
 import { buildServiceConfigApplyPreflightReport } from "../runtime/operator/config-apply-preflight.js";
 import {
@@ -499,6 +501,10 @@ export interface ApiServerOptions {
     brokerRuntime: SecretsBrokerRuntimeContext;
   };
   runtimeShutdownSlot?: RuntimeShutdownSlot;
+  /** Injected only by Core's release-provenance and direct-child adapters. */
+  stagedServiceTransfer?: { resolver: StageResolver; importer: DirectChildImporter };
+  /** Owner-approved, persisted producer pins. Without it #1463 remains closed. */
+  stagedServiceTransferCatalogPath?: string;
 }
 
 interface RuntimeShutdownSlot {
@@ -541,6 +547,8 @@ interface ApiRouteConfig extends RuntimeConfig {
   mcpPolicyTestHooks?: ApiServerOptions["mcpPolicyTestHooks"];
   secretRotationTestHooks?: ApiServerOptions["secretRotationTestHooks"];
   runtimeShutdownSlot?: RuntimeShutdownSlot;
+  stagedServiceTransfer?: ApiServerOptions["stagedServiceTransfer"];
+  stagedServiceTransferCatalogPath?: ApiServerOptions["stagedServiceTransferCatalogPath"];
 }
 
 export interface RunningApiServer {
@@ -902,6 +910,36 @@ async function readJsonBody(
   } catch {
     throw new ApiError("invalid_json", 400, "Request body must be valid JSON.");
   }
+}
+
+async function readBinaryBody(request: IncomingMessage, maxBytes: number): Promise<Buffer> {
+  const chunks: Buffer[] = []; let total = 0;
+  for await (const chunk of request) {
+    const value = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
+    total += value.length;
+    if (total > maxBytes) throw new ApiError("payload_too_large", 413, "Request body exceeds the allowed size.");
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks);
+}
+
+function exactTransferHeader(request: IncomingMessage, name: string, pattern: RegExp): string {
+  const values: string[] = [];
+  for (let index = 0; index < request.rawHeaders.length; index += 2) {
+    if (request.rawHeaders[index]?.toLowerCase() === name) values.push(request.rawHeaders[index + 1] ?? "");
+  }
+  if (values.length !== 1 || values[0]!.includes(",") || !pattern.test(values[0]!)) {
+    throw new ApiError("invalid_request", 400, "Transfer request headers are invalid.");
+  }
+  return values[0]!;
+}
+
+function parseTransferRange(value: string): { start: number; end: number; total: number } {
+  const match = /^bytes (0|[1-9][0-9]*)-(0|[1-9][0-9]*)\/(0|[1-9][0-9]*)$/u.exec(value);
+  if (!match) throw new ApiError("invalid_request", 400, "Transfer request headers are invalid.");
+  const start = Number(match[1]), end = Number(match[2]), total = Number(match[3]);
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || !Number.isSafeInteger(total) || start > end || end >= total) throw new ApiError("invalid_request", 400, "Transfer request headers are invalid.");
+  return { start, end, total };
 }
 
 function getAuditActor(input: unknown): string {
@@ -7044,6 +7082,52 @@ async function routeRequestWithoutMutationCoordination(
     return;
   }
 
+  // #1463 has its own closed surface. The default resolver intentionally
+  // refuses creation until an independently owner-pinned producer catalog is
+  // installed; it is not a generic upload endpoint.
+  if (url.pathname === "/api/v1/service-transfers" || /^\/api\/v1\/service-transfers\/stg_[A-Za-z0-9_-]{32}(?:\/(?:chunks\/(?:0|[1-9][0-9]{0,1})|finalize|confirmation|registration))?$/u.test(url.pathname)) {
+    const authorization = exactTransferHeader(request, "authorization", /^Bearer [^\s,]+$/u);
+    void authorization; // trusted request-policy authentication remains authoritative.
+    const permissionActor = permissionActorFromRuntimeAuth(auth);
+    await enforcePermission({ workspaceRoot: config.workspaceRoot, actor: permissionActor, permission: "service:configure", method: request.method ?? "GET", routeTemplate: "/api/v1/service-transfers", subject: "release-asset" });
+    const actor = { id: permissionActor.id, workspaceId: `workspace_${createHash("sha256").update(config.workspaceRoot).digest("hex").slice(0, 24)}`, canConfigure: true };
+    const adapter = config.stagedServiceTransfer ?? {
+      resolver: new ServiceProducerReleaseResolver(config.stagedServiceTransferCatalogPath),
+      importer: { import: async () => "unknown" as const },
+    };
+    const transfer = new StagedServiceTransfer(config.workspaceRoot, adapter.resolver, adapter.importer);
+    try {
+      if (request.method === "POST" && url.pathname === "/api/v1/service-transfers") {
+        const created = await transfer.create(actor, await readJsonBody(request, { maxBytes: 8 * 1024 }) as { targetServiceId: string; provenance: { repo: string; releaseTag: string; commitSha: string }; platform: string; manifestSchemaVersion: string });
+        writeJson(response, 201, created); return;
+      }
+      const match = /^\/api\/v1\/service-transfers\/(stg_[A-Za-z0-9_-]{32})(?:\/(.*))?$/u.exec(url.pathname);
+      if (!match) { notFound(response); return; }
+      const stageId = match[1]!, tail = match[2] ?? "";
+      if (request.method === "GET" && !tail) { writeJson(response, 200, await transfer.status(actor, stageId)); return; }
+      if (request.method === "PUT" && /^chunks\/(0|[1-9][0-9]{0,1})$/u.test(tail)) {
+        const token = exactTransferHeader(request, "x-service-transfer-token", /^sut_[A-Za-z0-9_-]{43}$/u);
+        const digest = exactTransferHeader(request, "x-chunk-sha256", /^[a-f0-9]{64}$/u);
+        const range = parseTransferRange(exactTransferHeader(request, "content-range", /^bytes [0-9]+-[0-9]+\/[0-9]+$/u));
+        await transfer.upload(actor, stageId, Number(tail.slice(7)), token, digest, await readBinaryBody(request, 1024 * 1024), range);
+        response.statusCode = 204; response.end(); return;
+      }
+      if (request.method === "POST" && tail === "finalize") { writeJson(response, 200, await transfer.finalize(actor, stageId)); return; }
+      if (request.method === "POST" && tail === "confirmation") { writeJson(response, 200, await transfer.confirmation(actor, stageId)); return; }
+      if (request.method === "POST" && tail === "registration") {
+        const confirmation = exactTransferHeader(request, "x-service-transfer-confirmation", /^scf_[A-Za-z0-9_-]{32}$/u);
+        const body = await readJsonBody(request, { maxBytes: 8 * 1024 });
+        if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).length !== 1 || typeof (body as { idempotencyKey?: unknown }).idempotencyKey !== "string") throw new ApiError("invalid_request", 400, "Transfer registration body is invalid.");
+        const registered = await transfer.register(actor, stageId, confirmation, (body as { idempotencyKey: string }).idempotencyKey);
+        writeJson(response, registered.replayed ? 200 : 202, { operation: registered.operation, replayed: registered.replayed }); return;
+      }
+    } catch (error) {
+      if (error instanceof TransferError) throw new ApiError(error.code, error.statusCode, "Staged service transfer request denied.");
+      throw error;
+    }
+    notFound(response); return;
+  }
+
   if (request.method === "GET" && url.pathname.startsWith("/api/operator/operations/")) {
     const operationId = decodeURIComponent(url.pathname.slice("/api/operator/operations/".length));
     if (!operationId || operationId.includes("/")) {
@@ -7607,6 +7691,8 @@ export function createApiServer(options: ApiServerOptions = {}): Server {
     mcpPolicyTestHooks: options.mcpPolicyTestHooks,
     secretRotationTestHooks: options.secretRotationTestHooks,
     runtimeShutdownSlot: options.runtimeShutdownSlot,
+    stagedServiceTransfer: options.stagedServiceTransfer,
+    stagedServiceTransferCatalogPath: options.stagedServiceTransferCatalogPath,
   };
   const workflowRunFacadeState = cloneWorkflowRunFacadeState(options.workflowRunFacadeState ?? exampleWorkflowRunFacadeState);
   const apiRequestTelemetryState = options.apiRequestTelemetryState ?? { requests: [], droppedCount: 0 };
