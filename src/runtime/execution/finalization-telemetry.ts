@@ -25,13 +25,17 @@ const reasons = new Set<string>(["observed", "deadline_exceeded", "failed", "not
 export function closedFinalizationTelemetry(
   entries: readonly FinalizationTelemetryEntry[],
 ): readonly FinalizationTelemetryEntry[] {
-  if (entries.length > FINALIZATION_TELEMETRY_PHASES.length) {
+  // The automatic-finalizer projection is a fixed, complete record.  A
+  // prefix would hide the point at which finalization stopped, and a reordered
+  // record would make the bounded phase sequence ambiguous to consumers.
+  if (entries.length !== FINALIZATION_TELEMETRY_PHASES.length) {
     throw new Error("Invalid closed finalization telemetry.");
   }
   const observed = new Set<string>();
-  for (const entry of entries) {
+  for (const [index, entry] of entries.entries()) {
     const keys = Object.keys(entry);
     if (
+      entry.phase !== FINALIZATION_TELEMETRY_PHASES[index] ||
       !phases.has(entry.phase) ||
       !statuses.has(entry.status) ||
       !reasons.has(entry.reason) ||

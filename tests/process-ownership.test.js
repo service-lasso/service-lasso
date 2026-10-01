@@ -4075,13 +4075,21 @@ test("whole-runtime shutdown reports safe service, pid, and finalization phase o
         pid: handle.pid,
         phase: "finalize",
         code: "EFINALIZE_TEST",
-        telemetry: [
-          { phase: "root_handle_exit", status: "complete", reason: "observed" },
-          { phase: "snapshot", status: "complete", reason: "observed" },
-          { phase: "member_count", status: "complete", reason: "observed", count: 3 },
-          { phase: "termination", status: "complete", reason: "observed" },
-          { phase: "registry_reconcile", status: "complete", reason: "observed" },
-        ],
+        telemetry: process.platform === "win32"
+          ? [
+            { phase: "root_handle_exit", status: "complete", reason: "observed" },
+            { phase: "snapshot", status: "complete", reason: "observed" },
+            { phase: "member_count", status: "complete", reason: "observed", count: 3 },
+            { phase: "termination", status: "complete", reason: "observed" },
+            { phase: "registry_reconcile", status: "complete", reason: "observed" },
+          ]
+          : [
+            { phase: "root_handle_exit", status: "complete", reason: "observed" },
+            { phase: "snapshot", status: "not_applicable", reason: "not_required" },
+            { phase: "member_count", status: "not_applicable", reason: "not_required", count: 0 },
+            { phase: "termination", status: "complete", reason: "observed" },
+            { phase: "registry_reconcile", status: "complete", reason: "observed" },
+          ],
       });
       assert.equal(Number.isInteger(error.failures[0].telemetry[2].count), true);
       assert.equal(error.failures[0].telemetry[2].count >= 0 && error.failures[0].telemetry[2].count <= 1_000, true);

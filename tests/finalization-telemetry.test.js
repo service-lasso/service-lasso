@@ -29,6 +29,19 @@ test("AC-4BH.3 rejects duplicate, malformed, extra, and private telemetry fields
     [{ phase: "member_count", status: "complete", reason: "observed", count: 1, pid: 123 }],
     [{ phase: "root_handle_exit", status: "complete", reason: "observed", path: "private" }],
     [{ phase: "member_count", status: "complete", reason: "observed", count: 1_001 }],
+    [
+      { phase: "root_handle_exit", status: "complete", reason: "observed" },
+      { phase: "snapshot", status: "complete", reason: "observed" },
+      { phase: "member_count", status: "complete", reason: "observed", count: 1 },
+      { phase: "termination", status: "complete", reason: "observed" },
+    ],
+    [
+      { phase: "snapshot", status: "complete", reason: "observed" },
+      { phase: "root_handle_exit", status: "complete", reason: "observed" },
+      { phase: "member_count", status: "complete", reason: "observed", count: 1 },
+      { phase: "termination", status: "complete", reason: "observed" },
+      { phase: "registry_reconcile", status: "complete", reason: "observed" },
+    ],
   ];
   for (const entries of invalid) {
     assert.throws(() => closedFinalizationTelemetry(entries), /Invalid closed finalization telemetry/u);
