@@ -267,25 +267,61 @@ public static class ServiceLassoManagedLauncherNative
                 String.IsNullOrWhiteSpace(gatePath) ||
                 !IsFullyQualifiedWindowsPath(gatePath))
             {
+                SetProgress("launcher_payload_validation", "launch_evidence");
                 throw new InvalidOperationException("Managed launch evidence was missing.");
             }
 
-            byte[] payloadBytes = Convert.FromBase64String(encodedPayload);
+            byte[] payloadBytes;
+            try
+            {
+                payloadBytes = Convert.FromBase64String(encodedPayload);
+            }
+            catch
+            {
+                SetProgress("launcher_payload_validation", "canonical_encoding");
+                throw;
+            }
             string payloadJson;
             try
             {
                 if (!String.Equals(Convert.ToBase64String(payloadBytes), encodedPayload, StringComparison.Ordinal))
                 {
+                    SetProgress("launcher_payload_validation", "canonical_encoding");
                     throw new InvalidOperationException("Managed launch payload encoding was invalid.");
                 }
-                payloadJson = StrictUtf8.GetString(payloadBytes);
+                try
+                {
+                    payloadJson = StrictUtf8.GetString(payloadBytes);
+                }
+                catch
+                {
+                    SetProgress("launcher_payload_validation", "strict_utf8");
+                    throw;
+                }
             }
             finally
             {
                 Array.Clear(payloadBytes, 0, payloadBytes.Length);
             }
-            LaunchPayload payload = ParseLaunchPayload(payloadJson);
-            ValidatePayload(payload);
+            LaunchPayload payload;
+            try
+            {
+                payload = ParseLaunchPayload(payloadJson);
+            }
+            catch
+            {
+                SetProgress("launcher_payload_validation", "json_or_schema");
+                throw;
+            }
+            try
+            {
+                ValidatePayload(payload);
+            }
+            catch
+            {
+                SetProgress("launcher_payload_validation", "semantic_payload");
+                throw;
+            }
             ClearLaunchEnvironment();
 
             SetProgress("launcher_gate_observation");
@@ -1424,15 +1460,19 @@ public static class ServiceLassoManagedLauncherNative
         }
     }
 
-    private static void SetProgress(string phase)
+    private static void SetProgress(string phase, string payloadFailureBoundary = null)
     {
         try
         {
-            if (progressHmac == null || !IsProgressPhase(phase))
+            if (progressHmac == null || !IsProgressPhase(phase) ||
+                (payloadFailureBoundary != null &&
+                 (!String.Equals(phase, "launcher_payload_validation", StringComparison.Ordinal) ||
+                  !IsPayloadFailureBoundary(payloadFailureBoundary))))
             {
                 return;
             }
-            byte[] phaseBytes = StrictUtf8.GetBytes(phase);
+            string authenticatedRecord = payloadFailureBoundary == null ? phase : phase + ":" + payloadFailureBoundary;
+            byte[] phaseBytes = StrictUtf8.GetBytes(authenticatedRecord);
             byte[] digest;
             try
             {
@@ -1444,7 +1484,7 @@ public static class ServiceLassoManagedLauncherNative
             }
             try
             {
-                Console.Error.WriteLine(ProgressPrefix + phase + ":" + ToLowerHex(digest));
+                Console.Error.WriteLine(ProgressPrefix + authenticatedRecord + ":" + ToLowerHex(digest));
             }
             finally
             {
@@ -1495,6 +1535,16 @@ public static class ServiceLassoManagedLauncherNative
             String.Equals(phase, "launcher_file_hash", StringComparison.Ordinal) ||
             String.Equals(phase, "launcher_file_final_path", StringComparison.Ordinal) ||
             String.Equals(phase, "launcher_binding_publication", StringComparison.Ordinal);
+    }
+
+    private static bool IsPayloadFailureBoundary(string boundary)
+    {
+        return
+            String.Equals(boundary, "launch_evidence", StringComparison.Ordinal) ||
+            String.Equals(boundary, "canonical_encoding", StringComparison.Ordinal) ||
+            String.Equals(boundary, "strict_utf8", StringComparison.Ordinal) ||
+            String.Equals(boundary, "json_or_schema", StringComparison.Ordinal) ||
+            String.Equals(boundary, "semantic_payload", StringComparison.Ordinal);
     }
 
     private static bool IsLowerHex64(string value)
