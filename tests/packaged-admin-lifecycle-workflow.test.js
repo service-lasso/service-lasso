@@ -45,6 +45,7 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
     "src/server/**",
     "scripts/consume-admin-trusted-unlock-receipt.mjs",
     "scripts/resolve-pnpm-action-entrypoint.mjs",
+    "scripts/record-admin-trusted-unlock-prebrowser-failure.mjs",
     "scripts/retain-packaged-admin-lifecycle-receipt.mjs",
     "scripts/verify-packaged-admin-lifecycle-artifacts.mjs",
     "scripts/published-package-qualification-lib.mjs",
@@ -52,6 +53,8 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
     "tests/consume-admin-trusted-unlock-receipt.test.js",
     "tests/resolve-pnpm-action-entrypoint.test.js",
     "tests/packaged-admin-lifecycle-receipt-custody.test.js",
+    "package.json",
+    "package-lock.json",
   ];
 
   assert.match(workflow, /^name: Packaged Admin Lifecycle Acceptance$/m);
@@ -132,6 +135,7 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
   );
   assert.match(workflow, /id: pnpm-action-pinned-entrypoint[\s\S]*?dest: \$\{\{ runner\.temp \}\}\/pnpm-action-pinned-entrypoint/);
   assert.match(workflow, /PNPM_ACTION_BIN_DEST: \$\{\{ steps\.pnpm-action-pinned-entrypoint\.outputs\.bin_dest \}\}/);
+  assert.match(workflow, /ADMIN_PLATFORM: \$\{\{ matrix\.admin_platform \}\}/);
   assert.doesNotMatch(workflow, /PNPM_HOME\/pnpm\.cjs|node_modules\/pnpm\/bin\/pnpm\.cjs/);
   assert.match(workflow, /npm install --prefix "\$ADMIN_PNPM_PREFIX" --ignore-scripts --no-save --package-lock=false --no-audit --no-fund pnpm@10\.34\.5/);
   assert.match(workflow, /SERVICE_LASSO_REQUIRE_TEST_BROKER_BINARY: "1"/);
@@ -174,6 +178,14 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
   );
 });
 
+test("AC-4BY.2 producer retains each finite pre-browser failure with the matrix platform before record, upload, and aggregate", async () => {
+  const workflow = await readFile(workflowUrl, "utf8");
+  for (const stage of ["action_binding", "fresh_prefix", "isolated_install", "package_identity"]) assert.match(workflow, new RegExp(`retain_prebrowser_failure ${stage}`));
+  assert.match(workflow, /ADMIN_PLATFORM: \$\{\{ matrix\.admin_platform \}\}[\s\S]*?record-admin-trusted-unlock-prebrowser-failure\.mjs/);
+  assert.match(workflow, /if: always\(\)[\s\S]*?admin-trusted-unlock-prebrowser-failure\.json[\s\S]*?if-no-files-found: error/);
+  assert.match(workflow, /require-packaged-admin-lifecycle:[\s\S]*?if: always\(\)[\s\S]*?test '\$\{\{ needs\.packaged-admin-lifecycle\.result \}\}' = 'success'/);
+});
+
 test("AC-4BY.2 rejects YAML scalar continuations that silently remove receipt-custody triggers", async () => {
   const workflow = await readFile(workflowUrl, "utf8");
   const malformed = workflow.replace(
@@ -183,7 +195,6 @@ test("AC-4BY.2 rejects YAML scalar continuations that silently remove receipt-cu
   const document = parseDocument(malformed, { uniqueKeys: true });
   assert.equal(document.errors.length, 0, document.errors.map(String).join("\n"));
   const paths = document.toJS().on.pull_request.paths;
-  assert.ok(paths.some((value) => value.includes("scripts/resolve-pnpm-action-entrypoint.mjs") && value.includes("scripts/retain-packaged-admin-lifecycle-receipt.mjs")));
   assert.ok(!paths.includes("scripts/retain-packaged-admin-lifecycle-receipt.mjs"));
 });
 

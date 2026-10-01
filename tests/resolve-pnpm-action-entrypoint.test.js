@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { chmod, cp, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -11,19 +11,19 @@ const resolver = fileURLToPath(new URL("../scripts/resolve-pnpm-action-entrypoin
 async function fixture() {
   const root = await mkdtemp(path.join(tmpdir(), "pnpm-action-entrypoint-"));
   const actionRoot = path.join(root, "pnpm-action-pinned-entrypoint");
-  const bin = path.join(actionRoot, "node_modules", ".bin");
+  const actionHome = path.join(actionRoot, "node_modules", ".bin");
+  const bin = path.join(actionHome, "bin");
   const prefix = path.join(root, "admin-trusted-unlock-pnpm-10.34.5");
   const entrypoint = path.join(prefix, "node_modules", "pnpm", "bin", "pnpm.cjs");
-  await mkdir(bin, { recursive: true });
+  await mkdir(actionHome, { recursive: true });
   await mkdir(path.join(prefix, "node_modules"), { recursive: true });
-  await cp(path.join(process.cwd(), "node_modules", "pnpm"), path.join(actionRoot, "node_modules", "pnpm"), { recursive: true });
   await cp(path.join(process.cwd(), "node_modules", "pnpm"), path.join(prefix, "node_modules", "pnpm"), { recursive: true });
-  if (process.platform === "win32") await writeFile(path.join(bin, "pnpm.cmd"), `@echo off\r\n"${process.execPath}" "${entrypoint}" %*\r\n`);
-  else {
-    const shim = path.join(bin, "pnpm");
-    await writeFile(shim, `#! /bin/sh\nexec "${process.execPath}" "${entrypoint}" "$@"\n`);
-    await chmod(shim, 0o755);
-  }
+  const npm = "npm";
+  const npmArgs = ["install", "--prefix", actionRoot, "--ignore-scripts", "--no-save", "--package-lock=false", "--no-audit", "--no-fund", "pnpm@11.25.0"];
+  const installed = spawnSync(npm, npmArgs, { encoding: "utf8", shell: process.platform === "win32" });
+  assert.equal(installed.status, 0, installed.stderr);
+  const updated = spawnSync(process.execPath, [path.join(actionRoot, "node_modules", "pnpm", "bin", "pnpm.mjs"), "self-update", "10.34.5"], { encoding: "utf8", shell: false, env: { ...process.env, PNPM_HOME: actionHome } });
+  assert.equal(updated.status, 0, updated.stderr);
   return { root, bin, prefix, entrypoint };
 }
 
@@ -41,9 +41,12 @@ test("proves an actual isolated pnpm package manifest, regular CJS entrypoint, d
   assert.ok(bindings.includes(`ADMIN_PNPM_NODE=${evidence.caller.node}\n`));
   assert.ok(bindings.includes(`ADMIN_PNPM_ENTRYPOINT=${evidence.caller.entrypoint}\n`));
   assert.equal(evidence.action.ref, "ea17c68df8912ef543352723c149a84f56e3d413");
+  assert.equal(evidence.action.bootstrap.version, "11.25.0");
+  assert.equal(evidence.action.selfUpdated.version, "10.34.5");
+  assert.match(evidence.action.binDest, /node_modules[\\/]\.bin[\\/]bin$/i);
   assert.equal(evidence.caller.version, "10.34.5");
   assert.match(evidence.caller.entrypoint, /node_modules[\\/]pnpm[\\/]bin[\\/]pnpm\.cjs$/i);
-  assert.match(evidence.caller.node, /node\.exe$/i);
+  assert.match(evidence.caller.node, process.platform === "win32" ? /node\.exe$/i : /node$/i);
   assert.match(evidence.caller.manifestSha256, /^[0-9a-f]{64}$/);
   assert.match(evidence.caller.entrypointSha256, /^[0-9a-f]{64}$/);
 });

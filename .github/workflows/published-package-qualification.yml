@@ -116,6 +116,7 @@ jobs:
         env:
           PNPM_ACTION_BIN_DEST: ${{ steps.pnpm-action-pinned-entrypoint.outputs.bin_dest }}
           ADMIN_PNPM_PREFIX: ${{ runner.temp }}/admin-trusted-unlock-pnpm-10.34.5
+          QUALIFICATION_PLATFORM: ${{ matrix.platform }}
         run: |
           set -euo pipefail
           prebrowser="$RUNNER_TEMP/admin-trusted-unlock-prebrowser-failure.json"
