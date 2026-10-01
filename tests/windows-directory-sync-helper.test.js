@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
-import { createHash, randomBytes } from "node:crypto";
-import { copyFile, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
+import { mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -28,24 +28,17 @@ test("Windows directory sync keeps the attested helper handle through native lau
   const root = await mkdtemp(path.join(os.tmpdir(), "service-lasso-directory-sync-held-"));
   const sourceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
   const launcher = path.join(sourceRoot, "src", "runtime", "execution", "windows-managed-launcher-native.exe");
-  const helper = path.join(root, "windows-directory-sync-helper.exe");
-  const replacement = path.join(root, "replacement.exe");
+  const helper = path.join(sourceRoot, "src", "runtime", "operator", "windows-directory-sync-helper.exe");
+  const replacement = path.join(sourceRoot, "src", "runtime", "operator", "windows-directory-sync-helper-replacement-test.exe");
   const targetDirectory = path.join(root, "flush-target");
   const readyPath = path.join(root, "ready");
   const continuePath = path.join(root, "continue");
   const token = randomBytes(32).toString("hex");
   try {
-    await Promise.all([
-      copyFile(path.join(sourceRoot, "src", "runtime", "operator", "windows-directory-sync-helper.exe"), helper),
-      copyFile(path.join(sourceRoot, "src", "runtime", "operator", "windows-directory-sync-helper.exe"), replacement),
-    ]);
+    await writeFile(replacement, await readFile(helper), { flag: "wx" });
     await mkdtemp(`${targetDirectory}-`).then(async (created) => { await rename(created, targetDirectory); });
-    const bytes = await readFile(helper);
     const payload = Buffer.from(JSON.stringify({
-      helper,
       directory: targetDirectory,
-      sha256: createHash("sha256").update(bytes).digest("hex"),
-      byteLength: bytes.byteLength,
     }), "utf8").toString("base64");
     const child = spawn(launcher, [], {
       windowsHide: true,
@@ -73,17 +66,23 @@ test("Windows directory sync keeps the attested helper handle through native lau
       child.once("exit", (code, signal) => resolve({ code, signal }));
     });
     assert.deepEqual(outcome, { code: 0, signal: null });
-    const alteredPayload = Buffer.from(JSON.stringify({
-      helper,
-      directory: targetDirectory,
-      sha256: "0".repeat(64),
-      byteLength: bytes.byteLength,
-    }), "utf8").toString("base64");
+    for (const hostilePayload of [
+      `{"directory":"${targetDirectory.replace(/\\/gu, "\\\\")}","directory":"${targetDirectory.replace(/\\/gu, "\\\\")}"}`,
+      `{"\\u0064irectory":"${targetDirectory.replace(/\\/gu, "\\\\")}"}`,
+      `{"directory":"${targetDirectory.replace(/\\/gu, "\\\\")}","sha256":"${"0".repeat(64)}"}`,
+      `{ "directory":"${targetDirectory.replace(/\\/gu, "\\\\")}" }`,
+    ]) {
+      await assert.rejects(
+        execFileAsync(launcher, [], { windowsHide: true, env: { ...process.env, SERVICE_LASSO_DIRECTORY_SYNC_LAUNCH_PAYLOAD: Buffer.from(hostilePayload, "utf8").toString("base64") } }),
+        (error) => error?.code === 121 || error?.code === 120,
+      );
+    }
     await assert.rejects(
-      execFileAsync(launcher, [], { windowsHide: true, env: { ...process.env, SERVICE_LASSO_DIRECTORY_SYNC_LAUNCH_PAYLOAD: alteredPayload } }),
-      (error) => error?.code === 121,
+      execFileAsync(launcher, [], { windowsHide: true, env: { ...process.env, COMPLUS_Version: "v2.0.50727", SERVICE_LASSO_DIRECTORY_SYNC_LAUNCH_PAYLOAD: payload } }),
+      (error) => Number.isInteger(error?.code) && error.code !== 0,
     );
   } finally {
+    await rm(replacement, { force: true, maxRetries: 0 });
     await rm(root, { recursive: true, force: true, maxRetries: 0 });
   }
 });

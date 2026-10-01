@@ -466,12 +466,9 @@ async function syncDirectory(directory: string): Promise<void> {
 }
 
 async function syncWindowsDirectory(directory: string): Promise<void> {
-  const helper = await assertWindowsDirectorySyncHelperIntegrity();
+  await assertWindowsDirectorySyncHelperIntegrity();
   const payload = Buffer.from(JSON.stringify({
-    helper: helper.path,
     directory: path.resolve(directory),
-    sha256: WINDOWS_DIRECTORY_SYNC_HELPER_SHA256,
-    byteLength: WINDOWS_DIRECTORY_SYNC_HELPER_BYTES,
   }), "utf8").toString("base64");
   await new Promise<void>((resolve, reject) => {
     // The managed launcher is the existing trusted native launch boundary. It
@@ -483,14 +480,24 @@ async function syncWindowsDirectory(directory: string): Promise<void> {
     const child = spawn(WINDOWS_MANAGED_LAUNCHER_PATH, [], {
       windowsHide: true,
       stdio: "ignore",
-      env: { ...process.env, SERVICE_LASSO_DIRECTORY_SYNC_LAUNCH_PAYLOAD: payload },
+      env: windowsDirectorySyncLauncherEnvironment(payload),
     });
     child.once("error", reject);
     child.once("exit", (code, signal) => code === 0 && signal === null ? resolve() : reject(new Error("Windows directory durability helper failed")));
   });
 }
 
-async function assertWindowsDirectorySyncHelperIntegrity(): Promise<{ path: string }> {
+function windowsDirectorySyncLauncherEnvironment(payload: string): NodeJS.ProcessEnv {
+  const environment: NodeJS.ProcessEnv = {};
+  for (const [name, value] of Object.entries(process.env)) {
+    if (/^(?:COR_|CORECLR_|COMPLUS_|APPDOMAIN_MANAGER)/iu.test(name)) continue;
+    environment[name] = value;
+  }
+  environment.SERVICE_LASSO_DIRECTORY_SYNC_LAUNCH_PAYLOAD = payload;
+  return environment;
+}
+
+async function assertWindowsDirectorySyncHelperIntegrity(): Promise<void> {
   const readExactRegularAsset = async (assetPath: string, expectedBytes: number): Promise<Buffer> => {
     const beforeOpen = await lstat(assetPath);
     if (!beforeOpen.isFile() || beforeOpen.isSymbolicLink() || beforeOpen.size !== expectedBytes) throw new Error("Windows directory durability helper is unavailable");
@@ -513,7 +520,7 @@ async function assertWindowsDirectorySyncHelperIntegrity(): Promise<{ path: stri
       createHash("sha256").update(helperBytes).digest("hex") !== WINDOWS_DIRECTORY_SYNC_HELPER_SHA256 ||
       createHash("sha256").update(provenanceBytes).digest("hex") !== WINDOWS_DIRECTORY_SYNC_HELPER_PROVENANCE_SHA256
     ) throw new Error("Windows directory durability helper integrity verification failed");
-    return { path: WINDOWS_DIRECTORY_SYNC_HELPER_PATH };
+    return;
   } finally {
     helperBytes?.fill(0);
     provenanceBytes?.fill(0);

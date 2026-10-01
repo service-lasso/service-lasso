@@ -563,6 +563,7 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 ## Core #1463 implementation traceability
 
 - `ISS-1463-implementation` is active on branch `feature/1463-complete-staged-transfer`, rooted at remote `develop` `93d9d343a058d296069c017d17f4f8d1fc1505ea`. Scope is the complete `AC-4CH` staged-transfer adapter: authenticated actor/workspace route boundary, fail-closed owner catalog resolution, durable reservations/recovery, immutable direct-child byte handoff, safe Audit, and HTTP contract proof.
+- The 2026-10-02 `9da` reviewer finding is repaired in the pending #1566 update: the Windows durable-directory utility now admits only a canonical directory payload at the native boundary, resolves a fixed package-adjacent helper against a fixed reviewed digest/length, and removes/refuses loader-sensitive inherited environment names before helper handling. This local source/runtime repair does not clear the owner-catalog, TAR T1--T5, three-OS released CLI/TUI journey, exact-head hosted qualification, independent review, or GA gates.
 - The #1524 owner-approved catalog pin is absent. Real stage creation remains `503 release_provenance_unavailable`; TAR remains denied until a separate exact-head T1-T5 evidence gate.
 `ISS-1387`: repair PostgreSQL newcomer Linux child library resolution (SPEC-002 AC-4AJ.4c); verify pinned binaries and full paired Linux/Windows proof, preserving historical failures and exact candidate identities.
 `ISS-879` is the current `AC-4BM` doctor diagnosis after `#764` closed.

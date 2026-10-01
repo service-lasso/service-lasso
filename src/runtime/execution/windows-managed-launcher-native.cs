@@ -55,6 +55,12 @@ public static class ServiceLassoManagedLauncherNative
     private const string DirectorySyncPayloadEnvironmentName = "SERVICE_LASSO_DIRECTORY_SYNC_LAUNCH_PAYLOAD";
     private const string GateEnvironmentName = "SERVICE_LASSO_MANAGED_LAUNCH_GATE";
     private const string ProgressEnvironmentName = "SERVICE_LASSO_MANAGED_LAUNCH_PROGRESS_TOKEN";
+    // The directory-sync helper is a reviewed package-adjacent asset.  This
+    // launcher never accepts a caller-selected helper identity: the relative
+    // location, byte length, and digest are all part of this native boundary.
+    private const string DirectorySyncHelperRelativePath = "..\\operator\\windows-directory-sync-helper.exe";
+    private const string DirectorySyncHelperSha256 = "b2e1fd8fd2ff08d8fb2cbc69ca89d454da0fd3fdcb397d26bb22f2f156a79c91";
+    private const long DirectorySyncHelperByteLength = 4608;
 
     private static readonly UTF8Encoding StrictUtf8 = new UTF8Encoding(false, true);
     private static string progressToken;
@@ -263,14 +269,16 @@ public static class ServiceLassoManagedLauncherNative
 
     private sealed class DirectorySyncLaunchPayload
     {
-        public string helper { get; set; }
         public string directory { get; set; }
-        public string sha256 { get; set; }
-        public long byteLength { get; set; }
     }
 
     public static int Main()
     {
+        // Check this before either launch mode consumes a payload.  The
+        // JavaScript caller also removes these names, so the trusted loader
+        // environment has both an inheritance and a native fail-closed guard.
+        try { AssertBootstrapEnvironmentSanitized(); }
+        catch { return FailureExitCodeUnknown; }
         string directorySyncPayload = Environment.GetEnvironmentVariable(DirectorySyncPayloadEnvironmentName, EnvironmentVariableTarget.Process);
         if (!String.IsNullOrWhiteSpace(directorySyncPayload))
         {
@@ -286,7 +294,6 @@ public static class ServiceLassoManagedLauncherNative
         try
         {
             ValidateNativeLayouts();
-            AssertBootstrapEnvironmentSanitized();
             InitializeProgress();
             SetProgress("launcher_initialization");
             SetProgress("launcher_native_asset_validation");
@@ -1478,17 +1485,17 @@ public static class ServiceLassoManagedLauncherNative
                 payloadJson = StrictUtf8.GetString(payloadBytes);
             }
             finally { Array.Clear(payloadBytes, 0, payloadBytes.Length); }
-            DirectorySyncLaunchPayload payload = new JavaScriptSerializer().Deserialize<DirectorySyncLaunchPayload>(payloadJson);
-            if (payload == null || !IsFullyQualifiedWindowsPath(payload.helper) || !IsFullyQualifiedWindowsPath(payload.directory) || !IsLowerHex64(payload.sha256) || payload.byteLength <= 0 || payload.byteLength > 1024 * 1024) return DirectorySyncLaunchPayloadInvalid;
+            DirectorySyncLaunchPayload payload = ParseDirectorySyncLaunchPayload(payloadJson);
+            if (payload == null || !IsFullyQualifiedWindowsPath(payload.directory)) return DirectorySyncLaunchPayloadInvalid;
 
-            string requestedHelper = Path.GetFullPath(payload.helper);
+            string requestedHelper = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(typeof(ServiceLassoManagedLauncherNative).Assembly.Location), DirectorySyncHelperRelativePath));
             string requestedDirectory = Path.GetFullPath(payload.directory);
             if ((File.GetAttributes(requestedHelper) & FileAttributes.ReparsePoint) != 0) return DirectorySyncLaunchBindingInvalid;
             helperHandle = new FileStream(requestedHelper, FileMode.Open, FileAccess.Read, FileShare.Read);
-            if (helperHandle.Length != payload.byteLength) return DirectorySyncLaunchBindingInvalid;
+            if (helperHandle.Length != DirectorySyncHelperByteLength) return DirectorySyncLaunchBindingInvalid;
             string helperDigest;
             using (SHA256 sha256 = SHA256.Create()) { helperDigest = ToLowerHex(sha256.ComputeHash(helperHandle)); }
-            if (!String.Equals(helperDigest, payload.sha256, StringComparison.Ordinal)) return DirectorySyncLaunchBindingInvalid;
+            if (!String.Equals(helperDigest, DirectorySyncHelperSha256, StringComparison.Ordinal)) return DirectorySyncLaunchBindingInvalid;
             string helperFinalPath = FinalPathForHandle(helperHandle.SafeFileHandle.DangerousGetHandle());
             if (!SameWindowsPath(helperFinalPath, requestedHelper)) return DirectorySyncLaunchBindingInvalid;
 
@@ -1519,6 +1526,49 @@ public static class ServiceLassoManagedLauncherNative
             if (directoryHandle != IntPtr.Zero) CloseHandle(directoryHandle);
             if (helperHandle != null) helperHandle.Dispose();
         }
+    }
+
+    private static DirectorySyncLaunchPayload ParseDirectorySyncLaunchPayload(string payloadJson)
+    {
+        // Validate before JavaScriptSerializer so duplicate escaped keys never
+        // collapse into a trusted value.  The byte-for-byte reconstruction
+        // rejects whitespace, reordered members, escaped member names, and
+        // alternate string spellings before any helper handle is opened.
+        ValidateStrictJsonSyntax(payloadJson);
+        IDictionary<string, object> root = RequireObject(new JavaScriptSerializer().DeserializeObject(payloadJson), "directory sync payload");
+        RequireExactKeys(root, new string[] { "directory" }, "directory sync payload");
+        string directory = RequireString(root["directory"], "directory sync directory", false);
+        string canonical = "{\"directory\":" + CanonicalJsonString(directory) + "}";
+        if (!String.Equals(payloadJson, canonical, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("Directory sync payload was not canonical.");
+        }
+        return new DirectorySyncLaunchPayload { directory = directory };
+    }
+
+    private static string CanonicalJsonString(string value)
+    {
+        StringBuilder result = new StringBuilder();
+        result.Append('"');
+        foreach (char character in value)
+        {
+            switch (character)
+            {
+                case '"': result.Append("\\\""); break;
+                case '\\': result.Append("\\\\"); break;
+                case '\b': result.Append("\\b"); break;
+                case '\f': result.Append("\\f"); break;
+                case '\n': result.Append("\\n"); break;
+                case '\r': result.Append("\\r"); break;
+                case '\t': result.Append("\\t"); break;
+                default:
+                    if (character < 0x20) result.Append("\\u").Append(((int)character).ToString("x4"));
+                    else result.Append(character);
+                    break;
+            }
+        }
+        result.Append('"');
+        return result.ToString();
     }
 
     private static string FinalPathForHandle(IntPtr handle)
