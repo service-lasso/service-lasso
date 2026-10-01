@@ -9,10 +9,12 @@ import { retainReceipt } from "../scripts/retain-packaged-admin-lifecycle-receip
 import { consume } from "../scripts/consume-admin-trusted-unlock-receipt.mjs";
 import { ADMIN_HARNESS_REVISION, ADMIN_RELEASE, BROKER_RELEASE } from "../scripts/published-package-qualification-lib.mjs";
 import { recordPrebrowserFailure } from "../scripts/record-admin-trusted-unlock-prebrowser-failure.mjs";
+import { readTerminalJobs, requireTerminalPrebrowserFailure, verifyArtifacts } from "../scripts/verify-packaged-admin-lifecycle-artifacts.mjs";
 
 const script = new URL("../scripts/verify-packaged-admin-lifecycle-artifacts.mjs", import.meta.url);
 const workflow = new URL("../.github/workflows/packaged-admin-lifecycle.yml", import.meta.url);
 const runId = "431", runAttempt = "2", candidateSha = "a".repeat(40), eventSha = "b".repeat(40);
+const terminalJobs = ["linux", "win32", "darwin"].map((platform, index) => ({ id: index + 1, name: `packaged-admin-lifecycle (${platform})`, status: "completed", conclusion: "failure", run_id: Number(runId), run_attempt: Number(runAttempt) }));
 const receipt = { schema: "service-lasso.admin-trusted-unlock-consumer.v1", outcome: "nonzero_exit", exitCode: 1, signal: null, trustedUnlock: { classification: "closed", receipt: { schema: "service-admin.trusted-unlock-receipt.v1", status: "observed", present: true, verified: false, localRoot: false, loading: true, unavailable: false } } };
 const observationFailureReceipt = { ...receipt, outcome: "observation_failure", exitCode: 0, streamFailure: "malformed_utf8" };
 const unavailableReceipt = (classification) => ({ ...receipt, trustedUnlock: { classification } });
@@ -49,14 +51,46 @@ test("AC-4BY.2 workflow binds every checkout and retained artifact to the PR hea
   assert.match(source, /Verify exact aggregate candidate checkout/);
 });
 test("AC-4BY.2 aggregate validates executable three-platform failed-Cypress receipt custody", async () => { const result = verify(await fixture()); assert.equal(result.status, 0, result.stderr); });
-test("AC-4BY.2 retains a closed pre-browser caller failure without later receipt or release identities", async () => {
-  const root = await fixture(async (root) => {
-    const platform = "win32", directory = path.join(root, `packaged-admin-lifecycle-${platform}-${runId}-${runAttempt}`);
-    await Promise.all(["packaged-admin-lifecycle-win32.json", "admin-trusted-unlock-receipt.json"].map((name) => rm(path.join(directory, name))));
-    await recordPrebrowserFailure({ output: path.join(directory, "admin-trusted-unlock-prebrowser-failure.json"), platform, stage: "action_binding", runId, runAttempt });
-  });
-  const result = verify(root);
-  assert.equal(result.status, 0, result.stderr);
+test("AC-4BY.2 executes each finite pre-browser producer through the packaged aggregate and requires its matching terminal failed job", async () => {
+  for (const stage of ["action_binding", "fresh_prefix", "isolated_install", "package_identity"]) {
+    const root = await fixture(async (root) => {
+      const platform = "win32", directory = path.join(root, `packaged-admin-lifecycle-${platform}-${runId}-${runAttempt}`);
+      await Promise.all(["packaged-admin-lifecycle-win32.json", "admin-trusted-unlock-receipt.json"].map((name) => rm(path.join(directory, name))));
+      await recordPrebrowserFailure({ output: path.join(directory, "admin-trusted-unlock-prebrowser-failure.json"), platform, stage, runId, runAttempt });
+    });
+    await assert.doesNotReject(verifyArtifacts({ root, runId, runAttempt, candidateSha, eventSha, terminalJobs }), stage);
+    await assert.rejects(verifyArtifacts({ root, runId, runAttempt, candidateSha, eventSha }), /terminal job is unobserved/u, stage);
+  }
+});
+test("AC-4BY.2 public terminal-job read is bounded, unauthenticated, and fails closed for unavailable or malformed provider payloads", async () => {
+  const valid = { jobs: [terminalJobs[1]] };
+  const route = await readTerminalJobs({ repository: "service-lasso/service-lasso", runId, runAttempt, fetchImpl: async (_url, options) => {
+    assert.equal(options.headers.Authorization, undefined);
+    assert.equal(options.redirect, "error");
+    assert.ok(options.signal);
+    return new Response(JSON.stringify(valid), { status: 200, headers: { "content-length": String(Buffer.byteLength(JSON.stringify(valid))) } });
+  } });
+  assert.deepEqual(route, valid.jobs);
+  for (const response of [
+    new Response("", { status: 503 }),
+    new Response("{", { status: 200 }),
+    new Response(JSON.stringify({ jobs: null }), { status: 200 }),
+    new Response("x".repeat(262145), { status: 200, headers: { "content-length": "262145" } }),
+  ]) await assert.rejects(readTerminalJobs({ repository: "service-lasso/service-lasso", runId, runAttempt, fetchImpl: async () => response }));
+});
+test("AC-4BY.2 terminal pre-browser job binding rejects incomplete, mismatched, nonterminal, and duplicate provider identities", () => {
+  for (const mutation of [
+    (job) => { delete job.id; },
+    (job) => { job.run_id = 999; },
+    (job) => { job.run_attempt = 1; },
+    (job) => { job.status = "in_progress"; },
+    (job) => { job.conclusion = "success"; },
+    (job, jobs) => jobs.push({ ...job, id: 99 }),
+  ]) {
+    const jobs = [{ ...terminalJobs[1] }];
+    mutation(jobs[0], jobs);
+    assert.throws(() => requireTerminalPrebrowserFailure(jobs, "win32", runId, runAttempt));
+  }
 });
 test("AC-4BY.2 aggregate validates an executable successful no-failure consumer receipt", async () => {
   const success = { schema: "service-lasso.admin-trusted-unlock-consumer.v1", outcome: "success", exitCode: 0, signal: null, trustedUnlock: { classification: "not_emitted" } };

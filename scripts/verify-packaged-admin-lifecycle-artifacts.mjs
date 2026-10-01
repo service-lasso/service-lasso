@@ -6,8 +6,18 @@ import { hasObservedConsumerReceipt, isRetainableConsumerReceipt, parseConsumerR
 import { ADMIN_HARNESS_REVISION, ADMIN_RELEASE, BROKER_RELEASE } from "./published-package-qualification-lib.mjs";
 import { parsePrebrowserFailure } from "./record-admin-trusted-unlock-prebrowser-failure.mjs";
 const platforms = ["linux", "win32", "darwin"];
+const MAX_TERMINAL_JOBS_BYTES = 262_144;
+const TERMINAL_JOBS_TIMEOUT_MS = 10_000;
 function required(name, pattern = /^.+$/u) { const value = process.env[name]; if (!value || !pattern.test(value)) throw new Error(`Invalid ${name}.`); return value; }
 async function regular(file, label) { const info = await lstat(file).catch(() => null); if (!info?.isFile() || info.isSymbolicLink() || info.size <= 0 || info.size > 16384) throw new Error(`${label} is missing, private, or invalid.`); return readFile(file, "utf8"); }
+async function containsPrebrowserArtifact(root) {
+  for (const entry of await readdir(root, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const files = await readdir(path.join(root, entry.name), { withFileTypes: true });
+    if (files.some((file) => file.isFile() && !file.isSymbolicLink() && file.name === "admin-trusted-unlock-prebrowser-failure.json")) return true;
+  }
+  return false;
+}
 function exactKeys(value, keys) { return !!value && typeof value === "object" && !Array.isArray(value) && Object.keys(value).sort().join(",") === [...keys].sort().join(","); }
 function sameValue(left, right) {
   if (left === right) return true;
@@ -18,6 +28,29 @@ function sameValue(left, right) {
 }
 function expectedRelease(release, platform) {
   return { revision: release.revision, releaseId: release.id, tag: release.tag, asset: release.platforms[platform].asset, sha256: release.platforms[platform].sha256, checksumSource: "SHA256SUMS.txt" };
+}
+export async function readTerminalJobs({ repository, runId, runAttempt, fetchImpl = fetch }) {
+  const response = await fetchImpl(`https://api.github.com/repos/${repository}/actions/runs/${runId}/attempts/${runAttempt}/jobs?per_page=100`, {
+    // This repository is public. GitHub documents public workflow-job reads as
+    // unauthenticated; retaining that route avoids widening this workflow's
+    // permissions merely to classify an already-failed pre-browser job.
+    headers: { Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "service-lasso-packaged-admin-lifecycle" },
+    redirect: "error",
+    signal: AbortSignal.timeout(TERMINAL_JOBS_TIMEOUT_MS),
+  });
+  if (!response.ok) throw new Error("Packaged pre-browser terminal job API readback failed.");
+  const advertisedSize = Number(response.headers.get("content-length"));
+  if ((Number.isFinite(advertisedSize) && advertisedSize > MAX_TERMINAL_JOBS_BYTES) || advertisedSize < 0) throw new Error("Packaged pre-browser terminal job API response is oversized.");
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  if (bytes.byteLength === 0 || bytes.byteLength > MAX_TERMINAL_JOBS_BYTES) throw new Error("Packaged pre-browser terminal job API response is invalid.");
+  let payload;
+  try { payload = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)); } catch { throw new Error("Packaged pre-browser terminal job API response is malformed."); }
+  if (!payload || typeof payload !== "object" || Array.isArray(payload) || !Array.isArray(payload.jobs)) throw new Error("Packaged pre-browser terminal job API response is incomplete.");
+  return payload.jobs;
+}
+export function requireTerminalPrebrowserFailure(jobs, platform, runId, runAttempt) {
+  const matches = jobs.filter((job) => job?.name === `packaged-admin-lifecycle (${platform})`);
+  if (matches.length !== 1 || !Number.isSafeInteger(matches[0]?.id) || matches[0].id <= 0 || matches[0]?.status !== "completed" || matches[0]?.conclusion !== "failure" || String(matches[0]?.run_id) !== String(runId) || String(matches[0]?.run_attempt) !== String(runAttempt)) throw new Error(`${platform} pre-browser failure must bind one matching terminal failed job.`);
 }
 function validateEvidence(source, platform, runId, runAttempt, candidateSha, eventSha) {
   if (!strictJson(source)) throw new Error(`${platform} evidence is malformed or has duplicate keys.`);
@@ -37,7 +70,7 @@ function validateEvidence(source, platform, runId, runAttempt, candidateSha, eve
   if (evidence.outcome === "success" && !hasObservedConsumerReceipt(receipt)) throw new Error(`${platform} unobserved or failed consumer cannot qualify as success.`);
   return receipt;
 }
-export async function verifyArtifacts({ root, runId, runAttempt, candidateSha, eventSha }) {
+export async function verifyArtifacts({ root, runId, runAttempt, candidateSha, eventSha, terminalJobs = null }) {
   const expected = new Set(platforms.map((platform) => `packaged-admin-lifecycle-${platform}-${runId}-${runAttempt}`));
   const directories = await readdir(root, { withFileTypes: true });
   if (directories.length !== expected.size || directories.some((entry) => !entry.isDirectory() || !expected.has(entry.name))) throw new Error("Downloaded artifacts are not the exact current attempt.");
@@ -48,6 +81,8 @@ export async function verifyArtifacts({ root, runId, runAttempt, candidateSha, e
     if (files.length === 1 && files[0]?.isFile() && !files[0]?.isSymbolicLink() && files[0].name === prebrowserName) {
       const prebrowser = parsePrebrowserFailure(await regular(path.join(directory, prebrowserName), `${platform} pre-browser failure`));
       if (!prebrowser || prebrowser.platform !== platform || String(prebrowser.run.id) !== runId || String(prebrowser.run.attempt) !== runAttempt) throw new Error(`${platform} pre-browser failure custody validation failed.`);
+      if (!terminalJobs) throw new Error(`${platform} pre-browser failure terminal job is unobserved.`);
+      requireTerminalPrebrowserFailure(terminalJobs, platform, runId, runAttempt);
       continue;
     }
     if (files.length !== 2 || files.some((entry) => !entry.isFile() || entry.isSymbolicLink()) || !files.some((entry) => entry.name === evidenceName) || !files.some((entry) => entry.name === receiptName)) throw new Error(`${platform} artifact inventory is invalid.`);
@@ -57,4 +92,9 @@ export async function verifyArtifacts({ root, runId, runAttempt, candidateSha, e
     if (!receipt || !isRetainableConsumerReceipt(receipt) || !sameValue(retained, receipt)) throw new Error(`${platform} retained receipt custody validation failed.`);
   }
 }
-if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) await verifyArtifacts({ root: required("PACKAGED_ARTIFACTS_ROOT"), runId: required("GITHUB_RUN_ID", /^[1-9][0-9]*$/u), runAttempt: required("GITHUB_RUN_ATTEMPT", /^[1-9][0-9]*$/u), candidateSha: required("QUALIFICATION_CANDIDATE_SHA", /^[0-9a-f]{40}$/u), eventSha: required("QUALIFICATION_EVENT_SHA", /^[0-9a-f]{40}$/u) });
+if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) {
+  const runId = required("GITHUB_RUN_ID", /^[1-9][0-9]*$/u), runAttempt = required("GITHUB_RUN_ATTEMPT", /^[1-9][0-9]*$/u);
+  const root = required("PACKAGED_ARTIFACTS_ROOT");
+  const terminalJobs = await ((await containsPrebrowserArtifact(root)) ? readTerminalJobs({ repository: required("GITHUB_REPOSITORY", /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u), runId, runAttempt }) : Promise.resolve(null));
+  await verifyArtifacts({ root, runId, runAttempt, candidateSha: required("QUALIFICATION_CANDIDATE_SHA", /^[0-9a-f]{40}$/u), eventSha: required("QUALIFICATION_EVENT_SHA", /^[0-9a-f]{40}$/u), terminalJobs });
+}

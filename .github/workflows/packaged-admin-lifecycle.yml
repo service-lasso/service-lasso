@@ -21,6 +21,7 @@ on:
       - tests/consume-admin-trusted-unlock-receipt.test.js
       - tests/resolve-pnpm-action-entrypoint.test.js
       - tests/packaged-admin-lifecycle-receipt-custody.test.js
+      - tests/prebrowser-failure-execution.test.js
       - package.json
       - package-lock.json
   push:
@@ -42,6 +43,7 @@ on:
       - tests/consume-admin-trusted-unlock-receipt.test.js
       - tests/resolve-pnpm-action-entrypoint.test.js
       - tests/packaged-admin-lifecycle-receipt-custody.test.js
+      - tests/prebrowser-failure-execution.test.js
       - package.json
       - package-lock.json
 

@@ -53,6 +53,7 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
     "tests/consume-admin-trusted-unlock-receipt.test.js",
     "tests/resolve-pnpm-action-entrypoint.test.js",
     "tests/packaged-admin-lifecycle-receipt-custody.test.js",
+    "tests/prebrowser-failure-execution.test.js",
     "package.json",
     "package-lock.json",
   ];

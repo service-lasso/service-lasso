@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { cp, mkdir, mkdtemp, readFile } from "node:fs/promises";
+import { access, cp, mkdir, mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -8,9 +8,16 @@ import { fileURLToPath } from "node:url";
 
 const resolver = fileURLToPath(new URL("../scripts/resolve-pnpm-action-entrypoint.mjs", import.meta.url));
 
+async function npmCli() {
+  if (process.platform !== "win32") return "npm";
+  const candidate = path.join(path.dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js");
+  await access(candidate);
+  return candidate;
+}
+
 async function fixture() {
-  const root = await mkdtemp(path.join(tmpdir(), "pnpm-action-entrypoint-"));
-  const actionRoot = path.join(root, "pnpm-action-pinned-entrypoint");
+  const root = await mkdtemp(path.join(tmpdir(), "pnpm action entrypoint "));
+  const actionRoot = path.join(root, "pinned action root");
   const actionHome = path.join(actionRoot, "node_modules", ".bin");
   const bin = path.join(actionHome, "bin");
   const prefix = path.join(root, "admin-trusted-unlock-pnpm-10.34.5");
@@ -18,9 +25,11 @@ async function fixture() {
   await mkdir(actionHome, { recursive: true });
   await mkdir(path.join(prefix, "node_modules"), { recursive: true });
   await cp(path.join(process.cwd(), "node_modules", "pnpm"), path.join(prefix, "node_modules", "pnpm"), { recursive: true });
-  const npm = "npm";
+  const npm = await npmCli();
   const npmArgs = ["install", "--prefix", actionRoot, "--ignore-scripts", "--no-save", "--package-lock=false", "--no-audit", "--no-fund", "pnpm@11.25.0"];
-  const installed = spawnSync(npm, npmArgs, { encoding: "utf8", shell: process.platform === "win32" });
+  const installed = process.platform === "win32"
+    ? spawnSync(process.execPath, [npm, ...npmArgs], { encoding: "utf8", shell: false })
+    : spawnSync(npm, npmArgs, { encoding: "utf8", shell: false });
   assert.equal(installed.status, 0, installed.stderr);
   const updated = spawnSync(process.execPath, [path.join(actionRoot, "node_modules", "pnpm", "bin", "pnpm.mjs"), "self-update", "10.34.5"], { encoding: "utf8", shell: false, env: { ...process.env, PNPM_HOME: actionHome } });
   assert.equal(updated.status, 0, updated.stderr);
@@ -43,6 +52,7 @@ test("proves an actual isolated pnpm package manifest, regular CJS entrypoint, d
   assert.equal(evidence.action.ref, "ea17c68df8912ef543352723c149a84f56e3d413");
   assert.equal(evidence.action.bootstrap.version, "11.25.0");
   assert.equal(evidence.action.selfUpdated.version, "10.34.5");
+  if (process.platform === "win32") assert.match(evidence.action.selfUpdated.executable, /pnpm\.cmd$/i);
   assert.match(evidence.action.binDest, /node_modules[\\/]\.bin[\\/]bin$/i);
   assert.equal(evidence.caller.version, "10.34.5");
   assert.match(evidence.caller.entrypoint, /node_modules[\\/]pnpm[\\/]bin[\\/]pnpm\.cjs$/i);
@@ -51,7 +61,7 @@ test("proves an actual isolated pnpm package manifest, regular CJS entrypoint, d
   assert.match(evidence.caller.entrypointSha256, /^[0-9a-f]{64}$/);
 });
 
-test("Windows action binding accepts only the realpath-normalized PATH-selected action command", { skip: process.platform !== "win32" }, async () => {
+test("Windows action binding executes only the realpath-normalized spaced-path pnpm.cmd selected from the action output", { skip: process.platform !== "win32" }, async () => {
   const { root, bin, prefix } = await fixture(), environment = path.join(root, "github-env");
   const selected = spawnSync(process.execPath, [resolver, "--verify-action-binding"], { cwd: root, encoding: "utf8", env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}`, PNPM_ACTION_BIN_DEST: bin, ADMIN_PNPM_PREFIX: prefix, RUNNER_TEMP: root, GITHUB_ENV: environment } });
   assert.equal(selected.status, 0, selected.stderr);

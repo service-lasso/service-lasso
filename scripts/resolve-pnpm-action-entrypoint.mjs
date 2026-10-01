@@ -43,8 +43,14 @@ async function selectedPnpmFromPath(environment, actionBin) {
 }
 
 function executeActionPnpm(executable, environment) {
-  if (process.platform !== "win32") return spawnSync(executable, ["--version"], { encoding: "utf8", shell: false, windowsHide: true, timeout: VERSION_TIMEOUT_MS, maxBuffer: MAX_OUTPUT_BYTES, env: environment });
-  return spawnSync(executable, ["--version"], { encoding: "utf8", shell: true, windowsHide: true, timeout: VERSION_TIMEOUT_MS, maxBuffer: MAX_OUTPUT_BYTES, env: environment });
+  const options = { encoding: "utf8", shell: false, windowsHide: true, timeout: VERSION_TIMEOUT_MS, maxBuffer: MAX_OUTPUT_BYTES, env: environment };
+  if (process.platform !== "win32" || path.extname(executable).toLowerCase() === ".exe") return spawnSync(executable, ["--version"], options);
+  if (path.extname(executable).toLowerCase() !== ".cmd") fail("the PATH-selected action command is neither pnpm.cmd nor pnpm.exe");
+  const commandProcessor = environment.ComSpec ?? environment.COMSPEC;
+  if (!commandProcessor || /[\r\n"%!^&|<>()]/u.test(executable)) fail("the PATH-selected pnpm.cmd cannot be invoked safely");
+  // Windows requires cmd.exe to execute a CMD shim. The fixed selected path and
+  // version argument are explicit argv, without Node shell interpolation.
+  return spawnSync(commandProcessor, ["/d", "/s", "/c", `""${executable}" --version"`], { ...options, windowsVerbatimArguments: true });
 }
 
 export async function verifyPinnedPnpmActionProvision(environment = process.env) {
