@@ -4119,7 +4119,15 @@ for (const receiptMode of ["incomplete", "malformed"]) {
 
     try {
       const [service] = await discoverServices(servicesRoot);
-      handle = await startOwnedFixtureWithNativeJobObservation({
+      // An incomplete receipt deliberately prevents the fixture from reaching
+      // its Job-observation request. Keep the production three-second receipt
+      // deadline, but do not arm the separate three-second observation timer:
+      // it would race this assertion, close the native wrapper first, and
+      // erase the captured held-root identity before custody cleanup begins.
+      // This remains a real managed Windows Job fixture; the authenticated
+      // Job-observation negatives are exercised by the adjacent complete-
+      // receipt cases above.
+      handle = await startManagedProcess({
         service,
         executionPlan: createDirectExecutionPlan(service.manifest),
         workspaceRoot,
