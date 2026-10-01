@@ -61,8 +61,12 @@ test("AC-4BZ.1 workflow qualifies only exact downloaded publications on all thre
   assert.match(workflow, /consume-admin-trusted-unlock-receipt\.mjs/);
   assert.match(
     workflow,
-    /consume-admin-trusted-unlock-receipt\.mjs[\s\S]*?--receipt[\s\S]*?node "\$PNPM_HOME\/pnpm\.cjs" test:secrets:real-browser/,
+    /consume-admin-trusted-unlock-receipt\.mjs[\s\S]*?--receipt[\s\S]*?-- "\$ADMIN_PNPM_NODE" "\$ADMIN_PNPM_ENTRYPOINT" test:secrets:real-browser/,
   );
+  assert.match(workflow, /id: pnpm-action-pinned-entrypoint[\s\S]*?dest: \$\{\{ runner\.temp \}\}\/pnpm-action-pinned-entrypoint/);
+  assert.match(workflow, /PNPM_ACTION_BIN_DEST: \$\{\{ steps\.pnpm-action-pinned-entrypoint\.outputs\.bin_dest \}\}/);
+  assert.doesNotMatch(workflow, /PNPM_HOME\/pnpm\.cjs|node_modules\/pnpm\/bin\/pnpm\.cjs/);
+  assert.match(workflow, /npm install --prefix "\$ADMIN_PNPM_PREFIX" --ignore-scripts --no-save --package-lock=false --no-audit --no-fund pnpm@10\.34\.5/);
   assert.doesNotMatch(
     workflow,
     /\bnpm ci\b|\bnpm run build\b|\bcontinue-on-error\b|\bmain\b|--force|screenshots|videos/iu,
@@ -84,7 +88,7 @@ test("AC-4BZ.1 workflow qualifies only exact downloaded publications on all thre
     workflow.slice(aggregateJobStart, aggregateStepsStart),
     /runner\.temp/,
   );
-  assert.equal((workflow.match(/\$\{\{ runner\.temp \}\}/g) ?? []).length, 5);
+  assert.equal((workflow.match(/\$\{\{ runner\.temp \}\}/g) ?? []).length, 7);
 
   for (const command of [
     "pnpm test:secrets:real-first-run-browser",

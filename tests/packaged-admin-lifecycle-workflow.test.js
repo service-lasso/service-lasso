@@ -44,11 +44,13 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
     "src/runtime/**",
     "src/server/**",
     "scripts/consume-admin-trusted-unlock-receipt.mjs",
+    "scripts/resolve-pnpm-action-entrypoint.mjs",
     "scripts/retain-packaged-admin-lifecycle-receipt.mjs",
     "scripts/verify-packaged-admin-lifecycle-artifacts.mjs",
     "scripts/published-package-qualification-lib.mjs",
     "tests/fixtures/real-admin-browser-runner.mjs",
     "tests/consume-admin-trusted-unlock-receipt.test.js",
+    "tests/resolve-pnpm-action-entrypoint.test.js",
     "tests/packaged-admin-lifecycle-receipt-custody.test.js",
   ];
 
@@ -126,8 +128,12 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
   assert.match(workflow, /consume-admin-trusted-unlock-receipt\.mjs/);
   assert.match(
     workflow,
-    /consume-admin-trusted-unlock-receipt\.mjs[\s\S]*?--receipt[\s\S]*?node "\$PNPM_HOME\/pnpm\.cjs" test:secrets:real-browser/,
+    /consume-admin-trusted-unlock-receipt\.mjs[\s\S]*?--receipt[\s\S]*?-- "\$ADMIN_PNPM_NODE" "\$ADMIN_PNPM_ENTRYPOINT" test:secrets:real-browser/,
   );
+  assert.match(workflow, /id: pnpm-action-pinned-entrypoint[\s\S]*?dest: \$\{\{ runner\.temp \}\}\/pnpm-action-pinned-entrypoint/);
+  assert.match(workflow, /PNPM_ACTION_BIN_DEST: \$\{\{ steps\.pnpm-action-pinned-entrypoint\.outputs\.bin_dest \}\}/);
+  assert.doesNotMatch(workflow, /PNPM_HOME\/pnpm\.cjs|node_modules\/pnpm\/bin\/pnpm\.cjs/);
+  assert.match(workflow, /npm install --prefix "\$ADMIN_PNPM_PREFIX" --ignore-scripts --no-save --package-lock=false --no-audit --no-fund pnpm@10\.34\.5/);
   assert.match(workflow, /SERVICE_LASSO_REQUIRE_TEST_BROKER_BINARY: "1"/);
   assert.match(workflow, /& chmod \+x \$brokerBinary\.FullName/);
   assert.doesNotMatch(workflow, /& chmod \+x --/);
@@ -177,7 +183,7 @@ test("AC-4BY.2 rejects YAML scalar continuations that silently remove receipt-cu
   const document = parseDocument(malformed, { uniqueKeys: true });
   assert.equal(document.errors.length, 0, document.errors.map(String).join("\n"));
   const paths = document.toJS().on.pull_request.paths;
-  assert.ok(paths.includes("scripts/consume-admin-trusted-unlock-receipt.mjs - scripts/retain-packaged-admin-lifecycle-receipt.mjs"));
+  assert.ok(paths.some((value) => value.includes("scripts/resolve-pnpm-action-entrypoint.mjs") && value.includes("scripts/retain-packaged-admin-lifecycle-receipt.mjs")));
   assert.ok(!paths.includes("scripts/retain-packaged-admin-lifecycle-receipt.mjs"));
 });
 

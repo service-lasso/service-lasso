@@ -95,10 +95,12 @@ jobs:
         with:
           node-version: 22
 
-      - name: Set up pnpm
+      - name: Set up isolated pinned pnpm action entrypoint
+        id: pnpm-action-pinned-entrypoint
         uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:
           version: 10.34.5
+          dest: ${{ runner.temp }}/pnpm-action-pinned-entrypoint
 
       - name: Install exact Admin browser harness dependencies
         working-directory: qualification/admin
@@ -111,19 +113,17 @@ jobs:
       - name: Establish exact trusted-unlock receipt caller
         working-directory: qualification/admin
         shell: bash
+        env:
+          PNPM_ACTION_BIN_DEST: ${{ steps.pnpm-action-pinned-entrypoint.outputs.bin_dest }}
+          ADMIN_PNPM_PREFIX: ${{ runner.temp }}/admin-trusted-unlock-pnpm-10.34.5
         run: |
           set -euo pipefail
-          test -n "${PNPM_HOME:-}"
-          test -d "$PNPM_HOME"
+          test -d "$PNPM_ACTION_BIN_DEST"
           test "$(pnpm --version)" = "10.34.5"
-          npm install --ignore-scripts --no-save --package-lock=false --no-audit --no-fund pnpm@10.34.5
-          node --input-type=module - <<'NODE'
-          import { access, readFile } from "node:fs/promises";
-          const manifest = JSON.parse(await readFile("node_modules/pnpm/package.json", "utf8"));
-          if (manifest.version !== "10.34.5") throw new Error("trusted-unlock caller package version is not pinned");
-          await access("node_modules/pnpm/bin/pnpm.cjs");
-          NODE
-          test "$(node node_modules/pnpm/bin/pnpm.cjs --version)" = "10.34.5"
+          case "$(command -v pnpm)" in "$PNPM_ACTION_BIN_DEST"/*) ;; *) exit 1 ;; esac
+          test ! -e "$ADMIN_PNPM_PREFIX"
+          npm install --prefix "$ADMIN_PNPM_PREFIX" --ignore-scripts --no-save --package-lock=false --no-audit --no-fund pnpm@10.34.5
+          node "$GITHUB_WORKSPACE/scripts/resolve-pnpm-action-entrypoint.mjs"
 
       - name: Verify and prepare published packages
         id: prepare
@@ -147,7 +147,7 @@ jobs:
           test "$QUALIFICATION_PREPARED" = "1"
           pnpm test:secrets:real-first-run-browser
           echo "QUALIFICATION_FIRST_RUN=success" >> "$GITHUB_ENV"
-          node "$GITHUB_WORKSPACE/scripts/consume-admin-trusted-unlock-receipt.mjs" --receipt "$RUNNER_TEMP/admin-trusted-unlock-receipt.json" -- node node_modules/pnpm/bin/pnpm.cjs test:secrets:real-browser
+          "$ADMIN_PNPM_NODE" "$GITHUB_WORKSPACE/scripts/consume-admin-trusted-unlock-receipt.mjs" --receipt "$RUNNER_TEMP/admin-trusted-unlock-receipt.json" -- "$ADMIN_PNPM_NODE" "$ADMIN_PNPM_ENTRYPOINT" test:secrets:real-browser
           echo "QUALIFICATION_LIFECYCLE=success" >> "$GITHUB_ENV"
           pnpm test:secrets:real-stopped-lifecycle-browser
           echo "QUALIFICATION_STOPPED_LIFECYCLE=success" >> "$GITHUB_ENV"
