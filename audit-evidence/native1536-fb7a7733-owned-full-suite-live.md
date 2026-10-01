@@ -537,7 +537,7 @@ not ok 803 - whole-runtime shutdown reports safe service, pid, and finalization 
   failureType: 'testCodeFailure'
   error: |-
     Expected values to be strictly equal:
-    
+
     2 !== 1
   code: 'ERR_ASSERTION'
   name: 'AssertionError'

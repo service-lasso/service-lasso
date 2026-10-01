@@ -43,9 +43,9 @@ not ok 4 - Windows managed terminal monitor keeps root-exit finalization in the 
   failureType: 'testCodeFailure'
   error: |-
     Expected values to be strictly equal:
-    
+
     true !== false
-    
+
   code: 'ERR_ASSERTION'
   name: 'AssertionError'
   expected: false
