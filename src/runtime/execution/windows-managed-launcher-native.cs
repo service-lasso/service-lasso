@@ -815,6 +815,10 @@ public static class ServiceLassoManagedLauncherNative
         string response = "{\"token\":\"" + observation.token + "\",\"status\":\"complete\",\"count\":" +
             memberCount.ToString(System.Globalization.CultureInfo.InvariantCulture) + "}";
         string temporaryResponsePath = observation.responsePath + ".tmp";
+        if (File.Exists(observation.responsePath) || File.Exists(temporaryResponsePath))
+        {
+            throw new InvalidOperationException("Managed fixture job observation response already exists.");
+        }
         File.WriteAllText(temporaryResponsePath, response, StrictUtf8);
         File.Move(temporaryResponsePath, observation.responsePath);
     }

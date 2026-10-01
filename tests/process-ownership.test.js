@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
 import net from "node:net";
-import { EventEmitter } from "node:events";
+import { EventEmitter, once } from "node:events";
 import { PassThrough } from "node:stream";
 import { spawn } from "node:child_process";
 import { createHash, createHmac } from "node:crypto";
