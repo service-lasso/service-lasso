@@ -822,7 +822,7 @@ async function adoptVerifiedRegistryOwner(
     : state.runtime.ports;
   const startedAt = state.runtime.startedAt ?? ownership.identity.createdAt;
   const command = safeAdoptedCommand(state, ownership);
-  if (!hasManagedProcess(serviceId)) {
+  if (!hasManagedProcess(serviceId, workspaceRoot)) {
     await adoptManagedProcess({
       service,
       pid: ownership.pid,
@@ -871,7 +871,7 @@ export async function reconcilePersistedServiceOwner(
     return { status: "not_running", state };
   }
   const serviceId = service.manifest.id;
-  if (hasManagedProcess(serviceId) && getLifecycleState(serviceId).running) {
+  if (hasManagedProcess(serviceId, workspaceRoot) && getLifecycleState(serviceId).running) {
     return { status: "owned", state: getLifecycleState(serviceId) };
   }
 
@@ -960,7 +960,7 @@ export async function rehydrateLifecycleState(
     const serviceId = service.manifest.id;
     const current = getLifecycleState(serviceId);
     const nextState =
-      hasManagedProcess(serviceId) && current.running
+      hasManagedProcess(serviceId, options.workspaceRoot) && current.running
         ? {
             ...state,
             running: true,
@@ -976,7 +976,7 @@ export async function rehydrateLifecycleState(
       Boolean(options.workspaceRoot) &&
       (!options.adoptServiceIds || options.adoptServiceIds.has(serviceId)) &&
       !options.excludeAdoptServiceIds?.has(serviceId) &&
-      !hasManagedProcess(serviceId);
+      !hasManagedProcess(serviceId, options.workspaceRoot);
     const registryOwner = mayAdopt && options.workspaceRoot
       ? await findProcessOwnership(options.workspaceRoot, "service", serviceId)
       : null;

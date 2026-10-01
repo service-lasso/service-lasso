@@ -67,7 +67,7 @@ export async function rebindCommittedServiceAdoption(
   if (!portsAgree(owner.allocation.ports, ports)) {
     throw new Error(`Committed service "${serviceId}" cannot be rebound to a different endpoint allocation.`);
   }
-  const requiresAdoption = !hasManagedProcess(serviceId);
+  const requiresAdoption = !hasManagedProcess(serviceId, options.workspaceRoot);
   if (requiresAdoption && (!state.runtime.startedAt || !state.runtime.command)) {
     throw new Error(`Committed service "${serviceId}" cannot be adopted without runtime launch evidence.`);
   }

@@ -110,23 +110,39 @@ const supervisionRestartClaims = new Set<string>();
 const shutdownRequestedServiceIds = new Set<string>();
 let readinessWaiterForTests: typeof waitForServiceReadiness | null = null;
 
+function supervisionServiceKey(serviceId: string, workspaceRoot?: string | null): string {
+  const root = workspaceRoot
+    ? (process.platform === "win32" ? path.resolve(workspaceRoot).toLowerCase() : path.resolve(workspaceRoot))
+    : "<legacy-unscoped>";
+  return `${root}\u0000${serviceId}`;
+}
+
+function serviceIdFromSupervisionKey(key: string): string {
+  return key.slice(key.lastIndexOf("\u0000") + 1);
+}
+
 export function setReadinessWaiterForTests(
   waiter: typeof waitForServiceReadiness | null,
 ): void {
   readinessWaiterForTests = waiter;
 }
 
-registerManagedProcessShutdownQuiescer(async (managedServiceIds) => {
+registerManagedProcessShutdownQuiescer(async (workspaceRoot, managedServiceIds) => {
+  const workspacePrefix = `${supervisionServiceKey("", workspaceRoot)}`;
   const serviceIds = new Set([
     ...managedServiceIds,
-    ...scheduledSupervisionRestarts.keys(),
-    ...activeSupervisionRestarts.keys(),
+    ...[...scheduledSupervisionRestarts.keys()].filter((key) => key.startsWith(workspacePrefix)).map(serviceIdFromSupervisionKey),
+    ...[...activeSupervisionRestarts.keys()].filter((key) => key.startsWith(workspacePrefix)).map(serviceIdFromSupervisionKey),
   ]);
   for (const serviceId of serviceIds) {
-    shutdownRequestedServiceIds.add(serviceId);
-    cancelScheduledSupervisionRestart(serviceId);
+    shutdownRequestedServiceIds.add(supervisionServiceKey(serviceId, workspaceRoot));
+    cancelScheduledSupervisionRestart(serviceId, workspaceRoot);
   }
-  await Promise.allSettled([...activeSupervisionRestarts.values()]);
+  await Promise.allSettled(
+    [...activeSupervisionRestarts.entries()]
+      .filter(([key]) => key.startsWith(workspacePrefix))
+      .map(([, restart]) => restart),
+  );
 });
 
 function createEmptySupervisionState(): ServiceLifecycleState["runtime"]["supervision"] {
@@ -139,19 +155,21 @@ function createEmptySupervisionState(): ServiceLifecycleState["runtime"]["superv
   };
 }
 
-export function cancelScheduledSupervisionRestart(serviceId: string): void {
-  const timer = scheduledSupervisionRestarts.get(serviceId);
+export function cancelScheduledSupervisionRestart(serviceId: string, workspaceRoot?: string | null): void {
+  const key = supervisionServiceKey(serviceId, workspaceRoot);
+  const timer = scheduledSupervisionRestarts.get(key);
   if (!timer) {
     return;
   }
   clearTimeout(timer);
-  scheduledSupervisionRestarts.delete(serviceId);
+  scheduledSupervisionRestarts.delete(key);
 }
 
-export function hasPendingSupervisionRestart(serviceId: string): boolean {
-  return supervisionRestartClaims.has(serviceId)
-    || scheduledSupervisionRestarts.has(serviceId)
-    || activeSupervisionRestarts.has(serviceId);
+export function hasPendingSupervisionRestart(serviceId: string, workspaceRoot?: string | null): boolean {
+  const key = supervisionServiceKey(serviceId, workspaceRoot);
+  return supervisionRestartClaims.has(key)
+    || scheduledSupervisionRestarts.has(key)
+    || activeSupervisionRestarts.has(key);
 }
 
 function calculateRunDurationMs(
@@ -738,11 +756,12 @@ async function runScheduledSupervisionRestart(
   attemptNumber: number,
 ): Promise<void> {
   const serviceId = service.manifest.id;
-  scheduledSupervisionRestarts.delete(serviceId);
+  const supervisionKey = supervisionServiceKey(serviceId, options.workspaceRoot);
+  scheduledSupervisionRestarts.delete(supervisionKey);
   const targetService = registry?.getById(serviceId) ?? service;
   const current = getLifecycleState(serviceId);
 
-  if (shutdownRequestedServiceIds.has(serviceId)) {
+  if (shutdownRequestedServiceIds.has(supervisionKey)) {
     await blockSupervisionRestart(service, reason, `Automatic restart blocked for "${serviceId}" because runtime shutdown was requested.`);
     return;
   }
@@ -815,14 +834,15 @@ async function superviseUnexpectedProcessExit(
   await persistProcessExit(service, exitCode, signal);
 
   const serviceId = service.manifest.id;
+  const supervisionKey = supervisionServiceKey(serviceId, options.workspaceRoot);
   const termination = classifyUnexpectedTermination(exitCode, signal);
   const reason: ServiceRuntimeSupervisionRestartReason = "crash";
   const policy = service.manifest.restartPolicy;
-  supervisionRestartClaims.add(serviceId);
+  supervisionRestartClaims.add(supervisionKey);
 
   try {
 
-    if (shutdownRequestedServiceIds.has(serviceId)) {
+    if (shutdownRequestedServiceIds.has(supervisionKey)) {
     await blockSupervisionRestart(service, reason, `Automatic restart blocked for "${serviceId}" because runtime shutdown was requested.`);
     return;
   }
@@ -860,7 +880,7 @@ async function superviseUnexpectedProcessExit(
   const now = new Date();
   const backoffSeconds = resolveRestartBackoffSeconds(policy);
   const nextRestartAt = new Date(now.getTime() + backoffSeconds * 1000).toISOString();
-  cancelScheduledSupervisionRestart(serviceId);
+  cancelScheduledSupervisionRestart(serviceId, options.workspaceRoot);
   await recordSupervisionDecision(
     service,
     {
@@ -877,21 +897,21 @@ async function superviseUnexpectedProcessExit(
 
   const timer = setTimeout(() => {
     const restart = runScheduledSupervisionRestart(service, registry, options, reason, attemptNumber);
-    activeSupervisionRestarts.set(serviceId, restart);
+    activeSupervisionRestarts.set(supervisionKey, restart);
     void restart.then(() => {
-      if (activeSupervisionRestarts.get(serviceId) === restart) {
-        activeSupervisionRestarts.delete(serviceId);
+      if (activeSupervisionRestarts.get(supervisionKey) === restart) {
+        activeSupervisionRestarts.delete(supervisionKey);
       }
     }, () => {
-      if (activeSupervisionRestarts.get(serviceId) === restart) {
-        activeSupervisionRestarts.delete(serviceId);
+      if (activeSupervisionRestarts.get(supervisionKey) === restart) {
+        activeSupervisionRestarts.delete(supervisionKey);
       }
     });
   }, backoffSeconds * 1000);
   timer.unref?.();
-    scheduledSupervisionRestarts.set(serviceId, timer);
+    scheduledSupervisionRestarts.set(supervisionKey, timer);
   } finally {
-    supervisionRestartClaims.delete(serviceId);
+    supervisionRestartClaims.delete(supervisionKey);
   }
 }
 
@@ -1102,12 +1122,13 @@ async function runStopOverrideCommand(
 async function stopManagedProcessWithOverride(
   service: DiscoveredService,
   current: ServiceLifecycleState,
+  workspaceRoot: string | undefined,
   expectedBinding?: ServiceStopExecutableMutationBinding,
 ): Promise<{ exitCode: number | null; message: string }> {
   const serviceId = service.manifest.id;
   const override = getLifecycleStopOverride(service);
   if (!override) {
-    const stopped = await stopManagedProcess(serviceId);
+    const stopped = await stopManagedProcess(serviceId, undefined, { workspaceRoot });
     return {
       exitCode: stopped?.exitCode ?? current.runtime.exitCode ?? 0,
       message: "Stop completed.",
@@ -1116,8 +1137,8 @@ async function stopManagedProcessWithOverride(
 
   const overrideResult = await runStopOverrideCommand(service, override, current.runtime.ports, expectedBinding);
   if (overrideResult.ok) {
-    const settled = await waitForManagedProcessExit(serviceId, 5_000);
-    if (settled || !hasManagedProcess(serviceId)) {
+    const settled = await waitForManagedProcessExit(serviceId, 5_000, workspaceRoot);
+    if (settled || !hasManagedProcess(serviceId, workspaceRoot)) {
       return {
         exitCode: settled?.exitCode ?? overrideResult.exitCode ?? current.runtime.exitCode ?? 0,
         message: "Stop completed with actions.stop override.",
@@ -1125,7 +1146,7 @@ async function stopManagedProcessWithOverride(
     }
   }
 
-  const stopped = await stopManagedProcess(serviceId);
+  const stopped = await stopManagedProcess(serviceId, undefined, { workspaceRoot });
   const reason = overrideResult.timedOut
     ? "timed out"
     : `failed with exit code ${overrideResult.exitCode ?? "unknown"}`;
@@ -1172,7 +1193,7 @@ export async function installService(
       // managed process.  Preserve its ownership state so a late
       // reconciliation/install pass cannot falsely report a live service as
       // stopped and cause a duplicate launch.
-      const retainsManagedProcess = current.running && hasManagedProcess(serviceId);
+      const retainsManagedProcess = current.running && hasManagedProcess(serviceId, options.workspaceRoot);
       return {
         ...current,
         installed: true,
@@ -1264,8 +1285,8 @@ async function startServiceSerialized(
 ): Promise<LifecycleActionResult> {
   const serviceId = service.manifest.id;
   if (!options.supervisionRestart) {
-    shutdownRequestedServiceIds.delete(serviceId);
-    cancelScheduledSupervisionRestart(serviceId);
+    shutdownRequestedServiceIds.delete(supervisionServiceKey(serviceId, options.workspaceRoot));
+    cancelScheduledSupervisionRestart(serviceId, options.workspaceRoot);
   }
   const trace = beginStartTrace(serviceId, "start");
   let current = getLifecycleState(serviceId);
@@ -1771,7 +1792,7 @@ export async function stopService(
   options: ServiceLifecycleActionOptions = {},
 ): Promise<LifecycleActionResult> {
   const serviceId = service.manifest.id;
-  cancelScheduledSupervisionRestart(serviceId);
+  cancelScheduledSupervisionRestart(serviceId, options.workspaceRoot);
   const current = getLifecycleState(serviceId);
   if (!current.running) {
     throw new LifecycleStateError(
@@ -1779,7 +1800,7 @@ export async function stopService(
     );
   }
 
-  const stopped = await stopManagedProcessWithOverride(service, current, options.expectedStopExecutableBinding);
+  const stopped = await stopManagedProcessWithOverride(service, current, options.workspaceRoot, options.expectedStopExecutableBinding);
   const finishedAt = new Date().toISOString();
   const revokedIdentities = revokeServiceScopedBrokerIdentities(serviceId, {
     now: new Date(finishedAt),
@@ -1811,8 +1832,8 @@ export async function restartService(
   options: ServiceLifecycleActionOptions = {},
 ): Promise<LifecycleActionResult> {
   const serviceId = service.manifest.id;
-  shutdownRequestedServiceIds.delete(serviceId);
-  cancelScheduledSupervisionRestart(serviceId);
+  shutdownRequestedServiceIds.delete(supervisionServiceKey(serviceId, options.workspaceRoot));
+  cancelScheduledSupervisionRestart(serviceId, options.workspaceRoot);
   const current = getLifecycleState(serviceId);
   const restartTrace = beginRestartTrace(serviceId);
   let replacementSpawned = false;

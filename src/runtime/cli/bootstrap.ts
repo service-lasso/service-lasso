@@ -268,7 +268,7 @@ export async function bootstrapBaselineServices(options: BootstrapBaselineOption
       }
     }
 
-    if (state.running || hasManagedProcess(serviceId)) {
+    if (state.running || hasManagedProcess(serviceId, runtimeConfig.workspaceRoot)) {
       actions.push({ action: "start", status: "skipped", message: "Already running." });
     } else if (setupStartBlocked) {
       actions.push({

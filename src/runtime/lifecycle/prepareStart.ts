@@ -154,7 +154,7 @@ async function prepareAndStartServiceSerialized(
   }
   const initialState = getLifecycleState(serviceId);
 
-  if (initialState.running || hasManagedProcess(serviceId)) {
+  if (initialState.running || hasManagedProcess(serviceId, options.workspaceRoot)) {
     return { result: null, skippedReason: "already_running", state: initialState };
   }
   if (options.allowedMutationServiceIds && !options.allowedMutationServiceIds.has(serviceId)) {

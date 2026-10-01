@@ -2520,7 +2520,7 @@ async function executeRuntimeOrchestrationAction(
         continue;
       }
 
-      const result = await stopService(service);
+      const result = await stopService(service, { workspaceRoot });
       stopped.push(await buildLifecycleActionResponse(service, runtimeModel.registry, result, workspaceRoot));
     }
 
@@ -2636,6 +2636,7 @@ async function executeRuntimeOrchestrationAction(
     }
 
     const result = await stopService(service, {
+      workspaceRoot,
       expectedStopExecutableBinding: expectedStopExecutableBindingsByService?.[serviceId],
     });
     results.push(await buildLifecycleActionResponse(service, runtimeModel.registry, result, workspaceRoot));
@@ -3493,7 +3494,7 @@ async function compensateTransactionStartedServices(
             continue;
           }
           if (ownershipStatus === "owned") {
-            const stopped = await stopService(service);
+            const stopped = await stopService(service, { workspaceRoot });
             await writeServiceState(service, stopped.state);
           } else {
             const stoppedState = setLifecycleState(serviceId, {
@@ -5125,7 +5126,7 @@ async function routeRequestWithoutMutationCoordination(
     if (currentBrokerState.running) {
       const stopped = await runSecretsBrokerBootstrapStage(
         "secrets_broker_existing_process_stop_failed",
-        async () => await stopService(broker),
+        async () => await stopService(broker, { workspaceRoot: config.workspaceRoot }),
       );
       await runSecretsBrokerBootstrapStage(
         "secrets_broker_stopped_state_persist_failed",
@@ -5549,9 +5550,9 @@ async function routeRequestWithoutMutationCoordination(
           type,
           getLifecycleState(service.manifest.id).runtime.logs.runId ?? "current",
         )),
-        stdin: buildServiceStdinCapability(service),
+        stdin: buildServiceStdinCapability(service, config.workspaceRoot),
         capabilities: {
-          stdin: buildServiceStdinCapability(service),
+          stdin: buildServiceStdinCapability(service, config.workspaceRoot),
         },
       }),
     );
@@ -6559,7 +6560,7 @@ async function routeRequestWithoutMutationCoordination(
     }
 
     if (request.method === "POST" && pathParts.length === 4 && pathParts[3] === "stdin") {
-      const stdinCapability = buildServiceStdinCapability(service);
+      const stdinCapability = buildServiceStdinCapability(service, config.workspaceRoot);
       const requestBody = await readJsonBody(request);
       const parsed = parseStdinWriteBody(requestBody);
       const actor = safeAuditText(parsed.actor, "unknown") ?? "unknown";

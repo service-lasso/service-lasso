@@ -164,6 +164,8 @@ interface ManagedProcessRecord {
   launcherPayloadFailureBoundary: Exclude<LauncherPayloadFailureBoundary, "unknown"> | null;
   launcherPayloadDiagnosticCount: number;
   launcherPayloadDiagnosticInvalid: boolean;
+  launcherProgressReceipt: Promise<void>;
+  resolveLauncherProgressReceipt: () => void;
   variableCapturePromise: Promise<void>;
   workspaceRoot: string | null;
   rootIdentity: ProcessFingerprint | null;
@@ -296,6 +298,7 @@ const managedProcessFinalizers = new Map<WorkspaceServiceKey, { pid: number | nu
 const adoptedProcesses = new Map<WorkspaceServiceKey, AdoptedProcessRecord>();
 const workspaceFinalizationTails = new Map<string, Promise<void>>();
 const managedProcessShutdownQuiescers = new Set<(
+  workspaceRoot: string | null,
   serviceIds: ReadonlySet<string>,
 ) => Promise<void> | void>();
 const ADOPTED_PROCESS_POLL_INTERVAL_MS = 250;
@@ -446,7 +449,7 @@ export function setManagedProcessSpawnTimeoutForTests(timeoutMs: number | null):
 }
 
 export function registerManagedProcessShutdownQuiescer(
-  quiescer: (serviceIds: ReadonlySet<string>) => Promise<void> | void,
+  quiescer: (workspaceRoot: string | null, serviceIds: ReadonlySet<string>) => Promise<void> | void,
 ): () => void {
   managedProcessShutdownQuiescers.add(quiescer);
   return () => managedProcessShutdownQuiescers.delete(quiescer);
@@ -733,6 +736,9 @@ function attachRuntimeLogCapture(record: ManagedProcessRecord): void {
         : { suppressed: false, phase: null, payloadFailureBoundary: null, invalidPayloadDiagnostic: false };
       if (launcherProgress.phase !== null) {
         record.launcherProgressPhase = launcherProgress.phase;
+      }
+      if (launcherProgress.phase === "launcher_payload_validation") {
+        record.resolveLauncherProgressReceipt();
       }
       if (launcherProgress.payloadFailureBoundary !== null) {
         record.launcherPayloadDiagnosticCount += 1;
@@ -1110,6 +1116,7 @@ const WINDOWS_MANAGED_LAUNCHER_PAYLOAD_FAILURE_BOUNDARIES = new Set<Exclude<Laun
 async function bindWindowsManagedLauncherFiles(
   child: ChildProcess,
   state: WindowsManagedLaunchState,
+  launcherProgressReceipt: Promise<void>,
   launcherProgressPhase: (deadlineMs: number) => {
     phase: ManagedProcessStartFailurePhase | null;
     payloadFailureBoundary: LauncherPayloadFailureBoundary;
@@ -1136,7 +1143,21 @@ async function bindWindowsManagedLauncherFiles(
             throw error;
           }
         }
-        await adoptedProcessPollDelay(signal, 25);
+        // The wrapper can remain live after its target has rejected the
+        // payload. The parser is attached before launch, so an authenticated
+        // terminal receipt wakes this bounded poll without extending it.
+        await Promise.race([
+          adoptedProcessPollDelay(signal, 25),
+          launcherProgressReceipt,
+        ]);
+        const progress = await launcherProgressPhase(deadlineMs);
+        if (progress.phase === "launcher_payload_validation") {
+          throw new ManagedProcessStartError(
+            progress.phase,
+            new Error("Windows managed launcher reported a terminal startup failure."),
+            progress.payloadFailureBoundary,
+          );
+        }
       }
     }, { deadlineMs });
   } catch (error) {
@@ -2140,6 +2161,10 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
   const rootInspection = rootPid > 0 && !workspaceRoot ? await managedProcessRootInspector(rootPid) : null;
   let rootIdentity = rootInspection?.status === "running" ? rootInspection.identity : null;
 
+  let resolveLauncherProgressReceipt!: () => void;
+  const launcherProgressReceipt = new Promise<void>((resolve) => {
+    resolveLauncherProgressReceipt = resolve;
+  });
   const record: ManagedProcessRecord = {
     child,
     service,
@@ -2158,6 +2183,8 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
     launcherPayloadFailureBoundary: null,
     launcherPayloadDiagnosticCount: 0,
     launcherPayloadDiagnosticInvalid: false,
+    launcherProgressReceipt,
+    resolveLauncherProgressReceipt,
     variableCapturePromise: Promise.resolve(),
     workspaceRoot: workspaceRoot ?? null,
     rootIdentity,
@@ -2297,6 +2324,7 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
             await bindWindowsManagedLauncherFiles(
               child,
               windowsManagedLaunchState,
+              record.launcherProgressReceipt,
               async (deadlineMs) => {
                 if (probeManagedChildHandle(child) !== "owned") {
                   // This is deliberately only the log/parser receipt. The
@@ -2716,14 +2744,10 @@ export async function stopAllManagedProcesses(workspaceRoot?: string | null): Pr
     ...[...adoptedProcesses.values()].map((record) => record.workspaceRoot),
     ...[...managedProcessFinalizers.values()].map((record) => record.workspaceRoot),
   ].map((root) => workspaceServiceKey("", root)));
-  if (workspaceRoot === undefined && roots.size > 1) {
+  if (workspaceRoot === undefined && roots.size > 0) {
     throw new Error("Cannot stop all managed processes without workspace authority.");
   }
-  const effectiveWorkspaceRoot = workspaceRoot === undefined
-    ? ([...managedProcesses.values(), ...adoptedProcesses.values()][0]?.workspaceRoot
-      ?? [...managedProcessFinalizers.values()][0]?.workspaceRoot
-      ?? null)
-    : workspaceRoot;
+  const effectiveWorkspaceRoot = workspaceRoot ?? null;
   const ownsKey = (key: WorkspaceServiceKey) => key.startsWith(`${workspaceServiceKey("", effectiveWorkspaceRoot)}`);
   // Quiesce every monitor synchronously before any tree termination starts.
   // Persist the shared ownership-registry transitions serially so concurrent
@@ -2771,7 +2795,7 @@ export async function stopAllManagedProcesses(workspaceRoot?: string | null): Pr
       ...[...managedProcessFinalizers.keys()].filter((key) => ownsKey(key) && !activeServiceIds.includes(key)),
     ];
     await Promise.all([...managedProcessShutdownQuiescers].map((quiescer) => (
-      quiescer(new Set(serviceIds.map((key) => key.slice(key.lastIndexOf("\u0000") + 1))))
+      quiescer(effectiveWorkspaceRoot, new Set(serviceIds.map((key) => key.slice(key.lastIndexOf("\u0000") + 1))))
     )));
     if (serviceIds.length === 0) {
       await new Promise<void>((resolve) => setImmediate(resolve));
