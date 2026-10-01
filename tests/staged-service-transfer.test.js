@@ -478,4 +478,3 @@ test("staged registration Audit outbox survives an append-before-removal restart
     assert.equal(event.metadata?.workspaceId, actor.workspaceId);
   } finally { await rm(root, { recursive:true, force:true }); }
 });
-
