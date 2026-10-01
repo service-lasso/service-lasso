@@ -720,8 +720,6 @@ test("real Admin browser runner waits for normal Admin exit and late managed fin
       "teardown_completed",
     ]);
   } finally {
-    if (closed && ready?.tempRoot)
-      await rm(ready.tempRoot, { recursive: true, force: false });
     if (closed) await rm(evidenceRoot, { recursive: true, force: false });
   }
 });
