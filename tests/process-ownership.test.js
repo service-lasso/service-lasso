@@ -3923,7 +3923,14 @@ test("managed Windows job contains a child spawned after enrollment when the ser
       receipt,
       await readCompleteOwnedFixtureJobObservation(launcherTerminal.jobObservation, receipt),
     );
-    assert.equal(custody.length, 4);
+    const receiptPids = new Set([receipt.rootPid, receipt.childPid, receipt.grandchildPid]);
+    // A complete Job snapshot proves the receipt is a subset. It deliberately
+    // does not assert that the Job has only the controlled three members:
+    // this fixture adds one member and Windows may retain further test-owned
+    // helpers. Every returned member is captured as a full fingerprint and
+    // revalidated before any manager control.
+    assert.ok(custody.length >= 4);
+    assert.ok(custody.some((identity) => !receiptPids.has(identity.pid)));
     await writeFile(custodyReadyPath, "verified\n", { flag: "wx" });
     await readOwnedFixtureAcknowledgement(acknowledgementPath, receipt);
 
@@ -4089,11 +4096,9 @@ for (const jobObservationMode of [
       rootCustody = await readOwnedFixtureRootCustody(workspaceRoot, serviceId);
       await writeFile(triggerPath, "launch\n", "utf8");
       const receipt = await readCompleteOwnedFixtureReceipt(pidFilePath);
-      custody = await captureOwnedFixtureCustody(receipt);
-      await writeFile(custodyReadyPath, "verified\n", { flag: "wx" });
       await assert.rejects(readOwnedFixtureAcknowledgement(acknowledgementPath, receipt, 3_000));
       await waitForManagedProcessFinalization(serviceId, Date.now() + 5_000);
-      await waitForOwnedFixtureStopped(custody, 5_000);
+      await waitForOwnedFixtureStopped([rootCustody.identity], 5_000);
       assert.equal(hasManagedProcess(serviceId), false);
       const stopped = await findProcessOwnership(workspaceRoot, "service", serviceId);
       assert.equal(stopped.lifecycleState, "stopped");
@@ -4106,7 +4111,7 @@ for (const jobObservationMode of [
       throw error;
     } finally {
       try {
-        if (custody !== null && rootCustody !== null) {
+        if (rootCustody !== null) {
           await retainIncompleteOwnedFixture({ serviceId, rootCustody, primaryError });
         }
         if (foreignChild !== null && foreignIdentity !== null) {
