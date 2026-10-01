@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+test "$(uname -s)" = Darwin || { echo 'Darwin only' >&2; exit 64; }
+out=${1:?usage: build.sh /absolute/output/service-lasso-host-runner}
+case "$out" in /*) ;; *) exit 64;; esac
+root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+xcrun clang -Wall -Wextra -Werror -fblocks -O2 "$root/service-lasso-host-runner.c" -o "$out" -framework Security -framework CoreFoundation -framework libproc
+codesign --force --options runtime --sign "${SERVICE_LASSO_HOST_RUNNER_SIGNING_IDENTITY:?set owner signing identity}" "$out"
+shasum -a 256 "$out" | awk '{print $1 "  service-lasso-host-runner"}' > "$out.sha256"
+chmod 0500 "$out"; chmod 0600 "$out.sha256"
