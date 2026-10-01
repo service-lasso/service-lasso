@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 import { projectWindowsTreeInspectionMetadata, windowsNativeInspectionFailure } from "./windows-tree-inspection-diagnostics.js";
 import {
   isProcessControlDeadlineError,
+  type ProcessControlCommandPhase,
   remainingProcessControlMs,
   runProcessControlCommand,
   withProcessControlDeadline,
@@ -50,8 +51,15 @@ export interface ProcessInspectorDependencies {
   runCommand?: (
     command: string,
     args: string[],
-    options?: { deadlineMs?: number; signal?: AbortSignal },
+    options?: {
+      deadlineMs?: number;
+      signal?: AbortSignal;
+      onPhase?: (phase: ProcessControlCommandPhase) => void;
+    },
   ) => Promise<{ stdout: string }>;
+  onWindowsNativeProcessInspectorPhase?: (
+    phase: ProcessControlCommandPhase | "result_completed",
+  ) => void;
 }
 
 function normalizeCommandLine(commandLine: string | readonly string[]): string {
@@ -397,27 +405,37 @@ async function runWindowsNativeProcessInspector(
   runCommand: ProcessInspectorDependencies["runCommand"],
   options: Pick<
     ProcessInspectorDependencies,
-    "deadlineMs" | "signal" | "windowsSystemRoot"
+    "deadlineMs" | "signal" | "windowsSystemRoot" | "onWindowsNativeProcessInspectorPhase"
   >,
 ): Promise<{ exitCode: number | null; stdout: string }> {
-  return await runProcessControlCommand(
+  let stdioClosed = false;
+  const result = await runProcessControlCommand(
     WINDOWS_NATIVE_PROCESS_INSPECTOR_PATH,
     [String(pid), ...(includeDescendants ? ["--include-descendants"] : [])],
     {
       captureOutput: true,
       deadlineMs: options.deadlineMs,
       signal: options.signal,
+      onPhase: (phase) => {
+        if (phase === "stdio_closed") stdioClosed = true;
+        options.onWindowsNativeProcessInspectorPhase?.(phase);
+      },
       runner: runCommand
         ? async (executable, args, helperOptions) => ({
             exitCode: 0,
             ...(await runCommand(executable, args, {
               deadlineMs: options.deadlineMs,
               signal: helperOptions.signal,
+              onPhase: helperOptions.onPhase,
             })),
           })
         : undefined,
     },
   );
+  if (stdioClosed) {
+    options.onWindowsNativeProcessInspectorPhase?.("result_completed");
+  }
+  return result;
 }
 
 async function inspectWindowsProcessOnce(
@@ -425,7 +443,7 @@ async function inspectWindowsProcessOnce(
   runCommand: ProcessInspectorDependencies["runCommand"],
   options: Pick<
     ProcessInspectorDependencies,
-    "deadlineMs" | "signal" | "windowsSystemRoot"
+    "deadlineMs" | "signal" | "windowsSystemRoot" | "onWindowsNativeProcessInspectorPhase"
   >,
 ): Promise<ProcessInspection> {
   try {
@@ -546,7 +564,7 @@ async function inspectWindowsProcessTreeOnce(
   expectedRoot: ProcessFingerprint,
   dependencies: Pick<
     ProcessInspectorDependencies,
-    "deadlineMs" | "signal" | "runCommand" | "windowsSystemRoot"
+    "deadlineMs" | "signal" | "runCommand" | "windowsSystemRoot" | "onWindowsNativeProcessInspectorPhase"
   > = {},
 ): Promise<WindowsProcessTreeInspection> {
   if (!Number.isInteger(expectedRoot.pid) || expectedRoot.pid <= 0) {
@@ -799,6 +817,49 @@ async function serializeWindowsNativeTreeSnapshot<T>(
   }
 }
 
+type WindowsNativeSnapshotProgress = {
+  startedAt: number;
+  spawnedAt: number | null;
+  exitedAt: number | null;
+  stdioClosedAt: number | null;
+  resultCompletedAt: number | null;
+};
+
+function windowsNativeSnapshotProgressMetadata(
+  progress: WindowsNativeSnapshotProgress | null,
+): Record<string, boolean | number | null> {
+  if (!progress) {
+    return {
+      windowsTreeInspectionNativeHelperSpawned: false,
+      windowsTreeInspectionNativeHelperExited: false,
+      windowsTreeInspectionNativeHelperStdioClosed: false,
+      windowsTreeInspectionNativeResultCompleted: false,
+      windowsTreeInspectionNativeSpawnWaitMs: null,
+      windowsTreeInspectionNativeWorkMs: null,
+      windowsTreeInspectionNativeStdioCloseMs: null,
+      windowsTreeInspectionNativeResultCompletionMs: null,
+    };
+  }
+  const now = performance.now();
+  const elapsed = (from: number, to: number | null) => Math.max(0, Math.round((to ?? now) - from));
+  return {
+    windowsTreeInspectionNativeHelperSpawned: progress.spawnedAt !== null,
+    windowsTreeInspectionNativeHelperExited: progress.exitedAt !== null,
+    windowsTreeInspectionNativeHelperStdioClosed: progress.stdioClosedAt !== null,
+    windowsTreeInspectionNativeResultCompleted: progress.resultCompletedAt !== null,
+    windowsTreeInspectionNativeSpawnWaitMs: elapsed(progress.startedAt, progress.spawnedAt),
+    windowsTreeInspectionNativeWorkMs: progress.spawnedAt === null
+      ? null
+      : elapsed(progress.spawnedAt, progress.exitedAt),
+    windowsTreeInspectionNativeStdioCloseMs: progress.exitedAt === null
+      ? null
+      : elapsed(progress.exitedAt, progress.stdioClosedAt),
+    windowsTreeInspectionNativeResultCompletionMs: progress.stdioClosedAt === null
+      ? null
+      : elapsed(progress.stdioClosedAt, progress.resultCompletedAt),
+  };
+}
+
 export async function inspectWindowsProcessTree(
   expectedRoot: ProcessFingerprint,
   dependencies: Pick<
@@ -827,6 +888,7 @@ export async function inspectWindowsProcessTree(
   };
   let lastError: unknown;
   let lastAncestry: WindowsTreeAncestryEvidence | null = null;
+  let lastNativeProgress: WindowsNativeSnapshotProgress | null = null;
   for (let attempt = 1; ; attempt += 1) {
     if (remainingProcessControlMs(deadlineMs) > 0) inspectionPhase = "queue_wait";
     const queuedAt = performance.now();
@@ -839,11 +901,43 @@ export async function inspectWindowsProcessTree(
         inspectionPhase = "native_snapshot";
         attempts += 1;
         activeNativeAt = performance.now();
+        const nativeProgress: WindowsNativeSnapshotProgress = {
+          startedAt: activeNativeAt,
+          spawnedAt: null,
+          exitedAt: null,
+          stdioClosedAt: null,
+          resultCompletedAt: null,
+        };
+        lastNativeProgress = nativeProgress;
         try {
           return await inspectWindowsProcessTreeOnce(expectedRoot, {
             ...dependencies,
             deadlineMs,
             signal,
+            onWindowsNativeProcessInspectorPhase: (phase) => {
+              const observedAt = performance.now();
+              if (phase === "spawned" && nativeProgress.spawnedAt === null) {
+                nativeProgress.spawnedAt = observedAt;
+              } else if (
+                phase === "exited" &&
+                nativeProgress.spawnedAt !== null &&
+                nativeProgress.exitedAt === null
+              ) {
+                nativeProgress.exitedAt = observedAt;
+              } else if (
+                phase === "stdio_closed" &&
+                nativeProgress.exitedAt !== null &&
+                nativeProgress.stdioClosedAt === null
+              ) {
+                nativeProgress.stdioClosedAt = observedAt;
+              } else if (
+                phase === "result_completed" &&
+                nativeProgress.stdioClosedAt !== null &&
+                nativeProgress.resultCompletedAt === null
+              ) {
+                nativeProgress.resultCompletedAt = observedAt;
+              }
+            },
           });
         } finally {
           nativeMs += performance.now() - activeNativeAt;
@@ -872,6 +966,7 @@ export async function inspectWindowsProcessTree(
               windowsTreeInspectionChildBirthRelation: lastAncestry?.childBirthRelation ?? null,
               windowsTreeInspectionRootFingerprintMatch: lastAncestry?.rootFingerprintMatch ?? null,
               windowsTreeInspectionAncestryDepthBucket: lastAncestry?.depthBucket ?? null,
+              ...windowsNativeSnapshotProgressMetadata(lastNativeProgress),
             })),
             configurable: true,
           });

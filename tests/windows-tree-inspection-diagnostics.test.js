@@ -39,6 +39,11 @@ test("queued deadline reports queue time and never starts the expired helper", a
       assert.equal(evidence.windowsTreeInspectionPhase, "queue_wait");
       assert.equal(evidence.windowsTreeInspectionAttempts, 0);
       assert.equal(evidence.windowsTreeInspectionNativeMs, 0);
+      assert.equal(evidence.windowsTreeInspectionNativeHelperSpawned, false);
+      assert.equal(evidence.windowsTreeInspectionNativeHelperExited, false);
+      assert.equal(evidence.windowsTreeInspectionNativeHelperStdioClosed, false);
+      assert.equal(evidence.windowsTreeInspectionNativeResultCompleted, false);
+      assert.equal(evidence.windowsTreeInspectionNativeSpawnWaitMs, null);
       assert.ok(evidence.windowsTreeInspectionQueueMs >= 40);
       assert.equal(JSON.stringify(error).includes("private"), false);
       return true;
@@ -69,6 +74,41 @@ test("stalled native snapshot reports active elapsed time without changing its d
   await new Promise(resolve => setImmediate(resolve));
 });
 
+test("native snapshot deadline distinguishes observed helper settlement from result completion", async () => {
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  try {
+    await assert.rejects(inspectWindowsProcessTree(root, {
+      deadlineMs: Date.now() + 140,
+      runCommand: async (_command, _args, options) => {
+        options.onPhase?.("spawned");
+        await new Promise(resolve => setTimeout(resolve, 15));
+        options.onPhase?.("exited");
+        await new Promise(resolve => setTimeout(resolve, 15));
+        options.onPhase?.("stdio_closed");
+        await gate;
+        return { stdout: "private-output" };
+      },
+    }), error => {
+      assert.equal(error.code, "PROCESS_CONTROL_DEADLINE_EXCEEDED");
+      const evidence = windowsTreeInspectionFailureMetadata(error);
+      assert.equal(evidence.windowsTreeInspectionNativeHelperSpawned, true);
+      assert.equal(evidence.windowsTreeInspectionNativeHelperExited, true);
+      assert.equal(evidence.windowsTreeInspectionNativeHelperStdioClosed, true);
+      assert.equal(evidence.windowsTreeInspectionNativeResultCompleted, false);
+      assert.ok(evidence.windowsTreeInspectionNativeSpawnWaitMs <= 40);
+      assert.ok(evidence.windowsTreeInspectionNativeWorkMs >= 10);
+      assert.ok(evidence.windowsTreeInspectionNativeStdioCloseMs >= 10);
+      assert.ok(evidence.windowsTreeInspectionNativeResultCompletionMs >= 40);
+      assert.equal(JSON.stringify(evidence).includes("private"), false);
+      return true;
+    });
+  } finally {
+    release();
+  }
+  await new Promise(resolve => setImmediate(resolve));
+});
+
 test("repeated rejected snapshots retain closed retry evidence and hide raw output", async () => {
   await assert.rejects(inspectWindowsProcessTree(root, {
     deadlineMs: Date.now() + 180,
@@ -95,6 +135,14 @@ test("projection excludes arbitrary fields, invalid codes and unbounded numbers"
     windowsTreeInspectionPhase: "native_snapshot", windowsTreeInspectionAttempts: null,
     windowsTreeInspectionRetries: null, windowsTreeInspectionQueueMs: null,
     windowsTreeInspectionNativeMs: null, windowsTreeInspectionLastRetry: null,
+    windowsTreeInspectionNativeHelperSpawned: false,
+    windowsTreeInspectionNativeHelperExited: false,
+    windowsTreeInspectionNativeHelperStdioClosed: false,
+    windowsTreeInspectionNativeResultCompleted: false,
+    windowsTreeInspectionNativeSpawnWaitMs: null,
+    windowsTreeInspectionNativeWorkMs: null,
+    windowsTreeInspectionNativeStdioCloseMs: null,
+    windowsTreeInspectionNativeResultCompletionMs: null,
   });
   assert.deepEqual(projectWindowsTreeInspectionMetadata({ windowsTreeInspectionPhase: "private-secret" }), {});
   assert.deepEqual(windowsTreeInspectionFailureMetadata({ get windowsTreeInspection() { throw new Error("private-secret"); } }), {});
