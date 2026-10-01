@@ -13,12 +13,12 @@
   },
   "source": {
     "path": "src/runtime/execution/windows-managed-launcher-native.cs",
-    "sha256": "ddc8f0d391f48f0f1a9a44eeb8cabfa55cb42edc50cfea291049706dfebf21be"
+    "sha256": "5443b7c0a045a0a04bd9576ae950c51c22a54e0b05fd97fc41d98db87041ab60"
   },
   "binary": {
     "path": "src/runtime/execution/windows-managed-launcher-native.exe",
-    "sha256": "3c1aa02d65d9388449de9e253c9213393ccd8bc14b771d844a305b67ec17df1a",
-    "byteLength": 38912,
+    "sha256": "ae77a8e92720d682c7b7a915dd0432a7f943db6c4c79d77733c7e6a53467d156",
+    "byteLength": 39936,
     "peTimestamp": "zero",
     "moduleVersionId": "zero"
   }

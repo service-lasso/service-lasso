@@ -86,13 +86,27 @@ export type ManagedProcessStartFailurePhase =
   | "launcher_target_thread_close"
   | "launcher_acknowledgement_write";
 
+export type LauncherPayloadFailureBoundary =
+  | "launch_evidence"
+  | "canonical_encoding"
+  | "strict_utf8"
+  | "json_or_schema"
+  | "semantic_payload"
+  | "unknown";
+
 export class ManagedProcessStartError extends Error {
   readonly failurePhase: ManagedProcessStartFailurePhase;
+  readonly launcherPayloadFailureBoundary: LauncherPayloadFailureBoundary | null;
 
-  constructor(failurePhase: ManagedProcessStartFailurePhase, cause: unknown) {
+  constructor(
+    failurePhase: ManagedProcessStartFailurePhase,
+    cause: unknown,
+    launcherPayloadFailureBoundary: LauncherPayloadFailureBoundary | null = null,
+  ) {
     super(cause instanceof Error ? cause.message : String(cause), { cause });
     this.name = "ManagedProcessStartError";
     this.failurePhase = failurePhase;
+    this.launcherPayloadFailureBoundary = launcherPayloadFailureBoundary;
   }
 }
 
@@ -119,6 +133,21 @@ export function managedProcessStartFailurePhase(error: unknown): ManagedProcessS
     : null;
 }
 
+export function managedProcessLauncherPayloadFailureBoundary(error: unknown): LauncherPayloadFailureBoundary | null {
+  return error instanceof ManagedProcessStartError && error.failurePhase === "launcher_payload_validation"
+    ? error.launcherPayloadFailureBoundary ?? "unknown"
+    : null;
+}
+
+function managedLauncherPayloadDiagnostic(record: Pick<ManagedProcessRecord,
+  "launcherProgressPhase" | "launcherPayloadDiagnosticInvalid" | "launcherPayloadDiagnosticCount" | "launcherPayloadFailureBoundary"
+>): LauncherPayloadFailureBoundary | null {
+  if (record.launcherProgressPhase !== "launcher_payload_validation") return null;
+  return record.launcherPayloadDiagnosticInvalid || record.launcherPayloadDiagnosticCount !== 1
+    ? "unknown"
+    : record.launcherPayloadFailureBoundary ?? "unknown";
+}
+
 interface ManagedProcessRecord {
   child: ChildProcess;
   service: DiscoveredService;
@@ -138,6 +167,9 @@ interface ManagedProcessRecord {
   stderrBuffer: string;
   launcherProgressToken: string | null;
   launcherProgressPhase: ManagedProcessStartFailurePhase | null;
+  launcherPayloadFailureBoundary: Exclude<LauncherPayloadFailureBoundary, "unknown"> | null;
+  launcherPayloadDiagnosticCount: number;
+  launcherPayloadDiagnosticInvalid: boolean;
   variableCapturePromise: Promise<void>;
   workspaceRoot: string | null;
   rootIdentity: ProcessFingerprint | null;
@@ -271,8 +303,8 @@ const WINDOWS_TREE_MONITOR_RETRY_DELAY_MS = 5_000;
 const UNEXPECTED_PROCESS_FINALIZATION_TIMEOUT_MS = 5_000;
 const DEFAULT_MANAGED_PROCESS_STOP_TIMEOUT_MS = process.platform === "win32" ? 15_000 : 5_000;
 const WINDOWS_MANAGED_LAUNCHER_PATH = fileURLToPath(new URL("./windows-managed-launcher-native.exe", import.meta.url));
-const WINDOWS_MANAGED_LAUNCHER_BYTES = 38_912;
-const WINDOWS_MANAGED_LAUNCHER_SHA256 = "3c1aa02d65d9388449de9e253c9213393ccd8bc14b771d844a305b67ec17df1a";
+const WINDOWS_MANAGED_LAUNCHER_BYTES = 39_936;
+const WINDOWS_MANAGED_LAUNCHER_SHA256 = "ae77a8e92720d682c7b7a915dd0432a7f943db6c4c79d77733c7e6a53467d156";
 const WINDOWS_MANAGED_LAUNCH_TIMEOUT_MS = 15_000;
 const MANAGED_PROCESS_SPAWN_TIMEOUT_MS = 15_000;
 const WINDOWS_MANAGED_LAUNCH_MAX_PAYLOAD_CHARACTERS = 32_768;
@@ -643,31 +675,46 @@ function filterWindowsManagedLauncherProgressLine(
   token: string | null,
   line: string,
   flushRemainder: boolean,
-): { suppressed: boolean; phase: ManagedProcessStartFailurePhase | null } {
+): {
+  suppressed: boolean;
+  phase: ManagedProcessStartFailurePhase | null;
+  payloadFailureBoundary: Exclude<LauncherPayloadFailureBoundary, "unknown"> | null;
+  invalidPayloadDiagnostic: boolean;
+} {
   if (!line.startsWith(WINDOWS_MANAGED_LAUNCHER_PROGRESS_PREFIX)) {
     return {
       suppressed: flushRemainder && line.length > 0 && WINDOWS_MANAGED_LAUNCHER_PROGRESS_PREFIX.startsWith(line),
       phase: null,
+      payloadFailureBoundary: null,
+      invalidPayloadDiagnostic: false,
     };
   }
   const fields = line.slice(WINDOWS_MANAGED_LAUNCHER_PROGRESS_PREFIX.length).split(":");
-  if (
-    token === null ||
-    fields.length !== 2 ||
-    !/^[0-9a-f]{64}$/u.test(token) ||
-    !/^[0-9a-f]{64}$/u.test(fields[1] ?? "")
-  ) {
-    return { suppressed: true, phase: null };
+  const payloadRecord = fields[0] === "launcher_payload_validation" && fields.length !== 2;
+  if (token === null || !/^[0-9a-f]{64}$/u.test(token)) {
+    return { suppressed: true, phase: null, payloadFailureBoundary: null, invalidPayloadDiagnostic: payloadRecord };
   }
   const phase = fields[0] as ManagedProcessStartFailurePhase;
   if (!WINDOWS_MANAGED_LAUNCHER_PROGRESS_PHASES.has(phase)) {
-    return { suppressed: true, phase: null };
+    return { suppressed: true, phase: null, payloadFailureBoundary: null, invalidPayloadDiagnostic: false };
   }
-  const expected = createHmac("sha256", token).update(phase, "utf8").digest();
-  const actual = Buffer.from(fields[1] as string, "hex");
+  const boundary = fields.length === 3 && phase === "launcher_payload_validation" ? fields[1] : null;
+  const validShape = fields.length === 2 || (boundary !== null && WINDOWS_MANAGED_LAUNCHER_PAYLOAD_FAILURE_BOUNDARIES.has(
+    boundary as Exclude<LauncherPayloadFailureBoundary, "unknown">,
+  ));
+  const digest = fields.at(-1) ?? "";
+  if (!validShape || !/^[0-9a-f]{64}$/u.test(digest)) {
+    return { suppressed: true, phase: null, payloadFailureBoundary: null, invalidPayloadDiagnostic: phase === "launcher_payload_validation" };
+  }
+  const authenticatedRecord = boundary === null ? phase : `${phase}:${boundary}`;
+  const expected = createHmac("sha256", token).update(authenticatedRecord, "utf8").digest();
+  const actual = Buffer.from(digest, "hex");
+  const authenticated = actual.length === expected.length && timingSafeEqual(actual, expected);
   return {
     suppressed: true,
-    phase: actual.length === expected.length && timingSafeEqual(actual, expected) ? phase : null,
+    phase: authenticated ? phase : null,
+    payloadFailureBoundary: authenticated ? boundary as Exclude<LauncherPayloadFailureBoundary, "unknown"> | null : null,
+    invalidPayloadDiagnostic: phase === "launcher_payload_validation" && !authenticated,
   };
 }
 
@@ -675,7 +722,12 @@ export function filterWindowsManagedLauncherProgressLineForTests(
   token: string | null,
   line: string,
   flushRemainder = false,
-): { suppressed: boolean; phase: ManagedProcessStartFailurePhase | null } {
+): {
+  suppressed: boolean;
+  phase: ManagedProcessStartFailurePhase | null;
+  payloadFailureBoundary: Exclude<LauncherPayloadFailureBoundary, "unknown"> | null;
+  invalidPayloadDiagnostic: boolean;
+} {
   if (process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS !== "1") {
     throw new Error("Managed launcher-progress test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
   }
@@ -693,10 +745,16 @@ function attachRuntimeLogCapture(record: ManagedProcessRecord): void {
     for (const line of parts) {
       const launcherProgress = level === "stderr"
         ? filterWindowsManagedLauncherProgressLine(record.launcherProgressToken, line, flushRemainder)
-        : { suppressed: false, phase: null };
+        : { suppressed: false, phase: null, payloadFailureBoundary: null, invalidPayloadDiagnostic: false };
       if (launcherProgress.phase !== null) {
         record.launcherProgressPhase = launcherProgress.phase;
       }
+      if (launcherProgress.payloadFailureBoundary !== null) {
+        record.launcherPayloadDiagnosticCount += 1;
+        if (record.launcherPayloadDiagnosticCount === 1) record.launcherPayloadFailureBoundary = launcherProgress.payloadFailureBoundary;
+        else record.launcherPayloadDiagnosticInvalid = true;
+      }
+      if (launcherProgress.invalidPayloadDiagnostic) record.launcherPayloadDiagnosticInvalid = true;
       if (launcherProgress.suppressed) {
         continue;
       }
@@ -1085,11 +1143,20 @@ const WINDOWS_MANAGED_LAUNCHER_PROGRESS_PHASES = new Set<ManagedProcessStartFail
   "launcher_file_final_path",
   "launcher_binding_publication",
 ]);
+const WINDOWS_MANAGED_LAUNCHER_PAYLOAD_FAILURE_BOUNDARIES = new Set<Exclude<LauncherPayloadFailureBoundary, "unknown">>([
+  "launch_evidence", "canonical_encoding", "strict_utf8", "json_or_schema", "semantic_payload",
+]);
 
 async function bindWindowsManagedLauncherFiles(
   child: ChildProcess,
   state: WindowsManagedLaunchState,
-  launcherProgressPhase: () => ManagedProcessStartFailurePhase | null,
+  launcherProgressPhase: () => {
+    phase: ManagedProcessStartFailurePhase | null;
+    payloadFailureBoundary: LauncherPayloadFailureBoundary;
+  } | Promise<{
+    phase: ManagedProcessStartFailurePhase | null;
+    payloadFailureBoundary: LauncherPayloadFailureBoundary;
+  }>,
 ): Promise<void> {
   const deadlineMs = processControlDeadline(WINDOWS_MANAGED_LAUNCH_TIMEOUT_MS);
   try {
@@ -1113,8 +1180,8 @@ async function bindWindowsManagedLauncherFiles(
       }
     }, { deadlineMs });
   } catch (error) {
-    const progress = launcherProgressPhase();
-    throw progress ? new ManagedProcessStartError(progress, error) : error;
+    const progress = await launcherProgressPhase();
+    throw progress.phase ? new ManagedProcessStartError(progress.phase, error, progress.payloadFailureBoundary) : error;
   }
 }
 
@@ -2171,6 +2238,9 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
     stderrBuffer: "",
     launcherProgressToken: windowsManagedLaunchState?.progressToken ?? null,
     launcherProgressPhase: null,
+    launcherPayloadFailureBoundary: null,
+    launcherPayloadDiagnosticCount: 0,
+    launcherPayloadDiagnosticInvalid: false,
     variableCapturePromise: Promise.resolve(),
     workspaceRoot: workspaceRoot ?? null,
     rootIdentity,
@@ -2328,7 +2398,13 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
             await bindWindowsManagedLauncherFiles(
               child,
               windowsManagedLaunchState,
-              () => record.launcherProgressPhase,
+              async () => {
+                if (probeManagedChildHandle(child) !== "owned") await record.finalizePromise;
+                return {
+                  phase: record.launcherProgressPhase,
+                  payloadFailureBoundary: managedLauncherPayloadDiagnostic(record) ?? "unknown",
+                };
+              },
             );
           } finally {
             record.launcherProgressToken = null;
@@ -2363,9 +2439,14 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
         windowsManagedLaunchState = null;
       }
     } catch (error) {
+      const earlyPayloadFailureBoundary = managedLauncherPayloadDiagnostic(record);
       const startError = error instanceof ManagedProcessStartError
         ? error
-        : new ManagedProcessStartError(startFailurePhase, error);
+        : new ManagedProcessStartError(
+          earlyPayloadFailureBoundary ? "launcher_payload_validation" : startFailurePhase,
+          error,
+          earlyPayloadFailureBoundary,
+        );
       const classifiedStartFailurePhase = managedProcessStartFailurePhase(startError) ?? startFailurePhase;
       let containmentError: unknown = null;
       if (rootIdentity) {
