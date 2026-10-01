@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
+import { constants } from "node:fs";
 import { lstat, mkdir, open, readFile, realpath, rename, rm, rmdir, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -353,6 +354,11 @@ const STAGED_INPUT_PUBLICATION_FILE = "staged-release-input.published";
 // installed, or executed here.
 const STAGED_INPUT_BYTES_FILE = "staged-release-input.bin";
 const WINDOWS_DIRECTORY_SYNC_HELPER_PATH = fileURLToPath(new URL("./windows-directory-sync-helper.exe", import.meta.url));
+const WINDOWS_DIRECTORY_SYNC_HELPER_PROVENANCE_PATH = fileURLToPath(new URL("./windows-directory-sync-helper.provenance.json", import.meta.url));
+const WINDOWS_DIRECTORY_SYNC_HELPER_BYTES = 4608;
+const WINDOWS_DIRECTORY_SYNC_HELPER_PROVENANCE_BYTES = 700;
+const WINDOWS_DIRECTORY_SYNC_HELPER_SHA256 = "b2e1fd8fd2ff08d8fb2cbc69ca89d454da0fd3fdcb397d26bb22f2f156a79c91";
+const WINDOWS_DIRECTORY_SYNC_HELPER_PROVENANCE_SHA256 = "f32758ae98bc7196a779f8825f82bf0d80dc58f6e10d43871216ba0247eff031";
 
 /**
  * Test-only observation points for the durable direct-child transaction. They
@@ -459,13 +465,42 @@ async function syncDirectory(directory: string): Promise<void> {
 }
 
 async function syncWindowsDirectory(directory: string): Promise<void> {
-  const asset = await lstat(WINDOWS_DIRECTORY_SYNC_HELPER_PATH);
-  if (!asset.isFile() || asset.isSymbolicLink()) throw new Error("Windows directory durability helper is unavailable");
+  const helperPath = await assertWindowsDirectorySyncHelperIntegrity();
   await new Promise<void>((resolve, reject) => {
-    const child = spawn(WINDOWS_DIRECTORY_SYNC_HELPER_PATH, [directory], { windowsHide: true, stdio: "ignore" });
+    const child = spawn(helperPath, [directory], { windowsHide: true, stdio: "ignore" });
     child.once("error", reject);
     child.once("exit", (code, signal) => code === 0 && signal === null ? resolve() : reject(new Error("Windows directory durability helper failed")));
   });
+}
+
+async function assertWindowsDirectorySyncHelperIntegrity(): Promise<string> {
+  const readExactRegularAsset = async (assetPath: string, expectedBytes: number): Promise<Buffer> => {
+    const beforeOpen = await lstat(assetPath);
+    if (!beforeOpen.isFile() || beforeOpen.isSymbolicLink() || beforeOpen.size !== expectedBytes) throw new Error("Windows directory durability helper is unavailable");
+    const handle = await open(assetPath, constants.O_RDONLY);
+    try {
+      const afterOpen = await handle.stat();
+      if (!afterOpen.isFile() || afterOpen.size !== expectedBytes) throw new Error("Windows directory durability helper identity changed while opening");
+      const bytes = await handle.readFile();
+      const afterRead = await handle.stat();
+      if (!afterRead.isFile() || afterRead.size !== expectedBytes || bytes.byteLength !== expectedBytes) throw new Error("Windows directory durability helper identity changed while reading");
+      return bytes;
+    } finally { await handle.close(); }
+  };
+  let helperBytes: Buffer | null = null;
+  let provenanceBytes: Buffer | null = null;
+  try {
+    helperBytes = await readExactRegularAsset(WINDOWS_DIRECTORY_SYNC_HELPER_PATH, WINDOWS_DIRECTORY_SYNC_HELPER_BYTES);
+    provenanceBytes = await readExactRegularAsset(WINDOWS_DIRECTORY_SYNC_HELPER_PROVENANCE_PATH, WINDOWS_DIRECTORY_SYNC_HELPER_PROVENANCE_BYTES);
+    if (
+      createHash("sha256").update(helperBytes).digest("hex") !== WINDOWS_DIRECTORY_SYNC_HELPER_SHA256 ||
+      createHash("sha256").update(provenanceBytes).digest("hex") !== WINDOWS_DIRECTORY_SYNC_HELPER_PROVENANCE_SHA256
+    ) throw new Error("Windows directory durability helper integrity verification failed");
+    return WINDOWS_DIRECTORY_SYNC_HELPER_PATH;
+  } finally {
+    helperBytes?.fill(0);
+    provenanceBytes?.fill(0);
+  }
 }
 
 async function writePrivateDurableFile(file: string, bytes: Uint8Array | string, onSynced?: () => Promise<void> | void): Promise<void> {

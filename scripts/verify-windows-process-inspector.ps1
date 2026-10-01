@@ -1,7 +1,9 @@
 [CmdletBinding()]
 param(
   [switch]$Update,
-  [switch]$ManagedLauncherNative
+  [switch]$ManagedLauncherNative,
+  [switch]$DirectorySyncHelper,
+  [switch]$Behavioral
 )
 
 $ErrorActionPreference = "Stop"
@@ -12,17 +14,27 @@ if (-not $IsWindows -and $PSVersionTable.PSEdition -eq "Core") {
 }
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$sourceRelativePath = if ($ManagedLauncherNative) {
+$selectedHelperCount = @($ManagedLauncherNative, $DirectorySyncHelper | Where-Object { $_ }).Count
+if ($selectedHelperCount -gt 1) {
+  throw "Select at most one alternate Windows native helper."
+}
+$sourceRelativePath = if ($DirectorySyncHelper) {
+  "src/runtime/operator/windows-directory-sync-helper.cs"
+} elseif ($ManagedLauncherNative) {
   "src/runtime/execution/windows-managed-launcher-native.cs"
 } else {
   "src/runtime/process/windows-process-inspector.cs"
 }
-$binaryRelativePath = if ($ManagedLauncherNative) {
+$binaryRelativePath = if ($DirectorySyncHelper) {
+  "src/runtime/operator/windows-directory-sync-helper.exe"
+} elseif ($ManagedLauncherNative) {
   "src/runtime/execution/windows-managed-launcher-native.exe"
 } else {
   "src/runtime/process/windows-process-inspector.exe"
 }
-$provenanceRelativePath = if ($ManagedLauncherNative) {
+$provenanceRelativePath = if ($DirectorySyncHelper) {
+  "src/runtime/operator/windows-directory-sync-helper.provenance.json"
+} elseif ($ManagedLauncherNative) {
   "src/runtime/execution/windows-managed-launcher-native.provenance.json"
 } else {
   "src/runtime/process/windows-process-inspector.provenance.json"
@@ -391,6 +403,28 @@ try {
   Assert-ProvenanceManifest $actualProvenance $expectedProvenance $sourceSha256 $binarySha256 $normalizedBytes.Length
   $negativeCaseCount = 3 + (Invoke-ProvenanceNegativeTests $actualProvenance $expectedProvenance $sourceSha256 $binarySha256 $normalizedBytes.Length)
 
+  $behavioralCaseCount = 0
+  if ($Behavioral) {
+    if (-not $DirectorySyncHelper) {
+      throw "Behavioral verification is only defined for the Windows directory-sync helper."
+    }
+    $probeDirectory = Join-Path $temporaryRoot "flush-probe"
+    $null = New-Item -ItemType Directory -Path $probeDirectory
+    & $binaryPath $probeDirectory
+    if ($LASTEXITCODE -ne 0) {
+      throw "The Windows directory-sync helper did not report a successful directory flush."
+    }
+    & $binaryPath
+    if ($LASTEXITCODE -ne 2) {
+      throw "The Windows directory-sync helper did not reject an absent directory argument."
+    }
+    & $binaryPath (Join-Path $temporaryRoot "missing-directory")
+    if ($LASTEXITCODE -ne 3) {
+      throw "The Windows directory-sync helper did not report an open failure."
+    }
+    $behavioralCaseCount = 3
+  }
+
   [pscustomobject]@{
     result = "passed"
     compilerPath = "%WINDIR%/Microsoft.NET/Framework64/v4.0.30319/csc.exe"
@@ -400,6 +434,7 @@ try {
     binarySha256 = $binarySha256
     binaryByteLength = $normalizedBytes.Length
     negativeCaseCount = $negativeCaseCount
+    behavioralCaseCount = $behavioralCaseCount
   } | ConvertTo-Json -Compress
 } finally {
   if ([IO.Directory]::Exists($temporaryRoot)) {

@@ -26,6 +26,9 @@ on:
       - scripts/verify-mcp-packaged.mjs
       - scripts/verify-windows-process-inspector.ps1
       - scripts/verify-windows-dpapi-helper.ps1
+      - src/runtime/operator/windows-directory-sync-helper.cs
+      - src/runtime/operator/windows-directory-sync-helper.exe
+      - src/runtime/operator/windows-directory-sync-helper.provenance.json
       - scripts/verify-mcp-product-artifact.mjs
       - scripts/verify-mcp-product-acceptance-run.mjs
       - scripts/publish-package-lib.mjs
@@ -82,6 +85,9 @@ on:
       - scripts/verify-mcp-packaged.mjs
       - scripts/verify-windows-process-inspector.ps1
       - scripts/verify-windows-dpapi-helper.ps1
+      - src/runtime/operator/windows-directory-sync-helper.cs
+      - src/runtime/operator/windows-directory-sync-helper.exe
+      - src/runtime/operator/windows-directory-sync-helper.provenance.json
       - scripts/verify-mcp-product-artifact.mjs
       - scripts/verify-mcp-product-acceptance-run.mjs
       - scripts/publish-package-lib.mjs

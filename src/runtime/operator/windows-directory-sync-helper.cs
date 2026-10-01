@@ -4,7 +4,6 @@ using System.Runtime.InteropServices;
 
 internal static class ServiceLassoWindowsDirectorySyncHelper
 {
-    private const uint GenericRead = 0x80000000;
     private const uint GenericWrite = 0x40000000;
     private const uint ShareRead = 0x00000001;
     private const uint ShareWrite = 0x00000002;
@@ -36,20 +35,16 @@ internal static class ServiceLassoWindowsDirectorySyncHelper
         if (args.Length != 1 || String.IsNullOrWhiteSpace(args[0])) return 2;
         IntPtr handle = CreateFile(
             args[0],
-            GenericRead | GenericWrite,
+            GenericWrite,
             ShareRead | ShareWrite | ShareDelete,
             IntPtr.Zero,
             OpenExisting,
             FileFlagBackupSemantics,
             IntPtr.Zero);
         if (handle == InvalidHandleValue) return 3;
-        try
-        {
-            return FlushFileBuffers(handle) ? 0 : 4;
-        }
-        finally
-        {
-            if (!CloseHandle(handle)) Environment.ExitCode = 5;
-        }
+        bool flushed = FlushFileBuffers(handle);
+        bool closed = CloseHandle(handle);
+        if (!flushed) return 4;
+        return closed ? 0 : 5;
     }
 }
