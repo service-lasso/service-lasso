@@ -1,12 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
+import os from "node:os";
 import net from "node:net";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { spawn } from "node:child_process";
 import { createHash, createHmac } from "node:crypto";
-import { mkdir, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import {
   classifyWindowsProcessIdentityFast,
   classifyProcessIdentity,
@@ -392,12 +393,24 @@ async function persistFixtureSettlementReceipt(service, receipt) {
   await writeFile(receiptPath, `${JSON.stringify(receipt)}\n`, "utf8");
 }
 
-async function retainFixtureSettlement(service, receipt, errors, authority = null, throwErrors = true) {
-  if (authority !== null) fixtureRemovalAuthority.set(receipt, authority);
+async function assertFixtureRootAbsent(tempRoot) {
   try {
-    await persistFixtureSettlementReceipt(service, receipt);
+    await access(tempRoot);
   } catch (error) {
-    errors.push(error);
+    if (error?.code === "ENOENT") return;
+    throw error;
+  }
+  throw new Error("Fixture root remained present after owned removal.");
+}
+
+async function retainFixtureSettlement(service, receipt, errors, authority = null, throwErrors = true, persist = true) {
+  if (authority !== null) fixtureRemovalAuthority.set(receipt, authority);
+  if (persist) {
+    try {
+      await persistFixtureSettlementReceipt(service, receipt);
+    } catch (error) {
+      errors.push(error);
+    }
   }
   fixtureSettlementErrorCustody.set(receipt, Object.freeze([...errors]));
   if (throwErrors && errors.length > 0) {
@@ -419,6 +432,7 @@ async function decideFixtureRemoval({
   writerSettled,
   settlementReceipt = null,
   removeFixture = true,
+  removeFixtureRoot = removeTempRoot,
 }) {
   const serviceId = service.manifest.id;
   const beforeStop = await findProcessOwnership(workspaceRoot, "service", serviceId);
@@ -496,11 +510,11 @@ async function decideFixtureRemoval({
       registry: "stopped",
       cleanup: "retained",
     });
-    return await retainFixtureSettlement(service, receipt, errors, authority, false);
+    return await retainFixtureSettlement(service, receipt, errors, authority);
   }
 
-  const stored = await readStoredState(service.serviceRoot);
   try {
+    const stored = await readStoredState(service.serviceRoot);
     if (stored.runtime?.running || (stored.runtime && stored.runtime.pid !== null) || !await writerSettled()) {
       const receipt = fixtureSettlementReceipt({
       primaryAssertion,
@@ -537,8 +551,22 @@ async function decideFixtureRemoval({
     return await retainFixtureSettlement(service, receipt, errors, authority);
   }
 
+  // The permitted receipt is the last fixture-owned write.  It must settle
+  // before deletion; writing a later "removed" receipt under serviceRoot
+  // would recreate the just-removed fixture.
+  const permittedReceipt = fixtureSettlementReceipt({
+    primaryAssertion,
+    termination: "verified",
+    finalization: "settled",
+    lifecycleWriter: "settled",
+    registry: "stopped",
+    cleanup: "permitted",
+  });
+  await retainFixtureSettlement(service, permittedReceipt, errors, authority);
+
   try {
-    await removeTempRoot(tempRoot);
+    await removeFixtureRoot(tempRoot);
+    await assertFixtureRootAbsent(tempRoot);
   } catch (error) {
     errors.push(error);
     const receipt = fixtureSettlementReceipt({
@@ -547,9 +575,11 @@ async function decideFixtureRemoval({
       finalization: "settled",
       lifecycleWriter: "settled",
       registry: "stopped",
-      cleanup: "retained",
+      cleanup: "failed",
     });
-    return await retainFixtureSettlement(service, receipt, errors, authority);
+    // Removal may have partially changed the target.  Do not try to write a
+    // retained receipt beneath that target and accidentally recreate it.
+    return await retainFixtureSettlement(service, receipt, errors, authority, true, false);
   }
 
   const receipt = fixtureSettlementReceipt({
@@ -560,7 +590,9 @@ async function decideFixtureRemoval({
     registry: "stopped",
     cleanup: "removed",
   });
-  return await retainFixtureSettlement(service, receipt, errors, authority);
+  fixtureRemovalAuthority.set(receipt, authority);
+  fixtureSettlementErrorCustody.set(receipt, Object.freeze([...errors]));
+  return receipt;
 }
 
 function forceCleanupProcesses(pids) {
@@ -1702,6 +1734,7 @@ test("rehydration returns adopted running state with retained ports", async () =
     windowsHide: true,
   });
   let unrelated;
+  let unrelatedRoot;
   let fixtureRemoved = false;
 
   try {
@@ -1749,8 +1782,11 @@ test("rehydration returns adopted running state with retained ports", async () =
     assert.equal(ownership.pid, child.pid);
     assert.deepEqual(ownership.allocation.ports, { service: 18092 });
 
-    unrelated = spawn(process.execPath, [relativeScriptPath], {
-      cwd: serviceRoot,
+    unrelatedRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-unrelated-sentinel-"));
+    unrelated = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+      // This separately owned sentinel is outside tempRoot. Its liveness is
+      // asserted through fixture deletion, then its own handle cleans it up.
+      cwd: unrelatedRoot,
       stdio: "ignore",
       windowsHide: true,
     });
@@ -1786,8 +1822,6 @@ test("rehydration returns adopted running state with retained ports", async () =
     assert.equal(unrelated.exitCode, null);
     assert.equal(unrelated.signalCode, null);
 
-    unrelated.kill("SIGTERM");
-    await new Promise((resolve) => unrelated.once("close", resolve));
     const removed = await decideFixtureRemoval({
       tempRoot,
       service,
@@ -1801,8 +1835,20 @@ test("rehydration returns adopted running state with retained ports", async () =
       },
     });
     assert.equal(removed.cleanup, "removed");
+    await assertFixtureRootAbsent(tempRoot);
+    await new Promise((resolve) => setImmediate(resolve));
+    await assertFixtureRootAbsent(tempRoot);
+    assert.equal(unrelated.exitCode, null);
+    assert.equal(unrelated.signalCode, null);
+    unrelated.kill("SIGTERM");
+    await new Promise((resolve) => unrelated.once("close", resolve));
     fixtureRemoved = true;
   } finally {
+    if (unrelated?.exitCode === null && unrelated?.signalCode === null) {
+      unrelated.kill("SIGKILL");
+      await new Promise((resolve) => unrelated.once("close", resolve));
+    }
+    if (unrelatedRoot) await removeTempRoot(unrelatedRoot);
     if (fixtureRemoved) {
       resetLifecycleState();
     }
@@ -4066,22 +4112,33 @@ test("fixture teardown retains owned evidence while a lifecycle finalizer is uns
       },
     });
 
-    const retained = await decideFixtureRemoval({
-      tempRoot,
-      service,
-      workspaceRoot,
-      expectedPid: handle.pid,
-      stopAndWrite: async () => {
-        const stopping = stopManagedProcess("finalizer-settlement-service", PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS);
-        stoppingOutcome = stopping.then(
-          () => ({ status: "settled" }),
-          (error) => ({ status: "failed", error }),
-        );
-        await finalizerStarted;
+    let retained;
+    await assert.rejects(
+      decideFixtureRemoval({
+        tempRoot,
+        service,
+        workspaceRoot,
+        expectedPid: handle.pid,
+        stopAndWrite: async () => {
+          const stopping = stopManagedProcess("finalizer-settlement-service", PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS);
+          stoppingOutcome = stopping.then(
+            () => ({ status: "settled" }),
+            (error) => ({ status: "failed", error }),
+          );
+          await finalizerStarted;
+        },
+        writerSettled: async () => await readFile(finalizerMarker, "utf8") === "settling\n",
+        finalizationDeadlineMs: Date.now() + 50,
+      }),
+      (error) => {
+        assert.equal(error instanceof AggregateError, true);
+        retained = fixtureSettlementReceiptByError.get(error);
+        assert.equal(error.errors.length, 1);
+        assert.equal(error.errors[0].name, "ManagedProcessFinalizationError");
+        assert.equal(error.errors[0].failures[0].code, "PROCESS_CONTROL_DEADLINE_EXCEEDED");
+        return true;
       },
-      writerSettled: async () => await readFile(finalizerMarker, "utf8") === "settling\n",
-      finalizationDeadlineMs: Date.now() + 50,
-    });
+    );
     assert.equal(retained.cleanup, "retained");
     assert.equal(retained.finalization, "unsettled");
     const pendingFinalizationErrors = fixtureSettlementErrorCustody.get(retained);
@@ -4110,6 +4167,201 @@ test("fixture teardown retains owned evidence while a lifecycle finalizer is uns
     if (fixtureRemoved) {
       resetLifecycleState();
     }
+  }
+});
+
+test("fixture teardown retains a real pending writer and removes only after its final write settles", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-writer-settlement-");
+  const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "writer-settlement-service");
+  const writerMarker = path.join(serviceRoot, ".state", "fixture-writer.marker");
+  let releaseWriter;
+  const writerGate = new Promise((resolve) => { releaseWriter = resolve; });
+  let writerStarted;
+  const writerStartedPromise = new Promise((resolve) => { writerStarted = resolve; });
+  let writerDone = false;
+  let handle;
+
+  try {
+    const [service] = await discoverServices(servicesRoot);
+    handle = await startManagedProcess({
+      service,
+      executionPlan: createDirectExecutionPlan(service.manifest),
+      workspaceRoot,
+    });
+    let writer;
+    const retained = await decideFixtureRemoval({
+      tempRoot,
+      service,
+      workspaceRoot,
+      expectedPid: handle.pid,
+      stopAndWrite: async () => {
+        await stopManagedProcess("writer-settlement-service", PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS);
+        writer = (async () => {
+          writerStarted();
+          await writerGate;
+          await writeFile(writerMarker, "settled\n", "utf8");
+          writerDone = true;
+        })();
+        await writerStartedPromise;
+      },
+      writerSettled: async () => writerDone,
+    });
+    assert.equal(retained.cleanup, "retained");
+    assert.equal(retained.lifecycleWriter, "unsettled");
+    await access(tempRoot);
+
+    releaseWriter();
+    await writer;
+    assert.equal(await readFile(writerMarker, "utf8"), "settled\n");
+    const removed = await decideFixtureRemoval({
+      tempRoot,
+      service,
+      workspaceRoot,
+      expectedPid: handle.pid,
+      stopAndWrite: async () => undefined,
+      settlementReceipt: retained,
+      writerSettled: async () => writerDone,
+    });
+    assert.equal(removed.cleanup, "removed");
+    await assertFixtureRootAbsent(tempRoot);
+    await new Promise((resolve) => setImmediate(resolve));
+    await assertFixtureRootAbsent(tempRoot);
+    resetLifecycleState();
+  } finally {
+    releaseWriter?.();
+    await stopManagedProcess("writer-settlement-service", 100).catch(() => null);
+  }
+});
+
+test("fixture teardown retains a real writer failure privately without recreating the fixture", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-writer-failure-");
+  const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "writer-failure-service");
+  let handle;
+
+  try {
+    const [service] = await discoverServices(servicesRoot);
+    handle = await startManagedProcess({
+      service,
+      executionPlan: createDirectExecutionPlan(service.manifest),
+      workspaceRoot,
+    });
+    const writerFailure = new Error("writer failure secret must remain private");
+    await assert.rejects(
+      decideFixtureRemoval({
+        tempRoot,
+        service,
+        workspaceRoot,
+        expectedPid: handle.pid,
+        stopAndWrite: async () => await stopManagedProcess("writer-failure-service", PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS),
+        writerSettled: async () => { throw writerFailure; },
+      }),
+      (error) => {
+        assert.equal(error instanceof AggregateError, true);
+        assert.deepEqual(error.errors, [writerFailure]);
+        const receipt = fixtureSettlementReceiptByError.get(error);
+        assert.equal(receipt.lifecycleWriter, "failed");
+        assert.equal(receipt.cleanup, "retained");
+        assert.deepEqual(fixtureSettlementErrorCustody.get(receipt), [writerFailure]);
+        assert.equal(error.message.includes("secret"), false);
+        return true;
+      },
+    );
+    await access(tempRoot);
+    const receiptText = await readFile(path.join(serviceRoot, ".state", "fixture-settlement-receipt.json"), "utf8");
+    assert.equal(receiptText.includes("secret"), false);
+  } finally {
+    await stopManagedProcess("writer-failure-service", 100).catch(() => null);
+  }
+});
+
+test("fixture teardown preserves an actual finalizer failure in private aggregate custody", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-finalizer-failure-");
+  const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "finalizer-failure-service");
+  let handle;
+
+  try {
+    const [service] = await discoverServices(servicesRoot);
+    const finalizerFailure = new Error("finalizer secret must remain private");
+    finalizerFailure.code = "EFINALIZE_TEST";
+    handle = await startManagedProcess({
+      service,
+      executionPlan: createDirectExecutionPlan(service.manifest),
+      workspaceRoot,
+      onExit: async () => { throw finalizerFailure; },
+    });
+    await assert.rejects(
+      decideFixtureRemoval({
+        tempRoot,
+        service,
+        workspaceRoot,
+        expectedPid: handle.pid,
+        stopAndWrite: async () => await stopManagedProcess("finalizer-failure-service", PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS),
+        writerSettled: async () => true,
+      }),
+      (error) => {
+        assert.equal(error instanceof AggregateError, true);
+        assert.equal(error.errors.length, 1);
+        assert.equal(error.errors[0].name, "ManagedProcessFinalizationError");
+        assert.equal(error.errors[0].failures[0].code, "EFINALIZE_TEST");
+        const receipt = fixtureSettlementReceiptByError.get(error);
+        assert.equal(receipt.termination, "failed");
+        assert.equal(receipt.cleanup, "retained");
+        assert.equal(error.message.includes("secret"), false);
+        return true;
+      },
+    );
+    await access(tempRoot);
+    assert.equal((await readFile(path.join(serviceRoot, ".state", "fixture-settlement-receipt.json"), "utf8")).includes("secret"), false);
+  } finally {
+    await stopManagedProcess("finalizer-failure-service", 100).catch(() => null);
+  }
+});
+
+test("fixture teardown does not recreate a partially removed root after deletion failure", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-removal-failure-");
+  const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "removal-failure-service");
+  let handle;
+
+  try {
+    const [service] = await discoverServices(servicesRoot);
+    handle = await startManagedProcess({
+      service,
+      executionPlan: createDirectExecutionPlan(service.manifest),
+      workspaceRoot,
+    });
+    const removalFailure = new Error("removal secret must remain private");
+    await assert.rejects(
+      decideFixtureRemoval({
+        tempRoot,
+        service,
+        workspaceRoot,
+        expectedPid: handle.pid,
+        stopAndWrite: async () => await stopManagedProcess("removal-failure-service", PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS),
+        writerSettled: async () => true,
+        removeFixtureRoot: async (fixtureRoot) => {
+          await rm(path.join(fixtureRoot, "services"), { recursive: true, force: true });
+          throw removalFailure;
+        },
+      }),
+      (error) => {
+        assert.equal(error instanceof AggregateError, true);
+        assert.deepEqual(error.errors, [removalFailure]);
+        const receipt = fixtureSettlementReceiptByError.get(error);
+        assert.equal(receipt.cleanup, "failed");
+        assert.equal(error.message.includes("secret"), false);
+        return true;
+      },
+    );
+    await access(tempRoot);
+    await assert.rejects(access(serviceRoot), (error) => error?.code === "ENOENT");
+    await new Promise((resolve) => setImmediate(resolve));
+    await assert.rejects(access(serviceRoot), (error) => error?.code === "ENOENT");
+  } finally {
+    await stopManagedProcess("removal-failure-service", 100).catch(() => null);
   }
 });
 
