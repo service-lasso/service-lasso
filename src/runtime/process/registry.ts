@@ -33,6 +33,14 @@ const STALE_LOCK_MS = 30_000;
 const LEGACY_START_TOLERANCE_MS = 2_000;
 let workspaceLockOwnerIdentityPromise: Promise<ProcessFingerprint> | null = null;
 
+function isRetryableWorkspaceLockCreateError(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException | null)?.code;
+  return code === "EEXIST" || (
+    process.platform === "win32" &&
+    (code === "EACCES" || code === "EBUSY" || code === "EPERM")
+  );
+}
+
 export type ProcessOwnerType = "runtime" | "service";
 export type ProcessOwnershipLifecycleState = "launching" | "running" | "stopping" | "stopped";
 
@@ -448,6 +456,7 @@ async function acquireWorkspaceLifecycleLock(workspaceRoot: string): Promise<() 
   const deadline = Date.now() + LOCK_TIMEOUT_MS;
   const token = randomUUID();
   const ownerIdentity = await resolveWorkspaceLockOwnerIdentity();
+  let lastTransientCreateError: unknown = null;
 
   while (true) {
     await assertSafeLifecycleArtifact(workspaceRoot, lockPath, "lock", "process-ownership", MAX_LIFECYCLE_LOCK_BYTES);
@@ -479,9 +488,13 @@ async function acquireWorkspaceLifecycleLock(workspaceRoot: string): Promise<() 
         }
       };
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
+      // Windows may briefly deny the exclusive create while a closed lock is
+      // observed by the filesystem. Keep the existing bounded lock episode;
+      // do not treat a transient denial as permission to bypass ownership.
+      if (!isRetryableWorkspaceLockCreateError(error)) {
         throw error;
       }
+      lastTransientCreateError = (error as NodeJS.ErrnoException).code === "EEXIST" ? null : error;
       try {
         const lockInfo = await assertSafeLifecycleArtifact(
           workspaceRoot,
@@ -520,6 +533,9 @@ async function acquireWorkspaceLifecycleLock(workspaceRoot: string): Promise<() 
         throw statError;
       }
       if (Date.now() >= deadline) {
+        if (lastTransientCreateError) {
+          throw lastTransientCreateError;
+        }
         throw new Error("Timed out waiting for workspace lifecycle lock.");
       }
       await new Promise((resolve) => setTimeout(resolve, LOCK_RETRY_MS));
