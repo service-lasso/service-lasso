@@ -7,6 +7,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
+. (Join-Path $PSScriptRoot "windows-compiler-process-budget.ps1")
 
 if (-not $IsWindows -and $PSVersionTable.PSEdition -eq "Core") {
   throw "Windows process-inspector provenance verification requires Windows."
@@ -330,6 +331,7 @@ function Get-NormalizedAssemblyBytes([string]$AssemblyPath) {
 }
 
 $temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) ("service-lasso-native-provenance-" + [Guid]::NewGuid().ToString("N"))
+$retainTemporaryRoot = $false
 try {
   $null = New-Item -ItemType Directory -Path $temporaryRoot
   $compiledPath = Join-Path $temporaryRoot (Split-Path -Leaf $binaryRelativePath)
@@ -343,16 +345,18 @@ try {
       $compilerProcess.StartInfo.FileName = $compilerPath
       $compilerProcess.StartInfo.UseShellExecute = $false
       $compilerProcess.StartInfo.CreateNoWindow = $true
+       $compilerProcess.StartInfo.RedirectStandardOutput = $true
+       $compilerProcess.StartInfo.RedirectStandardError = $true
       foreach ($compilerArgument in $compilerArguments) {
         [void]$compilerProcess.StartInfo.ArgumentList.Add($compilerArgument)
       }
       if (-not $compilerProcess.Start()) {
         throw "The Windows held-exit fixture compiler did not start."
       }
-      if (-not $compilerProcess.WaitForExit(15000)) {
-        $compilerProcess.Kill()
-        $compilerProcess.WaitForExit()
-        throw "The Windows held-exit fixture compiler exceeded its 15000ms bound."
+       $compilerResult = Invoke-BoundedOwnedCompilerProcess $compilerProcess 15000
+       if ($compilerResult.outcome -ne "completed") {
+         $retainTemporaryRoot = $compilerResult.retainTemporaryRoot
+         throw "The Windows held-exit fixture compiler failed closed with $($compilerResult.outcome) inside its 15000ms total bound."
       }
       if ($compilerProcess.ExitCode -ne 0) {
         throw "The Windows held-exit fixture provenance compilation failed."
@@ -441,7 +445,7 @@ try {
     negativeCaseCount = $negativeCaseCount
   } | ConvertTo-Json -Compress
 } finally {
-  if ([IO.Directory]::Exists($temporaryRoot)) {
+  if (-not $retainTemporaryRoot -and [IO.Directory]::Exists($temporaryRoot)) {
     Remove-Item -LiteralPath $temporaryRoot -Recurse -Force
   }
 }
