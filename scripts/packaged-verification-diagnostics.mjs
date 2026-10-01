@@ -27,6 +27,11 @@ const acquisitionOutcomes = new Set([
   "unknown",
 ]);
 
+const signalSubcodes = new Map([
+  ["SIGTERM", "subprocess_observed_signal_sigterm"],
+  ["SIGKILL", "subprocess_observed_signal_sigkill"],
+]);
+
 function ownData(value, key) {
   if (!value || typeof value !== "object") return undefined;
   try {
@@ -55,11 +60,15 @@ function npmReportedCode(error) {
 export function dependencyAcquisitionReceipt(error, observedOutcome = "unknown") {
   const outcome = acquisitionOutcomes.has(observedOutcome) ? observedOutcome : "unknown";
   const code = ownData(error, "code");
+  const signalSubcode = signalSubcodes.get(ownData(error, "signal"));
   const spawnSubcode = code === "ENOENT" ? "subprocess_spawn_enoent"
     : code === "EACCES" ? "subprocess_spawn_eacces"
       : code === "EPERM" ? "subprocess_spawn_eperm"
         : undefined;
   if (outcome === "spawn_failed") return { outcome, ...(spawnSubcode ? { subcode: spawnSubcode } : {}) };
+  // This is a host-observed child result only. It intentionally says nothing
+  // about who sent a signal, whether it was authorised, or why it occurred.
+  if (signalSubcode) return { outcome, subcode: signalSubcode };
   if (outcome !== "exit_nonzero") return { outcome };
   return { outcome, subcode: npmSubcodes.get(npmReportedCode(error)) ?? "subprocess_exit_nonzero" };
 }
@@ -93,7 +102,7 @@ export function packagedVerificationDiagnostic(stage, external, receipt) {
     ...(stage === "dependency_acquisition" && acquisitionReceipt
       ? {
           outcome: ownData(acquisitionReceipt, "outcome"),
-          ...(typeof ownData(acquisitionReceipt, "subcode") === "string" && [...npmSubcodes.values(), "subprocess_spawn_enoent", "subprocess_spawn_eacces", "subprocess_spawn_eperm", "subprocess_exit_nonzero"].includes(ownData(acquisitionReceipt, "subcode")) ? { subcode: ownData(acquisitionReceipt, "subcode") } : {}),
+          ...(typeof ownData(acquisitionReceipt, "subcode") === "string" && [...npmSubcodes.values(), "subprocess_spawn_enoent", "subprocess_spawn_eacces", "subprocess_spawn_eperm", "subprocess_exit_nonzero", ...signalSubcodes.values()].includes(ownData(acquisitionReceipt, "subcode")) ? { subcode: ownData(acquisitionReceipt, "subcode") } : {}),
         }
       : {}),
     ...(upstream ? { external: upstream } : {}),

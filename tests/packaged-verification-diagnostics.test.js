@@ -63,6 +63,38 @@ test("dependency acquisition ignores hostile getters and cannot project their pr
   assert.equal(dependencyAcquisitionSubcode(hostile, "exit_nonzero"), "subprocess_exit_nonzero");
 });
 
+test("dependency acquisition records only supported own-data signal observations", () => {
+  const secret = "private-token";
+  for (const [signal, subcode] of [
+    ["SIGTERM", "subprocess_observed_signal_sigterm"],
+    ["SIGKILL", "subprocess_observed_signal_sigkill"],
+  ]) {
+    const observed = dependencyAcquisitionReceipt({ signal, stderr: secret }, "unknown");
+    assert.deepEqual(observed, { outcome: "unknown", subcode });
+    const diagnostic = packagedVerificationDiagnostic("dependency_acquisition", undefined, observed);
+    assert.deepEqual(
+      diagnostic,
+      { stage: "dependency_acquisition", errorCode: "verification_failed", outcome: "unknown", subcode },
+    );
+    assert.equal(JSON.stringify(diagnostic).includes(secret), false);
+  }
+  assert.deepEqual(dependencyAcquisitionReceipt({ signal: "SIGHUP" }, "unknown"), { outcome: "unknown" });
+
+  const inherited = Object.create({ signal: "SIGKILL" });
+  assert.deepEqual(dependencyAcquisitionReceipt(inherited, "unknown"), { outcome: "unknown" });
+
+  const accessor = {};
+  Object.defineProperty(accessor, "signal", { get() { throw new Error("private-token"); } });
+  assert.deepEqual(dependencyAcquisitionReceipt(accessor, "unknown"), { outcome: "unknown" });
+});
+
+test("a Windows-style numeric exit remains an exit receipt", () => {
+  assert.deepEqual(
+    dependencyAcquisitionReceipt({ code: 1, signal: null }, "exit_nonzero"),
+    { outcome: "exit_nonzero", subcode: "subprocess_exit_nonzero" },
+  );
+});
+
 test("real command failure projects only its bounded npm JSON error code", async () => {
   const { mkdtemp, rm, writeFile } = await import("node:fs/promises");
   const os = await import("node:os");
