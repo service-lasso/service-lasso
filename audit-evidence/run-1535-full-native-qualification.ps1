@@ -32,7 +32,18 @@ $childExitCodePath = Join-Path $RunRoot 'child-actual-exit-code.txt'
 $initialReceiptPath = Join-Path $RunRoot 'receipt.initial.json'
 $finalReceiptPath = Join-Path $RunRoot 'receipt.final.json'
 
-New-Item -ItemType Directory -Force -Path $RunRoot, $workspaceRoot, (Split-Path -Parent $instanceRegistryPath), (Split-Path -Parent $hostPortRegistryPath) | Out-Null
+# A full qualification must begin from new durable evidence and new runtime
+# inputs. Reusing either root can silently inherit an earlier registry or
+# workspace state, and can overwrite the earlier receipt before a new child
+# has supplied a terminal exit receipt.
+if (Test-Path -LiteralPath $RunRoot) {
+  throw "Qualification run root already exists: $RunRoot"
+}
+if (Test-Path -LiteralPath $InputRoot) {
+  throw "Qualification input root already exists: $InputRoot"
+}
+
+New-Item -ItemType Directory -Path $RunRoot, $workspaceRoot, (Split-Path -Parent $instanceRegistryPath), (Split-Path -Parent $hostPortRegistryPath) | Out-Null
 
 # These three values are intentionally distinct and are assigned before the
 # first build/test child is created. DEADLINE_TEST_ROOT is deliberately absent.
