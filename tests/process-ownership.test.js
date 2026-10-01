@@ -364,14 +364,6 @@ while (true) {
   }
   await new Promise((resolve) => setTimeout(resolve, 25));
 }
-${custodyReadyFilePath === null ? "" : `while (true) {
-  try {
-    await access(${JSON.stringify(custodyReadyFilePath)});
-    break;
-  } catch {
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-}`}
 const jobObservationRequestPath = process.env.SERVICE_LASSO_TEST_JOB_OBSERVATION_REQUEST_PATH;
 const jobObservationResponsePath = process.env.SERVICE_LASSO_TEST_JOB_OBSERVATION_RESPONSE_PATH;
 const jobObservationToken = process.env.SERVICE_LASSO_TEST_JOB_OBSERVATION_TOKEN;
@@ -424,6 +416,14 @@ if (jobObservationRequestPath && jobObservationResponsePath && jobObservationTok
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
 }
+${custodyReadyFilePath === null ? "" : `while (true) {
+  try {
+    await access(${JSON.stringify(custodyReadyFilePath)});
+    break;
+  } catch {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+}`}
 ${suppressAcknowledgement ? "await new Promise(() => {});" : `const acknowledgement = ${JSON.stringify(acknowledgementMode)} === "malformed"
   ? "{"
   : JSON.stringify(${JSON.stringify(acknowledgementMode)} === "extra"
@@ -659,11 +659,18 @@ async function cleanupCompleteOwnedFixture({ serviceId, rootCustody, custody, te
 async function retainIncompleteOwnedFixture({ serviceId, rootCustody, primaryError }) {
   try {
     const ownership = await findProcessOwnership(rootCustody.workspaceRoot, "service", serviceId);
-    assertSameProcessFingerprint(ownership?.identity, rootCustody.identity);
-    assert.equal(ownership?.processGroup?.kind, "windows-job");
     if (hasManagedProcess(serviceId)) {
+      // The native observer can reject and close the held wrapper while this
+      // test awaits its unchanged three-second acknowledgement bound.  Only a
+      // still-live captured record may be controlled; a settled record is
+      // evidence to retain, never a reason to rediscover or signal by PID.
+      assertSameProcessFingerprint(ownership?.identity, rootCustody.identity);
+      assert.equal(ownership?.processGroup?.kind, "windows-job");
       assertManagedProcessCustodyForTests(rootCustody.managerCustody);
       await stopManagedProcessWithCustodyForTests(rootCustody.managerCustody, 5_000);
+    } else {
+      assert.equal(ownership?.lifecycleState, "stopped");
+      assert.equal(ownership?.pid, null);
     }
     await waitForManagedProcessFinalization(serviceId, Date.now() + 5_000);
     await assertManagedProcessCustodySettledForTests(rootCustody.managerCustody);
