@@ -147,10 +147,15 @@ async function readStore(workspaceRoot: string): Promise<PersistedOperationStore
   }
 }
 
-async function writeStore(workspaceRoot: string, store: PersistedOperationStore): Promise<void> {
-  const targetPath = serviceRegistrationOperationStorePath(workspaceRoot);
-  await mkdir(path.dirname(targetPath), { recursive: true });
-  const temporaryPath = `${targetPath}.${process.pid}.${Date.now()}.tmp`;
+/**
+ * Publishes the one co-resident #1462/#1463 recovery authority.  A completed
+ * rename is still not an acknowledgement boundary: the target directory must
+ * also be durably flushed before either writer can report its mutation.
+ */
+export async function writeUnifiedOperationJournal(targetPath: string, store: PersistedOperationStore): Promise<void> {
+  const parentDirectory = path.dirname(targetPath);
+  await mkdir(parentDirectory, { recursive: true, mode: 0o700 });
+  const temporaryPath = `${targetPath}.${process.pid}.${randomBytes(12).toString("hex")}.tmp`;
   const handle = await open(temporaryPath, "wx", 0o600);
   try {
     await handle.writeFile(`${JSON.stringify(store)}\n`, "utf8");
@@ -158,7 +163,34 @@ async function writeStore(workspaceRoot: string, store: PersistedOperationStore)
   } finally {
     await handle.close();
   }
-  await rename(temporaryPath, targetPath);
+  try {
+    // Do not replace an attacker-controlled name or publish through a
+    // redirected parent.  The Windows helper holds the already-validated
+    // directory handle through FlushFileBuffers and child completion.
+    await assertSafeUnifiedOperationJournalPublicationPath(targetPath);
+    await rename(temporaryPath, targetPath);
+    await syncDurableDirectory(parentDirectory);
+  } catch (error) {
+    // Only this transaction's new temporary name is eligible for cleanup.  A
+    // failed replacement leaves the previous recovery authority untouched.
+    await rm(temporaryPath, { force: true }).catch(() => undefined);
+    throw error;
+  }
+}
+
+async function writeStore(workspaceRoot: string, store: PersistedOperationStore): Promise<void> {
+  await writeUnifiedOperationJournal(serviceRegistrationOperationStorePath(workspaceRoot), store);
+}
+
+export async function assertSafeUnifiedOperationJournalPublicationPath(targetPath: string): Promise<void> {
+  try {
+    const existing = await lstat(targetPath);
+    if (!existing.isFile() || existing.isSymbolicLink()) throw new Error("unsafe unified operation journal target");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  const parent = await lstat(path.dirname(targetPath));
+  if (!parent.isDirectory() || parent.isSymbolicLink()) throw new Error("unsafe unified operation journal parent");
 }
 
 function toPublicOperation(operation: PersistedOperation, replayed: boolean): RemoteServiceRegistrationOperation {

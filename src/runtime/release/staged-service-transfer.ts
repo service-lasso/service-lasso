@@ -1,10 +1,10 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { lstat, mkdir, open, readFile, rename, rm } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { appendAuditEvent } from "../audit/store.js";
 import { withCrossProcessFileLock } from "../security/cross-process-file-lock.js";
 import { preflightReleaseArchive, type ReleaseArchiveType } from "./release-archive-preflight.js";
-import { claimStagedRegistrationInStore, completeStagedRegistrationInStore, serviceRegistrationOperationStorePath, syncDurableDirectory, type PersistedOperationStore, type StagedRegistrationOperationInput } from "../operator/remote-service-registration.js";
+import { claimStagedRegistrationInStore, completeStagedRegistrationInStore, serviceRegistrationOperationStorePath, writeUnifiedOperationJournal, type PersistedOperationStore, type StagedRegistrationOperationInput } from "../operator/remote-service-registration.js";
 
 export type StageState =
   | "uploading" | "ready" | "rejected" | "expired" | "claimed"
@@ -100,17 +100,6 @@ const confirmationPattern = /^scf_[A-Za-z0-9_-]{32}$/;
 function active(state: StageState): boolean { return !["consumed", "cleaned"].includes(state); }
 function record(value: unknown): value is Record<string, unknown> { return !!value && typeof value === "object" && !Array.isArray(value); }
 function only(recordValue: Record<string, unknown>, allowed: string[]): boolean { return Object.keys(recordValue).every((key) => allowed.includes(key)); }
-
-async function assertSafeJournalPublicationPath(file: string): Promise<void> {
-  try {
-    const existing = await lstat(file);
-    if (!existing.isFile() || existing.isSymbolicLink()) throw new Error("unsafe staged journal target");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-  }
-  const parent = await lstat(path.dirname(file));
-  if (!parent.isDirectory() || parent.isSymbolicLink()) throw new Error("unsafe staged journal parent");
-}
 
 /**
  * The durable document is recovery authority.  It must never be "best effort"
@@ -242,32 +231,7 @@ export class StagedServiceTransfer {
   }
 
   private async writeStore(file: string, store: Store): Promise<void> {
-    await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
-    const temporary = file + "." + randomBytes(8).toString("hex") + ".tmp";
-    // A claimed byte object and its journal are recovery authority.  Do not
-    // publish a rename whose file data has only reached the process cache.
-    const handle = await open(temporary, "wx", 0o600);
-    try {
-      await handle.writeFile(JSON.stringify(store) + "\n", "utf8");
-      await handle.sync();
-    } finally {
-      await handle.close();
-    }
-    try {
-      await assertSafeJournalPublicationPath(file);
-      await rename(temporary, file);
-      // This combined operation/journal document is recovery authority for
-      // prepared, claimed, and terminal state.  Do not acknowledge a Windows
-      // replacement until the same native, provenance-bound directory flush
-      // used by the direct-child publication has closed successfully.
-      await syncDurableDirectory(path.dirname(file));
-    } catch (error) {
-      // This name was created exclusively by this transaction.  Clean only it;
-      // never delete, overwrite, or reinterpret the previous journal after a
-      // failed atomic replacement.
-      await rm(temporary, { force: true }).catch(() => undefined);
-      throw error;
-    }
+    await writeUnifiedOperationJournal(file, store);
   }
 
   private recover(store: StageSection): void {
