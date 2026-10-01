@@ -9,3 +9,6 @@ src/runtime/security/windows-dpapi-helper.provenance.json text eol=lf
 src/runtime/execution/windows-managed-launcher-native.cs text eol=lf
 src/runtime/execution/windows-managed-launcher-native.exe binary
 src/runtime/execution/windows-managed-launcher-native.provenance.json text eol=lf
+tests/fixtures/windows-held-exit-probe.cs text eol=lf
+tests/fixtures/windows-held-exit-probe.exe binary
+tests/fixtures/windows-held-exit-probe.provenance.json text eol=lf
