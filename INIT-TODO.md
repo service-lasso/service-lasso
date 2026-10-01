@@ -21,6 +21,13 @@ This file tracks bootstrap/adoption/remediation work required before product imp
   local crash evidence does not close the owner-catalog, TAR T1--T5, exact-head
   CI, independent-review, release, or GA gates.
 
+  Core #1566 additionally makes the co-resident registration operation / staged
+  journal authority use that same checked-in, provenance-attested Windows
+  directory-flush boundary after its atomic replacement. A helper, launch,
+  identity, flush, close, or provenance failure remains unavailable before
+  acknowledgement and retains recovery state; this is not a power-loss claim
+  or a waiver for retained EPERM / STOP_FAILED investigations.
+
 - #1463 defines a release-asset-only staged transfer prerequisite in
   `docs/api/staged-service-transfer.md`. It uses a new reviewed
    staged-registration adapter over #1462 / PR #1464 (`a83133cc`), rather than

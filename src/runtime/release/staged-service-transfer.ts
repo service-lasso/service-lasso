@@ -4,7 +4,7 @@ import path from "node:path";
 import { appendAuditEvent } from "../audit/store.js";
 import { withCrossProcessFileLock } from "../security/cross-process-file-lock.js";
 import { preflightReleaseArchive, type ReleaseArchiveType } from "./release-archive-preflight.js";
-import { claimStagedRegistrationInStore, completeStagedRegistrationInStore, serviceRegistrationOperationStorePath, type PersistedOperationStore, type StagedRegistrationOperationInput } from "../operator/remote-service-registration.js";
+import { claimStagedRegistrationInStore, completeStagedRegistrationInStore, serviceRegistrationOperationStorePath, syncDurableDirectory, type PersistedOperationStore, type StagedRegistrationOperationInput } from "../operator/remote-service-registration.js";
 
 export type StageState =
   | "uploading" | "ready" | "rejected" | "expired" | "claimed"
@@ -110,12 +110,6 @@ async function assertSafeJournalPublicationPath(file: string): Promise<void> {
   }
   const parent = await lstat(path.dirname(file));
   if (!parent.isDirectory() || parent.isSymbolicLink()) throw new Error("unsafe staged journal parent");
-}
-
-async function syncJournalDirectory(directoryPath: string): Promise<void> {
-  if (process.platform === "win32") return;
-  const directory = await open(directoryPath, "r");
-  try { await directory.sync(); } finally { await directory.close(); }
 }
 
 /**
@@ -262,7 +256,11 @@ export class StagedServiceTransfer {
     try {
       await assertSafeJournalPublicationPath(file);
       await rename(temporary, file);
-      await syncJournalDirectory(path.dirname(file));
+      // This combined operation/journal document is recovery authority for
+      // prepared, claimed, and terminal state.  Do not acknowledge a Windows
+      // replacement until the same native, provenance-bound directory flush
+      // used by the direct-child publication has closed successfully.
+      await syncDurableDirectory(path.dirname(file));
     } catch (error) {
       // This name was created exclusively by this transaction.  Clean only it;
       // never delete, overwrite, or reinterpret the previous journal after a

@@ -452,7 +452,13 @@ async function stagedInputPublicationPath(servicesRoot: string, serviceId: strin
   } catch { return null; }
 }
 
-async function syncDirectory(directory: string): Promise<void> {
+/**
+ * Flushes a directory publication boundary.  Windows callers deliberately
+ * share the checked-in helper path below: Node cannot prove a directory flush
+ * there, and a JavaScript-only success would acknowledge an unverifiable
+ * recovery authority.
+ */
+export async function syncDurableDirectory(directory: string): Promise<void> {
   // POSIX uses fsync through Node. Windows cannot fsync a directory handle
   // through Node, so use the checked-in native helper which opens the
   // directory with FILE_FLAG_BACKUP_SEMANTICS and calls FlushFileBuffers.
@@ -483,7 +489,10 @@ async function syncWindowsDirectory(directory: string): Promise<void> {
       env: windowsDirectorySyncLauncherEnvironment(payload),
     });
     child.once("error", reject);
-    child.once("exit", (code, signal) => code === 0 && signal === null ? resolve() : reject(new Error("Windows directory durability helper failed")));
+    // `exit` only says that the launcher process ended.  Wait for `close` so
+    // the owned child boundary is fully settled before publication can be
+    // acknowledged; a signal or any nonzero close remains fail-closed.
+    child.once("close", (code, signal) => code === 0 && signal === null ? resolve() : reject(new Error("Windows directory durability helper failed")));
   });
 }
 
@@ -575,14 +584,14 @@ async function importStagedReleaseAttachment(input: { servicesRoot: string; mani
     // directory is still private. Discovery therefore never sees a child that
     // lacks its composite receipt.
     await writePrivateDurableFile(path.join(attachmentDirectory, STAGED_INPUT_PUBLICATION_FILE), stagedInputPublicationReceipt(input.attachment), () => input.onDurabilityBoundary?.("publication_receipt_file_synced"));
-    await syncDirectory(attachmentDirectory);
+    await syncDurableDirectory(attachmentDirectory);
     await input.onDurabilityBoundary?.("attachment_directory_synced");
-    await syncDirectory(privateRoot);
+    await syncDurableDirectory(privateRoot);
     await input.onDurabilityBoundary?.("private_directory_synced");
     await input.onDurabilityBoundary?.("attachment_files_durable");
     await rename(privateRoot, serviceRoot);
     await input.onDurabilityBoundary?.("publication_renamed");
-    await syncDirectory(root);
+    await syncDurableDirectory(root);
     await input.onDurabilityBoundary?.("live_parent_directory_synced");
     await input.onDurabilityBoundary?.("publication_durable");
     const discovered = await discoverServices(root);
