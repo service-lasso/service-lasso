@@ -938,6 +938,22 @@ function exactTransferHeader(request: IncomingMessage, name: string, pattern: Re
   return values[0]!;
 }
 
+/**
+ * Transfer credentials are a transport prerequisite, distinct from the
+ * runtime policy actor.  Check it after closed-header shape validation so a
+ * duplicated credential cannot reveal whether any actor or stage exists.
+ */
+function transferBearerCredential(request: IncomingMessage): string {
+  const values: string[] = [];
+  for (let index = 0; index < request.rawHeaders.length; index += 2) {
+    if (request.rawHeaders[index]?.toLowerCase() === "authorization") values.push(request.rawHeaders[index + 1] ?? "");
+  }
+  if (values.length === 0) throw new ApiError("actor_credential_missing", 401, "Transfer actor credential is required.");
+  if (values.length !== 1 || values[0]!.includes(",")) throw new ApiError("invalid_request", 400, "Transfer request headers are invalid.");
+  if (!/^Bearer [^\s,]+$/u.test(values[0]!)) throw new ApiError("actor_credential_invalid", 401, "Transfer actor credential is invalid.");
+  return values[0]!;
+}
+
 /** Parse the complete closed transfer-header grammar before authentication. */
 function parseClosedTransferHeaders(request: IncomingMessage, method: string | undefined, tail: string): void {
   const routeHeaders = new Set(["authorization", "content-type", "content-length", "content-range", "x-service-transfer-token", "x-service-transfer-confirmation", "x-chunk-sha256"]);
@@ -955,8 +971,9 @@ function parseClosedTransferHeaders(request: IncomingMessage, method: string | u
   if (method === "POST" && tail === "registration") expected.add("x-service-transfer-confirmation");
   const allowed = new Set([...expected, "content-type", "content-length"]);
   for (const [name, values] of seen) if (values.length !== 1 || values[0]!.includes(",") || !allowed.has(name)) throw new ApiError("invalid_request", 400, "Transfer request headers are invalid.");
-  for (const name of expected) if (!seen.has(name)) throw new ApiError("invalid_request", 400, "Transfer request headers are invalid.");
-  exactTransferHeader(request, "authorization", /^Bearer [^\s,]+$/u);
+  // Credential absence has a stable authentication result. All other route
+  // prerequisites remain closed-header validation failures.
+  for (const name of expected) if (name !== "authorization" && !seen.has(name)) throw new ApiError("invalid_request", 400, "Transfer request headers are invalid.");
   if (expected.has("x-service-transfer-token")) exactTransferHeader(request, "x-service-transfer-token", /^sut_[A-Za-z0-9_-]{43}$/u);
   if (expected.has("x-service-transfer-confirmation")) exactTransferHeader(request, "x-service-transfer-confirmation", /^scf_[A-Za-z0-9_-]{32}$/u);
   if (expected.has("x-chunk-sha256")) exactTransferHeader(request, "x-chunk-sha256", /^[a-f0-9]{64}$/u);
@@ -7119,7 +7136,7 @@ async function routeRequestWithoutMutationCoordination(
     if ([...url.searchParams.keys()].length !== 0) throw new ApiError("invalid_request", 400, "Transfer request query is invalid.");
     const preliminary = /^\/api\/v1\/service-transfers\/stg_[A-Za-z0-9_-]{32}(?:\/(.*))?$/u.exec(url.pathname);
     parseClosedTransferHeaders(request, request.method, preliminary?.[1] ?? "");
-    const authorization = exactTransferHeader(request, "authorization", /^Bearer [^\s,]+$/u);
+    const authorization = transferBearerCredential(request);
     void authorization; // trusted request-policy authentication remains authoritative.
     const permissionActor = permissionActorFromRuntimeAuth(auth);
     await enforcePermission({ workspaceRoot: config.workspaceRoot, actor: permissionActor, permission: "service:configure", method: request.method ?? "GET", routeTemplate: "/api/v1/service-transfers", subject: "release-asset" });
@@ -8332,6 +8349,8 @@ async function startApiServerGeneration(
         mcpHttpIdentity: options.mcpHttpIdentity,
         mcpPolicyTestHooks: options.mcpPolicyTestHooks,
         secretRotationTestHooks: options.secretRotationTestHooks,
+        stagedServiceTransfer: options.stagedServiceTransfer,
+        stagedServiceTransferCatalogPath: options.stagedServiceTransferCatalogPath,
         runtimeShutdownSlot,
       });
       await recordProcessOwnership(config.workspaceRoot, {

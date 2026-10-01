@@ -131,6 +131,11 @@ test("staged direct-child importer registers the canonical manifest without down
       byteObject: { id: "sbo_test", length: archiveBytes.length, sha256: archiveDigest },
       release: { id: "1", repo: "service-lasso/lasso-node", tag: "v1", targetSha: "a".repeat(40), assetId: "asset-1", assetName: "staged.zip", archiveType: "zip", manifestAssetId: "manifest-1", checksumAssetId: "checksum-1", manifestSha256: manifestDigest },
     });
+    assert.deepEqual(
+      await readFile(path.join(servicesRoot, "staged-service", ".service-lasso", "staged-release-input.bin")),
+      archiveBytes,
+      "the direct-child attachment retains the exact claimed byte object rather than only a metadata pointer",
+    );
     const recovered = await createStagedReleaseAssetImporter({ servicesRoot }).reconcile({
       serviceId: "staged-service", byteObjectId: "sbo_test", byteLength: archiveBytes.length, archiveSha256: archiveDigest,
       manifestSha256: manifestDigest, releaseId: "1", targetSha: "a".repeat(40), workspaceId: "trusted-workspace", actorId: "trusted-actor", stageId: "stg_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", operationId: "sro_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
