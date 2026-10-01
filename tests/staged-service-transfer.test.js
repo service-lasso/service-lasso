@@ -4,6 +4,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
+import { zipSync } from "fflate";
 import { StagedServiceTransfer, TransferError } from "../dist/runtime/release/staged-service-transfer.js";
 import { createStagedReleaseAssetImporter } from "../dist/runtime/operator/remote-service-registration.js";
 
@@ -75,5 +76,28 @@ test("staged direct-child importer registers the canonical manifest without down
     globalThis.fetch = priorFetch;
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("staged registration replays before resolver or confirmation access", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "staged-replay-"));
+  const bytes = Buffer.from(zipSync({ "release.txt": Buffer.from("fixture") }));
+  const digest = createHash("sha256").update(bytes).digest("hex");
+  let resolutions = 0;
+  const identity = { repo:"service-lasso/lasso-example", releaseTag:"v1", commitSha:"a".repeat(40), targetServiceId:"sample-service", platform:"win32", archiveType:"zip", assetName:"sample.zip", assetId:"1", archiveBytes:bytes.length, archiveSha256:digest, manifestSha256:"c".repeat(64), releaseId:"2" };
+  const transfer = new StagedServiceTransfer(root, { resolve: async () => { resolutions += 1; return identity; } }, { import: async () => "completed" });
+  const actor = { id:"actor", workspaceId:"trusted-workspace", canConfigure:true };
+  const input = { targetServiceId:"sample-service", provenance:{repo:identity.repo,releaseTag:identity.releaseTag,commitSha:identity.commitSha},platform:"win32",manifestSchemaVersion:"service-lasso.service-manifest/v1" };
+  try {
+    const stage = await transfer.create(actor, input);
+    await transfer.upload(actor, stage.stageId, 0, stage.uploadToken, digest, bytes, { start: 0, end: bytes.length - 1, total: bytes.length });
+    await transfer.finalize(actor, stage.stageId);
+    const confirmation = await transfer.confirmation(actor, stage.stageId);
+    const first = await transfer.register(actor, stage.stageId, confirmation.confirmationId, "staged-replay-0001");
+    assert.equal(first.replayed, false);
+    const beforeReplay = resolutions;
+    const replay = await transfer.register(actor, stage.stageId, confirmation.confirmationId, "staged-replay-0001");
+    assert.equal(replay.replayed, true);
+    assert.equal(resolutions, beforeReplay);
+  } finally { await rm(root, { recursive: true, force: true }); }
 });
 
