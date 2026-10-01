@@ -320,7 +320,16 @@ export class StagedServiceTransfer {
   async create(actor: TransferActor, input: { targetServiceId: string; provenance: { repo: string; releaseTag: string; commitSha: string }; platform: string; manifestSchemaVersion: string }) {
     this.actor(actor);
     if (!idPattern.test(input.targetServiceId) || !repoPattern.test(input.provenance.repo) || !shaPattern.test(input.provenance.commitSha) || !["win32", "linux", "darwin"].includes(input.platform) || input.manifestSchemaVersion !== "service-lasso.service-manifest/v1") throw new TransferError("invalid_request", 400);
-    const identity = await this.resolver.resolve({ ...input.provenance, targetServiceId: input.targetServiceId, platform: input.platform });
+    let identity: ReleaseIdentity;
+    try {
+      identity = await this.resolver.resolve({ ...input.provenance, targetServiceId: input.targetServiceId, platform: input.platform });
+    } catch (error) {
+      // A resolver is an owner-controlled provenance dependency. Its details
+      // must not cross this service boundary, and an unavailable pin must not
+      // turn the closed staged-transfer route into an internal-error response.
+      if (error instanceof TransferError) throw error;
+      throw new TransferError("release_provenance_unavailable", 503);
+    }
     this.assertIdentity(input, identity);
     return await this.locked(async (store) => {
       this.quota(store.stagedTransfer, actor, identity);

@@ -39,6 +39,38 @@ function trustedActorHeaders(actorId, roles) {
   };
 }
 
+test("staged transfer HTTP maps an unavailable default owner catalog to closed release provenance", async () => {
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-staged-http-default-catalog-");
+  const previousInstanceRegistry = process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH;
+  const previousHostRegistry = process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH;
+  process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH = path.join(tempRoot, "instance-registry.json");
+  process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH = path.join(tempRoot, "host-port-registry.json");
+  const api = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
+  try {
+    const response = await fetch(`${api.url}/api/v1/service-transfers`, {
+      method: "POST",
+      headers: { ...trustedActorHeaders("default-catalog-owner", "owner"), "content-type": "application/json" },
+      body: JSON.stringify({
+        targetServiceId: "default-catalog-service",
+        provenance: { repo: "service-lasso/lasso-example", releaseTag: "v1", commitSha },
+        platform: "win32",
+        manifestSchemaVersion: "service-lasso.service-manifest/v1",
+      }),
+    });
+    const body = await responseJson(response);
+    assert.equal(response.status, 503);
+    assert.equal(body.error, "release_provenance_unavailable");
+    assert.equal(JSON.stringify(body).includes("owner catalog pin unavailable"), false);
+  } finally {
+    await api.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+    if (previousInstanceRegistry === undefined) delete process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH;
+    else process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH = previousInstanceRegistry;
+    if (previousHostRegistry === undefined) delete process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH;
+    else process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH = previousHostRegistry;
+  }
+});
+
 async function responseBeforeRequestBody(url, { headers }) {
   const target = new URL(url);
   return await new Promise((resolve, reject) => {
