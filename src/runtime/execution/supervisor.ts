@@ -265,9 +265,35 @@ interface AdoptManagedProcessOptions {
   workspaceRoot: string;
 }
 
-const managedProcesses = new Map<string, ManagedProcessRecord>();
-const managedProcessFinalizers = new Map<string, { pid: number | null; promise: Promise<void>; workspaceRoot: string | null }>();
-const adoptedProcesses = new Map<string, AdoptedProcessRecord>();
+type WorkspaceServiceKey = string;
+
+function workspaceServiceKey(serviceId: string, workspaceRoot: string | null | undefined): WorkspaceServiceKey {
+  const root = workspaceRoot
+    ? (process.platform === "win32" ? path.resolve(workspaceRoot).toLowerCase() : path.resolve(workspaceRoot))
+    : "<legacy-unscoped>";
+  return `${root}\u0000${serviceId}`;
+}
+
+function resolveWorkspaceServiceKey(
+  serviceId: string,
+  workspaceRoot?: string | null,
+): WorkspaceServiceKey | null {
+  if (workspaceRoot !== undefined) return workspaceServiceKey(serviceId, workspaceRoot);
+  const suffix = `\u0000${serviceId}`;
+  const matches = new Set([
+    ...managedProcesses.keys(),
+    ...adoptedProcesses.keys(),
+    ...managedProcessFinalizers.keys(),
+  ].filter((key) => key.endsWith(suffix)));
+  if (matches.size > 1) {
+    throw new Error(`Cannot resolve managed service "${serviceId}" without workspace authority.`);
+  }
+  return matches.values().next().value ?? null;
+}
+
+const managedProcesses = new Map<WorkspaceServiceKey, ManagedProcessRecord>();
+const managedProcessFinalizers = new Map<WorkspaceServiceKey, { pid: number | null; promise: Promise<void>; workspaceRoot: string | null }>();
+const adoptedProcesses = new Map<WorkspaceServiceKey, AdoptedProcessRecord>();
 const workspaceFinalizationTails = new Map<string, Promise<void>>();
 const managedProcessShutdownQuiescers = new Set<(
   serviceIds: ReadonlySet<string>,
@@ -462,11 +488,12 @@ async function withSerializedWorkspaceFinalization<T>(workspaceRoot: string, act
 }
 
 function trackManagedProcessFinalizer(serviceId: string, pid: number | null, promise: Promise<void>, workspaceRoot: string | null): void {
+  const key = workspaceServiceKey(serviceId, workspaceRoot);
   const tracked = { pid, promise, workspaceRoot };
-  managedProcessFinalizers.set(serviceId, tracked);
+  managedProcessFinalizers.set(key, tracked);
   const clearFinalizer = () => {
-    if (managedProcessFinalizers.get(serviceId) === tracked) {
-      managedProcessFinalizers.delete(serviceId);
+    if (managedProcessFinalizers.get(key) === tracked) {
+      managedProcessFinalizers.delete(key);
     }
   };
   // Successful finalizers need no further observation. Failed finalizers stay
@@ -477,8 +504,10 @@ function trackManagedProcessFinalizer(serviceId: string, pid: number | null, pro
 export async function waitForManagedProcessFinalization(
   serviceId: string,
   deadlineMs?: number,
+  workspaceRoot?: string | null,
 ): Promise<void> {
-  const finalizer = managedProcessFinalizers.get(serviceId);
+  const key = resolveWorkspaceServiceKey(serviceId, workspaceRoot);
+  const finalizer = key ? managedProcessFinalizers.get(key) : undefined;
   if (!finalizer) {
     return;
   }
@@ -498,8 +527,8 @@ export async function waitForManagedProcessFinalization(
       !isProcessControlDeadlineError(error)
       || reconciledStatus === "not_running"
       || reconciledStatus === "identity_mismatch"
-    ) && managedProcessFinalizers.get(serviceId) === finalizer) {
-      managedProcessFinalizers.delete(serviceId);
+    ) && managedProcessFinalizers.get(key!) === finalizer) {
+      managedProcessFinalizers.delete(key!);
     }
     throw new ManagedProcessFinalizationError([{
       serviceId,
@@ -1305,8 +1334,9 @@ export function resolveManagedProcessLaunch(
   };
 }
 
-export function hasManagedProcess(serviceId: string): boolean {
-  return managedProcesses.has(serviceId) || adoptedProcesses.has(serviceId);
+export function hasManagedProcess(serviceId: string, workspaceRoot?: string | null): boolean {
+  const key = resolveWorkspaceServiceKey(serviceId, workspaceRoot);
+  return Boolean(key && (managedProcesses.has(key) || adoptedProcesses.has(key)));
 }
 
 export interface ManagedStdinInspection {
@@ -1321,8 +1351,9 @@ export type ManagedStdinWriteResult =
  * Inspect whether the live managed process still has a writable stdin pipe.
  * Adopted processes never expose a pipe.
  */
-export function inspectManagedStdin(serviceId: string): ManagedStdinInspection {
-  const record = managedProcesses.get(serviceId);
+export function inspectManagedStdin(serviceId: string, workspaceRoot?: string | null): ManagedStdinInspection {
+  const key = resolveWorkspaceServiceKey(serviceId, workspaceRoot);
+  const record = key ? managedProcesses.get(key) : undefined;
   const stdin = record?.child.stdin;
   return {
     writable: Boolean(record && !record.stopping && stdin && !stdin.destroyed && stdin.writable),
@@ -1336,8 +1367,10 @@ export function inspectManagedStdin(serviceId: string): ManagedStdinInspection {
 export async function writeManagedProcessStdin(
   serviceId: string,
   input: string,
+  workspaceRoot?: string | null,
 ): Promise<ManagedStdinWriteResult> {
-  const record = managedProcesses.get(serviceId);
+  const key = resolveWorkspaceServiceKey(serviceId, workspaceRoot);
+  const record = key ? managedProcesses.get(key) : undefined;
   if (!record || record.stopping) {
     return {
       ok: false,
@@ -1679,11 +1712,12 @@ async function monitorManagedProcessTree(record: ManagedProcessRecord): Promise<
   }
 
   const serviceId = record.service.manifest.id;
+  const key = workspaceServiceKey(serviceId, record.workspaceRoot);
   let refreshDelayMs = WINDOWS_TREE_MONITOR_REFRESH_DELAY_MS;
-  while (managedProcesses.get(serviceId) === record && !record.stopping && !record.treeTerminationPromise) {
+  while (managedProcesses.get(key) === record && !record.stopping && !record.treeTerminationPromise) {
     await adoptedProcessPollDelay(record.treeMonitorAbortController.signal, refreshDelayMs);
     if (
-      managedProcesses.get(serviceId) !== record ||
+      managedProcesses.get(key) !== record ||
       record.stopping ||
       record.treeTerminationPromise ||
       record.treeMonitorAbortController.signal.aborted
@@ -1719,7 +1753,8 @@ async function monitorManagedProcessTree(record: ManagedProcessRecord): Promise<
 
 async function finalizeAdoptedProcessExit(record: AdoptedProcessRecord): Promise<void> {
   const serviceId = record.service.manifest.id;
-  if (adoptedProcesses.get(serviceId) !== record || record.stopping) {
+  const key = workspaceServiceKey(serviceId, record.workspaceRoot);
+  if (adoptedProcesses.get(key) !== record || record.stopping) {
     return;
   }
 
@@ -1784,18 +1819,19 @@ async function finalizeAdoptedProcessExit(record: AdoptedProcessRecord): Promise
       });
       await writeServiceState(record.service, next);
     }
-    adoptedProcesses.delete(serviceId);
+    adoptedProcesses.delete(key);
   });
 }
 
 async function monitorAdoptedProcess(record: AdoptedProcessRecord): Promise<void> {
   const serviceId = record.service.manifest.id;
-  while (adoptedProcesses.get(serviceId) === record && !record.stopping) {
+  const key = workspaceServiceKey(serviceId, record.workspaceRoot);
+  while (adoptedProcesses.get(key) === record && !record.stopping) {
     await adoptedProcessPollDelay(
       record.monitorAbortController.signal,
       process.platform === "win32" ? WINDOWS_TREE_MONITOR_REFRESH_DELAY_MS : ADOPTED_PROCESS_POLL_INTERVAL_MS,
     );
-    if (adoptedProcesses.get(serviceId) !== record || record.stopping) {
+    if (adoptedProcesses.get(key) !== record || record.stopping) {
       return;
     }
 
@@ -1846,8 +1882,10 @@ async function monitorAdoptedProcess(record: AdoptedProcessRecord): Promise<void
 export async function beginManagedProcessStop(
   serviceId: string,
   deadlineMs?: number,
+  workspaceRoot?: string | null,
 ): Promise<boolean> {
-  const record = managedProcesses.get(serviceId);
+  const key = resolveWorkspaceServiceKey(serviceId, workspaceRoot);
+  const record = key ? managedProcesses.get(key) : undefined;
   if (record) {
     if (deadlineMs !== undefined) {
       const priorDeadlineExpired = record.stopDeadlineMs !== null && remainingProcessControlMs(record.stopDeadlineMs) <= 0;
@@ -1877,7 +1915,7 @@ export async function beginManagedProcessStop(
     return true;
   }
 
-  const adopted = adoptedProcesses.get(serviceId);
+  const adopted = key ? adoptedProcesses.get(key) : undefined;
   if (adopted) {
     adopted.stopping = true;
     adopted.monitorAbortController.abort();
@@ -1906,13 +1944,14 @@ export async function beginManagedProcessStop(
 export async function adoptManagedProcess(options: AdoptManagedProcessOptions): Promise<ManagedProcessHandle> {
   const { service, pid, startedAt, command, workspaceRoot } = options;
   const serviceId = service.manifest.id;
+  const key = workspaceServiceKey(serviceId, workspaceRoot);
 
-  const priorFinalizer = managedProcessFinalizers.get(serviceId);
+  const priorFinalizer = managedProcessFinalizers.get(key);
   if (priorFinalizer) {
-    await waitForManagedProcessFinalization(serviceId);
+    await waitForManagedProcessFinalization(serviceId, undefined, workspaceRoot);
   }
 
-  if (managedProcesses.has(serviceId) || adoptedProcesses.has(serviceId)) {
+  if (managedProcesses.has(key) || adoptedProcesses.has(key)) {
     throw new Error(`Service "${serviceId}" already has a managed process.`);
   }
 
@@ -1939,7 +1978,7 @@ export async function adoptManagedProcess(options: AdoptManagedProcessOptions): 
     monitorAbortController: new AbortController(),
   };
   await refreshAdoptedProcessTreeMembers(record);
-  adoptedProcesses.set(serviceId, record);
+  adoptedProcesses.set(key, record);
   trackManagedProcessFinalizer(serviceId, pid, monitorAdoptedProcess(record), workspaceRoot);
 
   return {
@@ -1965,13 +2004,14 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
     onExit,
   } = options;
   const serviceId = service.manifest.id;
+  const key = workspaceServiceKey(serviceId, workspaceRoot ?? null);
 
-  const priorFinalizer = managedProcessFinalizers.get(serviceId);
+  const priorFinalizer = managedProcessFinalizers.get(key);
   if (priorFinalizer) {
-    await waitForManagedProcessFinalization(serviceId);
+    await waitForManagedProcessFinalization(serviceId, undefined, workspaceRoot ?? null);
   }
 
-  if (managedProcesses.has(serviceId) || adoptedProcesses.has(serviceId)) {
+  if (managedProcesses.has(key) || adoptedProcesses.has(key)) {
     throw new Error(`Service "${serviceId}" already has a managed process.`);
   }
   if (workspaceRoot) {
@@ -2139,7 +2179,7 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
       return;
     }
     managedRecordActivated = true;
-    managedProcesses.set(serviceId, record);
+    managedProcesses.set(key, record);
     record.treeMonitorPromise = managedProcessTreeMonitor(record).catch(() => undefined);
     const logFinalizePromise = record.logCapturePromise;
     const lifecycleFinalizePromise = exitPromise.then(async ({ exitCode, signal }) => {
@@ -2176,9 +2216,9 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
           );
         }
 
-        const current = managedProcesses.get(serviceId);
+        const current = managedProcesses.get(key);
         if (current?.child === child) {
-          managedProcesses.delete(serviceId);
+          managedProcesses.delete(key);
         }
 
         if (onExit) {
@@ -2466,9 +2506,10 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
 export async function stopManagedProcess(
   serviceId: string,
   timeoutMs = DEFAULT_MANAGED_PROCESS_STOP_TIMEOUT_MS,
-  options: { newWindowsInspectionEpisode?: boolean } = {},
+  options: { newWindowsInspectionEpisode?: boolean; workspaceRoot?: string | null } = {},
 ): Promise<{ exitCode: number | null; signal: NodeJS.Signals | null } | null> {
-  const record = managedProcesses.get(serviceId);
+  const key = resolveWorkspaceServiceKey(serviceId, options.workspaceRoot);
+  const record = key ? managedProcesses.get(key) : undefined;
   if (!record) {
     return await stopAdoptedProcess(serviceId, timeoutMs, options);
   }
@@ -2479,7 +2520,7 @@ export async function stopManagedProcess(
   if (process.platform === "win32" && options.newWindowsInspectionEpisode === true) {
     record.terminalWindowsCommandPartialCopy = false;
   }
-  await beginManagedProcessStop(serviceId, deadlineMs);
+  await beginManagedProcessStop(serviceId, deadlineMs, record.workspaceRoot);
   await terminateManagedProcessTree(
     record,
     timeoutMs,
@@ -2492,7 +2533,7 @@ export async function stopManagedProcess(
     async () => await record.exitPromise,
     { deadlineMs },
   );
-  await waitForManagedProcessFinalization(serviceId, deadlineMs);
+  await waitForManagedProcessFinalization(serviceId, deadlineMs, record.workspaceRoot);
 
   return result;
 }
@@ -2522,16 +2563,17 @@ async function waitForAdoptedProcessExit(
 async function stopAdoptedProcess(
   serviceId: string,
   timeoutMs: number,
-  options: { newWindowsInspectionEpisode?: boolean } = {},
+  options: { newWindowsInspectionEpisode?: boolean; workspaceRoot?: string | null } = {},
 ): Promise<{ exitCode: number | null; signal: NodeJS.Signals | null } | null> {
-  const record = adoptedProcesses.get(serviceId);
+  const key = resolveWorkspaceServiceKey(serviceId, options.workspaceRoot);
+  const record = key ? adoptedProcesses.get(key) : undefined;
   if (!record) {
     return null;
   }
 
   const deadlineMs = processControlDeadline(timeoutMs);
-  const finalizer = managedProcessFinalizers.get(serviceId);
-  await beginManagedProcessStop(serviceId, deadlineMs);
+  const finalizer = managedProcessFinalizers.get(key!);
+  await beginManagedProcessStop(serviceId, deadlineMs, record.workspaceRoot);
   let terminationTarget = adoptedProcessTreeTarget(record);
   const terminationDependencies: Parameters<typeof terminateOwnedProcessTree>[2] = { deadlineMs };
   if (process.platform !== "win32") {
@@ -2590,12 +2632,12 @@ async function stopAdoptedProcess(
   await withProcessControlDeadline(
     async () => await withSerializedWorkspaceFinalization(record.workspaceRoot, async () => {
       await transitionProcessOwnership(record.workspaceRoot, "service", serviceId, "stopped", "not_running", record.pid);
-      adoptedProcesses.delete(serviceId);
+      adoptedProcesses.delete(key!);
     }),
     { deadlineMs },
   );
   if (finalizer) {
-    await waitForManagedProcessFinalization(serviceId, deadlineMs);
+    await waitForManagedProcessFinalization(serviceId, deadlineMs, record.workspaceRoot);
   }
   return termination.forced
     ? { exitCode: null, signal: "SIGKILL" }
@@ -2605,15 +2647,17 @@ async function stopAdoptedProcess(
 export async function waitForManagedProcessExit(
   serviceId: string,
   timeoutMs = 5_000,
+  workspaceRoot?: string | null,
 ): Promise<{ exitCode: number | null; signal: NodeJS.Signals | null } | null> {
-  const record = managedProcesses.get(serviceId);
+  const key = resolveWorkspaceServiceKey(serviceId, workspaceRoot);
+  const record = key ? managedProcesses.get(key) : undefined;
   if (!record) {
-    const adopted = adoptedProcesses.get(serviceId);
+    const adopted = key ? adoptedProcesses.get(key) : undefined;
     if (!adopted) {
       return null;
     }
-    const finalizer = managedProcessFinalizers.get(serviceId);
-    await beginManagedProcessStop(serviceId);
+    const finalizer = managedProcessFinalizers.get(key!);
+    await beginManagedProcessStop(serviceId, undefined, adopted.workspaceRoot);
     const exited = await waitForAdoptedProcessExit(adopted, timeoutMs);
     if (!exited) {
       return null;
@@ -2624,17 +2668,17 @@ export async function waitForManagedProcessExit(
     }, timeoutMs);
     await withSerializedWorkspaceFinalization(adopted.workspaceRoot, async () => {
       await transitionProcessOwnership(adopted.workspaceRoot, "service", serviceId, "stopped", "not_running", adopted.pid);
-      adoptedProcesses.delete(serviceId);
+      adoptedProcesses.delete(key!);
     });
     if (finalizer) {
-      await waitForManagedProcessFinalization(serviceId);
+      await waitForManagedProcessFinalization(serviceId, undefined, adopted.workspaceRoot);
     }
     return termination.forced
       ? { exitCode: null, signal: "SIGKILL" }
       : { exitCode: 0, signal: null };
   }
 
-  await beginManagedProcessStop(serviceId);
+  await beginManagedProcessStop(serviceId, undefined, record.workspaceRoot);
 
   let timeout: NodeJS.Timeout | undefined;
   const timeoutPromise = new Promise<null>((resolve) => {
@@ -2650,7 +2694,7 @@ export async function waitForManagedProcessExit(
     return null;
   }
 
-  await waitForManagedProcessFinalization(serviceId);
+  await waitForManagedProcessFinalization(serviceId, undefined, record.workspaceRoot);
   if (record.workspaceRoot) {
     await transitionProcessOwnership(
       record.workspaceRoot,
@@ -2665,22 +2709,38 @@ export async function waitForManagedProcessExit(
   return result;
 }
 
-export async function stopAllManagedProcesses(): Promise<void> {
+export async function stopAllManagedProcesses(workspaceRoot?: string | null): Promise<void> {
   const MAX_FINALIZATION_PASSES = 8;
+  const roots = new Set([
+    ...[...managedProcesses.values()].map((record) => record.workspaceRoot),
+    ...[...adoptedProcesses.values()].map((record) => record.workspaceRoot),
+    ...[...managedProcessFinalizers.values()].map((record) => record.workspaceRoot),
+  ].map((root) => workspaceServiceKey("", root)));
+  if (workspaceRoot === undefined && roots.size > 1) {
+    throw new Error("Cannot stop all managed processes without workspace authority.");
+  }
+  const effectiveWorkspaceRoot = workspaceRoot === undefined
+    ? ([...managedProcesses.values(), ...adoptedProcesses.values()][0]?.workspaceRoot
+      ?? [...managedProcessFinalizers.values()][0]?.workspaceRoot
+      ?? null)
+    : workspaceRoot;
+  const ownsKey = (key: WorkspaceServiceKey) => key.startsWith(`${workspaceServiceKey("", effectiveWorkspaceRoot)}`);
   // Quiesce every monitor synchronously before any tree termination starts.
   // Persist the shared ownership-registry transitions serially so concurrent
   // atomic writes cannot race each other on Windows. Tree termination and each
   // service's independent finalizer remain parallel below.
-  const stopOne = async (serviceId: string): Promise<ManagedProcessFinalizationFailure[]> => {
-    const pid = managedProcesses.get(serviceId)?.child.pid
-      ?? adoptedProcesses.get(serviceId)?.pid
-      ?? managedProcessFinalizers.get(serviceId)?.pid
+  const stopOne = async (key: WorkspaceServiceKey): Promise<ManagedProcessFinalizationFailure[]> => {
+    const serviceId = key.slice(key.lastIndexOf("\u0000") + 1);
+    const pid = managedProcesses.get(key)?.child.pid
+      ?? adoptedProcesses.get(key)?.pid
+      ?? managedProcessFinalizers.get(key)?.pid
       ?? null;
     try {
       await stopManagedProcess(serviceId, DEFAULT_MANAGED_PROCESS_STOP_TIMEOUT_MS, {
         newWindowsInspectionEpisode: false,
+        workspaceRoot: effectiveWorkspaceRoot,
       });
-      await waitForManagedProcessFinalization(serviceId);
+      await waitForManagedProcessFinalization(serviceId, undefined, effectiveWorkspaceRoot);
       return [];
     } catch (error) {
       if (error instanceof ManagedProcessFinalizationError) {
@@ -2703,19 +2763,19 @@ export async function stopAllManagedProcesses(): Promise<void> {
     }
   };
 
-  const unresolvedFailures = new Map<string, ManagedProcessFinalizationFailure[]>();
+  const unresolvedFailures = new Map<WorkspaceServiceKey, ManagedProcessFinalizationFailure[]>();
   for (let pass = 1; pass <= MAX_FINALIZATION_PASSES; pass += 1) {
-    const activeServiceIds = [...new Set([...managedProcesses.keys(), ...adoptedProcesses.keys()])].reverse();
+    const activeServiceIds = [...new Set([...managedProcesses.keys(), ...adoptedProcesses.keys()].filter(ownsKey))].reverse();
     const serviceIds = [
       ...activeServiceIds,
-      ...[...managedProcessFinalizers.keys()].filter((serviceId) => !activeServiceIds.includes(serviceId)),
+      ...[...managedProcessFinalizers.keys()].filter((key) => ownsKey(key) && !activeServiceIds.includes(key)),
     ];
     await Promise.all([...managedProcessShutdownQuiescers].map((quiescer) => (
-      quiescer(new Set(serviceIds))
+      quiescer(new Set(serviceIds.map((key) => key.slice(key.lastIndexOf("\u0000") + 1))))
     )));
     if (serviceIds.length === 0) {
       await new Promise<void>((resolve) => setImmediate(resolve));
-      if (managedProcesses.size === 0 && adoptedProcesses.size === 0 && managedProcessFinalizers.size === 0) {
+      if (![...managedProcesses.keys(), ...adoptedProcesses.keys(), ...managedProcessFinalizers.keys()].some(ownsKey)) {
         for (const [serviceId, failures] of unresolvedFailures) {
           if (failures.every((failure) => failure.phase === "stop")) {
             unresolvedFailures.delete(serviceId);
@@ -2732,7 +2792,8 @@ export async function stopAllManagedProcesses(): Promise<void> {
     }
     for (const serviceId of activeServiceIds) {
       try {
-        await beginManagedProcessStop(serviceId);
+        const serviceIdOnly = serviceId.slice(serviceId.lastIndexOf("\u0000") + 1);
+        await beginManagedProcessStop(serviceIdOnly, undefined, effectiveWorkspaceRoot);
       } catch {
         // The stop phase retries and reports this service with safe diagnostics.
       }
@@ -2741,7 +2802,7 @@ export async function stopAllManagedProcesses(): Promise<void> {
     // Windows process-tree ownership inspection uses CIM/WMI. Running one
     // pipeline per service concurrently can exhaust that provider, so keep
     // each bounded convergence pass serialized on Windows.
-    const passResults: Array<{ serviceId: string; failures: ManagedProcessFinalizationFailure[] }> = [];
+    const passResults: Array<{ serviceId: WorkspaceServiceKey; failures: ManagedProcessFinalizationFailure[] }> = [];
     if (process.platform === "win32") {
       for (const serviceId of serviceIds) {
         passResults.push({ serviceId, failures: await stopOne(serviceId) });
@@ -2760,26 +2821,24 @@ export async function stopAllManagedProcesses(): Promise<void> {
 
     await new Promise<void>((resolve) => setImmediate(resolve));
     const stillTracked = new Set([
-      ...managedProcesses.keys(),
-      ...adoptedProcesses.keys(),
-      ...managedProcessFinalizers.keys(),
-    ]);
+      ...managedProcesses.keys(), ...adoptedProcesses.keys(), ...managedProcessFinalizers.keys(),
+    ].filter(ownsKey));
     for (const [serviceId, failures] of unresolvedFailures) {
       if (!stillTracked.has(serviceId) && failures.every((failure) => failure.phase === "stop")) {
         unresolvedFailures.delete(serviceId);
       }
     }
     if (pass === MAX_FINALIZATION_PASSES && (
-      managedProcesses.size > 0 || adoptedProcesses.size > 0 || managedProcessFinalizers.size > 0
+      [...managedProcesses.keys(), ...adoptedProcesses.keys(), ...managedProcessFinalizers.keys()].some(ownsKey)
     )) {
       for (const serviceId of new Set([
         ...managedProcesses.keys(),
         ...adoptedProcesses.keys(),
         ...managedProcessFinalizers.keys(),
-      ])) {
+      ].filter(ownsKey))) {
         const priorFailures = unresolvedFailures.get(serviceId) ?? [];
         unresolvedFailures.set(serviceId, [...priorFailures, {
-          serviceId,
+          serviceId: serviceId.slice(serviceId.lastIndexOf("\u0000") + 1),
           pid: managedProcesses.get(serviceId)?.child.pid
             ?? adoptedProcesses.get(serviceId)?.pid
             ?? managedProcessFinalizers.get(serviceId)?.pid

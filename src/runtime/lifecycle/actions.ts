@@ -1296,7 +1296,7 @@ async function startServiceSerialized(
     );
   }
   // Registry-first adopt: a live verified owner must not be duplicated on start.
-  if (options.workspaceRoot && !current.running && !hasManagedProcess(serviceId)) {
+  if (options.workspaceRoot && !current.running && !hasManagedProcess(serviceId, options.workspaceRoot)) {
     const reconciled = await reconcilePersistedServiceOwner(service, current, {
       workspaceRoot: options.workspaceRoot,
       runtimeGenerationId: options.runtimeGenerationId,
@@ -1701,7 +1701,7 @@ async function startServiceSerialized(
     },
   );
   if (!readiness.ready) {
-    const stopped = await stopManagedProcess(serviceId);
+    const stopped = await stopManagedProcess(serviceId, undefined, { workspaceRoot: options.workspaceRoot });
     const revokedIdentities = revokeServiceScopedBrokerIdentities(serviceId);
     const revokedIdentity =
       revokedIdentities.at(-1) ?? scopedBrokerIdentity?.metadata ?? null;
@@ -1738,7 +1738,7 @@ async function startServiceSerialized(
     await transitionProcessOwnership(options.workspaceRoot, "service", serviceId, "running", "owned", handle.pid);
   }
 
-  const processStillManaged = hasManagedProcess(serviceId);
+  const processStillManaged = hasManagedProcess(serviceId, options.workspaceRoot);
   const result = applyState(serviceId, "start", (state) => ({
     nextState: {
       ...state,
@@ -1872,7 +1872,7 @@ export async function restartService(
     recordRestartTrace(serviceId, restartTrace, "stop_request", "completed", "prior_generation_running");
     let stopped: Awaited<ReturnType<typeof stopManagedProcess>>;
     try {
-      stopped = await stopManagedProcess(serviceId);
+      stopped = await stopManagedProcess(serviceId, undefined, { workspaceRoot: options.workspaceRoot });
     } catch (error) {
       recordRestartTrace(serviceId, restartTrace, "finalization_failed", "failed", "prior_generation_running");
       finishRestartTrace(serviceId, restartTrace, "failed", "prior_generation_running");
@@ -2058,7 +2058,7 @@ export async function restartService(
   });
   recordRestartTrace(serviceId, restartTrace, "readiness", readiness.ready ? "completed" : "failed", "replacement_spawned");
   if (!readiness.ready) {
-    const stopped = await stopManagedProcess(serviceId);
+    const stopped = await stopManagedProcess(serviceId, undefined, { workspaceRoot: options.workspaceRoot });
     const revokedIdentities = revokeServiceScopedBrokerIdentities(serviceId);
     const revokedIdentity =
       revokedIdentities.at(-1) ?? scopedBrokerIdentity?.metadata ?? null;

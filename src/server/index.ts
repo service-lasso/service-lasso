@@ -6588,7 +6588,7 @@ async function routeRequestWithoutMutationCoordination(
         throw new ApiError("stdin_unavailable", 409, stdinCapability.reason ?? "No safe stdin channel is advertised.");
       }
 
-      const writeResult = await writeManagedProcessStdin(service.manifest.id, parsed.input);
+      const writeResult = await writeManagedProcessStdin(service.manifest.id, parsed.input, config.workspaceRoot);
       if (!writeResult.ok) {
         const statusCode = writeResult.code === "not_running" ? 409 : writeResult.code === "no_pipe" ? 409 : 500;
         await appendAuditEvent({
@@ -8618,7 +8618,7 @@ async function startApiServerGeneration(
       await updateScheduler?.stop();
       await telemetryExportScheduler?.stop();
       await mcpStdio?.close();
-      await stopAllManagedProcesses();
+      await stopAllManagedProcesses(config.workspaceRoot);
       await markRuntimeInstanceStopped(config, runtimeGenerationId);
       await closeApiServer(server);
       await transitionProcessOwnership(
