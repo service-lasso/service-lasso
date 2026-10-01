@@ -13,6 +13,7 @@ import {
 } from "./published-package-qualification-lib.mjs";
 import { selectCurrentAttemptArtifacts } from "./published-package-qualification-reliability.mjs";
 import { strictJson } from "./consume-admin-trusted-unlock-receipt.mjs";
+import { parsePrebrowserFailure } from "./record-admin-trusted-unlock-prebrowser-failure.mjs";
 
 const PLATFORMS = Object.freeze(["linux", "win32", "darwin"]);
 
@@ -112,6 +113,15 @@ for (const platform of PLATFORMS) {
   const entries = await readdir(artifactDirectory, { withFileTypes: true });
   const expectedFile = `published-package-qualification-${platform}.json`;
   const expectedReceipt = "admin-trusted-unlock-receipt.json";
+  const prebrowserName = "admin-trusted-unlock-prebrowser-failure.json";
+  if (entries.length === 1 && entries[0]?.isFile() && !entries[0]?.isSymbolicLink() && entries[0].name === prebrowserName) {
+    const prebrowser = parsePrebrowserFailure(await readOnlyFile(path.join(artifactDirectory, prebrowserName), `${platform} pre-browser failure`));
+    if (!prebrowser || prebrowser.platform !== platform || String(prebrowser.run.id) !== runId || String(prebrowser.run.attempt) !== runAttempt) throw new Error(`${platform} pre-browser failure custody is invalid.`);
+    const jobName = `published-package-qualification (${platform})`;
+    const matchingJobs = jobs.filter(({ name }) => name === jobName);
+    if (matchingJobs.length !== 1 || matchingJobs[0].status !== "completed" || matchingJobs[0].conclusion !== "failure") throw new Error(`${platform} pre-browser failure must bind one terminal failed job.`);
+    continue;
+  }
   if (entries.length !== 2 || entries.some((entry) => !entry.isFile() || entry.isSymbolicLink()) || !entries.some((entry) => entry.name === expectedFile) || !entries.some((entry) => entry.name === expectedReceipt)) {
     throw new Error(`Downloaded ${platform} artifact did not contain its exact metadata evidence and trusted-unlock receipt.`);
   }

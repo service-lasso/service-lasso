@@ -138,12 +138,15 @@ jobs:
           ADMIN_PNPM_PREFIX: ${{ runner.temp }}/admin-trusted-unlock-pnpm-10.34.5
         run: |
           set -euo pipefail
-          test -d "$PNPM_ACTION_BIN_DEST"
-          test "$(pnpm --version)" = "10.34.5"
-          case "$(command -v pnpm)" in "$PNPM_ACTION_BIN_DEST"/*) ;; *) exit 1 ;; esac
-          test ! -e "$ADMIN_PNPM_PREFIX"
-          npm install --prefix "$ADMIN_PNPM_PREFIX" --ignore-scripts --no-save --package-lock=false --no-audit --no-fund pnpm@10.34.5
-          node "$GITHUB_WORKSPACE/scripts/resolve-pnpm-action-entrypoint.mjs"
+          prebrowser="$RUNNER_TEMP/admin-trusted-unlock-prebrowser-failure.json"
+          retain_prebrowser_failure() {
+            node "$GITHUB_WORKSPACE/scripts/record-admin-trusted-unlock-prebrowser-failure.mjs" --output "$prebrowser" --stage "$1"
+            echo "ADMIN_TRUSTED_UNLOCK_PREBROWSER_FAILURE_PATH=$prebrowser" >> "$GITHUB_ENV"
+          }
+          if ! node "$GITHUB_WORKSPACE/scripts/resolve-pnpm-action-entrypoint.mjs" --verify-action-binding; then retain_prebrowser_failure action_binding; exit 1; fi
+          if [ -e "$ADMIN_PNPM_PREFIX" ]; then retain_prebrowser_failure fresh_prefix; exit 1; fi
+          if ! npm install --prefix "$ADMIN_PNPM_PREFIX" --ignore-scripts --no-save --package-lock=false --no-audit --no-fund pnpm@10.34.5; then retain_prebrowser_failure isolated_install; exit 1; fi
+          if ! node "$GITHUB_WORKSPACE/scripts/resolve-pnpm-action-entrypoint.mjs"; then retain_prebrowser_failure package_identity; exit 1; fi
 
       - name: Acquire checksum-bound published Admin and Broker
         shell: pwsh
@@ -156,7 +159,6 @@ jobs:
           EXPECTED_BROKER_BINARY: ${{ matrix.broker_binary }}
         run: |
           $ErrorActionPreference = 'Stop'
-
           function Invoke-CoreInstall([string]$serviceId, [string]$servicesRoot, [string]$workspaceRoot) {
             $output = @(& node dist/cli.js install $serviceId --services-root $servicesRoot --workspace-root $workspaceRoot --json)
             if ($LASTEXITCODE -ne 0) {
@@ -287,8 +289,14 @@ jobs:
           BROKER_EXPECTED_SHA256: ${{ matrix.broker_sha256 }}
           QUALIFICATION_CANDIDATE_SHA: ${{ env.QUALIFICATION_CANDIDATE_SHA }}
           QUALIFICATION_EVENT_SHA: ${{ env.QUALIFICATION_EVENT_SHA }}
+          ADMIN_TRUSTED_UNLOCK_PREBROWSER_FAILURE_PATH: ${{ env.ADMIN_TRUSTED_UNLOCK_PREBROWSER_FAILURE_PATH }}
         run: |
           $ErrorActionPreference = 'Stop'
+          if ($env:ADMIN_TRUSTED_UNLOCK_PREBROWSER_FAILURE_PATH -and (Test-Path -LiteralPath $env:ADMIN_TRUSTED_UNLOCK_PREBROWSER_FAILURE_PATH -PathType Leaf)) {
+            New-Item -ItemType Directory -Path artifacts -Force | Out-Null
+            Copy-Item -LiteralPath $env:ADMIN_TRUSTED_UNLOCK_PREBROWSER_FAILURE_PATH -Destination "artifacts/admin-trusted-unlock-prebrowser-failure.json"
+            exit 0
+          }
           $hex64 = '^[0-9a-f]{64}$'
           if ($env:CORE_REVISION -notmatch '^[0-9a-f]{40}$' -or $env:ADMIN_REVISION -notmatch '^[0-9a-f]{40}$' -or $env:ADMIN_HARNESS_REVISION -notmatch '^[0-9a-f]{40}$' -or $env:BROKER_REVISION -notmatch '^[0-9a-f]{40}$') {
             throw 'Packaged acceptance revision evidence is invalid.'
@@ -351,6 +359,7 @@ jobs:
           path: |
             artifacts/packaged-admin-lifecycle-${{ matrix.admin_platform }}.json
             artifacts/admin-trusted-unlock-receipt.json
+            artifacts/admin-trusted-unlock-prebrowser-failure.json
           if-no-files-found: error
           retention-days: 90
 

@@ -84,6 +84,7 @@
     "@modelcontextprotocol/inspector": "2.7.0",
     "@playwright/test": "1.63.0",
     "@types/node": "^26.6.1",
+    "pnpm": "10.34.5",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "selfsigned": "5.5.0",

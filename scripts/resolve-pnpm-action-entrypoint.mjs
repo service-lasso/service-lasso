@@ -18,6 +18,42 @@ function isDescendant(root, candidate) {
 
 function sha256(value) { return createHash("sha256").update(value).digest("hex"); }
 
+function equalPath(left, right) { return process.platform === "win32" ? left.toLowerCase() === right.toLowerCase() : left === right; }
+
+async function selectedPnpmFromPath(environment, actionBin) {
+  const entries = String(environment.PATH ?? "").split(path.delimiter).filter(Boolean);
+  const extensions = process.platform === "win32" ? String(environment.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";").map((value) => value.toLowerCase()) : [""];
+  for (const entry of entries) {
+    const resolvedEntry = await realpath(entry).catch(() => null);
+    if (!resolvedEntry) continue;
+    for (const extension of extensions) {
+      const executable = path.join(resolvedEntry, `pnpm${extension}`);
+      const info = await lstat(executable).catch(() => null);
+      if (info?.isFile() || info?.isSymbolicLink()) return { pathEntry: resolvedEntry, executable };
+    }
+  }
+  fail("pnpm is not present on PATH");
+}
+
+export async function verifyPinnedPnpmActionProvision(environment = process.env) {
+  const { RUNNER_TEMP: runnerTemp, PNPM_ACTION_BIN_DEST: actionBinDest } = environment;
+  if (!runnerTemp || !actionBinDest) fail("RUNNER_TEMP and PNPM_ACTION_BIN_DEST are required");
+  const [tempRoot, actionBin] = await Promise.all([
+    realpath(runnerTemp).catch(() => fail("RUNNER_TEMP does not exist")),
+    realpath(actionBinDest).catch(() => fail("the action-reported bin_dest does not exist")),
+  ]);
+  if (!isDescendant(tempRoot, actionBin)) fail("the action-reported bin_dest must remain below RUNNER_TEMP");
+  if (process.versions.node.split(".")[0] !== "22") fail("the caller guard requires Node 22");
+  const selected = await selectedPnpmFromPath(environment, actionBin);
+  if (!equalPath(selected.pathEntry, actionBin)) fail("the PATH-selected pnpm does not bind to the action-reported bin_dest");
+  const actionEntrypoint = path.join(path.dirname(actionBin), "pnpm", "bin", "pnpm.cjs");
+  const actionInfo = await lstat(actionEntrypoint).catch(() => null);
+  if (!actionInfo?.isFile() || actionInfo.isSymbolicLink()) fail("the action-provisioned pnpm.cjs is not a regular file");
+  const version = spawnSync(process.execPath, [actionEntrypoint, "--version"], { encoding: "utf8", shell: false, windowsHide: true, timeout: VERSION_TIMEOUT_MS, maxBuffer: MAX_OUTPUT_BYTES, env: environment });
+  if (version.error || version.status !== 0 || version.signal || version.stdout.trim() !== PNPM_VERSION || Buffer.byteLength(version.stdout) > MAX_OUTPUT_BYTES || Buffer.byteLength(version.stderr) > MAX_OUTPUT_BYTES) fail("the action-provisioned absolute Node and pnpm.cjs argv did not execute exactly pnpm@10.34.5");
+  return { tempRoot, actionBin, selected };
+}
+
 async function appendEnvironment(values) {
   const environmentFile = process.env.GITHUB_ENV;
   if (!environmentFile) fail("GITHUB_ENV is required to bind the caller for later steps");
@@ -25,12 +61,11 @@ async function appendEnvironment(values) {
 }
 
 export async function resolvePinnedPnpmActionEntrypoint(environment = process.env) {
-  const { RUNNER_TEMP: runnerTemp, PNPM_ACTION_BIN_DEST: actionBinDest, ADMIN_PNPM_PREFIX: prefix } = environment;
-  if (!runnerTemp || !actionBinDest || !prefix) fail("RUNNER_TEMP, PNPM_ACTION_BIN_DEST, and ADMIN_PNPM_PREFIX are required");
-  const tempRoot = await realpath(runnerTemp).catch(() => fail("RUNNER_TEMP does not exist"));
-  const actionBin = await realpath(actionBinDest).catch(() => fail("the action-reported bin_dest does not exist"));
+  const { ADMIN_PNPM_PREFIX: prefix } = environment;
+  if (!prefix) fail("ADMIN_PNPM_PREFIX is required");
+  const { tempRoot, actionBin } = await verifyPinnedPnpmActionProvision(environment);
   const resolvedPrefix = await realpath(prefix).catch(() => fail("the isolated pnpm prefix does not exist"));
-  if (!isDescendant(tempRoot, actionBin) || !isDescendant(tempRoot, resolvedPrefix)) fail("action and isolated caller paths must remain below RUNNER_TEMP");
+  if (!isDescendant(tempRoot, resolvedPrefix)) fail("the isolated caller path must remain below RUNNER_TEMP");
   const packageRoot = path.join(resolvedPrefix, "node_modules", "pnpm");
   const manifestPath = path.join(packageRoot, "package.json");
   const entrypoint = path.join(packageRoot, "bin", "pnpm.cjs");
@@ -60,6 +95,9 @@ export async function resolvePinnedPnpmActionEntrypoint(environment = process.en
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
-  const result = await resolvePinnedPnpmActionEntrypoint();
-  await appendEnvironment({ ADMIN_PNPM_NODE: result.node, ADMIN_PNPM_ENTRYPOINT: result.entrypoint, ADMIN_PNPM_ACTION_ENTRYPOINT_EVIDENCE: result.evidencePath });
+  if (process.argv.includes("--verify-action-binding")) await verifyPinnedPnpmActionProvision();
+  else {
+    const result = await resolvePinnedPnpmActionEntrypoint();
+    await appendEnvironment({ ADMIN_PNPM_NODE: result.node, ADMIN_PNPM_ENTRYPOINT: result.entrypoint, ADMIN_PNPM_ACTION_ENTRYPOINT_EVIDENCE: result.evidencePath });
+  }
 }

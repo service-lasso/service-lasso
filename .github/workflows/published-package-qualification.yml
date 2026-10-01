@@ -118,12 +118,15 @@ jobs:
           ADMIN_PNPM_PREFIX: ${{ runner.temp }}/admin-trusted-unlock-pnpm-10.34.5
         run: |
           set -euo pipefail
-          test -d "$PNPM_ACTION_BIN_DEST"
-          test "$(pnpm --version)" = "10.34.5"
-          case "$(command -v pnpm)" in "$PNPM_ACTION_BIN_DEST"/*) ;; *) exit 1 ;; esac
-          test ! -e "$ADMIN_PNPM_PREFIX"
-          npm install --prefix "$ADMIN_PNPM_PREFIX" --ignore-scripts --no-save --package-lock=false --no-audit --no-fund pnpm@10.34.5
-          node "$GITHUB_WORKSPACE/scripts/resolve-pnpm-action-entrypoint.mjs"
+          prebrowser="$RUNNER_TEMP/admin-trusted-unlock-prebrowser-failure.json"
+          retain_prebrowser_failure() {
+            node "$GITHUB_WORKSPACE/scripts/record-admin-trusted-unlock-prebrowser-failure.mjs" --output "$prebrowser" --stage "$1"
+            echo "ADMIN_TRUSTED_UNLOCK_PREBROWSER_FAILURE_PATH=$prebrowser" >> "$GITHUB_ENV"
+          }
+          if ! node "$GITHUB_WORKSPACE/scripts/resolve-pnpm-action-entrypoint.mjs" --verify-action-binding; then retain_prebrowser_failure action_binding; exit 1; fi
+          if [ -e "$ADMIN_PNPM_PREFIX" ]; then retain_prebrowser_failure fresh_prefix; exit 1; fi
+          if ! npm install --prefix "$ADMIN_PNPM_PREFIX" --ignore-scripts --no-save --package-lock=false --no-audit --no-fund pnpm@10.34.5; then retain_prebrowser_failure isolated_install; exit 1; fi
+          if ! node "$GITHUB_WORKSPACE/scripts/resolve-pnpm-action-entrypoint.mjs"; then retain_prebrowser_failure package_identity; exit 1; fi
 
       - name: Verify and prepare published packages
         id: prepare
@@ -174,6 +177,7 @@ jobs:
           QUALIFICATION_OUTCOME: ${{ steps.qualify.outcome }}
           CLEANUP_OUTCOME: ${{ steps.cleanup.outcome }}
           ADMIN_TRUSTED_UNLOCK_RECEIPT_PATH: ${{ runner.temp }}/admin-trusted-unlock-receipt.json
+          ADMIN_TRUSTED_UNLOCK_PREBROWSER_FAILURE_PATH: ${{ env.ADMIN_TRUSTED_UNLOCK_PREBROWSER_FAILURE_PATH }}
         run: node scripts/record-published-package-qualification.mjs
 
       - name: Upload retained platform evidence

@@ -4,6 +4,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { hasObservedConsumerReceipt, isRetainableConsumerReceipt, parseConsumerReceipt, strictJson } from "./consume-admin-trusted-unlock-receipt.mjs";
 import { ADMIN_HARNESS_REVISION, ADMIN_RELEASE, BROKER_RELEASE } from "./published-package-qualification-lib.mjs";
+import { parsePrebrowserFailure } from "./record-admin-trusted-unlock-prebrowser-failure.mjs";
 const platforms = ["linux", "win32", "darwin"];
 function required(name, pattern = /^.+$/u) { const value = process.env[name]; if (!value || !pattern.test(value)) throw new Error(`Invalid ${name}.`); return value; }
 async function regular(file, label) { const info = await lstat(file).catch(() => null); if (!info?.isFile() || info.isSymbolicLink() || info.size <= 0 || info.size > 16384) throw new Error(`${label} is missing, private, or invalid.`); return readFile(file, "utf8"); }
@@ -43,6 +44,12 @@ export async function verifyArtifacts({ root, runId, runAttempt, candidateSha, e
   for (const platform of platforms) {
     const name = `packaged-admin-lifecycle-${platform}-${runId}-${runAttempt}`, directory = path.join(root, name), files = await readdir(directory, { withFileTypes: true });
     const evidenceName = `packaged-admin-lifecycle-${platform}.json`, receiptName = "admin-trusted-unlock-receipt.json";
+    const prebrowserName = "admin-trusted-unlock-prebrowser-failure.json";
+    if (files.length === 1 && files[0]?.isFile() && !files[0]?.isSymbolicLink() && files[0].name === prebrowserName) {
+      const prebrowser = parsePrebrowserFailure(await regular(path.join(directory, prebrowserName), `${platform} pre-browser failure`));
+      if (!prebrowser || prebrowser.platform !== platform || String(prebrowser.run.id) !== runId || String(prebrowser.run.attempt) !== runAttempt) throw new Error(`${platform} pre-browser failure custody validation failed.`);
+      continue;
+    }
     if (files.length !== 2 || files.some((entry) => !entry.isFile() || entry.isSymbolicLink()) || !files.some((entry) => entry.name === evidenceName) || !files.some((entry) => entry.name === receiptName)) throw new Error(`${platform} artifact inventory is invalid.`);
     const evidenceSource = await regular(path.join(directory, evidenceName), `${platform} evidence`);
     const receipt = parseConsumerReceipt(await regular(path.join(directory, receiptName), `${platform} receipt`));

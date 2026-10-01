@@ -15,6 +15,7 @@ import {
   requireSha256,
   retainAdminTrustedUnlockReceipt,
 } from "./published-package-qualification-lib.mjs";
+import { parsePrebrowserFailure } from "./record-admin-trusted-unlock-prebrowser-failure.mjs";
 
 function env(name, pattern = /^.*$/u) {
   return requirePattern(process.env[name], pattern, name);
@@ -42,8 +43,17 @@ async function findCurrentJobId({ repo, runId, runAttempt, jobName, token }) {
 }
 
 const platform = env("QUALIFICATION_PLATFORM", /^(?:win32|linux|darwin)$/u);
-const safeStatePath = path.resolve(env("QUALIFICATION_SAFE_STATE_PATH", /^.+$/u));
 const evidenceRoot = path.resolve(env("QUALIFICATION_EVIDENCE_ROOT", /^.+$/u));
+const prebrowserPath = process.env.ADMIN_TRUSTED_UNLOCK_PREBROWSER_FAILURE_PATH;
+if (prebrowserPath) {
+  const source = await readFile(path.resolve(prebrowserPath), "utf8").catch(() => null);
+  const prebrowser = source && parsePrebrowserFailure(source);
+  if (!prebrowser || prebrowser.platform !== platform || prebrowser.run.id !== Number(process.env.GITHUB_RUN_ID) || prebrowser.run.attempt !== Number(process.env.GITHUB_RUN_ATTEMPT)) throw new Error("Pre-browser failure custody is invalid.");
+  await mkdir(evidenceRoot, { recursive: true });
+  await writeFile(path.join(evidenceRoot, "admin-trusted-unlock-prebrowser-failure.json"), `${JSON.stringify(prebrowser)}\n`);
+  process.exit(0);
+}
+const safeStatePath = path.resolve(env("QUALIFICATION_SAFE_STATE_PATH", /^.+$/u));
 const repo = env("GITHUB_REPOSITORY", /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u);
 const token = env("GITHUB_TOKEN", /^.+$/u);
 const runId = String(requirePositiveInteger(env("GITHUB_RUN_ID", /^[1-9][0-9]*$/u), "GITHUB_RUN_ID"));
