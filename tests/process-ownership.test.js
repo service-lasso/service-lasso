@@ -1954,7 +1954,12 @@ test("Windows managed launcher rejects missing, oversized, corrupt, and redirect
       }
     }, 5_000);
     assert.equal(trustedHandle.pid > 0, true);
-    await stopManagedProcess(service.manifest.id, PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS);
+    const runningOwnership = await findProcessOwnership(workspaceRoot, "service", service.manifest.id);
+    assert.equal(runningOwnership?.pid, trustedHandle.pid);
+    assert.equal(Number.isFinite(Date.parse(runningOwnership?.identity?.createdAt ?? "")), true);
+    const close = await stopManagedProcess(service.manifest.id, PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS);
+    assert.equal(Number.isInteger(close?.exitCode), true);
+    assert.equal(close?.signal, null);
     await waitForProcessesStopped([trustedHandle.pid], PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS);
     const stoppedOwnership = await findProcessOwnership(workspaceRoot, "service", service.manifest.id);
     assert.equal(stoppedOwnership?.lifecycleState, "stopped");
