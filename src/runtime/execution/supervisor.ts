@@ -126,6 +126,21 @@ export function managedProcessStartFailurePhase(error: unknown): ManagedProcessS
     : null;
 }
 
+export function managedProcessLauncherPayloadFailureBoundary(error: unknown): LauncherPayloadFailureBoundary | null {
+  return error instanceof ManagedProcessStartError && error.failurePhase === "launcher_payload_validation"
+    ? error.launcherPayloadFailureBoundary ?? "unknown"
+    : null;
+}
+
+function managedLauncherPayloadDiagnostic(record: Pick<ManagedProcessRecord,
+  "launcherProgressPhase" | "launcherPayloadDiagnosticInvalid" | "launcherPayloadDiagnosticCount" | "launcherPayloadFailureBoundary"
+>): LauncherPayloadFailureBoundary | null {
+  if (record.launcherProgressPhase !== "launcher_payload_validation") return null;
+  return record.launcherPayloadDiagnosticInvalid || record.launcherPayloadDiagnosticCount !== 1
+    ? "unknown"
+    : record.launcherPayloadFailureBoundary ?? "unknown";
+}
+
 interface ManagedProcessRecord {
   child: ChildProcess;
   service: DiscoveredService;
@@ -2130,9 +2145,7 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
               windowsManagedLaunchState,
               () => ({
                 phase: record.launcherProgressPhase,
-                payloadFailureBoundary: record.launcherPayloadDiagnosticInvalid || record.launcherPayloadDiagnosticCount !== 1
-                  ? "unknown"
-                  : record.launcherPayloadFailureBoundary ?? "unknown",
+                payloadFailureBoundary: managedLauncherPayloadDiagnostic(record) ?? "unknown",
               }),
             );
           } finally {
@@ -2168,9 +2181,14 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
         windowsManagedLaunchState = null;
       }
     } catch (error) {
+      const earlyPayloadFailureBoundary = managedLauncherPayloadDiagnostic(record);
       const startError = error instanceof ManagedProcessStartError
         ? error
-        : new ManagedProcessStartError(startFailurePhase, error);
+        : new ManagedProcessStartError(
+          earlyPayloadFailureBoundary ? "launcher_payload_validation" : startFailurePhase,
+          error,
+          earlyPayloadFailureBoundary,
+        );
       const classifiedStartFailurePhase = managedProcessStartFailurePhase(startError) ?? startFailurePhase;
       let containmentError: unknown = null;
       if (rootIdentity) {

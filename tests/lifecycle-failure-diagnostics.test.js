@@ -57,6 +57,21 @@ test("AC-4BJ.9b lifecycle diagnostics project one closed launcher payload bounda
   }
 });
 
+test("AC-4BJ.9b lifecycle diagnostics project the closed boundary retained in a failed start trace", () => {
+  const privateValue = "private-token-path-command";
+  const result = JSON.parse(lifecycleFailureDiagnostic({
+    state: { runtime: { startTrace: { current: { status: "failed", events: [{
+      phase: "process_spawn", status: "failed", metadata: {
+        processStartFailurePhase: "launcher_payload_validation",
+        launcherPayloadFailureBoundary: "canonical_encoding",
+        private: privateValue,
+      },
+    }] } } } },
+  }));
+  assert.equal(result.launcherPayloadFailureBoundary, "canonical_encoding");
+  assert.equal(JSON.stringify(result).includes(privateValue), false);
+});
+
 test("lifecycle diagnostics project only allowlisted API conflict classifications", () => {
   const allowedResult = JSON.parse(lifecycleFailureDiagnostic({
     httpStatus: 409,

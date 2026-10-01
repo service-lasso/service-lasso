@@ -82,6 +82,12 @@ export function lifecycleFailureDiagnostic(input = {}) {
         if (inspection.windowsTreeInspectionPhase) windowsTreeInspections.push(inspection);
       }
     }
+    const tracedPayloadBoundary = Array.isArray(current?.events)
+      ? current.events.slice(-16).reduce((boundary, event) => {
+        if (event?.metadata?.processStartFailurePhase !== "launcher_payload_validation") return boundary;
+        return allowed(launcherPayloadFailureBoundaries, event?.metadata?.launcherPayloadFailureBoundary) ?? "unknown";
+      }, null)
+      : null;
     const apiFailure = allowed(lifecycleApiErrorCodes, apiErrorCode);
     return JSON.stringify({
       kind: "lifecycle-failure",
@@ -98,7 +104,9 @@ export function lifecycleFailureDiagnostic(input = {}) {
         failurePhase: allowed(launchPhases, event?.metadata?.processStartFailurePhase),
       })) : [],
       failurePhases,
-      ...(launcherPayloadFailureBoundary ? { launcherPayloadFailureBoundary } : {}),
+      ...(launcherPayloadFailureBoundary || tracedPayloadBoundary
+        ? { launcherPayloadFailureBoundary: launcherPayloadFailureBoundary ?? tracedPayloadBoundary }
+        : {}),
       deadlineExceeded,
       ...(apiFailure ? { apiErrorCode: apiFailure } : {}),
       ...(windowsTreeInspections.length ? { windowsTreeInspections } : {}),

@@ -1963,19 +1963,27 @@ test("AC-4BJ.9b Windows managed launcher projects only authenticated closed payl
           stdio: ["ignore", "ignore", "pipe"],
           windowsHide: true,
         });
+        const ownedPid = child.pid;
+        assert.ok(Number.isInteger(ownedPid) && ownedPid > 0);
         let stderr = "";
+        let timedOut = false;
         child.stderr.setEncoding("utf8");
         child.stderr.on("data", (chunk) => { stderr += chunk; });
         const timeout = setTimeout(() => {
-          child.kill("SIGKILL");
-          reject(new Error("Invalid managed-launch payload was not rejected boundedly."));
+          timedOut = true;
+          if (child.exitCode === null && child.signalCode === null && !child.kill("SIGKILL")) {
+            reject(new Error("Owned invalid-payload fixture could not be signalled for bounded cleanup."));
+          }
         }, 5_000);
         child.once("error", reject);
         child.once("close", (exitCode, signal) => {
           clearTimeout(timeout);
-          resolve({ exitCode, signal, stderr });
+          resolve({ exitCode, signal, stderr, ownedPid, timedOut, terminalExitCode: child.exitCode, terminalSignal: child.signalCode });
         });
       });
+      assert.equal(result.timedOut, false, "Invalid managed-launch payload was not rejected boundedly.");
+      assert.equal(result.terminalExitCode, 100);
+      assert.equal(result.terminalSignal, null);
       assert.equal(result.exitCode, 100);
       assert.equal(result.signal, null);
       const records = result.stderr.trim().split(/\r?\n/u)
@@ -1992,6 +2000,57 @@ test("AC-4BJ.9b Windows managed launcher projects only authenticated closed payl
   } finally {
     if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
     else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
+    await removeTempRoot(tempRoot);
+  }
+});
+
+test("AC-4BJ.9b projects a real native payload rejection through enrollment, lifecycle state, and the public-safe diagnostic", {
+  skip: process.platform !== "win32",
+}, async () => {
+  resetLifecycleState();
+  const priorTestHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+  const priorInstanceRegistryPath = process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH;
+  const priorPortRegistryPath = process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH;
+  process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-launcher-payload-lifecycle-");
+  const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "echo-service");
+  let apiServer;
+  try {
+    process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH = path.join(tempRoot, "instances.json");
+    process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH = path.join(tempRoot, "ports.json");
+    const stateRoot = path.join(serviceRoot, ".state");
+    await mkdir(stateRoot, { recursive: true });
+    await writeFile(path.join(stateRoot, "install.json"), JSON.stringify({ installed: true }), "utf8");
+    await writeFile(path.join(stateRoot, "config.json"), JSON.stringify({ configured: true }), "utf8");
+    setManagedProcessSpawnerForTests((file, args, options) => spawn(file, args, {
+      ...options,
+      env: {
+        ...options.env,
+        SERVICE_LASSO_MANAGED_LAUNCH_PAYLOAD: `${options.env.SERVICE_LASSO_MANAGED_LAUNCH_PAYLOAD}\n`,
+      },
+    }));
+    apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
+    const start = await postJson(`${apiServer.url}/api/services/echo-service/start`);
+    assert.equal(start.response.status, 409);
+    const diagnostic = await collectStartupFailure(apiServer.url, "echo-service");
+    assert.equal(diagnostic.observations[0].attemptStatus, "failed");
+    assert.equal(diagnostic.observations[0].launcherPayloadFailureBoundary, "canonical_encoding");
+    assert.ok(diagnostic.observations[0].events.some((event) => event.failurePhase === "launcher_payload_validation"));
+    assert.equal(JSON.stringify(diagnostic).includes("SERVICE_LASSO_MANAGED_LAUNCH_PAYLOAD"), false);
+    assert.equal(JSON.stringify(diagnostic).includes(tempRoot), false);
+    assert.equal(await findProcessOwnership(workspaceRoot, "service", "echo-service"), null);
+    assert.equal(hasManagedProcess("echo-service"), false);
+  } finally {
+    setManagedProcessSpawnerForTests(null);
+    await apiServer?.stop();
+    await stopManagedProcess("echo-service", 10_000).catch(() => null);
+    if (priorInstanceRegistryPath === undefined) delete process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH;
+    else process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH = priorInstanceRegistryPath;
+    if (priorPortRegistryPath === undefined) delete process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH;
+    else process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH = priorPortRegistryPath;
+    if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+    else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
+    resetLifecycleState();
     await removeTempRoot(tempRoot);
   }
 });
