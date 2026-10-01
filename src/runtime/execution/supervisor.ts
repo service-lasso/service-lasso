@@ -177,6 +177,7 @@ interface ManagedProcessRecord {
   treeTerminationPromise: Promise<ProcessTreeTerminationResult> | null;
   stopDeadlineMs: number | null;
   exitPromise: Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }>;
+  logCapturePromise: Promise<void>;
   finalizePromise: Promise<void>;
   lifecycleCompletionPromise: Promise<void> | null;
   completeLifecycle: ((outcome: { exitCode: number | null; signal: NodeJS.Signals | null }) => Promise<void>) | null;
@@ -764,6 +765,28 @@ export function filterWindowsManagedLauncherProgressLineForTests(
 }
 
 function attachRuntimeLogCapture(record: ManagedProcessRecord): void {
+  const waitForOutputEnd = (stream: NonNullable<ChildProcess["stdout"]>): Promise<void> => new Promise((resolve) => {
+    // Subscribe before inspecting terminal state. A launcher can exit before
+    // its final authenticated stderr record reaches Node, so a check followed
+    // by subscription would lose the only safe diagnostic receipt.
+    let settled = false;
+    const settle = () => {
+      if (settled) return;
+      settled = true;
+      stream.removeListener("end", settle);
+      stream.removeListener("close", settle);
+      stream.removeListener("error", settle);
+      resolve();
+    };
+    stream.once("end", settle);
+    stream.once("close", settle);
+    stream.once("error", settle);
+    if (stream.readableEnded || stream.destroyed) settle();
+  });
+  const outputEnded = Promise.all([
+    record.child.stdout ? waitForOutputEnd(record.child.stdout) : Promise.resolve(),
+    record.child.stderr ? waitForOutputEnd(record.child.stderr) : Promise.resolve(),
+  ]);
   const flushBufferedLines = (level: "stdout" | "stderr", flushRemainder = false) => {
     const bufferKey = level === "stdout" ? "stdoutBuffer" : "stderrBuffer";
     const outputStream = level === "stdout" ? record.logStreams.stdout : record.logStreams.stderr;
@@ -808,12 +831,14 @@ function attachRuntimeLogCapture(record: ManagedProcessRecord): void {
     flushBufferedLines("stderr");
   });
 
-  record.finalizePromise = record.exitPromise.then(async () => {
+  record.logCapturePromise = record.exitPromise.then(async () => {
+    await outputEnded;
     flushBufferedLines("stdout", true);
     flushBufferedLines("stderr", true);
     await record.variableCapturePromise;
     await closeRuntimeLogStreams(record.logStreams);
   });
+  record.finalizePromise = record.logCapturePromise;
 }
 
 function resolveExecutable(service: DiscoveredService, executionPlan: ProviderExecutionPlan): string {
@@ -1152,7 +1177,7 @@ const WINDOWS_MANAGED_LAUNCHER_PAYLOAD_FAILURE_BOUNDARIES = new Set<Exclude<Laun
 async function bindWindowsManagedLauncherFiles(
   child: ChildProcess,
   state: WindowsManagedLaunchState,
-  launcherProgressPhase: () => {
+  launcherProgressPhase: (deadlineMs: number) => {
     phase: ManagedProcessStartFailurePhase | null;
     payloadFailureBoundary: LauncherPayloadFailureBoundary;
   } | Promise<{
@@ -1182,9 +1207,48 @@ async function bindWindowsManagedLauncherFiles(
       }
     }, { deadlineMs });
   } catch (error) {
-    const progress = await launcherProgressPhase();
+    const progress = await launcherProgressPhase(deadlineMs);
     throw progress.phase ? new ManagedProcessStartError(progress.phase, error, progress.payloadFailureBoundary) : error;
   }
+}
+
+async function settleWindowsManagedLauncherStderr(
+  child: ChildProcess,
+  deadlineMs: number,
+): Promise<void> {
+  const stderr = child.stderr;
+  if (!stderr || remainingProcessControlMs(deadlineMs) <= 0) return;
+  await withProcessControlDeadline(async (signal) => {
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const complete = () => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve();
+      };
+      const abort = () => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(signal.reason);
+      };
+      const cleanup = () => {
+        stderr.removeListener("end", complete);
+        stderr.removeListener("close", complete);
+        stderr.removeListener("error", complete);
+        signal.removeEventListener("abort", abort);
+      };
+      stderr.once("end", complete);
+      stderr.once("close", complete);
+      stderr.once("error", complete);
+      signal.addEventListener("abort", abort, { once: true });
+      // This terminal observation must follow listener installation so an
+      // exit between the original check and subscription cannot strand the
+      // authenticated parser behind a closed log stream.
+      if (stderr.readableEnded || stderr.destroyed) complete();
+    });
+  }, { deadlineMs });
 }
 
 async function continueWindowsManagedLauncher(
@@ -2178,6 +2242,7 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
     treeTerminationPromise: null,
     stopDeadlineMs: null,
     exitPromise,
+    logCapturePromise: Promise.resolve(),
     finalizePromise: Promise.resolve(),
     lifecycleCompletionPromise: null,
     completeLifecycle: null,
@@ -2192,7 +2257,10 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
     managedRecordActivated = true;
     managedProcesses.set(serviceId, record);
     record.treeMonitorPromise = managedProcessTreeMonitor(record).catch(() => undefined);
-    const logFinalizePromise = record.finalizePromise;
+    // Keep the bounded launcher/log parser settlement separate from lifecycle
+    // finalization.  The held-exit diagnostic owns this stream closure; using
+    // `finalizePromise` here would make the finalizer wait on itself.
+    const logFinalizePromise = record.logCapturePromise;
     const completeLifecycle = async ({ exitCode, signal }: { exitCode: number | null; signal: NodeJS.Signals | null }): Promise<void> => {
       const existing = record.lifecycleCompletionPromise;
       if (existing) {
@@ -2369,8 +2437,18 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
             await bindWindowsManagedLauncherFiles(
               child,
               windowsManagedLaunchState,
-              async () => {
-                if (probeManagedChildHandle(child) !== "owned") await record.finalizePromise;
+              async (deadlineMs) => {
+                if (probeManagedChildHandle(child) !== "owned") {
+                  // This is deliberately only the log/parser receipt. The
+                  // lifecycle finalizer can include registry and containment
+                  // work, so awaiting it here would turn a bounded launcher
+                  // diagnostic into an unbounded lifecycle wait.
+                  await settleWindowsManagedLauncherStderr(child, deadlineMs);
+                  await withProcessControlDeadline(
+                    async () => await record.logCapturePromise,
+                    { deadlineMs },
+                  );
+                }
                 return {
                   phase: record.launcherProgressPhase,
                   payloadFailureBoundary: managedLauncherPayloadDiagnostic(record) ?? "unknown",
