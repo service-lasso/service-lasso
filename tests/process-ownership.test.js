@@ -570,15 +570,21 @@ test("Windows full identity inspection aborts and observes helper closure at its
     }),
     (error) => {
       assert.equal(error?.code, "PROCESS_CONTROL_DEADLINE_EXCEEDED");
-      assert.deepEqual(error?.windowsTreeInspection, {
-        windowsTreeInspectionPhase: "native_snapshot",
-        windowsTreeInspectionAttempts: 1,
-        windowsTreeInspectionRetries: 0,
-        windowsTreeInspectionQueueMs: 0,
-        windowsTreeInspectionNativeMs: error?.windowsTreeInspection?.windowsTreeInspectionNativeMs,
-        windowsTreeInspectionLastRetry: null,
-      });
-      assert.ok(error?.windowsTreeInspection?.windowsTreeInspectionNativeMs >= 50);
+      const evidence = error?.windowsTreeInspection;
+      assert.equal(evidence?.windowsTreeInspectionPhase, "native_snapshot");
+      assert.equal(evidence?.windowsTreeInspectionAttempts, 1);
+      assert.equal(evidence?.windowsTreeInspectionRetries, 0);
+      assert.equal(evidence?.windowsTreeInspectionQueueMs, 0);
+      assert.equal(evidence?.windowsTreeInspectionLastRetry, null);
+      assert.equal(evidence?.windowsTreeInspectionNativeHelperSpawned, false);
+      assert.equal(evidence?.windowsTreeInspectionNativeHelperExited, false);
+      assert.equal(evidence?.windowsTreeInspectionNativeHelperStdioClosed, false);
+      assert.equal(evidence?.windowsTreeInspectionNativeResultCompleted, false);
+      assert.equal(evidence?.windowsTreeInspectionNativeSpawnWaitMs, null);
+      assert.equal(evidence?.windowsTreeInspectionNativeWorkMs, null);
+      assert.equal(evidence?.windowsTreeInspectionNativeStdioCloseMs, null);
+      assert.equal(evidence?.windowsTreeInspectionNativeResultCompletionMs, null);
+      assert.ok(evidence?.windowsTreeInspectionNativeMs >= 50);
       return true;
     },
   );
