@@ -1,9 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
+import { fileURLToPath } from "node:url";
 import { zipSync } from "fflate";
 import { StagedServiceTransfer, TransferError } from "../dist/runtime/release/staged-service-transfer.js";
 import { createStagedReleaseAssetImporter, readRemoteServiceRegistrationOperation } from "../dist/runtime/operator/remote-service-registration.js";
@@ -155,6 +158,40 @@ test("staged direct-child importer registers the canonical manifest without down
   }
 });
 
+test("staged direct-child importer rejects a redirected services authority before writing bytes or metadata", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "staged-direct-child-junction-"));
+  const retainedRoot = path.join(root, "retained-services");
+  const redirectedRoot = path.join(root, "redirected-services");
+  const archiveBytes = Buffer.from("claimed-release-asset", "utf8");
+  const archiveDigest = createHash("sha256").update(archiveBytes).digest("hex");
+  const manifest = JSON.stringify({
+    id: "staged-service", name: "Staged Service", description: "fixture", executable: "node", args: ["fixture.js"], healthcheck: { type: "process" },
+    artifact: { kind: "archive", source: { type: "github-release", repo: "service-lasso/lasso-node", tag: "v1" }, platforms: { win32: { assetName: "staged.zip", archiveType: "zip", command: "fixture.js", checksum: { algorithm: "sha256", value: "b".repeat(64) } } } },
+  });
+  const manifestDigest = createHash("sha256").update(manifest).digest("hex");
+  const priorFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    if (String(url).includes("/git/ref/tags/v1")) return new Response(JSON.stringify({ object: { type: "commit", sha: "a".repeat(40) } }));
+    if (String(url).includes("/releases/tags/v1")) return new Response(JSON.stringify({ tag_name: "v1", assets: [{ name: "service.json", browser_download_url: "https://github.com/service-lasso/lasso-node/releases/download/v1/service.json" }] }));
+    if (String(url).endsWith("/service.json")) return new Response(manifest);
+    throw new Error(`unexpected release request: ${url}`);
+  };
+  try {
+    await mkdir(retainedRoot);
+    await symlink(retainedRoot, redirectedRoot, "junction");
+    const outcome = await createStagedReleaseAssetImporter({ servicesRoot: redirectedRoot }).import({
+      serviceId: "staged-service", readByteObject: () => Buffer.from(archiveBytes), byteObjectId: "sbo_test", byteLength: archiveBytes.length, archiveSha256: archiveDigest,
+      manifestSha256: manifestDigest, releaseId: "1", targetSha: "a".repeat(40), workspaceId: "trusted-workspace", actorId: "trusted-actor", stageId: "stg_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", operationId: "sro_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      repo: "service-lasso/lasso-node", releaseTag: "v1", assetId: "asset-1", assetName: "staged.zip", archiveType: "zip", manifestAssetId: "manifest-1", checksumAssetId: "checksum-1", manifestBytes: Buffer.from(manifest, "utf8"),
+    });
+    assert.equal(outcome, "unknown");
+    await assert.rejects(readFile(path.join(retainedRoot, "staged-service", "service.json")));
+  } finally {
+    globalThis.fetch = priorFetch;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("staged registration replays before resolver or confirmation access", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "staged-replay-"));
   const bytes = Buffer.from(zipSync({ "release.txt": Buffer.from("fixture") }));
@@ -246,5 +283,37 @@ test("a restart reconciles a claimed unknown direct-child outcome without reimpo
     assert.equal(imports, 1);
     assert.equal(reconciles, 1);
   } finally { await rm(root, { recursive:true, force:true }); }
+});
+
+test("separate-process hard exit after real direct-child persistence recovers without a second import or release fetch", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "staged-hard-exit-"));
+  const servicesRoot = path.join(root, "services");
+  const fixture = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "staged-transfer-hard-exit.mjs");
+  try {
+    const child = spawn(process.execPath, [fixture, root, servicesRoot], { stdio: "ignore" });
+    const [code, signal] = await once(child, "exit");
+    assert.equal(signal, null);
+    assert.equal(code, 73, "fixture must terminate after real child persistence and before outcome sealing");
+    const manifest = await readFile(path.join(servicesRoot, "hard-exit-service", "service.json"), "utf8");
+    const archive = await readFile(path.join(servicesRoot, "hard-exit-service", ".service-lasso", "staged-release-input.bin"));
+    const digest = createHash("sha256").update(archive).digest("hex");
+    const store = JSON.parse(await readFile(path.join(root, ".service-lasso", "operator", "service-registration-operations.json"), "utf8"));
+    const stage = store.stagedTransfer.stages[0];
+    assert.equal(stage.state, "claimed");
+    assert.equal(stage.operation.state, "unknown");
+    let resolutions = 0;
+    const identity = { ...stage.identity };
+    const direct = createStagedReleaseAssetImporter({ servicesRoot });
+    const restarted = new StagedServiceTransfer(root, { resolve: async () => { resolutions += 1; return identity; } }, {
+      import: async () => { throw new Error("recovery must not invoke a second child import"); },
+      reconcile: direct.reconcile,
+    });
+    const replay = await restarted.register({ id: "hard-exit-actor", workspaceId: "hard-exit-workspace", canConfigure: true }, stage.id, "scf_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "hard-exit-idempotency-0001");
+    assert.equal(replay.replayed, true);
+    assert.equal(replay.status, "consumed");
+    assert.equal(resolutions, 0, "idempotency recovery must not refetch or re-resolve the released asset");
+    assert.equal(createHash("sha256").update(await readFile(path.join(servicesRoot, "hard-exit-service", ".service-lasso", "staged-release-input.bin"))).digest("hex"), digest);
+    assert.equal(JSON.parse(manifest).id, "hard-exit-service");
+  } finally { await rm(root, { recursive: true, force: true }); }
 });
 

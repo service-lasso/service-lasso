@@ -254,9 +254,8 @@ async function fetchApprovedManifestAsset(initialUrl: URL): Promise<Response> {
 
 async function isSafeDirectChildManifest(servicesRoot: string, serviceId: string): Promise<string | null> {
   try {
-    const root = path.resolve(servicesRoot);
-    const rootStat = await lstat(root);
-    if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) return null;
+    const root = await safeDirectChildRoot(servicesRoot);
+    if (!root) return null;
     const serviceRoot = path.resolve(root, serviceId);
     if (path.dirname(serviceRoot) !== root) return null;
     const serviceStat = await lstat(serviceRoot);
@@ -266,6 +265,23 @@ async function isSafeDirectChildManifest(servicesRoot: string, serviceId: string
     const targetStat = await lstat(targetPath);
     if (!targetStat.isFile() || targetStat.isSymbolicLink()) return null;
     return targetPath;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A staged release is admitted only beneath the caller-selected services
+ * authority.  Do not create that authority on demand: a missing, linked, or
+ * otherwise redirected root is an unavailable direct-child boundary, not an
+ * invitation to follow it and write a durable release attachment elsewhere.
+ */
+async function safeDirectChildRoot(servicesRoot: string): Promise<string | null> {
+  try {
+    const root = path.resolve(servicesRoot);
+    const rootStat = await lstat(root);
+    if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) return null;
+    return root;
   } catch {
     return null;
   }
@@ -401,7 +417,13 @@ async function rollbackOwnedStagedImport(serviceRoot: string, manifestPath: stri
 }
 
 async function importStagedReleaseAttachment(input: { servicesRoot: string; manifest: ServiceManifest; manifestBytes: string; attachment: StagedReleaseInputAttachment; archiveBytes: Uint8Array }): Promise<"completed" | "conflict" | "unknown"> {
-  const root = path.resolve(input.servicesRoot);
+  // A normal empty workspace may not have its services directory yet.  Create
+  // only that configured directory, then prove it is still a real directory
+  // before resolving any child path; mkdir on an existing junction is harmless
+  // but the subsequent lstat rejects the redirection.
+  try { await mkdir(path.resolve(input.servicesRoot), { recursive: true }); } catch { return "unknown"; }
+  const root = await safeDirectChildRoot(input.servicesRoot);
+  if (!root) return "unknown";
   const serviceRoot = path.resolve(root, input.manifest.id);
   if (path.dirname(serviceRoot) !== root) return "unknown";
   const manifestPath = path.join(serviceRoot, "service.json");
@@ -411,7 +433,6 @@ async function importStagedReleaseAttachment(input: { servicesRoot: string; mani
   const attachmentBytes = `${JSON.stringify(input.attachment)}\n`;
   if (input.archiveBytes.byteLength !== input.attachment.byteObject.length || createHash("sha256").update(input.archiveBytes).digest("hex") !== input.attachment.byteObject.sha256) return "unknown";
   try {
-    await mkdir(root, { recursive: true });
     await mkdir(serviceRoot);
     await writeFile(manifestPath, input.manifestBytes, { encoding: "utf8", flag: "wx" });
     await mkdir(attachmentDirectory, { mode: 0o700 });
