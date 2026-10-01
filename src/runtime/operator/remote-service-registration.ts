@@ -355,6 +355,7 @@ const STAGED_INPUT_PUBLICATION_FILE = "staged-release-input.published";
 const STAGED_INPUT_BYTES_FILE = "staged-release-input.bin";
 const WINDOWS_DIRECTORY_SYNC_HELPER_PATH = fileURLToPath(new URL("./windows-directory-sync-helper.exe", import.meta.url));
 const WINDOWS_DIRECTORY_SYNC_HELPER_PROVENANCE_PATH = fileURLToPath(new URL("./windows-directory-sync-helper.provenance.json", import.meta.url));
+const WINDOWS_MANAGED_LAUNCHER_PATH = fileURLToPath(new URL("../execution/windows-managed-launcher-native.exe", import.meta.url));
 const WINDOWS_DIRECTORY_SYNC_HELPER_BYTES = 4608;
 const WINDOWS_DIRECTORY_SYNC_HELPER_PROVENANCE_BYTES = 700;
 const WINDOWS_DIRECTORY_SYNC_HELPER_SHA256 = "b2e1fd8fd2ff08d8fb2cbc69ca89d454da0fd3fdcb397d26bb22f2f156a79c91";
@@ -465,15 +466,31 @@ async function syncDirectory(directory: string): Promise<void> {
 }
 
 async function syncWindowsDirectory(directory: string): Promise<void> {
-  const helperPath = await assertWindowsDirectorySyncHelperIntegrity();
+  const helper = await assertWindowsDirectorySyncHelperIntegrity();
+  const payload = Buffer.from(JSON.stringify({
+    helper: helper.path,
+    directory: path.resolve(directory),
+    sha256: WINDOWS_DIRECTORY_SYNC_HELPER_SHA256,
+    byteLength: WINDOWS_DIRECTORY_SYNC_HELPER_BYTES,
+  }), "utf8").toString("base64");
   await new Promise<void>((resolve, reject) => {
-    const child = spawn(helperPath, [directory], { windowsHide: true, stdio: "ignore" });
+    // The managed launcher is the existing trusted native launch boundary. It
+    // reopens and hashes the helper itself, retains a no-write/no-delete file
+    // handle and a non-reparse directory handle through CreateProcess, then
+    // waits for its non-detached child. The JS attestation is evidence for the
+    // checked-in source/sidecar; it is never the object used to authorize a
+    // path-based helper spawn.
+    const child = spawn(WINDOWS_MANAGED_LAUNCHER_PATH, [], {
+      windowsHide: true,
+      stdio: "ignore",
+      env: { ...process.env, SERVICE_LASSO_DIRECTORY_SYNC_LAUNCH_PAYLOAD: payload },
+    });
     child.once("error", reject);
     child.once("exit", (code, signal) => code === 0 && signal === null ? resolve() : reject(new Error("Windows directory durability helper failed")));
   });
 }
 
-async function assertWindowsDirectorySyncHelperIntegrity(): Promise<string> {
+async function assertWindowsDirectorySyncHelperIntegrity(): Promise<{ path: string }> {
   const readExactRegularAsset = async (assetPath: string, expectedBytes: number): Promise<Buffer> => {
     const beforeOpen = await lstat(assetPath);
     if (!beforeOpen.isFile() || beforeOpen.isSymbolicLink() || beforeOpen.size !== expectedBytes) throw new Error("Windows directory durability helper is unavailable");
@@ -496,7 +513,7 @@ async function assertWindowsDirectorySyncHelperIntegrity(): Promise<string> {
       createHash("sha256").update(helperBytes).digest("hex") !== WINDOWS_DIRECTORY_SYNC_HELPER_SHA256 ||
       createHash("sha256").update(provenanceBytes).digest("hex") !== WINDOWS_DIRECTORY_SYNC_HELPER_PROVENANCE_SHA256
     ) throw new Error("Windows directory durability helper integrity verification failed");
-    return WINDOWS_DIRECTORY_SYNC_HELPER_PATH;
+    return { path: WINDOWS_DIRECTORY_SYNC_HELPER_PATH };
   } finally {
     helperBytes?.fill(0);
     provenanceBytes?.fill(0);

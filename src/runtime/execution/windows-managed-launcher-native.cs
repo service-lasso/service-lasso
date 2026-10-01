@@ -12,6 +12,11 @@ using System.Web.Script.Serialization;
 public static class ServiceLassoManagedLauncherNative
 {
     private const uint CreateSuspended = 0x00000004;
+    private const uint GenericRead = 0x80000000;
+    private const uint ShareRead = 0x00000001;
+    private const uint ShareWrite = 0x00000002;
+    private const uint OpenExisting = 3;
+    private const uint FileFlagBackupSemantics = 0x02000000;
     private const uint JobObjectLimitKillOnJobClose = 0x00002000;
     private const int JobObjectExtendedLimitInformationClass = 9;
     private const uint Infinite = 0xFFFFFFFF;
@@ -41,8 +46,13 @@ public static class ServiceLassoManagedLauncherNative
     private const int FailureExitCodeTargetFilenameTooLong = 112;
     private const int FailureExitCodeResolvedExecutableMissing = 113;
     private const int FailureExitCodeWorkingDirectoryMissing = 114;
+    private const int DirectorySyncLaunchPayloadInvalid = 120;
+    private const int DirectorySyncLaunchBindingInvalid = 121;
+    private const int DirectorySyncLaunchCreateFailed = 122;
+    private const int DirectorySyncLaunchChildFailed = 123;
     private const string ProgressPrefix = "__SERVICE_LASSO_LAUNCHER_PROGRESS__:";
     private const string PayloadEnvironmentName = "SERVICE_LASSO_MANAGED_LAUNCH_PAYLOAD";
+    private const string DirectorySyncPayloadEnvironmentName = "SERVICE_LASSO_DIRECTORY_SYNC_LAUNCH_PAYLOAD";
     private const string GateEnvironmentName = "SERVICE_LASSO_MANAGED_LAUNCH_GATE";
     private const string ProgressEnvironmentName = "SERVICE_LASSO_MANAGED_LAUNCH_PROGRESS_TOKEN";
 
@@ -87,6 +97,16 @@ public static class ServiceLassoManagedLauncherNative
         string currentDirectory,
         ref StartupInfo startupInfo,
         out ProcessInformation processInformation);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern IntPtr CreateFileW(
+        string fileName,
+        uint desiredAccess,
+        uint shareMode,
+        IntPtr securityAttributes,
+        uint creationDisposition,
+        uint flagsAndAttributes,
+        IntPtr templateFile);
 
     [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
@@ -241,8 +261,21 @@ public static class ServiceLassoManagedLauncherNative
         public string value { get; set; }
     }
 
+    private sealed class DirectorySyncLaunchPayload
+    {
+        public string helper { get; set; }
+        public string directory { get; set; }
+        public string sha256 { get; set; }
+        public long byteLength { get; set; }
+    }
+
     public static int Main()
     {
+        string directorySyncPayload = Environment.GetEnvironmentVariable(DirectorySyncPayloadEnvironmentName, EnvironmentVariableTarget.Process);
+        if (!String.IsNullOrWhiteSpace(directorySyncPayload))
+        {
+            return RunDirectorySyncLaunch(directorySyncPayload);
+        }
         IntPtr jobHandle = IntPtr.Zero;
         IntPtr processHandle = IntPtr.Zero;
         IntPtr threadHandle = IntPtr.Zero;
@@ -1422,6 +1455,106 @@ public static class ServiceLassoManagedLauncherNative
             }
         }
         return false;
+    }
+
+    // The reviewed native launcher holds the exact helper image and target
+    // directory without write/delete sharing while it creates and waits for
+    // the helper. CreateProcess receives final paths obtained from those held
+    // handles, so a replacement or reparse race cannot exchange verified
+    // bytes for a different executable.
+    private static int RunDirectorySyncLaunch(string encodedPayload)
+    {
+        FileStream helperHandle = null;
+        IntPtr directoryHandle = IntPtr.Zero;
+        IntPtr childProcess = IntPtr.Zero;
+        IntPtr childThread = IntPtr.Zero;
+        try
+        {
+            byte[] payloadBytes = Convert.FromBase64String(encodedPayload);
+            string payloadJson;
+            try
+            {
+                if (!String.Equals(Convert.ToBase64String(payloadBytes), encodedPayload, StringComparison.Ordinal)) return DirectorySyncLaunchPayloadInvalid;
+                payloadJson = StrictUtf8.GetString(payloadBytes);
+            }
+            finally { Array.Clear(payloadBytes, 0, payloadBytes.Length); }
+            DirectorySyncLaunchPayload payload = new JavaScriptSerializer().Deserialize<DirectorySyncLaunchPayload>(payloadJson);
+            if (payload == null || !IsFullyQualifiedWindowsPath(payload.helper) || !IsFullyQualifiedWindowsPath(payload.directory) || !IsLowerHex64(payload.sha256) || payload.byteLength <= 0 || payload.byteLength > 1024 * 1024) return DirectorySyncLaunchPayloadInvalid;
+
+            string requestedHelper = Path.GetFullPath(payload.helper);
+            string requestedDirectory = Path.GetFullPath(payload.directory);
+            if ((File.GetAttributes(requestedHelper) & FileAttributes.ReparsePoint) != 0) return DirectorySyncLaunchBindingInvalid;
+            helperHandle = new FileStream(requestedHelper, FileMode.Open, FileAccess.Read, FileShare.Read);
+            if (helperHandle.Length != payload.byteLength) return DirectorySyncLaunchBindingInvalid;
+            string helperDigest;
+            using (SHA256 sha256 = SHA256.Create()) { helperDigest = ToLowerHex(sha256.ComputeHash(helperHandle)); }
+            if (!String.Equals(helperDigest, payload.sha256, StringComparison.Ordinal)) return DirectorySyncLaunchBindingInvalid;
+            string helperFinalPath = FinalPathForHandle(helperHandle.SafeFileHandle.DangerousGetHandle());
+            if (!SameWindowsPath(helperFinalPath, requestedHelper)) return DirectorySyncLaunchBindingInvalid;
+
+            directoryHandle = CreateFileW(requestedDirectory, GenericRead, ShareRead | ShareWrite, IntPtr.Zero, OpenExisting, FileFlagBackupSemantics, IntPtr.Zero);
+            if (directoryHandle == new IntPtr(-1)) { directoryHandle = IntPtr.Zero; return DirectorySyncLaunchBindingInvalid; }
+            string directoryFinalPath = FinalPathForHandle(directoryHandle);
+            if (!SameWindowsPath(directoryFinalPath, requestedDirectory)) return DirectorySyncLaunchBindingInvalid;
+
+            WaitForDirectorySyncTestGate();
+
+            StartupInfo startupInfo = new StartupInfo();
+            startupInfo.cb = Marshal.SizeOf(typeof(StartupInfo));
+            ProcessInformation processInformation;
+            StringBuilder commandLine = new StringBuilder(BuildCommandLine(helperFinalPath, new[] { directoryFinalPath }));
+            if (!CreateProcessW(helperFinalPath, commandLine, IntPtr.Zero, IntPtr.Zero, false, 0, IntPtr.Zero, null, ref startupInfo, out processInformation)) return DirectorySyncLaunchCreateFailed;
+            childProcess = processInformation.hProcess;
+            childThread = processInformation.hThread;
+            if (WaitForSingleObject(childProcess, Infinite) != WaitObject0) return DirectorySyncLaunchChildFailed;
+            uint exitCode;
+            if (!GetExitCodeProcess(childProcess, out exitCode) || exitCode != 0) return DirectorySyncLaunchChildFailed;
+            return 0;
+        }
+        catch { return DirectorySyncLaunchBindingInvalid; }
+        finally
+        {
+            if (childThread != IntPtr.Zero) CloseHandle(childThread);
+            if (childProcess != IntPtr.Zero) CloseHandle(childProcess);
+            if (directoryHandle != IntPtr.Zero) CloseHandle(directoryHandle);
+            if (helperHandle != null) helperHandle.Dispose();
+        }
+    }
+
+    private static string FinalPathForHandle(IntPtr handle)
+    {
+        StringBuilder buffer = new StringBuilder(32768);
+        uint length = GetFinalPathNameByHandleW(handle, buffer, (uint)buffer.Capacity, 0);
+        if (length == 0 || length >= buffer.Capacity) throw new Win32Exception(Marshal.GetLastWin32Error(), "Final path query failed.");
+        return NormalizeFinalPath(buffer.ToString());
+    }
+
+    private static bool SameWindowsPath(string left, string right)
+    {
+        return String.Equals(Path.GetFullPath(left).TrimEnd('\\'), Path.GetFullPath(right).TrimEnd('\\'), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void WaitForDirectorySyncTestGate()
+    {
+        if (!String.Equals(Environment.GetEnvironmentVariable("SERVICE_LASSO_ENABLE_TEST_HOOKS"), "1", StringComparison.Ordinal)) return;
+        string readyPath = Environment.GetEnvironmentVariable("SERVICE_LASSO_DIRECTORY_SYNC_TEST_READY_PATH");
+        string continuePath = Environment.GetEnvironmentVariable("SERVICE_LASSO_DIRECTORY_SYNC_TEST_CONTINUE_PATH");
+        string token = Environment.GetEnvironmentVariable("SERVICE_LASSO_DIRECTORY_SYNC_TEST_TOKEN");
+        if (String.IsNullOrWhiteSpace(readyPath) && String.IsNullOrWhiteSpace(continuePath) && String.IsNullOrWhiteSpace(token)) return;
+        if (!IsFullyQualifiedWindowsPath(readyPath) || !IsFullyQualifiedWindowsPath(continuePath) || !IsLowerHex64(token)) throw new InvalidOperationException("Directory-sync test gate was invalid.");
+        File.WriteAllText(readyPath, token, StrictUtf8);
+        DateTime deadline = DateTime.UtcNow.AddSeconds(5);
+        while (DateTime.UtcNow < deadline)
+        {
+            try
+            {
+                if (String.Equals(File.ReadAllText(continuePath, StrictUtf8), token, StringComparison.Ordinal)) return;
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+            Thread.Sleep(10);
+        }
+        throw new InvalidOperationException("Directory-sync test gate did not release.");
     }
 
     private static string NormalizeFinalPath(string value)
