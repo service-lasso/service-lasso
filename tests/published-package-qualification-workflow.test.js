@@ -82,15 +82,25 @@ test("AC-4BZ.1 workflow qualifies only exact downloaded publications on all thre
     "\n    steps:",
     aggregateJobStart,
   );
-  assert.doesNotMatch(
-    workflow.slice(matrixJobStart, matrixStepsStart),
-    /runner\.temp/,
+  const matrixJob = workflow.slice(matrixJobStart, matrixStepsStart);
+  assert.match(
+    matrixJob,
+    /QUALIFICATION_WORKSPACE_ROOT: \$\{\{ runner\.temp \}\}\/published-package-qualification-\$\{\{ github\.run_id \}\}-\$\{\{ github\.job \}\}-\$\{\{ github\.run_attempt \}\}-\$\{\{ matrix\.platform \}\}\/workspace/,
   );
+  for (const marker of [
+    "SERVICE_LASSO_INSTANCE_REGISTRY_PATH",
+    "SERVICE_LASSO_HOST_PORT_REGISTRY_PATH",
+    "QUALIFICATION_EVIDENCE_ROOT",
+    "QUALIFICATION_INITIAL_RECEIPT_PATH",
+  ]) assert.match(matrixJob, new RegExp(`${marker}:`));
   assert.doesNotMatch(
     workflow.slice(aggregateJobStart, aggregateStepsStart),
     /runner\.temp/,
   );
-  assert.equal((workflow.match(/\$\{\{ runner\.temp \}\}/g) ?? []).length, 7);
+  assert.match(
+    workflow,
+    /Establish unique qualification custody before dependencies[\s\S]*?mkdir -p "\$QUALIFICATION_WORKSPACE_ROOT" "\$QUALIFICATION_EVIDENCE_ROOT"[\s\S]*?test ! -e "\$SERVICE_LASSO_INSTANCE_REGISTRY_PATH"[\s\S]*?test ! -e "\$SERVICE_LASSO_HOST_PORT_REGISTRY_PATH"[\s\S]*?QUALIFICATION_INITIAL_RECEIPT_PATH/,
+  );
 
   for (const command of [
     "pnpm test:secrets:real-first-run-browser",
@@ -181,8 +191,9 @@ test("AC-4BZ.1 aggregate verifies current-attempt artifacts and retains prior-at
   const source = await readFile(aggregateUrl, "utf8");
   assert.match(source, /selectCurrentAttemptArtifacts\(artifacts, runId, runAttempt\)/);
   assert.match(source, /validateRetainedArtifactMetadata\(artifact/);
-  assert.match(source, /entries\.length !== 2/);
+  assert.match(source, /entries\.length !== 3/);
   assert.match(source, /admin-trusted-unlock-receipt\.json/);
+  assert.match(source, /initial-receipt\.json/);
   assert.match(source, /validateTerminalJobMetadata\(matchingJobs\[0\]/);
   assert.match(source, /requireTerminalPrebrowserJob\(jobs, platform, runId, runAttempt\)/);
   assert.match(source, /validateRetainedEvidence\(evidence/);

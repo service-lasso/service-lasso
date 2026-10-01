@@ -74,8 +74,12 @@ jobs:
       CORE_RELEASE_SHA256: ${{ matrix.core_sha256 }}
       ADMIN_HARNESS_REVISION: 90caf8cf0f8e3c599a1a5022936813ac8bf0983b
       QUALIFICATION_PLATFORM: ${{ matrix.platform }}
-      QUALIFICATION_SAFE_STATE_PATH: ${{ github.workspace }}/artifacts/qualification-state-${{ matrix.platform }}.json
-      QUALIFICATION_EVIDENCE_ROOT: ${{ github.workspace }}/artifacts/retained-${{ matrix.platform }}
+      QUALIFICATION_WORKSPACE_ROOT: ${{ runner.temp }}/published-package-qualification-${{ github.run_id }}-${{ github.job }}-${{ github.run_attempt }}-${{ matrix.platform }}/workspace
+      SERVICE_LASSO_INSTANCE_REGISTRY_PATH: ${{ runner.temp }}/published-package-qualification-${{ github.run_id }}-${{ github.job }}-${{ github.run_attempt }}-${{ matrix.platform }}/instance-registry.json
+      SERVICE_LASSO_HOST_PORT_REGISTRY_PATH: ${{ runner.temp }}/published-package-qualification-${{ github.run_id }}-${{ github.job }}-${{ github.run_attempt }}-${{ matrix.platform }}/host-port-registry.json
+      QUALIFICATION_SAFE_STATE_PATH: ${{ runner.temp }}/published-package-qualification-${{ github.run_id }}-${{ github.job }}-${{ github.run_attempt }}-${{ matrix.platform }}/evidence/qualification-state.json
+      QUALIFICATION_EVIDENCE_ROOT: ${{ runner.temp }}/published-package-qualification-${{ github.run_id }}-${{ github.job }}-${{ github.run_attempt }}-${{ matrix.platform }}/evidence
+      QUALIFICATION_INITIAL_RECEIPT_PATH: ${{ runner.temp }}/published-package-qualification-${{ github.run_id }}-${{ github.job }}-${{ github.run_attempt }}-${{ matrix.platform }}/evidence/initial-receipt.json
 
     steps:
       - name: Check out exact qualification harness
@@ -89,6 +93,15 @@ jobs:
           repository: service-lasso/lasso-serviceadmin
           ref: ${{ env.ADMIN_HARNESS_REVISION }}
           path: qualification/admin
+
+      - name: Establish unique qualification custody before dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$QUALIFICATION_WORKSPACE_ROOT" "$QUALIFICATION_EVIDENCE_ROOT"
+          test ! -e "$SERVICE_LASSO_INSTANCE_REGISTRY_PATH"
+          test ! -e "$SERVICE_LASSO_HOST_PORT_REGISTRY_PATH"
+          printf '{"schema":"service-lasso.qualification-initial-receipt.v1","platform":"%s","run":{"id":"%s","attempt":"%s"}}\n' "$QUALIFICATION_PLATFORM" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" > "$QUALIFICATION_INITIAL_RECEIPT_PATH"
 
       - name: Set up Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -178,7 +191,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: published-package-qualification-${{ matrix.platform }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: artifacts/retained-${{ matrix.platform }}/
+          path: ${{ env.QUALIFICATION_EVIDENCE_ROOT }}/
           if-no-files-found: error
           retention-days: 90
 

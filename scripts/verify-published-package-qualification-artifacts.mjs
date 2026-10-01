@@ -17,6 +17,15 @@ import { parsePrebrowserFailure } from "./record-admin-trusted-unlock-prebrowser
 
 const PLATFORMS = Object.freeze(["linux", "win32", "darwin"]);
 
+function validateInitialReceipt(value, platform, runId, runAttempt) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  if (Object.keys(value).sort().join(",") !== "platform,run,schema") return false;
+  if (value.schema !== "service-lasso.qualification-initial-receipt.v1" || value.platform !== platform) return false;
+  if (!value.run || typeof value.run !== "object" || Array.isArray(value.run)) return false;
+  return Object.keys(value.run).sort().join(",") === "attempt,id" &&
+    String(value.run.id) === runId && String(value.run.attempt) === runAttempt;
+}
+
 function env(name, pattern = /^.+$/u) {
   return requirePattern(process.env[name], pattern, name);
 }
@@ -129,14 +138,17 @@ for (const platform of PLATFORMS) {
   const entries = await readdir(artifactDirectory, { withFileTypes: true });
   const expectedFile = `published-package-qualification-${platform}.json`;
   const expectedReceipt = "admin-trusted-unlock-receipt.json";
+  const initialReceiptName = "initial-receipt.json";
   const prebrowserName = "admin-trusted-unlock-prebrowser-failure.json";
-  if (entries.length === 1 && entries[0]?.isFile() && !entries[0]?.isSymbolicLink() && entries[0].name === prebrowserName) {
+  if (entries.length === 2 && entries.every((entry) => entry.isFile() && !entry.isSymbolicLink()) && entries.some((entry) => entry.name === prebrowserName) && entries.some((entry) => entry.name === initialReceiptName)) {
+    const initial = parseStrictJson(await readOnlyFile(path.join(artifactDirectory, initialReceiptName), `${platform} initial receipt`), `${platform} initial receipt`);
+    if (!validateInitialReceipt(initial, platform, runId, runAttempt)) throw new Error(`${platform} initial receipt custody is invalid.`);
     const prebrowser = parsePrebrowserFailure(await readOnlyFile(path.join(artifactDirectory, prebrowserName), `${platform} pre-browser failure`));
     if (!prebrowser || prebrowser.platform !== platform || String(prebrowser.run.id) !== runId || String(prebrowser.run.attempt) !== runAttempt) throw new Error(`${platform} pre-browser failure custody is invalid.`);
     requireTerminalPrebrowserJob(jobs, platform, runId, runAttempt);
     continue;
   }
-  if (entries.length !== 2 || entries.some((entry) => !entry.isFile() || entry.isSymbolicLink()) || !entries.some((entry) => entry.name === expectedFile) || !entries.some((entry) => entry.name === expectedReceipt)) {
+  if (entries.length !== 3 || entries.some((entry) => !entry.isFile() || entry.isSymbolicLink()) || !entries.some((entry) => entry.name === expectedFile) || !entries.some((entry) => entry.name === expectedReceipt) || !entries.some((entry) => entry.name === initialReceiptName)) {
     throw new Error(`Downloaded ${platform} artifact did not contain its exact metadata evidence and trusted-unlock receipt.`);
   }
   const evidence = parseStrictJson(
@@ -147,6 +159,13 @@ for (const platform of PLATFORMS) {
     await readOnlyFile(path.join(artifactDirectory, expectedReceipt), `${platform} retained trusted-unlock receipt`),
     `${platform} retained trusted-unlock receipt`,
   );
+  const initial = parseStrictJson(
+    await readOnlyFile(path.join(artifactDirectory, initialReceiptName), `${platform} initial receipt`),
+    `${platform} initial receipt`,
+  );
+  if (!validateInitialReceipt(initial, platform, runId, runAttempt)) {
+    throw new Error(`${platform} initial receipt custody is invalid.`);
+  }
   const jobName = `published-package-qualification (${platform})`;
   const matchingJobs = jobs.filter(({ name }) => name === jobName);
   if (matchingJobs.length !== 1) throw new Error(`Terminal job API identity for ${platform} is not unique.`);

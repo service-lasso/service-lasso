@@ -81,6 +81,20 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
   );
   assert.match(workflow, /ref: \$\{\{ env\.ADMIN_HARNESS_REVISION \}\}/);
   assert.match(workflow, /timeout-minutes: 60/);
+  assert.match(
+    workflow,
+    /QUALIFICATION_WORKSPACE_ROOT: \$\{\{ runner\.temp \}\}\/packaged-admin-lifecycle-\$\{\{ github\.run_id \}\}-\$\{\{ github\.job \}\}-\$\{\{ github\.run_attempt \}\}-\$\{\{ matrix\.admin_platform \}\}\/workspace/,
+  );
+  for (const marker of [
+    "SERVICE_LASSO_INSTANCE_REGISTRY_PATH",
+    "SERVICE_LASSO_HOST_PORT_REGISTRY_PATH",
+    "QUALIFICATION_EVIDENCE_ROOT",
+    "QUALIFICATION_INITIAL_RECEIPT_PATH",
+  ]) assert.match(workflow, new RegExp(`${marker}:`));
+  assert.match(
+    workflow,
+    /Establish unique qualification custody before dependencies[\s\S]*?mkdir -p "\$QUALIFICATION_WORKSPACE_ROOT" "\$QUALIFICATION_EVIDENCE_ROOT"[\s\S]*?test ! -e "\$SERVICE_LASSO_INSTANCE_REGISTRY_PATH"[\s\S]*?test ! -e "\$SERVICE_LASSO_HOST_PORT_REGISTRY_PATH"[\s\S]*?QUALIFICATION_INITIAL_RECEIPT_PATH/,
+  );
   assert.doesNotMatch(workflow, /(?:timeout|deadline)[^\n]*?(?:real-browser|consume-admin-trusted-unlock-receipt)/iu);
   assert.match(
     workflow,
