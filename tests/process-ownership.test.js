@@ -158,6 +158,7 @@ async function assertNativePayloadLifecycleProjection(protocolCase, expectedBoun
   const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot(`service-lasso-launcher-payload-${protocolCase}-`);
   const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "echo-service");
   let apiServer;
+  let delayedReceipt = null;
   try {
     process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH = path.join(tempRoot, "instances.json");
     process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH = path.join(tempRoot, "ports.json");
@@ -177,6 +178,14 @@ async function assertNativePayloadLifecycleProjection(protocolCase, expectedBoun
       const nativeStderr = child.stderr;
       assert.ok(nativeStderr);
       const capturedStderr = new PassThrough();
+      let exitObserved = false;
+      let closeObserved = false;
+      child.once("exit", () => {
+        exitObserved = true;
+      });
+      child.once("close", () => {
+        closeObserved = true;
+      });
       let pending = "";
       nativeStderr.setEncoding("utf8");
       nativeStderr.on("data", (chunk) => {
@@ -186,6 +195,10 @@ async function assertNativePayloadLifecycleProjection(protocolCase, expectedBoun
         for (const line of lines) {
           const payloadRecord = line.startsWith("__SERVICE_LASSO_LAUNCHER_PROGRESS__:launcher_payload_validation:") && line.split(":").length === 4;
           if (payloadRecord && protocolCase === "missing") continue;
+          if (payloadRecord && protocolCase === "exit_before_delayed_close") {
+            pending = line;
+            continue;
+          }
           if (payloadRecord && protocolCase === "prefix_chunk") {
             capturedStderr.write(line.slice(0, 23));
             capturedStderr.write(`${line.slice(23)}\n`);
@@ -204,13 +217,27 @@ async function assertNativePayloadLifecycleProjection(protocolCase, expectedBoun
         }
       });
       nativeStderr.once("end", () => {
-        if (pending) capturedStderr.write(pending);
+        const terminalRemainder = pending;
+        if (protocolCase !== "exit_before_delayed_close" && terminalRemainder) capturedStderr.write(terminalRemainder);
         if (protocolCase === "prefix_chunk") {
           // The owned launcher has already exited, but its final authenticated
-          // record reaches the parser before this delayed stderr end. This
-          // exercises the exit/check/subscribe boundary without extending the
-          // launcher deadline or exposing raw progress in runtime logs.
-          setTimeout(() => capturedStderr.end(), 20);
+          // record reaches the parser before the delayed stderr close. Bind
+          // the copied stream to the actual child close receipt rather than a
+          // scheduler delay, so a loaded host cannot turn direct evidence into
+          // an incidental timing failure.
+          if (closeObserved) capturedStderr.end();
+          else child.once("close", () => capturedStderr.end());
+        } else if (protocolCase === "exit_before_delayed_close") {
+          // The actual native child has reached both terminal lifecycle events
+          // before the parser-facing copy receives its final authenticated
+          // stderr record. This fixture only gates copied stream delivery.
+          const deliverAfterClose = () => {
+            delayedReceipt = Object.freeze({ exitObserved, closeObserved });
+            capturedStderr.write(`${terminalRemainder}\n`);
+            capturedStderr.end();
+          };
+          if (closeObserved) deliverAfterClose();
+          else child.once("close", deliverAfterClose);
         } else {
           capturedStderr.end();
         }
@@ -228,6 +255,9 @@ async function assertNativePayloadLifecycleProjection(protocolCase, expectedBoun
     assert.ok(diagnostic.observations[0].events.some((event) => event.failurePhase === "launcher_payload_validation"));
     assert.equal(JSON.stringify(diagnostic).includes("SERVICE_LASSO_MANAGED_LAUNCH_PAYLOAD"), false);
     assert.equal(JSON.stringify(diagnostic).includes(tempRoot), false);
+    if (protocolCase === "exit_before_delayed_close") {
+      assert.deepEqual(delayedReceipt, { exitObserved: true, closeObserved: true });
+    }
     await waitForManagedProcessFinalization("echo-service", Date.now() + 10_000);
     assert.equal(await findProcessOwnership(workspaceRoot, "service", "echo-service"), null);
     assert.equal(hasManagedProcess("echo-service"), false, `${protocolCase} retained a managed process after native rejection.`);
@@ -2503,6 +2533,12 @@ test("AC-4BJ.9b fails closed for duplicate, missing, malformed, untrusted, expan
     await assertNativePayloadLifecycleProjection(protocolCase, "unknown");
   }
   await assertNativePayloadLifecycleProjection("prefix_chunk", "canonical_encoding");
+});
+
+test("AC-4BJ.9b retains the final authenticated native payload after actual child exit and close", {
+  skip: process.platform !== "win32",
+}, async () => {
+  await assertNativePayloadLifecycleProjection("exit_before_delayed_close", "canonical_encoding");
 });
 
 test("synchronous wrapper spawn failures retain their typed phase and clean pre-enrollment state", async () => {

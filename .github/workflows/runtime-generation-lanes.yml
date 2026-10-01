@@ -39,7 +39,9 @@ jobs:
 
       - name: Verify generation authority and lane discovery
         env:
-          SERVICE_LASSO_INSTANCE_REGISTRY_PATH: ${{ runner.temp }}/service-lasso-test-instances.json
+          SERVICE_LASSO_WORKSPACE_ROOT: ${{ runner.temp }}/service-lasso-runtime-generation-${{ matrix.os }}-workspace
+          SERVICE_LASSO_INSTANCE_REGISTRY_PATH: ${{ runner.temp }}/service-lasso-runtime-generation-${{ matrix.os }}-instances.json
+          SERVICE_LASSO_HOST_PORT_REGISTRY_PATH: ${{ runner.temp }}/service-lasso-runtime-generation-${{ matrix.os }}-ports.json
         run: node --test --test-concurrency=1 --test-force-exit tests/process-ownership.test.js tests/registry-runtime-state.test.js
 
       - name: Verify canonical generation mismatch handling
