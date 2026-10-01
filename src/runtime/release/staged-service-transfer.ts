@@ -4,7 +4,7 @@ import path from "node:path";
 import { appendAuditEvent } from "../audit/store.js";
 import { withCrossProcessFileLock } from "../security/cross-process-file-lock.js";
 import { preflightReleaseArchive, type ReleaseArchiveType } from "./release-archive-preflight.js";
-import { serviceRegistrationOperationStorePath } from "../operator/remote-service-registration.js";
+import { claimStagedRegistrationInStore, completeStagedRegistrationInStore, serviceRegistrationOperationStorePath, type PersistedOperationStore, type StagedRegistrationOperationInput } from "../operator/remote-service-registration.js";
 
 export type StageState =
   | "uploading" | "ready" | "rejected" | "expired" | "claimed"
@@ -70,7 +70,7 @@ interface Stage {
 }
 interface StageSection { version: 3; stages: Stage[]; auditOutbox: AuditOutbox[]; legacySidecarDigest?: string; }
 /** One atomic authority for #1462 operations and #1463 stage/journal state. */
-interface Store { version: 1; operations: unknown[]; stagedTransfer: StageSection; }
+interface Store extends PersistedOperationStore { stagedTransfer: StageSection; }
 
 const MAX_BYTES = 64 * 1024 * 1024;
 const MAX_CHUNKS = 64;
@@ -329,32 +329,23 @@ export class StagedServiceTransfer {
     });
     if (prepared.operation) return { operation: prepared.operation, replayed: true, status: prepared.stage.state };
 
-    // Claim the one shared durable operation before consuming confirmation or
-    // mutating the stage. A crash here is replayable: the ready stage still
-    // has its confirmation and the same shared unknown operation is reused.
-    if (this.operationStore) {
-      const journal = prepared.stage.journal!;
-      let shared: { id: string; state: "completed" | "conflict" | "unknown"; replayed: boolean };
-      try {
-        shared = await this.operationStore.claim({ actorId: actor.id, workspaceId: actor.workspaceId, idempotencyKey: key, fingerprint: journal.fingerprint, stageId: id, byteObjectId: journal.byteObjectId, byteLength: journal.byteLength, fullDigest: journal.fullDigest, identity: prepared.stage.identity });
-      } catch { throw new TransferError("registration_unavailable", 503); }
-      if (shared.id !== journal.operationId) throw new TransferError("registration_unavailable", 503);
-      if (shared.replayed && shared.state !== "unknown") {
-        const terminal = await this.locked(async (store) => {
-          const stage = this.find(store.stagedTransfer, actor, id);
-          if (!stage.operation) stage.operation = { id: shared.id, key, state: shared.state, stageDigest: stage.identity.archiveSha256, targetServiceId: stage.identity.targetServiceId };
-          stage.state = shared.state === "completed" ? "consumed" : "quarantined";
-          stage.journal!.phase = "sealed";
-          return stage;
-        });
-        return { operation: terminal.operation, replayed: true, status: terminal.state };
-      }
-    }
-
     const claimed = await this.locked(async (store) => {
       const stage = this.find(store.stagedTransfer, actor, id), operation = this.replay(stage, key);
       if (operation) return { stage, operation };
       if (!stage.journal || stage.journal.phase !== "prepared" || stage.state !== "ready" || stage.expiresAt <= this.now() || !stage.confirmationHash || !stage.confirmationExpiresAt || stage.confirmationExpiresAt <= this.now() || !equal(stage.confirmationHash, hash(confirmation)) || !stage.byteObject) throw new TransferError("stage_not_found", 404);
+      let shared;
+      try {
+        const journal = stage.journal;
+        const input: StagedRegistrationOperationInput = { workspaceRoot: this.workspaceRoot, actorId: actor.id, workspaceId: actor.workspaceId, idempotencyKey: key, fingerprint: journal.fingerprint, stageId: id, byteObjectId: journal.byteObjectId, byteLength: journal.byteLength, fullDigest: journal.fullDigest, repo: stage.identity.repo, releaseTag: stage.identity.releaseTag, commitSha: stage.identity.commitSha, serviceId: stage.identity.targetServiceId, manifestSha256: stage.identity.manifestSha256, releaseId: stage.identity.releaseId, platform: stage.identity.platform, assetName: stage.identity.assetName, archiveType: stage.identity.archiveType, manifestAssetId: stage.identity.manifestAssetId ?? null, checksumAssetId: stage.identity.checksumAssetId ?? null };
+        shared = claimStagedRegistrationInStore(store, input);
+      } catch { throw new TransferError("registration_unavailable", 503); }
+      if (shared.id !== stage.journal.operationId) throw new TransferError("registration_unavailable", 503);
+      if (shared.replayed && shared.status !== "unknown") {
+        stage.operation = { id: shared.id, key, state: shared.status, stageDigest: stage.identity.archiveSha256, targetServiceId: stage.identity.targetServiceId };
+        stage.state = shared.status === "completed" ? "consumed" : "quarantined";
+        stage.journal.phase = "sealed";
+        return { stage, operation: stage.operation };
+      }
       stage.state = "claimed"; stage.confirmationHash = null; stage.confirmationExpiresAt = null; stage.journal.phase = "claimed";
       stage.operation = { id: stage.journal.operationId, key, state: "unknown", stageDigest: stage.identity.archiveSha256, targetServiceId: stage.identity.targetServiceId };
       return { stage, operation: null };
@@ -400,14 +391,11 @@ export class StagedServiceTransfer {
   }
 
   private async recordOutcome(actor: TransferActor, id: string, outcome: "completed" | "conflict" | "unknown"): Promise<void> {
-    const operation = await this.locked(async (store) => this.find(store.stagedTransfer, actor, id).operation);
-    if (this.operationStore && operation) {
-      try { await this.operationStore.complete({ actorId: actor.id, operationId: operation.id, outcome }); }
-      catch { throw new TransferError("registration_unavailable", 503); }
-    }
     await this.locked(async (store) => {
       const stage = this.find(store.stagedTransfer, actor, id);
       if (!stage.operation || !stage.journal || stage.journal.phase !== "claimed") return;
+      try { completeStagedRegistrationInStore(store, { actorId: actor.id, operationId: stage.operation.id, outcome }); }
+      catch { throw new TransferError("registration_unavailable", 503); }
       stage.operation.state = outcome; stage.state = outcome === "completed" ? "consumed" : outcome === "conflict" ? "quarantined" : "unknown";
       stage.terminalAt = outcome === "unknown" ? null : this.now();
       if (outcome !== "unknown") stage.journal.phase = "sealed";

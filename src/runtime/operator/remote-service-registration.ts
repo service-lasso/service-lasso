@@ -51,7 +51,7 @@ interface PersistedOperation extends Omit<RemoteServiceRegistrationOperation, "r
   };
 }
 
-interface PersistedOperationStore {
+export interface PersistedOperationStore {
   version: 1;
   operations: PersistedOperation[];
   /**
@@ -481,19 +481,18 @@ export interface StagedRegistrationOperationInput {
  * store. The stage file keeps only stage/journal state; this is the one
  * actor-owned operation that operator readback exposes.
  */
-export async function claimStagedRegistrationOperation(input: StagedRegistrationOperationInput): Promise<RemoteServiceRegistrationOperation> {
+/** Mutates an already locked compatible v1 document; callers must persist it atomically. */
+export function claimStagedRegistrationInStore(store: PersistedOperationStore, input: StagedRegistrationOperationInput): RemoteServiceRegistrationOperation {
   const operationId = `sro_${sha256(`${input.actorId}\u0000${input.idempotencyKey}`).slice(0, 32)}`;
-  return await withWorkspaceRegistrationLock(input.workspaceRoot, async () => {
-      const store = await readStore(input.workspaceRoot);
-      const existing = store.operations.find((candidate) => candidate.id === operationId && candidate.actorId === input.actorId);
-      if (existing) {
-        if (existing.requestFingerprint !== input.fingerprint || existing.staged?.workspaceId !== input.workspaceId) {
-          throw new ApiError("idempotency_key_reused", 409, "The idempotency key was already used for a different registration request.");
-        }
-        return toPublicOperation(existing, true);
-      }
-      const now = new Date().toISOString();
-      const operation: PersistedOperation = {
+  const existing = store.operations.find((candidate) => candidate.id === operationId && candidate.actorId === input.actorId);
+  if (existing) {
+    if (existing.requestFingerprint !== input.fingerprint || existing.staged?.workspaceId !== input.workspaceId) {
+      throw new ApiError("idempotency_key_reused", 409, "The idempotency key was already used for a different registration request.");
+    }
+    return toPublicOperation(existing, true);
+  }
+  const now = new Date().toISOString();
+  const operation: PersistedOperation = {
         id: operationId, kind: "service_registration", status: "unknown", actorId: input.actorId,
         repo: input.repo, tag: input.releaseTag, sourceCommit: input.commitSha, serviceId: input.serviceId,
         version: null, createdAt: now, completedAt: null, errorCode: "registration_interrupted",
@@ -504,11 +503,26 @@ export async function claimStagedRegistrationOperation(input: StagedRegistration
           platform: input.platform, assetName: input.assetName, archiveType: input.archiveType,
           manifestAssetId: input.manifestAssetId, checksumAssetId: input.checksumAssetId,
         },
-      };
-      store.operations.push(operation);
+  };
+  store.operations.push(operation);
+  return toPublicOperation(operation, false);
+}
+
+export async function claimStagedRegistrationOperation(input: StagedRegistrationOperationInput): Promise<RemoteServiceRegistrationOperation> {
+  return await withWorkspaceRegistrationLock(input.workspaceRoot, async () => {
+      const store = await readStore(input.workspaceRoot);
+      const operation = claimStagedRegistrationInStore(store, input);
       await writeStore(input.workspaceRoot, store);
-      return toPublicOperation(operation, false);
+      return operation;
   });
+}
+
+export function completeStagedRegistrationInStore(store: PersistedOperationStore, input: { actorId: string; operationId: string; outcome: "completed" | "conflict" | "unknown" }): void {
+  const operation = store.operations.find((candidate) => candidate.id === input.operationId && candidate.actorId === input.actorId && candidate.staged);
+  if (!operation) throw new ApiError("operation_store_invalid", 503, "Service registration operation state is unavailable.");
+  operation.status = input.outcome;
+  operation.completedAt = input.outcome === "unknown" ? null : new Date().toISOString();
+  operation.errorCode = input.outcome === "completed" ? null : input.outcome === "conflict" ? "target_manifest_exists" : "registration_unknown";
 }
 
 export async function completeStagedRegistrationOperation(input: {
@@ -516,11 +530,7 @@ export async function completeStagedRegistrationOperation(input: {
 }): Promise<void> {
   await withWorkspaceRegistrationLock(input.workspaceRoot, async () => {
       const store = await readStore(input.workspaceRoot);
-      const operation = store.operations.find((candidate) => candidate.id === input.operationId && candidate.actorId === input.actorId && candidate.staged);
-      if (!operation) throw new ApiError("operation_store_invalid", 503, "Service registration operation state is unavailable.");
-      operation.status = input.outcome;
-      operation.completedAt = input.outcome === "unknown" ? null : new Date().toISOString();
-      operation.errorCode = input.outcome === "completed" ? null : input.outcome === "conflict" ? "target_manifest_exists" : "registration_unknown";
+      completeStagedRegistrationInStore(store, input);
       await writeStore(input.workspaceRoot, store);
   });
 }

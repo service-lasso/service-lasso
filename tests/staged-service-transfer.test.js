@@ -6,7 +6,7 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import { zipSync } from "fflate";
 import { StagedServiceTransfer, TransferError } from "../dist/runtime/release/staged-service-transfer.js";
-import { createStagedReleaseAssetImporter } from "../dist/runtime/operator/remote-service-registration.js";
+import { createStagedReleaseAssetImporter, readRemoteServiceRegistrationOperation } from "../dist/runtime/operator/remote-service-registration.js";
 
 test("staged transfer stays fail closed when the owner catalog pin is unavailable", async () => { const root=await mkdtemp(path.join(os.tmpdir(),"staged-transfer-")); try { const service=new StagedServiceTransfer(root,{resolve:async()=>{throw new TransferError("release_provenance_unavailable",503)}},{import:async()=> "completed"}); await assert.rejects(service.create({id:"a",workspaceId:"w",canConfigure:true},{targetServiceId:"sample-service",provenance:{repo:"service-lasso/lasso-example",releaseTag:"v1",commitSha:"a".repeat(40)},platform:"win32",manifestSchemaVersion:"service-lasso.service-manifest/v1"}),/denied/); } finally {await rm(root,{recursive:true,force:true});} });
 
@@ -100,12 +100,14 @@ test("staged direct-child importer registers the canonical manifest without down
     throw new Error(`unexpected release request: ${url}`);
   };
   try {
+    let byteObjectReads = 0;
     const result = await createStagedReleaseAssetImporter({ servicesRoot }).import({
-      serviceId: "staged-service", readByteObject: (() => { let read = false; return () => { if (read) return null; read = true; return Buffer.from(archiveBytes); }; })(), byteObjectId: "sbo_test", byteLength: archiveBytes.length, archiveSha256: archiveDigest,
+      serviceId: "staged-service", readByteObject: (() => { let read = false; return () => { if (read) return null; read = true; byteObjectReads += 1; return Buffer.from(archiveBytes); }; })(), byteObjectId: "sbo_test", byteLength: archiveBytes.length, archiveSha256: archiveDigest,
       manifestSha256: manifestDigest, releaseId: "1", targetSha: "a".repeat(40), workspaceId: "trusted-workspace",
       repo: "service-lasso/lasso-node", releaseTag: "v1", assetId: "asset-1", assetName: "staged.zip", archiveType: "zip", manifestBytes: Buffer.from(manifest, "utf8"),
     });
     assert.equal(result, "completed");
+    assert.equal(byteObjectReads, 1, "the child must consume the held archive exactly once");
     assert.equal(await readFile(path.join(servicesRoot, "staged-service", "service.json"), "utf8"), manifest);
     assert.equal(requests.some((url) => url.includes("staged.zip")), false);
   } finally {
@@ -165,6 +167,9 @@ test("staged registration persists its full prepared claim before the direct chi
     const confirmation = await transfer.confirmation(actor, stage.stageId);
     const first = await transfer.register(actor, stage.stageId, confirmation.confirmationId, "staged-journal-0001");
     assert.equal(first.status, "consumed");
+    const readback = await readRemoteServiceRegistrationOperation({ workspaceRoot: root, actor: { id: actor.id }, operationId: first.operation.id });
+    assert.equal(readback.status, "completed");
+    assert.equal(readback.sourceCommit, identity.commitSha);
     const replay = await transfer.register(actor, stage.stageId, confirmation.confirmationId, "staged-journal-0001");
     assert.equal(replay.replayed, true);
     assert.equal(imports, 1);
