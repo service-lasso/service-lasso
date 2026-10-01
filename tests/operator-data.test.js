@@ -89,28 +89,32 @@ test("service detail exposes read-only catalog provenance", async () => {
 
 test("GET /api/services/:id/logs returns operator log payload", async () => {
   resetLifecycleState();
-  await clearPersistedFixtureState(servicesRoot);
-  const apiServer = await startApiServer({ port: 0, servicesRoot });
+  const fixture = await makeTempServicesRoot("service-lasso-operator-logs-");
+  const serviceId = "operator-logs-service";
+  const { serviceRoot } = await writeExecutableFixtureService(fixture.servicesRoot, serviceId);
+  const apiServer = await startApiServer({ port: 0, servicesRoot: fixture.servicesRoot });
 
   try {
-    await postJson(`${apiServer.url}/api/services/echo-service/install`);
-    await postJson(`${apiServer.url}/api/services/echo-service/config`);
+    const install = await postJson(`${apiServer.url}/api/services/${serviceId}/install`);
+    const config = await postJson(`${apiServer.url}/api/services/${serviceId}/config`);
 
-    const response = await fetch(`${apiServer.url}/api/services/echo-service/logs`);
+    const response = await fetch(`${apiServer.url}/api/services/${serviceId}/logs`);
     const body = await response.json();
 
+    assert.equal(install.status, 200);
+    assert.equal(config.status, 200);
     assert.equal(response.status, 200);
-    assert.equal(body.logs.serviceId, "echo-service");
-    assert.equal(body.logs.logPath.endsWith(path.join("services", "echo-service", "logs", "runtime", "service.log")), true);
-    assert.equal(body.logs.stdoutPath.endsWith(path.join("services", "echo-service", "logs", "runtime", "stdout.log")), true);
-    assert.equal(body.logs.stderrPath.endsWith(path.join("services", "echo-service", "logs", "runtime", "stderr.log")), true);
+    assert.equal(body.logs.serviceId, serviceId);
+    assert.equal(body.logs.logPath, path.join(serviceRoot, "logs", "runtime", "service.log"));
+    assert.equal(body.logs.stdoutPath, path.join(serviceRoot, "logs", "runtime", "stdout.log"));
+    assert.equal(body.logs.stderrPath, path.join(serviceRoot, "logs", "runtime", "stderr.log"));
     assert.equal(body.logs.retention.maxArchives, 3);
     assert.deepEqual(body.logs.archives, []);
-    assert.deepEqual(body.logs.entries.map((entry) => entry.message), ["echo-service:install", "echo-service:config"]);
+    assert.deepEqual(body.logs.entries.map((entry) => entry.message), [`${serviceId}:install`, `${serviceId}:config`]);
   } finally {
     await apiServer.stop();
     resetLifecycleState();
-    await clearPersistedFixtureState(servicesRoot);
+    await rm(fixture.tempRoot, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   }
 });
 
