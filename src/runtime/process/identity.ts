@@ -681,14 +681,26 @@ async function inspectWindowsProcessTreeOnce(
     ) {
       excludedBranchRoots.add(pid);
     }
-    if (
-      rootIdentityOwned &&
-      candidateCreatedAtMs < rootCreatedAtMs &&
-      path.length === 2 &&
-      Date.parse(path[1].identity.createdAt) >= rootCreatedAtMs
-    ) {
-      excludedBranchRoots.add(pid);
-      staleNumericParentChildren.add(pid);
+    let child = byPid.get(pid)!;
+    for (let ancestryDepth = 1; ancestryDepth < path.length; ancestryDepth += 1) {
+      const parent = path[ancestryDepth];
+      const childCreatedAtMs = Date.parse(child.identity.createdAt);
+      const parentCreatedAtMs = Date.parse(parent.identity.createdAt);
+      // A complete snapshot with a held, matching root can prove that this
+      // numeric parent edge is stale at any depth: the alleged child existed
+      // before both the root and its reported post-root parent. It cannot be
+      // a descendant of that parent, so exclude only this branch and retain
+      // the verified-members-only control boundary.
+      if (
+        rootIdentityOwned &&
+        childCreatedAtMs < rootCreatedAtMs &&
+        parentCreatedAtMs >= rootCreatedAtMs &&
+        childCreatedAtMs < parentCreatedAtMs
+      ) {
+        excludedBranchRoots.add(child.identity.pid);
+        staleNumericParentChildren.add(child.identity.pid);
+      }
+      child = parent;
     }
   }
   const unrelatedLifetime = new Set<number>();

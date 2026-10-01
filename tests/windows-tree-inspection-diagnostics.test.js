@@ -130,7 +130,6 @@ test("every ancestry rejection stays fail closed with a distinct bounded reason"
     ["ancestry_missing_parent", [row(4343, 9999, newer)]],
     ["ancestry_predates_parent_within_root", [row(4343, 4344, newer), row(4344, root.pid, newest)]],
     ["ancestry_predates_parent_within_root", [row(4343, 4344, root.createdAt), row(4344, root.pid, newer)]],
-    ["ancestry_predates_parent_before_root", [row(4343, 4344, "2026-07-18T01:02:01.456Z"), row(4344, root.pid, "2026-07-18T01:02:02.456Z")]],
   ];
   for (const [reason, descendants] of cases) {
     await assert.rejects(inspectWindowsProcessTree(expected, {
@@ -203,7 +202,29 @@ test("a verified direct pre-root child edge is excluded without disowning its cu
   assert.deepEqual(result.excludedMemberPids, [4344, 4345]);
 });
 
-test("only direct pre-root branches are excluded; deeper and changed-root evidence remains rejected", async () => {
+test("a verified stale numeric-parent edge is excluded beneath a current root branch", async () => {
+  const command = "private-command";
+  const expected = { ...root, commandHash: hashProcessCommandLine(command) };
+  const row = (pid, parent, date) => ({ Status: "running", ProcessId: pid,
+    ParentProcessId: parent, CreationDate: date, ExecutablePath: root.executablePath, CommandLine: command });
+  const rootRow = row(root.pid, 9000, root.createdAt);
+  const launcherChild = row(4343, root.pid, "2026-07-18T01:02:04.456Z");
+  const currentParent = row(4344, launcherChild.ProcessId, "2026-07-18T01:02:05.456Z");
+  const staleChild = row(4345, currentParent.ProcessId, "2026-07-18T01:02:02.456Z");
+  const staleRelatedChild = row(4346, staleChild.ProcessId, "2026-07-18T01:02:03.456Z");
+  const ownedChild = row(4347, root.pid, "2026-07-18T01:02:06.456Z");
+  const ownedGrandchild = row(4348, currentParent.ProcessId, "2026-07-18T01:02:07.456Z");
+  const result = await inspectWindowsProcessTree(expected, {
+    runCommand: async () => ({ stdout: JSON.stringify({ Status: "tree", RootStatus: "running",
+      Processes: [rootRow, launcherChild, currentParent, staleChild, staleRelatedChild, ownedChild, ownedGrandchild] }) }),
+  });
+  assert.equal(result.rootStatus, "owned");
+  assert.deepEqual(result.members.map(member => member.pid), [4348, 4347, 4344, 4343, root.pid]);
+  assert.equal(result.verifiedMembersOnly, true);
+  assert.deepEqual(result.excludedMemberPids, [4345, 4346]);
+});
+
+test("a stale edge needs a current matching root; changed-root evidence remains rejected", async () => {
   const command = "private-command";
   const expected = { ...root, commandHash: hashProcessCommandLine(command) };
   const row = (pid, parent, date) => ({ Status: "running", ProcessId: pid,
@@ -212,15 +233,18 @@ test("only direct pre-root branches are excluded; deeper and changed-root eviden
   const first = row(4343, root.pid, "2026-07-18T01:02:04.456Z");
   const second = row(4344, first.ProcessId, "2026-07-18T01:02:05.456Z");
   const staleDeeper = row(4345, second.ProcessId, "2026-07-18T01:02:02.456Z");
-  for (const sample of [
-    { RootStatus: "running", Processes: [rootRow, first, second, staleDeeper] },
-    { RootStatus: "running", Processes: [{ ...rootRow, CreationDate: "2026-07-18T01:02:06.456Z" }, first] },
-  ]) {
-    await assert.rejects(inspectWindowsProcessTree(expected, {
-      deadlineMs: Date.now() + 150,
-      runCommand: async () => ({ stdout: JSON.stringify({ Status: "tree", ...sample }) }),
-    }));
-  }
+  const filtered = await inspectWindowsProcessTree(expected, {
+    deadlineMs: Date.now() + 150,
+    runCommand: async () => ({ stdout: JSON.stringify({ Status: "tree", RootStatus: "running",
+      Processes: [rootRow, first, second, staleDeeper] }) }),
+  });
+  assert.equal(filtered.verifiedMembersOnly, true);
+  assert.deepEqual(filtered.excludedMemberPids, [4345]);
+  await assert.rejects(inspectWindowsProcessTree(expected, {
+    deadlineMs: Date.now() + 150,
+    runCommand: async () => ({ stdout: JSON.stringify({ Status: "tree", RootStatus: "running",
+      Processes: [{ ...rootRow, CreationDate: "2026-07-18T01:02:06.456Z" }, first] }) }),
+  }));
 });
 
 test("older branches remain fail closed without a current matching root or complete structural evidence", async () => {
