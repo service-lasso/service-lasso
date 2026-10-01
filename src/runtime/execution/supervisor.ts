@@ -2549,6 +2549,10 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
               rootOwnershipProbe: () => probeManagedChildHandle(child),
               forceImmediately: process.platform === "win32",
               preferFastWindowsRootIdentity: process.platform === "win32",
+              // A terminal same-held inspection remains opaque during failed
+              // startup containment too. Retained members can prove absence,
+              // but cannot be reopened or retargeted by numeric PID.
+              terminalWindowsInspectionEpisode: record.terminalWindowsCommandPartialCopy,
             };
             if (
               process.platform !== "win32" || !windowsManagedLaunchState ||

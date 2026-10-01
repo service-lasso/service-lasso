@@ -2947,6 +2947,63 @@ setInterval(() => {}, 1000);
   }
 });
 
+test("Windows terminal startup containment retains the terminal inspection episode", {
+  skip: process.platform !== "win32",
+}, async () => {
+  resetLifecycleState();
+  const priorTestHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+  process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-terminal-start-containment-");
+  const serviceId = "terminal-start-containment-service";
+  await writeExecutableFixtureService(servicesRoot, serviceId);
+  let inspectionCount = 0;
+  let capturedTarget;
+  let handle;
+
+  try {
+    setManagedWindowsTreeInspectorForTests(async (identity) => {
+      inspectionCount += 1;
+      if (inspectionCount === 1) {
+        return { rootStatus: "owned", members: [identity] };
+      }
+      const terminal = new Error("closed same-held command query");
+      terminal.windowsNativeInspectionFailure = "root_command_partial_copy";
+      throw terminal;
+    });
+    setManagedProcessTreeTerminatorForTests(async (target) => {
+      capturedTarget = target;
+      throw new Error("retained terminal containment");
+    });
+    const [service] = await discoverServices(servicesRoot);
+    await assert.rejects(
+      startManagedProcess({
+        service,
+        executionPlan: createDirectExecutionPlan(service.manifest),
+        workspaceRoot,
+      }),
+      (error) => {
+        assert.equal(error instanceof ManagedProcessEnrollmentContainmentError, true);
+        handle = error.handle;
+        return true;
+      },
+    );
+    assert.equal(inspectionCount, 2);
+    assert.equal(capturedTarget.terminalWindowsInspectionEpisode, true);
+    const retained = await findProcessOwnership(workspaceRoot, "service", serviceId);
+    assert.equal(retained.lifecycleState, "launching");
+    assert.equal(retained.pid, handle.pid);
+  } finally {
+    setManagedProcessTreeTerminatorForTests(null);
+    setManagedWindowsTreeInspectorForTests(null);
+    await stopManagedProcess(serviceId, 5_000).catch(() => null);
+    forceCleanupProcesses([handle?.pid]);
+    if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+    else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
+    resetLifecycleState();
+    await removeTempRoot(tempRoot);
+  }
+});
+
 test("Windows managed launcher ignores pre-created workspace gate and acknowledgement files", {
   skip: process.platform !== "win32",
 }, async () => {
