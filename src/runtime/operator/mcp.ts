@@ -1878,6 +1878,7 @@ export function createServiceLassoMcpServer(
                 workspaceRoot: context.workspaceRoot!,
                 operatingMode,
                 authorization: options.authorization,
+                facade: context.guardedActionFacade,
                 action,
                 parameters,
               });

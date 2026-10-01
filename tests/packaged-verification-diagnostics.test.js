@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { dependencyAcquisitionSubcode, packagedVerificationDiagnostic } from "../scripts/packaged-verification-diagnostics.mjs";
-import { runCommand } from "../scripts/mcp-product-acceptance-lib.mjs";
+import { dependencyAcquisitionReceipt, dependencyAcquisitionSubcode, packagedVerificationDiagnostic } from "../scripts/packaged-verification-diagnostics.mjs";
+import { runCommand, runCommandFailureKind } from "../scripts/mcp-product-acceptance-lib.mjs";
+
+function ownPackagedAcceptanceDiagnostic(error) {
+  if (!error || typeof error !== "object") return undefined;
+  const descriptor = Object.getOwnPropertyDescriptor(error, "packagedAcceptanceDiagnostic");
+  return descriptor && "value" in descriptor ? descriptor.value : undefined;
+}
 
 test("packaged failure phases distinguish acquisition, binding, execution and evidence", () => {
   const phases = ["consumer_setup", "package_staging", "dependency_acquisition", "installed_package_binding",
@@ -19,21 +25,17 @@ test("safe release-metadata diagnostics carry only a fixed boundary and status",
 test("dependency acquisition projects only bounded npm-reported observations and subprocess subcodes", () => {
   const secret = "https://registry.example/private-token?credential=secret";
   const cases = [
-    [{ code: "ENOENT", stderr: secret }, "subprocess_spawn_enoent"],
-    [{ code: "EACCES", stderr: secret }, "subprocess_spawn_eacces"],
-    [{ code: 1, stderr: secret }, "subprocess_exit_nonzero"],
-    [{ timedOut: true, stderr: secret }, "subprocess_timeout"],
-    [{ maxOutputExceeded: true, stderr: secret }, "subprocess_output_limit"],
-    [{ signal: "SIGTERM", stderr: secret }, "subprocess_observed_signal_sigterm"],
-    [{ signal: "SIGKILL", stderr: secret }, "subprocess_observed_signal_sigkill"],
-    [{ code: 1, stdout: JSON.stringify({ error: { code: "ENOTFOUND", detail: secret } }), stderr: secret }, "npm_reported_network_enotfound"],
-    [{ code: 1, stdout: JSON.stringify({ error: { code: "EINTEGRITY", detail: secret } }), stderr: secret }, "npm_reported_checksum_mismatch"],
-    [{ code: 1, stdout: JSON.stringify({ error: { code: "E401", detail: secret } }), stderr: secret }, "npm_reported_registry_identity_rejected"],
+    [{ code: "ENOENT", stderr: secret }, "spawn_failed", "subprocess_spawn_enoent"],
+    [{ code: "EACCES", stderr: secret }, "spawn_failed", "subprocess_spawn_eacces"],
+    [{ code: 1, stderr: secret }, "exit_nonzero", "subprocess_exit_nonzero"],
+    [{ code: 1, stdout: JSON.stringify({ error: { code: "ENOTFOUND", detail: secret } }), stderr: secret }, "exit_nonzero", "npm_reported_network_enotfound"],
+    [{ code: 1, stdout: JSON.stringify({ error: { code: "EINTEGRITY", detail: secret } }), stderr: secret }, "exit_nonzero", "npm_reported_checksum_mismatch"],
+    [{ code: 1, stdout: JSON.stringify({ error: { code: "E401", detail: secret } }), stderr: secret }, "exit_nonzero", "npm_reported_registry_identity_rejected"],
   ];
-  for (const [error, subcode] of cases) {
-    assert.equal(dependencyAcquisitionSubcode(error), subcode);
-    const result = packagedVerificationDiagnostic("dependency_acquisition", undefined, dependencyAcquisitionSubcode(error));
-    assert.deepEqual(result, { stage: "dependency_acquisition", errorCode: "verification_failed", subcode });
+  for (const [error, outcome, subcode] of cases) {
+    assert.equal(dependencyAcquisitionSubcode(error, outcome), subcode);
+    const result = packagedVerificationDiagnostic("dependency_acquisition", undefined, dependencyAcquisitionReceipt(error, outcome));
+    assert.deepEqual(result, { stage: "dependency_acquisition", errorCode: "verification_failed", outcome, subcode });
     assert.equal(JSON.stringify(result).includes(secret), false);
   }
   for (const error of [
@@ -42,12 +44,12 @@ test("dependency acquisition projects only bounded npm-reported observations and
     { code: 1, stdout: "{malformed" },
     { code: 1, stdout: "x".repeat(8 * 1024 + 1) },
     { stderr: `npm ERR! code ENOTFOUND\nnpm ERR! ${secret}` },
-    { killed: true, signal: "SIGUSR1", stderr: secret },
     new Error(secret),
   ]) {
-    assert.equal(dependencyAcquisitionSubcode(error), typeof error.code === "number" ? "subprocess_exit_nonzero" : undefined);
-    assert.deepEqual(packagedVerificationDiagnostic("dependency_acquisition", undefined, dependencyAcquisitionSubcode(error)), {
-      stage: "dependency_acquisition", errorCode: "verification_failed", ...(typeof error.code === "number" ? { subcode: "subprocess_exit_nonzero" } : {}),
+    const receipt = dependencyAcquisitionReceipt(error, typeof error.code === "number" ? "exit_nonzero" : "unknown");
+    assert.equal(dependencyAcquisitionSubcode(error, receipt.outcome), typeof error.code === "number" ? "subprocess_exit_nonzero" : undefined);
+    assert.deepEqual(packagedVerificationDiagnostic("dependency_acquisition", undefined, receipt), {
+      stage: "dependency_acquisition", errorCode: "verification_failed", outcome: receipt.outcome, ...(typeof error.code === "number" ? { subcode: "subprocess_exit_nonzero" } : {}),
     });
   }
 });
@@ -55,46 +57,34 @@ test("dependency acquisition projects only bounded npm-reported observations and
 test("dependency acquisition ignores hostile getters and cannot project their private values", () => {
   const hostile = {};
   Object.defineProperty(hostile, "stderr", { get() { throw new Error("private-token"); } });
-  assert.equal(dependencyAcquisitionSubcode(hostile), undefined);
+  assert.equal(dependencyAcquisitionSubcode(hostile, "unknown"), undefined);
   Object.defineProperty(hostile, "code", { value: 1 });
   Object.defineProperty(hostile, "stdout", { get() { throw new Error("private-token"); } });
-  assert.equal(dependencyAcquisitionSubcode(hostile), "subprocess_exit_nonzero");
-  for (const key of ["timedOut", "maxOutputExceeded", "killed", "signal"]) {
-    Object.defineProperty(hostile, key, { get() { throw new Error("private-token"); } });
-  }
-  assert.equal(dependencyAcquisitionSubcode(hostile), "subprocess_exit_nonzero");
+  assert.equal(dependencyAcquisitionSubcode(hostile, "exit_nonzero"), "subprocess_exit_nonzero");
 });
 
-test("real child execution observations are closed and secret-safe", async () => {
-  const secret = "private-token-and-path";
-  const timeout = await runCommand(process.execPath, ["-e", "setTimeout(() => {}, 1000)"], { timeoutMs: 25 }).catch(value => value);
-  assert.equal(dependencyAcquisitionSubcode(timeout), "subprocess_timeout");
-  const outputLimit = await runCommand(process.execPath, ["-e", "process.stdout.write('x'.repeat(3 * 1024 * 1024))"]).catch(value => value);
-  assert.equal(dependencyAcquisitionSubcode(outputLimit), "subprocess_output_limit");
-  const spawnFault = await runCommand("service-lasso-1386-missing-command", []).catch(value => value);
-  assert.equal(dependencyAcquisitionSubcode(spawnFault), "subprocess_spawn_enoent");
-  const numericExit = await runCommand(process.execPath, ["-e", "process.exit(19)"]).catch(value => value);
-  assert.equal(numericExit.code, 19);
-  assert.equal(dependencyAcquisitionSubcode(numericExit), "subprocess_exit_nonzero");
-  for (const error of [timeout, outputLimit, spawnFault, numericExit]) {
-    Object.defineProperty(error, "message", { value: secret });
-    const diagnostic = packagedVerificationDiagnostic("dependency_acquisition", undefined, dependencyAcquisitionSubcode(error));
-    assert.equal(JSON.stringify(diagnostic).includes(secret), false);
-  }
+test("dependency acquisition records only supported own-data signal observations", () => {
+  const observed = dependencyAcquisitionReceipt({ signal: "SIGTERM" }, "unknown");
+  assert.deepEqual(observed, { outcome: "unknown", subcode: "subprocess_observed_signal_sigterm" });
+  assert.deepEqual(
+    packagedVerificationDiagnostic("dependency_acquisition", undefined, observed),
+    { stage: "dependency_acquisition", errorCode: "verification_failed", outcome: "unknown", subcode: "subprocess_observed_signal_sigterm" },
+  );
+  assert.deepEqual(dependencyAcquisitionReceipt({ signal: "SIGHUP" }, "unknown"), { outcome: "unknown" });
+
+  const inherited = Object.create({ signal: "SIGKILL" });
+  assert.deepEqual(dependencyAcquisitionReceipt(inherited, "unknown"), { outcome: "unknown" });
+
+  const accessor = {};
+  Object.defineProperty(accessor, "signal", { get() { throw new Error("private-token"); } });
+  assert.deepEqual(dependencyAcquisitionReceipt(accessor, "unknown"), { outcome: "unknown" });
 });
 
-test("real child signal observation is classified only when the host reports it", async () => {
-  const observedSignal = await runCommand(process.execPath, ["-e", "process.kill(process.pid, 'SIGTERM')"]).catch(value => value);
-  if (observedSignal.signal !== "SIGTERM") {
-    // Windows reports this fixture as a numeric exit. That remains a nonzero
-    // subprocess result; it is not evidence of an observed signal.
-    assert.equal(typeof observedSignal.code, "number");
-    assert.equal(dependencyAcquisitionSubcode(observedSignal), "subprocess_exit_nonzero");
-    return;
-  }
-  assert.equal(dependencyAcquisitionSubcode(observedSignal), "subprocess_observed_signal_sigterm");
-  const diagnostic = packagedVerificationDiagnostic("dependency_acquisition", undefined, dependencyAcquisitionSubcode(observedSignal));
-  assert.deepEqual(diagnostic, { stage: "dependency_acquisition", errorCode: "verification_failed", subcode: "subprocess_observed_signal_sigterm" });
+test("a Windows-style numeric exit remains an exit receipt", () => {
+  assert.deepEqual(
+    dependencyAcquisitionReceipt({ code: 1, signal: null }, "exit_nonzero"),
+    { outcome: "exit_nonzero", subcode: "subprocess_exit_nonzero" },
+  );
 });
 
 test("real command failure projects only its bounded npm JSON error code", async () => {
@@ -108,10 +98,42 @@ test("real command failure projects only its bounded npm JSON error code", async
     await writeFile(report, `process.stdout.write(JSON.stringify({ error: { code: "ENOTFOUND", detail: "${secret}" } })); process.stderr.write("${secret}"); process.exit(7);`, "utf8");
     const error = await runCommand(process.execPath, [report], { cwd: tempRoot }).catch(value => value);
     assert.equal(error.code, 7);
-    assert.equal(dependencyAcquisitionSubcode(error), "npm_reported_network_enotfound");
-    const diagnostic = packagedVerificationDiagnostic("dependency_acquisition", undefined, dependencyAcquisitionSubcode(error));
-    assert.deepEqual(diagnostic, { stage: "dependency_acquisition", errorCode: "verification_failed", subcode: "npm_reported_network_enotfound" });
+    assert.equal(runCommandFailureKind(error), "exit_nonzero");
+    assert.equal(dependencyAcquisitionSubcode(error, runCommandFailureKind(error)), "npm_reported_network_enotfound");
+    const diagnostic = packagedVerificationDiagnostic("dependency_acquisition", undefined, dependencyAcquisitionReceipt(error, runCommandFailureKind(error)));
+    assert.deepEqual(diagnostic, { stage: "dependency_acquisition", errorCode: "verification_failed", outcome: "exit_nonzero", subcode: "npm_reported_network_enotfound" });
     assert.equal(JSON.stringify(diagnostic).includes(secret), false);
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("runCommand records closed wrapper observations for deadline, capture, spawn and nonzero exit", async () => {
+  const { mkdtemp, rm, writeFile } = await import("node:fs/promises");
+  const os = await import("node:os");
+  const path = (await import("node:path")).default;
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-1530-"));
+  const deadline = path.join(tempRoot, "deadline.mjs");
+  const capture = path.join(tempRoot, "capture.mjs");
+  const exit = path.join(tempRoot, "exit.mjs");
+  try {
+    await Promise.all([
+      writeFile(deadline, "setTimeout(() => {}, 1000);", "utf8"),
+      writeFile(capture, "process.stdout.write('x'.repeat(2 * 1024 * 1024 + 1));", "utf8"),
+      writeFile(exit, "process.stdout.write(JSON.stringify({ error: { code: 'ENOTFOUND', detail: 'private-token' } })); process.exit(7);", "utf8"),
+    ]);
+    const cases = [
+      [await runCommand(process.execPath, [deadline], { cwd: tempRoot, timeoutMs: 20 }).catch(value => value), "deadline_exceeded"],
+      [await runCommand(process.execPath, [capture], { cwd: tempRoot }).catch(value => value), "output_capture_exceeded"],
+      [await runCommand(path.join(tempRoot, "not-a-command"), [], { cwd: tempRoot }).catch(value => value), "spawn_failed"],
+      [await runCommand(process.execPath, [exit], { cwd: tempRoot }).catch(value => value), "exit_nonzero"],
+    ];
+    for (const [error, outcome] of cases) {
+      assert.equal(runCommandFailureKind(error), outcome);
+      const diagnostic = packagedVerificationDiagnostic("dependency_acquisition", undefined, dependencyAcquisitionReceipt(error, runCommandFailureKind(error)));
+      assert.equal(diagnostic.outcome, outcome);
+      assert.equal(JSON.stringify(diagnostic).includes("private-token"), false);
+    }
   } finally {
     await rm(tempRoot, { recursive: true, force: true });
   }
@@ -123,7 +145,7 @@ test("the verifier catch branch keeps npm install safeguards and emits only the 
   const os = await import("node:os");
   const path = (await import("node:path")).default;
   const source = await readFile(new URL("../scripts/verify-mcp-packaged.mjs", import.meta.url), "utf8");
-  for (const flag of ["\"--json\"", "\"--ignore-scripts\"", "\"--no-audit\"", "\"--no-fund\"", "timeoutMs: 300_000", "timeoutMs: 900_000"]) assert.equal(source.includes(flag), true);
+  for (const flag of ["\"--json\"", "\"--ignore-scripts\"", "\"--no-audit\"", "\"--no-fund\"", "timeoutMs: 300_000"]) assert.equal(source.includes(flag), true);
   const body = source.slice(source.indexOf("let verificationFailure = null;"));
   const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-1386-verifier-"));
@@ -133,7 +155,7 @@ test("the verifier catch branch keeps npm install safeguards and emits only the 
   try {
     await writeFile(report, `process.stdout.write(JSON.stringify({ error: { code: "EINTEGRITY", detail: "${secret}" } })); process.stderr.write("${secret}"); process.exit(9);`, "utf8");
     const context = {
-      path, createHash, packagedVerificationDiagnostic, dependencyAcquisitionSubcode, operatorToolFailureDiagnostic: () => undefined, releaseMetadataToken: undefined,
+      path, createHash, packagedVerificationDiagnostic, dependencyAcquisitionReceipt, runCommandFailureKind, ownPackagedAcceptanceDiagnostic, operatorToolFailureDiagnostic: () => undefined, releaseMetadataToken: undefined,
       tempRoot, consumerRoot: tempRoot, servicesRoot: path.join(tempRoot, "services"),
       httpWorkspaceRoot: path.join(tempRoot, "http"), stdioWorkspaceRoot: path.join(tempRoot, "stdio"),
       repoRoot: "repo", packageOutputRoot: path.join(tempRoot, "package-output"), version: "0.1.0",
@@ -147,7 +169,7 @@ test("the verifier catch branch keeps npm install safeguards and emits only the 
     await new AsyncFunction(...Object.keys(context), body)(...Object.values(context));
     assert.equal(context.process.exitCode, 1);
     const result = JSON.parse(stderr.slice("[mcp-package-verification-error] ".length));
-    assert.deepEqual(result, { stage: "dependency_acquisition", errorCode: "verification_failed", subcode: "npm_reported_checksum_mismatch" });
+    assert.deepEqual(result, { stage: "dependency_acquisition", errorCode: "verification_failed", outcome: "exit_nonzero", subcode: "npm_reported_checksum_mismatch" });
     assert.equal(stderr.includes(secret), false);
   } finally {
     await rm(tempRoot, { recursive: true, force: true });
@@ -164,6 +186,14 @@ test("unknown or hostile diagnostic inputs cannot disclose payloads or execute g
     assert.equal(JSON.stringify(result).includes("private-token"), false);
     assert.equal(JSON.stringify(externalResult).includes("private-token"), false);
   }
+  const inherited = Object.create({ runCommandFailureKind: "exit_nonzero", code: 1, stdout: JSON.stringify({ error: { code: "ENOTFOUND" } }) });
+  assert.equal(runCommandFailureKind(inherited), "unknown");
+  assert.deepEqual(dependencyAcquisitionReceipt(inherited, runCommandFailureKind(inherited)), { outcome: "unknown" });
+  const expanded = { outcome: "exit_nonzero", subcode: "npm_reported_network_enotfound", private: "private-token" };
+  assert.deepEqual(packagedVerificationDiagnostic("dependency_acquisition", undefined, expanded), {
+    stage: "dependency_acquisition", errorCode: "verification_failed", outcome: "exit_nonzero", subcode: "npm_reported_network_enotfound",
+  });
+  assert.equal(JSON.stringify(packagedVerificationDiagnostic("dependency_acquisition", undefined, expanded)).includes("private-token"), false);
 });
 
 // Exercise the verifier's real outer control flow with inert dependency boundaries.
@@ -188,7 +218,7 @@ test("outer verifier reports the failed boundary, hides captured errors and alwa
         });
       };
       const context = {
-        path, createHash, packagedVerificationDiagnostic, dependencyAcquisitionSubcode, operatorToolFailureDiagnostic: () => undefined, releaseMetadataToken: undefined,
+        path, createHash, packagedVerificationDiagnostic, dependencyAcquisitionReceipt, runCommandFailureKind, ownPackagedAcceptanceDiagnostic, operatorToolFailureDiagnostic: () => undefined, releaseMetadataToken: undefined,
         tempRoot: "owned-temp", consumerRoot: "owned-temp/consumer", servicesRoot: "owned-temp/services",
         httpWorkspaceRoot: "owned-temp/http", stdioWorkspaceRoot: "owned-temp/stdio",
         repoRoot: "repo", packageOutputRoot: "owned-temp/package-output", version: "0.1.0",
@@ -212,7 +242,7 @@ test("outer verifier reports the failed boundary, hides captured errors and alwa
         : {
             stage: failurePhase,
             errorCode: "verification_failed",
-            ...(failurePhase === "dependency_acquisition" ? { subcode: "npm_reported_network_enotfound" } : {}),
+            ...(failurePhase === "dependency_acquisition" ? { outcome: "unknown" } : {}),
           });
     }
   }

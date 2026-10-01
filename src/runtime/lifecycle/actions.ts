@@ -14,6 +14,7 @@ import {
   beginManagedProcessStop,
   hasManagedProcess,
   ManagedProcessEnrollmentContainmentError,
+  managedProcessLauncherPayloadFailureBoundary,
   managedProcessStartFailurePhase,
   registerManagedProcessShutdownQuiescer,
   startManagedProcess,
@@ -91,9 +92,12 @@ import type {
   ServiceStartTraceAttempt,
   ServiceStartTraceEventStatus,
   ServiceStartTracePhase,
+  ServiceRestartTraceAttempt,
+  ServiceRestartTraceStage,
 } from "./types.js";
 
 const START_TRACE_HISTORY_LIMIT = 5;
+const RESTART_TRACE_HISTORY_LIMIT = 4;
 const DEFAULT_RESTART_MAX_ATTEMPTS = 3;
 const DEFAULT_RESTART_BACKOFF_SECONDS = 5;
 const DEFAULT_STOP_ACTION_TIMEOUT_SECONDS = 30;
@@ -104,6 +108,13 @@ const scheduledSupervisionRestarts = new Map<string, ReturnType<typeof setTimeou
 const activeSupervisionRestarts = new Map<string, Promise<void>>();
 const supervisionRestartClaims = new Set<string>();
 const shutdownRequestedServiceIds = new Set<string>();
+let readinessWaiterForTests: typeof waitForServiceReadiness | null = null;
+
+export function setReadinessWaiterForTests(
+  waiter: typeof waitForServiceReadiness | null,
+): void {
+  readinessWaiterForTests = waiter;
+}
 
 registerManagedProcessShutdownQuiescer(async (managedServiceIds) => {
   const serviceIds = new Set([
@@ -447,6 +458,32 @@ function failStartTraceAndThrow(
   }
   finishStartTrace(serviceId, attempt, "blocked", message);
   throw new LifecycleStateError(message);
+}
+
+function beginRestartTrace(serviceId: string): ServiceRestartTraceAttempt {
+  const attempt: ServiceRestartTraceAttempt = { status: "running", events: [] };
+  try {
+    updateRuntimeState(serviceId, (state) => ({ ...state, runtime: { ...state.runtime, restartTrace: { ...state.runtime.restartTrace, current: { ...attempt, events: [] } } } }));
+  } catch { /* diagnostics never affect lifecycle behavior */ }
+  return attempt;
+}
+
+function recordRestartTrace(serviceId: string, attempt: ServiceRestartTraceAttempt, stage: ServiceRestartTraceStage, status: ServiceStartTraceEventStatus, oldNewProcessRelation: "unavailable" | "prior_generation_running" | "replacement_spawned" = "unavailable"): void {
+  try {
+    if (attempt.events.length >= 7) return;
+    attempt.events.push({ order: attempt.events.length + 1, stage, status, oldNewProcessRelation });
+    updateRuntimeState(serviceId, (state) => ({ ...state, runtime: { ...state.runtime, restartTrace: { ...state.runtime.restartTrace, current: { ...attempt, events: attempt.events.map((event) => ({ ...event })) } } } }));
+  } catch { /* diagnostics never affect lifecycle behavior */ }
+}
+
+function finishRestartTrace(serviceId: string, attempt: ServiceRestartTraceAttempt, status: "succeeded" | "failed" | "blocked", oldNewProcessRelation: "unavailable" | "prior_generation_running" | "replacement_spawned" = "unavailable"): void {
+  try {
+    if (attempt.status !== "running") return;
+    recordRestartTrace(serviceId, attempt, "response", status === "succeeded" ? "completed" : status, oldNewProcessRelation);
+    attempt.status = status;
+    const completed = { ...attempt, events: attempt.events.map((event) => ({ ...event })) };
+    updateRuntimeState(serviceId, (state) => ({ ...state, runtime: { ...state.runtime, restartTrace: { current: completed, history: [completed, ...state.runtime.restartTrace.history].slice(0, RESTART_TRACE_HISTORY_LIMIT) } } }));
+  } catch { /* diagnostics never affect lifecycle behavior */ }
 }
 
 function uniqueStrings(values: Array<string | undefined>): string[] {
@@ -1592,6 +1629,9 @@ async function startServiceSerialized(
       provider: executionPlan.provider,
       providerServiceId: executionPlan.providerServiceId,
       processStartFailurePhase: managedProcessStartFailurePhase(error) ?? "unclassified_error",
+      ...(managedProcessLauncherPayloadFailureBoundary(error)
+        ? { launcherPayloadFailureBoundary: managedProcessLauncherPayloadFailureBoundary(error) }
+        : {}),
       ...windowsTreeInspectionFailureMetadata(error),
     });
     finishStartTrace(serviceId, trace, "failed", message);
@@ -1774,12 +1814,20 @@ export async function restartService(
   shutdownRequestedServiceIds.delete(serviceId);
   cancelScheduledSupervisionRestart(serviceId);
   const current = getLifecycleState(serviceId);
+  const restartTrace = beginRestartTrace(serviceId);
+  let replacementSpawned = false;
+  let unexpectedFailureStage: ServiceRestartTraceStage = "replacement_spawn";
+  try {
   if (!current.installed) {
+    recordRestartTrace(serviceId, restartTrace, "precheck", "blocked");
+    finishRestartTrace(serviceId, restartTrace, "blocked");
     throw new LifecycleStateError(
       `Cannot restart service "${serviceId}" before install.`,
     );
   }
   if (!current.configured) {
+    recordRestartTrace(serviceId, restartTrace, "precheck", "blocked");
+    finishRestartTrace(serviceId, restartTrace, "blocked");
     throw new LifecycleStateError(
       `Cannot restart service "${serviceId}" before config.`,
     );
@@ -1787,6 +1835,8 @@ export async function restartService(
   try {
     assertIsolationStartAllowed(evaluateServiceIsolation(service.manifest.isolation), serviceId);
   } catch (error) {
+    recordRestartTrace(serviceId, restartTrace, "precheck", "blocked");
+    finishRestartTrace(serviceId, restartTrace, "blocked");
     throw new LifecycleStateError(
       error instanceof Error
         ? error.message
@@ -1803,14 +1853,31 @@ export async function restartService(
     !service.manifest.executable &&
     !current.installArtifacts.artifact?.command
   ) {
+    recordRestartTrace(serviceId, restartTrace, "precheck", "blocked");
+    finishRestartTrace(serviceId, restartTrace, "blocked");
     throw new LifecycleStateError(
       `Cannot restart service "${serviceId}" because no executable is configured.`,
     );
   }
-  await assertDoctorPreflightAllowsRestart(service, options.expectedDoctorExecutableBindings);
+  try {
+    await assertDoctorPreflightAllowsRestart(service, options.expectedDoctorExecutableBindings);
+    recordRestartTrace(serviceId, restartTrace, "precheck", "completed", current.running ? "prior_generation_running" : "unavailable");
+  } catch (error) {
+    recordRestartTrace(serviceId, restartTrace, "precheck", "blocked", current.running ? "prior_generation_running" : "unavailable");
+    finishRestartTrace(serviceId, restartTrace, "blocked", current.running ? "prior_generation_running" : "unavailable");
+    throw error;
+  }
 
   if (current.running) {
-    const stopped = await stopManagedProcess(serviceId);
+    recordRestartTrace(serviceId, restartTrace, "stop_request", "completed", "prior_generation_running");
+    let stopped: Awaited<ReturnType<typeof stopManagedProcess>>;
+    try {
+      stopped = await stopManagedProcess(serviceId);
+    } catch (error) {
+      recordRestartTrace(serviceId, restartTrace, "finalization_failed", "failed", "prior_generation_running");
+      finishRestartTrace(serviceId, restartTrace, "failed", "prior_generation_running");
+      throw error;
+    }
     const finishedAt = new Date().toISOString();
     const revokedIdentities = revokeServiceScopedBrokerIdentities(serviceId, {
       now: new Date(finishedAt),
@@ -1831,8 +1898,11 @@ export async function restartService(
       },
     }));
     await writeServiceState(service, stoppedState);
+    recordRestartTrace(serviceId, restartTrace, "finalization_settled", "completed", "prior_generation_running");
   } else {
     revokeServiceScopedBrokerIdentities(serviceId);
+    recordRestartTrace(serviceId, restartTrace, "stop_request", "skipped");
+    recordRestartTrace(serviceId, restartTrace, "finalization_settled", "skipped");
   }
 
   const sharedGlobalEnv = registry
@@ -1909,6 +1979,8 @@ export async function restartService(
       },
     });
   } catch (error) {
+    recordRestartTrace(serviceId, restartTrace, "replacement_spawn", "failed", current.running ? "prior_generation_running" : "unavailable");
+    finishRestartTrace(serviceId, restartTrace, "failed", current.running ? "prior_generation_running" : "unavailable");
     const message = `Cannot restart service "${serviceId}" because process spawn failed: ${
       error instanceof Error ? error.message : String(error)
     }`;
@@ -1947,6 +2019,8 @@ export async function restartService(
     }
     throw new LifecycleStateError(message);
   }
+  recordRestartTrace(serviceId, restartTrace, "replacement_spawn", "completed", "replacement_spawned");
+  replacementSpawned = true;
 
   updateRuntimeState(serviceId, (state) => ({
     ...state,
@@ -1975,17 +2049,20 @@ export async function restartService(
     },
   }));
 
-  const readiness = await waitForServiceReadiness(service, sharedGlobalEnv, {
+  unexpectedFailureStage = "readiness";
+  const readiness = await (readinessWaiterForTests ?? waitForServiceReadiness)(service, sharedGlobalEnv, {
     workspaceRoot: options.workspaceRoot,
     generationId: options.runtimeGenerationId,
     allocationRevision,
     expectedPorts: resolvedPorts,
   });
+  recordRestartTrace(serviceId, restartTrace, "readiness", readiness.ready ? "completed" : "failed", "replacement_spawned");
   if (!readiness.ready) {
     const stopped = await stopManagedProcess(serviceId);
     const revokedIdentities = revokeServiceScopedBrokerIdentities(serviceId);
     const revokedIdentity =
       revokedIdentities.at(-1) ?? scopedBrokerIdentity?.metadata ?? null;
+    finishRestartTrace(serviceId, restartTrace, "failed", "replacement_spawned");
     const failedResult = applyState(
       serviceId,
       "restart",
@@ -2027,6 +2104,8 @@ export async function restartService(
     await transitionProcessOwnership(options.workspaceRoot, "service", serviceId, "running", "owned", handle.pid);
   }
 
+  unexpectedFailureStage = "response";
+  finishRestartTrace(serviceId, restartTrace, "succeeded", "replacement_spawned");
   const result = applyState(serviceId, "restart", (state) => ({
     nextState: {
       ...state,
@@ -2058,4 +2137,14 @@ export async function restartService(
     },
   ]);
   return result;
+  } catch (error) {
+    if (restartTrace.status === "running") {
+      const relation = replacementSpawned ? "replacement_spawned" : "unavailable";
+      if (unexpectedFailureStage !== "response") {
+        recordRestartTrace(serviceId, restartTrace, unexpectedFailureStage, "failed", relation);
+      }
+      finishRestartTrace(serviceId, restartTrace, "failed", relation);
+    }
+    throw error;
+  }
 }
