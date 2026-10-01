@@ -14,6 +14,13 @@ This file tracks bootstrap/adoption/remediation work required before product imp
 ## Open Items
 - `ISS-1463-implementation`: retain remote-develop implementation traceability, local direct proof, independent whole review, and separate owner-catalog/TAR T1-T5 blockers.
 
+  The corrective durable-attachment slice writes the exact claimed byte object,
+  metadata, manifest, and composite publication receipt privately, synchronises
+  file and supported directory boundaries before publication/outcome sealing,
+  and revalidates completed replay without a fetch or second import. Focused
+  local crash evidence does not close the owner-catalog, TAR T1--T5, exact-head
+  CI, independent-review, release, or GA gates.
+
 - #1463 defines a release-asset-only staged transfer prerequisite in
   `docs/api/staged-service-transfer.md`. It uses a new reviewed
    staged-registration adapter over #1462 / PR #1464 (`a83133cc`), rather than

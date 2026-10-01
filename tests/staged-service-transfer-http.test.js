@@ -72,11 +72,12 @@ test("staged transfer HTTP route enforces closed credentials and drives an actor
   process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH = path.join(tempRoot, "host-port-registry.json");
   const archive = Buffer.from(zipSync({ "release.txt": Buffer.from("staged fixture") }));
   const archiveSha256 = createHash("sha256").update(archive).digest("hex");
+  const heldManifest = Buffer.from("staged-http-held-manifest", "utf8");
   const identity = {
     repo: "service-lasso/lasso-example", releaseTag: "v1", commitSha,
     targetServiceId: "staged-http-service", platform: "win32", archiveType: "zip",
     assetName: "staged.zip", assetId: "asset-1", archiveBytes: archive.length,
-    archiveSha256, manifestSha256: "b".repeat(64), releaseId: "release-1",
+    archiveSha256, manifestSha256: createHash("sha256").update(heldManifest).digest("hex"), manifestBytes: heldManifest.toString("base64"), releaseId: "release-1",
     manifestAssetId: "manifest-1", checksumAssetId: "checksums-1",
   };
   const imported = [];
@@ -248,6 +249,7 @@ test("staged transfer HTTP keeps actors isolated, denies before body reads, and 
   process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH = path.join(tempRoot, "host-port-registry.json");
   const archive = Buffer.from(zipSync({ "release.txt": Buffer.from("actor terminal fixture") }));
   const digest = createHash("sha256").update(archive).digest("hex");
+  const heldManifest = Buffer.from("terminal-http-held-manifest", "utf8");
   let now = 1_700_000_000_000;
   let resolutions = 0;
   let imports = 0;
@@ -257,7 +259,7 @@ test("staged transfer HTTP keeps actors isolated, denies before body reads, and 
   const identityFor = (targetServiceId) => ({
     repo: "service-lasso/lasso-example", releaseTag: "v1", commitSha, targetServiceId,
     platform: "win32", archiveType: "zip", assetName: `${targetServiceId}.zip`, assetId: `asset-${targetServiceId}`,
-    archiveBytes: archive.length, archiveSha256: targetServiceId === "rejected-http-service" ? "c".repeat(64) : digest, manifestSha256: "b".repeat(64), releaseId: `release-${targetServiceId}`,
+    archiveBytes: archive.length, archiveSha256: targetServiceId === "rejected-http-service" ? "c".repeat(64) : digest, manifestSha256: createHash("sha256").update(heldManifest).digest("hex"), manifestBytes: heldManifest.toString("base64"), releaseId: `release-${targetServiceId}`,
     manifestAssetId: `manifest-${targetServiceId}`, checksumAssetId: `checksums-${targetServiceId}`,
   });
   const api = await startApiServer({
@@ -271,7 +273,7 @@ test("staged transfer HTTP keeps actors isolated, denies before body reads, and 
           assert.deepEqual(input.readByteObject(), archive);
           return input.serviceId === "quarantined-http-service" ? "conflict" : input.serviceId === "unknown-http-service" ? "unknown" : "completed";
         },
-        reconcile: async () => "unknown",
+        reconcile: async (input) => input.serviceId === "completed-http-service" ? "completed" : "unknown",
       },
     },
   });

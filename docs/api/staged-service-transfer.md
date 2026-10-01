@@ -222,7 +222,7 @@ For a new request under the cross-process lock: (1) reconcile unfinished staged-
 
 Registration validates and attaches the claimed immutable stage input through the direct-child import boundary only. It does not install, acquire, extract, start, restart, reload, or otherwise materialise a service. A later service install/acquire path remains a separate existing lifecycle-free materialisation decision: it resolves the retained release binding and its declared checksum policy for its own acquisition, and cannot retroactively replace, reinterpret, or treat the consumed stage bytes as an arbitrary source. This contract adds no lifecycle authority.
 
-Recovery under the same lock reads that journal first. A prepared/unclaimed journal may revalidate. A claimed/unknown operation reconciles its direct-child target only against the retained trusted workspace, byte-object identity, full digest, byte length, and release binding before recording completion or retaining `unknown`; it never reacquires bytes. A terminal operation seals the stage and emits pending safe Audit. Contradictory stage, workspace, confirmation, byte-object, operation, or journal IDs fail closed as `503 registration_unavailable`. Cleanup claims only eligible expired/terminal stages, deletes Core-owned bytes after retention, preserves metadata, never races a claim, and never repeats uncertain mutation.
+Recovery under the same lock reads that journal first. A prepared/unclaimed journal may revalidate. The direct child constructs `service.json`, the exact claimed byte attachment, metadata, and a composite-bound publication receipt in a private exclusive sibling, fsyncs each file, atomically renames the complete child, and fsyncs supported containing directories before it can return completion. A claimed/unknown operation reconciles its direct-child target only against the retained trusted workspace, byte-object identity, full digest, byte length, actor/idempotency/release/platform/catalog binding, metadata, and publication receipt before recording completion or retaining `unknown`; it never reacquires bytes. A completed replay performs that same full reconciliation and is downgraded to `unknown` if any component is absent, truncated, replaced, or unverifiable. A terminal operation seals the stage and emits pending safe Audit. Contradictory stage, workspace, confirmation, byte-object, operation, or journal IDs fail closed as `503 registration_unavailable`. Cleanup claims only eligible expired/terminal stages, deletes Core-owned bytes after retention, preserves metadata, never races a claim, and never repeats uncertain mutation.
 
 Stable outcomes: `400 invalid_request`; `401 actor_credential_missing`, `actor_credential_invalid`, `upload_token_invalid`, or `confirmation_invalid`; `403 forbidden` or `unapproved_release`; `404 stage_not_found`; `409 release_binding_mismatch`, `chunk_sequence_conflict`, `stage_expired`, `stage_terminal`, `digest_mismatch`, `archive_unsafe`, `manifest_invalid`, `confirmation_required`, `confirmation_expired`, or `idempotency_conflict`; `429 stage_quota_exceeded`; and `503 release_provenance_unavailable` or `registration_unavailable`.
 
@@ -247,8 +247,10 @@ including Unicode/case/Windows alias collisions, bounded chunked inflate with in
 grammar/range/retry conflicts, including PAX size less-than and greater-than
 header-size denials in parser and importer preflight; retention/GET-after-cleanup;
 confirmation-before-new-only replay order; adapter atomic order, one exact
-Core-held claimed-byte input/no-redownload-or-substitution proof, cross-process
-and hard-exit recovery; secret-free Audit; and packaged Core plus external CLI
+Core-held claimed-byte input/no-redownload-or-substitution proof, private
+attachment fsync/rename/directory-sync ordering, completed-replay composite
+revalidation, and separate-process hard-exit recovery at attachment publication;
+secret-free idempotent Audit; and packaged Core plus external CLI
 released-asset transfer. Enabling TAR additionally requires **all** T1–T5
 before this v1 gate is satisfied: the independent reviews, current GNU/Linux
 and BSD/macOS producer receipts and real fixtures, byte-level accepted and

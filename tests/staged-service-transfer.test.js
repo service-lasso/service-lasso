@@ -198,6 +198,60 @@ test("staged direct-child importer registers the canonical manifest without down
   }
 });
 
+test("staged direct-child attachment stays unknown at every private-publication durability boundary", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "staged-attachment-boundaries-"));
+  const servicesRoot = path.join(root, "services");
+  const archive = Buffer.from("durable attachment fixture", "utf8");
+  const digest = createHash("sha256").update(archive).digest("hex");
+  const manifest = JSON.stringify({
+    id: "durable-attachment-service", name: "Durable attachment", description: "fixture", executable: "node", args: ["fixture.js"], healthcheck: { type: "process" },
+    artifact: { kind: "archive", source: { type: "github-release", repo: "service-lasso/lasso-node", tag: "v1" }, platforms: { win32: { assetName: "durable.zip", archiveType: "zip", command: "fixture.js", checksum: { algorithm: "sha256", value: "b".repeat(64) } } } },
+  });
+  const manifestDigest = createHash("sha256").update(manifest).digest("hex");
+  const claim = () => ({
+    serviceId: "durable-attachment-service", readByteObject: () => Buffer.from(archive), byteObjectId: "sbo_durable", byteLength: archive.length, archiveSha256: digest,
+    manifestSha256: manifestDigest, releaseId: "release-durable", targetSha: "a".repeat(40), workspaceId: "durable-workspace", actorId: "durable-actor", stageId: "stg_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", operationId: "sro_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", idempotencyKey: "durable-attachment-0001",
+    repo: "service-lasso/lasso-node", releaseTag: "v1", assetId: "asset-durable", assetName: "durable.zip", archiveType: "zip", platform: "win32", manifestAssetId: "manifest-durable", checksumAssetId: "checksums-durable", manifestBytes: Buffer.from(manifest, "utf8"),
+  });
+  try {
+    for (const boundary of ["attachment_files_durable", "publication_renamed", "publication_durable"]) {
+      await rm(servicesRoot, { recursive: true, force: true });
+      const importer = createStagedReleaseAssetImporter({ servicesRoot, onDurabilityBoundary: (seen) => { if (seen === boundary) throw new Error(`injected ${boundary}`); } });
+      assert.equal(await importer.import(claim()), "unknown", `${boundary} must never report completed`);
+      const recovered = await importer.reconcile({ ...claim(), manifestBytes: Buffer.from(manifest, "utf8") });
+      assert.equal(recovered, boundary === "publication_durable" ? "completed" : "unknown", `${boundary} must only be recoverable after publication durability is sealed`);
+    }
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("a completed replay is downgraded to unknown when its retained attachment cannot be revalidated", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "staged-completed-revalidation-"));
+  const bytes = Buffer.from(zipSync({ "release.txt": Buffer.from("fixture") }));
+  const digest = createHash("sha256").update(bytes).digest("hex");
+  const manifest = Buffer.from(JSON.stringify({ id: "completed-revalidation" }), "utf8");
+  const identity = { repo:"service-lasso/lasso-example", releaseTag:"v1", commitSha:"a".repeat(40), targetServiceId:"completed-revalidation", platform:"win32", archiveType:"zip", assetName:"sample.zip", assetId:"1", archiveBytes:bytes.length, archiveSha256:digest, manifestSha256:createHash("sha256").update(manifest).digest("hex"), releaseId:"2", manifestBytes:manifest.toString("base64") };
+  const actor = { id:"completed-actor", workspaceId:"completed-workspace", canConfigure:true };
+  const input = { targetServiceId:identity.targetServiceId, provenance:{repo:identity.repo,releaseTag:identity.releaseTag,commitSha:identity.commitSha},platform:"win32",manifestSchemaVersion:"service-lasso.service-manifest/v1" };
+  let imports = 0, reconciles = 0, resolves = 0;
+  try {
+    const first = new StagedServiceTransfer(root, { resolve: async () => identity }, { import: async () => { imports += 1; return "completed"; } });
+    const stage = await first.create(actor, input);
+    await first.upload(actor, stage.stageId, 0, stage.uploadToken, digest, bytes, { start: 0, end: bytes.length - 1, total: bytes.length });
+    await first.finalize(actor, stage.stageId);
+    const confirmation = await first.confirmation(actor, stage.stageId);
+    await first.register(actor, stage.stageId, confirmation.confirmationId, "completed-revalidation-0001");
+    const restarted = new StagedServiceTransfer(root, { resolve: async () => { resolves += 1; return identity; } }, { import: async () => { throw new Error("completed replay must not import"); }, reconcile: async () => { reconciles += 1; return "unknown"; } });
+    const replay = await restarted.register(actor, stage.stageId, confirmation.confirmationId, "completed-revalidation-0001");
+    assert.equal(replay.replayed, true);
+    assert.equal(replay.status, "unknown");
+    assert.equal(imports, 1);
+    assert.equal(reconciles, 1);
+    assert.equal(resolves, 0, "completed replay must not reacquire a release");
+    const store = JSON.parse(await readFile(path.join(root, ".service-lasso", "operator", "service-registration-operations.json"), "utf8"));
+    assert.equal(store.operations[0].status, "unknown");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test("staged direct-child importer rejects a redirected services authority before writing bytes or metadata", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "staged-direct-child-junction-"));
   const retainedRoot = path.join(root, "retained-services");
@@ -354,6 +408,33 @@ test("separate-process hard exit after real direct-child persistence recovers wi
     assert.equal(resolutions, 0, "idempotency recovery must not refetch or re-resolve the released asset");
     assert.equal(createHash("sha256").update(await readFile(path.join(servicesRoot, "hard-exit-service", ".service-lasso", "staged-release-input.bin"))).digest("hex"), digest);
     assert.equal(JSON.parse(manifest).id, "hard-exit-service");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("separate-process crash in the attachment publication window remains unknown without a second import, fetch, or Audit event", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "staged-publication-hard-exit-"));
+  const servicesRoot = path.join(root, "services");
+  const fixture = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "staged-transfer-hard-exit.mjs");
+  try {
+    const child = spawn(process.execPath, [fixture, root, servicesRoot], { stdio: "ignore", env: { ...process.env, SERVICE_LASSO_TEST_STAGED_ATTACHMENT_CRASH_BOUNDARY: "publication_renamed" } });
+    const [code, signal] = await once(child, "exit");
+    assert.equal(signal, null);
+    assert.equal(code, 74, "fixture must hard exit between publication rename and durable publication receipt");
+    const store = JSON.parse(await readFile(path.join(root, ".service-lasso", "operator", "service-registration-operations.json"), "utf8"));
+    const stage = store.stagedTransfer.stages[0];
+    let resolutions = 0;
+    const direct = createStagedReleaseAssetImporter({ servicesRoot });
+    const restarted = new StagedServiceTransfer(root, { resolve: async () => { resolutions += 1; return stage.identity; } }, {
+      import: async () => { throw new Error("publication-window recovery must not import a second time"); },
+      reconcile: direct.reconcile,
+    });
+    const replay = await restarted.register({ id: "hard-exit-actor", workspaceId: "hard-exit-workspace", canConfigure: true }, stage.id, "scf_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "hard-exit-idempotency-0001");
+    assert.equal(replay.replayed, true);
+    assert.equal(replay.status, "claimed");
+    assert.equal(replay.operation.state, "unknown");
+    assert.equal(resolutions, 0, "publication-window recovery must not re-resolve or fetch the release");
+    const audit = await readAuditEvents({ workspaceRoot: root, query: { action: "staged_service_registration" } });
+    assert.equal(audit.events.length, 0, "an unverifiable publication must not seal a success Audit event");
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 

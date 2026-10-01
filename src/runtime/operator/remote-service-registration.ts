@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
-import { lstat, mkdir, open, readFile, realpath, rename, rmdir, unlink, writeFile } from "node:fs/promises";
+import { createHash, randomBytes } from "node:crypto";
+import { lstat, mkdir, open, readFile, realpath, rename, rm, rmdir, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { ApiError } from "../../server/errors.js";
 import { discoverServices } from "../discovery/discoverServices.js";
@@ -343,12 +343,15 @@ async function importVerifiedManifest(input: { servicesRoot: string; manifest: S
 
 const STAGED_INPUT_DIRECTORY = ".service-lasso";
 const STAGED_INPUT_FILE = "staged-release-input.json";
+const STAGED_INPUT_PUBLICATION_FILE = "staged-release-input.published";
 // The metadata document alone is not an attachment: it can name an object
 // that has already been removed or replaced.  Registration therefore keeps a
 // private immutable byte copy beside the direct-child manifest.  This is only
 // custody of the caller-held release asset; it is never extracted, acquired,
 // installed, or executed here.
 const STAGED_INPUT_BYTES_FILE = "staged-release-input.bin";
+
+export type StagedAttachmentDurabilityBoundary = "attachment_files_durable" | "publication_renamed" | "publication_durable";
 
 type StagedReleaseInputAttachment = {
   schema: "service-lasso.staged-release-input/v1";
@@ -380,6 +383,10 @@ function isSameStagedInputAttachment(value: unknown, expected: StagedReleaseInpu
   return JSON.stringify(value) === JSON.stringify(expected);
 }
 
+function stagedInputPublicationReceipt(attachment: StagedReleaseInputAttachment): string {
+  return `${JSON.stringify({ schema: "service-lasso.staged-release-publication/v1", attachmentSha256: sha256(JSON.stringify(attachment)) })}\n`;
+}
+
 async function stagedInputAttachmentPath(servicesRoot: string, serviceId: string): Promise<string | null> {
   const manifestPath = await isSafeDirectChildManifest(servicesRoot, serviceId);
   if (!manifestPath) return null;
@@ -408,16 +415,42 @@ async function stagedInputBytesPath(servicesRoot: string, serviceId: string): Pr
   } catch { return null; }
 }
 
-async function rollbackOwnedStagedImport(serviceRoot: string, manifestPath: string, manifestBytes: string, attachmentPath: string, attachmentBytes: string, bytesPath: string, archiveBytes: Uint8Array): Promise<void> {
+async function stagedInputPublicationPath(servicesRoot: string, serviceId: string): Promise<string | null> {
+  const attachmentPath = await stagedInputAttachmentPath(servicesRoot, serviceId);
+  if (!attachmentPath) return null;
+  const receiptPath = path.join(path.dirname(attachmentPath), STAGED_INPUT_PUBLICATION_FILE);
   try {
-    if (Buffer.compare(await readFile(bytesPath), Buffer.from(archiveBytes)) === 0) await unlink(bytesPath);
-    if (await readFile(attachmentPath, "utf8") === attachmentBytes) await unlink(attachmentPath);
-    await rmdir(path.dirname(attachmentPath));
-  } catch { /* preserve unprovable retained state for recovery */ }
-  await rollbackOwnedManifest(serviceRoot, manifestPath, manifestBytes);
+    const receipt = await lstat(receiptPath);
+    if (!receipt.isFile() || receipt.isSymbolicLink() || path.dirname(await realpath(receiptPath)) !== await realpath(path.dirname(attachmentPath))) return null;
+    return receiptPath;
+  } catch { return null; }
 }
 
-async function importStagedReleaseAttachment(input: { servicesRoot: string; manifest: ServiceManifest; manifestBytes: string; attachment: StagedReleaseInputAttachment; archiveBytes: Uint8Array }): Promise<"completed" | "conflict" | "unknown"> {
+async function syncDirectoryWhenSupported(directory: string): Promise<void> {
+  try {
+    const handle = await open(directory, "r");
+    try { await handle.sync(); } finally { await handle.close(); }
+  } catch (error) {
+    // Windows does not provide a directory handle that Node can fsync.  A
+    // platform that does provide one must surface a failed sync as unknown.
+    const code = (error as NodeJS.ErrnoException).code;
+    if (!["EISDIR", "EPERM", "EACCES", "EINVAL", "ENOTSUP", "ENOSYS"].includes(code ?? "")) throw error;
+  }
+}
+
+async function writePrivateDurableFile(file: string, bytes: Uint8Array | string): Promise<void> {
+  const handle = await open(file, "wx", 0o600);
+  try {
+    await handle.writeFile(bytes);
+    await handle.sync();
+  } finally { await handle.close(); }
+}
+
+async function removePrivateTransaction(privateRoot: string): Promise<void> {
+  try { await rm(privateRoot, { recursive: true, force: true, maxRetries: 0 }); } catch { /* retained private evidence is safer than an unproved cleanup */ }
+}
+
+async function importStagedReleaseAttachment(input: { servicesRoot: string; manifest: ServiceManifest; manifestBytes: string; attachment: StagedReleaseInputAttachment; archiveBytes: Uint8Array; onDurabilityBoundary?: (boundary: StagedAttachmentDurabilityBoundary) => Promise<void> | void }): Promise<"completed" | "conflict" | "unknown"> {
   // A normal empty workspace may not have its services directory yet.  Create
   // only that configured directory, then prove it is still a real directory
   // before resolving any child path; mkdir on an existing junction is harmless
@@ -427,29 +460,51 @@ async function importStagedReleaseAttachment(input: { servicesRoot: string; mani
   if (!root) return "unknown";
   const serviceRoot = path.resolve(root, input.manifest.id);
   if (path.dirname(serviceRoot) !== root) return "unknown";
-  const manifestPath = path.join(serviceRoot, "service.json");
-  const attachmentDirectory = path.join(serviceRoot, STAGED_INPUT_DIRECTORY);
+  // Build the complete direct child in a private sibling.  A power loss can
+  // expose either no child or a child whose manifest, bytes, and metadata were
+  // all synced before the one directory rename; it can never expose a sealed
+  // success with a partially written attachment.
+  const privateRoot = path.join(root, `.${input.manifest.id}.staged-${randomBytes(12).toString("hex")}`);
+  const manifestPath = path.join(privateRoot, "service.json");
+  const attachmentDirectory = path.join(privateRoot, STAGED_INPUT_DIRECTORY);
   const attachmentPath = path.join(attachmentDirectory, STAGED_INPUT_FILE);
   const bytesPath = path.join(attachmentDirectory, STAGED_INPUT_BYTES_FILE);
   const attachmentBytes = `${JSON.stringify(input.attachment)}\n`;
+  let privateCreated = false;
   if (input.archiveBytes.byteLength !== input.attachment.byteObject.length || createHash("sha256").update(input.archiveBytes).digest("hex") !== input.attachment.byteObject.sha256) return "unknown";
   try {
-    await mkdir(serviceRoot);
-    await writeFile(manifestPath, input.manifestBytes, { encoding: "utf8", flag: "wx" });
+    await mkdir(privateRoot, { mode: 0o700 });
+    privateCreated = true;
+    await writePrivateDurableFile(manifestPath, input.manifestBytes);
     await mkdir(attachmentDirectory, { mode: 0o700 });
     const directory = await lstat(attachmentDirectory);
-    if (!directory.isDirectory() || directory.isSymbolicLink() || path.dirname(await realpath(attachmentDirectory)) !== await realpath(serviceRoot)) throw new Error("unsafe attachment directory");
-    await writeFile(bytesPath, input.archiveBytes, { mode: 0o600, flag: "wx" });
-    await writeFile(attachmentPath, attachmentBytes, { encoding: "utf8", mode: 0o600, flag: "wx" });
+    if (!directory.isDirectory() || directory.isSymbolicLink() || path.dirname(await realpath(attachmentDirectory)) !== await realpath(privateRoot)) throw new Error("unsafe attachment directory");
+    await writePrivateDurableFile(bytesPath, input.archiveBytes);
+    await writePrivateDurableFile(attachmentPath, attachmentBytes);
+    await syncDirectoryWhenSupported(attachmentDirectory);
+    await syncDirectoryWhenSupported(privateRoot);
+    await input.onDurabilityBoundary?.("attachment_files_durable");
+    await rename(privateRoot, serviceRoot);
+    await input.onDurabilityBoundary?.("publication_renamed");
+    await syncDirectoryWhenSupported(root);
+    const publicationDirectory = path.join(serviceRoot, STAGED_INPUT_DIRECTORY);
+    await writePrivateDurableFile(path.join(publicationDirectory, STAGED_INPUT_PUBLICATION_FILE), stagedInputPublicationReceipt(input.attachment));
+    await syncDirectoryWhenSupported(publicationDirectory);
+    await syncDirectoryWhenSupported(serviceRoot);
+    await syncDirectoryWhenSupported(root);
+    await input.onDurabilityBoundary?.("publication_durable");
     const discovered = await discoverServices(root);
-    if (!discovered.some((service) => service.manifest.id === input.manifest.id && service.manifestPath === manifestPath) || Buffer.compare(await readFile(bytesPath), Buffer.from(input.archiveBytes)) !== 0) {
-      await rollbackOwnedStagedImport(serviceRoot, manifestPath, input.manifestBytes, attachmentPath, attachmentBytes, bytesPath, input.archiveBytes);
-      return "unknown";
-    }
+    const publishedManifestPath = path.join(serviceRoot, "service.json");
+    if (!discovered.some((service) => service.manifest.id === input.manifest.id && service.manifestPath === publishedManifestPath) || Buffer.compare(await readFile(path.join(serviceRoot, STAGED_INPUT_DIRECTORY, STAGED_INPUT_BYTES_FILE)), Buffer.from(input.archiveBytes)) !== 0) return "unknown";
     return "completed";
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "EEXIST") return "conflict";
-    await rollbackOwnedStagedImport(serviceRoot, manifestPath, input.manifestBytes, attachmentPath, attachmentBytes, bytesPath, input.archiveBytes);
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+      if (privateCreated) await removePrivateTransaction(privateRoot);
+      return "conflict";
+    }
+    // Once renamed, ownership of the retained child is intentionally not
+    // guessed.  The caller retains unknown and restart reconciliation decides.
+    if (privateCreated) await removePrivateTransaction(privateRoot);
     return "unknown";
   }
 }
@@ -461,7 +516,7 @@ async function importStagedReleaseAttachment(input: { servicesRoot: string; mani
  * manifest bytes must travel from the resolver through that held record; the
  * child never fetches a release asset, extracts an archive, or starts a service.
  */
-export function createStagedReleaseAssetImporter(input: { servicesRoot: string }): DirectChildImporter {
+export function createStagedReleaseAssetImporter(input: { servicesRoot: string; onDurabilityBoundary?: (boundary: StagedAttachmentDurabilityBoundary) => Promise<void> | void }): DirectChildImporter {
   return {
     import: async (claimed) => {
       const archiveBytes = claimed.readByteObject();
@@ -506,6 +561,7 @@ export function createStagedReleaseAssetImporter(input: { servicesRoot: string }
         manifestBytes,
         attachment: stagedInputAttachment(claimed),
         archiveBytes,
+        onDurabilityBoundary: input.onDurabilityBoundary,
       });
     },
     reconcile: async (claimed) => {
@@ -520,14 +576,16 @@ export function createStagedReleaseAssetImporter(input: { servicesRoot: string }
       const target = await isSafeDirectChildManifest(input.servicesRoot, claimed.serviceId);
       const attachmentPath = await stagedInputAttachmentPath(input.servicesRoot, claimed.serviceId);
       const bytesPath = await stagedInputBytesPath(input.servicesRoot, claimed.serviceId);
-      if (!target || !attachmentPath || !bytesPath) return "unknown";
+      const publicationPath = await stagedInputPublicationPath(input.servicesRoot, claimed.serviceId);
+      if (!target || !attachmentPath || !bytesPath || !publicationPath) return "unknown";
       try {
         const attachment = JSON.parse(await readFile(attachmentPath, "utf8")) as unknown;
         const archiveBytes = await readFile(bytesPath);
         return equalBuffer(await readFile(target), claimed.manifestBytes) &&
           archiveBytes.byteLength === claimed.byteLength &&
           createHash("sha256").update(archiveBytes).digest("hex") === claimed.archiveSha256 &&
-          isSameStagedInputAttachment(attachment, stagedInputAttachment(claimed)) ? "completed" : "conflict";
+          isSameStagedInputAttachment(attachment, stagedInputAttachment(claimed)) &&
+          (await readFile(publicationPath, "utf8")) === stagedInputPublicationReceipt(stagedInputAttachment(claimed)) ? "completed" : "conflict";
       } catch {
         return "unknown";
       }

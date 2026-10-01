@@ -377,6 +377,13 @@ export class StagedServiceTransfer {
       // Operation state, rather than the presentation stage state, is the
       // recovery authority.
       if (replay.operation.state === "unknown") await this.reconcileUnknown(actor, id);
+      if (replay.operation.state === "completed" && !(await this.reconcileCompleted(actor, id))) {
+        // A completed store record is not recovery authority by itself.  The
+        // direct child must still hold the complete claimed composite before a
+        // replay can report success; missing, truncated, replaced, or
+        // unverifiable retained state remains safely unknown.
+        await this.markCompletedUnknown(actor, id);
+      }
       const current = await this.locked(async (store) => this.find(store.stagedTransfer, actor, id));
       return { operation: current.operation, replayed: true, status: current.state };
     }
@@ -440,28 +447,49 @@ export class StagedServiceTransfer {
     try { return await this.importer.import(input); } catch { return "unknown"; }
   }
 
-  private async reconcileUnknown(actor: TransferActor, id: string): Promise<void> {
-    if (!this.importer.reconcile) return;
-    const input = await this.locked(async (store) => {
+  private async reconciliationInput(actor: TransferActor, id: string, allowCompleted: boolean): Promise<(Omit<ClaimedStageInput, "readByteObject"> & { manifestBytes: Uint8Array }) | null> {
+    return await this.locked(async (store) => {
       const stage = this.find(store.stagedTransfer, actor, id), journal = stage.journal, byteObject = stage.byteObject;
-      // A process can die after the child returns but before recordOutcome
-      // persists the terminal state.  That leaves the durable claim in the
-      // original claimed/unknown form.  Reconcile that exact claim without
-      // handing bytes to the child again or reacquiring a release asset.
-      if ((stage.state !== "claimed" && stage.state !== "unknown") ||
-        !stage.operation || stage.operation.state !== "unknown" || !journal || !byteObject ||
-        journal.phase !== "claimed" || byteObject.id !== journal.byteObjectId ||
-        byteObject.size !== journal.byteLength || byteObject.sha256 !== journal.fullDigest ||
+      const recoverableState = stage.state === "claimed" || stage.state === "unknown" || (allowCompleted && stage.state === "consumed");
+      const recoverableOperation = stage.operation?.state === "unknown" || (allowCompleted && stage.operation?.state === "completed");
+      const recoverablePhase = journal?.phase === "claimed" || (allowCompleted && journal?.phase === "sealed");
+      if (!recoverableState || !recoverableOperation || !journal || !byteObject || !recoverablePhase ||
+        byteObject.id !== journal.byteObjectId || byteObject.size !== journal.byteLength || byteObject.sha256 !== journal.fullDigest ||
         !this.sameIdentity(stage.identity, journal.releaseIdentity) || !stage.identity.manifestBytes) return null;
       const manifestBytes = Buffer.from(stage.identity.manifestBytes, "base64");
       if (hash(manifestBytes) !== stage.identity.manifestSha256) return null;
-       return { serviceId: stage.identity.targetServiceId, byteObjectId: byteObject.id, archiveSha256: byteObject.sha256, manifestSha256: stage.identity.manifestSha256, releaseId: stage.identity.releaseId, targetSha: stage.identity.commitSha, workspaceId: stage.workspaceId, actorId: stage.actorId, stageId: stage.id, operationId: journal.operationId, idempotencyKey: stage.operation.key, repo: stage.identity.repo, releaseTag: stage.identity.releaseTag, assetId: stage.identity.assetId, assetName: stage.identity.assetName, archiveType: stage.identity.archiveType, platform: stage.identity.platform, manifestAssetId: stage.identity.manifestAssetId, checksumAssetId: stage.identity.checksumAssetId, byteLength: byteObject.size, manifestBytes };
+      return { serviceId: stage.identity.targetServiceId, byteObjectId: byteObject.id, archiveSha256: byteObject.sha256, manifestSha256: stage.identity.manifestSha256, releaseId: stage.identity.releaseId, targetSha: stage.identity.commitSha, workspaceId: stage.workspaceId, actorId: stage.actorId, stageId: stage.id, operationId: journal.operationId, idempotencyKey: stage.operation!.key, repo: stage.identity.repo, releaseTag: stage.identity.releaseTag, assetId: stage.identity.assetId, assetName: stage.identity.assetName, archiveType: stage.identity.archiveType, platform: stage.identity.platform, manifestAssetId: stage.identity.manifestAssetId, checksumAssetId: stage.identity.checksumAssetId, byteLength: byteObject.size, manifestBytes };
     });
+  }
+
+  private async reconcileUnknown(actor: TransferActor, id: string): Promise<void> {
+    if (!this.importer.reconcile) return;
+    const input = await this.reconciliationInput(actor, id, false);
     if (!input) return;
     let outcome: "completed" | "conflict" | "unknown" = "unknown";
     try { outcome = await this.importer.reconcile(input); } catch { return; }
     if (outcome === "unknown") return;
     await this.recordOutcome(actor, id, outcome);
+  }
+
+  private async reconcileCompleted(actor: TransferActor, id: string): Promise<boolean> {
+    if (!this.importer.reconcile) return false;
+    const input = await this.reconciliationInput(actor, id, true);
+    if (!input) return false;
+    try { return (await this.importer.reconcile(input)) === "completed"; } catch { return false; }
+  }
+
+  private async markCompletedUnknown(actor: TransferActor, id: string): Promise<void> {
+    await this.locked(async (store) => {
+      const stage = this.find(store.stagedTransfer, actor, id);
+      if (!stage.operation || !stage.journal || stage.operation.state !== "completed") return;
+      try { completeStagedRegistrationInStore(store, { actorId: actor.id, operationId: stage.operation.id, outcome: "unknown" }); }
+      catch { throw new TransferError("registration_unavailable", 503); }
+      stage.operation.state = "unknown";
+      stage.state = "unknown";
+      stage.terminalAt = null;
+      stage.journal.phase = "claimed";
+    });
   }
 
   private async recordOutcome(actor: TransferActor, id: string, outcome: "completed" | "conflict" | "unknown"): Promise<void> {

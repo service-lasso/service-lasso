@@ -7,6 +7,7 @@ import { createStagedReleaseAssetImporter } from "../../dist/runtime/operator/re
 
 const [workspaceRoot, servicesRoot] = process.argv.slice(2);
 if (!workspaceRoot || !servicesRoot) process.exit(64);
+const crashBoundary = process.env.SERVICE_LASSO_TEST_STAGED_ATTACHMENT_CRASH_BOUNDARY;
 
 const archive = Buffer.from(zipSync({ "release.txt": Buffer.from("hard-exit fixture") }));
 const digest = createHash("sha256").update(archive).digest("hex");
@@ -29,7 +30,12 @@ globalThis.fetch = async (url) => {
 };
 
 await mkdir(servicesRoot, { recursive: true });
-const direct = createStagedReleaseAssetImporter({ servicesRoot });
+const direct = createStagedReleaseAssetImporter({
+  servicesRoot,
+  onDurabilityBoundary: (boundary) => {
+    if (boundary === crashBoundary) process.exit(74);
+  },
+});
 const transfer = new StagedServiceTransfer(workspaceRoot, { resolve: async () => identity }, {
   import: async (claimed) => {
     const outcome = await direct.import(claimed);
