@@ -124,6 +124,23 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm exec cypress install
 
+      - name: Establish exact trusted-unlock receipt caller
+        working-directory: qualification/admin
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${PNPM_HOME:-}"
+          test -d "$PNPM_HOME"
+          test "$(pnpm --version)" = "10.34.5"
+          npm install --ignore-scripts --no-save --package-lock=false --no-audit --no-fund pnpm@10.34.5
+          node --input-type=module - <<'NODE'
+          import { access, readFile } from "node:fs/promises";
+          const manifest = JSON.parse(await readFile("node_modules/pnpm/package.json", "utf8"));
+          if (manifest.version !== "10.34.5") throw new Error("trusted-unlock caller package version is not pinned");
+          await access("node_modules/pnpm/bin/pnpm.cjs");
+          NODE
+          test "$(node node_modules/pnpm/bin/pnpm.cjs --version)" = "10.34.5"
+
       - name: Acquire checksum-bound published Admin and Broker
         shell: pwsh
         env:
@@ -247,7 +264,7 @@ jobs:
         run: |
           set -euo pipefail
           pnpm test:secrets:real-first-run-browser
-          node "$GITHUB_WORKSPACE/scripts/consume-admin-trusted-unlock-receipt.mjs" --receipt "$RUNNER_TEMP/admin-trusted-unlock-receipt.json" -- node "$PNPM_HOME/pnpm.cjs" test:secrets:real-browser
+          node "$GITHUB_WORKSPACE/scripts/consume-admin-trusted-unlock-receipt.mjs" --receipt "$RUNNER_TEMP/admin-trusted-unlock-receipt.json" -- node node_modules/pnpm/bin/pnpm.cjs test:secrets:real-browser
           pnpm test:secrets:real-stopped-lifecycle-browser
           if [ "$RUNNER_OS" = "Windows" ]; then
             pnpm test:secrets:real-lockout-browser
