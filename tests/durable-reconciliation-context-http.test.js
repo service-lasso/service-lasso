@@ -6,7 +6,7 @@ import { createServer, request as httpRequest } from "node:http";
 import { access, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
-import { createApiServer } from "../dist/server/index.js";
+import { createApiServer, waitForApiServerInitialization } from "../dist/server/index.js";
 import { mcpOperationStatePath } from "../dist/runtime/operator/mcp-operations.js";
 import {
   getLifecycleDocumentPath,
@@ -65,10 +65,15 @@ async function token(privateKey, actorId, clientId, scope = "service-lasso:read"
     .sign(privateKey);
 }
 
-async function startApi(options, port = 0) {
+async function startApi(options, port = 0, allowInitializationFailure = false) {
   const server = createApiServer(options);
   server.listen(port, "127.0.0.1");
   await once(server, "listening");
+  if (allowInitializationFailure) {
+    await assert.rejects(() => waitForApiServerInitialization(server));
+  } else {
+    await waitForApiServerInitialization(server);
+  }
   const address = server.address();
   assert.ok(address && typeof address === "object");
   return {
@@ -250,7 +255,7 @@ test("#1553 fails closed for malformed, legacy, custody-mismatched, and duplicat
         api = null;
         const identityPath = getLifecycleDocumentPath(fixture.workspaceRoot, RECONCILIATION_CONTEXT_AUTHORITY_POLICY);
         await writeFile(identityPath, scenario.contents, "utf8");
-        restarted = await startApi({ servicesRoot: fixture.servicesRoot, workspaceRoot: fixture.workspaceRoot, mcpHttpIdentity: { env } }, originalPort);
+        restarted = await startApi({ servicesRoot: fixture.servicesRoot, workspaceRoot: fixture.workspaceRoot, mcpHttpIdentity: { env } }, originalPort, true);
         const response = await readContext(restarted, actor);
         assert.equal(response.status, 503, scenario.name);
         assert.equal(JSON.stringify(response.body).includes(fixture.tempRoot), false);
@@ -299,7 +304,7 @@ test("#1553 refuses the interrupted v1 custody publication rather than adopting 
       SERVICE_LASSO_MCP_OAUTH_JWKS_URI: jwks.jwksUri,
       SERVICE_LASSO_MCP_RESOURCE_URI: resource,
       SERVICE_LASSO_MCP_OAUTH_AUDIENCE: audience,
-    } }, }, port);
+    } }, }, port, true);
     const response = await readContext(restarted, actor);
     assert.equal(response.status, 503);
     assert.equal(JSON.stringify(response.body).includes("authorityId"), false);
@@ -332,7 +337,7 @@ test("#1553 rolls forward only a validated interrupted authority publication and
     restarted = null;
 
     await rm(authorityPath, { force: true });
-    restarted = await startApi({ servicesRoot: fixture.servicesRoot, workspaceRoot: fixture.workspaceRoot }, port);
+    restarted = await startApi({ servicesRoot: fixture.servicesRoot, workspaceRoot: fixture.workspaceRoot }, port, true);
     const lostAuthority = await readContext(restarted);
     assert.equal(lostAuthority.status, 503, "a published marker never permits authority replacement");
     await restarted.stop();
@@ -401,7 +406,7 @@ test("#1553 fails closed without changing any exact custody residue after primar
         const beforeEntries = await readdir(stateDirectory);
         const beforeResidue = await readFile(residuePath, "utf8");
 
-        restarted = await startApi({ servicesRoot: fixture.servicesRoot, workspaceRoot: fixture.workspaceRoot }, port);
+        restarted = await startApi({ servicesRoot: fixture.servicesRoot, workspaceRoot: fixture.workspaceRoot }, port, true);
         const response = await readContext(restarted);
         assert.equal(response.status, 503, `${policy.currentSchemaVersion} ${residueKind.name}`);
         assert.equal(JSON.stringify(response.body).includes("retained-custody-residue"), false);
@@ -460,7 +465,7 @@ test("#1553 fails closed when authority custody is replaced by a filesystem redi
       SERVICE_LASSO_MCP_OAUTH_JWKS_URI: jwks.jwksUri,
       SERVICE_LASSO_MCP_RESOURCE_URI: resource,
       SERVICE_LASSO_MCP_OAUTH_AUDIENCE: audience,
-    } }, }, port);
+    } }, }, port, true);
     const response = await readContext(restarted, actor);
     assert.equal(response.status, 503);
     assert.equal(JSON.stringify(response.body).includes(authorityPath), false);
@@ -555,11 +560,16 @@ test("#1553 records exactly one redacted authorization Audit event before GET su
       ["mcp.auth.denied", "failure", 403, "denied-actor", "denied-client"],
     ]);
     for (const event of events) {
+      assert.equal(Object.hasOwn(event, "workspaceRoot"), false);
+      assert.equal(Object.hasOwn(event, "serviceRoot"), false);
       assert.equal(event.routeTemplate, "/api/operator/lifecycle/reconciliation-context");
       assert.equal(event.method, "GET");
       assert.equal(JSON.stringify(event).includes(allowed), false);
       assert.equal(JSON.stringify(event).includes(denied), false);
       assert.equal(JSON.stringify(event).includes(fixture.tempRoot), false);
+      assert.equal(JSON.stringify(event).includes(fixture.workspaceRoot), false);
+      assert.equal(JSON.stringify(event).includes("Bearer "), false);
+      assert.equal(JSON.stringify(event).includes("/api/operator/lifecycle/reconciliation-context"), true);
     }
 
     outageApi = await startApi({
@@ -581,4 +591,33 @@ test("#1553 records exactly one redacted authorization Audit event before GET su
     if (previousTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
     else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = previousTestHooks;
   }
+});
+
+test("#1553 direct server initialization rejection remains observable and retains its owned workspace", async () => {
+  const fixture = await makeTempServicesRoot("service-lasso-reconciliation-initializer-rejection-");
+  const authorityPath = getLifecycleDocumentPath(fixture.workspaceRoot, RECONCILIATION_CONTEXT_AUTHORITY_POLICY);
+  const server = createApiServer({ servicesRoot: fixture.servicesRoot, workspaceRoot: fixture.workspaceRoot });
+  let closed = false;
+  try {
+    await mkdir(path.dirname(authorityPath), { recursive: true });
+    await writeFile(authorityPath, "{malformed", "utf8");
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    await assert.rejects(
+      () => waitForApiServerInitialization(server),
+      /reconciliation/i,
+    );
+    assert.equal(await pathExists(authorityPath), true);
+  } finally {
+    if (server.listening) {
+      const close = once(server, "close");
+      server.close();
+      server.closeAllConnections?.();
+      await close;
+      closed = true;
+    }
+  }
+  assert.equal(closed, true);
+  assert.equal(await pathExists(authorityPath), true);
+  await rm(fixture.tempRoot, { recursive: true, force: true });
 });

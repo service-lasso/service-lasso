@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { once } from "node:events";
 import path from "node:path";
 import { readFile, rm, writeFile } from "node:fs/promises";
-import { createApiServer } from "../dist/server/index.js";
+import { createApiServer, waitForApiServerInitialization } from "../dist/server/index.js";
 import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import { readAuditEvents } from "../dist/runtime/audit/store.js";
 import { makeTempServicesRoot, writeExecutableFixtureService } from "./test-helpers.js";
@@ -96,6 +96,7 @@ async function startTestApiServer(options) {
   const listening = once(server, "listening");
   server.listen(0, "127.0.0.1");
   await listening;
+  await waitForApiServerInitialization(server);
   const address = server.address();
   assert.ok(address && typeof address !== "string");
   return {

@@ -137,7 +137,7 @@ import {
 } from "../runtime/broker/client.js";
 import { buildServiceNetwork } from "../runtime/operator/network.js";
 import { buildEffectiveRouteMetadata } from "../runtime/operator/endpoints.js";
-import { appendAuditEvent, readAuditEvents } from "../runtime/audit/store.js";
+import { appendAuditEvent, readAuditEvents, type AppendAuditEventInput } from "../runtime/audit/store.js";
 import { executeOperatorCommandFacade } from "../runtime/operator/command-facade.js";
 import {
   confirmOperatorCommandConfirmation,
@@ -496,7 +496,7 @@ export interface ApiServerOptions {
   mcpHttpIdentity?: McpHttpIdentityOptions;
   mcpStdio?: ServiceLassoMcpStdioOptions & McpHttpIdentityOptions;
   mcpPolicyTestHooks?: {
-    appendAuditEvent?: typeof appendAuditEvent;
+    appendAuditEvent?: (event: McpAuthorizationAuditProjection) => Promise<void>;
     now?: () => number;
     afterDurableClaim?: (operation: McpOperationPublicRecord) => Promise<void>;
   };
@@ -505,6 +505,8 @@ export interface ApiServerOptions {
   };
   runtimeShutdownSlot?: RuntimeShutdownSlot;
 }
+
+type McpAuthorizationAuditProjection = Omit<AppendAuditEventInput, "workspaceRoot" | "serviceRoot">;
 
 interface RuntimeShutdownSlot {
   invoke: (() => Promise<void>) | null;
@@ -1359,8 +1361,12 @@ async function recordMcpAuthorizationAudit(
   routeTemplate: string = "/api/mcp",
 ): Promise<void> {
   try {
-    const appender = config.mcpPolicyTestHooks?.appendAuditEvent ?? appendAuditEvent;
-    await appender({
+    const appendAuthorizationAudit = async (event: AppendAuditEventInput): Promise<void> => {
+      await appendAuditEvent(event);
+      const { workspaceRoot: _workspaceRoot, serviceRoot: _serviceRoot, ...projection } = event;
+      await config.mcpPolicyTestHooks?.appendAuditEvent?.(projection);
+    };
+    await appendAuthorizationAudit({
       workspaceRoot: config.workspaceRoot,
       source: "runtime-api",
       action: outcome === "success" ? "mcp.auth.allowed" : "mcp.auth.denied",
@@ -1384,7 +1390,7 @@ async function recordMcpAuthorizationAudit(
     });
     if (outcome === "failure" && authorization) {
       for (const attempt of safeDeniedMcpGuardedAttempts(parsedBody)) {
-        await appender({
+        await appendAuthorizationAudit({
           workspaceRoot: config.workspaceRoot,
           source: "runtime-mcp",
           action: "mcp.action.denied",
@@ -7711,7 +7717,7 @@ const apiServerInitialization = new WeakMap<Server, Promise<string>>();
  * Expose their owned initialization promise so their teardown can quiesce it.
  */
 export async function waitForApiServerInitialization(server: Server): Promise<void> {
-  await apiServerInitialization.get(server)?.catch(() => undefined);
+  await apiServerInitialization.get(server);
 }
 
 export function createApiServer(options: ApiServerOptions = {}): Server {
@@ -7723,6 +7729,8 @@ export function createApiServer(options: ApiServerOptions = {}): Server {
   }
   const resolvedConfig = resolveRuntimeConfig(options);
   const reconciliationContextIdentity = initializeReconciliationContextIdentity(resolvedConfig.workspaceRoot);
+  // Direct listeners remain observable through waitForApiServerInitialization;
+  // this handler prevents an unobserved rejection before their owner awaits it.
   void reconciliationContextIdentity.catch(() => undefined);
   const routeConfig: ApiRouteConfig = {
     ...resolvedConfig,
