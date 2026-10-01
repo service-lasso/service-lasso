@@ -268,6 +268,13 @@ export class StagedServiceTransfer {
         stage.state = "rejected"; stage.terminalAt = this.now();
         throw new TransferError("digest_mismatch", 409);
       }
+      // The parser has a bounded TAR implementation, but the governed T1--T5
+      // qualification evidence has not enabled TAR admission.  Keep the
+      // release-asset surface fail closed until that exact decision exists.
+      if (stage.identity.archiveType !== "zip") {
+        stage.state = "rejected"; stage.terminalAt = this.now();
+        throw new TransferError("archive_unsafe", 409);
+      }
       if (!preflightReleaseArchive({ bytes, archiveType: stage.identity.archiveType }).ok) {
         stage.state = "rejected"; stage.terminalAt = this.now();
         throw new TransferError("archive_unsafe", 409);
@@ -310,7 +317,11 @@ export class StagedServiceTransfer {
       return operation ? { operation, status: stage.state } : null;
     });
     if (replay) {
-      if (replay.status === "unknown") await this.reconcileUnknown(actor, id);
+      // The stage can still be `claimed` when the process dies after the
+      // direct child has run and before its outcome is durably recorded.
+      // Operation state, rather than the presentation stage state, is the
+      // recovery authority.
+      if (replay.operation.state === "unknown") await this.reconcileUnknown(actor, id);
       const current = await this.locked(async (store) => this.find(store.stagedTransfer, actor, id));
       return { operation: current.operation, replayed: true, status: current.state };
     }
@@ -378,7 +389,15 @@ export class StagedServiceTransfer {
     if (!this.importer.reconcile) return;
     const input = await this.locked(async (store) => {
       const stage = this.find(store.stagedTransfer, actor, id), journal = stage.journal, byteObject = stage.byteObject;
-      if (stage.state !== "unknown" || !stage.operation || !journal || !byteObject || journal.phase !== "claimed" || byteObject.id !== journal.byteObjectId || byteObject.size !== journal.byteLength || byteObject.sha256 !== journal.fullDigest || !this.sameIdentity(stage.identity, journal.releaseIdentity) || !stage.identity.manifestBytes) return null;
+      // A process can die after the child returns but before recordOutcome
+      // persists the terminal state.  That leaves the durable claim in the
+      // original claimed/unknown form.  Reconcile that exact claim without
+      // handing bytes to the child again or reacquiring a release asset.
+      if ((stage.state !== "claimed" && stage.state !== "unknown") ||
+        !stage.operation || stage.operation.state !== "unknown" || !journal || !byteObject ||
+        journal.phase !== "claimed" || byteObject.id !== journal.byteObjectId ||
+        byteObject.size !== journal.byteLength || byteObject.sha256 !== journal.fullDigest ||
+        !this.sameIdentity(stage.identity, journal.releaseIdentity) || !stage.identity.manifestBytes) return null;
       const manifestBytes = Buffer.from(stage.identity.manifestBytes, "base64");
       if (hash(manifestBytes) !== stage.identity.manifestSha256) return null;
        return { serviceId: stage.identity.targetServiceId, byteObjectId: byteObject.id, archiveSha256: byteObject.sha256, manifestSha256: stage.identity.manifestSha256, releaseId: stage.identity.releaseId, targetSha: stage.identity.commitSha, workspaceId: stage.workspaceId, repo: stage.identity.repo, releaseTag: stage.identity.releaseTag, assetId: stage.identity.assetId, assetName: stage.identity.assetName, archiveType: stage.identity.archiveType, manifestAssetId: stage.identity.manifestAssetId, byteLength: byteObject.size, manifestBytes };
