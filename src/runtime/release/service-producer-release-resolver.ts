@@ -3,79 +3,42 @@ import { readFile } from "node:fs/promises";
 import { validateServiceManifest } from "../discovery/validateManifest.js";
 import type { ReleaseIdentity, StageResolver } from "./staged-service-transfer.js";
 
-interface ReleaseAsset { id: number; name: string; size: number; browser_download_url: string; }
-interface Release { id: number; tag_name: string; draft: boolean; prerelease: boolean; assets: ReleaseAsset[]; }
-interface PolicyPlatform { assetName: string; archiveType: "zip" | "tar.gz" | "tgz"; sha256: string; checksum: { assetName: string; sha256: string }; }
-interface Policy { schema: string; serviceId: string; release: { tag: string; targetSha: string }; manifest: { assetName: string; sha256: string }; platforms: Partial<Record<"win32" | "linux" | "darwin", PolicyPlatform>>; }
-interface CatalogPin { repo: string; serviceId: string; policySha256: string; manifestSha256: string; }
-interface Catalog { version: 1; pins: CatalogPin[]; }
+interface Asset { id: number; name: string; size: number; }
+interface Release { id: number; tag_name: string; draft: boolean; prerelease: boolean; assets: Asset[]; }
+interface Platform { assetName:string; archiveType:"zip"|"tar.gz"|"tgz"; sha256:string; checksum:{assetName:string;sha256:string}; }
+interface Policy { schema:"service-lasso.service-producer-release-policy/v1"; serviceId:string; release:{tag:string;targetSha:string}; manifest:{assetName:string;sha256:string}; platforms:Partial<Record<"win32"|"linux"|"darwin",Platform>>; }
+interface Pin { repo:string; serviceId:string; policySha256:string; manifestSha256:string; }
+interface Catalog { version:1; pins:Pin[]; }
+const SHA=/^[a-f0-9]{64}$/; const COMMIT=/^[a-f0-9]{40}$/; const NAME=/^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$/;
+const POLICY="service-lasso-release-policy.json", MANIFEST="service.json", MAX_JSON=256*1024, MAX_ASSET=1024*1024, TIMEOUT=10_000;
+const hash=(value:Uint8Array)=>createHash("sha256").update(value).digest("hex");
+const record=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==="object"&&!Array.isArray(v);
+const exactKeys=(v:Record<string,unknown>, keys:string[])=>Object.keys(v).length===keys.length&&keys.every((key)=>Object.hasOwn(v,key));
 
-const SHA256 = /^[a-f0-9]{64}$/;
-const COMMIT = /^[a-f0-9]{40}$/;
-const ASSET = /^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$/;
-const POLICY_ASSET = "service-lasso-release-policy.json";
+async function bytes(response:Response, limit:number):Promise<Buffer>{
+  const length=response.headers.get("content-length"); if(length!==null&&(!/^\d+$/.test(length)||Number(length)>limit)) throw new Error("release response exceeds limit");
+  if(!response.body) throw new Error("release response has no body"); const reader=response.body.getReader(); const parts:Uint8Array[]=[]; let total=0;
+  try { for(;;){ const next=await reader.read(); if(next.done) break; total+=next.value.length; if(total>limit){await reader.cancel();throw new Error("release response exceeds limit");} parts.push(next.value); } } finally {reader.releaseLock();}
+  return Buffer.concat(parts.map((part)=>Buffer.from(part)),total);
+}
+function api(repo:string,suffix:string,base:string):string {const [owner,name]=repo.split("/");if(!owner||!name)throw new Error("invalid repository");return `${base}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}${suffix}`;}
+function headers():Record<string,string>{return {accept:"application/vnd.github+json","user-agent":"service-lasso-core"};}
+async function json(url:string):Promise<unknown>{const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),TIMEOUT);try{const response=await fetch(url,{headers:headers(),redirect:"error",signal:controller.signal});if(!response.ok)throw new Error("release provenance unavailable");const raw=await bytes(response,MAX_JSON);try{return JSON.parse(raw.toString("utf8"));}catch{throw new Error("release JSON invalid");}}finally{clearTimeout(timer);}}
+async function asset(repo:string,entry:Asset,base:string):Promise<Buffer>{let url=api(repo,`/releases/assets/${entry.id}`,base), first=true;for(let redirects=0;redirects<=1;redirects++){const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),TIMEOUT);try{const response=await fetch(url,{headers:first?{...headers(),accept:"application/octet-stream"}:{accept:"application/octet-stream"},redirect:"manual",signal:controller.signal});if([301,302,303,307,308].includes(response.status)){const location=response.headers.get("location");if(!first||!location)throw new Error("invalid asset redirect");const target=new URL(location,url);if(target.protocol!=="https:")throw new Error("invalid asset redirect");url=target.toString();first=false;continue;}if(!response.ok)throw new Error("release asset unavailable");const out=await bytes(response,Math.min(MAX_ASSET,entry.size));if(out.length!==entry.size)throw new Error("release asset size mismatch");return out;}finally{clearTimeout(timer);}}throw new Error("asset redirect limit");}
+function exactAsset(release:Release,name:string):Asset {const values=release.assets.filter((entry)=>entry.name===name);if(values.length!==1||!Number.isSafeInteger(values[0]?.id)||!Number.isSafeInteger(values[0]?.size)||values[0]!.id<1||values[0]!.size<1)throw new Error("release asset unavailable");return values[0]!;}
+function policy(input:Buffer):Policy {let value:unknown;try{value=JSON.parse(new TextDecoder("utf-8",{fatal:true}).decode(input));}catch{throw new Error("policy invalid");}if(!record(value)||!exactKeys(value,["schema","serviceId","release","manifest","platforms"])||value.schema!=="service-lasso.service-producer-release-policy/v1"||typeof value.serviceId!=="string"||!record(value.release)||!exactKeys(value.release,["tag","targetSha"])||typeof value.release.tag!=="string"||typeof value.release.targetSha!=="string"||!record(value.manifest)||!exactKeys(value.manifest,["assetName","sha256"])||value.manifest.assetName!==MANIFEST||typeof value.manifest.sha256!=="string"||!record(value.platforms)||!COMMIT.test(value.release.targetSha)||!SHA.test(value.manifest.sha256))throw new Error("policy invalid");for(const [name,entry]of Object.entries(value.platforms)){if(!["win32","linux","darwin"].includes(name)||!record(entry)||!exactKeys(entry,["assetName","archiveType","sha256","checksum"])||typeof entry.assetName!=="string"||!NAME.test(entry.assetName)||!(["zip","tar.gz","tgz"]as string[]).includes(String(entry.archiveType))||typeof entry.sha256!=="string"||!SHA.test(entry.sha256)||!record(entry.checksum)||!exactKeys(entry.checksum,["assetName","sha256"])||typeof entry.checksum.assetName!=="string"||!NAME.test(entry.checksum.assetName)||typeof entry.checksum.sha256!=="string"||!SHA.test(entry.checksum.sha256))throw new Error("policy invalid");}if(Object.keys(value.platforms).length===0)throw new Error("policy invalid");return value as unknown as Policy;}
+function catalog(input:string):Catalog {if(Buffer.byteLength(input,"utf8")>MAX_JSON)throw new Error("catalog unavailable");let value:unknown;try{value=JSON.parse(input);}catch{throw new Error("catalog unavailable");}if(!record(value)||!exactKeys(value,["version","pins"])||value.version!==1||!Array.isArray(value.pins)||value.pins.length>1024)throw new Error("catalog unavailable");for(const pin of value.pins){if(!record(pin)||!exactKeys(pin,["repo","serviceId","policySha256","manifestSha256"])||typeof pin.repo!=="string"||typeof pin.serviceId!=="string"||typeof pin.policySha256!=="string"||typeof pin.manifestSha256!=="string"||!SHA.test(pin.policySha256)||!SHA.test(pin.manifestSha256))throw new Error("catalog unavailable");}return value as unknown as Catalog;}
 
-function digest(bytes: Uint8Array): string { return createHash("sha256").update(bytes).digest("hex"); }
-function isRecord(value: unknown): value is Record<string, unknown> { return !!value && typeof value === "object" && !Array.isArray(value); }
-function exactAsset(release: Release, name: string): ReleaseAsset {
-  const matches = release.assets.filter((asset) => asset.name === name);
-  if (matches.length !== 1 || !Number.isSafeInteger(matches[0]?.id) || !Number.isSafeInteger(matches[0]?.size) || matches[0]!.size < 1) throw new Error("release asset is unavailable");
-  return matches[0]!;
-}
-
-async function fetchJson(url: string): Promise<unknown> {
-  const response = await fetch(url, { headers: { accept: "application/vnd.github+json", "user-agent": "service-lasso-core" } });
-  if (!response.ok) throw new Error("release provenance is unavailable");
-  return await response.json();
-}
-async function fetchAsset(asset: ReleaseAsset): Promise<Buffer> {
-  const response = await fetch(asset.browser_download_url, { headers: { accept: "application/octet-stream", "user-agent": "service-lasso-core" }, redirect: "error" });
-  if (!response.ok) throw new Error("release asset is unavailable");
-  const bytes = Buffer.from(await response.arrayBuffer());
-  if (bytes.length !== asset.size) throw new Error("release asset size mismatch");
-  return bytes;
-}
-function parsePolicy(bytes: Buffer): Policy {
-  let value: unknown;
-  try { value = JSON.parse(bytes.toString("utf8")); } catch { throw new Error("release policy is invalid"); }
-  if (!isRecord(value) || value.schema !== "service-lasso.service-producer-release-policy/v1" || typeof value.serviceId !== "string" || !isRecord(value.release) || !isRecord(value.manifest) || !isRecord(value.platforms)) throw new Error("release policy is invalid");
-  const policy = value as unknown as Policy;
-  if (!COMMIT.test(policy.release.targetSha) || !SHA256.test(policy.manifest.sha256)) throw new Error("release policy is invalid");
-  return policy;
-}
-
-/** Resolves only a persisted, independently approved producer catalog pin. */
+/** Resolves one owner-pinned producer release using fixed GitHub API asset paths only. */
 export class ServiceProducerReleaseResolver implements StageResolver {
-  constructor(private readonly catalogPath?: string, private readonly apiBaseUrl = "https://api.github.com") {}
-
-  async resolve(input: { repo: string; releaseTag: string; commitSha: string; targetServiceId: string; platform: string }): Promise<ReleaseIdentity> {
-    if (!this.catalogPath) throw new Error("owner catalog pin unavailable");
-    const catalog = JSON.parse(await readFile(this.catalogPath, "utf8")) as Catalog;
-    if (catalog.version !== 1 || !Array.isArray(catalog.pins)) throw new Error("owner catalog pin unavailable");
-    const pin = catalog.pins.find((candidate) => candidate.repo === input.repo && candidate.serviceId === input.targetServiceId);
-    if (!pin || !SHA256.test(pin.policySha256) || !SHA256.test(pin.manifestSha256)) throw new Error("owner catalog pin unavailable");
-    const rawRelease = await fetchJson(`${this.apiBaseUrl}/repos/${encodeURIComponent(input.repo.split("/")[0]! )}/${encodeURIComponent(input.repo.split("/")[1]! )}/releases/tags/${encodeURIComponent(input.releaseTag)}`);
-    if (!isRecord(rawRelease) || rawRelease.draft !== false || rawRelease.prerelease === true || rawRelease.tag_name !== input.releaseTag || !Array.isArray(rawRelease.assets) || typeof rawRelease.id !== "number") throw new Error("release provenance is unavailable");
-    const release = rawRelease as unknown as Release;
-    const tag = await fetchJson(`${this.apiBaseUrl}/repos/${encodeURIComponent(input.repo.split("/")[0]! )}/${encodeURIComponent(input.repo.split("/")[1]! )}/git/ref/tags/${encodeURIComponent(input.releaseTag)}`);
-    const targetSha = isRecord(tag) && isRecord(tag.object) && tag.object.type === "commit" && typeof tag.object.sha === "string" ? tag.object.sha : "";
-    if (!COMMIT.test(targetSha) || targetSha !== input.commitSha) throw new Error("release provenance is unavailable");
-    const policyAsset = exactAsset(release, POLICY_ASSET);
-    const manifestAsset = exactAsset(release, "service.json");
-    const policyBytes = await fetchAsset(policyAsset);
-    const manifestBytes = await fetchAsset(manifestAsset);
-    if (digest(policyBytes) !== pin.policySha256 || digest(manifestBytes) !== pin.manifestSha256) throw new Error("owner catalog pin mismatch");
-    const policy = parsePolicy(policyBytes);
-    if (policy.serviceId !== input.targetServiceId || policy.release.tag !== input.releaseTag || policy.release.targetSha !== targetSha || policy.manifest.assetName !== "service.json" || policy.manifest.sha256 !== digest(manifestBytes)) throw new Error("release policy binding mismatch");
-    const manifest = validateServiceManifest(JSON.parse(manifestBytes.toString("utf8")), "service.json");
-    if (manifest.id !== input.targetServiceId || manifest.artifact?.source.type !== "github-release" || manifest.artifact.source.repo !== input.repo || manifest.artifact.source.tag !== input.releaseTag) throw new Error("manifest binding mismatch");
-    const platform = input.platform as "win32" | "linux" | "darwin";
-    const selected = policy.platforms[platform];
-    if (!selected || !ASSET.test(selected.assetName) || !SHA256.test(selected.sha256) || !ASSET.test(selected.checksum.assetName) || !SHA256.test(selected.checksum.sha256)) throw new Error("platform is not approved");
-    if ((platform === "win32" && selected.archiveType !== "zip") || ((platform === "linux" || platform === "darwin") && !["tar.gz", "tgz"].includes(selected.archiveType))) throw new Error("platform archive type is not approved");
-    const archive = exactAsset(release, selected.assetName);
-    const checksum = exactAsset(release, selected.checksum.assetName);
-    if (archive.id === policyAsset.id || archive.id === manifestAsset.id || checksum.id === policyAsset.id || checksum.id === manifestAsset.id) throw new Error("release asset identity overlaps");
-    return { repo: input.repo, releaseTag: input.releaseTag, commitSha: targetSha, targetServiceId: input.targetServiceId, platform, archiveType: selected.archiveType, assetName: archive.name, assetId: String(archive.id), archiveBytes: archive.size, archiveSha256: selected.sha256, manifestSha256: digest(manifestBytes), releaseId: String(release.id), manifestAssetId: String(manifestAsset.id), checksumAssetId: String(checksum.id) };
+  private readonly base:string;
+  constructor(private readonly catalogPath?:string,apiBaseUrl="https://api.github.com"){const url=new URL(apiBaseUrl);if(url.protocol!=="https:"||url.username||url.password||url.search||url.hash||url.pathname!=="/")throw new Error("invalid GitHub API base");this.base=url.origin;}
+  async resolve(input:{repo:string;releaseTag:string;commitSha:string;targetServiceId:string;platform:string}):Promise<ReleaseIdentity>{
+    if(!this.catalogPath)throw new Error("owner catalog pin unavailable");const pins=catalog(await readFile(this.catalogPath,"utf8"));const pin=pins.pins.find((candidate)=>candidate.repo===input.repo&&candidate.serviceId===input.targetServiceId);if(!pin)throw new Error("owner catalog pin unavailable");
+    const raw=await json(api(input.repo,`/releases/tags/${encodeURIComponent(input.releaseTag)}`,this.base));if(!record(raw)||raw.draft!==false||raw.prerelease!==false||raw.tag_name!==input.releaseTag||!Number.isSafeInteger(raw.id)||!Array.isArray(raw.assets))throw new Error("release provenance unavailable");const release=raw as unknown as Release;if(release.assets.some((entry)=>!record(entry)||typeof entry.name!=="string"||!NAME.test(entry.name)||!Number.isSafeInteger(entry.id)||!Number.isSafeInteger(entry.size)||entry.id<1||entry.size<1)||new Set(release.assets.map((entry)=>entry.id)).size!==release.assets.length)throw new Error("release provenance unavailable");
+    const ref=await json(api(input.repo,`/git/ref/tags/${encodeURIComponent(input.releaseTag)}`,this.base));if(!record(ref)||!record(ref.object)||ref.object.type!=="tag"||typeof ref.object.sha!=="string"||!COMMIT.test(ref.object.sha))throw new Error("release provenance unavailable");const annotated=await json(api(input.repo,`/git/tags/${encodeURIComponent(ref.object.sha)}`,this.base));const target=record(annotated)&&record(annotated.object)&&annotated.object.type==="commit"&&typeof annotated.object.sha==="string"?annotated.object.sha:"";if(!COMMIT.test(target)||target!==input.commitSha)throw new Error("release provenance unavailable");
+    const policyAsset=exactAsset(release,POLICY),manifestAsset=exactAsset(release,MANIFEST);if(policyAsset.size>MAX_ASSET||manifestAsset.size>MAX_ASSET)throw new Error("release provenance unavailable");const[policyBytes,manifestBytes]=await Promise.all([asset(input.repo,policyAsset,this.base),asset(input.repo,manifestAsset,this.base)]);if(hash(policyBytes)!==pin.policySha256||hash(manifestBytes)!==pin.manifestSha256)throw new Error("owner catalog mismatch");const parsed=policy(policyBytes);if(parsed.serviceId!==input.targetServiceId||parsed.release.tag!==input.releaseTag||parsed.release.targetSha!==target||parsed.manifest.sha256!==hash(manifestBytes))throw new Error("policy binding mismatch");const manifest=validateServiceManifest(JSON.parse(manifestBytes.toString("utf8")),"service.json");if(manifest.id!==input.targetServiceId||manifest.artifact?.source.type!=="github-release"||manifest.artifact.source.repo!==input.repo||manifest.artifact.source.tag!==input.releaseTag)throw new Error("manifest binding mismatch");
+    const platform=input.platform as "win32"|"linux"|"darwin";const selected=parsed.platforms[platform];if(!selected||(platform==="win32"&&selected.archiveType!=="zip")||((platform==="linux"||platform==="darwin")&&!["tar.gz","tgz"].includes(selected.archiveType)))throw new Error("platform unapproved");const archive=exactAsset(release,selected.assetName),checksum=exactAsset(release,selected.checksum.assetName);if(new Set([policyAsset.id,manifestAsset.id,archive.id,checksum.id]).size!==4||archive.size>64*1024*1024||checksum.size>MAX_ASSET)throw new Error("release identity invalid");const checksumBytes=await asset(input.repo,checksum,this.base);const escaped=selected.assetName.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");if(hash(checksumBytes)!==selected.checksum.sha256||!new RegExp(`(?:^|\\n)${selected.sha256}\\s+\\*?${escaped}(?:\\r?$|\\s)`,`m`).test(checksumBytes.toString("utf8")))throw new Error("checksum unavailable");
+    return {repo:input.repo,releaseTag:input.releaseTag,commitSha:target,targetServiceId:input.targetServiceId,platform,archiveType:selected.archiveType,assetName:archive.name,assetId:String(archive.id),archiveBytes:archive.size,archiveSha256:selected.sha256,manifestSha256:hash(manifestBytes),releaseId:String(release.id),manifestAssetId:String(manifestAsset.id),checksumAssetId:String(checksum.id)};
   }
 }
