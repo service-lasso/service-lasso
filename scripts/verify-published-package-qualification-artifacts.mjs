@@ -65,6 +65,22 @@ function parseStrictJson(source, label) {
   }
 }
 
+function requireTerminalPrebrowserJob(jobs, platform, runId, runAttempt) {
+  const name = `published-package-qualification (${platform})`;
+  const matches = jobs.filter((job) => job?.name === name);
+  if (
+    matches.length !== 1 ||
+    !Number.isSafeInteger(matches[0]?.id) ||
+    matches[0].id <= 0 ||
+    String(matches[0]?.run_id) !== runId ||
+    String(matches[0]?.run_attempt) !== runAttempt ||
+    matches[0]?.status !== "completed" ||
+    matches[0]?.conclusion !== "failure"
+  ) {
+    throw new Error(`${platform} pre-browser failure must bind one matching terminal failed job.`);
+  }
+}
+
 const repo = env("GITHUB_REPOSITORY", /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u);
 const token = env("GITHUB_TOKEN");
 const runId = String(requirePositiveInteger(env("GITHUB_RUN_ID", /^[1-9][0-9]*$/u), "GITHUB_RUN_ID"));
@@ -117,9 +133,7 @@ for (const platform of PLATFORMS) {
   if (entries.length === 1 && entries[0]?.isFile() && !entries[0]?.isSymbolicLink() && entries[0].name === prebrowserName) {
     const prebrowser = parsePrebrowserFailure(await readOnlyFile(path.join(artifactDirectory, prebrowserName), `${platform} pre-browser failure`));
     if (!prebrowser || prebrowser.platform !== platform || String(prebrowser.run.id) !== runId || String(prebrowser.run.attempt) !== runAttempt) throw new Error(`${platform} pre-browser failure custody is invalid.`);
-    const jobName = `published-package-qualification (${platform})`;
-    const matchingJobs = jobs.filter(({ name }) => name === jobName);
-    if (matchingJobs.length !== 1 || matchingJobs[0].status !== "completed" || matchingJobs[0].conclusion !== "failure") throw new Error(`${platform} pre-browser failure must bind one terminal failed job.`);
+    requireTerminalPrebrowserJob(jobs, platform, runId, runAttempt);
     continue;
   }
   if (entries.length !== 2 || entries.some((entry) => !entry.isFile() || entry.isSymbolicLink()) || !entries.some((entry) => entry.name === expectedFile) || !entries.some((entry) => entry.name === expectedReceipt)) {

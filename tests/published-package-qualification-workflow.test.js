@@ -184,6 +184,7 @@ test("AC-4BZ.1 aggregate verifies current-attempt artifacts and retains prior-at
   assert.match(source, /entries\.length !== 2/);
   assert.match(source, /admin-trusted-unlock-receipt\.json/);
   assert.match(source, /validateTerminalJobMetadata\(matchingJobs\[0\]/);
+  assert.match(source, /requireTerminalPrebrowserJob\(jobs, platform, runId, runAttempt\)/);
   assert.match(source, /validateRetainedEvidence\(evidence/);
   assert.match(source, /parseStrictJson\(/);
   assert.match(source, /parseStrictJson\([\s\S]*?retained trusted-unlock receipt/);

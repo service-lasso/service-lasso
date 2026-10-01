@@ -18,15 +18,27 @@ async function npmCli() {
   const cli = path.join(path.dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js");
   await access(cli); return { command: process.execPath, args: [cli] };
 }
-async function actionFixture(root) {
-  const actionRoot = path.join(root, "pinned-action"), actionHome = path.join(actionRoot, "node_modules", ".bin"), bin = path.join(actionHome, "bin");
+function selectedActionVersion(selected, environment) {
+  const options = { encoding: "utf8", shell: false, env: environment };
+  if (process.platform !== "win32") return spawnSync(selected, ["--version"], options);
+  const commandProcessor = environment.ComSpec ?? environment.COMSPEC;
+  assert.ok(commandProcessor, "Windows action fixture requires ComSpec");
+  assert.doesNotMatch(selected, /[\r\n"%!^&|<>()]/u);
+  return spawnSync(commandProcessor, ["/d", "/s", "/c", `""${selected}" --version"`], { ...options, windowsVerbatimArguments: true });
+}
+async function actionFixture(root, name = "pinned-action") {
+  const actionRoot = path.join(root, name), actionHome = path.join(actionRoot, "node_modules", ".bin"), bin = path.join(actionHome, "bin");
   await mkdir(actionHome, { recursive: true });
   const npm = await npmCli();
   const installed = spawnSync(npm.command, [...npm.args, "install", "--prefix", actionRoot, "--ignore-scripts", "--no-save", "--package-lock=false", "--no-audit", "--no-fund", "pnpm@11.25.0"], { encoding: "utf8", shell: false });
   assert.equal(installed.status, 0, installed.stderr);
   const updated = spawnSync(process.execPath, [path.join(actionRoot, "node_modules", "pnpm", "bin", "pnpm.mjs"), "self-update", "10.34.5"], { encoding: "utf8", shell: false, env: { ...process.env, PNPM_HOME: actionHome } });
   assert.equal(updated.status, 0, updated.stderr);
-  return { bin };
+  const selected = process.platform === "win32" ? path.join(bin, "pnpm.cmd") : path.join(bin, "pnpm");
+  const version = selectedActionVersion(selected, { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}` });
+  assert.equal(version.status, 0, `${version.error?.message ?? ""}\n${version.stderr}`);
+  assert.equal(version.stdout.trim(), "10.34.5");
+  return { bin, selected };
 }
 async function producerEnvironment(root, fixture, extra = {}) {
   const githubEnv = path.join(root, "github-env");
@@ -47,8 +59,13 @@ test("AC-4BY.2 executes actual pre-browser guards, GITHUB_ENV handoff, published
   assert.doesNotMatch(source, /SERVICE_LASSO_TEST_PREBROWSER_STAGE|NODE_ENV === "test"/);
   for (const stage of ["action_binding", "fresh_prefix", "isolated_install", "package_identity"]) {
     const root = await mkdtemp(path.join(tmpdir(), "prebrowser-execution-"));
-    const fixture = stage === "action_binding" ? null : await actionFixture(root);
+    const fixture = await actionFixture(root);
     const environment = await producerEnvironment(root, fixture);
+    if (stage === "action_binding") {
+      const reported = await actionFixture(root, "pinned-action-reported-bin");
+      assert.notEqual(await realpath(fixture.selected), await realpath(reported.selected));
+      Object.assign(environment, { PNPM_ACTION_BIN_DEST: reported.bin, PATH: `${fixture.bin}${path.delimiter}${process.env.PATH}` });
+    }
     if (stage === "fresh_prefix") await mkdir(environment.ADMIN_PNPM_PREFIX);
     if (stage === "isolated_install") Object.assign(environment, { npm_config_offline: "true", npm_config_cache: path.join(root, "empty-npm-cache") });
     if (stage === "package_identity") {
@@ -86,4 +103,20 @@ test("AC-4BY.2 executes the published aggregate CLI readback for closed three-pl
   const result = run(publishedAggregate, { ...process.env, NODE_OPTIONS: `--require=${preload}`, GITHUB_REPOSITORY: "service-lasso/service-lasso", GITHUB_TOKEN: "test-token", GITHUB_RUN_ID: runId, GITHUB_RUN_ATTEMPT: runAttempt, GITHUB_SHA: sha, QUALIFICATION_ARTIFACTS_ROOT: root, CORE_RELEASE_ID: "1", CORE_RELEASE_TAG: "2026.10.1-aaaaaaa", CORE_REVISION: sha, CORE_NPM_VERSION: "2026.10.1-aaaaaaa", CORE_NPM_INTEGRITY: "sha512-YQ==", CORE_LINUX_SHA256: "b".repeat(64), CORE_WIN32_SHA256: "c".repeat(64), CORE_DARWIN_SHA256: "d".repeat(64) });
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /Exact three-platform artifact API readback/u);
+
+  for (const mutate of [
+    (job) => { job.id = 0; },
+    (job) => { job.run_id = Number(runId) - 1; },
+    (job) => { job.run_attempt = Number(runAttempt) + 1; },
+    (job) => { job.status = "in_progress"; },
+    (job) => { job.conclusion = "success"; },
+    (_job, all) => all.push({ ...all[0], id: 99 }),
+  ]) {
+    const mutated = structuredClone(jobs);
+    mutate(mutated.jobs[0], mutated.jobs);
+    await writeFile(preload, `global.fetch=async(url)=>new Response(JSON.stringify(String(url).includes('/artifacts?')?${JSON.stringify(artifacts)}:${JSON.stringify(mutated)}),{status:200,headers:{'content-type':'application/json'}});`);
+    const rejected = run(publishedAggregate, { ...process.env, NODE_OPTIONS: `--require=${preload}`, GITHUB_REPOSITORY: "service-lasso/service-lasso", GITHUB_TOKEN: "test-token", GITHUB_RUN_ID: runId, GITHUB_RUN_ATTEMPT: runAttempt, GITHUB_SHA: sha, QUALIFICATION_ARTIFACTS_ROOT: root, CORE_RELEASE_ID: "1", CORE_RELEASE_TAG: "2026.10.1-aaaaaaa", CORE_REVISION: sha, CORE_NPM_VERSION: "2026.10.1-aaaaaaa", CORE_NPM_INTEGRITY: "sha512-YQ==", CORE_LINUX_SHA256: "b".repeat(64), CORE_WIN32_SHA256: "c".repeat(64), CORE_DARWIN_SHA256: "d".repeat(64) });
+    assert.notEqual(rejected.status, 0, rejected.stderr);
+    assert.match(rejected.stderr, /pre-browser failure must bind one matching terminal failed job/u);
+  }
 });
