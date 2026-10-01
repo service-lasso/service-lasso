@@ -1,28 +1,40 @@
 [CmdletBinding()]
 param(
   [switch]$Update,
-  [switch]$ManagedLauncherNative
+  [switch]$ManagedLauncherNative,
+  [switch]$HeldExitFixture
 )
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
+. (Join-Path $PSScriptRoot "windows-compiler-process-budget.ps1")
 
-if (-not $IsWindows -and $PSVersionTable.PSEdition -eq "Core") {
+if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
   throw "Windows process-inspector provenance verification requires Windows."
 }
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$sourceRelativePath = if ($ManagedLauncherNative) {
+$fixtureCount = $(if ($ManagedLauncherNative) { 1 } else { 0 }) + $(if ($HeldExitFixture) { 1 } else { 0 })
+if ($fixtureCount -gt 1) {
+  throw "Select only one Windows native fixture."
+}
+$sourceRelativePath = if ($HeldExitFixture) {
+  "tests/fixtures/windows-held-exit-probe.cs"
+} elseif ($ManagedLauncherNative) {
   "src/runtime/execution/windows-managed-launcher-native.cs"
 } else {
   "src/runtime/process/windows-process-inspector.cs"
 }
-$binaryRelativePath = if ($ManagedLauncherNative) {
+$binaryRelativePath = if ($HeldExitFixture) {
+  "tests/fixtures/windows-held-exit-probe.exe"
+} elseif ($ManagedLauncherNative) {
   "src/runtime/execution/windows-managed-launcher-native.exe"
 } else {
   "src/runtime/process/windows-process-inspector.exe"
 }
-$provenanceRelativePath = if ($ManagedLauncherNative) {
+$provenanceRelativePath = if ($HeldExitFixture) {
+  "tests/fixtures/windows-held-exit-probe.provenance.json"
+} elseif ($ManagedLauncherNative) {
   "src/runtime/execution/windows-managed-launcher-native.provenance.json"
 } else {
   "src/runtime/process/windows-process-inspector.provenance.json"
@@ -39,6 +51,9 @@ $compilerOptions = @(
 )
 if ($ManagedLauncherNative) {
   $compilerOptions += "/reference:System.Web.Extensions.dll"
+}
+if ($HeldExitFixture) {
+  $compilerOptions += "/debug-"
 }
 
 if (-not [IO.Path]::IsPathRooted($compilerPath) -or -not [IO.File]::Exists($compilerPath)) {
@@ -316,15 +331,55 @@ function Get-NormalizedAssemblyBytes([string]$AssemblyPath) {
 }
 
 $temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) ("service-lasso-native-provenance-" + [Guid]::NewGuid().ToString("N"))
+# The held-exit compiler phase has one 15-second absolute budget. Retain this
+# uniquely-created compiler root rather than run an unbounded Remove-Item after
+# that phase; retention is conservative evidence, including successful runs.
+$retainTemporaryRoot = $HeldExitFixture
 try {
   $null = New-Item -ItemType Directory -Path $temporaryRoot
   $compiledPath = Join-Path $temporaryRoot (Split-Path -Leaf $binaryRelativePath)
+  # Start before assembling the owned compiler command so configuration,
+  # launch, wait, termination and stream settlement share one absolute bound.
+  [int64]$compilerPhaseStartedAtMilliseconds = if ($HeldExitFixture) { Get-CompilerMonotonicMilliseconds } else { 0 }
   $compilerArguments = @($compilerOptions) + @(
     "/out:$compiledPath",
     $sourcePath
   )
-  & $compilerPath @compilerArguments
-  if ($LASTEXITCODE -ne 0 -or -not [IO.File]::Exists($compiledPath)) {
+  if ($HeldExitFixture) {
+    $compilerProcess = New-Object Diagnostics.Process
+    try {
+      $compilerProcess.StartInfo.FileName = $compilerPath
+      $compilerProcess.StartInfo.UseShellExecute = $false
+      $compilerProcess.StartInfo.CreateNoWindow = $true
+       $compilerProcess.StartInfo.RedirectStandardOutput = $true
+       $compilerProcess.StartInfo.RedirectStandardError = $true
+      if ($null -ne $compilerProcess.StartInfo.ArgumentList) {
+        foreach ($compilerArgument in $compilerArguments) {
+          [void]$compilerProcess.StartInfo.ArgumentList.Add($compilerArgument)
+        }
+      } else {
+        # Windows PowerShell 5's .NET Framework ProcessStartInfo does not
+        # expose ArgumentList. The compiler inputs are fixed, owned paths and
+        # options; quote each one before using its compatible Arguments form.
+        $compilerProcess.StartInfo.Arguments = (($compilerArguments | ForEach-Object {
+          '"' + $_.Replace('"', '\"') + '"'
+        }) -join ' ')
+      }
+       $compilerResult = Invoke-BoundedOwnedCompilerProcess $compilerProcess 15000 -StartedAtMilliseconds $compilerPhaseStartedAtMilliseconds -StartProcess
+       if ($compilerResult.outcome -ne "completed") {
+         $retainTemporaryRoot = $compilerResult.retainTemporaryRoot
+         throw "The Windows held-exit fixture compiler failed closed with $($compilerResult.outcome) inside its 15000ms absolute compiler-phase bound."
+      }
+      if ($compilerProcess.ExitCode -ne 0) {
+        throw "The Windows held-exit fixture provenance compilation failed."
+      }
+    } finally {
+      $compilerProcess.Dispose()
+    }
+  } else {
+    & $compilerPath @compilerArguments
+  }
+  if (-not [IO.File]::Exists($compiledPath)) {
     throw "The Windows process-inspector provenance compilation failed."
   }
 
@@ -402,7 +457,7 @@ try {
     negativeCaseCount = $negativeCaseCount
   } | ConvertTo-Json -Compress
 } finally {
-  if ([IO.Directory]::Exists($temporaryRoot)) {
+  if (-not $retainTemporaryRoot -and [IO.Directory]::Exists($temporaryRoot)) {
     Remove-Item -LiteralPath $temporaryRoot -Recurse -Force
   }
 }

@@ -20,10 +20,12 @@ on:
       - package-lock.json
       - scripts/copy-runtime-assets.mjs
       - scripts/mcp-product-acceptance-lib.mjs
+      - scripts/packaged-verification-diagnostics.mjs
       - scripts/mcp-packaged-consumer-runner.mjs
       - scripts/demo-verify-canonical.mjs
       - scripts/verify-mcp-packaged.mjs
       - scripts/verify-windows-process-inspector.ps1
+      - scripts/windows-compiler-process-budget.ps1
       - scripts/verify-windows-dpapi-helper.ps1
       - scripts/verify-mcp-product-artifact.mjs
       - scripts/verify-mcp-product-acceptance-run.mjs
@@ -51,9 +53,13 @@ on:
       - tests/private-json.test.js
       - tests/service-start-trace.test.js
       - tests/operator-mcp*.test.js
+      - tests/packaged-verification-diagnostics.test.js
       - tests/fixtures/current-process-identity-runner.mjs
       - tests/demo-instance.test.js
       - tests/mcp-product-artifact.test.js
+      - tests/windows-compiler-process-budget.test.ps1
+      - tests/windows-compiler-process-budget-real-adapter.test.ps1
+      - tests/verify-windows-process-inspector-powershell-compatibility.test.ps1
       - docs/reference/secrets-capability-ledger.json
       - docs/reference/secrets-capability-ledger.md
   push:
@@ -74,10 +80,12 @@ on:
       - package-lock.json
       - scripts/copy-runtime-assets.mjs
       - scripts/mcp-product-acceptance-lib.mjs
+      - scripts/packaged-verification-diagnostics.mjs
       - scripts/mcp-packaged-consumer-runner.mjs
       - scripts/demo-verify-canonical.mjs
       - scripts/verify-mcp-packaged.mjs
       - scripts/verify-windows-process-inspector.ps1
+      - scripts/windows-compiler-process-budget.ps1
       - scripts/verify-windows-dpapi-helper.ps1
       - scripts/verify-mcp-product-artifact.mjs
       - scripts/verify-mcp-product-acceptance-run.mjs
@@ -105,9 +113,13 @@ on:
       - tests/private-json.test.js
       - tests/service-start-trace.test.js
       - tests/operator-mcp*.test.js
+      - tests/packaged-verification-diagnostics.test.js
       - tests/fixtures/current-process-identity-runner.mjs
       - tests/demo-instance.test.js
       - tests/mcp-product-artifact.test.js
+      - tests/windows-compiler-process-budget.test.ps1
+      - tests/windows-compiler-process-budget-real-adapter.test.ps1
+      - tests/verify-windows-process-inspector-powershell-compatibility.test.ps1
       - docs/reference/secrets-capability-ledger.json
       - docs/reference/secrets-capability-ledger.md
 

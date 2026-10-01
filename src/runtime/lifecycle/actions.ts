@@ -14,6 +14,7 @@ import {
   beginManagedProcessStop,
   hasManagedProcess,
   ManagedProcessEnrollmentContainmentError,
+  managedProcessLauncherPayloadFailureBoundary,
   managedProcessStartFailurePhase,
   registerManagedProcessShutdownQuiescer,
   startManagedProcess,
@@ -1633,6 +1634,9 @@ async function startServiceSerialized(
       provider: executionPlan.provider,
       providerServiceId: executionPlan.providerServiceId,
       processStartFailurePhase: managedProcessStartFailurePhase(error) ?? "unclassified_error",
+      ...(managedProcessLauncherPayloadFailureBoundary(error)
+        ? { launcherPayloadFailureBoundary: managedProcessLauncherPayloadFailureBoundary(error) }
+        : {}),
       ...windowsTreeInspectionFailureMetadata(error),
     });
     finishStartTrace(serviceId, trace, "failed", message);
