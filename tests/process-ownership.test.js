@@ -380,7 +380,7 @@ if (jobObservationRequestPath && jobObservationResponsePath && jobObservationTok
                 : observationMode === "foreign" ? { ...completeRequest, grandchildPid: ${JSON.stringify(jobObservationForeignPid)} }
                 : completeRequest,
       );
-  if (observationMode.startsWith("response_")) {
+  if (observationMode.startsWith("response_") || observationMode === "replay") {
     const response = observationMode === "response_malformed" ? "{"
       : observationMode === "response_extra" ? JSON.stringify({ token: jobObservationToken, status: "complete", count: 3, extra: true })
         : observationMode === "response_oversized" ? "x".repeat(1025)
