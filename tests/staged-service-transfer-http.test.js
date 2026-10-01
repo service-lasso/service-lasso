@@ -29,6 +29,41 @@ async function rawRequest(url, { method = "GET", headers = {}, body = null } = {
   });
 }
 
+function trustedActorHeaders(actorId, roles) {
+  return {
+    authorization: "Bearer trusted-ingress-transport-token",
+    "x-service-lasso-internal-proxy": "serviceadmin",
+    "x-service-lasso-trusted-ingress": "serviceadmin-loopback",
+    "x-service-lasso-user": actorId,
+    "x-service-lasso-roles": roles,
+  };
+}
+
+async function responseBeforeRequestBody(url, { headers }) {
+  const target = new URL(url);
+  return await new Promise((resolve, reject) => {
+    const request = httpRequest({ hostname: target.hostname, port: target.port, path: `${target.pathname}${target.search}`, method: "POST", headers });
+    const timeout = setTimeout(() => {
+      request.destroy();
+      reject(new Error("server waited for a denied request body"));
+    }, 1_000);
+    request.once("response", (response) => {
+      const chunks = [];
+      response.on("data", (chunk) => chunks.push(chunk));
+      response.on("end", () => {
+        clearTimeout(timeout);
+        request.destroy();
+        resolve({ status: response.statusCode, body: Buffer.concat(chunks).toString("utf8") });
+      });
+    });
+    request.once("error", (error) => {
+      clearTimeout(timeout);
+      reject(error);
+    });
+    request.flushHeaders();
+  });
+}
+
 test("staged transfer HTTP route enforces closed credentials and drives an actor-scoped byte-bound registration", async () => {
   const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-staged-http-");
   const previousInstanceRegistry = process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH;
@@ -197,6 +232,125 @@ test("staged transfer HTTP rejects malformed route grammar before state disclosu
     const noPermissionMutation = await rawRequest(`${api.url}/api/v1/service-transfers/${created.stageId}/registration`, { method: "POST", headers: { ...bearer, "content-type": "application/json", "x-service-transfer-confirmation": "scf_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }, body: JSON.stringify({ idempotencyKey: "negative-http-replay-0001" }) });
     assert.equal(noPermissionMutation.status, 404, "registration cannot consume or mutate an uploading stage");
     assert.equal(imported, 0);
+  } finally {
+    await api.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+    if (priorInstance === undefined) delete process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH; else process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH = priorInstance;
+    if (priorHost === undefined) delete process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH; else process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH = priorHost;
+  }
+});
+
+test("staged transfer HTTP keeps actors isolated, denies before body reads, and preserves terminal confirmation privacy", async () => {
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-staged-http-actors-");
+  const priorInstance = process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH;
+  const priorHost = process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH;
+  process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH = path.join(tempRoot, "instance-registry.json");
+  process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH = path.join(tempRoot, "host-port-registry.json");
+  const archive = Buffer.from(zipSync({ "release.txt": Buffer.from("actor terminal fixture") }));
+  const digest = createHash("sha256").update(archive).digest("hex");
+  let now = 1_700_000_000_000;
+  let resolutions = 0;
+  let imports = 0;
+  const owner = trustedActorHeaders("owner-actor", "owner");
+  const secondOwner = trustedActorHeaders("second-owner", "owner");
+  const viewer = trustedActorHeaders("viewer-actor", "viewer");
+  const identityFor = (targetServiceId) => ({
+    repo: "service-lasso/lasso-example", releaseTag: "v1", commitSha, targetServiceId,
+    platform: "win32", archiveType: "zip", assetName: `${targetServiceId}.zip`, assetId: `asset-${targetServiceId}`,
+    archiveBytes: archive.length, archiveSha256: targetServiceId === "rejected-http-service" ? "c".repeat(64) : digest, manifestSha256: "b".repeat(64), releaseId: `release-${targetServiceId}`,
+    manifestAssetId: `manifest-${targetServiceId}`, checksumAssetId: `checksums-${targetServiceId}`,
+  });
+  const api = await startApiServer({
+    port: 0, servicesRoot, workspaceRoot,
+    stagedServiceTransfer: {
+      now: () => now,
+      resolver: { resolve: async (input) => { resolutions += 1; return identityFor(input.targetServiceId); } },
+      importer: {
+        import: async (input) => {
+          imports += 1;
+          assert.deepEqual(input.readByteObject(), archive);
+          return input.serviceId === "quarantined-http-service" ? "conflict" : input.serviceId === "unknown-http-service" ? "unknown" : "completed";
+        },
+        reconcile: async () => "unknown",
+      },
+    },
+  });
+  const createBody = (targetServiceId) => JSON.stringify({ targetServiceId, provenance: { repo: "service-lasso/lasso-example", releaseTag: "v1", commitSha }, platform: "win32", manifestSchemaVersion: "service-lasso.service-manifest/v1" });
+  const create = async (targetServiceId) => {
+    const response = await fetch(`${api.url}/api/v1/service-transfers`, { method: "POST", headers: { ...owner, "content-type": "application/json" }, body: createBody(targetServiceId) });
+    assert.equal(response.status, 201);
+    return await response.json();
+  };
+  const ready = async (targetServiceId) => {
+    const stage = await create(targetServiceId);
+    const upload = await fetch(`${api.url}/api/v1/service-transfers/${stage.stageId}/chunks/0`, { method: "PUT", headers: { ...owner, "content-type": "application/octet-stream", "x-service-transfer-token": stage.uploadToken, "x-chunk-sha256": digest, "content-range": `bytes 0-${archive.length - 1}/${archive.length}` }, body: archive });
+    assert.equal(upload.status, 204);
+    const finalized = await fetch(`${api.url}/api/v1/service-transfers/${stage.stageId}/finalize`, { method: "POST", headers: owner });
+    assert.equal(finalized.status, 200);
+    return stage;
+  };
+  const confirmation = async (stageId) => {
+    const response = await fetch(`${api.url}/api/v1/service-transfers/${stageId}/confirmation`, { method: "POST", headers: owner });
+    assert.equal(response.status, 200);
+    return await response.json();
+  };
+  const register = async (stageId, confirmationId, idempotencyKey) => await fetch(`${api.url}/api/v1/service-transfers/${stageId}/registration`, { method: "POST", headers: { ...owner, "content-type": "application/json", "x-service-transfer-confirmation": confirmationId }, body: JSON.stringify({ idempotencyKey }) });
+  try {
+    const isolated = await create("isolated-http-service");
+    const ownMissing = await fetch(`${api.url}/api/v1/service-transfers/stg_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`, { headers: secondOwner });
+    const nonOwned = await fetch(`${api.url}/api/v1/service-transfers/${isolated.stageId}`, { headers: secondOwner });
+    assert.equal(ownMissing.status, 404);
+    assert.equal(nonOwned.status, 404);
+    assert.deepEqual(await nonOwned.json(), await ownMissing.json(), "a second configured actor receives the same no-leak result");
+
+    const resolutionBeforeDeniedBody = resolutions;
+    const denied = await responseBeforeRequestBody(`${api.url}/api/v1/service-transfers`, {
+      headers: { ...viewer, "content-type": "application/json", "content-length": "999" },
+    });
+    assert.equal(denied.status, 403);
+    assert.equal(JSON.parse(denied.body).error, "permission_denied");
+    assert.equal(resolutions, resolutionBeforeDeniedBody, "permission denial happens before body parsing or resolver mutation");
+
+    const expiring = await ready("expired-http-service");
+    const expiringConfirmation = await confirmation(expiring.stageId);
+    now += 31 * 60_000;
+    const expiredRegistration = await register(expiring.stageId, expiringConfirmation.confirmationId, "expired-http-idempotency-0001");
+    assert.equal(expiredRegistration.status, 404);
+    const expired = await fetch(`${api.url}/api/v1/service-transfers/${expiring.stageId}`, { headers: owner });
+    assert.equal((await expired.json()).state, "expired");
+
+    const rejected = await create("rejected-http-service");
+    const rejectedUpload = await fetch(`${api.url}/api/v1/service-transfers/${rejected.stageId}/chunks/0`, { method: "PUT", headers: { ...owner, "content-type": "application/octet-stream", "x-service-transfer-token": rejected.uploadToken, "x-chunk-sha256": digest, "content-range": `bytes 0-${archive.length - 1}/${archive.length}` }, body: archive });
+    assert.equal(rejectedUpload.status, 204);
+    const rejectedFinalize = await fetch(`${api.url}/api/v1/service-transfers/${rejected.stageId}/finalize`, { method: "POST", headers: owner });
+    assert.equal(rejectedFinalize.status, 409);
+    const rejectedReadback = await fetch(`${api.url}/api/v1/service-transfers/${rejected.stageId}`, { headers: owner });
+    assert.equal((await rejectedReadback.json()).state, "rejected");
+    const rejectedConfirmation = await fetch(`${api.url}/api/v1/service-transfers/${rejected.stageId}/confirmation`, { method: "POST", headers: owner });
+    assert.equal(rejectedConfirmation.status, 404);
+
+    const terminalCases = [
+      ["completed-http-service", "consumed", "completed-http-idempotency-0001"],
+      ["quarantined-http-service", "quarantined", "quarantined-http-idempotency-0001"],
+      ["unknown-http-service", "unknown", "unknown-http-idempotency-0001"],
+    ];
+    for (const [serviceId, terminalState, idempotencyKey] of terminalCases) {
+      const stage = await ready(serviceId);
+      const issued = await confirmation(stage.stageId);
+      const first = await register(stage.stageId, issued.confirmationId, idempotencyKey);
+      assert.equal(first.status, 202);
+      const replay = await register(stage.stageId, issued.confirmationId, idempotencyKey);
+      assert.equal(replay.status, 200, `${terminalState} registration replays without consuming a child again`);
+      assert.equal((await replay.json()).replayed, true);
+      const readback = await fetch(`${api.url}/api/v1/service-transfers/${stage.stageId}`, { headers: owner });
+      const publicState = await readback.json();
+      assert.equal(publicState.state, terminalState);
+      assert.equal(JSON.stringify(publicState).includes(issued.confirmationId), false);
+      assert.equal(JSON.stringify(publicState).includes(digest), false);
+      const reissue = await fetch(`${api.url}/api/v1/service-transfers/${stage.stageId}/confirmation`, { method: "POST", headers: owner });
+      assert.equal(reissue.status, 404, `${terminalState} cannot issue another confirmation`);
+    }
+    assert.equal(imports, 3, "only non-replayed terminal registrations invoke the direct child");
   } finally {
     await api.stop();
     await rm(tempRoot, { recursive: true, force: true });

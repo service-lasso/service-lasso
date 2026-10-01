@@ -506,7 +506,15 @@ export interface ApiServerOptions {
   };
   runtimeShutdownSlot?: RuntimeShutdownSlot;
   /** Injected only by Core's release-provenance and direct-child adapters. */
-  stagedServiceTransfer?: { resolver: StageResolver; importer: DirectChildImporter };
+  stagedServiceTransfer?: {
+    resolver: StageResolver;
+    importer: DirectChildImporter;
+    /**
+     * In-process fixture clock. HTTP callers cannot influence transfer time;
+     * the production adapter always uses Date.now.
+     */
+    now?: () => number;
+  };
   /** Owner-approved, persisted producer pins. Without it #1463 remains closed. */
   stagedServiceTransferCatalogPath?: string;
 }
@@ -7206,7 +7214,7 @@ async function routeRequestWithoutMutationCoordination(
       resolver: new ServiceProducerReleaseResolver(config.stagedServiceTransferCatalogPath),
       importer: createStagedReleaseAssetImporter({ servicesRoot: config.servicesRoot }),
     };
-    const transfer = new StagedServiceTransfer(config.workspaceRoot, adapter.resolver, adapter.importer, Date.now, {
+    const transfer = new StagedServiceTransfer(config.workspaceRoot, adapter.resolver, adapter.importer, adapter.now ?? Date.now, {
       claim: async (input) => {
         const operation = await claimStagedRegistrationOperation({
           workspaceRoot: config.workspaceRoot, actorId: input.actorId, workspaceId: input.workspaceId,
