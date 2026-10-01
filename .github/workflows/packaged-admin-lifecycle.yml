@@ -12,6 +12,7 @@ on:
       - src/runtime/**
       - src/server/**
       - scripts/consume-admin-trusted-unlock-receipt.mjs
+      - scripts/admin-receipt-provider-observer.mjs
       - scripts/resolve-pnpm-action-entrypoint.mjs
       - scripts/establish-admin-trusted-unlock-receipt-caller.mjs
       - scripts/record-admin-trusted-unlock-prebrowser-failure.mjs
@@ -20,6 +21,7 @@ on:
       - scripts/published-package-qualification-lib.mjs
       - tests/fixtures/real-admin-browser-runner.mjs
       - tests/consume-admin-trusted-unlock-receipt.test.js
+      - tests/admin-receipt-provider-observer.test.js
       - tests/resolve-pnpm-action-entrypoint.test.js
       - tests/packaged-admin-lifecycle-receipt-custody.test.js
       - tests/packaged-admin-lifecycle-first-custody-execution.test.js
@@ -36,6 +38,7 @@ on:
       - src/runtime/**
       - src/server/**
       - scripts/consume-admin-trusted-unlock-receipt.mjs
+      - scripts/admin-receipt-provider-observer.mjs
       - scripts/resolve-pnpm-action-entrypoint.mjs
       - scripts/establish-admin-trusted-unlock-receipt-caller.mjs
       - scripts/record-admin-trusted-unlock-prebrowser-failure.mjs
@@ -44,6 +47,7 @@ on:
       - scripts/published-package-qualification-lib.mjs
       - tests/fixtures/real-admin-browser-runner.mjs
       - tests/consume-admin-trusted-unlock-receipt.test.js
+      - tests/admin-receipt-provider-observer.test.js
       - tests/resolve-pnpm-action-entrypoint.test.js
       - tests/packaged-admin-lifecycle-receipt-custody.test.js
       - tests/packaged-admin-lifecycle-first-custody-execution.test.js
@@ -318,6 +322,10 @@ jobs:
           SERVICE_LASSO_TEST_SUPPORT_ROOT: ${{ env.SERVICE_LASSO_TEST_SUPPORT_ROOT }}
           SERVICE_LASSO_TEST_SOURCE_HEAD: ${{ env.SERVICE_LASSO_TEST_SOURCE_HEAD }}
           SERVICE_LASSO_TEST_SOURCE_TREE: ${{ env.SERVICE_LASSO_TEST_SOURCE_TREE }}
+          # The browser producer is owned by a detached private observer.  A
+          # caller timeout writes UNRESOLVED and leaves eventual close custody
+          # to that observer rather than fabricating a terminal result.
+          SERVICE_LASSO_ADMIN_RECEIPT_OBSERVER_ROOT: ${{ runner.temp }}/admin-provider-observer-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.admin_platform }}
         run: |
           set -euo pipefail
           pnpm test:secrets:real-first-run-browser

@@ -635,6 +635,13 @@ test("real Admin browser runner reaches first-run readiness with its dynamically
     // synthetic provider fault.
     assert.equal(subsequentNormalRequest.status, initialProviderRequest.status);
     assert.notEqual(subsequentNormalRequest.status, 503);
+    const stale = await fetch(`${ready.controlUrl}/fail-next-provider-request`, {
+      method: "POST",
+      headers: {
+        "x-service-lasso-provider-control-nonce": providerControlNonce,
+      },
+    });
+    assert.equal(stale.status, 409);
     const providerReceipt = await fetch(`${ready.controlUrl}/provider-fault-receipt`);
     assert.equal(providerReceipt.status, 200);
     assert.deepEqual(await providerReceipt.json(), {
@@ -655,13 +662,17 @@ test("real Admin browser runner reaches first-run readiness with its dynamically
     assert.deepEqual(privateConsumed.source, { head: sourceHead, tree: sourceTree });
     assert.deepEqual(privateConsumed.adminSource, { head: sourceHead, tree: sourceTree });
     assert.equal(privateConsumed.state, "controlled_fault_consumed");
-    const stale = await fetch(`${ready.controlUrl}/fail-next-provider-request`, {
-      method: "POST",
-      headers: {
-        "x-service-lasso-provider-control-nonce": providerControlNonce,
-      },
-    });
-    assert.equal(stale.status, 409);
+    const recovery = JSON.parse(await readFile(
+      path.join(evidenceRoot, "live-provider-control-recovery-receipt.json"),
+      "utf8",
+    ));
+    assert.deepEqual(recovery.source, { head: sourceHead, tree: sourceTree });
+    assert.deepEqual(recovery.adminSource, { head: sourceHead, tree: sourceTree });
+    assert.equal(recovery.controlNonce, providerControlNonce);
+    assert.equal(recovery.baselineStatus, initialProviderRequest.status);
+    assert.equal(recovery.recoveryStatus, subsequentNormalRequest.status);
+    assert.equal(recovery.rearmRejected, true);
+    assert.equal(recovery.secondConsume, false);
 
     const sampleConfigState = JSON.parse(
       await readFile(

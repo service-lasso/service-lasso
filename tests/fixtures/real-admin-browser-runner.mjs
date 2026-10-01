@@ -258,6 +258,10 @@ const providerConsumedReceiptPath = path.join(
   evidenceRoot,
   "live-provider-control-consumed-receipt.json",
 );
+const providerRecoveryReceiptPath = path.join(
+  evidenceRoot,
+  "live-provider-control-recovery-receipt.json",
+);
 
 async function requireAbsentPrivateReceipt(filePath) {
   const metadata = await lstat(filePath).catch((error) => {
@@ -284,6 +288,7 @@ for (const receiptPath of [
   closureReceiptPath,
   providerReceiptPath,
   providerConsumedReceiptPath,
+  providerRecoveryReceiptPath,
 ]) {
   await requireAbsentPrivateReceipt(receiptPath);
 }
@@ -437,6 +442,10 @@ let startupPhase = "initializing";
 const brokerIPCClient = new http.Agent({ keepAlive: true, maxSockets: 1 });
 let providerFaultState = "not_armed";
 let providerControlReceipt = null;
+let providerBaseline = null;
+let providerRecoveryStatus = null;
+let providerRearmRejected = false;
+let providerRecoveryRecorded = false;
 
 async function persistProviderControlReceipt(phase) {
   if (providerControlReceipt) return providerControlReceipt;
@@ -453,6 +462,27 @@ async function persistProviderControlReceipt(phase) {
   };
   await createPrivateReceipt(providerReceiptPath, providerControlReceipt);
   return providerControlReceipt;
+}
+
+async function persistProviderRecoveryReceipt() {
+  if (providerRecoveryRecorded || providerFaultState !== "observed" || !providerBaseline || providerRecoveryStatus === null || !providerRearmRejected) return null;
+  const receipt = {
+    schema: "service-lasso.real-admin-browser-provider-recovery.v1",
+    private: true,
+    nonce: receiptNonce,
+    controlNonce: providerControlNonce,
+    source: { head: sourceHead, tree: sourceTree },
+    adminSource,
+    publicCorrelation: { providerReceipt: "service-lasso.real-admin-browser-provider-control.v1", nonce: receiptNonce },
+    request: providerBaseline.request,
+    baselineStatus: providerBaseline.status,
+    recoveryStatus: providerRecoveryStatus,
+    rearmRejected: true,
+    secondConsume: false,
+  };
+  await createPrivateReceipt(providerRecoveryReceiptPath, receipt);
+  providerRecoveryRecorded = true;
+  return receipt;
 }
 
 function safeFailureCode(error) {
@@ -632,6 +662,10 @@ try {
         return;
       }
       if (providerFaultState !== "not_armed") {
+        if (request.headers["x-service-lasso-provider-control-nonce"] === providerControlNonce) {
+          providerRearmRejected = true;
+          await persistProviderRecoveryReceipt();
+        }
         response.writeHead(409, { "Content-Type": "application/json" });
         response.end(JSON.stringify({ outcome: "provider_fault_unavailable" }));
         return;
@@ -664,6 +698,7 @@ try {
         response.end();
         return;
       }
+      await persistProviderRecoveryReceipt();
       response.writeHead(providerFaultState === "observed" ? 200 : 409, {
         "Content-Type": "application/json",
       });
@@ -813,6 +848,9 @@ try {
       return;
     }
     if (!requestUrl.pathname.startsWith("/v1/secret/data/browser/")) {
+      const identity = { method: request.method, path: requestUrl.pathname };
+      if (request.method === "GET" && providerFaultState === "not_armed") providerBaseline = { request: identity, status: 404 };
+      if (request.method === "GET" && providerFaultState === "observed" && providerBaseline && providerBaseline.request.method === identity.method && providerBaseline.request.path === identity.path) providerRecoveryStatus = 404;
       response.writeHead(404, { "Content-Type": "application/json" });
       response.end(JSON.stringify({ errors: ["not found"] }));
       return;
@@ -825,6 +863,9 @@ try {
     const stored = vaultValues.get(requestUrl.pathname);
     if (request.method === "GET") {
       if (!stored) {
+        const identity = { method: request.method, path: requestUrl.pathname };
+        if (providerFaultState === "not_armed") providerBaseline = { request: identity, status: 404 };
+        if (providerFaultState === "observed" && providerBaseline && providerBaseline.request.method === identity.method && providerBaseline.request.path === identity.path) providerRecoveryStatus = 404;
         response.writeHead(404, { "Content-Type": "application/json" });
         response.end(JSON.stringify({ errors: ["not found"] }));
         return;

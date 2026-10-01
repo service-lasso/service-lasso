@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
-import { writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -339,6 +340,46 @@ export async function consume(command, args, options = {}) {
   return { ...result, trustedUnlock: result.code === 0 && result.signal === null && !result.executionFailure && !streamFailure ? { classification: "not_emitted" } : classifyObservations(finalized), streamFailure };
 }
 
+async function waitForPrivateObserver(root, names, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() <= deadline) {
+    for (const name of names) {
+      const candidate = path.join(root, name);
+      try { await access(candidate); return candidate; } catch { /* keep polling */ }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  return null;
+}
+
+// This route deliberately delegates spawn ownership before the provider starts.
+// The caller can settle on an immutable UNRESOLVED receipt, while the detached
+// observer retains the real PID and pipes until the actual close is recorded.
+export async function consumeWithDurableObserver(command, args, options = {}) {
+  const root = options.observerRoot;
+  const source = options.source;
+  if (typeof root !== "string" || !source || !/^[0-9a-f]{40}$/u.test(source.head) || !/^[0-9a-f]{40}$/u.test(source.tree)) {
+    return { code: null, signal: null, executionFailure: "spawn_failed", trustedUnlock: { classification: "missing" }, streamFailure: null };
+  }
+  await mkdir(root, { recursive: false, mode: 0o700 });
+  const nonce = randomBytes(32).toString("hex");
+  const config = {
+    root, command, args, cwd: options.cwd, source, nonce, timeoutMs: options.timeoutMs,
+    inputs: options.inputs ?? { workspaceRoot: options.workspaceRoot ?? null },
+  };
+  const configPath = path.join(root, "observer-config.json");
+  await writeFile(configPath, JSON.stringify(config), { encoding: "utf8", mode: 0o600, flag: "wx" });
+  const observer = spawn(process.execPath, [fileURLToPath(new URL("./admin-receipt-provider-observer.mjs", import.meta.url)), configPath], {
+    cwd: options.cwd, env: options.env, detached: true, stdio: "ignore", windowsHide: true,
+  });
+  observer.unref();
+  const terminal = await waitForPrivateObserver(root, ["close.json", "unresolved.json"], Math.max(250, (options.timeoutMs ?? 300000) + 250));
+  if (!terminal) return { code: null, signal: null, executionFailure: "spawn_failed", trustedUnlock: { classification: "missing" }, streamFailure: null };
+  if (terminal.endsWith("unresolved.json")) return { code: null, signal: null, executionFailure: "execution_timeout", trustedUnlock: { classification: "missing" }, streamFailure: null };
+  const close = JSON.parse(await readFile(terminal, "utf8"));
+  return { code: close.terminal.exitCode, signal: close.terminal.signal, executionFailure: null, trustedUnlock: { classification: "missing" }, streamFailure: null };
+}
+
 function outcomeFor(result) {
   if (result.executionFailure || result.streamFailure) return "observation_failure";
   if (result.signal) return "signal";
@@ -349,7 +390,15 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
   const receipt = process.argv.indexOf("--receipt"), separator = process.argv.indexOf("--");
   if (receipt < 0 || separator < 0 || !process.argv[receipt + 1] || !process.argv[separator + 1]) process.exitCode = 2;
   else {
-    const result = await consume(process.argv[separator + 1], process.argv.slice(separator + 2), { cwd: process.cwd(), env: process.env });
+    const observerRoot = process.env.SERVICE_LASSO_ADMIN_RECEIPT_OBSERVER_ROOT;
+    const result = observerRoot
+      ? await consumeWithDurableObserver(process.argv[separator + 1], process.argv.slice(separator + 2), {
+        cwd: process.cwd(), env: process.env, observerRoot,
+        source: { head: process.env.SERVICE_LASSO_TEST_SOURCE_HEAD, tree: process.env.SERVICE_LASSO_TEST_SOURCE_TREE },
+        workspaceRoot: process.env.SERVICE_LASSO_WORKSPACE_ROOT,
+        timeoutMs: Number(process.env.SERVICE_LASSO_ADMIN_RECEIPT_TIMEOUT_MS ?? 300000),
+      })
+      : await consume(process.argv[separator + 1], process.argv.slice(separator + 2), { cwd: process.cwd(), env: process.env });
     await writeFile(process.argv[receipt + 1], `${JSON.stringify({ schema: "service-lasso.admin-trusted-unlock-consumer.v1", outcome: outcomeFor(result), exitCode: result.code, signal: result.signal, trustedUnlock: result.trustedUnlock, ...(result.streamFailure ? { streamFailure: result.streamFailure } : {}), ...(result.executionFailure ? { executionFailure: result.executionFailure } : {}) })}\n`);
     if (!result.streamFailure && result.signal && process.platform !== "win32" && PROPAGATED_SIGNALS.has(result.signal)) process.kill(process.pid, result.signal);
     else process.exitCode = result.code === 0 && !result.signal && !result.executionFailure && !result.streamFailure ? 0 : (result.signal || result.executionFailure || result.streamFailure ? 1 : result.code ?? 1);

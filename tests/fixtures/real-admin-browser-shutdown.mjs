@@ -12,6 +12,7 @@ const SAFE_TEARDOWN_PHASES = new Set([
   "api_server_close",
   "broker_ipc_close",
   "vault_server_close",
+  "vault_provider_server_close",
   "lifecycle_reset",
   "temp_root_cleanup",
 ]);
