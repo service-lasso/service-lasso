@@ -36,6 +36,7 @@ import {
   setManagedProcessEnrollmentHookForTests,
   setManagedProcessFilesBoundHookForTests,
   setManagedProcessLaunchStateCreatedHookForTests,
+  setManagedProcessLogFinalizerForTests,
   setManagedProcessLaunchStateRemoverForTests,
   setManagedProcessPostResumeDelayForTests,
   setManagedProcessRootInspectorForTests,
@@ -3959,6 +3960,100 @@ test("Windows public HTTP stop consumes a terminal root-exit finalizer only afte
     await removeTempRoot(tempRoot);
   }
 });
+
+for (const logFinalizerMode of ["never settles", "rejects"]) {
+  test(`AC-4BH.2 Windows terminal root-exit keeps bounded stopAll custody when its log finalizer ${logFinalizerMode}`, {
+    skip: process.platform !== "win32",
+  }, async () => {
+    resetLifecycleState();
+    const priorTestHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+    const priorCommandQuery = process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY;
+    process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
+    delete process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY;
+    const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot(`service-lasso-terminal-log-${logFinalizerMode.replaceAll(" ", "-")}-`);
+    const serviceId = `terminal-log-${logFinalizerMode.replaceAll(" ", "-")}-service`;
+    await writeExecutableFixtureService(servicesRoot, serviceId);
+    let apiServer;
+    let handlePid;
+    let nativeTreeInvocations = 0;
+    let terminalRefreshObserved = false;
+
+    try {
+      setManagedWindowsTreeInspectorForTests(async (identity, options) => {
+        nativeTreeInvocations += 1;
+        try {
+          return await inspectWindowsProcessTree(identity, options);
+        } catch (error) {
+          terminalRefreshObserved ||= windowsTreeInspectionFailureMetadata(error).windowsTreeInspectionLastRetry === "root_command_partial_copy";
+          throw error;
+        }
+      });
+      apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
+      assert.equal((await postJson(`${apiServer.url}/api/services/${serviceId}/install`)).response.status, 200);
+      assert.equal((await postJson(`${apiServer.url}/api/services/${serviceId}/config`)).response.status, 200);
+      assert.equal((await postJson(`${apiServer.url}/api/services/${serviceId}/start`)).response.status, 200);
+      handlePid = getLifecycleState(serviceId).runtime.pid;
+      const initialNativeTreeInvocations = nativeTreeInvocations;
+
+      process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY = "partial_tree_only";
+      await waitFor(() => terminalRefreshObserved, 20_000);
+      assert.equal(nativeTreeInvocations, initialNativeTreeInvocations + 1);
+      setManagedProcessLogFinalizerForTests(() => logFinalizerMode === "never settles"
+        ? new Promise(() => undefined)
+        : Promise.reject(new Error("injected runtime-log finalizer rejection")));
+
+      assert.equal(process.kill(handlePid, "SIGKILL"), true);
+      const finalizerStartedAt = Date.now();
+      await assert.rejects(
+        waitForManagedProcessFinalization(serviceId, Date.now() + PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS),
+        (error) => error.name === "ManagedProcessFinalizationError",
+      );
+      assert.equal(Date.now() - finalizerStartedAt < PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS + 1_000, true);
+      assert.equal(nativeTreeInvocations, initialNativeTreeInvocations + 1);
+      assert.equal(hasManagedProcess(serviceId), true);
+      const retained = await findProcessOwnership(workspaceRoot, "service", serviceId);
+      assert.equal(retained.lifecycleState, "running");
+      assert.equal(retained.pid, handlePid);
+
+      const stopAllStartedAt = Date.now();
+      await assert.rejects(stopAllManagedProcesses(), (error) => {
+        assert.equal(error.name, "ManagedProcessFinalizationError");
+        return true;
+      });
+      assert.equal(Date.now() - stopAllStartedAt < PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS + 1_000, true);
+      assert.equal(nativeTreeInvocations, initialNativeTreeInvocations + 1);
+      assert.equal(hasManagedProcess(serviceId), true);
+      assert.equal((await findProcessOwnership(workspaceRoot, "service", serviceId)).lifecycleState, "stopping");
+
+      setManagedProcessLogFinalizerForTests(null);
+      delete process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY;
+      const stop = await postJson(`${apiServer.url}/api/services/${serviceId}/stop`, { confirm: true });
+      assert.equal(stop.response.status, 200);
+      assert.equal(stop.body.state.running, false);
+      assert.equal(nativeTreeInvocations, initialNativeTreeInvocations + 2);
+      assert.equal(hasManagedProcess(serviceId), false);
+      const stopped = await findProcessOwnership(workspaceRoot, "service", serviceId);
+      assert.equal(stopped.lifecycleState, "stopped");
+      assert.equal(stopped.pid, null);
+    } finally {
+      setManagedProcessLogFinalizerForTests(null);
+      setManagedWindowsTreeInspectorForTests(null);
+      delete process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY;
+      await apiServer?.stop().catch(() => null);
+      await stopManagedProcess(serviceId, PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS, {
+        newWindowsInspectionEpisode: true,
+      }).catch(() => null);
+      await stopAllManagedProcesses().catch(() => null);
+      forceCleanupProcesses([handlePid]);
+      if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+      else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
+      if (priorCommandQuery === undefined) delete process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY;
+      else process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY = priorCommandQuery;
+      resetLifecycleState();
+      await removeTempRoot(tempRoot);
+    }
+  });
+}
 
 test("API preserves and can stop truthful running state after enrollment containment fails", {
   skip: process.platform !== "win32",

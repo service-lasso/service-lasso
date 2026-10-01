@@ -226,6 +226,18 @@ class TerminalManagedProcessFinalizationError extends Error {
   }
 }
 
+class RuntimeLogFinalizationUnknownError extends Error {
+  constructor() {
+    super("Managed process runtime-log finalization did not settle within the existing finalization deadline.");
+    this.name = "RuntimeLogFinalizationUnknownError";
+  }
+}
+
+function containsTerminalManagedProcessFinalizationError(error: unknown): boolean {
+  if (error instanceof TerminalManagedProcessFinalizationError) return true;
+  return error instanceof AggregateError && error.errors.some(containsTerminalManagedProcessFinalizationError);
+}
+
 interface StartProcessOptions {
   service: DiscoveredService;
   executionPlan: ProviderExecutionPlan;
@@ -310,6 +322,7 @@ let managedProcessLaunchStateCreatedHook: (() => Promise<void> | void) | null = 
 let managedProcessPostResumeDelayMs = 0;
 let managedProcessSpawner: typeof spawn = spawn;
 let managedProcessSpawnTimeoutMs = MANAGED_PROCESS_SPAWN_TIMEOUT_MS;
+let managedProcessLogFinalizerForTests: (() => Promise<void> | void) | null = null;
 
 export function setManagedProcessTreeTerminatorForTests(
   terminator: typeof terminateOwnedProcessTree | null,
@@ -428,6 +441,15 @@ export function setManagedProcessSpawnTimeoutForTests(timeoutMs: number | null):
   managedProcessSpawnTimeoutMs = effectiveTimeoutMs;
 }
 
+export function setManagedProcessLogFinalizerForTests(
+  finalizer: (() => Promise<void> | void) | null,
+): void {
+  if (process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS !== "1") {
+    throw new Error("Managed process runtime-log test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
+  }
+  managedProcessLogFinalizerForTests = finalizer;
+}
+
 export function registerManagedProcessShutdownQuiescer(
   quiescer: (serviceIds: ReadonlySet<string>) => Promise<void> | void,
 ): () => void {
@@ -507,7 +529,9 @@ export async function waitForManagedProcessFinalization(
       !isProcessControlDeadlineError(error)
       || reconciledStatus === "not_running"
       || reconciledStatus === "identity_mismatch"
-    ) && managedProcessFinalizers.get(serviceId) === finalizer) {
+    )
+      && !containsTerminalManagedProcessFinalizationError(error)
+      && managedProcessFinalizers.get(serviceId) === finalizer) {
       managedProcessFinalizers.delete(serviceId);
     }
     throw new ManagedProcessFinalizationError([{
@@ -549,6 +573,7 @@ async function closeWriteStream(stream: WriteStream): Promise<void> {
 
 async function closeRuntimeLogStreams(streams: ManagedProcessRecord["logStreams"]): Promise<void> {
   await Promise.all([closeWriteStream(streams.combined), closeWriteStream(streams.stdout), closeWriteStream(streams.stderr)]);
+  await managedProcessLogFinalizerForTests?.();
 }
 
 function writeCombinedLogEntry(stream: WriteStream, level: "stdout" | "stderr", message: string): void {
@@ -2153,10 +2178,13 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
       return await completion;
     };
     record.completeLifecycle = completeLifecycle;
-    const lifecycleFinalizePromise = exitPromise.then(async ({ exitCode, signal }) => {
-      const finalizationDeadlineMs = record.stopDeadlineMs !== null && remainingProcessControlMs(record.stopDeadlineMs) > 0
+    const finalizationDeadlinePromise = exitPromise.then(() => (
+      record.stopDeadlineMs !== null && remainingProcessControlMs(record.stopDeadlineMs) > 0
         ? record.stopDeadlineMs
-        : processControlDeadline(UNEXPECTED_PROCESS_FINALIZATION_TIMEOUT_MS);
+        : processControlDeadline(UNEXPECTED_PROCESS_FINALIZATION_TIMEOUT_MS)
+    ));
+    const lifecycleFinalizePromise = exitPromise.then(async ({ exitCode, signal }) => {
+      const finalizationDeadlineMs = await finalizationDeadlinePromise;
       try {
         await terminateManagedProcessTree(
           record,
@@ -2186,17 +2214,44 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
       }
       await completeLifecycle({ exitCode, signal });
     });
-    record.finalizePromise = Promise.allSettled([
-      logFinalizePromise,
-      lifecycleFinalizePromise,
-    ]).then((results) => {
-      const failures = results
-        .filter((result): result is PromiseRejectedResult => result.status === "rejected")
+    record.finalizePromise = (async () => {
+      // A log failure may happen before the lifecycle branch publishes its
+      // terminal custody marker. Establish that lifecycle outcome first, then
+      // wait for log closure only through the same existing finalization
+      // deadline. A nonsettling log therefore remains explicit and retained
+      // without allowing shutdown to wait forever.
+      const finalizationDeadlineMs = await finalizationDeadlinePromise;
+      const settleWithinFinalizationDeadline = async (
+        promise: Promise<void>,
+      ): Promise<PromiseSettledResult<void> | null> => {
+        try {
+          return await withProcessControlDeadline(async () => await promise.then(
+            () => ({ status: "fulfilled" as const, value: undefined }),
+            (reason) => ({ status: "rejected" as const, reason }),
+          ), { deadlineMs: finalizationDeadlineMs });
+        } catch (error) {
+          if (isProcessControlDeadlineError(error)) return null;
+          throw error;
+        }
+      };
+      const lifecycleResult = await settleWithinFinalizationDeadline(lifecycleFinalizePromise);
+      if (lifecycleResult === null) {
+        throw new AggregateError(
+          [new Error("Managed process lifecycle finalization did not settle within the existing finalization deadline.")],
+          `Managed process "${serviceId}" finalization failed.`,
+        );
+      }
+      const logResult = await settleWithinFinalizationDeadline(logFinalizePromise);
+      const failures = [lifecycleResult, logResult]
+        .filter((result): result is PromiseRejectedResult => result !== null && result.status === "rejected")
         .map((result) => result.reason);
+      if (logResult === null) {
+        failures.push(new RuntimeLogFinalizationUnknownError());
+      }
       if (failures.length > 0) {
         throw new AggregateError(failures, `Managed process "${serviceId}" finalization failed.`);
       }
-    });
+    })();
     trackManagedProcessFinalizer(serviceId, child.pid ?? null, record.finalizePromise, workspaceRoot ?? null);
   };
 
@@ -2461,7 +2516,7 @@ export async function stopManagedProcess(
   const deadlineMs = processControlDeadline(timeoutMs);
   const terminalBlockedFinalizer = process.platform === "win32" &&
     options.newWindowsInspectionEpisode === true &&
-    record.terminalWindowsFinalizerBlocked === true;
+    (record.terminalWindowsFinalizerBlocked === true || record.terminalWindowsCommandPartialCopy === true);
   // A caller's later explicit stop is a new bounded inspection episode. The
   // automatic monitor/finalizer and stopAll deliberately retain the marker.
   if (process.platform === "win32" && options.newWindowsInspectionEpisode === true) {
@@ -2701,11 +2756,16 @@ export async function stopAllManagedProcesses(): Promise<void> {
       ?? adoptedProcesses.get(serviceId)?.pid
       ?? managedProcessFinalizers.get(serviceId)?.pid
       ?? null;
+    const deadlineMs = processControlDeadline(DEFAULT_MANAGED_PROCESS_STOP_TIMEOUT_MS);
     try {
-      await stopManagedProcess(serviceId, DEFAULT_MANAGED_PROCESS_STOP_TIMEOUT_MS, {
-        newWindowsInspectionEpisode: false,
+      await withProcessControlDeadline(async () => {
+        await stopManagedProcess(serviceId, DEFAULT_MANAGED_PROCESS_STOP_TIMEOUT_MS, {
+          newWindowsInspectionEpisode: false,
+        });
+        await waitForManagedProcessFinalization(serviceId, deadlineMs);
+      }, {
+        deadlineMs,
       });
-      await waitForManagedProcessFinalization(serviceId);
       return [];
     } catch (error) {
       if (error instanceof ManagedProcessFinalizationError) {
