@@ -1421,10 +1421,12 @@ test("Windows native identity adapter aborts and closes a non-returning helper a
           windowsHide: true,
         });
         helperPid = helper.pid;
-        signal?.addEventListener("abort", () => {
+        const closeOwnedHelper = () => {
           helperAbortObserved = true;
           helper.kill("SIGKILL");
-        }, { once: true });
+        };
+        signal?.addEventListener("abort", closeOwnedHelper, { once: true });
+        if (signal?.aborted) closeOwnedHelper();
         helper.once("close", () => {
           helperCloseObserved = true;
           resolve({ stdout: "" });
@@ -4199,6 +4201,14 @@ for (const jobObservationMode of [
     let primaryError;
     let foreignChild = null;
     let foreignIdentity = null;
+    const launcherTerminal = {
+      state: "not_enrolled",
+      pid: null,
+      exitCode: null,
+      signal: null,
+      enrollmentProbe: "not_enrolled",
+      phases: [],
+    };
     if (jobObservationMode === "foreign") {
       foreignChild = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore", windowsHide: true });
       await once(foreignChild, "spawn");
@@ -4222,7 +4232,7 @@ for (const jobObservationMode of [
         service,
         executionPlan: createDirectExecutionPlan(service.manifest),
         workspaceRoot,
-      }, null, custodyCapture);
+      }, launcherTerminal, custodyCapture);
       // A missing request consumes the native observer's unchanged bounded
       // timeout after the private launcher acknowledgement. Every malformed
       // or inconsistent request/response rejects during the same start path.
@@ -4241,6 +4251,15 @@ for (const jobObservationMode of [
       await assert.rejects(readOwnedFixtureAcknowledgement(acknowledgementPath, receipt, 3_000));
       settlement = await captureOrConfirmStoppedFixtureReceipt(receipt, custody);
       assert.equal(settlement.state, "all_absent");
+      await waitFor(() => launcherTerminal.state === "exited", 5_000);
+      // This terminal receipt follows the native launcher closing its own
+      // held Job after the rejected observation. The captured root, child,
+      // and grandchild fingerprints above are the correlated members that
+      // the native Job rollback waited to disappear; no manager custody is
+      // manufactured for this pre-activation failure.
+      assert.equal(launcherTerminal.pid, rootCustody.identity.pid);
+      assert.equal(launcherTerminal.exitCode, 106);
+      assert.equal(launcherTerminal.signal, null);
       await waitForManagedProcessFinalization(serviceId, Date.now() + 5_000);
       if (custody !== null) await waitForOwnedFixtureStopped(custody, 5_000);
       assert.equal(hasManagedProcess(serviceId), false);

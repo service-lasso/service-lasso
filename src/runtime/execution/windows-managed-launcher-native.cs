@@ -530,6 +530,18 @@ public static class ServiceLassoManagedLauncherNative
         }
         catch
         {
+            // A post-enrollment failure must roll back through the Job handle
+            // created by this launcher before returning to the wrapper.  The
+            // target root can be deliberately waiting for the fixture's
+            // authenticated Job response, so waiting for that root first
+            // would deadlock the rejection path and retain the only holder
+            // able to close its kill-on-close Job.  This helper uses only the
+            // launcher's process and Job handles; it does not rediscover or
+            // signal a PID after the failed observation.
+            if (targetAssignedToJob && jobHandle != IntPtr.Zero)
+            {
+                ContainManagedJobBeforeFileRelease(ref jobHandle, processHandle, true);
+            }
             return failureExitCode;
         }
         finally
