@@ -290,6 +290,7 @@ const managedProcessFinalizers = new Map<string, {
   promise: Promise<void>;
   workspaceRoot: string | null;
   telemetry: FinalizationTelemetryEntry[];
+  rejected: boolean;
 }>();
 const adoptedProcesses = new Map<string, AdoptedProcessRecord>();
 const workspaceFinalizationTails = new Map<string, Promise<void>>();
@@ -510,16 +511,20 @@ function trackManagedProcessFinalizer(
   workspaceRoot: string | null,
   telemetry: FinalizationTelemetryEntry[],
 ): void {
-  const tracked = { pid, promise, workspaceRoot, telemetry };
+  const tracked = { pid, promise, workspaceRoot, telemetry, rejected: false };
   managedProcessFinalizers.set(serviceId, tracked);
   const clearFinalizer = () => {
     if (managedProcessFinalizers.get(serviceId) === tracked) {
       managedProcessFinalizers.delete(serviceId);
     }
   };
-  // Successful finalizers need no further observation. Failed finalizers stay
-  // registered until a shutdown/start boundary consumes their safe failure.
-  void promise.then(clearFinalizer, () => undefined);
+  // Successful finalizers need no further observation. A rejected finalizer
+  // remains a custody boundary: no later start, shutdown, or test reset may
+  // treat its manager record as settled merely because the promise has
+  // already rejected.
+  void promise.then(clearFinalizer, () => {
+    tracked.rejected = true;
+  });
 }
 
 export async function waitForManagedProcessFinalization(
@@ -537,18 +542,9 @@ export async function waitForManagedProcessFinalization(
       { deadlineMs },
     );
   } catch (error) {
-    // A deadline stops this waiter, not the finalizer itself. Keep the finalizer
-    // registered so a later shutdown convergence pass still observes it.
-    const reconciledStatus = isProcessControlDeadlineError(error) && finalizer.workspaceRoot
-      ? await reconcileRegisteredProcess(finalizer.workspaceRoot, "service", serviceId).catch(() => "unknown_owner" as const)
-      : null;
-    if ((
-      !isProcessControlDeadlineError(error)
-      || reconciledStatus === "not_running"
-      || reconciledStatus === "identity_mismatch"
-    ) && managedProcessFinalizers.get(serviceId) === finalizer) {
-      managedProcessFinalizers.delete(serviceId);
-    }
+    // A deadline or failure stops this waiter, not the finalizer's custody.
+    // Keep the record until the finalizer itself fulfills; the durable manager
+    // must continue to prevent a replacement from obscuring unresolved cleanup.
     throw new ManagedProcessFinalizationError([{
       serviceId,
       pid: finalizer.pid,
@@ -2896,6 +2892,17 @@ export async function stopAllManagedProcesses(): Promise<void> {
       if (!stillTracked.has(serviceId) && failures.every((failure) => failure.phase === "stop")) {
         unresolvedFailures.delete(serviceId);
       }
+    }
+    // A completed-but-rejected finalizer is terminal for this convergence call
+    // but deliberately remains registered as a start boundary. Repeating it
+    // cannot repair cleanup and would only duplicate its primary failure.
+    if (
+      managedProcesses.size === 0 &&
+      adoptedProcesses.size === 0 &&
+      managedProcessFinalizers.size > 0 &&
+      [...managedProcessFinalizers.values()].every((finalizer) => finalizer.rejected)
+    ) {
+      break;
     }
     if (pass === MAX_FINALIZATION_PASSES && (
       managedProcesses.size > 0 || adoptedProcesses.size > 0 || managedProcessFinalizers.size > 0

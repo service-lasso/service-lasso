@@ -4440,6 +4440,19 @@ test("whole-runtime shutdown reports safe service, pid, and finalization phase o
       assert.equal(JSON.stringify(error.failures[0]).includes("sensitive command material"), false);
       return true;
     });
+
+    // The failed automatic finalizer remains the service's custody boundary.
+    // A lifecycle reset only clears presentation state; it must not make a
+    // same-id replacement launch possible while cleanup is unresolved.
+    await assert.rejects(
+      startManagedProcess({
+        service,
+        executionPlan: createDirectExecutionPlan(service.manifest),
+        workspaceRoot,
+      }),
+      (error) => error?.name === "ManagedProcessFinalizationError" &&
+        error.failures?.[0]?.code === "EFINALIZE_TEST",
+    );
   } finally {
     releaseFinalizer?.();
     await stopAllManagedProcesses().catch(() => null);
