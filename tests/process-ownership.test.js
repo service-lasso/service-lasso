@@ -549,16 +549,48 @@ async function captureHeldFixtureCustody(receipt, heldPids) {
   }));
 }
 
-async function captureOrConfirmStoppedFixtureReceipt(receipt) {
+async function captureOrConfirmStoppedFixtureReceipt(receipt, custody = null) {
   const pids = [receipt.rootPid, receipt.childPid, receipt.grandchildPid];
   const inspections = await Promise.all(pids.map((pid) => inspectProcess(pid)));
-  if (inspections.every((inspection) => inspection.status === "not_running")) return null;
-  assert.equal(inspections.every((inspection) => inspection.status === "running"), true);
-  return inspections.map((inspection, index) => {
-    assert.equal(inspection.identity.pid, pids[index]);
-    assert.equal(classifyProcessIdentity(inspection.identity, inspection), "owned");
-    return inspection.identity;
-  });
+  if (custody === null) {
+    if (inspections.every((inspection) => inspection.status === "not_running")) {
+      return { state: "all_absent", custody: null };
+    }
+    if (inspections.every((inspection) => inspection.status === "running")) {
+      return { state: "all_running", custody: inspections.map((inspection) => inspection.identity) };
+    }
+    if (inspections.some((inspection) => inspection.status === "unknown")) {
+      return { state: "unknown", custody: null };
+    }
+    return { state: "mixed", custody: null };
+  }
+  assert.equal(custody.length, pids.length);
+  for (const [index, identity] of custody.entries()) {
+    assert.equal(identity.pid, pids[index]);
+  }
+  const classifications = inspections.map((inspection, index) =>
+    classifyProcessIdentity(custody[index], inspection));
+  if (classifications.every((classification) => classification === "not_running")) {
+    return { state: "all_absent", classifications };
+  }
+  if (classifications.every((classification) => classification === "owned")) {
+    return { state: "all_running", classifications };
+  }
+  if (classifications.some((classification) => classification === "identity_mismatch")) {
+    // A PID can be reused after the receipt was captured. This is closed
+    // evidence only: it never selects the replacement for manager control,
+    // registry reconciliation, or fixture deletion.
+    return { state: "replaced", classifications };
+  }
+  if (classifications.some((classification) => classification === "unknown_owner")) {
+    // An uninspectable member has no control authority. Preserve the bounded
+    // classification without retrying discovery or treating it as stopped.
+    return { state: "unknown", classifications };
+  }
+  // Natural Job containment may make receipt members disappear at different
+  // times. Preserve that mixed observation without adopting or signalling a
+  // member that is already absent.
+  return { state: "mixed", classifications };
 }
 
 async function assertHeldFixtureCustodyOwned(custody) {
@@ -686,8 +718,19 @@ async function retainIncompleteOwnedFixture({ serviceId, rootCustody, receiptCus
       // evidence to retain, never a reason to rediscover or signal by PID.
       assertSameProcessFingerprint(ownership?.identity, rootCustody.identity);
       assert.equal(ownership?.processGroup?.kind, "windows-job");
-      assertManagedProcessCustodyForTests(rootCustody.managerCustody);
-      await stopManagedProcessWithCustodyForTests(rootCustody.managerCustody, 5_000);
+      const rootClassification = classifyProcessIdentity(
+        rootCustody.identity,
+        await inspectProcess(rootCustody.identity.pid),
+      );
+      if (rootClassification === "owned") {
+        assertManagedProcessCustodyForTests(rootCustody.managerCustody);
+        await stopManagedProcessWithCustodyForTests(rootCustody.managerCustody, 5_000);
+      } else {
+        // Absent, replaced, and uninspectable roots are never rediscovered or
+        // controlled. The held manager may settle naturally; fixture evidence
+        // remains if it does not.
+        assert.notEqual(rootClassification, "owned");
+      }
     } else {
       assert.equal(ownership?.lifecycleState, "stopped");
       assert.equal(ownership?.pid, null);
@@ -4091,6 +4134,7 @@ for (const jobObservationMode of [
     const custodyReadyPath = path.join(serviceRoot, "runtime", "owned-root-exit.custody-ready");
     let rootCustody = null;
     let custody = null;
+    let settlement = null;
     let primaryError;
     let foreignChild = null;
     let foreignIdentity = null;
@@ -4116,15 +4160,20 @@ for (const jobObservationMode of [
       rootCustody = await readOwnedFixtureRootCustody(workspaceRoot, serviceId);
       await writeFile(triggerPath, "launch\n", "utf8");
       const receipt = await readCompleteOwnedFixtureReceipt(pidFilePath);
-      custody = await captureOrConfirmStoppedFixtureReceipt(receipt);
+      const initialSettlement = await captureOrConfirmStoppedFixtureReceipt(receipt);
+      custody = initialSettlement.custody;
       // This test-only gate lets the root attempt the same 750 ms exit and
       // acknowledgement path after its complete receipt is present.  It does
       // not accept the rejected Job response or select any process for
       // control; rejection still occurs before acknowledgement success.
       await writeFile(custodyReadyPath, "verified\n", { flag: "wx" });
       await assert.rejects(readOwnedFixtureAcknowledgement(acknowledgementPath, receipt, 3_000));
+      settlement = custody === null
+        ? initialSettlement
+        : await captureOrConfirmStoppedFixtureReceipt(receipt, custody);
+      assert.ok(["all_running", "all_absent", "mixed", "replaced", "unknown"].includes(settlement.state));
       await waitForManagedProcessFinalization(serviceId, Date.now() + 5_000);
-      await waitForOwnedFixtureStopped(custody ?? [rootCustody.identity], 5_000);
+      if (custody !== null) await waitForOwnedFixtureStopped(custody, 5_000);
       assert.equal(hasManagedProcess(serviceId), false);
       const stopped = await findProcessOwnership(workspaceRoot, "service", serviceId);
       assert.equal(stopped.lifecycleState, "stopped");
