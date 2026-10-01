@@ -187,6 +187,7 @@ async function assertNativePayloadLifecycleProjection(protocolCase, expectedBoun
         closeObserved = true;
       });
       let pending = "";
+      let delayedPayloadLine = null;
       nativeStderr.setEncoding("utf8");
       nativeStderr.on("data", (chunk) => {
         pending += chunk;
@@ -195,13 +196,8 @@ async function assertNativePayloadLifecycleProjection(protocolCase, expectedBoun
         for (const line of lines) {
           const payloadRecord = line.startsWith("__SERVICE_LASSO_LAUNCHER_PROGRESS__:launcher_payload_validation:") && line.split(":").length === 4;
           if (payloadRecord && protocolCase === "missing") continue;
-          if (payloadRecord && protocolCase === "exit_before_delayed_close") {
-            pending = line;
-            continue;
-          }
-          if (payloadRecord && protocolCase === "prefix_chunk") {
-            capturedStderr.write(line.slice(0, 23));
-            capturedStderr.write(`${line.slice(23)}\n`);
+          if (payloadRecord && (protocolCase === "prefix_chunk" || protocolCase === "exit_before_delayed_close")) {
+            delayedPayloadLine = line;
             continue;
           }
           if (payloadRecord && protocolCase === "truncated") {
@@ -217,16 +213,21 @@ async function assertNativePayloadLifecycleProjection(protocolCase, expectedBoun
         }
       });
       nativeStderr.once("end", () => {
-        const terminalRemainder = pending;
-        if (protocolCase !== "exit_before_delayed_close" && terminalRemainder) capturedStderr.write(terminalRemainder);
+        const terminalRemainder = protocolCase === "prefix_chunk" || protocolCase === "exit_before_delayed_close"
+          ? delayedPayloadLine
+          : pending;
+        if (protocolCase !== "prefix_chunk" && protocolCase !== "exit_before_delayed_close" && terminalRemainder) capturedStderr.write(terminalRemainder);
         if (protocolCase === "prefix_chunk") {
-          // The owned launcher has already exited, but its final authenticated
-          // record reaches the parser before the delayed stderr close. Bind
-          // the copied stream to the actual child close receipt rather than a
-          // scheduler delay, so a loaded host cannot turn direct evidence into
-          // an incidental timing failure.
-          if (closeObserved) capturedStderr.end();
-          else child.once("close", () => capturedStderr.end());
+          // Deliver the real authenticated line in chunks only after the
+          // native child has closed. This retains the parser boundary without
+          // letting host scheduling decide when a copied stream settles.
+          const deliverChunkedAfterClose = () => {
+            capturedStderr.write(terminalRemainder.slice(0, 23));
+            capturedStderr.write(`${terminalRemainder.slice(23)}\n`);
+            capturedStderr.end();
+          };
+          if (closeObserved) deliverChunkedAfterClose();
+          else child.once("close", deliverChunkedAfterClose);
         } else if (protocolCase === "exit_before_delayed_close") {
           // The actual native child has reached both terminal lifecycle events
           // before the parser-facing copy receives its final authenticated
