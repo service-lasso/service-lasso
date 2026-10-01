@@ -766,10 +766,17 @@ async function retainIncompleteOwnedFixture({ serviceId, rootCustody, receiptCus
         rootCustody.identity,
         await inspectProcess(rootCustody.identity.pid),
       );
-      if (rootClassification === "owned") {
+      if (rootClassification === "owned" && rootCustody.managerCustody !== null) {
         assert.ok(rootCustody.managerCustody);
         assertManagedProcessCustodyForTests(rootCustody.managerCustody);
         await stopManagedProcessWithCustodyForTests(rootCustody.managerCustody, 5_000);
+      } else if (rootClassification === "owned") {
+        // The acknowledgement/receipt rejection is still before activation.
+        // The captured root can remain alive until its native Job closes, but
+        // no managed-record custody exists to authorize stopping it. Retain
+        // the fixture and observe that natural closure below instead of
+        // inventing manager authority for cleanup.
+        assert.equal(rootCustody.managerCustody, null);
       } else {
         // Absent, replaced, and uninspectable roots are never rediscovered or
         // controlled. The held manager may settle naturally; fixture evidence
@@ -4376,7 +4383,17 @@ for (const receiptMode of ["incomplete", "malformed"]) {
           // The receipt is intentionally untrustworthy. Stop only through the
           // manager's held root ownership and retain the fixture, lifecycle
           // record, and files for diagnosis rather than deleting unknown state.
-          await retainIncompleteOwnedFixture({ serviceId, rootCustody, primaryError });
+          // Pre-activation rejection has no managed custody, so natural Job
+          // closure must keep the unchanged finalizer failure visible.
+          if (primaryError === undefined) {
+            await assert.rejects(
+              retainIncompleteOwnedFixture({ serviceId, rootCustody }),
+              (error) => error?.name === "ManagedProcessFinalizationError" &&
+                error.failures?.[0]?.code === "PROCESS_CONTROL_DEADLINE_EXCEEDED",
+            );
+          } else {
+            await retainIncompleteOwnedFixture({ serviceId, rootCustody, primaryError });
+          }
         }
       } finally {
         restoreFixtureTestHooks();
