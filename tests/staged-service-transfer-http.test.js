@@ -359,7 +359,9 @@ test("staged transfer HTTP keeps actors isolated, denies before body reads, and 
     const rejectedFinalize = await fetch(`${api.url}/api/v1/service-transfers/${rejected.stageId}/finalize`, { method: "POST", headers: owner });
     assert.equal(rejectedFinalize.status, 409);
     const rejectedReadback = await fetch(`${api.url}/api/v1/service-transfers/${rejected.stageId}`, { headers: owner });
-    assert.equal((await rejectedReadback.json()).state, "rejected");
+    const rejectedReadbackBody = await rejectedReadback.json();
+    assert.equal(rejectedReadback.status, 200, JSON.stringify(rejectedReadbackBody));
+    assert.equal(rejectedReadbackBody.state, "rejected");
     const rejectedConfirmation = await fetch(`${api.url}/api/v1/service-transfers/${rejected.stageId}/confirmation`, { method: "POST", headers: owner });
     assert.equal(rejectedConfirmation.status, 404);
 
