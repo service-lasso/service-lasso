@@ -227,7 +227,26 @@ async function assertNativePayloadLifecycleProjection(protocolCase, expectedBoun
     assert.equal(JSON.stringify(diagnostic).includes("SERVICE_LASSO_MANAGED_LAUNCH_PAYLOAD"), false);
     assert.equal(JSON.stringify(diagnostic).includes(tempRoot), false);
     await waitForManagedProcessFinalization("echo-service", Date.now() + 10_000);
-    assert.equal(await findProcessOwnership(workspaceRoot, "service", "echo-service"), null);
+    const retained = await findProcessOwnership(workspaceRoot, "service", "echo-service");
+    // These fixtures perturb the public diagnostic stream after the native
+    // launcher has begun its failure path, so that stream cannot prove whether
+    // durable enrollment won the race.  It must never leave live authority;
+    // if enrollment did win, preserve its recovery metadata as a stopped owner.
+    if (retained) {
+      assert.equal(retained.ownerType, "service");
+      assert.equal(retained.ownerId, "echo-service");
+      assert.equal(retained.serviceId, "echo-service");
+      assert.equal(typeof retained.generationId, "string");
+      assert.equal(typeof retained.workspaceId, "string");
+      assert.equal(typeof retained.runtimeInstanceId, "string");
+      assert.equal(retained.source, "spawn");
+      assert.equal(retained.lifecycleState, "stopped");
+      assert.equal(retained.identityStatus, "not_running");
+      assert.equal(retained.pid, null);
+      assert.equal(retained.identity, null);
+      assert.ok(retained.allocation);
+      assert.equal(typeof retained.allocation.revision, "string");
+    }
     assert.equal(hasManagedProcess("echo-service"), false, `${protocolCase} retained a managed process after native rejection.`);
   } finally {
     setManagedProcessSpawnerForTests(null);
