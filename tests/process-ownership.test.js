@@ -3749,12 +3749,20 @@ test("Windows managed terminal monitor keeps root-exit finalization in the same 
     assert.equal(retained.lifecycleState, "launching");
     assert.equal(retained.pid, handle.pid);
   } finally {
-    setManagedWindowsTreeInspectorForTests(null);
     delete process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY;
+    // Keep the test inspector installed until the explicit fresh episode has
+    // converged. Replacing it first made cleanup depend on unrelated native
+    // inspection timing, and swallowing that failure leaked this deliberately
+    // retained finalizer into later cases.
     await stopManagedProcess(serviceId, PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS, {
       newWindowsInspectionEpisode: true,
-    }).catch(() => null);
-    await stopAllManagedProcesses().catch(() => null);
+    });
+    assert.equal(hasManagedProcess(serviceId), false);
+    const stopped = await findProcessOwnership(workspaceRoot, "service", serviceId);
+    assert.equal(stopped.lifecycleState, "stopped");
+    assert.equal(stopped.pid, null);
+    setManagedWindowsTreeInspectorForTests(null);
+    await stopAllManagedProcesses();
     forceCleanupProcesses([handle?.pid]);
     if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
     else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;

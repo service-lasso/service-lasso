@@ -2157,13 +2157,25 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
       const finalizationDeadlineMs = record.stopDeadlineMs !== null && remainingProcessControlMs(record.stopDeadlineMs) > 0
         ? record.stopDeadlineMs
         : processControlDeadline(UNEXPECTED_PROCESS_FINALIZATION_TIMEOUT_MS);
-      await terminateManagedProcessTree(
-        record,
-        UNEXPECTED_PROCESS_FINALIZATION_TIMEOUT_MS,
-        true,
-        true,
-        finalizationDeadlineMs,
-      );
+      try {
+        await terminateManagedProcessTree(
+          record,
+          UNEXPECTED_PROCESS_FINALIZATION_TIMEOUT_MS,
+          true,
+          true,
+          finalizationDeadlineMs,
+        );
+      } catch (error) {
+        // Preserve the terminal automatic episode as a custody failure. A
+        // later explicit stop may open a fresh bounded inspection episode,
+        // but it must also complete this retained lifecycle rather than lose
+        // the rejected finalizer when its waiter consumes the error.
+        if (isTerminalWindowsCommandPartialCopy(error)) {
+          record.terminalWindowsFinalizerBlocked = true;
+          throw new TerminalManagedProcessFinalizationError();
+        }
+        throw error;
+      }
       // #1537 requires a fresh root-exit receipt and a fresh verified-member
       // union before a managed root can become stopped. An earlier terminal
       // #1535 episode forbids reopening the native inspector, so preserve the
@@ -2174,10 +2186,17 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
       }
       await completeLifecycle({ exitCode, signal });
     });
-    record.finalizePromise = Promise.all([
+    record.finalizePromise = Promise.allSettled([
       logFinalizePromise,
       lifecycleFinalizePromise,
-    ]).then(() => undefined);
+    ]).then((results) => {
+      const failures = results
+        .filter((result): result is PromiseRejectedResult => result.status === "rejected")
+        .map((result) => result.reason);
+      if (failures.length > 0) {
+        throw new AggregateError(failures, `Managed process "${serviceId}" finalization failed.`);
+      }
+    });
     trackManagedProcessFinalizer(serviceId, child.pid ?? null, record.finalizePromise, workspaceRoot ?? null);
   };
 
@@ -2475,6 +2494,13 @@ export async function stopManagedProcess(
     // because a prior observer may have removed the rejected finalizer from
     // its map. Completion is single-flight, so onExit cannot run twice.
     await record.completeLifecycle(result);
+    // The retained automatic finalizer rejected before it could release this
+    // record. Its later explicit completion is already awaited above; remove
+    // only this exact retained record so a completed service cannot be picked
+    // up by a later shutdown convergence pass.
+    if (managedProcesses.get(serviceId) === record) {
+      managedProcesses.delete(serviceId);
+    }
     record.terminalWindowsFinalizerBlocked = false;
     managedProcessFinalizers.delete(serviceId);
   } else {
