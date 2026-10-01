@@ -643,16 +643,14 @@ async function inspectWindowsProcessTreeOnce(
   if (!Number.isFinite(rootCreatedAtMs)) {
     throw new Error("Native Windows process-tree root identity changed.");
   }
-  const unrelatedLifetime = new Set<number>();
+  const ancestryPaths = new Map<number, Array<typeof rows[number]>>();
   for (const row of rows) {
     if (row.identity.pid === expectedRoot.pid) {
       continue;
     }
-    let predatesRoot = Date.parse(row.identity.createdAt) < rootCreatedAtMs;
-
+    const path = [row];
     const visited = new Set<number>([row.identity.pid]);
     let current = row;
-    let ancestryDepth = 0;
     while (current.parentPid !== expectedRoot.pid) {
       if (current.parentPid === null || visited.has(current.parentPid)) {
         throw invalidWindowsTreeAncestry("ancestry_cycle");
@@ -662,10 +660,56 @@ async function inspectWindowsProcessTreeOnce(
       if (!parent) {
         throw invalidWindowsTreeAncestry("ancestry_missing_parent");
       }
-      ancestryDepth += 1;
-      predatesRoot ||= Date.parse(parent.identity.createdAt) < rootCreatedAtMs;
+      path.push(parent);
+      current = parent;
+    }
+    ancestryPaths.set(row.identity.pid, path);
+  }
+
+  const excludedBranchRoots = new Set<number>();
+  const staleNumericParentChildren = new Set<number>();
+  let hasPreRootCandidate = false;
+  for (const [pid, path] of ancestryPaths) {
+    // A pre-root process can be unrelated only across a fully inspected direct
+    // root edge or one direct child edge. Anything deeper remains ambiguous.
+    const candidateCreatedAtMs = Date.parse(byPid.get(pid)!.identity.createdAt);
+    hasPreRootCandidate ||= candidateCreatedAtMs < rootCreatedAtMs;
+    if (
+      rootIdentityOwned &&
+      candidateCreatedAtMs < rootCreatedAtMs &&
+      path.length === 1
+    ) {
+      excludedBranchRoots.add(pid);
+    }
+    if (
+      rootIdentityOwned &&
+      candidateCreatedAtMs < rootCreatedAtMs &&
+      path.length === 2 &&
+      Date.parse(path[1].identity.createdAt) >= rootCreatedAtMs
+    ) {
+      excludedBranchRoots.add(pid);
+      staleNumericParentChildren.add(pid);
+    }
+  }
+  const unrelatedLifetime = new Set<number>();
+  for (const [pid, path] of ancestryPaths) {
+    if (path.some((entry) => excludedBranchRoots.has(entry.identity.pid))) {
+      unrelatedLifetime.add(pid);
+    }
+  }
+
+  for (const row of rows) {
+    if (row.identity.pid === expectedRoot.pid) continue;
+    const path = ancestryPaths.get(row.identity.pid)!;
+    let current = row;
+    for (let ancestryDepth = 1; ancestryDepth < path.length; ancestryDepth += 1) {
+      const parent = path[ancestryDepth];
       const childCreatedAtMs = Date.parse(current.identity.createdAt);
       const parentCreatedAtMs = Date.parse(parent.identity.createdAt);
+      if (staleNumericParentChildren.has(current.identity.pid)) {
+        current = parent;
+        continue;
+      }
       if (childCreatedAtMs < parentCreatedAtMs) {
         const childBeforeRoot = childCreatedAtMs < rootCreatedAtMs;
         const parentBeforeRoot = parentCreatedAtMs < rootCreatedAtMs;
@@ -689,12 +733,9 @@ async function inspectWindowsProcessTreeOnce(
       }
       current = parent;
     }
-    if (predatesRoot) {
-      // A verified current root cannot own an older process lifetime or its branch.
-      // Without that root, the same candidate remains ambiguous and fails closed.
-      if (!root) throw invalidWindowsTreeAncestry("ancestry_predates_root");
-      unrelatedLifetime.add(row.identity.pid);
-    }
+  }
+  if (hasPreRootCandidate && !rootIdentityOwned) {
+    throw invalidWindowsTreeAncestry("ancestry_predates_root");
   }
 
   const members = rows
