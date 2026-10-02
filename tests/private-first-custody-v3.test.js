@@ -1,35 +1,123 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, mkdir, readFile, rm, writeFile, symlink, rename } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile, symlink, rename, open, realpath } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { promisify } from "node:util";
-import { sha256, validAcl, darwinCacheHeader, nonReparseDirectory, createExclusiveDirectory, ownership, chain, recheck, exclusiveBytes } from "../scripts/private-first-custody-v3-lib.mjs";
+import { sha256, validAcl, darwinCacheHeader, nonReparseDirectory, createExclusiveDirectory, ownership, chain, recheck, exclusiveBytes, regularClosedBytes, regularClosedFile, bootstrapProtocolScript } from "../scripts/private-first-custody-v3-lib.mjs";
+import { startHeld } from "../scripts/native-tool-journal-v4-lib.mjs";
 
 const exec = promisify(execFile);
 const producer = new URL("../scripts/record-packaged-admin-first-custody.mjs", import.meta.url);
 const projector = new URL("../scripts/project-packaged-admin-first-custody.mjs", import.meta.url);
+// Reseal the outer hashes so a semantic adversary reaches the inner predicate.
+async function reseal(f) {
+  const journalPath=path.join(f.privateRoot,"first-custody-journal.json"), receiptPath=f.env.QUALIFICATION_INITIAL_RECEIPT_PATH;
+  const journalBytes=await readFile(journalPath), receipt=JSON.parse(await readFile(receiptPath,"utf8"));
+  receipt.journal.file={size:journalBytes.length,sha256:sha256(journalBytes)};
+  const receiptBytes=JSON.stringify(receipt)+"\n";await writeFile(receiptPath,receiptBytes);
+  const sealPath=path.join(f.privateRoot,"bootstrap-seal.json"), seal=JSON.parse(await readFile(sealPath,"utf8"));
+  seal.receiptSha256=sha256(receiptBytes);seal.journalSha256=sha256(journalBytes);await writeFile(sealPath,JSON.stringify(seal)+"\n");
+}
 async function command(file, args, cwd, env) { return exec(process.execPath, [fileURLToPath(file), ...args], { cwd, env, windowsHide: true }); }
 async function fixture() {
   const root = await mkdtemp(path.join(os.tmpdir(), "service-lasso-private-v3-"));
   const workspace = path.join(root, "checkout"), custody = path.join(root, "custody"), runtime = path.join(custody, "workspace"), privateRoot = path.join(custody, "private"), evidence = path.join(custody, "evidence");
   await mkdir(path.join(workspace, "native"), { recursive: true });
   await writeFile(path.join(workspace, "native", "asset.cs"), "sealed-native-source\n");
+  await writeFile(path.join(workspace,"native","binary.bin"),Buffer.from([0,255,128,10,0,13]));
   await writeFile(path.join(workspace, "package.json"), "{\"name\":\"private-v3-fixture\"}\n");
   await exec("git", ["init"], { cwd: workspace });
   await exec("git", ["config", "user.email", "fixture@example.invalid"], { cwd: workspace });
   await exec("git", ["config", "user.name", "fixture"], { cwd: workspace });
   await exec("git", ["add", "."], { cwd: workspace }); await exec("git", ["commit", "-m", "fixture"], { cwd: workspace });
   const { stdout } = await exec("git", ["rev-parse", "HEAD"], { cwd: workspace });
-  return { root, workspace, privateRoot, evidence, env: { ...process.env, QUALIFICATION_PLATFORM: process.platform === "win32" ? "win32" : process.platform === "darwin" ? "darwin" : "linux", GITHUB_RUN_ID: "42", GITHUB_RUN_ATTEMPT: "1", GITHUB_WORKSPACE: workspace, QUALIFICATION_CANDIDATE_SHA: stdout.trim(), QUALIFICATION_PRIVATE_CUSTODY_ROOT: privateRoot, QUALIFICATION_INITIAL_RECEIPT_PATH: path.join(privateRoot, "initial-receipt.json"), QUALIFICATION_EVIDENCE_ROOT: evidence, SERVICE_LASSO_WORKSPACE_ROOT: runtime, SERVICE_LASSO_INSTANCE_REGISTRY_PATH: path.join(custody, "instance-registry.json"), SERVICE_LASSO_HOST_PORT_REGISTRY_PATH: path.join(custody, "host-port-registry.json") } };
+  return { root, workspace, privateRoot, evidence, env: { ...process.env, QUALIFICATION_PLATFORM: process.platform === "win32" ? "win32" : process.platform === "darwin" ? "darwin" : "linux", GITHUB_RUN_ID: "42", GITHUB_RUN_ATTEMPT: "1", GITHUB_WORKSPACE: workspace, QUALIFICATION_CANDIDATE_SHA: stdout.trim(), QUALIFICATION_PRIVATE_CUSTODY_ROOT: privateRoot, QUALIFICATION_INITIAL_RECEIPT_PATH: path.join(privateRoot, "initial-receipt.json"), QUALIFICATION_INITIAL_PROJECTION_PATH: path.join(evidence,"initial-projection.json"), QUALIFICATION_EVIDENCE_ROOT: evidence, SERVICE_LASSO_WORKSPACE_ROOT: runtime, SERVICE_LASSO_INSTANCE_REGISTRY_PATH: path.join(custody, "instance-registry.json"), SERVICE_LASSO_HOST_PORT_REGISTRY_PATH: path.join(custody, "host-port-registry.json") } };
 }
 async function produce(f) { await command(producer, [], f.workspace, f.env); await command(projector, ["--input", f.env.QUALIFICATION_INITIAL_RECEIPT_PATH, "--journal", path.join(f.privateRoot, "first-custody-journal.json"), "--output", path.join(f.evidence, "initial-projection.json")], f.workspace, f.env); }
+test("BR008 held reader rejects an actual open-time object substitution restored before its named postcheck", async () => {
+  const root=await mkdtemp(path.join(os.tmpdir(),"custody-held-named-"));
+  try {
+    const file=path.join(root,"source"), retained=path.join(root,"retained"), substitute=path.join(root,"substitute");
+    await writeFile(file,"original");await writeFile(substitute,"different");
+    assert.equal((await regularClosedBytes(file,root)).toString(),"original");
+    await assert.rejects(regularClosedBytes(file,root,{open:async(target,flags)=>{
+      await rename(target,retained);await rename(substitute,target);const handle=await open(target,flags);
+      await rename(target,substitute);await rename(retained,target);return handle;
+    }}),/first_custody_held_not_named_file/u);
+    assert.equal(await readFile(file,"utf8"),"original");
+  } finally { await rm(root,{recursive:true,force:true}); }
+});
+test("BR008 coherent outer reseals cannot hide Git metadata, tool/result, literal configuration or registry-role substitutions", async () => {
+  for(const mutation of ["head","tree","currentHead","index","metadata","nodeVersion","nativeDigest","toolName","requested","runner","run","platform","runtime","registryDuplicate","registrySwap","registryParent","expectedRegistryPresent","gitRawBody","gitRawHeader","compilerVersion","compilerScript","helperPid","helperScript","helperActualChild","bootstrapScript","bootstrapRaw","bootstrapEof","bootstrapExit","bootstrapOrder","bootstrapRequest","bootstrapMissing"]) {
+    const f=await fixture();
+    try {
+      await command(producer,[],f.workspace,f.env);
+      const receiptPath=f.env.QUALIFICATION_INITIAL_RECEIPT_PATH,journalPath=path.join(f.privateRoot,"first-custody-journal.json"),sealPath=path.join(f.privateRoot,"bootstrap-seal.json"),receipt=JSON.parse(await readFile(receiptPath,"utf8")),journal=JSON.parse(await readFile(journalPath,"utf8")),seal=JSON.parse(await readFile(sealPath,"utf8"));
+      if(mutation==="head")receipt.source.head="0".repeat(40);
+      if(mutation==="tree")receipt.source.tree="0".repeat(40);
+      if(mutation==="currentHead")await writeFile(path.join(f.workspace,".git","HEAD"),"f".repeat(40)+"\n");
+      if(mutation==="index")await exec("git",["update-index","--cacheinfo","100644","0".repeat(40),"package.json"],{cwd:f.workspace});
+      if(mutation==="metadata")await exec("git",["config","fixture.drift","true"],{cwd:f.workspace});
+      if(mutation==="nodeVersion")journal.toolMetadata.nodeVersion="v0.0.0";
+      if(mutation==="nativeDigest")journal.commands[0].native.imageSha256="0".repeat(64);
+      if(mutation==="toolName")receipt.tools[0].name="node";
+      if(mutation==="requested")receipt.tools[0].requested=receipt.tools[1].requested;
+      if(mutation==="runner")receipt.runner.nativeBirthCustody="UNOBSERVED";
+      if(mutation==="run")receipt.run.attempt="2";
+      if(mutation==="platform")receipt.platform=process.platform==="linux"?"darwin":"linux";
+      if(mutation==="runtime")receipt.roots.workspaceRoot={...receipt.roots.privateRoot};
+      if(mutation==="registryDuplicate")receipt.registries[1]=receipt.registries[0];
+      if(mutation==="registrySwap")receipt.registries.reverse();
+      if(mutation==="registryParent")receipt.registries[0].parent={...receipt.roots.privateRoot};
+      if(mutation==="expectedRegistryPresent"){await writeFile(f.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH,"present");receipt.registries[0].path=path.join(path.dirname(f.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH),"substitute-absent.json");}
+      if(mutation==="gitRawBody"||mutation==="gitRawHeader"){const file=path.join(f.privateRoot,"journal-0.stdout"),bytes=await readFile(file);if(mutation==="gitRawHeader")bytes[0]=bytes[0]===48?49:48;else {const index=bytes.indexOf(Buffer.from("sealed-native-source"));assert.ok(index>=0);bytes[index]=88;}await writeFile(file,bytes);journal.commands[0].result.stdout={size:bytes.length,sha256:sha256(bytes)};}
+      if(mutation==="compilerVersion"||mutation==="compilerScript"){if(process.platform!=="win32"){assert.equal(journal.toolMetadata.csc,null);continue;}assert.ok(journal.toolMetadata.csc,"actual Windows compiler metadata must be retained");if(mutation==="compilerVersion")journal.toolMetadata.csc.observation.version.FileVersion="forged";else journal.commands[2].command.args[4]+=";exit 0";}
+      if(mutation==="helperPid"||mutation==="helperScript"||mutation==="helperActualChild") { const helper=journal.commands[0].native.helper;if(process.platform==="linux"){assert.equal(helper,null);continue;}assert.ok(helper);if(mutation==="helperPid")helper.first.spawnedPid+=1;else if(mutation==="helperScript")helper.scriptSha256="0".repeat(64);else {const raw=JSON.parse(Buffer.from(helper.first.stdout.data).toString("utf8"));raw.self.pid+=1;raw.self.chain[0].pid=raw.self.pid;helper.first.selfIdentity={...raw.self.chain[0]};const bytes=Buffer.from(JSON.stringify(raw));helper.first.stdout=bytes;helper.first.stdoutSha256=sha256(bytes);} }
+      if(mutation.startsWith("bootstrap")) {
+        if(process.platform!=="win32"){assert.equal(seal.session,null);assert.equal(seal.commands.length,0);continue;}
+        assert.ok(seal.commands.length);const probe=seal.commands[0];
+        if(mutation==="bootstrapScript")seal.session.args[4]+=";exit 0";
+        if(mutation==="bootstrapRaw"){probe.stdout=Buffer.from("{}\n");probe.stdoutSha256=sha256("{}\n");}
+        if(mutation==="bootstrapEof")seal.session.result.stdoutEof=false;
+        if(mutation==="bootstrapExit")seal.session.result.exitCode=1;
+        if(mutation==="bootstrapOrder")seal.commands.reverse();
+        if(mutation==="bootstrapRequest")probe.target=path.join(f.root,"substitute");
+        if(mutation==="bootstrapMissing")seal.commands=seal.commands.filter(probe=>probe.purpose!=="acl_read");
+      }
+      await writeFile(receiptPath,JSON.stringify(receipt)+"\n");await writeFile(journalPath,JSON.stringify(journal)+"\n");await writeFile(sealPath,JSON.stringify(seal)+"\n");await reseal(f);
+      await assert.rejects(command(projector,["--input",receiptPath,"--journal",journalPath,"--output",f.env.QUALIFICATION_INITIAL_PROJECTION_PATH],f.workspace,f.env));
+    }finally{await rm(f.root,{recursive:true,force:true});}
+  }
+});
+test("BR008 projector requires literal workspace and candidate configuration", async()=>{
+  const f=await fixture();try {
+    await command(producer,[],f.workspace,f.env);
+    for(const key of ["GITHUB_WORKSPACE","QUALIFICATION_CANDIDATE_SHA","QUALIFICATION_PRIVATE_CUSTODY_ROOT","SERVICE_LASSO_WORKSPACE_ROOT"]){const env={...f.env};delete env[key];await assert.rejects(command(projector,["--input",f.env.QUALIFICATION_INITIAL_RECEIPT_PATH,"--journal",path.join(f.privateRoot,"first-custody-journal.json"),"--output",f.env.QUALIFICATION_INITIAL_PROJECTION_PATH],f.workspace,env),new RegExp(key.toLowerCase()+"_missing","u"));}
+  }finally{await rm(f.root,{recursive:true,force:true});}
+});
+test("BR008 actual native bootstrap protocol closes valid, invalid-request and owned-crash streams on its host", async()=>{
+  if(process.platform!=="win32"){assert.ok(["linux","darwin"].includes(process.platform));return;}
+  const root=await mkdtemp(path.join(os.tmpdir(),"bootstrap-protocol-native-"));
+  try {
+    const requested=path.join(process.env.SystemRoot,"System32","WindowsPowerShell","v1.0","powershell.exe"),resolved=await realpath(requested),tool={name:"powershell",requested,resolved,file:await regularClosedFile(resolved,path.parse(resolved).root)};
+    for(const scenario of ["valid","unknown-purpose","malformed","owned-crash"]){
+      const held=await startHeld(tool,["-NoLogo","-NoProfile","-NonInteractive","-Command",bootstrapProtocolScript()],process.cwd());
+      assert.equal(held.native.pid,held.child.pid);for(const probe of [held.native.helper.first,held.native.helper.second])assert.equal(probe.spawnedPid,probe.selfIdentity.pid);
+      if(scenario==="owned-crash")assert.equal(held.child.kill(),true);
+      else held.child.stdin.end(scenario==="malformed"?"{\n":JSON.stringify({purpose:scenario==="valid"?"reparse":"unknown",target:root})+"\n");
+      const closed=await held.closed;assert.equal(closed.stdoutEof,true);assert.equal(closed.stderrEof,true);
+      if(scenario==="valid"){assert.equal(closed.exitCode,0);assert.equal(closed.signal,null);assert.equal(JSON.parse(closed.stdout.toString()).reparse,false);assert.equal(closed.stderr.length,0);}
+      else assert.ok(closed.exitCode!==0||closed.signal!==null,scenario);
+    }
+  }finally{await rm(root,{recursive:true,force:true});}
+});
 test("BR008 private v3 producer holds an observed native Git protocol and projects only closed identifiers", async () => {
   const f = await fixture(); try { await produce(f); const publicSource = await readFile(path.join(f.evidence, "initial-projection.json"), "utf8"); const privateSource = await readFile(f.env.QUALIFICATION_INITIAL_RECEIPT_PATH, "utf8"); const pub = JSON.parse(publicSource), priv = JSON.parse(privateSource);
-    assert.equal(priv.schema, "service-lasso.qualification-initial-receipt.v3"); assert.equal(priv.source.tracked.length, 2); assert.equal(priv.runner.nativeBirthCustody, "HELD_NATIVE_V1"); assert.equal(priv.journal.commands[0].native.id, priv.journal.commands[0].native.id); assert.equal(pub.privateVersion, "v3"); assert.deepEqual(Object.keys(pub.localValidatorAttestation).sort(), ["schema", "validated"]); assert.equal(pub.privateInitialReceiptSha256, sha256(privateSource)); assert.equal(publicSource.includes(f.workspace), false); assert.equal(publicSource.includes("journal-0.stdout"), false); assert.equal(publicSource.includes("pid"), false);
+    assert.equal(priv.schema, "service-lasso.qualification-initial-receipt.v3"); assert.equal(priv.source.tracked.length, 3); assert.equal(priv.runner.nativeBirthCustody, "HELD_NATIVE_V1"); const journal=JSON.parse(await readFile(priv.journal.path,"utf8"));assert.match(journal.commands[0].native.id,/^native-/u); assert.equal(pub.privateVersion, "v3"); assert.deepEqual(Object.keys(pub.localValidatorAttestation).sort(), ["schema", "validated"]); assert.equal(pub.privateInitialReceiptSha256, sha256(privateSource)); assert.equal(publicSource.includes(f.workspace), false); assert.equal(publicSource.includes("journal-0.stdout"), false); assert.equal(publicSource.includes("pid"), false);
   } finally { await rm(f.root, { recursive: true, force: true }); }
 });
 test("BR008 validator rejects workspace/native state, registry, journal, native witness, raw output, duplicate JSON and output-boundary tampering", async () => {
@@ -54,8 +142,9 @@ test("BR008 validator rejects workspace/native state, registry, journal, native 
        if (mutation === "tool") { const receipt = JSON.parse(await readFile(f.env.QUALIFICATION_INITIAL_RECEIPT_PATH, "utf8")); receipt.tools[0].file.sha256 = "0".repeat(64); await writeFile(f.env.QUALIFICATION_INITIAL_RECEIPT_PATH, JSON.stringify(receipt) + "\n"); }
       if (mutation === "order") { const journalPath = path.join(f.privateRoot, "first-custody-journal.json"), journal = JSON.parse(await readFile(journalPath, "utf8")); journal.commands.reverse(); await writeFile(journalPath, JSON.stringify(journal) + "\n"); }
       if (mutation === "duplicate") await writeFile(f.env.QUALIFICATION_INITIAL_RECEIPT_PATH, "{\"schema\":\"x\",\"schema\":\"x\"}\n");
+      if(!["duplicate","raw"].includes(mutation))await reseal(f);
       const target = mutation === "output" ? path.join(f.evidence, "initial-projection.json") : mutation === "privacy" ? path.join(f.evidence, "private", "initial-projection.json") : path.join(f.evidence, mutation + ".json");
-      await assert.rejects(command(projector, ["--input", f.env.QUALIFICATION_INITIAL_RECEIPT_PATH, "--journal", path.join(f.privateRoot, "first-custody-journal.json"), "--output", target], f.workspace, f.env));
+      await assert.rejects(command(projector, ["--input", f.env.QUALIFICATION_INITIAL_RECEIPT_PATH, "--journal", path.join(f.privateRoot, "first-custody-journal.json"), "--output", target], f.workspace, { ...f.env, QUALIFICATION_INITIAL_PROJECTION_PATH:target }));
     } finally { await rm(f.root, { recursive: true, force: true }); } }
 });
 // Policy models cover SID deduplication; they do not claim a SYSTEM token exists.
@@ -110,7 +199,7 @@ test("BR008 Darwin complete cache mutations fail despite coherently resealed jou
       const receipt = JSON.parse(await readFile(f.env.QUALIFICATION_INITIAL_RECEIPT_PATH, "utf8"));
       receipt.journal.file = { size: Buffer.byteLength(bytes), sha256: sha256(bytes) };
       await writeFile(f.env.QUALIFICATION_INITIAL_RECEIPT_PATH, JSON.stringify(receipt) + "\n");
-      await assert.rejects(command(projector, ["--input", f.env.QUALIFICATION_INITIAL_RECEIPT_PATH, "--journal", journalPath, "--output", path.join(f.evidence, key + ".json")], f.workspace, f.env));
+      await assert.rejects(command(projector, ["--input", f.env.QUALIFICATION_INITIAL_RECEIPT_PATH, "--journal", journalPath, "--output", path.join(f.evidence, key + ".json")], f.workspace, { ...f.env, QUALIFICATION_INITIAL_PROJECTION_PATH:target }));
     } finally { await rm(f.root, { recursive: true, force: true }); }
   }
 });

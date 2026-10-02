@@ -1,109 +1,73 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { parseDocument } from "yaml";
 
-const workflowUrl = new URL("../.github/workflows/packaged-admin-lifecycle.yml", import.meta.url);
-
-function run(command, args, environment) {
-  return spawnSync(command, args, { encoding: "utf8", env: environment, shell: false });
+const bash=process.platform==="win32"?path.join(process.env.ProgramFiles??"C:\\Program Files","Git","bin","bash.exe"):"bash";
+function run(command,args,environment,cwd=process.cwd()) { return spawnSync(command,args,{encoding:"utf8",env:environment,cwd,shell:false}); }
+async function firstCustodyStep(name) {
+  const source=await readFile(new URL(`../.github/workflows/${name}.yml`,import.meta.url),"utf8"),document=parseDocument(source,{uniqueKeys:true});
+  assert.equal(document.errors.length,0,document.errors.map(String).join("\n"));
+  const data=document.toJS(),job=data.jobs[name],steps=job.steps, index=steps.findIndex(step=>step.name==="Establish unique qualification custody before dependencies");
+  assert.equal(job.env.QUALIFICATION_PLATFORM,name==="packaged-admin-lifecycle"?"${{ matrix.admin_platform }}":"${{ matrix.platform }}");
+  assert.ok(data.env.QUALIFICATION_CANDIDATE_SHA);assert.equal(job.env.GIT_CONFIG_COUNT,"1");assert.equal(job.env.GIT_CONFIG_KEY_0,"core.autocrlf");assert.equal(job.env.GIT_CONFIG_VALUE_0,"false");
+  assert.ok(steps.findIndex(step=>step.with?.repository==="service-lasso/lasso-serviceadmin")>index,"foreign checkout must follow exact Core custody");
+  assert.equal(steps[index].shell,"bash");assert.match(steps[index].run,/^set -euo pipefail$/m);
+  return steps[index].run;
 }
-
-async function firstCustodyStep() {
-  const source = await readFile(workflowUrl, "utf8");
-  const document = parseDocument(source, { uniqueKeys: true });
-  assert.equal(document.errors.length, 0, document.errors.map(String).join("\n"));
-  const job = document.toJS().jobs["packaged-admin-lifecycle"];
-  const step = job.steps.find(({ name }) => name === "Establish unique qualification custody before dependencies");
-  assert.equal(job.env.ADMIN_PLATFORM, "${{ matrix.admin_platform }}");
-  assert.equal(step.shell, "bash");
-  assert.match(step.run, /^set -euo pipefail$/m);
-  return step.run;
-}
-
-function receiptPath(root, platform, attempt) {
-  return path.join(root, `packaged-admin-lifecycle-431-packaged-admin-lifecycle-${attempt}-${platform}`, "private", "initial-receipt.json");
-}
-
-test("AC-4BY.2 executes the first custody step with matrix projection under Bash nounset on Linux and macOS", { skip: process.platform === "win32" }, async () => {
-  const script = await firstCustodyStep();
-  const root = await mkdtemp(path.join(tmpdir(), "packaged-first-custody-"));
-  try {
-    for (const platform of ["linux", "darwin"]) {
-      const environment = {
-        PATH: process.env.PATH,
-        RUNNER_TEMP: root,
-        GITHUB_RUN_ID: "431",
-        GITHUB_JOB: "packaged-admin-lifecycle",
-        GITHUB_RUN_ATTEMPT: "2",
-        ADMIN_PLATFORM: platform,
-        GITHUB_ENV: path.join(root, `${platform}.github-env`),
-        GITHUB_WORKSPACE: process.cwd(),
-        QUALIFICATION_CANDIDATE_SHA: run("git", ["rev-parse", "HEAD"], { PATH: process.env.PATH }).stdout.trim(),
-      };
-      const result = run("bash", ["-c", script], environment);
-      assert.equal(result.status, 0, result.stderr);
-      const receipt = JSON.parse(await readFile(receiptPath(root, platform, "2"), "utf8"));
-      assert.equal(receipt.schema, "service-lasso.qualification-initial-receipt.v3");
-      assert.equal(receipt.private, true);
-      assert.equal(receipt.platform, platform);
-      assert.deepEqual(receipt.run, { id: "431", attempt: "2" });
-      assert.match(receipt.source.head, /^[0-9a-f]{40}$/u);
-      assert.match(receipt.source.tree, /^[0-9a-f]{40}$/u);
-      assert.equal(receipt.registries.length, 2);
-      assert.equal(receipt.journal.path, path.join(path.dirname(receiptPath(root, platform, "2")), "first-custody-journal.json"));
-      const exported = await readFile(environment.GITHUB_ENV, "utf8");
-      for (const name of ["QUALIFICATION_WORKSPACE_ROOT", "SERVICE_LASSO_INSTANCE_REGISTRY_PATH", "SERVICE_LASSO_HOST_PORT_REGISTRY_PATH", "QUALIFICATION_EVIDENCE_ROOT", "QUALIFICATION_PRIVATE_CUSTODY_ROOT", "QUALIFICATION_INITIAL_RECEIPT_PATH", "QUALIFICATION_INITIAL_PROJECTION_PATH"]) assert.match(exported, new RegExp(`^${name}=.+`, "m"));
-    }
-    const crossAttempt = run("bash", ["-c", script], {
-      PATH: process.env.PATH,
-      RUNNER_TEMP: root,
-      GITHUB_RUN_ID: "431",
-      GITHUB_JOB: "packaged-admin-lifecycle",
-      GITHUB_RUN_ATTEMPT: "3",
-      ADMIN_PLATFORM: "linux",
-      GITHUB_ENV: path.join(root, "cross-attempt.github-env"),
-      GITHUB_WORKSPACE: process.cwd(),
-      QUALIFICATION_CANDIDATE_SHA: run("git", ["rev-parse", "HEAD"], { PATH: process.env.PATH }).stdout.trim(),
-    });
-    assert.equal(crossAttempt.status, 0, crossAttempt.stderr);
-    const crossReceipt = JSON.parse(await readFile(receiptPath(root, "linux", "3"), "utf8"));
-    assert.equal(crossReceipt.schema, "service-lasso.qualification-initial-receipt.v3");
-    assert.deepEqual(crossReceipt.run, { id: "431", attempt: "3" });
-    assert.notEqual(receiptPath(root, "linux", "2"), receiptPath(root, "linux", "3"));
-  } finally {
-    await rm(root, { recursive: true, force: true });
+async function checkout(root) {
+  const workspace=path.join(root,"checkout");await mkdir(workspace);
+  const environment={...process.env,GIT_CONFIG_COUNT:"1",GIT_CONFIG_KEY_0:"core.autocrlf",GIT_CONFIG_VALUE_0:"false"};
+  const head=run("git",["rev-parse","HEAD"],environment).stdout.trim();assert.match(head,/^[0-9a-f]{40}$/u);
+  for(const args of [["init"],["config","core.autocrlf","false"],["fetch","--no-tags",process.cwd(),head],["checkout","--detach","FETCH_HEAD"]]){
+    const result=run("git",args,environment,workspace);assert.equal(result.status,0,result.stderr);
   }
-});
-
-test("AC-4BY.2 projects the Windows matrix environment into a real PowerShell process before custody", async () => {
-  await firstCustodyStep();
-  const projection = run("pwsh", ["-NoLogo", "-NoProfile", "-Command", "if ($env:ADMIN_PLATFORM -ne 'win32') { exit 1 }; [Console]::Write($env:ADMIN_PLATFORM)"], {
-    PATH: process.env.PATH,
-    ADMIN_PLATFORM: "win32",
+  return {workspace,head};
+}
+function environment(root,workspace,head,name,attempt="2") { return {...process.env,GIT_CONFIG_COUNT:"1",GIT_CONFIG_KEY_0:"core.autocrlf",GIT_CONFIG_VALUE_0:"false",RUNNER_TEMP:root,GITHUB_RUN_ID:"431",GITHUB_JOB:name,GITHUB_RUN_ATTEMPT:attempt,ADMIN_PLATFORM:process.platform,QUALIFICATION_PLATFORM:process.platform,GITHUB_ENV:path.join(root,`${name}-${attempt}.github-env`),GITHUB_WORKSPACE:workspace,QUALIFICATION_CANDIDATE_SHA:head}; }
+function receiptPath(root,name,attempt) { return path.join(root,`${name}-431-${name}-${attempt}-${process.platform}`,"private","initial-receipt.json"); }
+// Each required OS runs its actual native platform; no Linux process masquerades
+// as Darwin or Windows. Git copies only the exact candidate into a fresh root,
+// excluding the test runner's installed dependencies and generated dist.
+for(const name of ["packaged-admin-lifecycle","published-package-qualification"]) {
+  test(`BR008 ${name} executes actual isolated host-native predependency custody and distinct attempts`,async()=>{
+    const script=await firstCustodyStep(name),root=await mkdtemp(path.join(tmpdir(),"workflow-first-custody-"));
+    try {
+      const {workspace,head}=await checkout(root);
+      assert.equal(run("git",["status","--porcelain=v1","--untracked-files=all"],process.env,workspace).stdout,"");
+      for(const attempt of ["2","3"]) {
+        const env=environment(root,workspace,head,name,attempt),result=run(bash,["-c",script],env,workspace);assert.equal(result.status,0,result.stderr);
+        const receipt=JSON.parse(await readFile(receiptPath(root,name,attempt),"utf8"));assert.equal(receipt.platform,process.platform);assert.equal(receipt.source.head,head);assert.deepEqual(receipt.run,{id:"431",attempt});
+        const seal=JSON.parse(await readFile(path.join(path.dirname(receiptPath(root,name,attempt)),"bootstrap-seal.json"),"utf8"));assert.equal(seal.private,true);assert.ok(process.platform==="win32"?seal.commands.length>0:seal.commands.length===0);
+        const exported=await readFile(env.GITHUB_ENV,"utf8");for(const key of ["QUALIFICATION_WORKSPACE_ROOT","SERVICE_LASSO_INSTANCE_REGISTRY_PATH","SERVICE_LASSO_HOST_PORT_REGISTRY_PATH","QUALIFICATION_EVIDENCE_ROOT","QUALIFICATION_PRIVATE_CUSTODY_ROOT","QUALIFICATION_INITIAL_RECEIPT_PATH","QUALIFICATION_INITIAL_PROJECTION_PATH"])assert.match(exported,new RegExp(`^${key}=.+`,"m"));
+      }
+      assert.notEqual(receiptPath(root,name,"2"),receiptPath(root,name,"3"));
+      const workflow=parseDocument(await readFile(new URL(`../.github/workflows/${name}.yml`,import.meta.url),"utf8"),{uniqueKeys:true}).toJS();
+      const adminScript=workflow.jobs[name].steps.find(step=>step.name==="Bind exact separate Admin checkout before dependencies").run;
+      const admin=path.join(workspace,"qualification","admin");await mkdir(admin,{recursive:true});
+      for(const args of [["init"],["config","core.autocrlf","false"],["fetch","--no-tags",workspace,head],["checkout","--detach","FETCH_HEAD"]]){const result=run("git",args,process.env,admin);assert.equal(result.status,0,result.stderr);}
+      const env={...environment(root,workspace,head,name,"2"),ADMIN_HARNESS_REVISION:head},result=run(bash,["-c",adminScript],env,workspace);assert.equal(result.status,0,result.stderr);
+      const adminRoot=path.join(root,`admin-harness-custody-431-${name}-2-${process.platform}`),adminReceipt=JSON.parse(await readFile(path.join(adminRoot,"private","initial-receipt.json"),"utf8"));
+      assert.equal(adminReceipt.source.head,head);assert.equal(adminReceipt.source.tracked.length,JSON.parse(await readFile(receiptPath(root,name,"2"),"utf8")).source.tracked.length);
+      assert.equal(JSON.parse(await readFile(path.join(adminRoot,"evidence","initial-projection.json"),"utf8")).candidate.head,head);
+      // The full inventory also rejects ignored foreign input after Git status
+      // remains clean; moving checkout cannot become a broad ignore exception.
+      await mkdir(path.join(admin,"node_modules"));await writeFile(path.join(admin,"node_modules","foreign.txt"),"unadmitted");
+      assert.equal(run("git",["status","--porcelain=v1","--untracked-files=all"],process.env,admin).stdout,"");
+      assert.notEqual(run(bash,["-c",adminScript],{...env,GITHUB_RUN_ATTEMPT:"6"},workspace).status,0);
+    }finally{await rm(root,{recursive:true,force:true});}
   });
-  assert.equal(projection.status, 0, projection.stderr);
-  assert.equal(projection.stdout, "win32");
-});
-
-test("AC-4BY.2 fails closed when the first Bash custody step loses its matrix environment", { skip: process.platform === "win32" }, async () => {
-  const script = await firstCustodyStep();
-  const root = await mkdtemp(path.join(tmpdir(), "packaged-first-custody-missing-platform-"));
-  try {
-    const result = run("bash", ["-c", script], {
-      PATH: process.env.PATH,
-      RUNNER_TEMP: root,
-      GITHUB_RUN_ID: "431",
-      GITHUB_JOB: "packaged-admin-lifecycle",
-      GITHUB_RUN_ATTEMPT: "2",
-      GITHUB_ENV: path.join(root, "missing-platform.github-env"),
-    });
-    assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /ADMIN_PLATFORM/u);
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
+  test(`BR008 ${name} rejects missing platform, foreign inputs and a cross-platform claim`,async()=>{
+    const script=await firstCustodyStep(name),root=await mkdtemp(path.join(tmpdir(),"workflow-first-custody-negative-"));
+    try {
+      const {workspace,head}=await checkout(root),env=environment(root,workspace,head,name);
+      const missing={...env};delete missing.QUALIFICATION_PLATFORM;assert.notEqual(run(bash,["-c",script],missing,workspace).status,0);
+      const cross={...env,GITHUB_RUN_ATTEMPT:"4",QUALIFICATION_PLATFORM:process.platform==="linux"?"darwin":"linux"};assert.notEqual(run(bash,["-c",script],cross,workspace).status,0);
+      await mkdir(path.join(workspace,"qualification","admin"),{recursive:true});await writeFile(path.join(workspace,"qualification","admin","foreign.txt"),"foreign\n");
+      assert.notEqual(run(bash,["-c",script],{...env,GITHUB_RUN_ATTEMPT:"5"},workspace).status,0);
+    }finally{await rm(root,{recursive:true,force:true});}
+  });
+}

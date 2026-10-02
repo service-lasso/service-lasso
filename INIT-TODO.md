@@ -100,3 +100,12 @@ This file tracks bootstrap/adoption/remediation work required before product imp
 - [ ] Before any dependency install, build, test, or Core import, retain the
   required isolated external runtime custody record and obtain parent readback.
 - [ ] PR #1586 / ISS-850 / BR-008 C1/C2/C3 source repair: stable directory replacement identity, strict public-v2 two-key consumers, exact existing-head grandfathering. Fresh full source review and external ROOT admission precede any execution; no provider protection/check bypass or generic codex namespace admission.
+
+## Issue #1597 entire PR #1586 source repair
+
+SPEC-003 BR-008 implementation child of delivery epic #1562. Sole successor custody is explicitly accepted on the retained clean d33f78e PR head; the existing branch and develop target are preserved under the bounded GOV-10 recovery exception. Closed historical #850 remains closed.
+
+All eight review groups are one coherent acceptance unit: separate Admin checkout custody and exact tracked Core inventory; literal workflow candidate/platform; raw Git blob/tree/commit/index replay; exact tool/native/runner/caller/metadata bindings; literal run and root/registry roles; held versus named file identity and verified-byte parsing; complete owned bootstrap helper/raw/script/actual-child closure; isolated host-native production fixtures and coherently resealed adversaries. Existing observation architecture, private/public boundary, three-OS/compiler/product/native/operator gates and protected assertions remain required.
+
+Source authoring and static metadata/hash inspection only. No source import, Node/npm/compiler/syntax/test/native ACL/lifecycle execution before a fresh independent ENTIRE SOURCE GO and NEW complete-input ROOT admission. Freeze/push the complete bundle for independent review; no execution or acceptance claim follows from authoring. Earlier failures and direct-versus-surrogate limits remain preserved.
+- [ ] Issue #1597 / PR #1586: source bundle authored for all eight groups; entire independent review and NEW ROOT admission pending. No native/runtime/compiler/product/operator acceptance inferred. Separate full exact Admin tracked-byte custody precedes dependencies after initial Core custody, and before-checkout Git byte policy binds raw tracked source.

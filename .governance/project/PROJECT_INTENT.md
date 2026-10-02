@@ -188,3 +188,11 @@ Issue #1326 confirmed exit-during-query handling requires successful termination
 Issue #1326 parent-edge lifetime diagnostic follow-up binds AC-4BH: retain the 079eb33 startup rejection and classify only whether the rejected edge crosses before expected-root creation. No process details or membership/deadline relaxation; require bounded rejection and privacy tests plus exact-head qualification.
 
 PR #1586's bounded BR-008 review repair preserves stable directory identity, the exact two-key public v2 attestation, and only its documented existing-head tuple. This is source work; private native provenance, file stability, ancestry, and fresh ROOT admission remain mandatory before qualification.
+
+## Issue #1597 entire PR #1586 source repair
+
+SPEC-003 BR-008 implementation child of delivery epic #1562. Sole successor custody is explicitly accepted on the retained clean d33f78e PR head; the existing branch and develop target are preserved under the bounded GOV-10 recovery exception. Closed historical #850 remains closed.
+
+All eight review groups are one coherent acceptance unit: separate Admin checkout custody and exact tracked Core inventory; literal workflow candidate/platform; raw Git blob/tree/commit/index replay; exact tool/native/runner/caller/metadata bindings; literal run and root/registry roles; held versus named file identity and verified-byte parsing; complete owned bootstrap helper/raw/script/actual-child closure; isolated host-native production fixtures and coherently resealed adversaries. Existing observation architecture, private/public boundary, three-OS/compiler/product/native/operator gates and protected assertions remain required.
+
+Source authoring and static metadata/hash inspection only. No source import, Node/npm/compiler/syntax/test/native ACL/lifecycle execution before a fresh independent ENTIRE SOURCE GO and NEW complete-input ROOT admission. Freeze/push the complete bundle for independent review; no execution or acceptance claim follows from authoring. Earlier failures and direct-versus-surrogate limits remain preserved.
