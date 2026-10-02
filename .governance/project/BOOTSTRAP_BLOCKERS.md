@@ -1,6 +1,3 @@
-# Bootstrap Blockers
+# Legacy Bootstrap Blockers Pointer
 
-Latest timestamped run artifact: `.governance/project/bootstrap-runs/2026-04-05T14-56-09+10-00-blockers.md`
-
-## Summary
-This file is the stable pointer for bootstrap blockers. See the latest timestamped blocker artifact for unresolved bootstrap constraints and next actions.
+This flat file is retained as historical migration context. The current reporting surface is [bootstrap/BLOCKERS.md](bootstrap/BLOCKERS.md); the current run evidence is grouped under `bootstrap/history/2026-10-02T07-53-15Z/`.

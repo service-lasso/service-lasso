@@ -1,0 +1,268 @@
+{
+  "name": "vibegov",
+  "version": "1.1",
+  "source": "https://vibegov.io",
+  "canonicalBootstrapSources": {
+    "agent": "https://vibegov.io/agent.txt",
+    "bootstrap": "https://vibegov.io/bootstrap.json",
+    "roles": "https://vibegov.io/roles/index.json"
+  },
+  "modes": {
+    "canonicalContractDoc": "/docs/bootstrap",
+    "supported": [
+      "init",
+      "update",
+      "review"
+    ],
+    "behavior": {
+      "init": "create_missing_bootstrap_state",
+      "update": "repair_or_normalize_existing_bootstrap_state",
+      "review": "audit_against_same_contract_without_claiming_missing_work_completed"
+    }
+  },
+  "folders": [
+    ".governance/rules",
+    ".governance/project",
+    ".governance/specs"
+  ],
+  "rules_policy": {
+    "scope": "governance_only",
+    "path_glob": ".governance/rules/*.mdc",
+    "forbid_feature_spec_content": true
+  },
+  "spec_policy": {
+    "scope": "feature_and_change_spec_only",
+    "path_glob": ".governance/specs/*",
+    "is_single_source_of_truth_for_features": true,
+    "allowBootstrapSetupSpecAsFirstSpecWhenProductIntentIsVague": true
+  },
+  "compatibility": {
+    "mirror_to_provider_rules_if_present": true,
+    "mirror_source_glob": ".governance/rules/*.mdc",
+    "mirror_target_strategy": "detect_existing_provider_native_rules_directories",
+    "use_placeholders": false,
+    "if_no_provider_directory_exists": "use_.governance/rules_only",
+    "report_detected_mirror_targets": true,
+    "preserve_intent": true
+  },
+  "delivery_loop": [
+    "Observe",
+    "Plan",
+    "Implement",
+    "Verify",
+    "Document"
+  ],
+  "active_rules": [
+    "gov-01-instructions",
+    "gov-02-workflow",
+    "gov-03-communication",
+    "gov-04-quality",
+    "gov-05-testing",
+    "gov-06-issues",
+    "gov-07-tasks",
+    "gov-08-exploratory-review",
+    "gov-09-agent-continuity-bootstrap"
+  ],
+  "hard_gate_before_product_code": true,
+  "pre_coding_required_outputs": [
+    ".governance/project/PROJECT_INTENT.md",
+    ".governance/specs/SPEC-001-<feature>.md_or_bootstrap_setup_spec",
+    "backlog_mapped_to_spec_sections",
+    "AGENTS.md",
+    "continuity_structure_and_checkpoint_guidance",
+    "git_workflow_artifacts",
+    "documented_default_issue_pickup_flow"
+  ],
+  "continuity_bootstrap": {
+    "required": true,
+    "layers": [
+      "session_or_thread_continuity",
+      "recent_or_daily_continuity",
+      "project_continuity",
+      "durable_global_or_operator_continuity_when_applicable"
+    ],
+    "mustDefineCheckpointTriggers": true,
+    "mustDocumentPromotionFlow": true,
+    "mustInstallSessionDiaryGuidance": true,
+    "preferConciseStructuredArtifactsOverTranscriptDumps": true
+  },
+  "github_hosted_bootstrap": {
+    "preflightChecks": [
+      "git_available",
+      "gh_available",
+      "github_auth_available",
+      "repo_access",
+      "project_read_access",
+      "project_write_access",
+      "branch_protection_or_admin_access_when_relevant"
+    ],
+    "preflightOutcomeStates": [
+      "configured",
+      "blocked-with-tracked-issue",
+      "not-applicable"
+    ],
+    "requiredWorkflowArtifacts": [
+      "AGENTS.md_early_repo_entrypoint",
+      "INIT-TODO.md_early_setup_tracker",
+      ".github/pull_request_template.md",
+      ".github/branch-protection-checklist.md"
+    ],
+    "requiredStatusArtifacts": [
+      ".governance/project/bootstrap/STATUS.md",
+      ".governance/project/bootstrap/ANALYSIS.md",
+      ".governance/project/bootstrap/FEEDBACK.md",
+      ".governance/project/bootstrap/history/<timestamp>/status.md",
+      ".governance/project/bootstrap/history/<timestamp>/analysis.md",
+      ".governance/project/bootstrap/history/<timestamp>/feedback.md"
+    ],
+    "optionalStatusArtifacts": [
+      ".governance/project/bootstrap/BLOCKERS.md",
+      ".governance/project/bootstrap/history/<timestamp>/blockers.md",
+      ".governance/project/GIT_WORKFLOW.md",
+      ".governance/project/GITHUB_PROJECT_STATUS.md",
+      ".governance/project/BOOTSTRAP_REPORT.md"
+    ],
+    "board": {
+      "mustChooseSingleCanonicalTarget": true,
+      "mustExplainCanonicalSelectionWhenMultipleMatchesExist": true,
+      "allowedActions": [
+        "adopt",
+        "copy_template",
+        "create",
+        "normalize"
+      ],
+      "fieldTypes": {
+        "Title": "built_in",
+        "Assignees": "built_in",
+        "Status": "single_select",
+        "Project Priority": "single_select",
+        "Order": "number",
+        "Priority": "single_select",
+        "Repository": "built_in",
+        "Size": "single_select"
+      },
+      "requiredFields": {
+        "Status": [
+          "Backlog",
+          "Ready",
+          "In progress",
+          "In review",
+          "Done",
+          "Blocked"
+        ],
+        "Project Priority": [
+          "P0",
+          "P1",
+          "P2",
+          "P3",
+          "P4"
+        ],
+        "Order": "number",
+        "Priority": [
+          "Urgent",
+          "High",
+          "Medium",
+          "Low"
+        ],
+        "Size": [
+          "XS",
+          "S",
+          "M",
+          "L",
+          "XL"
+        ]
+      },
+      "defaultTableView": {
+        "layout": "table",
+        "visibleColumns": [
+          "Title",
+          "Assignees",
+          "Status",
+          "Project Priority",
+          "Order",
+          "Priority",
+          "Repository"
+        ],
+        "columnOrderMustMatch": true,
+        "allowAdditionalHiddenFields": true,
+        "normalizeOnAdopt": true,
+        "newBoardStrategy": "copy_configured_canonical_template_when_available",
+        "adoptedBoardFallback": "track_exact_manual_remediation_when_no_supported_view_configuration_capability",
+        "mustNotClaimConfiguredWhenViewIsUnverified": true
+      },
+      "automationOrdering": {
+        "sourceOfTruth": [
+          "Project Priority",
+          "Order"
+        ],
+        "projectPriorityHighest": "P0",
+        "projectPriorityLowest": "P4",
+        "orderDirection": "ascending",
+        "doNotUseVisualProjectOrder": true,
+        "priorityFieldPurpose": "human_urgency_signal"
+      },
+      "normalizeBuiltInStatusFieldInPlace": true,
+      "mustLinkRepo": true,
+      "allowIntentionallyEmptyBoardWhenNoIssuesExist": true,
+      "cleanupDuplicateEmptyBoards": true,
+      "finalLiveStateReconciliationRequired": true,
+      "mustDistinguishHistoricalEvidenceFromCurrentState": true
+    }
+  },
+  "bootstrap_commit_policy": {
+    "requiredModes": [
+      "required",
+      "allowed",
+      "forbidden"
+    ],
+    "mustClassifyStartingRepoState": true,
+    "dirtyRepoAllowedResolutions": [
+      "resolve-existing-work-first",
+      "stop-and-report-blocked",
+      "explicit-review-mode"
+    ]
+  },
+  "feedback_flow": {
+    "mustWriteLocalFeedbackFile": true,
+    "currentAnalysisPath": ".governance/project/bootstrap/ANALYSIS.md",
+    "currentFeedbackPath": ".governance/project/bootstrap/FEEDBACK.md",
+    "localAnalysisRunHistoryPath": ".governance/project/bootstrap/history/<timestamp>/analysis.md",
+    "localFeedbackRunHistoryPath": ".governance/project/bootstrap/history/<timestamp>/feedback.md",
+    "writeBeforeOrAlongsidePublicIssueFiling": true,
+    "mustScrubSensitiveData": true
+  },
+  "stop_after_pre_coding_outputs": true,
+  "task_completion_requirements": [
+    "verification_evidence",
+    "traceability_update",
+    "final_state_reconciliation"
+  ],
+  "role_bootstrap": {
+    "catalog": "https://vibegov.io/roles/index.json",
+    "page": "https://vibegov.io/roles",
+    "roleEntrypointPattern": "https://vibegov.io/roles/{role}/BOOTSTRAP.md",
+    "roleManifestPattern": "https://vibegov.io/roles/{role}/{role}.manifest.json",
+    "supportedRoles": [
+      "developer",
+      "planner",
+      "researcher",
+      "explorer",
+      "designer",
+      "verifier",
+      "maintainer",
+      "operator",
+      "architect",
+      "security",
+      "documenter"
+    ],
+    "requiredBehavior": [
+      "fresh-read role catalog and selected role BOOTSTRAP.md",
+      "follow selected role manifest exactly",
+      "inspect project before writing",
+      "select fresh-bootstrap, existing-repo-init, or recovery-update",
+      "merge role files safely without blindly overwriting local memory or project rules",
+      "apply relevant overlays",
+      "validate install and return bootstrap report"
+    ]
+  }
+}
