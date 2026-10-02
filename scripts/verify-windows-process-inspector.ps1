@@ -492,3 +492,8 @@ try {
     Remove-Item -LiteralPath $temporaryRoot -Recurse -Force
   }
 }
+
+# The directory-sync negative probe intentionally exits 3. It is an asserted
+# successful case, so do not leak that child exit code as this verifier's own
+# process status after the result record has been emitted.
+exit 0
