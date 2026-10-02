@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -31,8 +31,25 @@ function receiptPath(root,name,attempt) { return path.join(root,`${name}-431-${n
 // as Darwin or Windows. Git copies only the exact candidate into a fresh root,
 // excluding the test runner's installed dependencies and generated dist.
 for(const name of ["packaged-admin-lifecycle","published-package-qualification"]) {
-  test(`BR008 ${name} executes actual isolated host-native predependency custody and distinct attempts`,async()=>{
-    const script=await firstCustodyStep(name),root=await mkdtemp(path.join(tmpdir(),"workflow-first-custody-"));
+  for(const aliasedParent of [false,true]) {
+  test(`BR008 ${name} executes actual isolated host-native predependency custody and distinct attempts${aliasedParent?" through an aliased temporary parent":""}`,async(t)=>{
+    const script=await firstCustodyStep(name);
+    let parent=tmpdir(),physicalParent;
+    if(aliasedParent) {
+      const container=await realpath(await mkdtemp(path.join(tmpdir(),"workflow-first-custody-alias-parent-")));
+      t.after(async()=>{await rm(container,{recursive:true,force:true});});
+      physicalParent=path.join(container,"physical");await mkdir(physicalParent);
+      parent=path.join(container,"alias");await symlink(physicalParent,parent,process.platform==="win32"?"junction":"dir");
+      assert.equal((await lstat(parent)).isSymbolicLink(),true,"regression must establish a real parent alias");
+      assert.equal(await realpath(parent),physicalParent);
+    }
+    // Resolve immediately: every later cwd/root/environment literal must name
+    // the physical fixture, even when the host tmpdir or supplied parent aliases it.
+    const root=await realpath(await mkdtemp(path.join(parent,"workflow-first-custody-")));
+    if(aliasedParent) {
+      assert.equal(path.dirname(root),physicalParent);
+      assert.notEqual(root,path.join(parent,path.basename(root)),"alias spelling must not enter custody literals");
+    }
     try {
       const {workspace,head,tree}=await checkout(root);
       assert.equal(fixtureGit(["status","--porcelain=v1","--untracked-files=all"],workspace),"");
@@ -58,8 +75,9 @@ for(const name of ["packaged-admin-lifecycle","published-package-qualification"]
       assert.notEqual(run(bash,["-c",adminScript],{...env,GITHUB_RUN_ATTEMPT:"6"},workspace).status,0);
     }finally{await rm(root,{recursive:true,force:true});}
   });
+  }
   test(`BR008 ${name} rejects missing platform, foreign inputs and a cross-platform claim`,async()=>{
-    const script=await firstCustodyStep(name),root=await mkdtemp(path.join(tmpdir(),"workflow-first-custody-negative-"));
+    const script=await firstCustodyStep(name),root=await realpath(await mkdtemp(path.join(tmpdir(),"workflow-first-custody-negative-")));
     try {
       const {workspace,head}=await checkout(root),env=environment(root,workspace,head,name);
       const missing={...env};delete missing.QUALIFICATION_PLATFORM;assert.notEqual(run(bash,["-c",script],missing,workspace).status,0);
