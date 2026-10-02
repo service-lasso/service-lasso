@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { parseDocument } from "yaml";
+import { fetchedCheckout, fixtureGit, fixtureGitEnvironment } from "./helpers/custody-git-fixture.mjs";
 
 const bash=process.platform==="win32"?path.join(process.env.ProgramFiles??"C:\\Program Files","Git","bin","bash.exe"):"bash";
 function run(command,args,environment,cwd=process.cwd()) { return spawnSync(command,args,{encoding:"utf8",env:environment,cwd,shell:false}); }
@@ -19,15 +20,12 @@ async function firstCustodyStep(name) {
   return steps[index].run;
 }
 async function checkout(root) {
-  const workspace=path.join(root,"checkout");await mkdir(workspace);
-  const environment={...process.env,GIT_CONFIG_COUNT:"1",GIT_CONFIG_KEY_0:"core.autocrlf",GIT_CONFIG_VALUE_0:"false"};
-  const head=run("git",["rev-parse","HEAD"],environment).stdout.trim();assert.match(head,/^[0-9a-f]{40}$/u);
-  for(const args of [["init"],["config","core.autocrlf","false"],["fetch","--no-tags",process.cwd(),head],["checkout","--detach","FETCH_HEAD"]]){
-    const result=run("git",args,environment,workspace);assert.equal(result.status,0,result.stderr);
-  }
-  return {workspace,head};
+  const environment=fixtureGitEnvironment({...process.env,GIT_DIR:path.join(root,"foreign.git"),GIT_WORK_TREE:root,GIT_INDEX_FILE:path.join(root,"foreign-index"),GIT_OBJECT_DIRECTORY:path.join(root,"foreign-objects"),GIT_CONFIG_COUNT:"2",GIT_CONFIG_KEY_0:"core.worktree",GIT_CONFIG_VALUE_0:root});
+  for(const key of ["GIT_DIR","GIT_WORK_TREE","GIT_INDEX_FILE","GIT_OBJECT_DIRECTORY","GIT_CONFIG_KEY_1"])assert.equal(environment[key],undefined);
+  const head=fixtureGit(["rev-parse","HEAD"],process.cwd(),environment),tree=fixtureGit(["rev-parse",`${head}^{tree}`],process.cwd(),environment);
+  return fetchedCheckout(path.join(root,"checkout"),process.cwd(),head,tree,environment);
 }
-function environment(root,workspace,head,name,attempt="2") { return {...process.env,GIT_CONFIG_COUNT:"1",GIT_CONFIG_KEY_0:"core.autocrlf",GIT_CONFIG_VALUE_0:"false",RUNNER_TEMP:root,GITHUB_RUN_ID:"431",GITHUB_JOB:name,GITHUB_RUN_ATTEMPT:attempt,ADMIN_PLATFORM:process.platform,QUALIFICATION_PLATFORM:process.platform,GITHUB_ENV:path.join(root,`${name}-${attempt}.github-env`),GITHUB_WORKSPACE:workspace,QUALIFICATION_CANDIDATE_SHA:head}; }
+function environment(root,workspace,head,name,attempt="2") { return {...fixtureGitEnvironment(),RUNNER_TEMP:root,GITHUB_RUN_ID:"431",GITHUB_JOB:name,GITHUB_RUN_ATTEMPT:attempt,ADMIN_PLATFORM:process.platform,QUALIFICATION_PLATFORM:process.platform,GITHUB_ENV:path.join(root,`${name}-${attempt}.github-env`),GITHUB_WORKSPACE:workspace,QUALIFICATION_CANDIDATE_SHA:head}; }
 function receiptPath(root,name,attempt) { return path.join(root,`${name}-431-${name}-${attempt}-${process.platform}`,"private","initial-receipt.json"); }
 // Each required OS runs its actual native platform; no Linux process masquerades
 // as Darwin or Windows. Git copies only the exact candidate into a fresh root,
@@ -36,8 +34,8 @@ for(const name of ["packaged-admin-lifecycle","published-package-qualification"]
   test(`BR008 ${name} executes actual isolated host-native predependency custody and distinct attempts`,async()=>{
     const script=await firstCustodyStep(name),root=await mkdtemp(path.join(tmpdir(),"workflow-first-custody-"));
     try {
-      const {workspace,head}=await checkout(root);
-      assert.equal(run("git",["status","--porcelain=v1","--untracked-files=all"],process.env,workspace).stdout,"");
+      const {workspace,head,tree}=await checkout(root);
+      assert.equal(fixtureGit(["status","--porcelain=v1","--untracked-files=all"],workspace),"");
       for(const attempt of ["2","3"]) {
         const env=environment(root,workspace,head,name,attempt),result=run(bash,["-c",script],env,workspace);assert.equal(result.status,0,result.stderr);
         const receipt=JSON.parse(await readFile(receiptPath(root,name,attempt),"utf8"));assert.equal(receipt.platform,process.platform);assert.equal(receipt.source.head,head);assert.deepEqual(receipt.run,{id:"431",attempt});
@@ -47,8 +45,8 @@ for(const name of ["packaged-admin-lifecycle","published-package-qualification"]
       assert.notEqual(receiptPath(root,name,"2"),receiptPath(root,name,"3"));
       const workflow=parseDocument(await readFile(new URL(`../.github/workflows/${name}.yml`,import.meta.url),"utf8"),{uniqueKeys:true}).toJS();
       const adminScript=workflow.jobs[name].steps.find(step=>step.name==="Bind exact separate Admin checkout before dependencies").run;
-      const admin=path.join(workspace,"qualification","admin");await mkdir(admin,{recursive:true});
-      for(const args of [["init"],["config","core.autocrlf","false"],["fetch","--no-tags",workspace,head],["checkout","--detach","FETCH_HEAD"]]){const result=run("git",args,process.env,admin);assert.equal(result.status,0,result.stderr);}
+      const admin=path.join(workspace,"qualification","admin");await mkdir(path.dirname(admin),{recursive:true});
+      await fetchedCheckout(admin,workspace,head,tree);
       const env={...environment(root,workspace,head,name,"2"),ADMIN_HARNESS_REVISION:head},result=run(bash,["-c",adminScript],env,workspace);assert.equal(result.status,0,result.stderr);
       const adminRoot=path.join(root,`admin-harness-custody-431-${name}-2-${process.platform}`),adminReceipt=JSON.parse(await readFile(path.join(adminRoot,"private","initial-receipt.json"),"utf8"));
       assert.equal(adminReceipt.source.head,head);assert.equal(adminReceipt.source.tracked.length,JSON.parse(await readFile(receiptPath(root,name,"2"),"utf8")).source.tracked.length);
@@ -56,7 +54,7 @@ for(const name of ["packaged-admin-lifecycle","published-package-qualification"]
       // The full inventory also rejects ignored foreign input after Git status
       // remains clean; moving checkout cannot become a broad ignore exception.
       await mkdir(path.join(admin,"node_modules"));await writeFile(path.join(admin,"node_modules","foreign.txt"),"unadmitted");
-      assert.equal(run("git",["status","--porcelain=v1","--untracked-files=all"],process.env,admin).stdout,"");
+      assert.equal(fixtureGit(["status","--porcelain=v1","--untracked-files=all"],admin),"");
       assert.notEqual(run(bash,["-c",adminScript],{...env,GITHUB_RUN_ATTEMPT:"6"},workspace).status,0);
     }finally{await rm(root,{recursive:true,force:true});}
   });

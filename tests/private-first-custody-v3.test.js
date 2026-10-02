@@ -10,6 +10,7 @@ import { promisify } from "node:util";
 import { sha256, validAcl, darwinCacheHeader, nonReparseDirectory, createExclusiveDirectory, ownership, chain, recheck, exclusiveBytes, regularClosedBytes, regularClosedFile, bootstrapProtocolScript, beginBootstrapCapture, publishAfterBootstrap, closeBootstrapSession } from "../scripts/private-first-custody-v3-lib.mjs";
 import { startHeld, heldImageBytes, imageParents, recheckImageParents } from "../scripts/native-tool-journal-v4-lib.mjs";
 import { validInitialProjection } from "../scripts/public-first-custody-projection-lib.mjs";
+import { fixtureGit, fixtureGitEnvironment } from "./helpers/custody-git-fixture.mjs";
 
 const exec = promisify(execFile);
 const producer = new URL("../scripts/record-packaged-admin-first-custody.mjs", import.meta.url);
@@ -31,12 +32,13 @@ async function fixture() {
   await writeFile(path.join(workspace, "native", "asset.cs"), "sealed-native-source\n");
   await writeFile(path.join(workspace,"native","binary.bin"),Buffer.from([0,255,128,10,0,13]));
   await writeFile(path.join(workspace, "package.json"), "{\"name\":\"private-v3-fixture\"}\n");
-  await exec("git", ["init"], { cwd: workspace });
-  await exec("git", ["config", "user.email", "fixture@example.invalid"], { cwd: workspace });
-  await exec("git", ["config", "user.name", "fixture"], { cwd: workspace });
-  await exec("git", ["add", "."], { cwd: workspace }); await exec("git", ["commit", "-m", "fixture"], { cwd: workspace });
-  const { stdout } = await exec("git", ["rev-parse", "HEAD"], { cwd: workspace });
-  return { root, workspace, privateRoot, evidence, env: { ...process.env, QUALIFICATION_PLATFORM: process.platform === "win32" ? "win32" : process.platform === "darwin" ? "darwin" : "linux", GITHUB_RUN_ID: "42", GITHUB_RUN_ATTEMPT: "1", GITHUB_WORKSPACE: workspace, QUALIFICATION_CANDIDATE_SHA: stdout.trim(), QUALIFICATION_PRIVATE_CUSTODY_ROOT: privateRoot, QUALIFICATION_INITIAL_RECEIPT_PATH: path.join(privateRoot, "initial-receipt.json"), QUALIFICATION_INITIAL_PROJECTION_PATH: path.join(evidence,"initial-projection.json"), QUALIFICATION_EVIDENCE_ROOT: evidence, SERVICE_LASSO_WORKSPACE_ROOT: runtime, SERVICE_LASSO_INSTANCE_REGISTRY_PATH: path.join(custody, "instance-registry.json"), SERVICE_LASSO_HOST_PORT_REGISTRY_PATH: path.join(custody, "host-port-registry.json") } };
+  const gitEnvironment = fixtureGitEnvironment();
+  fixtureGit(["init"], workspace, gitEnvironment);
+  await exec("git", ["config", "user.email", "fixture@example.invalid"], { cwd: workspace, env: gitEnvironment });
+  await exec("git", ["config", "user.name", "fixture"], { cwd: workspace, env: gitEnvironment });
+  await exec("git", ["add", "."], { cwd: workspace, env: gitEnvironment }); await exec("git", ["commit", "-m", "fixture"], { cwd: workspace, env: gitEnvironment });
+  const { stdout } = await exec("git", ["rev-parse", "HEAD"], { cwd: workspace, env: gitEnvironment });
+  return { root, workspace, privateRoot, evidence, env: { ...gitEnvironment, QUALIFICATION_PLATFORM: process.platform === "win32" ? "win32" : process.platform === "darwin" ? "darwin" : "linux", GITHUB_RUN_ID: "42", GITHUB_RUN_ATTEMPT: "1", GITHUB_WORKSPACE: workspace, QUALIFICATION_CANDIDATE_SHA: stdout.trim(), QUALIFICATION_PRIVATE_CUSTODY_ROOT: privateRoot, QUALIFICATION_INITIAL_RECEIPT_PATH: path.join(privateRoot, "initial-receipt.json"), QUALIFICATION_INITIAL_PROJECTION_PATH: path.join(evidence,"initial-projection.json"), QUALIFICATION_EVIDENCE_ROOT: evidence, SERVICE_LASSO_WORKSPACE_ROOT: runtime, SERVICE_LASSO_INSTANCE_REGISTRY_PATH: path.join(custody, "instance-registry.json"), SERVICE_LASSO_HOST_PORT_REGISTRY_PATH: path.join(custody, "host-port-registry.json") } };
 }
 async function produce(f) { await command(producer, [], f.workspace, f.env); await command(projector, ["--input", f.env.QUALIFICATION_INITIAL_RECEIPT_PATH, "--journal", path.join(f.privateRoot, "first-custody-journal.json"), "--output", path.join(f.evidence, "initial-projection.json")], f.workspace, f.env); }
 function publicFixture(f){return {schema:"service-lasso.qualification-first-custody-projection.v2",privateVersion:"v3",candidate:{head:f.env.QUALIFICATION_CANDIDATE_SHA,tree:"a".repeat(40)},platform:process.platform,run:{id:"42",attempt:"1"},privateInitialReceiptSha256:"a".repeat(64),privateJournalSha256:"b".repeat(64),localValidatorAttestation:{schema:"service-lasso.qualification-local-validator-attestation.v2",validated:true}};}
@@ -118,17 +120,26 @@ test("BR008 held reader rejects an actual open-time object substitution restored
     assert.equal(await readFile(file,"utf8"),"original");
   } finally { await rm(root,{recursive:true,force:true}); }
 });
-test("BR008 coherent outer reseals cannot hide Git metadata, tool/result, literal configuration or registry-role substitutions", async () => {
   for(const mutation of ["head","tree","currentHead","index","metadata","nodeVersion","nativeDigest","toolName","requested","runner","run","platform","runtime","registryDuplicate","registrySwap","registryParent","expectedRegistryPresent","gitRawBody","gitRawHeader","compilerVersion","compilerScript","helperPid","helperScript","helperActualChild","bootstrapScript","bootstrapRaw","bootstrapEof","bootstrapExit","bootstrapOrder","bootstrapRequest","bootstrapMissing"]) {
+  test(`BR008 independently established coherent ${mutation} substitution is rejected`, async () => {
     const f=await fixture();
     try {
       await command(producer,[],f.workspace,f.env);
       const receiptPath=f.env.QUALIFICATION_INITIAL_RECEIPT_PATH,journalPath=path.join(f.privateRoot,"first-custody-journal.json"),sealPath=path.join(f.privateRoot,"bootstrap-seal.json"),receipt=JSON.parse(await readFile(receiptPath,"utf8")),journal=JSON.parse(await readFile(journalPath,"utf8")),seal=JSON.parse(await readFile(sealPath,"utf8"));
+      const before=structuredClone({receipt,journal,seal});
       if(mutation==="head")receipt.source.head="0".repeat(40);
       if(mutation==="tree")receipt.source.tree="0".repeat(40);
-      if(mutation==="currentHead")await writeFile(path.join(f.workspace,".git","HEAD"),"f".repeat(40)+"\n");
-      if(mutation==="index")await exec("git",["update-index","--cacheinfo","100644","0".repeat(40),"package.json"],{cwd:f.workspace});
-      if(mutation==="metadata")await exec("git",["config","fixture.drift","true"],{cwd:f.workspace});
+      if(mutation==="currentHead"){await writeFile(path.join(f.workspace,".git","HEAD"),"f".repeat(40)+"\n");assert.equal(await readFile(path.join(f.workspace,".git","HEAD"),"utf8"),"f".repeat(40)+"\n");}
+      if(mutation==="index") {
+        const wrong=path.join(f.root,"wrong-index-blob.json");await writeFile(wrong,"{\"name\":\"wrong-index-object\"}\n");
+        const oid=fixtureGit(["hash-object","-w",wrong],f.workspace,f.env);
+        assert.match(oid,/^[0-9a-f]{40}$/u);assert.notEqual(oid,"0".repeat(40));
+        const original=fixtureGit(["rev-parse","HEAD:package.json"],f.workspace,f.env);assert.notEqual(oid,original);
+        fixtureGit(["update-index","--cacheinfo","100644",oid,"package.json"],f.workspace,f.env);
+        assert.equal(fixtureGit(["ls-files","--stage","package.json"],f.workspace,f.env),`100644 ${oid} 0\tpackage.json`);
+        assert.equal(fixtureGit(["cat-file","-p",oid],f.workspace,f.env),"{\"name\":\"wrong-index-object\"}");
+      }
+      if(mutation==="metadata"){fixtureGit(["config","fixture.drift","true"],f.workspace,f.env);assert.equal(fixtureGit(["config","--get","fixture.drift"],f.workspace,f.env),"true");}
       if(mutation==="nodeVersion")journal.toolMetadata.nodeVersion="v0.0.0";
       if(mutation==="nativeDigest")journal.commands[0].native.imageSha256="0".repeat(64);
       if(mutation==="toolName")receipt.tools[0].name="node";
@@ -142,10 +153,10 @@ test("BR008 coherent outer reseals cannot hide Git metadata, tool/result, litera
       if(mutation==="registryParent")receipt.registries[0].parent={...receipt.roots.privateRoot};
       if(mutation==="expectedRegistryPresent"){await writeFile(f.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH,"present");receipt.registries[0].path=path.join(path.dirname(f.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH),"substitute-absent.json");}
       if(mutation==="gitRawBody"||mutation==="gitRawHeader"){const file=path.join(f.privateRoot,"journal-0.stdout"),bytes=await readFile(file);if(mutation==="gitRawHeader")bytes[0]=bytes[0]===48?49:48;else {const index=bytes.indexOf(Buffer.from("sealed-native-source"));assert.ok(index>=0);bytes[index]=88;}await writeFile(file,bytes);journal.commands[0].result.stdout={size:bytes.length,sha256:sha256(bytes)};}
-      if(mutation==="compilerVersion"||mutation==="compilerScript"){if(process.platform!=="win32"){assert.equal(journal.toolMetadata.csc,null);continue;}assert.ok(journal.toolMetadata.csc,"actual Windows compiler metadata must be retained");if(mutation==="compilerVersion")journal.toolMetadata.csc.observation.version.FileVersion="forged";else journal.commands[2].command.args[4]+=";exit 0";}
-      if(mutation==="helperPid"||mutation==="helperScript"||mutation==="helperActualChild") { const helper=journal.commands[0].native.helper;if(process.platform==="linux"){assert.equal(helper,null);continue;}assert.ok(helper);if(mutation==="helperPid")helper.first.spawnedPid+=1;else if(mutation==="helperScript")helper.scriptSha256="0".repeat(64);else {const raw=JSON.parse(Buffer.from(helper.first.stdout.data).toString("utf8"));raw.self.pid+=1;raw.self.chain[0].pid=raw.self.pid;helper.first.selfIdentity={...raw.self.chain[0]};const bytes=Buffer.from(JSON.stringify(raw));helper.first.stdout=bytes;helper.first.stdoutSha256=sha256(bytes);} }
+      if(mutation==="compilerVersion"||mutation==="compilerScript"){if(process.platform!=="win32"){assert.equal(journal.toolMetadata.csc,null);return;}assert.ok(journal.toolMetadata.csc,"actual Windows compiler metadata must be retained");if(mutation==="compilerVersion")journal.toolMetadata.csc.observation.version.FileVersion="forged";else journal.commands[2].command.args[4]+=";exit 0";}
+      if(mutation==="helperPid"||mutation==="helperScript"||mutation==="helperActualChild") { const helper=journal.commands[0].native.helper;if(process.platform==="linux"){assert.equal(helper,null);return;}assert.ok(helper);if(mutation==="helperPid")helper.first.spawnedPid+=1;else if(mutation==="helperScript")helper.scriptSha256="0".repeat(64);else {const raw=JSON.parse(Buffer.from(helper.first.stdout.data).toString("utf8"));raw.self.pid+=1;raw.self.chain[0].pid=raw.self.pid;helper.first.selfIdentity={...raw.self.chain[0]};const bytes=Buffer.from(JSON.stringify(raw));helper.first.stdout=bytes;helper.first.stdoutSha256=sha256(bytes);} }
       if(mutation.startsWith("bootstrap")) {
-        if(process.platform!=="win32"){assert.equal(seal.session,null);assert.equal(seal.commands.length,0);continue;}
+        if(process.platform!=="win32"){assert.equal(seal.session,null);assert.equal(seal.commands.length,0);return;}
         assert.ok(seal.commands.length);const probe=seal.commands[0];
         if(mutation==="bootstrapScript")seal.session.args[4]+=";exit 0";
         if(mutation==="bootstrapRaw"){probe.stdout=Buffer.from("{}\n");probe.stdoutSha256=sha256("{}\n");}
@@ -155,11 +166,12 @@ test("BR008 coherent outer reseals cannot hide Git metadata, tool/result, litera
         if(mutation==="bootstrapRequest")probe.target=path.join(f.root,"substitute");
         if(mutation==="bootstrapMissing")seal.commands=seal.commands.filter(probe=>probe.purpose!=="acl_read");
       }
+      if(!["currentHead","index","metadata"].includes(mutation))assert.notDeepEqual({receipt,journal,seal},before,`${mutation} must establish its actual adversary before reseal`);
       await writeFile(receiptPath,JSON.stringify(receipt)+"\n");await writeFile(journalPath,JSON.stringify(journal)+"\n");await writeFile(sealPath,JSON.stringify(seal)+"\n");await reseal(f);
       await assert.rejects(command(projector,["--input",receiptPath,"--journal",journalPath,"--output",f.env.QUALIFICATION_INITIAL_PROJECTION_PATH],f.workspace,f.env));
     }finally{await rm(f.root,{recursive:true,force:true});}
-  }
-});
+  });
+}
 test("BR008 projector requires literal workspace and candidate configuration", async()=>{
   const f=await fixture();try {
     await command(producer,[],f.workspace,f.env);
