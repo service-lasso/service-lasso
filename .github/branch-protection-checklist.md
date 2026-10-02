@@ -13,6 +13,7 @@ Apply this checklist to both long-lived branches. `develop` is the repository de
 - [ ] Restrict direct pushes to both `develop` and `main`.
 - [ ] Require normal feature/fix/docs/chore pull requests to target `develop`.
 - [ ] Reject normal work branches whose history is not based on `develop`.
+- [ ] Require process-custody remediation pull requests to retain the issue-bound failure evidence and terminal exact-head qualification before merge.
 - [ ] Allow `main` pull requests only for explicit `develop` promotions or authorised urgent hotfixes.
 - [ ] Require every urgent hotfix merged to `main` to be reconciled immediately into `develop`.
 - [ ] Reconcile the live branch-protection settings into the next bootstrap/adoption status artifact.

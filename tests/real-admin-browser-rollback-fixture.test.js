@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, open, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
@@ -20,12 +20,45 @@ import { hasManagedProcess, stopAllManagedProcesses } from "../dist/runtime/exec
 import { startService } from "../dist/runtime/lifecycle/actions.js";
 import { getLifecycleState, resetLifecycleState, setLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import { createServiceRegistry } from "../dist/runtime/manager/DependencyGraph.js";
+import { classifyRegisteredProcess, findProcessOwnership } from "../dist/runtime/process/registry.js";
 import { createApiServer, startApiServer } from "../dist/server/index.js";
 import { writeManifest } from "./test-helpers.js";
 
 const PROCESS_TIMEOUT_MS = 5_000;
 const MAX_CAPTURE_BYTES = 4_096;
 const ROTATION_HTTP_TIMEOUT_MS = 60_000;
+const ROLLBACK_DIAGNOSTIC_READ_TIMEOUT_MS = 1_000;
+const SAFE_ANCESTRY_CATEGORIES = new Set([
+  "ancestry_invalid_parent", "ancestry_predates_root", "ancestry_cycle", "ancestry_missing_parent",
+  "ancestry_predates_parent", "ancestry_predates_parent_before_root", "ancestry_predates_parent_within_root",
+]);
+const SAFE_NATIVE_HELPER_CATEGORIES = new Set([
+  "snapshot_create", "snapshot_enumerate", "snapshot_close", "changed_ancestry",
+  "root_open", "root_identity", "root_time", "root_image", "root_parent", "root_command_size",
+  "root_command_query", "root_command_bounds", "root_command_empty", "root_handle_close",
+  "root_open_denied", "root_command_denied", "root_command_length_changed", "root_command_unsupported",
+  "root_command_native_failure", "root_command_result_length", "root_command_buffer_small",
+  "root_command_partial_copy", "root_command_terminating", "root_command_unsuccessful", "root_command_buffer_overflow",
+  "descendant_open", "descendant_identity", "descendant_time", "descendant_image", "descendant_parent",
+  "descendant_command_size", "descendant_command_query", "descendant_command_bounds", "descendant_command_empty",
+  "descendant_handle_close", "descendant_open_denied", "descendant_command_denied",
+  "descendant_command_length_changed", "descendant_command_unsupported", "descendant_command_native_failure",
+  "descendant_command_result_length", "descendant_command_buffer_small", "descendant_command_partial_copy",
+  "descendant_command_terminating", "descendant_command_unsuccessful", "descendant_command_buffer_overflow",
+]);
+const SAFE_REGISTRY_OWNERSHIP = new Set(["owned", "not_running", "identity_mismatch", "unknown_owner"]);
+
+function closedRollbackRecoveryDiagnostic() {
+  return {
+    listener: "request_failed",
+    ownershipEquality: "listener_registry_lifecycle_disagree",
+    registryOwnership: "registry_unavailable",
+    ancestryCategory: "not_recorded",
+    nativeHelperExitCategory: "not_recorded",
+    operationDigestEquality: false,
+    childOutputHashes: ["unavailable", "unavailable"],
+  };
+}
 
 function assertNoPathOrValueFields(value, trail = "response") {
   if (Array.isArray(value)) {
@@ -137,6 +170,109 @@ async function waitForReady(endpoint, timeoutMs = PROCESS_TIMEOUT_MS) {
   throw new Error("sample HTTP readiness was not published within the bounded fixture window");
 }
 
+function rollbackOperationDigest(operation) {
+  return createHash("sha256").update(JSON.stringify({
+    outcome: operation?.outcome ?? null,
+    phase: operation?.phase ?? null,
+    failureCode: operation?.failureCode ?? null,
+    activeVersionId: operation?.activeVersionId ?? null,
+    rollbackCompletedOperations: Array.isArray(operation?.rollbackCompletedOperations)
+      ? operation.rollbackCompletedOperations : [],
+  })).digest("hex");
+}
+
+async function boundedChildOutputHash(filePath) {
+  let handle;
+  try {
+    const fileStats = await stat(filePath);
+    if (!fileStats.isFile()) return "unavailable";
+    if (fileStats.size > MAX_CAPTURE_BYTES) return "too_large";
+    handle = await open(filePath, "r");
+    const content = Buffer.allocUnsafe(MAX_CAPTURE_BYTES + 1);
+    const { bytesRead } = await handle.read(content, 0, content.length, 0);
+    if (bytesRead > MAX_CAPTURE_BYTES) return "too_large";
+    return `sha256:${createHash("sha256").update(content.subarray(0, bytesRead)).digest("hex")}`;
+  } catch {
+    return "unavailable";
+  } finally {
+    await handle?.close().catch(() => undefined);
+  }
+}
+
+async function captureRollbackRecoveryDiagnostic({
+  endpoint, workspaceRoot, serviceId, executeOperation, readbackOperation,
+  fetchImpl = fetch,
+  readLifecycle = getLifecycleState,
+  findOwnership = findProcessOwnership,
+  classifyOwnership = classifyRegisteredProcess,
+  isManaged = hasManagedProcess,
+  hashChildOutput = boundedChildOutputHash,
+}) {
+  try {
+    let listener = "request_failed";
+    try {
+      const response = await fetchImpl(endpoint, { signal: AbortSignal.timeout(ROLLBACK_DIAGNOSTIC_READ_TIMEOUT_MS) });
+      listener = response.status === 200 ? "http_200" : response.status === 503 ? "http_503" : "other_http";
+    } catch {
+      // The original readiness assertion remains authoritative.
+    }
+
+    const lifecycle = readLifecycle(serviceId);
+    const events = Array.isArray(lifecycle?.runtime?.startTrace?.current?.events)
+      ? lifecycle.runtime.startTrace.current.events : [];
+    const traceMetadata = events
+      .map((event) => event?.metadata)
+      .find((metadata) => typeof metadata?.windowsTreeInspectionLastRetry === "string") ?? {};
+    const retry = traceMetadata.windowsTreeInspectionLastRetry;
+    const ancestryCategory = typeof retry === "string" && SAFE_ANCESTRY_CATEGORIES.has(retry)
+      ? retry : "not_recorded";
+    const nativeHelperExitCategory = typeof retry === "string" && SAFE_NATIVE_HELPER_CATEGORIES.has(retry)
+      ? retry : "not_recorded";
+    let registryOwnership = "registry_unavailable";
+    try {
+      const entry = await findOwnership(workspaceRoot, "service", serviceId);
+      if (!entry) registryOwnership = "registry_absent";
+      else {
+        const status = await classifyOwnership(entry, { signal: AbortSignal.timeout(ROLLBACK_DIAGNOSTIC_READ_TIMEOUT_MS) });
+        registryOwnership = SAFE_REGISTRY_OWNERSHIP.has(status) ? status : "registry_unavailable";
+      }
+    } catch {
+      // Closed diagnostic collection must not replace the fixture result.
+    }
+    const managed = isManaged(serviceId);
+    const ownershipEquality = listener === "http_200" && lifecycle?.running === true && managed === true && registryOwnership === "owned"
+      ? "listener_registry_lifecycle_agree" : "listener_registry_lifecycle_disagree";
+    const operationDigest = rollbackOperationDigest(executeOperation);
+    const readbackDigest = rollbackOperationDigest(readbackOperation);
+    const logs = lifecycle?.runtime?.logs;
+    const childOutputHashes = await Promise.all([
+      hashChildOutput(logs?.stdoutPath),
+      hashChildOutput(logs?.stderrPath),
+    ]);
+    return {
+      listener,
+      ownershipEquality,
+      registryOwnership,
+      ancestryCategory,
+      nativeHelperExitCategory,
+      operationDigestEquality: operationDigest === readbackDigest,
+      childOutputHashes: childOutputHashes.map((value) => typeof value === "string" && /^(?:sha256:[a-f0-9]{64}|too_large|unavailable)$/.test(value) ? value : "unavailable"),
+    };
+  } catch {
+    // A diagnostic is secondary evidence and must never mask the readiness failure.
+    return closedRollbackRecoveryDiagnostic();
+  }
+}
+
+async function rethrowReadinessFailureWithDiagnostic(error, diagnosticInput) {
+  const diagnostic = await captureRollbackRecoveryDiagnostic(diagnosticInput);
+  throw new AggregateError(
+    [error],
+    `Rollback recovery readiness failed; closed diagnostic: ${JSON.stringify(diagnostic)}`,
+    { cause: error },
+  );
+}
+
 function startSample(sampleRoot, markerPath, secretValue, readinessPort) {
   return spawn(process.execPath, [path.join(sampleRoot, "runtime", "sample.mjs")], {
     cwd: sampleRoot,
@@ -162,6 +298,62 @@ test("secret rotation Broker injection stays unavailable without explicit test h
   } finally {
     if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
     else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
+  }
+});
+
+test("rollback recovery diagnostics stay bounded, closed, and secondary to readiness failure", async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-rollback-diagnostic-"));
+  const oversizedPath = path.join(tempRoot, "oversized.log");
+  const secret = "rollback-diagnostic-secret-sentinel";
+  try {
+    await writeFile(oversizedPath, Buffer.from(`${secret}${"x".repeat(MAX_CAPTURE_BYTES)}`));
+    assert.equal(await boundedChildOutputHash(oversizedPath), "too_large");
+    assert.equal(await boundedChildOutputHash(path.join(tempRoot, "absent.log")), "unavailable");
+    assert.equal(await boundedChildOutputHash(null), "unavailable");
+
+    const malformedDiagnostic = await captureRollbackRecoveryDiagnostic({
+      endpoint: "http://diagnostic.invalid/ready",
+      workspaceRoot: tempRoot,
+      serviceId: "sample-service",
+      executeOperation: { outcome: "rolled_back" },
+      readbackOperation: { outcome: "rolled_back" },
+      fetchImpl: async () => ({ status: 200 }),
+      readLifecycle: () => ({
+        running: true,
+        runtime: { startTrace: { current: { events: [{ metadata: { windowsTreeInspectionLastRetry: secret } }] } } },
+      }),
+      findOwnership: async () => ({}),
+      classifyOwnership: async () => secret,
+      isManaged: () => true,
+    });
+    assert.deepEqual(malformedDiagnostic, {
+      listener: "http_200",
+      ownershipEquality: "listener_registry_lifecycle_disagree",
+      registryOwnership: "registry_unavailable",
+      ancestryCategory: "not_recorded",
+      nativeHelperExitCategory: "not_recorded",
+      operationDigestEquality: true,
+      childOutputHashes: ["unavailable", "unavailable"],
+    });
+    assert.equal(JSON.stringify(malformedDiagnostic).includes(secret), false);
+
+    const original = new Error(secret);
+    await assert.rejects(
+      () => rethrowReadinessFailureWithDiagnostic(original, {
+        endpoint: "http://diagnostic.invalid/ready",
+        workspaceRoot: tempRoot,
+        serviceId: "sample-service",
+        executeOperation: {},
+        readbackOperation: {},
+        readLifecycle: () => { throw new Error(secret); },
+      }),
+      (error) => error instanceof AggregateError
+        && error.cause === original
+        && error.errors[0] === original
+        && error.message.includes(secret) === false,
+    );
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 });
 
@@ -507,7 +699,41 @@ test("real rotation uses lifecycle readiness to roll back one failed start and r
     assert.equal(activeValue, previousValue);
     assert.equal(getLifecycleState("sample-service").running, true);
     assert.equal(hasManagedProcess("sample-service"), true);
-    await waitForReady(readinessEndpoint);
+    let rollbackRecoveryDiagnostic;
+    try {
+      await waitForReady(readinessEndpoint);
+    } catch (error) {
+      await rethrowReadinessFailureWithDiagnostic(error, {
+        endpoint: readinessEndpoint,
+        workspaceRoot,
+        serviceId: "sample-service",
+        executeOperation: operation,
+        readbackOperation: readback.operation,
+      });
+    }
+    rollbackRecoveryDiagnostic = await captureRollbackRecoveryDiagnostic({
+      endpoint: readinessEndpoint,
+      workspaceRoot,
+      serviceId: "sample-service",
+      executeOperation: operation,
+      readbackOperation: readback.operation,
+    });
+    assert.deepEqual(rollbackRecoveryDiagnostic, {
+      listener: "http_200",
+      ownershipEquality: "listener_registry_lifecycle_agree",
+      registryOwnership: "owned",
+      ancestryCategory: "not_recorded",
+      nativeHelperExitCategory: "not_recorded",
+      operationDigestEquality: true,
+      childOutputHashes: [
+        "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      ],
+    });
+    const serializedDiagnostic = JSON.stringify(rollbackRecoveryDiagnostic);
+    for (const forbidden of [tempRoot, workspaceRoot, markerPath, previousValue, candidateValue]) {
+      assert.equal(serializedDiagnostic.includes(forbidden), false);
+    }
     assert.deepEqual(JSON.parse(await readFile(evidencePath, "utf8")), {
       present: true,
       digest: createHash("sha256").update(previousValue).digest("hex"),
