@@ -3102,7 +3102,7 @@ async function inspectFixtureTree(
   // Inspection is provisional. Only the caller's accepted assignment may
   // augment fixture authority, after native/root/held-child/lifetime checks.
   const inspection = await managedWindowsTreeInspector(...args);
-  if (process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS === "1") {
+  if (process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS === "1" || record.fixtureCustodyMembers) {
     record.fixtureExcludedMemberPids ??= new Set();
     for (const pid of inspection.excludedMemberPids ?? []) record.fixtureExcludedMemberPids.add(pid);
   }
