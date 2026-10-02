@@ -101,7 +101,7 @@ jobs:
           export SERVICE_LASSO_TEST_SUPPORT_ROOT="$qualification_root/runtime-support"
           export QUALIFICATION_WORKSPACE_ROOT="$SERVICE_LASSO_WORKSPACE_ROOT"
           export QUALIFICATION_EVIDENCE_ROOT="$qualification_root/evidence"
-          export QUALIFICATION_PRIVATE_CUSTODY_ROOT="$RUNNER_TEMP/published-package-qualification-private-$GITHUB_RUN_ID-$GITHUB_JOB-$GITHUB_RUN_ATTEMPT-$QUALIFICATION_PLATFORM"
+          export QUALIFICATION_PRIVATE_CUSTODY_ROOT="$qualification_root/private"
           export QUALIFICATION_SAFE_STATE_PATH="$QUALIFICATION_EVIDENCE_ROOT/qualification-state.json"
           export QUALIFICATION_INITIAL_RECEIPT_PATH="$QUALIFICATION_PRIVATE_CUSTODY_ROOT/initial-receipt.json"
           export QUALIFICATION_INITIAL_PROJECTION_PATH="$QUALIFICATION_EVIDENCE_ROOT/initial-projection.json"
@@ -118,9 +118,7 @@ jobs:
             "QUALIFICATION_INITIAL_RECEIPT_PATH=$QUALIFICATION_INITIAL_RECEIPT_PATH" \
             "QUALIFICATION_INITIAL_PROJECTION_PATH=$QUALIFICATION_INITIAL_PROJECTION_PATH" \
             >> "$GITHUB_ENV"
-          mkdir -p "$qualification_root"
           node scripts/record-packaged-admin-first-custody.mjs
-          mkdir -p "$QUALIFICATION_WORKSPACE_ROOT" "$QUALIFICATION_EVIDENCE_ROOT" "$SERVICE_LASSO_TEST_SERVICES_ROOT" "$SERVICE_LASSO_TEST_EVIDENCE_ROOT" "$SERVICE_LASSO_TEST_SUPPORT_ROOT"
           node scripts/project-packaged-admin-first-custody.mjs --input "$QUALIFICATION_INITIAL_RECEIPT_PATH" --journal "$QUALIFICATION_PRIVATE_CUSTODY_ROOT/first-custody-journal.json" --output "$QUALIFICATION_INITIAL_PROJECTION_PATH"
           test -s "$QUALIFICATION_INITIAL_PROJECTION_PATH"
 

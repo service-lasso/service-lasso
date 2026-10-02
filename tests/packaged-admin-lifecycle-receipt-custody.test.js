@@ -20,10 +20,10 @@ const observationFailureReceipt = { ...receipt, outcome: "observation_failure", 
 const unavailableReceipt = (classification) => ({ ...receipt, trustedUnlock: { classification } });
 function initialProjectionFor(platform, overrides = {}) {
   return {
-    schema: "service-lasso.qualification-first-custody-projection.v1", platform,
+    schema: "service-lasso.qualification-first-custody-projection.v2", privateVersion: "v3", platform,
     run: { id: runId, attempt: runAttempt }, candidate: { head: candidateSha, tree: "e".repeat(40) },
     privateInitialReceiptSha256: "f".repeat(64), privateJournalSha256: "e".repeat(64),
-    localValidatorAttestation: { schema: "service-lasso.qualification-local-validator-attestation.v1", validated: true },
+    localValidatorAttestation: { schema: "service-lasso.qualification-local-validator-attestation.v2", validated: true, nativeBirthCustody: "OUT_OF_SCOPE" },
     ...overrides,
   };
 }

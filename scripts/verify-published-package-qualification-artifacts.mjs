@@ -29,7 +29,8 @@ function validInitialProjection(value, platform, runId, runAttempt, candidateSha
     && /^[0-9a-f]{64}$/u.test(value.privateInitialReceiptSha256)
     && /^[0-9a-f]{64}$/u.test(value.privateJournalSha256)
     && value.localValidatorAttestation?.schema === "service-lasso.qualification-local-validator-attestation.v2"
-    && value.localValidatorAttestation?.validated === true;
+    && value.localValidatorAttestation?.validated === true
+    && value.localValidatorAttestation?.nativeBirthCustody === "OUT_OF_SCOPE";
 }
 
 function env(name, pattern = /^.+$/u) {

@@ -22,15 +22,15 @@ function exactKeys(value, keys) { return !!value && typeof value === "object" &&
 function validateInitialProjection(source, platform, runId, runAttempt, candidateSha) {
   if (!strictJson(source)) return false;
   const value = JSON.parse(source);
-  return exactKeys(value, ["schema", "candidate", "platform", "run", "privateInitialReceiptSha256", "privateJournalSha256", "localValidatorAttestation"])
-    && value.schema === "service-lasso.qualification-first-custody-projection.v1" &&
+  return exactKeys(value, ["schema", "privateVersion", "candidate", "platform", "run", "privateInitialReceiptSha256", "privateJournalSha256", "localValidatorAttestation"])
+    && value.schema === "service-lasso.qualification-first-custody-projection.v2" && value.privateVersion === "v3" &&
     value.platform === platform &&
     exactKeys(value.run, ["id", "attempt"]) &&
     String(value.run.id) === String(runId) &&
     String(value.run.attempt) === String(runAttempt) &&
     exactKeys(value.candidate, ["head", "tree"]) && value.candidate.head === candidateSha && /^[0-9a-f]{40}$/u.test(value.candidate.tree) &&
     /^[0-9a-f]{64}$/u.test(value.privateInitialReceiptSha256) && /^[0-9a-f]{64}$/u.test(value.privateJournalSha256) &&
-    exactKeys(value.localValidatorAttestation, ["schema", "validated"]) && value.localValidatorAttestation.schema === "service-lasso.qualification-local-validator-attestation.v1" && value.localValidatorAttestation.validated === true;
+    exactKeys(value.localValidatorAttestation, ["schema", "validated", "nativeBirthCustody"]) && value.localValidatorAttestation.schema === "service-lasso.qualification-local-validator-attestation.v2" && value.localValidatorAttestation.validated === true && value.localValidatorAttestation.nativeBirthCustody === "OUT_OF_SCOPE";
 }
 function sameValue(left, right) {
   if (left === right) return true;
