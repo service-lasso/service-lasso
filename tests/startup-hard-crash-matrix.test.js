@@ -444,6 +444,13 @@ for (const interruptedPhase of ["process_spawned", "generation_committed"]) {
         assert.equal(exit.signal, null);
         fixture.custody.retain(JSON.parse(await readFile(path.join(fixture.workspaceRoot,
           ".service-lasso", "hard-crash-fixture-custody.json"), "utf8")));
+        const interruptedOwner = await findProcessOwnership(fixture.workspaceRoot, "service", "matrix-service");
+        if (interruptedPhase === "generation_committed") {
+          // A replacement start is not adoption proof. This regression requires
+          // the real interrupted owner to remain owned before recovery.
+          assert.ok(interruptedOwner?.identity);
+          assert.equal(await classifyRegisteredProcess(interruptedOwner), "owned");
+        }
         let observedBeforeReturn = false;
         let returned = false;
         let server;
@@ -457,6 +464,7 @@ for (const interruptedPhase of ["process_spawned", "generation_committed"]) {
                 const members = fixture.custodyReaders.flatMap(read => read());
                 const owner = await findProcessOwnership(fixture.workspaceRoot, "service", "matrix-service");
                 assert.ok(owner?.identity);
+                if (interruptedPhase === "generation_committed") assert.deepEqual(owner.identity, interruptedOwner.identity);
                 assert.ok(members.some(member => member.pid === owner.identity.pid &&
                   member.createdAt === owner.identity.createdAt && member.commandHash === owner.identity.commandHash));
                 assert.equal(hasManagedProcess("matrix-service"), true);
@@ -472,6 +480,12 @@ for (const interruptedPhase of ["process_spawned", "generation_committed"]) {
         } finally { await server?.stop(); }
         assert.equal(returned, false);
         assert.equal(observedBeforeReturn, true);
+        if (interruptedPhase === "process_spawned") {
+          assert.equal(hasManagedProcess("matrix-service"), false);
+          for (const member of fixture.custodyReaders.flatMap(read => read())) {
+            assert.equal((await inspectProcess(member.pid)).status, "not_running");
+          }
+        }
         await stopManagedProcess("matrix-service", 5_000);
         await waitForManagedProcessFinalization("matrix-service", Date.now() + 5_000);
         assert.equal(hasManagedProcess("matrix-service"), false);
