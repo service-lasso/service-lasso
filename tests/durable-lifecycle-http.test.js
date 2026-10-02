@@ -252,6 +252,15 @@ async function waitForTerminalOperation(apiServer, operationId, token) {
   assert.fail(`Operation ${operationId} did not become cancelled.`);
 }
 
+async function waitForOperationOutcome(apiServer, operationId, token) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const readback = await lifecycleRequest(apiServer, `/api/operator/lifecycle/operations/${operationId}`, "GET", undefined, token);
+    if (readback.body.operation?.outcome !== null) return readback;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  assert.fail(`Operation ${operationId} did not reach a terminal outcome.`);
+}
+
 async function stopFixtureService(apiServer, serviceId, token) {
   const plan = await lifecycleRequest(apiServer, "/api/operator/lifecycle/operations", "POST", {
     action: "stop",
@@ -269,7 +278,7 @@ async function stopFixtureService(apiServer, serviceId, token) {
   assert.equal(accepted.status, 202);
   for (let attempt = 0; attempt < 30; attempt += 1) {
     const readback = await lifecycleRequest(apiServer, `/api/operator/lifecycle/operations/${accepted.body.operation.operationId}`, "GET", undefined, token);
-    if (readback.body.operation.outcome !== null) return;
+    if (readback.body.operation.outcome !== null) return readback;
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   assert.fail("Fixture stop operation did not reach a terminal state.");
@@ -856,10 +865,22 @@ test("#1465 concurrent HTTP replay is actor-scoped and rejects changed same-key 
     }, otherToken);
     assert.equal(other.status, 202);
     assert.notEqual(other.body.operation.operationId, left.body.operation.operationId);
+
+    const [ownerTerminal, otherTerminal] = await Promise.all([
+      waitForOperationOutcome(apiServer, left.body.operation.operationId, ownerToken),
+      waitForOperationOutcome(apiServer, other.body.operation.operationId, otherToken),
+    ]);
+    assert.equal(ownerTerminal.body.operation.outcome, "succeeded");
+    assert.equal(otherTerminal.body.operation.outcome, "succeeded");
+    const [ownerStop, otherStop] = await Promise.all([
+      stopFixtureService(apiServer, "durable-concurrent-replay-service", ownerToken),
+      stopFixtureService(apiServer, "durable-concurrent-other-service", otherToken),
+    ]);
+    assert.equal(ownerStop.body.operation.outcome, "succeeded");
+    assert.equal(otherStop.body.operation.outcome, "succeeded");
   } finally {
     await apiServer?.stop().catch(() => undefined);
     await jwks.stop();
-    await new Promise((resolve) => setTimeout(resolve, 3_000));
     await rm(tempRoot, { recursive: true, force: true });
   }
 });

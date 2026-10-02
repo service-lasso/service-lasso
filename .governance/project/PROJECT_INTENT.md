@@ -47,6 +47,7 @@ This repo is therefore the place where the real core behavior must live and cont
   SBOM/provenance/signature, or failed published-package evidence (`SPEC-007`
   `AC-7G`).
 - Release authority and readiness follow `gov-09-release-authority.mdc` and `RELEASE_TRACEABILITY.md`. Agents report exact-candidate technical readiness; only the release owner accepts residual risk, declares GA, and authorizes promotion, publication, or deployment. Independent review is required only when the owner explicitly mandates it and names the reviewer (`SPEC-007` `AC-7H`, `#1409`). Missing or failed technical proof is never converted into a pass.
+- Cross-platform release aggregation may publish only a digest-bound public projection of a locally validated private custody receipt. Raw receipt paths, ACLs, process identities, tool identities, and other private fields remain in the private receipt and are never made public merely by setting a JSON field. The aggregate must retain the full expected inventory and journal linkage and distinguish local private validation from public cross-platform aggregation.
 
 ## Risks
 
@@ -101,6 +102,12 @@ This repo is therefore the place where the real core behavior must live and cont
 - Core also provides TUI #20 a closed, versioned reconciliation-context read for durable lifecycle recovery (`#1553`, `SPEC-006` `AC-6F`). It derives opaque lane/workspace and authenticated actor/client bindings only from the established runtime identity and validated HTTP identity. The read accepts the existing read scope and authenticated loopback policy, remains stable across a same-lane restart and credential rotation, separates replacement lanes and actor/client changes, and never accepts or reveals credentials, JWT data, paths, hosts, commands or generation data. Fresh authority creation is permitted only when the named authority, publication, retired-v1, backup, migration, and writer-temp custody artifacts are all absent; any such residue fails closed without creating a replacement authority. Direct test-server startup owns and exposes its actual initialization settlement so a caller cannot remove its workspace while authority initialization writes, and it must settle successfully before binding a listener; initialization failure remains observable and does not create readiness. The authority lock requires independent-process contention evidence, and authorization Audit readback must prove the persisted ordered outcome/status/correlation with the real workspace retained only by production while test observation receives a closed redacted projection with no root, token, credential, raw claim, or path. It has no lifecycle, journal, retained-state or authority side effect.
 - Core HTTP exposes the shared `update_check` and `update_download` durable actions under the same route. It derives update scope/profile, confirmation and cancellability from guarded policy, rejects malformed or duplicate-key JSON before mutation, and preserves opaque actor/client/workspace claims, durable Audit, terminal readback, recovery uncertainty, and redaction (`#1538`, `SPEC-006` `AC-6F`).
 - MCP release qualification treats the official Inspector/SDK protocol matrix, the complete security regression suite, and fresh-consumer packaged startup on Windows, Linux, and macOS as blocking product evidence. Canonical acceptance remains non-destructive except for one server-confirmed exactly-once lifecycle action, and retained artifacts contain only exact-SHA-bound version/result metadata without captures, credentials, raw logs, configuration, environment values, local paths, or secrets (`SPEC-006` `AC-6G`).
+- Reconciliation BR-004 custody records are private v3 evidence: an exclusive
+  local producer and validator bind full tracked-source and native provenance
+  inventory, regular/non-reparse chains, current isolated registry absence, and
+  ordered command closure to the exact candidate. Only a digest-bound public
+  projection may leave the runner; aggregate validation reports that projection
+  boundary truthfully and never claims remote inspection of private receipt bytes.
 
 ## Verification Expectations
 

@@ -17,16 +17,20 @@ import { parsePrebrowserFailure } from "./record-admin-trusted-unlock-prebrowser
 
 const PLATFORMS = Object.freeze(["linux", "win32", "darwin"]);
 
-function validateInitialReceipt(value, platform, runId, runAttempt, candidateSha) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  if (Object.keys(value).sort().join(",") !== "firstRecordSha256,journalSha256,platform,retainedContent,run,schema,source,terminal") return false;
-  const source = value.source;
-  return value.schema === "service-lasso.qualification-first-custody-projection.v1" &&
-    value.retainedContent === "closed_digest_projection" && value.terminal === "UNRESOLVED" && value.platform === platform &&
-    String(value.run?.id) === runId && String(value.run?.attempt) === runAttempt &&
-    source?.head === candidateSha && /^[0-9a-f]{40}$/u.test(source?.tree) && source?.status === "CLEAN" &&
-    Number.isSafeInteger(source?.trackedFileCount) && source.trackedFileCount > 0 && source?.nativeFileCount === 19 &&
-    [value.firstRecordSha256, value.journalSha256, source.inventorySha256, source.nativeInventorySha256].every((digest) => /^[0-9a-f]{64}$/u.test(digest));
+function validInitialProjection(value, platform, runId, runAttempt, candidateSha) {
+  return !!value && typeof value === "object" && !Array.isArray(value)
+    && Object.keys(value).sort().join(",") === "candidate,localValidatorAttestation,platform,privateInitialReceiptSha256,privateJournalSha256,privateVersion,run,schema"
+    && value.schema === "service-lasso.qualification-first-custody-projection.v2"
+    && value.privateVersion === "v3" && value.platform === platform
+    && value.candidate?.head === candidateSha && /^[0-9a-f]{40}$/u.test(value.candidate?.tree)
+    && Object.keys(value.candidate ?? {}).sort().join(",") === "head,tree"
+    && String(value.run?.id) === runId && String(value.run?.attempt) === runAttempt
+    && Object.keys(value.run ?? {}).sort().join(",") === "attempt,id"
+    && /^[0-9a-f]{64}$/u.test(value.privateInitialReceiptSha256)
+    && /^[0-9a-f]{64}$/u.test(value.privateJournalSha256)
+    && value.localValidatorAttestation?.schema === "service-lasso.qualification-local-validator-attestation.v2"
+    && value.localValidatorAttestation?.validated === true
+    && value.localValidatorAttestation?.nativeBirthCustody === "HELD_NATIVE_V1";
 }
 
 function env(name, pattern = /^.+$/u) {
@@ -141,11 +145,11 @@ for (const platform of PLATFORMS) {
   const entries = await readdir(artifactDirectory, { withFileTypes: true });
   const expectedFile = `published-package-qualification-${platform}.json`;
   const expectedReceipt = "admin-trusted-unlock-receipt.json";
-  const initialReceiptName = "initial-receipt-projection.json";
+  const initialReceiptName = "initial-projection.json";
   const prebrowserName = "admin-trusted-unlock-prebrowser-failure.json";
   if (entries.length === 2 && entries.every((entry) => entry.isFile() && !entry.isSymbolicLink()) && entries.some((entry) => entry.name === prebrowserName) && entries.some((entry) => entry.name === initialReceiptName)) {
-    const initial = parseStrictJson(await readOnlyFile(path.join(artifactDirectory, initialReceiptName), `${platform} initial receipt`), `${platform} initial receipt`);
-    if (!validateInitialReceipt(initial, platform, runId, runAttempt, workflowSha)) throw new Error(`${platform} initial receipt custody is invalid.`);
+    const initial = parseStrictJson(await readOnlyFile(path.join(artifactDirectory, initialReceiptName), `${platform} initial projection`), `${platform} initial projection`);
+    if (!validInitialProjection(initial, platform, runId, runAttempt, workflowSha)) throw new Error(`${platform} initial projection custody is invalid.`);
     const prebrowser = parsePrebrowserFailure(await readOnlyFile(path.join(artifactDirectory, prebrowserName), `${platform} pre-browser failure`));
     if (!prebrowser || prebrowser.platform !== platform || String(prebrowser.run.id) !== runId || String(prebrowser.run.attempt) !== runAttempt) throw new Error(`${platform} pre-browser failure custody is invalid.`);
     requireTerminalPrebrowserJob(jobs, platform, runId, runAttempt);
@@ -163,11 +167,11 @@ for (const platform of PLATFORMS) {
     `${platform} retained trusted-unlock receipt`,
   );
   const initial = parseStrictJson(
-    await readOnlyFile(path.join(artifactDirectory, initialReceiptName), `${platform} initial receipt`),
-    `${platform} initial receipt`,
+    await readOnlyFile(path.join(artifactDirectory, initialReceiptName), `${platform} initial projection`),
+    `${platform} initial projection`,
   );
-  if (!validateInitialReceipt(initial, platform, runId, runAttempt, workflowSha)) {
-    throw new Error(`${platform} initial receipt custody is invalid.`);
+  if (!validInitialProjection(initial, platform, runId, runAttempt, workflowSha)) {
+    throw new Error(`${platform} initial projection custody is invalid.`);
   }
   const jobName = `published-package-qualification (${platform})`;
   const matchingJobs = jobs.filter(({ name }) => name === jobName);
@@ -193,9 +197,6 @@ for (const platform of PLATFORMS) {
     coreNpmVersion,
     coreNpmIntegrity,
   });
-  if (evidence.firstCustody.firstRecordSha256 !== initial.firstRecordSha256 || evidence.firstCustody.journalSha256 !== initial.journalSha256 || evidence.firstCustody.inventorySha256 !== initial.source.inventorySha256 || evidence.firstCustody.nativeInventorySha256 !== initial.source.nativeInventorySha256 || evidence.firstCustody.trackedFileCount !== initial.source.trackedFileCount || evidence.firstCustody.nativeFileCount !== initial.source.nativeFileCount) {
-    throw new Error(`${platform} terminal evidence does not close the first-custody projection.`);
-  }
   if (JSON.stringify(retainedReceipt) !== JSON.stringify(evidence.adminTrustedUnlockReceipt)) {
     throw new Error(`${platform} retained trusted-unlock receipt does not match terminal evidence.`);
   }

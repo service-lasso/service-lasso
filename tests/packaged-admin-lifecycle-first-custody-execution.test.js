@@ -25,7 +25,7 @@ async function firstCustodyStep() {
 }
 
 function receiptPath(root, platform, attempt) {
-  return path.join(root, `packaged-admin-lifecycle-431-packaged-admin-lifecycle-${attempt}-${platform}`, "evidence", "initial-receipt.json");
+  return path.join(root, `packaged-admin-lifecycle-431-packaged-admin-lifecycle-${attempt}-${platform}`, "private", "initial-receipt.json");
 }
 
 test("AC-4BY.2 executes the first custody step with matrix projection under Bash nounset on Linux and macOS", { skip: process.platform === "win32" }, async () => {
@@ -47,16 +47,16 @@ test("AC-4BY.2 executes the first custody step with matrix projection under Bash
       const result = run("bash", ["-c", script], environment);
       assert.equal(result.status, 0, result.stderr);
       const receipt = JSON.parse(await readFile(receiptPath(root, platform, "2"), "utf8"));
-      assert.equal(receipt.schema, "service-lasso.qualification-initial-receipt.v2");
+      assert.equal(receipt.schema, "service-lasso.qualification-initial-receipt.v3");
       assert.equal(receipt.private, true);
       assert.equal(receipt.platform, platform);
       assert.deepEqual(receipt.run, { id: "431", attempt: "2" });
       assert.match(receipt.source.head, /^[0-9a-f]{40}$/u);
       assert.match(receipt.source.tree, /^[0-9a-f]{40}$/u);
-      assert.equal(receipt.ownedPaths.length, 12);
-      assert.equal(receipt.journal, "first-custody-journal.json");
+      assert.equal(receipt.registries.length, 2);
+      assert.equal(receipt.journal.path, path.join(path.dirname(receiptPath(root, platform, "2")), "first-custody-journal.json"));
       const exported = await readFile(environment.GITHUB_ENV, "utf8");
-      for (const name of ["QUALIFICATION_WORKSPACE_ROOT", "SERVICE_LASSO_INSTANCE_REGISTRY_PATH", "SERVICE_LASSO_HOST_PORT_REGISTRY_PATH", "QUALIFICATION_EVIDENCE_ROOT", "QUALIFICATION_INITIAL_RECEIPT_PATH"]) assert.match(exported, new RegExp(`^${name}=.+`, "m"));
+      for (const name of ["QUALIFICATION_WORKSPACE_ROOT", "SERVICE_LASSO_INSTANCE_REGISTRY_PATH", "SERVICE_LASSO_HOST_PORT_REGISTRY_PATH", "QUALIFICATION_EVIDENCE_ROOT", "QUALIFICATION_PRIVATE_CUSTODY_ROOT", "QUALIFICATION_INITIAL_RECEIPT_PATH", "QUALIFICATION_INITIAL_PROJECTION_PATH"]) assert.match(exported, new RegExp(`^${name}=.+`, "m"));
     }
     const crossAttempt = run("bash", ["-c", script], {
       PATH: process.env.PATH,
@@ -71,7 +71,7 @@ test("AC-4BY.2 executes the first custody step with matrix projection under Bash
     });
     assert.equal(crossAttempt.status, 0, crossAttempt.stderr);
     const crossReceipt = JSON.parse(await readFile(receiptPath(root, "linux", "3"), "utf8"));
-    assert.equal(crossReceipt.schema, "service-lasso.qualification-initial-receipt.v2");
+    assert.equal(crossReceipt.schema, "service-lasso.qualification-initial-receipt.v3");
     assert.deepEqual(crossReceipt.run, { id: "431", attempt: "3" });
     assert.notEqual(receiptPath(root, "linux", "2"), receiptPath(root, "linux", "3"));
   } finally {

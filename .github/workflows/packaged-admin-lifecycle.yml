@@ -15,7 +15,6 @@ on:
       - scripts/admin-receipt-provider-observer.mjs
       - scripts/admin-receipt-provider-bootstrap.mjs
       - scripts/record-packaged-admin-first-custody.mjs
-      - scripts/project-qualification-first-custody.mjs
       - scripts/resolve-pnpm-action-entrypoint.mjs
       - scripts/establish-admin-trusted-unlock-receipt-caller.mjs
       - scripts/record-admin-trusted-unlock-prebrowser-failure.mjs
@@ -44,7 +43,6 @@ on:
       - scripts/admin-receipt-provider-observer.mjs
       - scripts/admin-receipt-provider-bootstrap.mjs
       - scripts/record-packaged-admin-first-custody.mjs
-      - scripts/project-qualification-first-custody.mjs
       - scripts/resolve-pnpm-action-entrypoint.mjs
       - scripts/establish-admin-trusted-unlock-receipt-caller.mjs
       - scripts/record-admin-trusted-unlock-prebrowser-failure.mjs
@@ -133,6 +131,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Keep the runner-local checkout byte-stable before the first custody
+          # inventory.  This is intentionally local to this disposable checkout.
+          git config --local core.autocrlf false
+          test "$(git config --local --get core.autocrlf)" = false
+          test -z "$(git -c core.autocrlf=false status --porcelain=v1 --untracked-files=all)"
           qualification_root="$RUNNER_TEMP/packaged-admin-lifecycle-$GITHUB_RUN_ID-$GITHUB_JOB-$GITHUB_RUN_ATTEMPT-$ADMIN_PLATFORM"
           export SERVICE_LASSO_WORKSPACE_ROOT="$qualification_root/workspace"
           export SERVICE_LASSO_INSTANCE_REGISTRY_PATH="$qualification_root/instance-registry.json"
@@ -142,8 +145,9 @@ jobs:
           export SERVICE_LASSO_TEST_SUPPORT_ROOT="$qualification_root/runtime-support"
           export QUALIFICATION_WORKSPACE_ROOT="$SERVICE_LASSO_WORKSPACE_ROOT"
           export QUALIFICATION_EVIDENCE_ROOT="$qualification_root/evidence"
-          export QUALIFICATION_PRIVATE_INITIAL_RECEIPT_PATH="$qualification_root/private/initial-receipt.json"
-          export QUALIFICATION_INITIAL_RECEIPT_PATH="$QUALIFICATION_EVIDENCE_ROOT/initial-receipt-projection.json"
+          export QUALIFICATION_PRIVATE_CUSTODY_ROOT="$qualification_root/private"
+          export QUALIFICATION_INITIAL_RECEIPT_PATH="$QUALIFICATION_PRIVATE_CUSTODY_ROOT/initial-receipt.json"
+          export QUALIFICATION_INITIAL_PROJECTION_PATH="$QUALIFICATION_EVIDENCE_ROOT/initial-projection.json"
           printf '%s\n' \
             "QUALIFICATION_WORKSPACE_ROOT=$QUALIFICATION_WORKSPACE_ROOT" \
             "SERVICE_LASSO_WORKSPACE_ROOT=$SERVICE_LASSO_WORKSPACE_ROOT" \
@@ -153,15 +157,14 @@ jobs:
             "SERVICE_LASSO_TEST_EVIDENCE_ROOT=$SERVICE_LASSO_TEST_EVIDENCE_ROOT" \
             "SERVICE_LASSO_TEST_SUPPORT_ROOT=$SERVICE_LASSO_TEST_SUPPORT_ROOT" \
             "QUALIFICATION_EVIDENCE_ROOT=$QUALIFICATION_EVIDENCE_ROOT" \
-            "QUALIFICATION_PRIVATE_INITIAL_RECEIPT_PATH=$QUALIFICATION_PRIVATE_INITIAL_RECEIPT_PATH" \
+            "QUALIFICATION_PRIVATE_CUSTODY_ROOT=$QUALIFICATION_PRIVATE_CUSTODY_ROOT" \
             "QUALIFICATION_INITIAL_RECEIPT_PATH=$QUALIFICATION_INITIAL_RECEIPT_PATH" \
+            "QUALIFICATION_INITIAL_PROJECTION_PATH=$QUALIFICATION_INITIAL_PROJECTION_PATH" \
             >> "$GITHUB_ENV"
-          mkdir -p "$QUALIFICATION_WORKSPACE_ROOT" "$QUALIFICATION_EVIDENCE_ROOT" "$(dirname "$QUALIFICATION_PRIVATE_INITIAL_RECEIPT_PATH")" "$SERVICE_LASSO_TEST_SERVICES_ROOT" "$SERVICE_LASSO_TEST_EVIDENCE_ROOT" "$SERVICE_LASSO_TEST_SUPPORT_ROOT"
-          test ! -e "$SERVICE_LASSO_INSTANCE_REGISTRY_PATH"
-          test ! -e "$SERVICE_LASSO_HOST_PORT_REGISTRY_PATH"
           node "$GITHUB_WORKSPACE/scripts/record-packaged-admin-first-custody.mjs"
-          node "$GITHUB_WORKSPACE/scripts/project-qualification-first-custody.mjs"
           test -s "$QUALIFICATION_INITIAL_RECEIPT_PATH"
+          node "$GITHUB_WORKSPACE/scripts/project-packaged-admin-first-custody.mjs" --input "$QUALIFICATION_INITIAL_RECEIPT_PATH" --journal "$QUALIFICATION_PRIVATE_CUSTODY_ROOT/first-custody-journal.json" --output "$QUALIFICATION_INITIAL_PROJECTION_PATH"
+          test -s "$QUALIFICATION_INITIAL_PROJECTION_PATH"
 
       - name: Set up Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -366,7 +369,7 @@ jobs:
             }
             New-Item -ItemType Directory -Path artifacts -Force | Out-Null
             Copy-Item -LiteralPath $env:ADMIN_TRUSTED_UNLOCK_PREBROWSER_FAILURE_PATH -Destination "artifacts/admin-trusted-unlock-prebrowser-failure.json"
-            Copy-Item -LiteralPath $env:QUALIFICATION_INITIAL_RECEIPT_PATH -Destination "artifacts/initial-receipt-projection.json"
+            Copy-Item -LiteralPath "$env:QUALIFICATION_INITIAL_PROJECTION_PATH" -Destination "artifacts/initial-projection.json"
             exit 0
           }
           $hex64 = '^[0-9a-f]{64}$'
@@ -383,10 +386,6 @@ jobs:
           $modes = @('first_run', 'comprehensive_lifecycle', 'stopped_lifecycle')
           if ($env:RUNNER_OS -eq 'Windows') {
             $modes += 'local_operator_lockout'
-          }
-          $firstCustody = Get-Content -LiteralPath $env:QUALIFICATION_INITIAL_RECEIPT_PATH -Raw | ConvertFrom-Json
-          if ($firstCustody.schema -ne 'service-lasso.qualification-first-custody-projection.v1' -or $firstCustody.retainedContent -ne 'closed_digest_projection' -or $firstCustody.terminal -ne 'UNRESOLVED' -or $firstCustody.platform -ne $env:ADMIN_PLATFORM -or $firstCustody.source.head -ne $env:QUALIFICATION_CANDIDATE_SHA -or $firstCustody.source.status -ne 'CLEAN' -or $firstCustody.source.nativeFileCount -ne 19 -or $firstCustody.source.trackedFileCount -lt 1 -or $firstCustody.firstRecordSha256 -notmatch $hex64 -or $firstCustody.journalSha256 -notmatch $hex64 -or $firstCustody.source.inventorySha256 -notmatch $hex64 -or $firstCustody.source.nativeInventorySha256 -notmatch $hex64) {
-            throw 'First custody projection is invalid.'
           }
           $evidence = [ordered]@{
             schema = 'service-lasso.packaged-admin-lifecycle.v1'
@@ -422,20 +421,10 @@ jobs:
               capturesRetained = $false
               sensitiveEvidenceRetained = $false
             }
-            firstCustody = [ordered]@{
-              schema = $firstCustody.schema
-              firstRecordSha256 = $firstCustody.firstRecordSha256
-              journalSha256 = $firstCustody.journalSha256
-              trackedFileCount = $firstCustody.source.trackedFileCount
-              inventorySha256 = $firstCustody.source.inventorySha256
-              nativeFileCount = $firstCustody.source.nativeFileCount
-              nativeInventorySha256 = $firstCustody.source.nativeInventorySha256
-              terminal = 'CLOSED'
-            }
           }
           New-Item -ItemType Directory -Path artifacts -Force | Out-Null
           $evidence | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath "artifacts/packaged-admin-lifecycle-$env:ADMIN_PLATFORM.json" -Encoding utf8
-          Copy-Item -LiteralPath $env:QUALIFICATION_INITIAL_RECEIPT_PATH -Destination "artifacts/initial-receipt-projection.json"
+          Copy-Item -LiteralPath "$env:QUALIFICATION_INITIAL_PROJECTION_PATH" -Destination "artifacts/initial-projection.json"
           node scripts/retain-packaged-admin-lifecycle-receipt.mjs --receipt "$env:RUNNER_TEMP/admin-trusted-unlock-receipt.json" --evidence "artifacts/packaged-admin-lifecycle-$env:ADMIN_PLATFORM.json" --retained "artifacts/admin-trusted-unlock-receipt.json"
 
       - name: Upload packaged Admin lifecycle evidence
@@ -447,7 +436,7 @@ jobs:
             artifacts/packaged-admin-lifecycle-${{ matrix.admin_platform }}.json
             artifacts/admin-trusted-unlock-receipt.json
             artifacts/admin-trusted-unlock-prebrowser-failure.json
-            artifacts/initial-receipt-projection.json
+            artifacts/initial-projection.json
           if-no-files-found: error
           retention-days: 90
 

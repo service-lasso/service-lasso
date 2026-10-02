@@ -18,14 +18,12 @@ const terminalJobs = ["linux", "win32", "darwin"].map((platform, index) => ({ id
 const receipt = { schema: "service-lasso.admin-trusted-unlock-consumer.v1", outcome: "nonzero_exit", exitCode: 1, signal: null, trustedUnlock: { classification: "closed", receipt: { schema: "service-admin.trusted-unlock-receipt.v1", status: "observed", present: true, verified: false, localRoot: false, loading: true, unavailable: false } } };
 const observationFailureReceipt = { ...receipt, outcome: "observation_failure", exitCode: 0, streamFailure: "malformed_utf8" };
 const unavailableReceipt = (classification) => ({ ...receipt, trustedUnlock: { classification } });
-function initialReceiptFor(platform, overrides = {}) {
-  const file = { state: "FILE", size: 1, sha256: "f".repeat(64) };
+function initialProjectionFor(platform, overrides = {}) {
   return {
-    schema: "service-lasso.qualification-initial-receipt.v2", private: true, platform,
-    run: { id: Number(runId), attempt: Number(runAttempt) }, source: { head: candidateSha, tree: "e".repeat(40) },
-    runner: { platform, arch: "x64", release: "fixture", pid: 1, ppid: 2, executable: file },
-    ownedPaths: Array.from({ length: 12 }, (_, index) => ({ path: `native-${index}`, parents: [{ path: "root", kind: "DIRECTORY" }], file })),
-    registries: [{ path: "instance", state: "ABSENT" }, { path: "ports", state: "ABSENT" }], journal: "first-custody-journal.json",
+    schema: "service-lasso.qualification-first-custody-projection.v2", privateVersion: "v3", platform,
+    run: { id: runId, attempt: runAttempt }, candidate: { head: candidateSha, tree: "e".repeat(40) },
+    privateInitialReceiptSha256: "f".repeat(64), privateJournalSha256: "e".repeat(64),
+    localValidatorAttestation: { schema: "service-lasso.qualification-local-validator-attestation.v2", validated: true, nativeBirthCustody: "HELD_NATIVE_V1" },
     ...overrides,
   };
 }
@@ -39,7 +37,7 @@ async function fixture(mutator, source = receipt) {
     const directory = path.join(root, `packaged-admin-lifecycle-${platform}-${runId}-${runAttempt}`);
     await mkdir(directory);
     const evidence = path.join(directory, `packaged-admin-lifecycle-${platform}.json`), retained = path.join(directory, "admin-trusted-unlock-receipt.json"), privateReceipt = path.join(await mkdtemp(path.join(tmpdir(), "packaged-private-")), "runner-private-receipt.json");
-    await writeFile(path.join(directory, "initial-receipt.json"), JSON.stringify(initialReceiptFor(platform)));
+    await writeFile(path.join(directory, "initial-projection.json"), JSON.stringify(initialProjectionFor(platform)));
     await writeFile(evidence, JSON.stringify(evidenceFor(platform)));
     await writeFile(privateReceipt, JSON.stringify(source));
     await retainReceipt({ receiptPath: privateReceipt, evidencePath: evidence, retainedPath: retained, runId, runAttempt, candidateSha, eventSha, platform });
@@ -74,21 +72,21 @@ test("AC-4BY.2 executes each finite pre-browser producer through the packaged ag
     await assert.rejects(verifyArtifacts({ root, runId, runAttempt, candidateSha, eventSha }), /terminal job is unobserved/u, stage);
   }
 });
-test("AC-4BY.2 rejects missing, stale, and expanded initial receipt custody for both normal and pre-browser artifacts", async () => {
+test("AC-4BY.2 rejects missing, stale, and expanded public custody projections for both normal and pre-browser artifacts", async () => {
   for (const [label, mutate] of [
-    ["missing", async (directory) => rm(path.join(directory, "initial-receipt.json"))],
-    ["stale", async (directory) => writeFile(path.join(directory, "initial-receipt.json"), JSON.stringify(initialReceiptFor("win32", { run: { id: Number(runId) - 1, attempt: Number(runAttempt) } })))],
-    ["expanded", async (directory) => writeFile(path.join(directory, "initial-receipt.json"), JSON.stringify({ ...initialReceiptFor("win32"), extra: true }))],
+    ["missing", async (directory) => rm(path.join(directory, "initial-projection.json"))],
+    ["stale", async (directory) => writeFile(path.join(directory, "initial-projection.json"), JSON.stringify(initialProjectionFor("win32", { run: { id: String(Number(runId) - 1), attempt: runAttempt } })))],
+    ["expanded", async (directory) => writeFile(path.join(directory, "initial-projection.json"), JSON.stringify({ ...initialProjectionFor("win32"), extra: true }))],
   ]) {
     const normal = await fixture(async (root) => mutate(path.join(root, `packaged-admin-lifecycle-win32-${runId}-${runAttempt}`)));
-    await assert.rejects(verifyArtifacts({ root: normal, runId, runAttempt, candidateSha, eventSha }), /(?:initial receipt custody|artifact inventory)/u, `normal ${label}`);
+    await assert.rejects(verifyArtifacts({ root: normal, runId, runAttempt, candidateSha, eventSha }), /(?:initial projection custody|artifact inventory)/u, `normal ${label}`);
     const prebrowser = await fixture(async (root) => {
       const directory = path.join(root, `packaged-admin-lifecycle-win32-${runId}-${runAttempt}`);
       await Promise.all(["packaged-admin-lifecycle-win32.json", "admin-trusted-unlock-receipt.json"].map((name) => rm(path.join(directory, name))));
       await recordPrebrowserFailure({ output: path.join(directory, "admin-trusted-unlock-prebrowser-failure.json"), platform: "win32", stage: "package_identity", runId, runAttempt });
       await mutate(directory);
     });
-    await assert.rejects(verifyArtifacts({ root: prebrowser, runId, runAttempt, candidateSha, eventSha, terminalJobs }), /(?:initial receipt custody|artifact inventory)/u, `pre-browser ${label}`);
+    await assert.rejects(verifyArtifacts({ root: prebrowser, runId, runAttempt, candidateSha, eventSha, terminalJobs }), /(?:initial projection custody|artifact inventory)/u, `pre-browser ${label}`);
   }
 });
 test("AC-4BY.2 public terminal-job read is bounded, unauthenticated, and fails closed for unavailable or malformed provider payloads", async () => {

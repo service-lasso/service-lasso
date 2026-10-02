@@ -70,3 +70,11 @@ test("branch policy binds provider-generated dependency branches to Dependabot",
   assert.ok(source.includes("^dependabot/(npm_and_yarn|github_actions)/.+"));
   assert.ok(source.includes("git merge-base --is-ancestor origin/develop \"$HEAD_SHA\""));
 });
+
+test("branch policy confines the SPEC-003 reconciliation exception to the exact canonical PR tuple", async () => {
+  const source = await readFile(path.join(repoRoot, ".github", "workflows", "branch-policy.yml"), "utf8");
+  assert.ok(source.includes('PR_NUMBER: ${{ github.event.pull_request.number }}'));
+  assert.ok(source.includes('HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}'));
+  assert.match(source, /PR_NUMBER" == "1584"[\s\S]*?BASE_BRANCH" == "develop"[\s\S]*?HEAD_BRANCH" == "codex\/1577-release-reconciliation-develop"[\s\S]*?HEAD_REPOSITORY" == "service-lasso\/service-lasso"/u);
+  assert.ok(source.includes('^(feature|fix|docs|chore)/'));
+});

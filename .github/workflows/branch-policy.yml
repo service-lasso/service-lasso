@@ -17,6 +17,8 @@ jobs:
           BASE_BRANCH: ${{ github.event.pull_request.base.ref }}
           HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
           HEAD_LOGIN: ${{ github.event.pull_request.user.login }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
         run: |
           set -euo pipefail
 
@@ -47,6 +49,13 @@ jobs:
               echo "Dependabot branches must use the npm_and_yarn or github_actions ecosystem namespace." >&2
               exit 1
             fi
+            exit 0
+          fi
+
+          # SPEC-003's explicitly authorised reconciliation exception. It is
+          # deliberately bound to one existing canonical PR and cannot admit a
+          # reusable codex/ namespace or a forked/reopened replacement.
+          if [[ "$PR_NUMBER" == "1584" && "$BASE_BRANCH" == "develop" && "$HEAD_BRANCH" == "codex/1577-release-reconciliation-develop" && "$HEAD_REPOSITORY" == "service-lasso/service-lasso" ]]; then
             exit 0
           fi
 

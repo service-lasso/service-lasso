@@ -250,7 +250,7 @@ function evidence(candidateSha, platform) {
     packageArchiveSha256: "a".repeat(64),
     sdk: {
       packageName: "@modelcontextprotocol/sdk",
-      version: "1.30.0",
+      version: "1.30.1",
       protocolVersion: "2025-11-25",
       supportedProtocolVersions: ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05", "2024-10-07"],
     },
@@ -671,7 +671,7 @@ test("#864 retained evidence verifies downloaded content, exact SHA, three OSes,
     assert.equal(Number(runtimeBinding[1].replaceAll("_", "")), managedLauncherNativeProvenance.binary.byteLength);
     assert.equal(runtimeBinding[2], managedLauncherNativeProvenance.binary.sha256);
     assert.match(supervisorSource, /assertWindowsManagedLauncherIntegrity[\s\S]*?lstat[\s\S]*?realpath[\s\S]*?open[\s\S]*?handle\.stat[\s\S]*?handle\.readFile[\s\S]*?WINDOWS_MANAGED_LAUNCHER_SHA256/u);
-    assert.match(supervisorSource, /verifyWindowsManagedLauncherIntegrity[\s\S]*?withProcessControlDeadline[\s\S]*?createWindowsManagedLaunchState[\s\S]*?verifyWindowsManagedLauncherIntegrity\(windowsManagedLaunchState\.launcherExecutable\)[\s\S]*?managedProcessSpawner/u);
+    assert.match(supervisorSource, /verifyWindowsManagedLauncherIntegrity[\s\S]*?withProcessControlDeadline[\s\S]*?createWindowsManagedLaunchState[\s\S]*?verifyWindowsManagedLauncherIntegrity\(\s*windowsManagedLaunchState\.launcherExecutable\s*\)[\s\S]*?managedProcessSpawner/u);
     assert.match(supervisorSource, /isWindowsLoaderSensitiveEnvironmentName[\s\S]*?COR_[\s\S]*?CORECLR_[\s\S]*?COMPLUS_[\s\S]*?APPDOMAIN_MANAGER[\s\S]*?targetEnvironmentOverrides/u);
     assert.doesNotMatch(supervisorSource, /windows-managed-launcher\.ps1|WindowsPowerShell[\s\S]*?WINDOWS_MANAGED_LAUNCHER_PATH/u);
     const assetCopySource = await readFile("scripts/copy-runtime-assets.mjs", "utf8");

@@ -22,6 +22,8 @@ Out of scope:
 
 ## Requirements and Acceptance Criteria
 
+- `BR-008` — Reconciliation qualification custody must create its private initial receipt before dependency installation, build, generation, or product imports. Every claimed source/tool result in that receipt must be bound to an owned, live native-process observation (PID, birth identity, resolved image and complete parent chain), private raw stdout/stderr closure, exact command order, and the current HEAD/tree/tracked-byte Git provenance. The public projection may publish only closed hashes and immutable identifiers; unresolved observation, alias/image mismatch, non-zero or signalled exit, missing EOF, duplicate JSON keys, raw-output tampering, or source/tree/result mismatch must fail closed.
+
 - `BR-001` — `develop` remains the development source of truth. Recovery work starts from `develop`, uses an issue-scoped branch, and targets `develop` through pull request.
 - `BR-002` — Every `main`-only commit and changed file is inventoried and classified as valid product work, promotion-only history, duplicate/superseded work, or conflict requiring an explicit resolution.
 - `BR-003` — All valid `main`-only behavior is reconciled onto the recovery branch without replacing newer `develop` behavior or losing mandatory Broker, Service Admin integration, or Core functionality.
@@ -38,6 +40,7 @@ Out of scope:
 - Targeted tests for Broker generated-secret planning, Service Admin canonical demo/API behavior, action/workflow APIs, config history, audit persistence, runtime log streams, and smoke isolation.
 - Canonical demo/baseline smoke where supported by the execution environment.
 - Pull-request diff and status checks against `develop`.
+- When BR-004 evidence uses an external platform aggregate, retain and fully validate the complete private custody record locally; upload only an explicit digest-bound public projection. The aggregate may report its own projection checks, but never claims validation of private receipt bytes unavailable to that environment.
 
 ## Documentation Impact
 
@@ -53,3 +56,17 @@ Reviewers must be able to trace each `main`-only product change to its reconcile
 
 - 2026-07-13: Recovery initiated after normal development PRs were found merged into `main` while `develop` continued independently. Direct `main -> develop` merging was rejected as the working model; reconciliation is performed on `fix/ISS-850-main-develop-reconciliation`, created from `develop`.
 - 2026-07-13: Reconciliation completed locally with 445 passing tests. During validation, telemetry was found actively probing arbitrary manifest health URLs; it now uses persisted/passive health evidence, and the external-URL sentinel regression passes without an outbound request.
+- 2026-10-02: Exact-head repair qualification requires one coherent private-custody producer/validator/fixture/platform contract and a separate public digest projection. Synthetic v1 custody records and public uploads of raw custody data are invalid inputs and cannot satisfy BR-004.
+- 2026-10-02: The authorised reconciliation PR `#1584` alone may use the
+  canonical-repository head `codex/1577-release-reconciliation-develop` into
+  `develop`; the branch-policy gate binds all four tuple members (PR number,
+  base, head, and head repository). This temporary exception preserves the
+  reviewed reconciliation ancestry and expires on that merge.
+- 2026-10-02: BR-004 private custody evolves to v3: its exclusive, fsynced
+  producer records every tracked candidate file and the native provenance subset,
+  realpath/lstat parent chains, current registry absence, and ordered command
+  closure bound to the candidate head/tree. The private validator recomputes
+  those observations locally before an explicit digest-only public projection is
+  written. Platform aggregates consume only that projection and must describe
+  their validation as projection validation, never verification of unavailable
+  private bytes.
