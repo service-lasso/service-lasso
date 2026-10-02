@@ -39,7 +39,7 @@ host owner; it does not install, publish, or activate a service itself.
 
 `tests/host-runner-service-package.test.js` checks the package grammar and
 fails on path-based input, readable bearer capabilities, missing revocation,
-or weak ownership modes. The isolated Windows source proof is retained at
-`docs/operations/evidence/host-runner-1570-owner-preflight-20261002.json`.
+or weak ownership modes. Isolated Windows source proof is retained as private
+external qualification evidence and does not stand in for Darwin activation.
 A root host owner must run the documented Darwin
 commands and retain the private receipt before native acceptance is claimed.

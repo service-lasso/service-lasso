@@ -54,7 +54,8 @@ authorised owner performs the Darwin install and retains its private receipt.
 The handover surface is [host-runner contract v2](../../scripts/host-runner-service/contract-v1.json).
 The owner build emits a checksum manifest and a provenance JSON record that
 binds `service-lasso.host-runner.v2`, source SHA-256 and both signed candidate
-SHA-256 values. The current package has no Core CLI integration or native
-acceptance claim. A fresh consumer must pin the daemon/client provenance and
-prove its Core-to-client invocation separately before a cross-repository
-acceptance claim is possible.
+SHA-256 values. The package includes the reviewed native Core client for the
+daemon contract; the Node Core runtime has no ambient fallback or
+caller-selected host-runner path. A fresh consumer must pin the daemon/client
+provenance and prove its Core-to-client invocation separately before a
+cross-repository acceptance claim is possible.
