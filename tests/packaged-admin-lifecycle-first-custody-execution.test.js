@@ -41,14 +41,20 @@ test("AC-4BY.2 executes the first custody step with matrix projection under Bash
         GITHUB_RUN_ATTEMPT: "2",
         ADMIN_PLATFORM: platform,
         GITHUB_ENV: path.join(root, `${platform}.github-env`),
+        GITHUB_WORKSPACE: process.cwd(),
+        QUALIFICATION_CANDIDATE_SHA: run("git", ["rev-parse", "HEAD"], { PATH: process.env.PATH }).stdout.trim(),
       };
       const result = run("bash", ["-c", script], environment);
       assert.equal(result.status, 0, result.stderr);
-      assert.deepEqual(JSON.parse(await readFile(receiptPath(root, platform, "2"), "utf8")), {
-        schema: "service-lasso.qualification-initial-receipt.v1",
-        platform,
-        run: { id: "431", attempt: "2" },
-      });
+      const receipt = JSON.parse(await readFile(receiptPath(root, platform, "2"), "utf8"));
+      assert.equal(receipt.schema, "service-lasso.qualification-initial-receipt.v2");
+      assert.equal(receipt.private, true);
+      assert.equal(receipt.platform, platform);
+      assert.deepEqual(receipt.run, { id: "431", attempt: "2" });
+      assert.match(receipt.source.head, /^[0-9a-f]{40}$/u);
+      assert.match(receipt.source.tree, /^[0-9a-f]{40}$/u);
+      assert.equal(receipt.ownedPaths.length, 12);
+      assert.equal(receipt.journal, "first-custody-journal.json");
       const exported = await readFile(environment.GITHUB_ENV, "utf8");
       for (const name of ["QUALIFICATION_WORKSPACE_ROOT", "SERVICE_LASSO_INSTANCE_REGISTRY_PATH", "SERVICE_LASSO_HOST_PORT_REGISTRY_PATH", "QUALIFICATION_EVIDENCE_ROOT", "QUALIFICATION_INITIAL_RECEIPT_PATH"]) assert.match(exported, new RegExp(`^${name}=.+`, "m"));
     }
@@ -60,13 +66,13 @@ test("AC-4BY.2 executes the first custody step with matrix projection under Bash
       GITHUB_RUN_ATTEMPT: "3",
       ADMIN_PLATFORM: "linux",
       GITHUB_ENV: path.join(root, "cross-attempt.github-env"),
+      GITHUB_WORKSPACE: process.cwd(),
+      QUALIFICATION_CANDIDATE_SHA: run("git", ["rev-parse", "HEAD"], { PATH: process.env.PATH }).stdout.trim(),
     });
     assert.equal(crossAttempt.status, 0, crossAttempt.stderr);
-    assert.deepEqual(JSON.parse(await readFile(receiptPath(root, "linux", "3"), "utf8")), {
-      schema: "service-lasso.qualification-initial-receipt.v1",
-      platform: "linux",
-      run: { id: "431", attempt: "3" },
-    });
+    const crossReceipt = JSON.parse(await readFile(receiptPath(root, "linux", "3"), "utf8"));
+    assert.equal(crossReceipt.schema, "service-lasso.qualification-initial-receipt.v2");
+    assert.deepEqual(crossReceipt.run, { id: "431", attempt: "3" });
     assert.notEqual(receiptPath(root, "linux", "2"), receiptPath(root, "linux", "3"));
   } finally {
     await rm(root, { recursive: true, force: true });

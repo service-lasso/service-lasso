@@ -61,7 +61,7 @@ test("AC-4BY.2 retains no child output and preserves the original nonzero exit",
       const outcome = await run(`process.stderr.write(${JSON.stringify(source)}, () => process.exit(7));`);
       assert.deepEqual(outcome.receipt.trustedUnlock, { classification: source ? "invalid" : "missing" });
     }
-  } finally { await rm(root, { recursive: true, force: true }); }
+  } finally { await rm(root, { recursive: true, force: true, maxRetries: 4, retryDelay: 100 }); }
 });
 
 test("AC-4BY.2 keeps UTF-8 and CRLF receipt framing across arbitrary chunks while bounding a completed finite flood", async () => {
@@ -218,11 +218,16 @@ test("AC-4BY.2 accepts only the complete observed observer close as a shipped po
     assert.equal(result.executionFailure, null);
     assert.deepEqual(result.trustedUnlock, { classification: "closed", receipt: JSON.parse(valid) });
     const close = JSON.parse(await readFile(path.join(observerRoot, "close.json"), "utf8"));
+    const terminal = JSON.parse(await readFile(path.join(observerRoot, "consumer-terminal.json"), "utf8"));
     assert.equal(close.initial, "initial.json");
     assert.equal(close.provider.parentPid > 0, true);
     assert.equal(close.provider.birth.length > 0, true);
+    assert.equal(terminal.state, "OBSERVER_EXITED");
+    assert.equal(terminal.heldHandle, true);
+    assert.equal(terminal.childAndPipesClosed, true);
+    assert.equal(terminal.observer.pid, close.provider.parentPid);
     assert.doesNotMatch(JSON.stringify(close), /workspace|instance-registry|host-port-registry/iu);
-  } finally { await rm(root, { recursive: true, force: true }); }
+  } finally { await rm(root, { recursive: true, force: true, maxRetries: 4, retryDelay: 100 }); }
 });
 
 test("AC-4BY.2 rejects an actual endless invalid flood and an inherited-pipe hang within its local bounds", { skip: process.platform === "win32" }, async () => {

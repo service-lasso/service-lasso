@@ -46,6 +46,7 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
     "scripts/consume-admin-trusted-unlock-receipt.mjs",
     "scripts/admin-receipt-provider-observer.mjs",
     "scripts/admin-receipt-provider-bootstrap.mjs",
+    "scripts/record-packaged-admin-first-custody.mjs",
     "scripts/resolve-pnpm-action-entrypoint.mjs",
     "scripts/establish-admin-trusted-unlock-receipt-caller.mjs",
     "scripts/record-admin-trusted-unlock-prebrowser-failure.mjs",
@@ -73,6 +74,7 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
     workflow,
     /os: ubuntu-latest[\s\S]*?os: windows-latest[\s\S]*?os: macos-latest/,
   );
+  assert.match(workflow, /record-packaged-admin-first-custody\.mjs[\s\S]*?Set up Node/);
 
   assert.match(workflow, /repository: service-lasso\/lasso-serviceadmin/);
   assert.match(

@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { access, lstat, mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, lstat, mkdir, open, readFile, writeFile } from "node:fs/promises";
 import { createHash, randomBytes } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,6 +15,12 @@ const MAX_OBSERVED_BYTES = 65_536;
 const MAX_DISCARD_BYTES = 131_072;
 const PIPE_CLOSE_TIMEOUT_MS = 500;
 const PROPAGATED_SIGNALS = new Set(["SIGTERM", "SIGINT", "SIGHUP"]);
+
+async function exclusiveJson(file, value) {
+  const handle = await open(file, "wx", 0o600);
+  try { await handle.writeFile(`${JSON.stringify(value)}\n`, "utf8"); await handle.sync(); }
+  finally { await handle.close(); }
+}
 
 function parseString(source, start) {
   if (source[start] !== '"') return null;
@@ -151,7 +157,7 @@ export function parseConsumerReceipt(source) {
   if (!(value.signal === null || /^[A-Z0-9_]{1,32}$/u.test(value.signal))) return null;
   if (value.exitCode !== null && value.signal !== null) return null;
   if (value.streamFailure !== undefined && !["pipe_hang", "stream_budget_exceeded", "malformed_utf8"].includes(value.streamFailure)) return null;
-  if (value.executionFailure !== undefined && !["execution_timeout", "spawn_failed"].includes(value.executionFailure)) return null;
+  if (value.executionFailure !== undefined && !["execution_timeout", "spawn_failed", "observer_terminal_unresolved"].includes(value.executionFailure)) return null;
   if (value.streamFailure !== undefined && value.executionFailure !== undefined) return null;
   if (value.outcome === "success" && (value.exitCode !== 0 || value.signal !== null || value.streamFailure !== undefined || value.executionFailure !== undefined)) return null;
   if (value.outcome === "nonzero_exit" && (value.exitCode <= 0 || value.signal !== null || value.streamFailure !== undefined || value.executionFailure !== undefined)) return null;
@@ -392,6 +398,12 @@ async function validateObserverTerminal(root, nonce, source, wantClose) {
     || initial.schema !== "service-lasso.admin-provider-observer-initial.v2" || initial.private !== true || initial.state !== "INITIAL" || !sameTuple(initial, nonce, source)
     || !validRuntimeInputs(initial.inputs) || JSON.stringify(initial.inputs) !== JSON.stringify(plan.inputs)
     || initial.plan !== "plan.json"
+    || !exactKeys(initial.observer, ["pid", "parentPid", "birth", "nativeIdentity", "platform", "arch", "release"])
+    || !Number.isSafeInteger(initial.observer.pid) || initial.observer.pid < 1 || !Number.isSafeInteger(initial.observer.parentPid) || initial.observer.parentPid < 1
+    || typeof initial.observer.birth !== "string" || initial.observer.birth.length < 1
+    || !exactKeys(initial.observer.nativeIdentity, ["path", "size", "sha256"])
+    || typeof initial.observer.nativeIdentity.path !== "string" || !Number.isSafeInteger(initial.observer.nativeIdentity.size) || initial.observer.nativeIdentity.size < 1
+    || !/^[0-9a-f]{64}$/u.test(initial.observer.nativeIdentity.sha256)
     || !exactKeys(initial.provider, ["pid", "parentPid", "birth", "nativeIdentity"])
     || !Number.isSafeInteger(initial.provider.pid) || initial.provider.pid < 1 || !Number.isSafeInteger(initial.provider.parentPid) || initial.provider.parentPid < 1
     || initial.provider.parentPid !== initial.observer?.pid || typeof initial.provider.birth !== "string" || initial.provider.birth.length < 1
@@ -427,6 +439,34 @@ async function validateObserverTerminal(root, nonce, source, wantClose) {
   return terminal;
 }
 
+function observerExitWitness(observer) {
+  return new Promise((resolve) => {
+    observer.once("error", () => resolve({ exitCode: null, signal: null, spawnError: true }));
+    observer.once("close", (exitCode, signal) => resolve({ exitCode, signal, spawnError: false }));
+  });
+}
+
+async function recordAndValidateObserverExit(root, nonce, source, close, observer, observerExit) {
+  const initial = await privateJson(root, "initial.json");
+  if (!initial || initial.observer?.pid !== observer.pid) return false;
+  if (observerExit.spawnError || (observerExit.exitCode === null && observerExit.signal === null)
+    || (observerExit.exitCode !== null && (!Number.isSafeInteger(observerExit.exitCode) || observerExit.exitCode < 0 || observerExit.signal !== null))
+    || (observerExit.signal !== null && (typeof observerExit.signal !== "string" || observerExit.exitCode !== null))) return false;
+  const witness = {
+    schema: "service-lasso.admin-provider-observer-consumer-terminal.v1", private: true,
+    nonce, source, close: "close.json", state: "OBSERVER_EXITED",
+    observer: initial.observer, heldHandle: true, childAndPipesClosed: true,
+    terminal: observerExit,
+  };
+  try { await exclusiveJson(path.join(root, "consumer-terminal.json"), witness); } catch { return false; }
+  const persisted = await privateJson(root, "consumer-terminal.json");
+  return !!persisted && exactKeys(persisted, ["schema", "private", "nonce", "source", "close", "state", "observer", "heldHandle", "childAndPipesClosed", "terminal"])
+    && persisted.schema === witness.schema && persisted.private === true && persisted.close === "close.json" && persisted.state === "OBSERVER_EXITED"
+    && persisted.heldHandle === true && persisted.childAndPipesClosed === true && sameTuple(persisted, nonce, source)
+    && JSON.stringify(persisted.observer) === JSON.stringify(initial.observer) && JSON.stringify(persisted.terminal) === JSON.stringify(observerExit)
+    && JSON.stringify(close.provider) === JSON.stringify(initial.provider);
+}
+
 // This route deliberately delegates spawn ownership before the provider starts.
 // The caller can settle on an immutable UNRESOLVED receipt, while the detached
 // observer retains the real PID and pipes until the actual close is recorded.
@@ -443,20 +483,30 @@ export async function consumeWithDurableObserver(command, args, options = {}) {
     inputs: options.inputs,
   };
   const configPath = path.join(root, "observer-config.json");
-  await writeFile(configPath, JSON.stringify(config), { encoding: "utf8", mode: 0o600, flag: "wx" });
+  await exclusiveJson(configPath, config);
   const observer = spawn(process.execPath, [fileURLToPath(new URL("./admin-receipt-provider-observer.mjs", import.meta.url)), configPath], {
     cwd: options.cwd, env: options.env, detached: true, stdio: "ignore", windowsHide: true,
   });
-  observer.unref();
+  // Install this before any private-record polling. A quick observer exit must
+  // still be tied to the OS child handle that created the private root.
+  const observerExitPromise = observerExitWitness(observer);
   const terminal = await waitForPrivateObserver(root, ["close.json", "unresolved.json"], Math.max(250, (options.timeoutMs ?? 300000) + 250));
-  if (!terminal) return { code: null, signal: null, executionFailure: "spawn_failed", trustedUnlock: { classification: "missing" }, streamFailure: null };
+  if (!terminal) { observer.unref(); return { code: null, signal: null, executionFailure: "spawn_failed", trustedUnlock: { classification: "missing" }, streamFailure: null }; }
   if (terminal.endsWith("unresolved.json")) {
     const unresolved = await validateObserverTerminal(root, nonce, source, false);
+    observer.unref();
     return unresolved ? { code: null, signal: null, executionFailure: "execution_timeout", trustedUnlock: { classification: "missing" }, streamFailure: null }
       : { code: null, signal: null, executionFailure: "spawn_failed", trustedUnlock: { classification: "invalid" }, streamFailure: null };
   }
   const close = await validateObserverTerminal(root, nonce, source, true);
   if (!close) return { code: null, signal: null, executionFailure: "spawn_failed", trustedUnlock: { classification: "invalid" }, streamFailure: null };
+  let exitTimer;
+  const observerExit = await Promise.race([observerExitPromise, new Promise((resolve) => { exitTimer = setTimeout(() => resolve(null), 5_000); })]);
+  clearTimeout(exitTimer);
+  if (!observerExit || !(await recordAndValidateObserverExit(root, nonce, source, close, observer, observerExit))) {
+    observer.unref();
+    return { code: null, signal: null, executionFailure: "observer_terminal_unresolved", trustedUnlock: { classification: "missing" }, streamFailure: null };
+  }
   return { code: close.terminal.exitCode, signal: close.terminal.signal, executionFailure: null, trustedUnlock: close.trustedUnlock, streamFailure: null };
 }
 

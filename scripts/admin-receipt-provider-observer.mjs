@@ -107,6 +107,9 @@ export async function observeProvider(config) {
   const rootMetadata = await lstat(root);
   if (!rootMetadata.isDirectory() || rootMetadata.isSymbolicLink()) throw new Error("observer_root_invalid");
   const executable = await executableIdentity(config.command);
+  // Bind the detached observer itself before it can create its provider.  The
+  // consumer uses this exact PID/birth tuple when it later witnesses our exit.
+  const observerIdentity = await observedIdentity(process.pid, process.ppid);
   const startedAt = new Date().toISOString();
   // This is deliberately the first mutable custody record.  It is written
   // before the provider can be spawned, so a later timeout is never evidence
@@ -139,7 +142,7 @@ export async function observeProvider(config) {
   catch { /* A fast exit is still closed below, but never activated. */ }
   const initial = {
     schema: "service-lasso.admin-provider-observer-initial.v2", private: true,
-    nonce: config.nonce, source, observer: { pid: process.pid, parentPid: process.ppid, platform: process.platform, arch: process.arch, release: os.release() },
+    nonce: config.nonce, source, observer: { ...observerIdentity, platform: process.platform, arch: process.arch, release: os.release() },
     plan: "plan.json", state: "INITIAL", provider, inputs: config.inputs, startedAt,
   };
   await exclusiveJson(path.join(root, "initial.json"), initial);
