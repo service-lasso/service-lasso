@@ -1,6 +1,3 @@
-# Bootstrap Feedback
+# Legacy Bootstrap Feedback Pointer
 
-Latest timestamped run artifact: `.governance/project/bootstrap-runs/2026-04-05T14-56-09+10-00-feedback.md`
-
-## Summary
-This file is the stable pointer for bootstrap feedback. The latest scrubbed, issue-ready review for this repository is stored in the timestamped artifact above.
+This flat file is retained as historical migration context. The current reporting surface is [bootstrap/FEEDBACK.md](bootstrap/FEEDBACK.md); the current run evidence is grouped under `bootstrap/history/2026-10-02T07-53-15Z/`.

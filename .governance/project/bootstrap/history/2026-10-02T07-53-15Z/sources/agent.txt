@@ -1,0 +1,98 @@
+VibeGov agent bootstrap
+
+required folders:
+- .governance/rules/
+- .governance/project/
+- .governance/specs/
+
+scope rules:
+- rules are governance-only
+- specs are feature/change-only
+- detect any provider-native rules directory that already exists in the repo and mirror .governance/rules/*.mdc into it
+- if none exist, do not invent placeholder paths; use .governance/rules/*.mdc only
+
+bootstrap contract:
+- use https://vibegov.io/agent.txt and https://vibegov.io/bootstrap.json as the canonical bootstrap sources
+- use https://vibegov.io/roles/index.json and https://vibegov.io/roles/{role}/BOOTSTRAP.md for role-specific agent bootstrap
+- do not rely on redirected or stale bootstrap sources
+- bootstrap must use one canonical contract with explicit mode selection: init, update, or review
+- bootstrap is not complete for a GitHub-hosted repo when only the .governance scaffold exists
+
+mode behavior:
+- init: create missing bootstrap state using the canonical contract
+- update: repair or normalize existing bootstrap state using the same canonical contract
+- review: audit the repo against the same canonical contract, write findings and blockers, and do not claim missing work was completed
+
+role bootstrap:
+- when bootstrapping a role-specific agent, fresh-read the role catalog and the selected role entrypoint before writing files
+- replace {role} with the selected supported role slug in role bootstrap URLs
+- supported roles: developer, planner, researcher, explorer, designer, verifier, maintainer, operator, architect, security, documenter
+- each role must inspect the project first, select fresh-bootstrap/existing-repo-init/recovery-update, merge files safely, apply relevant overlays, validate the install, and return a bootstrap report
+
+hard gate before product code:
+- create or normalize:
+  - .governance/project/PROJECT_INTENT.md
+  - .governance/specs/SPEC-001-<feature>.md or a bootstrap/governance setup spec when product intent is still too vague
+  - backlog mapped to spec sections
+- install or report the Git workflow artifacts required before implementation:
+  - AGENTS.md (create this early)
+  - INIT-TODO.md (create/update this early during bootstrap/adoption/remediation work)
+  - pull request template
+  - branch-protection checklist
+- install or report continuity bootstrap guidance before implementation:
+  - documented continuity layers
+  - repo-local continuity paths or equivalent scaffolding
+  - checkpoint triggers for instructions, decisions, blockers, phase changes, and compaction risk
+  - session-diary guidance for recurring threads/contexts
+  - promotion guidance between continuity layers
+  - documented default issue-pickup flow
+- if the repo is GitHub-hosted, run GitHub preflight before project-board mutation:
+  - git available
+  - gh available
+  - GitHub auth available
+  - project read access
+  - project write access
+  - repo access
+  - branch-protection/admin capability when relevant
+- if any required capability is missing, record the exact remediation command or next action in INIT-TODO.md before proceeding
+- if GitHub automation is available, create, adopt, or normalize one canonical board target, prefer copying a configured canonical template for new boards, explain canonical-board selection when multiple matches exist, link the repo, normalize the canonical fields and default table view from bootstrap.json, and report the final live board state
+- if the available GitHub capability can create fields but cannot configure view visibility/order, record the exact manual remediation as blocked-with-tracked-issue instead of reporting the default view as configured
+- if GitHub automation is unavailable, report the exact missing capability and leave a tracked blocker or equivalent durable blocker note instead of silently treating bootstrap as complete
+- then stop
+
+empty-repo fallback:
+- if the repository does not contain a validated product brief, do not infer product scope from the repository name or placeholder README
+- in that case, SPEC-001 may be the bootstrap/governance setup spec itself and project intent must be marked provisional
+
+repo-state discipline:
+- before modifying files, classify the starting repo state: branch, clean/dirty tree, untracked files, and uncommitted changes
+- bootstrap must run with an explicit commit policy: required, allowed, or forbidden
+- if the repo is dirty, bootstrap must resolve the existing work first, stop and report blocked, or continue only in explicit review mode
+
+durable output artifacts:
+- every bootstrap run must leave durable local output artifacts even when commits are forbidden
+- keep the current reporting surface under:
+  - .governance/project/bootstrap/STATUS.md
+  - .governance/project/bootstrap/ANALYSIS.md
+  - .governance/project/bootstrap/FEEDBACK.md
+  - optional: .governance/project/bootstrap/BLOCKERS.md
+- keep per-run historical bundles under:
+  - .governance/project/bootstrap/history/<timestamp>/status.md
+  - .governance/project/bootstrap/history/<timestamp>/analysis.md
+  - .governance/project/bootstrap/history/<timestamp>/feedback.md
+  - optional: .governance/project/bootstrap/history/<timestamp>/blockers.md
+- current reporting should describe the current settled bootstrap picture
+- historical bundles should preserve the per-run evidence bundle
+- bootstrap feedback and analysis should be written to the historical run bundle before or alongside any public GitHub issue filing
+- when normalizing older repos, prefer the structured bootstrap/ + bootstrap/history/ layout over the older flat BOOTSTRAP_* plus bootstrap-runs/ layout
+
+delivery loop:
+- Observe -> Plan -> Implement -> Verify -> Document
+
+active rules:
+- GOV-01 through GOV-09 (including continuity bootstrap behavior in GOV-09)
+
+completion rule:
+- each completed task must include verification evidence and traceability update
+- bootstrap completion must reflect the final live git/GitHub state, not a stale intermediate state
+- reports must distinguish historical evidence from current final state when the run repaired or mutated GitHub state mid-flight
