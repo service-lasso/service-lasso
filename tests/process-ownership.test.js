@@ -2037,12 +2037,18 @@ test("Windows managed launcher revalidates its native asset after launch-state c
   const corruptBytes = Buffer.from(nativeBytes);
   corruptBytes[corruptBytes.length - 1] ^= 0xff;
 
+  let wrapperSpawnCount = 0;
+
   try {
     await writeExecutableFixtureService(servicesRoot, "launcher-revalidation-service");
     await writeFile(launcherPath, nativeBytes);
     setWindowsManagedLauncherPathForTests(await realpath(launcherPath));
     setManagedProcessLaunchStateCreatedHookForTests(async () => {
       await writeFile(launcherPath, corruptBytes);
+    });
+    setManagedProcessSpawnerForTests(() => {
+      wrapperSpawnCount += 1;
+      throw new Error("Rejected native launcher must never reach wrapper spawn.");
     });
     const [service] = await discoverServices(servicesRoot);
     await assert.rejects(
@@ -2057,9 +2063,11 @@ test("Windows managed launcher revalidates its native asset after launch-state c
         return true;
       },
     );
+    assert.equal(wrapperSpawnCount, 0);
     assert.equal(await findProcessOwnership(workspaceRoot, "service", service.manifest.id), null);
     assert.equal(hasManagedProcess(service.manifest.id), false);
   } finally {
+    setManagedProcessSpawnerForTests(null);
     setManagedProcessLaunchStateCreatedHookForTests(null);
     setWindowsManagedLauncherPathForTests(null);
     if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
