@@ -1,0 +1,261 @@
+const inputKeys = ["SERVICE_LASSO_WORKSPACE_ROOT", "SERVICE_LASSO_INSTANCE_REGISTRY_PATH", "SERVICE_LASSO_HOST_PORT_REGISTRY_PATH"];
+const rawInputs = Object.fromEntries(inputKeys.map((key) => [key, process.env[key] ?? null]));
+const suppliedInputs = inputKeys.filter((key) => rawInputs[key] !== null);
+
+if (suppliedInputs.length !== 0 && suppliedInputs.length !== inputKeys.length) {
+  throw new Error(`Provide all isolated-state inputs together; missing: ${inputKeys.filter((key) => rawInputs[key] === null).join(", ")}.`);
+}
+if (suppliedInputs.length === inputKeys.length) {
+  for (const key of inputKeys) {
+    const value = rawInputs[key];
+    if (value.length === 0 || value.includes("\0") || !/^(?:[A-Za-z]:[\\/]|\\\\|\/)/.test(value)) throw new Error(`${key} must be a non-empty absolute path.`);
+  }
+  if (new Set(inputKeys.map((key) => rawInputs[key])).size !== inputKeys.length) throw new Error("Isolated-state inputs must use three distinct literal paths.");
+}
+
+const [{ mkdir, mkdtemp, writeFile, rename, lstat, readFile, readdir }, os, path, { glob }, { spawn }, { createHash }, { promisify }, { execFile }, { openSync, closeSync }] = await Promise.all([
+  import("node:fs/promises"), import("node:os"), import("node:path"), import("node:fs/promises"), import("node:child_process"), import("node:crypto"), import("node:util"), import("node:child_process"), import("node:fs"),
+]);
+const execFileAsync = promisify(execFile);
+
+function assertDistinctResolvedPaths(inputs) {
+  const resolved = inputKeys.map((key) => path.resolve(inputs[key]));
+  if (new Set(resolved.map((value) => process.platform === "win32" ? value.toLowerCase() : value)).size !== resolved.length) throw new Error("Isolated-state inputs must resolve to three distinct paths.");
+}
+async function inspectPath(filePath) {
+  try {
+    const stat = await lstat(filePath);
+    return { state: "present", kind: stat.isDirectory() ? "directory" : stat.isFile() ? "file" : "other" };
+  } catch (error) {
+    if (error?.code === "ENOENT") return { state: "missing" };
+    throw error;
+  }
+}
+async function sha256File(filePath) { return createHash("sha256").update(await readFile(filePath)).digest("hex"); }
+async function nativeAssetHashes() {
+  const assetPaths = [
+    "runtime/process/windows-process-inspector.cs",
+    "runtime/process/windows-process-inspector.exe",
+    "runtime/process/windows-process-inspector.provenance.json",
+    "runtime/execution/windows-managed-launcher-native.exe",
+    "runtime/execution/windows-managed-launcher-native.provenance.json",
+  ];
+  const result = {};
+  for (const relativePath of assetPaths) {
+    const sourcePath = path.join(process.cwd(), "src", relativePath);
+    const buildPath = path.join(process.cwd(), "dist", relativePath);
+    result[relativePath] = {
+      sourceSha256: (await inspectPath(sourcePath)).state === "present" ? await sha256File(sourcePath) : null,
+      buildSha256: (await inspectPath(buildPath)).state === "present" ? await sha256File(buildPath) : null,
+    };
+  }
+  return result;
+}
+async function gitIdentity() {
+  const run = async (args) => (await execFileAsync("git", args, { encoding: "utf8" })).stdout.trim();
+  return { head: await run(["rev-parse", "HEAD"]), tree: await run(["rev-parse", "HEAD^{tree}"]) };
+}
+function assertClosedReceipt(receipt) {
+  if (receipt.schema !== "service-lasso.isolated-test-receipt.v1") throw new Error("Closed receipt has an unrecognised schema.");
+  if (typeof receipt.fileName !== "string" || path.basename(receipt.fileName) !== receipt.fileName || !receipt.fileName.endsWith(".json")) throw new Error("Closed receipt must bind its JSON filename.");
+  if (!/^[a-f0-9]{40}$/u.test(receipt.source?.head ?? "") || !/^[a-f0-9]{40}$/u.test(receipt.source?.tree ?? "")) throw new Error("Closed receipt must bind source HEAD and tree.");
+  if (!receipt.terminal || !["passed", "failed"].includes(receipt.terminal.outcome) || !receipt.terminal.trueCloseExit) throw new Error("Closed receipt must retain a terminal close outcome.");
+  if (!Array.isArray(receipt.processes) || receipt.processes.length === 0 || receipt.processes.some((entry) => !entry.close || !Number.isFinite(Date.parse(entry.close.closedAt)))) throw new Error("Closed receipt must retain every child close event.");
+  if (receipt.terminal.trueCloseExit !== receipt.processes.at(-1).close) throw new Error("Closed receipt terminal close must be the actual final child close.");
+  if (!Array.isArray(receipt.rawLogs?.files) || receipt.rawLogs.files.length !== receipt.processes.length * 2 || receipt.rawLogs.disposition !== "retained_private") throw new Error("Closed receipt must retain both raw logs for every child.");
+  for (const fileName of receipt.rawLogs.files) {
+    if (typeof fileName !== "string" || path.basename(fileName) !== fileName || !/\.(?:stdout|stderr)\.log$/u.test(fileName)) throw new Error("Closed receipt contains an invalid raw-log filename.");
+  }
+}
+function commandForNpm(args) { return process.platform === "win32" ? { command: "cmd.exe", args: ["/d", "/s", "/c", "npm", ...args] } : { command: "npm", args }; }
+function hashText(value) { return createHash("sha256").update(value, "utf8").digest("hex"); }
+function typedSpawnError(error) {
+  return {
+    kind: "spawn_error",
+    name: typeof error?.name === "string" ? error.name.slice(0, 80) : "Error",
+    code: typeof error?.code === "string" ? error.code.slice(0, 80) : null,
+  };
+}
+function emptyNativeCustody() {
+  return {
+    status: "not_observed",
+    reason: process.platform === "win32" ? "awaiting_spawn" : "platform_not_windows",
+  };
+}
+async function inspectNativeCustody(child, label, launchCwd) {
+  if (process.platform !== "win32") return { status: "not_observed", reason: "platform_not_windows" };
+  if (!Number.isInteger(child.pid) || child.pid <= 0) return { status: "not_observed", reason: "child_not_created" };
+  const inspectorPath = path.join(process.cwd(), "src", "runtime", "process", "windows-process-inspector.exe");
+  const deadlineAt = Date.now() + 3_000;
+  let reason = "native_inspector_failed";
+  do {
+    try {
+      const { stdout } = await execFileAsync(inspectorPath, [String(child.pid), "--include-descendants"], {
+        windowsHide: true,
+        timeout: Math.max(250, deadlineAt - Date.now()),
+        maxBuffer: 1024 * 1024,
+        encoding: "utf8",
+      });
+      const tree = JSON.parse(stdout);
+      if (tree?.Status !== "tree" || tree?.RootStatus !== "running" || !Array.isArray(tree.Processes)) {
+        reason = "native_identity_unavailable";
+      } else {
+        const root = tree.Processes.find((entry) => entry?.ProcessId === child.pid);
+        if (!root || !Number.isInteger(root.ParentProcessId) || typeof root.CreationDate !== "string" ||
+          typeof root.ExecutablePath !== "string" || typeof root.CommandLine !== "string") {
+          reason = "native_identity_incomplete";
+        } else {
+          const processes = tree.Processes.map((entry) => ({
+            pid: Number.isInteger(entry?.ProcessId) ? entry.ProcessId : null,
+            parentPid: Number.isInteger(entry?.ParentProcessId) ? entry.ParentProcessId : null,
+            createdAt: typeof entry?.CreationDate === "string" ? entry.CreationDate : null,
+            executableSha256: typeof entry?.ExecutablePath === "string" ? hashText(entry.ExecutablePath) : null,
+            commandSha256: typeof entry?.CommandLine === "string" ? hashText(entry.CommandLine) : null,
+          }));
+          if (processes.some((entry) => entry.pid === null || entry.parentPid === null || entry.createdAt === null || entry.executableSha256 === null || entry.commandSha256 === null)) {
+            reason = "native_identity_incomplete";
+          } else {
+            return {
+              status: "observed",
+              source: "windows-process-inspector",
+              label,
+              launchCwdSha256: hashText(launchCwd),
+              root: processes.find((entry) => entry.pid === child.pid),
+              processChain: processes,
+            };
+          }
+        }
+      }
+    } catch {
+      reason = "native_inspector_failed";
+    }
+    if (Date.now() < deadlineAt) await new Promise((resolve) => setTimeout(resolve, 100));
+  } while (Date.now() < deadlineAt);
+  return { status: "not_observed", reason };
+}
+function startProcess(label, command, args, env, rawDirectory) {
+  const startedAt = new Date().toISOString();
+  const rawId = `${label}-${Date.now()}-${process.pid}`;
+  const stdoutPath = path.join(rawDirectory, `${rawId}.stdout.log`);
+  const stderrPath = path.join(rawDirectory, `${rawId}.stderr.log`);
+  const stdoutFd = openSync(stdoutPath, "wx");
+  const stderrFd = openSync(stderrPath, "wx");
+  const injectSpawnFailure = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS === "1" &&
+    process.env.SERVICE_LASSO_ISOLATED_TEST_SPAWN_ERROR === label;
+  const child = spawn(injectSpawnFailure ? `${command}.service-lasso-test-missing` : command, args, { stdio: ["ignore", stdoutFd, stderrFd], env });
+  const ownership = {
+    childCreated: Number.isInteger(child.pid) && child.pid > 0,
+    pid: Number.isInteger(child.pid) && child.pid > 0 ? child.pid : null,
+    nodeObservedAt: startedAt,
+    nativeCustody: emptyNativeCustody(),
+  };
+  const record = { label, ownership, spawnError: null, close: null };
+  const nativeCustody = new Promise((resolve) => {
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+    child.once("spawn", () => void inspectNativeCustody(child, label, process.cwd()).then(finish));
+    child.once("error", () => finish({ status: "not_observed", reason: "spawn_error" }));
+    child.once("close", () => finish({ status: "not_observed", reason: "child_not_created" }));
+  });
+  const closed = new Promise((resolve) => {
+    // Spawn errors do not establish terminal process state.  Keep their typed
+    // classification, then wait for the actual ChildProcess close event.
+    child.once("error", (error) => { record.spawnError = typedSpawnError(error); });
+    child.once("close", (code, signal) => {
+      closeSync(stdoutFd);
+      closeSync(stderrFd);
+      resolve({ code, signal, closedAt: new Date().toISOString() });
+    });
+  });
+  return { record, rawLogFiles: [path.basename(stdoutPath), path.basename(stderrPath)], closed, nativeCustody };
+}
+
+const usesExternalInputs = suppliedInputs.length === inputKeys.length;
+const ownedRoot = usesExternalInputs ? null : await mkdtemp(path.join(os.tmpdir(), "service-lasso-test-host-state-"));
+const inputs = usesExternalInputs ? Object.fromEntries(inputKeys.map((key) => [key, rawInputs[key]])) : {
+  SERVICE_LASSO_WORKSPACE_ROOT: path.join(ownedRoot, "workspace"),
+  SERVICE_LASSO_INSTANCE_REGISTRY_PATH: path.join(ownedRoot, "instances.json"),
+  SERVICE_LASSO_HOST_PORT_REGISTRY_PATH: path.join(ownedRoot, "endpoint-allocations.json"),
+};
+assertDistinctResolvedPaths(inputs);
+
+const workspaceRoot = inputs.SERVICE_LASSO_WORKSPACE_ROOT;
+const instanceRegistryPath = inputs.SERVICE_LASSO_INSTANCE_REGISTRY_PATH;
+const hostPortRegistryPath = inputs.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH;
+const receiptDirectory = path.join(path.dirname(instanceRegistryPath), "isolated-test-receipts");
+const initialInputs = Object.fromEntries(await Promise.all(inputKeys.map(async (key) => [key, await inspectPath(inputs[key])])));
+const initialCapturedAt = new Date().toISOString();
+await mkdir(workspaceRoot, { recursive: true });
+await mkdir(path.dirname(instanceRegistryPath), { recursive: true });
+await mkdir(path.dirname(hostPortRegistryPath), { recursive: true });
+await mkdir(receiptDirectory, { recursive: true });
+const existingReceiptJson = (await readdir(receiptDirectory)).filter((fileName) => fileName.endsWith(".json"));
+if (existingReceiptJson.length !== 0) throw new Error("Isolated receipt directory already contains JSON receipt material.");
+
+const receiptPath = path.join(receiptDirectory, `run-${Date.now()}-${process.pid}.json`);
+const receipt = {
+  schema: "service-lasso.isolated-test-receipt.v1", fileName: path.basename(receiptPath), inputMode: usesExternalInputs ? "external" : "owned-default", rawInputs, actualInputs: inputs,
+  initial: initialInputs, initialCapturedAt,
+  source: await gitIdentity(), nativeHash: { executable: process.execPath, sha256: await sha256File(process.execPath) },
+  nativeAssets: await nativeAssetHashes(),
+  processes: [], rawLogs: { disposition: "retained_private", files: [] }, terminal: null,
+};
+async function persistReceipt({ closed = false } = {}) {
+  if (closed) assertClosedReceipt(receipt);
+  const temporaryPath = `${receiptPath}.${process.pid}.tmp`;
+  await writeFile(temporaryPath, `${JSON.stringify(receipt, null, 2)}\n`, { encoding: "utf8", flag: "wx" });
+  await rename(temporaryPath, receiptPath);
+}
+await persistReceipt();
+
+const childEnv = { ...process.env, ...inputs };
+const testFiles = [];
+const requestedFiles = process.env.SERVICE_LASSO_ISOLATED_TEST_FILES;
+if (requestedFiles) {
+  for (const filePath of requestedFiles.split(",")) {
+    if (!/^tests\/[A-Za-z0-9_./-]+\.test\.js$/.test(filePath) || filePath.includes("..")) throw new Error("SERVICE_LASSO_ISOLATED_TEST_FILES may contain only repository tests/*.test.js paths.");
+    testFiles.push(filePath);
+  }
+} else for await (const filePath of glob("tests/**/*.test.js")) testFiles.push(filePath);
+testFiles.sort();
+if (testFiles.length === 0) throw new Error("No test files were found.");
+
+try {
+  const buildCommand = commandForNpm(["run", "build"]);
+  const build = startProcess("build", buildCommand.command, buildCommand.args, childEnv, receiptDirectory);
+  receipt.processes.push(build.record);
+  receipt.rawLogs.files.push(...build.rawLogFiles);
+  await persistReceipt();
+  build.record.close = await build.closed;
+  await persistReceipt();
+  build.record.ownership.nativeCustody = await build.nativeCustody;
+  await persistReceipt();
+  if (build.record.close.code !== 0 || build.record.close.signal) throw new Error("Build did not close successfully.");
+  receipt.nativeAssets = await nativeAssetHashes();
+  await persistReceipt();
+  const test = startProcess("test", process.execPath, ["--test", "--test-concurrency=1", ...testFiles], childEnv, receiptDirectory);
+  receipt.processes.push(test.record);
+  receipt.rawLogs.files.push(...test.rawLogFiles);
+  await persistReceipt();
+  test.record.close = await test.closed;
+  await persistReceipt();
+  test.record.ownership.nativeCustody = await test.nativeCustody;
+  receipt.terminal = { outcome: test.record.close.code === 0 && !test.record.close.signal ? "passed" : "failed", trueCloseExit: test.record.close };
+  await persistReceipt({ closed: true });
+  if (receipt.terminal.outcome !== "passed") throw new Error("Test runner did not close successfully.");
+} catch (error) {
+  const lastClosedProcess = [...receipt.processes].reverse().find((entry) => entry.close !== null);
+  receipt.terminal = {
+    ...receipt.terminal,
+    outcome: "failed",
+    trueCloseExit: receipt.terminal?.trueCloseExit ?? lastClosedProcess?.close ?? null,
+    error: error instanceof Error ? error.message : String(error),
+  };
+  await persistReceipt({ closed: true });
+  throw error;
+}
+console.log(`Isolated test receipt retained at ${receiptPath}`);

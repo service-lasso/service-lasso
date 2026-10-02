@@ -181,6 +181,10 @@ export interface McpOperationServiceOptions {
   cancelDetached?: (operation: McpOperationPublicRecord) => Promise<"cancelled" | "unsupported" | "too_late">;
   /** Test-only synchronization point after a durable claim is audited and before guarded dispatch. */
   afterDurableClaim?: (operation: McpOperationPublicRecord) => Promise<void>;
+  /** Test-only synchronization point after cancellation wins the durable state lock. */
+  afterCancellationAccepted?: (operation: McpOperationPublicRecord) => Promise<void>;
+  /** Test-only synchronization point after a guarded action responds and before its terminal state is staged. */
+  beforeTerminalStage?: (operation: McpOperationPublicRecord, outcome: McpOperationOutcome) => Promise<void>;
 }
 
 export class McpOperationError extends Error {
@@ -211,6 +215,8 @@ export class McpOperationService {
   private readonly recoverDetached?: McpOperationServiceOptions["recoverDetached"];
   private readonly cancelDetached?: McpOperationServiceOptions["cancelDetached"];
   private readonly afterDurableClaim?: McpOperationServiceOptions["afterDurableClaim"];
+  private readonly afterCancellationAccepted?: McpOperationServiceOptions["afterCancellationAccepted"];
+  private readonly beforeTerminalStage?: McpOperationServiceOptions["beforeTerminalStage"];
 
   constructor(options: McpOperationServiceOptions) {
     this.workspaceRoot = path.resolve(options.workspaceRoot);
@@ -220,6 +226,8 @@ export class McpOperationService {
     this.recoverDetached = options.recoverDetached;
     this.cancelDetached = options.cancelDetached;
     this.afterDurableClaim = options.afterDurableClaim;
+    this.afterCancellationAccepted = options.afterCancellationAccepted;
+    this.beforeTerminalStage = options.beforeTerminalStage;
   }
 
   /**
@@ -565,6 +573,8 @@ export class McpOperationService {
       return cancellationPayload(record, identity.actor.actorId, "too_late", this.now());
     }
 
+    await this.afterCancellationAccepted?.(publicRecord(record, identity.actor.actorId));
+
     const active = activeOperations.get(operationKey(this.workspaceRoot, normalizedId));
     if (active) {
       active.controller.abort(new Error("MCP operation cancellation requested."));
@@ -670,6 +680,7 @@ export class McpOperationService {
           : response.ok
             ? "succeeded"
             : "failed";
+        await this.beforeTerminalStage?.(publicRecord(initial, initial.actorId), outcome);
         await this.stageTerminal(
           initial.operationId,
           outcome,
@@ -743,6 +754,10 @@ export class McpOperationService {
   ): Promise<void> {
     await this.updateRecord(operationId, (record) => {
       if (isTerminal(record.status) || record.pendingTerminal) return;
+      // Cancellation admission is not a terminal-effect claim. The shared
+      // guarded action remains authoritative: it may report a real successful
+      // completion after cancellation was requested, in which case that
+      // committed result must be retained rather than rewritten as cancelled.
       const completedAt = this.now().toISOString();
       record.phase = "finalizing";
       record.progress = 99;

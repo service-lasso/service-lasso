@@ -1553,8 +1553,10 @@ export async function runDemoSmoke(options = {}) {
     }
 
     for (const action of ["install", "config", "start"]) {
-      const result = await getJson(`${runtime.apiServer.url}/api/services/echo-service/${action}`, "POST");
-      assertCondition(result.status === 200, `Expected echo-service ${action} to return 200.`);
+      // Keep the API's bounded response classification with this smoke step.
+      // A failed mutation must identify its status and safe response body
+      // instead of collapsing the causal evidence to a generic assertion.
+      await postServiceAction(runtime.apiServer.url, "echo-service", action);
     }
 
     const echoHealth = await waitFor(async () => {
