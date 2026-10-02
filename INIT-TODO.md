@@ -194,3 +194,5 @@ SOURCE GO and a NEW complete-input ROOT admission. Existing PR owners retain
 - [ ] #1602 adopt both entire-review F1/F2 contracts together: empty source-owned protected authority until pins-only real publication admission, coherent retained-forgery denials, actual lightweight/annotated tag proof and malformed/absent/cycle/depth/wrong-source negatives. Source only, no qualification claim.
 
 - [ ] #1606: adopt typed private exact identity and finite observation-v2 before source; preserve public-v2/MCP and every native/owner guard. Source and regressions remain unexecuted until ENTIRE review and NEW ROOT.
+
+- [ ] #1608 adopt closed command-validation-observation.v1 spec first; preserve original validation/error/shortcircuit/private-v3/public-v2 and all incoming717 contracts. Author positive/every reason/privacy/unavailable/capture-failure tests without execution; obtain DIFFERENT ENTIRE review and NEW ROOT.
