@@ -196,4 +196,8 @@ Issue #1326 confirmed exit-during-query handling requires successful termination
 
 Issue #1326 parent-edge lifetime diagnostic follow-up binds AC-4BH: retain the 079eb33 startup rejection and classify only whether the rejected edge crosses before expected-root creation. No process details or membership/deadline relaxation; require bounded rejection and privacy tests plus exact-head qualification.
 
+Issue #1598 (child of #1594 / #1562) binds SPEC-006 AC-6G.qualification-observation: prepare owned deadline/pipe fixtures and separate native child, nested wrapper and outer driver status, preserving all deadlines, custody checks and historical failures. Source-only preparation requires fresh entire review and new ROOT admission before execution.
+
+ENTIRE d166 F1/F2 successor retains failed fixture observations before disposing its accepted TCP handles/listener and prepares bounded actual-process negative coverage. A distinct literal Node diagnostics stage must be admitted in fresh ROOT v2 and bound through preflight/status/readback; the npm product gate is unchanged. This is source preparation with no execution or self-issued GO.
+
 Issue #1594 binds SPEC-006 AC-6G's closed owned-temp cleanup observation: terminal own-data allowlisted filesystem code or unknown, fixed remove_owned_temp_root operation and actual bounded invocation count, preserving cleanup precedence, prior safe stage/code, existing retries/deadlines/permissions and complete CLI/TUI packaging. The original #1593 Windows failures have no observed underlying cause; diagnostic source delivery, independent review, ROOT-admitted execution, three-OS MCP and complete operator-tool acceptance are distinct gates.

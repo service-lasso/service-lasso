@@ -628,6 +628,10 @@ Issue #1326 parent-edge lifetime diagnostic follow-up binds AC-4BH: retain the 0
 | Status | Issue | Requirement / next action | Evidence boundary |
 | --- | --- | --- | --- |
 | In progress | [#1582](https://github.com/service-lasso/service-lasso/issues/1582) | Deliver `SPEC-009` Core-owned authenticated durable job transaction and the CLI PR #32 compiled client contract. | Fresh Core/CLI source branches, preserved failed native CI output, custody-gated direct compiled-client proof; no host activation, deployment, publication, or promotion. |
+
+| In progress | [#1598](https://github.com/service-lasso/service-lasso/issues/1598), parent #1594 / #1562 | SPEC-006 AC-6G.qualification-observation; owned fixture handshake and truthful three-boundary qualification status | Source-only; fresh entire independent review and exact complete-input admission pending. Historical e37 failed/unqualified retained. |
+| In progress | #1598 ENTIRE d166 F1/F2 successor | Same requirement; failed TCP-handle disposal after retained observations, actual bounded-process negatives and separately admitted literal diagnostics stage | NEW entire review/freeze/ROOT v2 required; no execution; npm product gate unchanged. |
+
 | `ISS-1590` | `in_progress` | Reconcile closed partial-copy diagnostics and paired lifecycle proof | `SPEC-002`, `AC-4BH`, `AC-4BH.3` | Source bundle only; retain d9919df34a266ae9c1a03017228f79e7bfddf204 Lifecycle run 36983607610/job 110763514073. Common fourteen keys and failure-specific pairs/quartets remain closed. Fresh independent whole review, external source custody/ROOT admission, terminal exact-head relevant CI and required native evidence remain outstanding; no successful baseline or historical attribution is claimed. |
 
 ## Closed packaged cleanup diagnostic child
