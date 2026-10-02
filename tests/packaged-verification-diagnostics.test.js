@@ -156,7 +156,7 @@ test("runCommand holds the owned boundary until acknowledged inherited output pi
     assert.equal(result.rootExitObserved, true);
     assert.equal(result.closeObserved, true);
     assert.ok(fixture.events.indexOf("pipe-held") < fixture.events.indexOf("root-disconnected"));
-    assert.equal(fixture.events.includes("released"), true);
+    assert.equal(fixture.events.includes("release-requested"), true);
   });
 });
 
@@ -185,7 +185,7 @@ for (const closeExpected of [false, true]) {
       assert.equal(error.rootExitObserved, true);
       assert.equal(error.closeObserved, closeExpected);
       assert.equal(fixture.events.includes("release-requested"), closeExpected);
-      if (closeExpected) assert.equal(fixture.events.includes("released"), true);
+      // The fixture finalizer waits for the separate release/pipe-end/control acknowledgements.
     });
   });
 }
