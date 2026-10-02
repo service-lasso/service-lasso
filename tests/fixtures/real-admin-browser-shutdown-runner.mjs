@@ -30,7 +30,6 @@ adminProcess.signalCode = null
 const adminSignals = []
 adminProcess.kill = (signal) => {
   adminSignals.push(signal)
-  if (signal === 'SIGTERM') return true
   return adminChild.kill(signal)
 }
 adminChild.once('error', (error) => adminProcess.emit('error', error))
@@ -131,8 +130,7 @@ function shutdown() {
         },
         tempRoot,
         timeouts: {
-          adminGracefulExitTimeoutMs: 100,
-          adminForcedExitTimeoutMs: 2_000,
+          adminGracefulExitTimeoutMs: 2_000,
           serverCloseTimeoutMs: 2_000,
           tempCleanupTimeoutMs: 5_000,
         },

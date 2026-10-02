@@ -29,6 +29,8 @@ const parentBirthRelations = new Set([
 ]);
 const childBirthRelations = new Set(["child_before_root"]);
 const depthBuckets = new Set(["one", "two_to_four", "five_plus"]);
+const commandQueryHeldHandleStates = new Set(["still_active_or_259", "exit_query_failed"]);
+const commandQueryArchitectureRelations = new Set(["same", "cross", "unknown"]);
 
 export type WindowsTreeInspectionMetadata = Record<string, string | number | boolean | null>;
 
@@ -50,6 +52,14 @@ export function projectWindowsTreeInspectionMetadata(value: unknown): WindowsTre
       windowsTreeInspectionQueueMs: boundedInteger(metadata.windowsTreeInspectionQueueMs, 600000),
       windowsTreeInspectionNativeMs: boundedInteger(metadata.windowsTreeInspectionNativeMs, 600000),
       windowsTreeInspectionLastRetry: typeof reason === "string" && retryReasons.has(reason) ? reason : null,
+      windowsTreeInspectionNativeHelperSpawned: metadata.windowsTreeInspectionNativeHelperSpawned === true,
+      windowsTreeInspectionNativeHelperExited: metadata.windowsTreeInspectionNativeHelperExited === true,
+      windowsTreeInspectionNativeHelperStdioClosed: metadata.windowsTreeInspectionNativeHelperStdioClosed === true,
+      windowsTreeInspectionNativeResultCompleted: metadata.windowsTreeInspectionNativeResultCompleted === true,
+      windowsTreeInspectionNativeSpawnWaitMs: boundedInteger(metadata.windowsTreeInspectionNativeSpawnWaitMs, 600000),
+      windowsTreeInspectionNativeWorkMs: boundedInteger(metadata.windowsTreeInspectionNativeWorkMs, 600000),
+      windowsTreeInspectionNativeStdioCloseMs: boundedInteger(metadata.windowsTreeInspectionNativeStdioCloseMs, 600000),
+      windowsTreeInspectionNativeResultCompletionMs: boundedInteger(metadata.windowsTreeInspectionNativeResultCompletionMs, 600000),
     };
     const parentBirthRelation = metadata.windowsTreeInspectionParentBirthRelation;
     const childBirthRelation = metadata.windowsTreeInspectionChildBirthRelation;
@@ -68,6 +78,16 @@ export function projectWindowsTreeInspectionMetadata(value: unknown): WindowsTre
       result.windowsTreeInspectionChildBirthRelation = childBirthRelation;
       result.windowsTreeInspectionRootFingerprintMatch = rootFingerprintMatch;
       result.windowsTreeInspectionAncestryDepthBucket = depthBucket;
+    }
+    const commandQueryHeldHandleState = metadata.windowsTreeInspectionCommandQueryHeldHandleState;
+    const commandQueryArchitectureRelation = metadata.windowsTreeInspectionCommandQueryArchitectureRelation;
+    if (
+      (reason === "root_command_partial_copy" || reason === "descendant_command_partial_copy") &&
+      typeof commandQueryHeldHandleState === "string" && commandQueryHeldHandleStates.has(commandQueryHeldHandleState) &&
+      typeof commandQueryArchitectureRelation === "string" && commandQueryArchitectureRelations.has(commandQueryArchitectureRelation)
+    ) {
+      result.windowsTreeInspectionCommandQueryHeldHandleState = commandQueryHeldHandleState;
+      result.windowsTreeInspectionCommandQueryArchitectureRelation = commandQueryArchitectureRelation;
     }
     return result;
   } catch {

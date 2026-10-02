@@ -250,6 +250,109 @@ test("host allocation lock prevents concurrent lanes from claiming the same endp
   });
 });
 
+test("a kernel-held automatic API candidate reserves its actual port without a probe-release gap", async () => {
+  await withAllocationEnvironment("service-lasso-allocation-kernel-held-", { start: 30000, end: 30001 }, async (fixture) => {
+    const candidate = net.createServer();
+    candidate.listen(30000, "127.0.0.1");
+    await once(candidate, "listening");
+    const address = candidate.address();
+    assert.ok(address && typeof address !== "string");
+    try {
+      const plan = await planAndReserveRuntimeEndpoints({
+        ...planOptions(fixture, [], { port: 0, policy: "automatic", kernelBoundPort: address.port }),
+        probePort: async () => {
+          throw new Error("kernel-held candidate must not be probe-released");
+        },
+      });
+      try {
+        const endpoint = runtimeApiEndpointFromAllocation(plan);
+        assert.equal(endpoint.port, address.port);
+        assert.equal(endpoint.policy, "automatic");
+        assert.equal(endpoint.resolution, "automatic");
+        assert.ok(endpoint.port >= 30000 && endpoint.port <= 30001);
+      } finally {
+        await releaseRuntimeEndpointAllocation(plan);
+      }
+    } finally {
+      await new Promise((resolve) => candidate.close(resolve));
+    }
+  });
+});
+
+test("a direct kernel-bound allocation cannot bypass its configured range", async () => {
+  await withAllocationEnvironment("service-lasso-allocation-kernel-range-", { start: 30000, end: 30001 }, async (fixture) => {
+    await assert.rejects(
+      planAndReserveRuntimeEndpoints({
+        ...planOptions(fixture, [], { port: 0, policy: "automatic", kernelBoundPort: 29999 }),
+        probePort: async () => {
+          throw new Error("out-of-range kernel candidate must not be probed");
+        },
+      }),
+      (error) => error instanceof RuntimeEndpointAllocationError
+        && error.code === "endpoint_allocation_conflict"
+        && error.port === 29999,
+    );
+  });
+});
+
+test("automatic runtime startup records the listening kernel port as its authoritative allocation", async () => {
+  await withAllocationEnvironment("service-lasso-allocation-kernel-startup-", { start: 30002, end: 30003 }, async (fixture) => {
+    const apiServer = await startApiServer({
+      port: 0,
+      servicesRoot: fixture.servicesRoot,
+      workspaceRoot: fixture.workspaceRoot,
+    });
+    try {
+      const address = apiServer.server.address();
+      assert.ok(address && typeof address !== "string");
+      const endpoint = runtimeApiEndpointFromAllocation(apiServer.endpointAllocationPlan);
+      assert.equal(apiServer.port, address.port);
+      assert.equal(endpoint.port, address.port);
+      assert.equal(endpoint.policy, "automatic");
+      assert.equal(endpoint.resolution, "automatic");
+      assert.ok(endpoint.port >= 30002 && endpoint.port <= 30003);
+      assert.equal((await fetch(`${apiServer.url}/api/health`)).status, 200);
+    } finally {
+      await apiServer.stop();
+    }
+  });
+});
+
+test("automatic range startup retries an occupied candidate and rolls back its held listener", async () => {
+  await withAllocationEnvironment("service-lasso-allocation-kernel-rollback-", { start: 30004, end: 30006 }, async (fixture) => {
+    const occupied = net.createServer();
+    occupied.listen(30004, "127.0.0.1");
+    await once(occupied, "listening");
+    const previousHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+    process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
+    try {
+      await assert.rejects(
+        startApiServer({
+          port: 0,
+          servicesRoot: fixture.servicesRoot,
+          workspaceRoot: fixture.workspaceRoot,
+          endpointAllocationTestHooks: {
+            beforeApiBind: async ({ endpoint }) => {
+              assert.equal(endpoint.port, 30005);
+              throw new Error("fixture rollback after held automatic candidate");
+            },
+          },
+        }),
+        /fixture rollback after held automatic candidate/,
+      );
+      assert.equal((await readRuntimeEndpointAllocationPlan(fixture.workspaceRoot)).phase, "released");
+      const released = net.createServer();
+      released.listen(30005, "127.0.0.1");
+      await once(released, "listening");
+      await new Promise((resolve) => released.close(resolve));
+    } finally {
+      await new Promise((resolve) => occupied.close(resolve));
+      if (previousHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+      else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = previousHooks;
+    }
+  });
+});
+
 test("runtime startup consumes one plan and materializes the renegotiated service port", async () => {
   await withAllocationEnvironment("service-lasso-allocation-startup-", { start: 18230, end: 18232 }, async (fixture) => {
     const { serviceRoot } = await writeExecutableFixtureService(fixture.servicesRoot, "echo-service", {

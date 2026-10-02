@@ -96,6 +96,10 @@ async function verifyWindowsDpapiHelperProvenance() {
   await runWindowsProvenanceVerifier("verify-windows-dpapi-helper.ps1", "dpapi-helper");
 }
 
+async function verifyWindowsDirectorySyncHelperProvenance() {
+  await runWindowsProvenanceVerifier("verify-windows-process-inspector.ps1", "directory-sync-helper", ["-DirectorySyncHelper"]);
+}
+
 function isolatedConsumerEnvironment(overrides) {
   const allowedNames = ["PATH", "Path", "PATHEXT", "SystemRoot", "WINDIR", "ComSpec", "TEMP", "TMP", "TMPDIR"];
   const environment = Object.fromEntries(
@@ -173,6 +177,7 @@ async function writeCanonicalService(servicesRoot) {
 await verifyWindowsProcessInspectorProvenance();
 await verifyWindowsManagedLauncherNativeProvenance();
 await verifyWindowsDpapiHelperProvenance();
+await verifyWindowsDirectorySyncHelperProvenance();
 await Promise.all([
   requirePathAbsent(
     path.join(repoRoot, "src", "runtime", "execution", "windows-managed-launcher.ps1"),
@@ -257,6 +262,14 @@ try {
     installedManagedLauncherNativeProvenance,
     reviewedManagedLauncherNative,
     reviewedManagedLauncherNativeProvenance,
+    installedManagedLauncher,
+    installedManagedLauncherProvenance,
+    reviewedManagedLauncher,
+    reviewedManagedLauncherProvenance,
+    installedDirectorySyncHelper,
+    installedDirectorySyncHelperProvenance,
+    reviewedDirectorySyncHelper,
+    reviewedDirectorySyncHelperProvenance,
   ] = await Promise.all([
     readFile(path.join(installedRoot, "dist", "runtime", "security", "windows-dpapi-helper.exe")),
     readFile(path.join(installedRoot, "dist", "runtime", "security", "windows-dpapi-helper.provenance.json")),
@@ -266,13 +279,25 @@ try {
     readFile(path.join(installedRoot, "dist", "runtime", "execution", "windows-managed-launcher-native.provenance.json")),
     readFile(path.join(repoRoot, "src", "runtime", "execution", "windows-managed-launcher-native.exe")),
     readFile(path.join(repoRoot, "src", "runtime", "execution", "windows-managed-launcher-native.provenance.json")),
+    readFile(path.join(installedRoot, "dist", "runtime", "execution", "windows-managed-launcher-managed.exe")),
+    readFile(path.join(installedRoot, "dist", "runtime", "execution", "windows-managed-launcher-managed.provenance.json")),
+    readFile(path.join(repoRoot, "src", "runtime", "execution", "windows-managed-launcher-managed.exe")),
+    readFile(path.join(repoRoot, "src", "runtime", "execution", "windows-managed-launcher-managed.provenance.json")),
+    readFile(path.join(installedRoot, "dist", "runtime", "operator", "windows-directory-sync-helper.exe")),
+    readFile(path.join(installedRoot, "dist", "runtime", "operator", "windows-directory-sync-helper.provenance.json")),
+    readFile(path.join(repoRoot, "src", "runtime", "operator", "windows-directory-sync-helper.exe")),
+    readFile(path.join(repoRoot, "src", "runtime", "operator", "windows-directory-sync-helper.provenance.json")),
   ]);
   try {
     if (
       !installedDpapiHelper.equals(reviewedDpapiHelper) ||
       !installedDpapiProvenance.equals(reviewedDpapiProvenance) ||
       !installedManagedLauncherNative.equals(reviewedManagedLauncherNative) ||
-      !installedManagedLauncherNativeProvenance.equals(reviewedManagedLauncherNativeProvenance)
+      !installedManagedLauncherNativeProvenance.equals(reviewedManagedLauncherNativeProvenance) ||
+      !installedManagedLauncher.equals(reviewedManagedLauncher) ||
+      !installedManagedLauncherProvenance.equals(reviewedManagedLauncherProvenance) ||
+      !installedDirectorySyncHelper.equals(reviewedDirectorySyncHelper) ||
+      !installedDirectorySyncHelperProvenance.equals(reviewedDirectorySyncHelperProvenance)
     ) {
       throw new Error("Fresh consumer installed unbound Windows native helper assets.");
     }
@@ -285,6 +310,14 @@ try {
     installedManagedLauncherNativeProvenance.fill(0);
     reviewedManagedLauncherNative.fill(0);
     reviewedManagedLauncherNativeProvenance.fill(0);
+    installedManagedLauncher.fill(0);
+    installedManagedLauncherProvenance.fill(0);
+    reviewedManagedLauncher.fill(0);
+    reviewedManagedLauncherProvenance.fill(0);
+    installedDirectorySyncHelper.fill(0);
+    installedDirectorySyncHelperProvenance.fill(0);
+    reviewedDirectorySyncHelper.fill(0);
+    reviewedDirectorySyncHelperProvenance.fill(0);
   }
   verificationStage = "consumer_setup";
   const consumerRunnerPath = path.join(consumerRoot, "mcp-packaged-consumer-runner.mjs");
@@ -327,6 +360,9 @@ try {
         MCP_PACKAGE_ACCEPTANCE_FORBIDDEN_SOURCE_ROOT: repoRoot,
       }),
     });
+    if (runnerResult.closeObserved !== true) {
+      throw new Error("Fresh-consumer MCP acceptance runner did not reach a closed subprocess boundary.");
+    }
   } catch (error) {
     const runner = parsePackagedAcceptanceFailure(error?.stderr);
     const safe = new Error("Fresh-consumer MCP acceptance failed safely.");

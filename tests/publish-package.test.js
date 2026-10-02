@@ -8,6 +8,7 @@ import {
   stagePublishedPackage,
   verifyPublishedPackage,
 } from "../scripts/publish-package-lib.mjs";
+import { createOperatorToolReleaseResponseFixture } from "./fixtures/operator-tool-release-response.mjs";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -16,11 +17,14 @@ const repoRoot = path.resolve(
 
 test("publishable core package can be staged and consumed by a temp project", async () => {
   const outputRoot = await createTemporaryOutputRoot("service-lasso-package-");
+  const operatorToolFixture = await createOperatorToolReleaseResponseFixture();
 
   try {
     const staged = await stagePublishedPackage({
       repoRoot,
       outputRoot,
+      releaseMetadataToken: "test-release-metadata-token",
+      testOnlyOperatorToolFixture: operatorToolFixture,
     });
 
     assert.match(staged.artifactName, /^service-lasso-package-[0-9A-Za-z.-]+$/);

@@ -11,7 +11,25 @@ on:
       - services/@secretsbroker/service.json
       - src/runtime/**
       - src/server/**
+      - scripts/consume-admin-trusted-unlock-receipt.mjs
+      - scripts/admin-receipt-provider-observer.mjs
+      - scripts/admin-receipt-provider-bootstrap.mjs
+      - scripts/record-packaged-admin-first-custody.mjs
+      - scripts/resolve-pnpm-action-entrypoint.mjs
+      - scripts/establish-admin-trusted-unlock-receipt-caller.mjs
+      - scripts/record-admin-trusted-unlock-prebrowser-failure.mjs
+      - scripts/retain-packaged-admin-lifecycle-receipt.mjs
+      - scripts/verify-packaged-admin-lifecycle-artifacts.mjs
+      - scripts/published-package-qualification-lib.mjs
       - tests/fixtures/real-admin-browser-runner.mjs
+      - tests/consume-admin-trusted-unlock-receipt.test.js
+      - tests/admin-receipt-provider-observer.test.js
+      - tests/resolve-pnpm-action-entrypoint.test.js
+      - tests/packaged-admin-lifecycle-receipt-custody.test.js
+      - tests/packaged-admin-lifecycle-first-custody-execution.test.js
+      - tests/prebrowser-failure-execution.test.js
+      - package.json
+      - package-lock.json
   push:
     branches:
       - develop
@@ -21,11 +39,36 @@ on:
       - services/@secretsbroker/service.json
       - src/runtime/**
       - src/server/**
+      - scripts/consume-admin-trusted-unlock-receipt.mjs
+      - scripts/admin-receipt-provider-observer.mjs
+      - scripts/admin-receipt-provider-bootstrap.mjs
+      - scripts/record-packaged-admin-first-custody.mjs
+      - scripts/resolve-pnpm-action-entrypoint.mjs
+      - scripts/establish-admin-trusted-unlock-receipt-caller.mjs
+      - scripts/record-admin-trusted-unlock-prebrowser-failure.mjs
+      - scripts/retain-packaged-admin-lifecycle-receipt.mjs
+      - scripts/verify-packaged-admin-lifecycle-artifacts.mjs
+      - scripts/published-package-qualification-lib.mjs
       - tests/fixtures/real-admin-browser-runner.mjs
+      - tests/consume-admin-trusted-unlock-receipt.test.js
+      - tests/admin-receipt-provider-observer.test.js
+      - tests/resolve-pnpm-action-entrypoint.test.js
+      - tests/packaged-admin-lifecycle-receipt-custody.test.js
+      - tests/packaged-admin-lifecycle-first-custody-execution.test.js
+      - tests/prebrowser-failure-execution.test.js
+      - package.json
+      - package-lock.json
 
 concurrency:
   group: packaged-admin-lifecycle-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
+
+env:
+  # PR runs receive a synthetic merge commit in github.sha. Qualification is
+  # bound to the reviewed source candidate, and keeps that dispatch identity
+  # separately in retained evidence.
+  QUALIFICATION_CANDIDATE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+  QUALIFICATION_EVENT_SHA: ${{ github.sha }}
 
 jobs:
   packaged-admin-lifecycle:
@@ -60,10 +103,13 @@ jobs:
             broker_binary: secretsbroker
             broker_sha256: 567b40bbd42881c5a4e12c2b8984ece9b5225d221ecf2d776fb541e330365ce5
     env:
+      # The first custody step runs under `set -u`; project the matrix value at
+      # job scope so it is present before any dependency or receipt work.
+      ADMIN_PLATFORM: ${{ matrix.admin_platform }}
       ADMIN_RELEASE_ID: "380051618"
       ADMIN_RELEASE_TAG: "2026.8.31-f015b44"
       ADMIN_REVISION: "f015b4445b0526546a309301270186a697588166"
-      ADMIN_HARNESS_REVISION: "7385136072a855ca144594842344a7241a733ab4"
+      ADMIN_HARNESS_REVISION: "90caf8cf0f8e3c599a1a5022936813ac8bf0983b"
       BROKER_RELEASE_ID: "379635299"
       BROKER_RELEASE_TAG: "2026.8.31-f340883"
       BROKER_REVISION: "f340883056ec3cf74b535fb46490b39382e8c823"
@@ -72,7 +118,7 @@ jobs:
       - name: Check out candidate Core
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ env.QUALIFICATION_CANDIDATE_SHA }}
 
       - name: Check out exact qualified Admin harness
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -81,16 +127,49 @@ jobs:
           ref: ${{ env.ADMIN_HARNESS_REVISION }}
           path: qualification/admin
 
+      - name: Establish unique qualification custody before dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          qualification_root="$RUNNER_TEMP/packaged-admin-lifecycle-$GITHUB_RUN_ID-$GITHUB_JOB-$GITHUB_RUN_ATTEMPT-$ADMIN_PLATFORM"
+          export SERVICE_LASSO_WORKSPACE_ROOT="$qualification_root/workspace"
+          export SERVICE_LASSO_INSTANCE_REGISTRY_PATH="$qualification_root/instance-registry.json"
+          export SERVICE_LASSO_HOST_PORT_REGISTRY_PATH="$qualification_root/host-port-registry.json"
+          export SERVICE_LASSO_TEST_SERVICES_ROOT="$qualification_root/runtime-services"
+          export SERVICE_LASSO_TEST_EVIDENCE_ROOT="$qualification_root/runtime-evidence"
+          export SERVICE_LASSO_TEST_SUPPORT_ROOT="$qualification_root/runtime-support"
+          export QUALIFICATION_WORKSPACE_ROOT="$SERVICE_LASSO_WORKSPACE_ROOT"
+          export QUALIFICATION_EVIDENCE_ROOT="$qualification_root/evidence"
+          export QUALIFICATION_INITIAL_RECEIPT_PATH="$QUALIFICATION_EVIDENCE_ROOT/initial-receipt.json"
+          printf '%s\n' \
+            "QUALIFICATION_WORKSPACE_ROOT=$QUALIFICATION_WORKSPACE_ROOT" \
+            "SERVICE_LASSO_WORKSPACE_ROOT=$SERVICE_LASSO_WORKSPACE_ROOT" \
+            "SERVICE_LASSO_INSTANCE_REGISTRY_PATH=$SERVICE_LASSO_INSTANCE_REGISTRY_PATH" \
+            "SERVICE_LASSO_HOST_PORT_REGISTRY_PATH=$SERVICE_LASSO_HOST_PORT_REGISTRY_PATH" \
+            "SERVICE_LASSO_TEST_SERVICES_ROOT=$SERVICE_LASSO_TEST_SERVICES_ROOT" \
+            "SERVICE_LASSO_TEST_EVIDENCE_ROOT=$SERVICE_LASSO_TEST_EVIDENCE_ROOT" \
+            "SERVICE_LASSO_TEST_SUPPORT_ROOT=$SERVICE_LASSO_TEST_SUPPORT_ROOT" \
+            "QUALIFICATION_EVIDENCE_ROOT=$QUALIFICATION_EVIDENCE_ROOT" \
+            "QUALIFICATION_INITIAL_RECEIPT_PATH=$QUALIFICATION_INITIAL_RECEIPT_PATH" \
+            >> "$GITHUB_ENV"
+          mkdir -p "$QUALIFICATION_WORKSPACE_ROOT" "$QUALIFICATION_EVIDENCE_ROOT" "$SERVICE_LASSO_TEST_SERVICES_ROOT" "$SERVICE_LASSO_TEST_EVIDENCE_ROOT" "$SERVICE_LASSO_TEST_SUPPORT_ROOT"
+          test ! -e "$SERVICE_LASSO_INSTANCE_REGISTRY_PATH"
+          test ! -e "$SERVICE_LASSO_HOST_PORT_REGISTRY_PATH"
+          node "$GITHUB_WORKSPACE/scripts/record-packaged-admin-first-custody.mjs"
+          test -s "$QUALIFICATION_INITIAL_RECEIPT_PATH"
+
       - name: Set up Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: npm
 
-      - name: Set up pnpm
+      - name: Set up isolated pinned pnpm action entrypoint
+        id: pnpm-action-pinned-entrypoint
         uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:
           version: 10.34.5
+          dest: ${{ runner.temp }}/pnpm-action-pinned-entrypoint
 
       - name: Install and build candidate Core
         run: |
@@ -105,6 +184,17 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm exec cypress install
 
+      - name: Establish exact trusted-unlock receipt caller
+        working-directory: qualification/admin
+        shell: bash
+        env:
+          PNPM_ACTION_BIN_DEST: ${{ steps.pnpm-action-pinned-entrypoint.outputs.bin_dest }}
+          ADMIN_PNPM_PREFIX: ${{ runner.temp }}/admin-trusted-unlock-pnpm-10.34.5
+          ADMIN_PLATFORM: ${{ matrix.admin_platform }}
+        run: |
+          set -euo pipefail
+          node "$GITHUB_WORKSPACE/scripts/establish-admin-trusted-unlock-receipt-caller.mjs"
+
       - name: Acquire checksum-bound published Admin and Broker
         shell: pwsh
         env:
@@ -116,7 +206,6 @@ jobs:
           EXPECTED_BROKER_BINARY: ${{ matrix.broker_binary }}
         run: |
           $ErrorActionPreference = 'Stop'
-
           function Invoke-CoreInstall([string]$serviceId, [string]$servicesRoot, [string]$workspaceRoot) {
             $output = @(& node dist/cli.js install $serviceId --services-root $servicesRoot --workspace-root $workspaceRoot --json)
             if ($LASTEXITCODE -ne 0) {
@@ -164,8 +253,8 @@ jobs:
             return $artifact
           }
 
-          $servicesRoot = Join-Path $env:RUNNER_TEMP 'packaged-admin-services'
-          $workspaceRoot = Join-Path $env:RUNNER_TEMP 'packaged-admin-workspace'
+          $servicesRoot = Join-Path $env:QUALIFICATION_WORKSPACE_ROOT 'services'
+          $workspaceRoot = Join-Path $env:QUALIFICATION_WORKSPACE_ROOT 'workspace'
           New-Item -ItemType Directory -Path $servicesRoot, $workspaceRoot | Out-Null
           Copy-Item -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'services/@serviceadmin') -Destination $servicesRoot -Recurse
           Copy-Item -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'services/@secretsbroker') -Destination $servicesRoot -Recurse
@@ -211,10 +300,15 @@ jobs:
         run: |
           set -euo pipefail
           core_revision="$(git rev-parse HEAD)"
+          core_tree="$(git rev-parse HEAD^{tree})"
+          test "$core_revision" = "$QUALIFICATION_CANDIDATE_SHA"
           admin_revision="$(git -C qualification/admin rev-parse HEAD)"
           test "$admin_revision" = "$ADMIN_HARNESS_REVISION"
           echo "core_revision=$core_revision" >> "$GITHUB_OUTPUT"
+          echo "core_tree=$core_tree" >> "$GITHUB_OUTPUT"
           echo "SERVICE_LASSO_TEST_CORE_REVISION=$core_revision" >> "$GITHUB_ENV"
+          echo "SERVICE_LASSO_TEST_SOURCE_HEAD=$core_revision" >> "$GITHUB_ENV"
+          echo "SERVICE_LASSO_TEST_SOURCE_TREE=$core_tree" >> "$GITHUB_ENV"
           echo "SERVICE_LASSO_TEST_BROKER_REVISION=$BROKER_REVISION" >> "$GITHUB_ENV"
 
       - name: Drive released Admin lifecycle browser contracts
@@ -224,10 +318,22 @@ jobs:
         env:
           SERVICE_LASSO_TEST_CORE_ROOT: ${{ github.workspace }}
           SERVICE_LASSO_REQUIRE_TEST_BROKER_BINARY: "1"
+          SERVICE_LASSO_WORKSPACE_ROOT: ${{ env.SERVICE_LASSO_WORKSPACE_ROOT }}
+          SERVICE_LASSO_INSTANCE_REGISTRY_PATH: ${{ env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH }}
+          SERVICE_LASSO_HOST_PORT_REGISTRY_PATH: ${{ env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH }}
+          SERVICE_LASSO_TEST_SERVICES_ROOT: ${{ env.SERVICE_LASSO_TEST_SERVICES_ROOT }}
+          SERVICE_LASSO_TEST_EVIDENCE_ROOT: ${{ env.SERVICE_LASSO_TEST_EVIDENCE_ROOT }}
+          SERVICE_LASSO_TEST_SUPPORT_ROOT: ${{ env.SERVICE_LASSO_TEST_SUPPORT_ROOT }}
+          SERVICE_LASSO_TEST_SOURCE_HEAD: ${{ env.SERVICE_LASSO_TEST_SOURCE_HEAD }}
+          SERVICE_LASSO_TEST_SOURCE_TREE: ${{ env.SERVICE_LASSO_TEST_SOURCE_TREE }}
+          # The browser producer is owned by a detached private observer.  A
+          # caller timeout writes UNRESOLVED and leaves eventual close custody
+          # to that observer rather than fabricating a terminal result.
+          SERVICE_LASSO_ADMIN_RECEIPT_OBSERVER_ROOT: ${{ runner.temp }}/admin-provider-observer-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.admin_platform }}
         run: |
           set -euo pipefail
           pnpm test:secrets:real-first-run-browser
-          pnpm test:secrets:real-browser
+          "$ADMIN_PNPM_NODE" "$GITHUB_WORKSPACE/scripts/consume-admin-trusted-unlock-receipt.mjs" --receipt "$RUNNER_TEMP/admin-trusted-unlock-receipt.json" -- "$ADMIN_PNPM_NODE" "$ADMIN_PNPM_ENTRYPOINT" test:secrets:real-browser
           pnpm test:secrets:real-stopped-lifecycle-browser
           if [ "$RUNNER_OS" = "Windows" ]; then
             pnpm test:secrets:real-lockout-browser
@@ -244,8 +350,20 @@ jobs:
           ADMIN_EXPECTED_SHA256: ${{ matrix.admin_sha256 }}
           BROKER_ASSET: ${{ matrix.broker_asset }}
           BROKER_EXPECTED_SHA256: ${{ matrix.broker_sha256 }}
+          QUALIFICATION_CANDIDATE_SHA: ${{ env.QUALIFICATION_CANDIDATE_SHA }}
+          QUALIFICATION_EVENT_SHA: ${{ env.QUALIFICATION_EVENT_SHA }}
+          ADMIN_TRUSTED_UNLOCK_PREBROWSER_FAILURE_PATH: ${{ env.ADMIN_TRUSTED_UNLOCK_PREBROWSER_FAILURE_PATH }}
         run: |
           $ErrorActionPreference = 'Stop'
+          if ($env:ADMIN_TRUSTED_UNLOCK_PREBROWSER_FAILURE_PATH -and (Test-Path -LiteralPath $env:ADMIN_TRUSTED_UNLOCK_PREBROWSER_FAILURE_PATH -PathType Leaf)) {
+            if (-not (Test-Path -LiteralPath $env:QUALIFICATION_INITIAL_RECEIPT_PATH -PathType Leaf)) {
+              throw 'Initial qualification receipt is required for pre-browser failure custody.'
+            }
+            New-Item -ItemType Directory -Path artifacts -Force | Out-Null
+            Copy-Item -LiteralPath $env:ADMIN_TRUSTED_UNLOCK_PREBROWSER_FAILURE_PATH -Destination "artifacts/admin-trusted-unlock-prebrowser-failure.json"
+            Copy-Item -LiteralPath $env:QUALIFICATION_INITIAL_RECEIPT_PATH -Destination "artifacts/initial-receipt.json"
+            exit 0
+          }
           $hex64 = '^[0-9a-f]{64}$'
           if ($env:CORE_REVISION -notmatch '^[0-9a-f]{40}$' -or $env:ADMIN_REVISION -notmatch '^[0-9a-f]{40}$' -or $env:ADMIN_HARNESS_REVISION -notmatch '^[0-9a-f]{40}$' -or $env:BROKER_REVISION -notmatch '^[0-9a-f]{40}$') {
             throw 'Packaged acceptance revision evidence is invalid.'
@@ -298,13 +416,19 @@ jobs:
           }
           New-Item -ItemType Directory -Path artifacts -Force | Out-Null
           $evidence | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath "artifacts/packaged-admin-lifecycle-$env:ADMIN_PLATFORM.json" -Encoding utf8
+          Copy-Item -LiteralPath $env:QUALIFICATION_INITIAL_RECEIPT_PATH -Destination "artifacts/initial-receipt.json"
+          node scripts/retain-packaged-admin-lifecycle-receipt.mjs --receipt "$env:RUNNER_TEMP/admin-trusted-unlock-receipt.json" --evidence "artifacts/packaged-admin-lifecycle-$env:ADMIN_PLATFORM.json" --retained "artifacts/admin-trusted-unlock-receipt.json"
 
       - name: Upload packaged Admin lifecycle evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: packaged-admin-lifecycle-${{ matrix.admin_platform }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: artifacts/packaged-admin-lifecycle-${{ matrix.admin_platform }}.json
+          path: |
+            artifacts/packaged-admin-lifecycle-${{ matrix.admin_platform }}.json
+            artifacts/admin-trusted-unlock-receipt.json
+            artifacts/admin-trusted-unlock-prebrowser-failure.json
+            artifacts/initial-receipt.json
           if-no-files-found: error
           retention-days: 90
 
@@ -316,6 +440,29 @@ jobs:
     permissions:
       contents: read
     steps:
+      - name: Check out exact aggregate verifier
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.QUALIFICATION_CANDIDATE_SHA }}
+
+      - name: Verify exact aggregate candidate checkout
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "$QUALIFICATION_CANDIDATE_SHA"
+
+      - name: Download exact current-attempt platform evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: packaged-admin-lifecycle-*-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/packaged-admin-lifecycle-artifacts
+
+      - name: Validate current-run receipt custody
+        shell: bash
+        env:
+          PACKAGED_ARTIFACTS_ROOT: ${{ runner.temp }}/packaged-admin-lifecycle-artifacts
+          QUALIFICATION_CANDIDATE_SHA: ${{ env.QUALIFICATION_CANDIDATE_SHA }}
+          QUALIFICATION_EVENT_SHA: ${{ env.QUALIFICATION_EVENT_SHA }}
+        run: node scripts/verify-packaged-admin-lifecycle-artifacts.mjs
+
       - name: Require all packaged Admin lifecycle platforms
         shell: bash
         run: |

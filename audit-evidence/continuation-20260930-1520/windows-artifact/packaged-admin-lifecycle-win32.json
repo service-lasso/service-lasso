@@ -1,0 +1,40 @@
+{
+  "schema": "service-lasso.packaged-admin-lifecycle.v1",
+  "retainedContent": "metadata_only",
+  "outcome": "failure",
+  "platform": "win32",
+  "core": {
+    "revision": "5115a14acf157e26e8d4e9d538735f90dda353a9"
+  },
+  "admin": {
+    "revision": "f015b4445b0526546a309301270186a697588166",
+    "releaseId": "380051618",
+    "tag": "2026.8.31-f015b44",
+    "asset": "@serviceadmin-win32.zip",
+    "sha256": "fe5e5fe01d1202f3874097e6223652d634c94677c765c5f82d20e6d274c0161c",
+    "checksumSource": "SHA256SUMS.txt"
+  },
+  "adminHarness": {
+    "repository": "service-lasso/lasso-serviceadmin",
+    "revision": "7385136072a855ca144594842344a7241a733ab4"
+  },
+  "broker": {
+    "revision": "f340883056ec3cf74b535fb46490b39382e8c823",
+    "releaseId": "379635299",
+    "tag": "2026.8.31-f340883",
+    "asset": "secretsbroker-win32.zip",
+    "sha256": "e64ee6a85c053c6dd68e2713477dae0620a458496bbd41077b55cc4c2df3f966",
+    "checksumSource": "SHA256SUMS.txt"
+  },
+  "browser": {
+    "modes": [
+      "first_run",
+      "comprehensive_lifecycle",
+      "stopped_lifecycle",
+      "local_operator_lockout"
+    ],
+    "mutationRetry": false,
+    "capturesRetained": false,
+    "sensitiveEvidenceRetained": false
+  }
+}

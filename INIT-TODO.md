@@ -12,6 +12,22 @@ This file tracks bootstrap/adoption/remediation work required before product imp
 - Resolution used for this update run: normalize those artifacts into the current bootstrap-update output rather than discard or ignore them.
 
 ## Open Items
+- `ISS-1463-implementation`: retain remote-develop implementation traceability, local direct proof, independent whole review, and separate owner-catalog/TAR T1-T5 blockers.
+
+  The corrective durable-attachment slice writes the exact claimed byte object,
+  metadata, manifest, and composite publication receipt privately, synchronises
+  file and supported directory boundaries before publication/outcome sealing,
+  and revalidates completed replay without a fetch or second import. Focused
+  local crash evidence does not close the owner-catalog, TAR T1--T5, exact-head
+  CI, independent-review, release, or GA gates.
+
+  Core #1566 additionally makes the co-resident registration operation / staged
+  journal authority use that same checked-in, provenance-attested Windows
+  directory-flush boundary after its atomic replacement. A helper, launch,
+  identity, flush, close, or provenance failure remains unavailable before
+  acknowledgement and retains recovery state; this is not a power-loss claim
+  or a waiver for retained EPERM / STOP_FAILED investigations.
+
 - #1463 defines a release-asset-only staged transfer prerequisite in
   `docs/api/staged-service-transfer.md`. It uses a new reviewed
    staged-registration adapter over #1462 / PR #1464 (`a83133cc`), rather than
@@ -57,5 +73,10 @@ This file tracks bootstrap/adoption/remediation work required before product imp
   open until independent review of the later bytes or an explicit operator
   close with that residual.
 - Product/bootstrap adoption work is complete; use `.governance/project/BACKLOG.md` and the active service repos for any newly discovered follow-up work instead of treating this file as a live implementation queue.
+# Active development remediation
+
+- [ ] `#1505` (`SPEC-002` `AC-4BZ.3`): add and independently review the exact-`develop`, nonpublishing Core development-candidate workflow required for CLI #6 packaged-Core acceptance. Keep `Release Artifact` and `Publish Package` unchanged; hosted execution remains a post-review gate.
 - Active governed remediation: `#1552` is bound to `SPEC-002 AC-4BH` and the current backlog. Its scoped pre-root branch exclusion must retain the existing `develop`-derived branch/PR workflow, exact-head qualification, and all ownership, deadline, containment, native-provenance, and unrelated-process safety controls.
+- Active governed remediation: `#1539` remains bound to `SPEC-002 AC-4BY.2`. Repair the owned Windows consumer launch only through the pinned Node/`pnpm.cjs` argv path and deterministic bounded fixture custody. Every pre-browser stage fixture must provision the real pinned `pnpm@11.25.0` bootstrap and its `10.34.5` self-update; the controlled action-binding failure must bind a real selected Windows `.cmd` or `.exe` PATH command to a different real reported action bin under a literal spaced action root, without Node shell interpolation or missing-environment substitution. A caller-establishment failure before Core acquisition or browser execution must retain only a closed run/attempt/platform/stage artifact paired with its exact closed initial receipt, while both aggregates preserve it, read exactly one positive-integer terminal failed job with the requested run and attempt through their existing authority, and retain the failed job as primary; stale, duplicate, invalid, missing, or unobserved provider identity fails closed. All three unique workspace, instance-registry, and host-port-registry paths must be created and emitted into the runner environment before dependencies; GitHub's job-level `env` cannot read `runner.temp`. No Core, receipt, exit, or correlation identity may be invented. Preserve PR #1540 failures `36799800406`/`110171350993` and `36799800318`/`110171350530`, plus zero-job workflow failures `36916405039`/`36916406332` at `2a4c7404533e4b661d3a3a38caec776536271051`; use an exact lockfile-declared package fixture rather than ambient `node_modules`, and retain all original receipt/aggregate rejection rules. Fresh terminal exact-head three-OS hosted qualification remains required.
 - #1465 is mapped in the active backlog and `SPEC-006`; its bounded HTTP lifecycle-operation adapter remains subject to exact-head CI and packaged client reconciliation before closure.
+- #1553 remains active under `SPEC-006 AC-6F`: durable reconciliation authority may be freshly created only when its bounded protocol records and exact named backup, migration, and writer-temp custody artifacts are absent. Residue is a fail-closed condition; no workspace-wide scan, sidecar adoption, cleanup, or replacement authority is permitted. Direct HTTP test fixtures must await their owned initialization settlement before deleting a workspace and retain state when startup is unknown or failed. Actual initialization rejection must propagate without an unhandled rejection or false ready state. MCP authorization Audit test hooks receive a closed redacted projection while the production appender retains the workspace context required to persist the event.

@@ -6,6 +6,8 @@ This protocol does **not** admit a locally authored template project. Such a pro
 
 ## Constants, transport, and grammars
 
+The parser's Windows-alias rule is a closed portability grammar rather than a query of the receiving host. After NFC and version-pinned Unicode Default Full Case Folding, it evaluates every component in a canonical parent together. For a long component, the alias stem removes all periods before the final period; the final extension remains the text after that final period. Its first generated alias uses the first six Unicode code points of that stem, `~1`, and the first three code points of the extension. A literal short-form sibling equal to that first alias is unsafe, and remaining generated aliases are allocated deterministically over the full sibling set. Therefore `pkg/foo.bar.long` and `pkg/foobar~1.lon` are unsafe in either archive order, while `pkg/foo.bar.long` with `pkg/foo.ba~1.lon`, or the former pair in distinct canonical parents, is valid. This retains portable Unicode components and does not assume ASCII-only input, reject literal tildes wholesale, or claim that a particular host has generated an on-disk alias.
+
 JSON bodies reject unknown fields. A public error is exactly `{ "code": "<stable-code>", "message": "<safe text>" }`. Errors, status, operations, Audit, logs, and CLI diagnostics omit paths, URLs, headers, raw bytes/manifests, parser detail, credentials, tokens, and secrets. Tokens are accepted only in their dedicated request headers. The sole body exception is an issuance response: it carries the just-issued opaque credential once and is never returned by GET, replay, error, Audit, operation, or any later response.
 
 | Limit | Value |
@@ -126,14 +128,22 @@ It must be 1–4,096 UTF-8 bytes, already Unicode NFC (a normalization change is
 denied), and have at most 16 `/`-separated components. Each component is
 non-empty and not `.` or `..`; the whole name has no NUL, leading slash,
 backslash, colon, drive or UNC form. The admission key is NFC followed by
-Unicode default case folding; a duplicate key is denied, so paths that differ
+version-pinned Unicode Default Full Case Folding from the official UCD (`C`
+and `F` mappings only; never locale or Turkic mappings); a duplicate key is denied, so paths that differ
 only by case or canonical Unicode spelling cannot collide on Windows or a
 case-insensitive macOS volume. Components ending in a dot or space, DOS device
 names (`CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`) even with an
 extension, and an explicit DOS 8.3 alias of another component after Win32
 trim/case rules are denied. The collision check is over the complete logical
 entry set, is performed before any extraction, and must use the documented
-Win32 alias grammar rather than the host filesystem's current 8.3 setting.
+Win32 alias grammar rather than the host filesystem's current 8.3 setting. The
+logical key excludes a directory's terminal presentation `/`: a file and
+directory with the same key and a file that is an ancestor of any entry are
+ambiguous and denied in either archive order; a directory and its distinct
+descendant are valid. DOS aliases are scoped to their canonical parent, so
+equal component aliases under different parents remain legal. Each component
+also rejects U+0001–U+001F and `<`, `>`, `"`, `|`, `?`, and `*` before alias
+derivation.
 Directories end in `/` and have zero payload; regular files do not end in `/`.
 Mode is parsed only to reject setuid, setgid, sticky, and file-type bits other
 than regular/directory; ownership, timestamps, and permissions are never
@@ -184,11 +194,13 @@ revision, archive SHA-256, and server-resolved release/asset IDs; (T3) real
   lifecycle effect; and
 (T5) packaged Core and the released external CLI/TUI journey transfer the
 checksum-bound Windows ZIP, Linux TAR, and macOS TAR assets on Windows, Linux,
-and macOS. Current evidence supplies none of the required fresh producer
-receipts, parser tests, or three-OS journey. This specification therefore does
-not claim TAR qualification or admission.
+and macOS. Parser-unit tests and fixture-parser receipts are narrower evidence:
+they do not provide independent review, released-asset producer receipts, or
+the checksum-bound three-OS journey. This specification therefore does not
+claim TAR qualification or admission until every T1--T5 gate is complete for
+one exact enabling commit.
 
-**ZIP.** Require first local header, one terminal EOCD, and a central directory fully inside the archive. Reject prefix/SFX bytes, multi-disk, trailing bytes, ZIP64 locator/EOCD/extra fields, encrypted or strong-encrypted flags (0/6), patched-data flag 5, central-directory encryption flag 13, and every general-purpose flag except bit 3 and UTF-8 bit 11. Permit only stored (0) and deflate (8), rejecting AES/other methods. Every central record has one local record at its declared offset; filename bytes, method, allowed flags, CRC-32, compressed size, and uncompressed size agree. Bit 3 allows zero local CRC/sizes only where its immediate signed descriptor supplies the same 32-bit values; no ZIP64 descriptor. Reject overlap between local records/descriptors, central directory, EOCD, or declared member ranges; reject nonzero extra fields. Filename is strict UTF-8 with bit 11, or ASCII-only without bit 11; CP437, Unicode-path extras, and non-ASCII unflagged names fail. Count all members; add regular-file uncompressed size; stream regular files under an output cap and verify CRC-32. Directories end `/` and have zero payload; regular files do not end `/`. Reject symlink/device mode bits and unrecognized external attributes.
+**ZIP.** Require first local header, one terminal EOCD, and a central directory fully inside the archive. Reject prefix/SFX bytes, multi-disk, trailing bytes, ZIP64 locator/EOCD/extra fields, encrypted or strong-encrypted flags (0/6), patched-data flag 5, central-directory encryption flag 13, and every general-purpose flag except bit 3 and UTF-8 bit 11. Permit only stored (0) and deflate (8), rejecting AES/other methods. Every central record has one local record at its declared offset; filename bytes, method, allowed flags, CRC-32, compressed size, and uncompressed size agree. Bit 3 allows zero local CRC/sizes only where its immediate signed descriptor supplies the same 32-bit values; no ZIP64 descriptor. The sorted declared local records, including immediate descriptors, must form one contiguous inventory from byte offset zero to the central-directory offset: every prefix, inter-record gap, suffix, or unreferenced local member fails closed. Reject overlap between local records/descriptors, central directory, EOCD, or declared member ranges; reject nonzero extra fields. Filename is strict UTF-8 with bit 11, or ASCII-only without bit 11; CP437, Unicode-path extras, and non-ASCII unflagged names fail. Count all members; add regular-file uncompressed size; stream regular files under an output cap and verify CRC-32. Directories end `/` and have zero payload; regular files do not end `/`. Reject symlink/device mode bits and unrecognized external attributes.
 
 For the admitted ZIP profile split only `/` and apply the same strict UTF-8,
 NFC, Unicode-default-case-folded, Windows-trim/device/DOS-8.3-alias collision
@@ -204,13 +216,13 @@ Confirmation rechecks actor, permission, ready/nonexpired stage, stage digest, t
 
 Registration first performs durable lookup by actor, trusted workspace ID, idempotency key, and full fingerprint: stage ID, Core-held immutable staged byte-object identity, full staged archive digest and byte size, server-derived manifest source identity/digest, target ID, repo/tag/full commit SHA, release ID, manifest/selected-asset/checksum-asset IDs, canonical checksum source and digest, selected platform/asset/archive type, and manifest schema. Exact replay returns the original operation without reading or consuming confirmation; altered reuse is `409 idempotency_conflict`.
 
-The old #1464 request is `{repo,tag,expectedCommit,expectedManifestSha256,idempotencyKey,confirm:true}`. It has no stage, immutable staged byte object, archive digest, platform asset, or stage-claim state. It cannot be asserted to implement this protocol. Core needs a reviewed **staged-registration adapter** over the source-safe resolver and direct-child importer. Its operation extends the safe #1464 operation with `source:"staged_release_asset"`, trusted workspace ID, stage ID, immutable staged byte-object identity, full staged digest/size, platform, asset name, archive type, and canonical manifest-source identity. It reuses the one durable operation store; it does not create an incompatible journal.
+The old #1464 request is `{repo,tag,expectedCommit,expectedManifestSha256,idempotencyKey,confirm:true}`. It has no stage, immutable staged byte object, archive digest, platform asset, or stage-claim state. It cannot be asserted to implement this protocol. Core needs a reviewed **staged-registration adapter** over the source-safe resolver and direct-child importer. Its operation extends the safe #1464 operation with `source:"staged_release_asset"`, trusted workspace ID, stage ID, immutable staged byte-object identity, full staged digest/size, platform, asset name, archive type, and canonical manifest-source identity. The v1 operation document is the single cross-process authority: it contains compatible `operations` plus a versioned `stagedTransfer` section. A legacy v3 stage sidecar may migrate only when unambiguous; any divergent co-resident sidecar fails closed as `503 registration_unavailable`.
 
 For a new request under the cross-process lock: (1) reconcile unfinished staged-registration journal; (2) re-resolve and compare retained binding; (3) validate confirmation; (4) durably write `{version:1,operationId,stageId,workspaceId,byteObjectId,byteLength,fullDigest,fingerprint,phase:"prepared"}`; (5) atomically consume confirmation and claim stage with operation ID; (6) create/update the single durable operation as `unknown`; (7) invoke direct-child import once with a Core-held, read-once claimed-byte handle that identifies exactly that retained byte object, length, and full digest; (8) durably record completed/conflict/unknown and Audit outcome; (9) transition stage to `consumed`, delete bytes only by normal retention, and seal journal. The importer must consume that exact Core-held byte object in the same operation: it cannot make a second release download, substitute bytes, select an arbitrary archive source, or use an archive cache as its input. Audit write failure retains a pending safe outcome and never repeats import.
 
 Registration validates and attaches the claimed immutable stage input through the direct-child import boundary only. It does not install, acquire, extract, start, restart, reload, or otherwise materialise a service. A later service install/acquire path remains a separate existing lifecycle-free materialisation decision: it resolves the retained release binding and its declared checksum policy for its own acquisition, and cannot retroactively replace, reinterpret, or treat the consumed stage bytes as an arbitrary source. This contract adds no lifecycle authority.
 
-Recovery under the same lock reads that journal first. A prepared/unclaimed journal may revalidate. A claimed/unknown operation reconciles its direct-child target only against the retained trusted workspace, byte-object identity, full digest, byte length, and release binding before recording completion or retaining `unknown`; it never reacquires bytes. A terminal operation seals the stage and emits pending safe Audit. Contradictory stage, workspace, confirmation, byte-object, operation, or journal IDs fail closed as `503 registration_unavailable`. Cleanup claims only eligible expired/terminal stages, deletes Core-owned bytes after retention, preserves metadata, never races a claim, and never repeats uncertain mutation.
+Recovery under the same lock reads that journal first. A prepared/unclaimed journal may revalidate. The direct child constructs `service.json`, the exact claimed byte attachment, metadata, and a composite-bound publication receipt in a private exclusive sibling, fsyncs every file and both private directories, then atomically renames that complete child and synchronises the live parent before it can return completion. On POSIX this uses the native directory `fsync` exposed by Node; on Windows the packaged native helper opens a directory with `FILE_FLAG_BACKUP_SEMANTICS` and calls `FlushFileBuffers`. An open, file sync, rename, or either directory synchronisation error (including `EPERM`, `EACCES`, `EINVAL`, `ENOTSUP`, and `ENOSYS`) is an unverifiable boundary and returns `unknown`; error codes and platform names never imply durability. A claimed/unknown operation reconciles its direct-child target only against the retained trusted workspace, byte-object identity, full digest, byte length, actor/idempotency/release/platform/catalog binding, metadata, and publication receipt before recording completion or retaining `unknown`; it never reacquires bytes. A completed replay performs that same full reconciliation and is downgraded to `unknown` if any component is absent, truncated, replaced, or unverifiable. A terminal operation seals the stage and emits pending safe Audit. Contradictory stage, workspace, confirmation, byte-object, operation, or journal IDs fail closed as `503 registration_unavailable`. Cleanup claims only eligible expired/terminal stages, deletes Core-owned bytes after retention, preserves metadata, never races a claim, and never repeats uncertain mutation.
 
 Stable outcomes: `400 invalid_request`; `401 actor_credential_missing`, `actor_credential_invalid`, `upload_token_invalid`, or `confirmation_invalid`; `403 forbidden` or `unapproved_release`; `404 stage_not_found`; `409 release_binding_mismatch`, `chunk_sequence_conflict`, `stage_expired`, `stage_terminal`, `digest_mismatch`, `archive_unsafe`, `manifest_invalid`, `confirmation_required`, `confirmation_expired`, or `idempotency_conflict`; `429 stage_quota_exceeded`; and `503 release_provenance_unavailable` or `registration_unavailable`.
 
@@ -231,12 +243,14 @@ platform-asset selection and server-derived byte-size/digest equality before
 parser admission; quota-ceiling rejection plus durable actor/workspace counters,
 terminal retention, and crash-recovery reconciliation evidence; actor/header
 precedence and actor-scoped no-leak not-found evidence; every admitted ZIP-parser denial,
-including Unicode/case/Windows alias collisions, without extraction;
+including Unicode/case/Windows alias collisions, bounded chunked inflate with incremental CRC/framing validation and no retained decompressed member/TAR payload, without extraction;
 grammar/range/retry conflicts, including PAX size less-than and greater-than
 header-size denials in parser and importer preflight; retention/GET-after-cleanup;
 confirmation-before-new-only replay order; adapter atomic order, one exact
-Core-held claimed-byte input/no-redownload-or-substitution proof, cross-process
-and hard-exit recovery; secret-free Audit; and packaged Core plus external CLI
+Core-held claimed-byte input/no-redownload-or-substitution proof, private
+attachment fsync/rename/directory-sync ordering, completed-replay composite
+revalidation, and separate-process hard-exit recovery at attachment publication;
+secret-free idempotent Audit; and packaged Core plus external CLI
 released-asset transfer. Enabling TAR additionally requires **all** T1–T5
 before this v1 gate is satisfied: the independent reviews, current GNU/Linux
 and BSD/macOS producer receipts and real fixtures, byte-level accepted and

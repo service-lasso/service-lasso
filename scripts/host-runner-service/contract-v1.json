@@ -1,0 +1,20 @@
+{
+  "protocol": "service-lasso.host-runner.v2",
+  "producer": "service-lasso-core",
+  "consumer": "service-lasso-cli",
+  "transport": "darwin-root-xpc-mach-service",
+  "service_label": "com.service-lasso.host-runner",
+  "artifact": {
+    "binary": "service-lasso-host-runner",
+    "client_binary": "service-lasso-host-runner-client",
+    "checksum": "service-lasso-host-runner.sha256",
+    "provenance": "service-lasso-host-runner.provenance.json",
+    "build": "darwin/build.sh"
+  },
+  "requests": {
+    "issue_grant": { "operation": "issue-grant", "expires_at_unix": "integer; daemon accepts now+1 through now+60", "client_identity": "daemon-validated signed client audit identity", "reply": "daemon-issued write capability FD and opaque one-use nonce" },
+    "complete": { "capability_fd": "daemon-issued write-only FD carrying the issued nonce", "expected_objects": "daemon-held root-owned expected-parent and expected-leaf objects loaded before client connection", "parent_leaf_binding": "fixed binary envelope, not a digest substring" }
+  },
+  "receipt": { "accepted": "boolean", "private_fields": ["primary audit identity", "PID", "birth", "parent", "code identity", "grant expiry and revocation class"] },
+  "non_claims": ["No CLI-selected executable, PID, code digest, pathname, state directory, expected object, static bearer token, host installation, or CLI acceptance is authorised by this contract."]
+}

@@ -45,15 +45,15 @@ function browserAssetUrl(release, name) {
 // release API and every retained byte before they can enter a Core artifact.
 export const CURRENT_TUI_RELEASE = {
   repository: "service-lasso/service-lasso-tui",
-  tag: "candidate-2026.9.30-97fafb0",
-  targetCommit: "97fafb04c69fce8efdd245eb186e6dfb9915485d",
-  checksumManifest: { name: "SHA256SUMS.txt", sha256: "638ad5e54e06dcb894a4579872e788ddc4521cd3ffca46fb06574c8b78de1cf5" },
-  candidateManifest: { name: "candidate-manifest.json", sha256: "efaa8ed7d433ef6aee4f800efc9b0880a4ae7fa989012bd90191d6afc2cfea04" },
+  tag: "candidate-2026.9.30-0fa84ce",
+  targetCommit: "0fa84ce38630e7f5b0066d2aaa103c55b0485c06",
+  checksumManifest: { name: "SHA256SUMS.txt", sha256: "9b755ee6eb1929ccc5aeeb8ef0cffa3fac00c55d4c8c264baec28ffe5de58a04" },
+  candidateManifest: { name: "candidate-manifest.json", sha256: "912cc766c470acd6198cb937dd8362b46608888963170d6f6123bc8152ade63b" },
   assets: [
-    { platform: "win32-amd64", name: "service-lasso-tui-2026.9.30-97fafb0-win32-amd64.zip", sha256: "b8838f245d4b1d39cac0b51ed2ad14ffd0237779f1a5e9d3e61358066370e479" },
-    { platform: "linux-amd64", name: "service-lasso-tui-2026.9.30-97fafb0-linux-amd64.tar.gz", sha256: "238a8e3f92ae5f9cf28c5cd29af91b698addb9bfa546a7b31c7f7a71b7c33e70" },
-    { platform: "darwin-amd64", name: "service-lasso-tui-2026.9.30-97fafb0-darwin-amd64.tar.gz", sha256: "5d6df8cfa18771e159b7af34c1c5c00d70ae5eef1ddf727896ae2afb30b63638" },
-    { platform: "darwin-arm64", name: "service-lasso-tui-2026.9.30-97fafb0-darwin-arm64.tar.gz", sha256: "a9523555416a1b332107a9a92cfecc2aa3b7cdd23caab1063540496e4e20b33c" },
+    { platform: "win32-amd64", name: "service-lasso-tui-2026.9.30-0fa84ce-win32-amd64.zip", sha256: "ca8028e98658e7b3caddcf2bebaa4008cbe99cf43973b03d5f8086950c680f55" },
+    { platform: "linux-amd64", name: "service-lasso-tui-2026.9.30-0fa84ce-linux-amd64.tar.gz", sha256: "ac915703ca0cd541073cf606bffd0f90947119032d4a6feae368bf603ff8bad7" },
+    { platform: "darwin-amd64", name: "service-lasso-tui-2026.9.30-0fa84ce-darwin-amd64.tar.gz", sha256: "281dcc8e854ecf96ae1e0b0cdc54a7f6882722627e8b68338bb182cb4445bc78" },
+    { platform: "darwin-arm64", name: "service-lasso-tui-2026.9.30-0fa84ce-darwin-arm64.tar.gz", sha256: "7bbda2d3b29961d6cc9726d290b21219fa4dde392db0b01b75e71939811c7af1" },
   ],
 };
 
@@ -155,7 +155,7 @@ async function assertGitHubRelease(fetchImpl, release, expectedAssets, releaseMe
   });
   if (!response.ok) throw releaseMetadataFailure(response.status);
   const metadata = await response.json();
-  if (metadata.tag_name !== release.tag || metadata.target_commitish !== release.targetCommit || metadata.prerelease !== true || metadata.draft !== false) throw new Error("operator tool release metadata does not match the pinned candidate identity");
+  if (metadata.tag_name !== release.tag || metadata.target_commitish !== release.targetCommit || metadata.prerelease !== true || metadata.draft !== false || metadata.immutable !== false) throw new Error("operator tool release metadata does not match the pinned mutable candidate identity");
   if (!Array.isArray(metadata.assets) || metadata.assets.length !== expectedAssets.length) throw new Error("operator tool release metadata asset inventory does not match the pinned manifest");
   const actual = new Map();
   for (const asset of metadata.assets) {
@@ -169,7 +169,7 @@ async function assertGitHubRelease(fetchImpl, release, expectedAssets, releaseMe
 export async function stageOperatorTools({ artifactRoot, fetchImpl = fetch, release = CURRENT_TUI_RELEASE, cliRelease = CURRENT_CLI_RELEASE, releaseMetadataToken } = {}) {
 	await mkdir(path.join(artifactRoot, "operator-tools"), { recursive: true });
   const assets = [];
-  let tuiTool = { command: "service-lasso-tui", status: "unavailable", reason: "No current reviewed immutable TUI release is pinned." };
+  let tuiTool = { command: "service-lasso-tui", status: "unavailable", reason: "No current reviewed checksum-bound TUI release is pinned." };
   if (release) {
     assertExactToolRelease(release);
     const releaseAssets = await assertGitHubRelease(fetchImpl, release, [...release.assets, release.checksumManifest, release.candidateManifest], releaseMetadataToken);

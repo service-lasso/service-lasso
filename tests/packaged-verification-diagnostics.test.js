@@ -63,6 +63,38 @@ test("dependency acquisition ignores hostile getters and cannot project their pr
   assert.equal(dependencyAcquisitionSubcode(hostile, "exit_nonzero"), "subprocess_exit_nonzero");
 });
 
+test("dependency acquisition records only supported own-data signal observations", () => {
+  const secret = "private-token";
+  for (const [signal, subcode] of [
+    ["SIGTERM", "subprocess_observed_signal_sigterm"],
+    ["SIGKILL", "subprocess_observed_signal_sigkill"],
+  ]) {
+    const observed = dependencyAcquisitionReceipt({ signal, stderr: secret }, "unknown");
+    assert.deepEqual(observed, { outcome: "unknown", subcode });
+    const diagnostic = packagedVerificationDiagnostic("dependency_acquisition", undefined, observed);
+    assert.deepEqual(
+      diagnostic,
+      { stage: "dependency_acquisition", errorCode: "verification_failed", outcome: "unknown", subcode },
+    );
+    assert.equal(JSON.stringify(diagnostic).includes(secret), false);
+  }
+  assert.deepEqual(dependencyAcquisitionReceipt({ signal: "SIGHUP" }, "unknown"), { outcome: "unknown" });
+
+  const inherited = Object.create({ signal: "SIGKILL" });
+  assert.deepEqual(dependencyAcquisitionReceipt(inherited, "unknown"), { outcome: "unknown" });
+
+  const accessor = {};
+  Object.defineProperty(accessor, "signal", { get() { throw new Error("private-token"); } });
+  assert.deepEqual(dependencyAcquisitionReceipt(accessor, "unknown"), { outcome: "unknown" });
+});
+
+test("a Windows-style numeric exit remains an exit receipt", () => {
+  assert.deepEqual(
+    dependencyAcquisitionReceipt({ code: 1, signal: null }, "exit_nonzero"),
+    { outcome: "exit_nonzero", subcode: "subprocess_exit_nonzero" },
+  );
+});
+
 test("real command failure projects only its bounded npm JSON error code", async () => {
   const { mkdtemp, rm, writeFile } = await import("node:fs/promises");
   const os = await import("node:os");
@@ -110,6 +142,83 @@ test("runCommand records closed wrapper observations for deadline, capture, spaw
       assert.equal(diagnostic.outcome, outcome);
       assert.equal(JSON.stringify(diagnostic).includes("private-token"), false);
     }
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("runCommand holds the owned boundary until inherited output pipes close", async () => {
+  const { mkdtemp, rm, writeFile } = await import("node:fs/promises");
+  const os = await import("node:os");
+  const path = (await import("node:path")).default;
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-1566-pipe-close-"));
+  const parent = path.join(tempRoot, "parent.mjs");
+  try {
+    await writeFile(parent, [
+      'import { spawn } from "node:child_process";',
+      'const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 160)"], { stdio: ["ignore", "inherit", "inherit"], detached: true }); child.unref();',
+      "process.exit(0);",
+      "",
+    ].join("\n"), "utf8");
+    const startedAt = Date.now();
+    const result = await runCommand(process.execPath, [parent], { cwd: tempRoot, timeoutMs: 5_000 });
+    assert.equal(result.code, 0);
+    assert.equal(result.closeObserved, true);
+    assert.ok(Date.now() - startedAt >= 100, "runCommand returned before the inherited pipe closed");
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("runCommand reports an owned root exit with an unresolved inherited pipe", async () => {
+  const { mkdtemp, rm, writeFile } = await import("node:fs/promises");
+  const os = await import("node:os");
+  const path = (await import("node:path")).default;
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-1566-unresolved-close-"));
+  const parent = path.join(tempRoot, "parent.mjs");
+  try {
+    await writeFile(parent, [
+      'import { spawn } from "node:child_process";',
+      'const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 250)"], { stdio: ["ignore", "inherit", "inherit"], detached: true }); child.unref();',
+      "process.exit(0);",
+      "",
+    ].join("\n"), "utf8");
+    const error = await runCommand(process.execPath, [parent], {
+      cwd: tempRoot,
+      timeoutMs: 5_000,
+      closeWaitTimeoutMs: 100,
+    }).catch(value => value);
+    assert.equal(runCommandFailureKind(error), "close_unresolved");
+    assert.equal(error.rootExitObserved, true);
+    assert.equal(error.closeObserved, false);
+    await new Promise(resolve => setTimeout(resolve, 300));
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("runCommand preserves a deadline failure while an owned root exits with an inherited pipe", async () => {
+  const { mkdtemp, rm, writeFile } = await import("node:fs/promises");
+  const os = await import("node:os");
+  const path = (await import("node:path")).default;
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-1566-deadline-close-"));
+  const parent = path.join(tempRoot, "parent.mjs");
+  try {
+    await writeFile(parent, [
+      'import { spawn } from "node:child_process";',
+      'const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 700)"], { stdio: ["ignore", "inherit", "inherit"], detached: true }); child.unref();',
+      "setTimeout(() => {}, 1_000);",
+      "",
+    ].join("\n"), "utf8");
+    const error = await runCommand(process.execPath, [parent], {
+      cwd: tempRoot,
+      timeoutMs: 300,
+      closeWaitTimeoutMs: 100,
+    }).catch(value => value);
+    assert.equal(runCommandFailureKind(error), "deadline_exceeded");
+    assert.equal(error.rootExitObserved, true);
+    assert.equal(error.closeObserved, false);
+    await new Promise(resolve => setTimeout(resolve, 750));
   } finally {
     await rm(tempRoot, { recursive: true, force: true });
   }
