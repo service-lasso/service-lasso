@@ -145,6 +145,9 @@ holder.once("message", message => {
     } catch (error) { cleanup = cleanup ? new AggregateError([cleanup, error], "Release and closure failed") : error; }
     finally { clearTimeout(timer); }
   } else cleanup = new Error("Owned fixture never established its control channel; retain files");
+  if (channelFailure) {
+    cleanup = cleanup ? new AggregateError([cleanup, channelFailure], "Closure and original control failure") : channelFailure;
+  }
   if (!cleanup && !primary) {
     await new Promise(resolve => server.close(resolve));
     await rm(tempRoot, { recursive: true, force: true });
@@ -159,6 +162,7 @@ holder.once("message", message => {
         deadlineMs: rootMode === "deadline" ? 300 : 5000, closeWaitMs: 100,
         closureMeaning: "Private dedicated channel and inherited writable-end observations; no native descendant absence claim",
         primaryFailed: Boolean(primary), cleanupFailed: Boolean(cleanup),
+        controlChannelFailure: channelFailure?.message ?? null,
         observationBeforeFixtureDisposal: true,
       }, null, 2) + "\n", "utf8");
     } catch (traceError) {

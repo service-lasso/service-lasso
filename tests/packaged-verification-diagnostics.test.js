@@ -40,6 +40,7 @@ try {
   assert.equal(trace.ready, false);
   assert.equal(trace.events.includes("released"), false);
   assert.equal(trace.events.includes("pipes-ended"), false);
+  ${peerMode === "malformed" ? 'assert.equal(trace.controlChannelFailure, "Malformed fixture event");' : ''}
   ${peerMode === "control-endpoint-closed" ? '' : 'assert.equal(trace.controlClosed, false);'}
   process.stdout.write("retained-negative-observed\\n");
 }
