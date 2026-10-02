@@ -287,17 +287,18 @@ export async function runCommand(command, args, options = {}) {
     let stdoutBytes = 0;
     let stderrBytes = 0;
     let settled = false;
+    let pendingFailure;
     const timer = setTimeout(() => {
+      failAfterClose(markRunCommandFailure(new Error(`Command did not complete within ${timeoutMs}ms.`), "deadline_exceeded"));
       child.kill("SIGKILL");
-      finish(markRunCommandFailure(new Error(`Command did not complete within ${timeoutMs}ms.`), "deadline_exceeded"));
     }, timeoutMs);
     timer.unref?.();
 
     const append = (chunks, chunk, kind) => {
       const next = kind === "stdout" ? stdoutBytes + chunk.length : stderrBytes + chunk.length;
       if (next > MAX_CAPTURE_BYTES) {
+        failAfterClose(markRunCommandFailure(new Error(`Command ${kind} exceeded the bounded capture limit.`), "output_capture_exceeded"));
         child.kill("SIGKILL");
-        finish(markRunCommandFailure(new Error(`Command ${kind} exceeded the bounded capture limit.`), "output_capture_exceeded"));
         return;
       }
       chunks.push(chunk);
@@ -306,20 +307,30 @@ export async function runCommand(command, args, options = {}) {
     };
     child.stdout.on("data", (chunk) => append(stdout, chunk, "stdout"));
     child.stderr.on("data", (chunk) => append(stderr, chunk, "stderr"));
-    child.once("error", (error) => finish(markRunCommandFailure(error, "spawn_failed")));
-    child.once("exit", (code, signal) => {
+    child.once("error", (error) => failAfterClose(markRunCommandFailure(error, "spawn_failed")));
+    child.once("close", (code, signal) => {
       const result = {
         code,
         signal,
+        pid: child.pid ?? null,
+        closeObserved: true,
         stdout: Buffer.concat(stdout).toString("utf8"),
         stderr: Buffer.concat(stderr).toString("utf8"),
       };
+      if (pendingFailure) {
+        finish(pendingFailure, result);
+        return;
+      }
       if (code === 0) finish(null, result);
       else finish(markRunCommandFailure(
         new Error(`Command failed with exit code ${code ?? "none"} and signal ${signal ?? "none"}.`),
         typeof code === "number" && code !== 0 ? "exit_nonzero" : "unknown",
       ), result);
     });
+
+    function failAfterClose(error) {
+      if (!pendingFailure) pendingFailure = error;
+    }
 
     function finish(error, result) {
       if (settled) return;
