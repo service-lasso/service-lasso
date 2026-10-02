@@ -1,5 +1,12 @@
 # Project Intent
 
+Issue #1592 reconciles MCP source conformance with the existing awaited,
+deadline-bound verification of the selected Windows native launcher before
+spawn. Legal call formatting must not change admission. Native assets,
+provenance, loader safety, ownership, privacy and deadlines remain unchanged;
+source inspection is not native acceptance. Qualification remains UNEXECUTED
+until fresh external exact-input custody and ROOT actual-read admission.
+
 Use this file to capture the project-specific intent that governance cannot provide.
 
 ## Purpose
