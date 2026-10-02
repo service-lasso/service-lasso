@@ -1,0 +1,56 @@
+# Host-runner service owner package
+
+This package is a source/build/install package for a Darwin owner with an
+existing legitimate root-service authority. It is not authority to change a
+provider setting, publish a runner, or activate any other host.
+
+The daemon is reachable only through the declared LaunchDaemon Mach service. It
+creates its own resident primary, records and rechecks its audit token, birth
+time, direct daemon-parent relation, held executable digest and `csops` strict
+code identity, then keeps that record private. It admits only the reviewed signed
+client identity. It issues a write-only pipe capability itself, binds it to the
+XPC peer audit identity, expires it after sixty seconds, consumes it once, and
+revokes peer grants on disconnect, expiry, identity mismatch and completion.
+Completion accepts only root-owned, single-link regular-file descriptors,
+hashes those held descriptors, and requires a fixed parent envelope binding the
+leaf digest. An arbitrary root-owned descriptor is not an expected object. A
+client never supplies the daemon's executable, PID, image digest, state path,
+or a readable bearer capability.
+
+On the designated Darwin host, after root approval, build and sign in the
+owner-controlled pipeline, then install the checksum-bound binary:
+
+```sh
+export SERVICE_LASSO_HOST_RUNNER_SIGNING_IDENTITY='Developer ID Application: owner identity'
+scripts/host-runner-service/darwin/build.sh /absolute/output/service-lasso-host-runner
+sudo scripts/host-runner-service/darwin/install.sh /absolute/output/service-lasso-host-runner /absolute/output/service-lasso-host-runner.sha256
+sudo scripts/host-runner-service/darwin/verify.sh
+```
+
+The installer accepts only canonical fixed service paths, validates every
+ancestor and leaf against links, root ownership and restrictive modes, plus
+SHA-256 and a strict code signature before staging a replacement. It snapshots
+the binary, plist, and prior loaded state; a failed bootstrap restores all three
+and reactivates a previously loaded prior service. Temporary staging and backup
+files are root-owned and are torn down only after the replacement is read back.
+Uninstall fails if unload fails and only then removes program files. Both
+uninstall and failed-install rollback retain the private state directory for
+owner review.
+
+Retain the private receipt containing only service identity, launchd state,
+FD/capability expiry and revocation events, primary identity fields, and result
+classes. Do not put capability contents, caller paths, command lines, secrets,
+or provider tokens in it. Roll back with
+`sudo scripts/host-runner-service/darwin/uninstall.sh`.
+
+`node scripts/host-runner-service/qualification.mjs` compiles the platform
+validator where its native toolchain is present. It is source/build evidence,
+not activation evidence. Native acceptance remains unavailable until an
+authorised owner performs the Darwin install and retains its private receipt.
+
+The handover surface is [host-runner contract v1](../../scripts/host-runner-service/contract-v1.json).
+The owner build emits a checksum manifest and a provenance JSON record that
+binds `service-lasso.host-runner.v1`, source SHA-256 and the signed candidate
+SHA-256. The current package has no CLI acceptance claim. A fresh consumer must
+pin those three files and prove its Core-to-CLI invocation separately before a
+cross-repository acceptance claim is possible.

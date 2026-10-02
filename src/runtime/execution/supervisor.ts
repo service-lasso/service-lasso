@@ -79,13 +79,27 @@ export type ManagedProcessStartFailurePhase =
   | "launcher_target_thread_close"
   | "launcher_acknowledgement_write";
 
+export type LauncherPayloadFailureBoundary =
+  | "launch_evidence"
+  | "canonical_encoding"
+  | "strict_utf8"
+  | "json_or_schema"
+  | "semantic_payload"
+  | "unknown";
+
 export class ManagedProcessStartError extends Error {
   readonly failurePhase: ManagedProcessStartFailurePhase;
+  readonly launcherPayloadFailureBoundary: LauncherPayloadFailureBoundary | null;
 
-  constructor(failurePhase: ManagedProcessStartFailurePhase, cause: unknown) {
+  constructor(
+    failurePhase: ManagedProcessStartFailurePhase,
+    cause: unknown,
+    launcherPayloadFailureBoundary: LauncherPayloadFailureBoundary | null = null,
+  ) {
     super(cause instanceof Error ? cause.message : String(cause), { cause });
     this.name = "ManagedProcessStartError";
     this.failurePhase = failurePhase;
+    this.launcherPayloadFailureBoundary = launcherPayloadFailureBoundary;
   }
 }
 
@@ -112,6 +126,21 @@ export function managedProcessStartFailurePhase(error: unknown): ManagedProcessS
     : null;
 }
 
+export function managedProcessLauncherPayloadFailureBoundary(error: unknown): LauncherPayloadFailureBoundary | null {
+  return error instanceof ManagedProcessStartError && error.failurePhase === "launcher_payload_validation"
+    ? error.launcherPayloadFailureBoundary ?? "unknown"
+    : null;
+}
+
+function managedLauncherPayloadDiagnostic(record: Pick<ManagedProcessRecord,
+  "launcherProgressPhase" | "launcherPayloadDiagnosticInvalid" | "launcherPayloadDiagnosticCount" | "launcherPayloadFailureBoundary"
+>): LauncherPayloadFailureBoundary | null {
+  if (record.launcherProgressPhase !== "launcher_payload_validation") return null;
+  return record.launcherPayloadDiagnosticInvalid || record.launcherPayloadDiagnosticCount !== 1
+    ? "unknown"
+    : record.launcherPayloadFailureBoundary ?? "unknown";
+}
+
 interface ManagedProcessRecord {
   child: ChildProcess;
   service: DiscoveredService;
@@ -131,6 +160,9 @@ interface ManagedProcessRecord {
   stderrBuffer: string;
   launcherProgressToken: string | null;
   launcherProgressPhase: ManagedProcessStartFailurePhase | null;
+  launcherPayloadFailureBoundary: Exclude<LauncherPayloadFailureBoundary, "unknown"> | null;
+  launcherPayloadDiagnosticCount: number;
+  launcherPayloadDiagnosticInvalid: boolean;
   variableCapturePromise: Promise<void>;
   workspaceRoot: string | null;
   rootIdentity: ProcessFingerprint | null;
@@ -142,6 +174,7 @@ interface ManagedProcessRecord {
   treeTerminationPromise: Promise<ProcessTreeTerminationResult> | null;
   stopDeadlineMs: number | null;
   exitPromise: Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }>;
+  logCapturePromise: Promise<void>;
   finalizePromise: Promise<void>;
 }
 
@@ -243,8 +276,8 @@ const WINDOWS_TREE_MONITOR_RETRY_DELAY_MS = 5_000;
 const UNEXPECTED_PROCESS_FINALIZATION_TIMEOUT_MS = 5_000;
 const DEFAULT_MANAGED_PROCESS_STOP_TIMEOUT_MS = process.platform === "win32" ? 15_000 : 5_000;
 const WINDOWS_MANAGED_LAUNCHER_PATH = fileURLToPath(new URL("./windows-managed-launcher-native.exe", import.meta.url));
-const WINDOWS_MANAGED_LAUNCHER_BYTES = 34_304;
-const WINDOWS_MANAGED_LAUNCHER_SHA256 = "9fb89ec94c6f3d1930246ca95aa9f7f0d3bd85a1801e3e0b951920a6770ea5f6";
+const WINDOWS_MANAGED_LAUNCHER_BYTES = 34_816;
+const WINDOWS_MANAGED_LAUNCHER_SHA256 = "2aa66997bdb44677350456b1d598eb30787389c6a9878000d7f55e9f9f1414fc";
 const WINDOWS_MANAGED_LAUNCH_TIMEOUT_MS = 15_000;
 const MANAGED_PROCESS_SPAWN_TIMEOUT_MS = 15_000;
 const WINDOWS_MANAGED_LAUNCH_MAX_PAYLOAD_CHARACTERS = 32_768;
@@ -252,7 +285,10 @@ const WINDOWS_MANAGED_LAUNCH_MAX_TARGET_ENVIRONMENT_OVERRIDES = 128;
 let windowsManagedLauncherPath = WINDOWS_MANAGED_LAUNCHER_PATH;
 let managedProcessTreeTerminator = terminateOwnedProcessTree;
 let managedProcessTreeMonitor = monitorManagedProcessTree;
-let managedProcessRootInspector = inspectProcess;
+let managedProcessRootInspector: (
+  pid: number,
+  options?: { deadlineMs?: number; signal?: AbortSignal },
+) => Promise<ProcessInspection> = inspectProcess;
 let managedWindowsTreeInspector = inspectWindowsProcessTree;
 let managedProcessEnrollmentHook: ((child: ChildProcess) => Promise<void> | void) | null = null;
 let managedProcessFilesBoundHook: (() => Promise<void> | void) | null = null;
@@ -291,7 +327,7 @@ export function setManagedWindowsTreeInspectorForTests(
 }
 
 export function setManagedProcessRootInspectorForTests(
-  inspector: ((pid: number) => Promise<ProcessInspection>) | null,
+  inspector: ((pid: number, options?: { deadlineMs?: number; signal?: AbortSignal }) => Promise<ProcessInspection>) | null,
 ): void {
   if (process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS !== "1") {
     throw new Error("Managed process-root test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
@@ -570,31 +606,46 @@ function filterWindowsManagedLauncherProgressLine(
   token: string | null,
   line: string,
   flushRemainder: boolean,
-): { suppressed: boolean; phase: ManagedProcessStartFailurePhase | null } {
+): {
+  suppressed: boolean;
+  phase: ManagedProcessStartFailurePhase | null;
+  payloadFailureBoundary: Exclude<LauncherPayloadFailureBoundary, "unknown"> | null;
+  invalidPayloadDiagnostic: boolean;
+} {
   if (!line.startsWith(WINDOWS_MANAGED_LAUNCHER_PROGRESS_PREFIX)) {
     return {
       suppressed: flushRemainder && line.length > 0 && WINDOWS_MANAGED_LAUNCHER_PROGRESS_PREFIX.startsWith(line),
       phase: null,
+      payloadFailureBoundary: null,
+      invalidPayloadDiagnostic: false,
     };
   }
   const fields = line.slice(WINDOWS_MANAGED_LAUNCHER_PROGRESS_PREFIX.length).split(":");
-  if (
-    token === null ||
-    fields.length !== 2 ||
-    !/^[0-9a-f]{64}$/u.test(token) ||
-    !/^[0-9a-f]{64}$/u.test(fields[1] ?? "")
-  ) {
-    return { suppressed: true, phase: null };
+  const payloadRecord = fields[0] === "launcher_payload_validation" && fields.length !== 2;
+  if (token === null || !/^[0-9a-f]{64}$/u.test(token)) {
+    return { suppressed: true, phase: null, payloadFailureBoundary: null, invalidPayloadDiagnostic: payloadRecord };
   }
   const phase = fields[0] as ManagedProcessStartFailurePhase;
   if (!WINDOWS_MANAGED_LAUNCHER_PROGRESS_PHASES.has(phase)) {
-    return { suppressed: true, phase: null };
+    return { suppressed: true, phase: null, payloadFailureBoundary: null, invalidPayloadDiagnostic: false };
   }
-  const expected = createHmac("sha256", token).update(phase, "utf8").digest();
-  const actual = Buffer.from(fields[1] as string, "hex");
+  const boundary = fields.length === 3 && phase === "launcher_payload_validation" ? fields[1] : null;
+  const validShape = fields.length === 2 || (boundary !== null && WINDOWS_MANAGED_LAUNCHER_PAYLOAD_FAILURE_BOUNDARIES.has(
+    boundary as Exclude<LauncherPayloadFailureBoundary, "unknown">,
+  ));
+  const digest = fields.at(-1) ?? "";
+  if (!validShape || !/^[0-9a-f]{64}$/u.test(digest)) {
+    return { suppressed: true, phase: null, payloadFailureBoundary: null, invalidPayloadDiagnostic: phase === "launcher_payload_validation" };
+  }
+  const authenticatedRecord = boundary === null ? phase : `${phase}:${boundary}`;
+  const expected = createHmac("sha256", token).update(authenticatedRecord, "utf8").digest();
+  const actual = Buffer.from(digest, "hex");
+  const authenticated = actual.length === expected.length && timingSafeEqual(actual, expected);
   return {
     suppressed: true,
-    phase: actual.length === expected.length && timingSafeEqual(actual, expected) ? phase : null,
+    phase: authenticated ? phase : null,
+    payloadFailureBoundary: authenticated ? boundary as Exclude<LauncherPayloadFailureBoundary, "unknown"> | null : null,
+    invalidPayloadDiagnostic: phase === "launcher_payload_validation" && !authenticated,
   };
 }
 
@@ -602,7 +653,12 @@ export function filterWindowsManagedLauncherProgressLineForTests(
   token: string | null,
   line: string,
   flushRemainder = false,
-): { suppressed: boolean; phase: ManagedProcessStartFailurePhase | null } {
+): {
+  suppressed: boolean;
+  phase: ManagedProcessStartFailurePhase | null;
+  payloadFailureBoundary: Exclude<LauncherPayloadFailureBoundary, "unknown"> | null;
+  invalidPayloadDiagnostic: boolean;
+} {
   if (process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS !== "1") {
     throw new Error("Managed launcher-progress test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
   }
@@ -610,6 +666,28 @@ export function filterWindowsManagedLauncherProgressLineForTests(
 }
 
 function attachRuntimeLogCapture(record: ManagedProcessRecord): void {
+  const waitForOutputEnd = (stream: NonNullable<ChildProcess["stdout"]>): Promise<void> => new Promise((resolve) => {
+    // Subscribe before inspecting terminal state. A launcher can exit before
+    // its final authenticated stderr record reaches Node, so a check followed
+    // by subscription would lose the only safe diagnostic receipt.
+    let settled = false;
+    const settle = () => {
+      if (settled) return;
+      settled = true;
+      stream.removeListener("end", settle);
+      stream.removeListener("close", settle);
+      stream.removeListener("error", settle);
+      resolve();
+    };
+    stream.once("end", settle);
+    stream.once("close", settle);
+    stream.once("error", settle);
+    if (stream.readableEnded || stream.destroyed) settle();
+  });
+  const outputEnded = Promise.all([
+    record.child.stdout ? waitForOutputEnd(record.child.stdout) : Promise.resolve(),
+    record.child.stderr ? waitForOutputEnd(record.child.stderr) : Promise.resolve(),
+  ]);
   const flushBufferedLines = (level: "stdout" | "stderr", flushRemainder = false) => {
     const bufferKey = level === "stdout" ? "stdoutBuffer" : "stderrBuffer";
     const outputStream = level === "stdout" ? record.logStreams.stdout : record.logStreams.stderr;
@@ -620,10 +698,16 @@ function attachRuntimeLogCapture(record: ManagedProcessRecord): void {
     for (const line of parts) {
       const launcherProgress = level === "stderr"
         ? filterWindowsManagedLauncherProgressLine(record.launcherProgressToken, line, flushRemainder)
-        : { suppressed: false, phase: null };
+        : { suppressed: false, phase: null, payloadFailureBoundary: null, invalidPayloadDiagnostic: false };
       if (launcherProgress.phase !== null) {
         record.launcherProgressPhase = launcherProgress.phase;
       }
+      if (launcherProgress.payloadFailureBoundary !== null) {
+        record.launcherPayloadDiagnosticCount += 1;
+        if (record.launcherPayloadDiagnosticCount === 1) record.launcherPayloadFailureBoundary = launcherProgress.payloadFailureBoundary;
+        else record.launcherPayloadDiagnosticInvalid = true;
+      }
+      if (launcherProgress.invalidPayloadDiagnostic) record.launcherPayloadDiagnosticInvalid = true;
       if (launcherProgress.suppressed) {
         continue;
       }
@@ -648,12 +732,14 @@ function attachRuntimeLogCapture(record: ManagedProcessRecord): void {
     flushBufferedLines("stderr");
   });
 
-  record.finalizePromise = record.exitPromise.then(async () => {
+  record.logCapturePromise = record.exitPromise.then(async () => {
+    await outputEnded;
     flushBufferedLines("stdout", true);
     flushBufferedLines("stderr", true);
     await record.variableCapturePromise;
     await closeRuntimeLogStreams(record.logStreams);
   });
+  record.finalizePromise = record.logCapturePromise;
 }
 
 function resolveExecutable(service: DiscoveredService, executionPlan: ProviderExecutionPlan): string {
@@ -985,11 +1071,20 @@ const WINDOWS_MANAGED_LAUNCHER_PROGRESS_PHASES = new Set<ManagedProcessStartFail
   "launcher_file_final_path",
   "launcher_binding_publication",
 ]);
+const WINDOWS_MANAGED_LAUNCHER_PAYLOAD_FAILURE_BOUNDARIES = new Set<Exclude<LauncherPayloadFailureBoundary, "unknown">>([
+  "launch_evidence", "canonical_encoding", "strict_utf8", "json_or_schema", "semantic_payload",
+]);
 
 async function bindWindowsManagedLauncherFiles(
   child: ChildProcess,
   state: WindowsManagedLaunchState,
-  launcherProgressPhase: () => ManagedProcessStartFailurePhase | null,
+  launcherProgressPhase: (deadlineMs: number) => {
+    phase: ManagedProcessStartFailurePhase | null;
+    payloadFailureBoundary: LauncherPayloadFailureBoundary;
+  } | Promise<{
+    phase: ManagedProcessStartFailurePhase | null;
+    payloadFailureBoundary: LauncherPayloadFailureBoundary;
+  }>,
 ): Promise<void> {
   const deadlineMs = processControlDeadline(WINDOWS_MANAGED_LAUNCH_TIMEOUT_MS);
   try {
@@ -1013,9 +1108,48 @@ async function bindWindowsManagedLauncherFiles(
       }
     }, { deadlineMs });
   } catch (error) {
-    const progress = launcherProgressPhase();
-    throw progress ? new ManagedProcessStartError(progress, error) : error;
+    const progress = await launcherProgressPhase(deadlineMs);
+    throw progress.phase ? new ManagedProcessStartError(progress.phase, error, progress.payloadFailureBoundary) : error;
   }
+}
+
+async function settleWindowsManagedLauncherStderr(
+  child: ChildProcess,
+  deadlineMs: number,
+): Promise<void> {
+  const stderr = child.stderr;
+  if (!stderr || remainingProcessControlMs(deadlineMs) <= 0) return;
+  await withProcessControlDeadline(async (signal) => {
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const complete = () => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve();
+      };
+      const abort = () => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(signal.reason);
+      };
+      const cleanup = () => {
+        stderr.removeListener("end", complete);
+        stderr.removeListener("close", complete);
+        stderr.removeListener("error", complete);
+        signal.removeEventListener("abort", abort);
+      };
+      stderr.once("end", complete);
+      stderr.once("close", complete);
+      stderr.once("error", complete);
+      signal.addEventListener("abort", abort, { once: true });
+      // This terminal observation must follow listener installation so an
+      // exit between the original check and subscription cannot strand the
+      // authenticated parser behind a closed log stream.
+      if (stderr.readableEnded || stderr.destroyed) complete();
+    });
+  }, { deadlineMs });
 }
 
 async function continueWindowsManagedLauncher(
@@ -1328,6 +1462,49 @@ function mergeProcessFingerprints(...groups: ProcessFingerprint[][]): ProcessFin
   return [...byPid.values()];
 }
 
+function unionProcessFingerprints(...groups: readonly ProcessFingerprint[][]): ProcessFingerprint[] {
+  const members = new Map<string, ProcessFingerprint>();
+  for (const identity of groups.flat()) {
+    // Preserve conflicting lifetimes for one PID.  The fresh identity probe
+    // below must classify the prior identity as mismatched instead of allowing
+    // a later tree row to replace it.
+    members.set([
+      identity.pid,
+      identity.createdAt,
+      identity.executablePath,
+      identity.commandHash,
+    ].join("\u0000"), identity);
+  }
+  return [...members.values()];
+}
+
+async function verifyNativeAcknowledgementFinalContainment(
+  record: ManagedProcessRecord,
+  rootIdentity: ProcessFingerprint,
+  deadlineMs: number,
+  signal: AbortSignal,
+): Promise<void> {
+  // The final tree is a receipt for this acknowledgement, not a refresh of an
+  // earlier snapshot.  Its root result and the retained ChildProcess handle
+  // must independently agree that the managed wrapper exited.
+  const finalTree = await managedWindowsTreeInspector(rootIdentity, { deadlineMs, signal });
+  if (finalTree.rootStatus !== "exited") {
+    throw new Error("Native acknowledgement containment root has not exited.");
+  }
+  if (probeManagedChildHandle(record.child) !== "exited") {
+    throw new Error("Native acknowledgement containment wrapper has not exited.");
+  }
+
+  const members = unionProcessFingerprints(record.knownTreeMembers, finalTree.members);
+  record.knownTreeMembers = members;
+  for (const member of members) {
+    const inspection = await managedProcessRootInspector(member.pid, { deadlineMs, signal });
+    if (inspection.status !== "not_running") {
+      throw new Error("Native acknowledgement containment has not converged.");
+    }
+  }
+}
+
 function managedProcessTreeTarget(record: ManagedProcessRecord, rootExitObserved = false): OwnedProcessTreeTarget {
   return {
     rootPid: record.child.pid ?? 0,
@@ -1347,6 +1524,7 @@ async function terminateManagedProcessTree(
   rootExitObserved = false,
   retryAfterSharedFailure = false,
   deadlineMs = record.stopDeadlineMs ?? processControlDeadline(timeoutMs),
+  newWindowsInspectionEpisode = false,
 ): Promise<ProcessTreeTerminationResult> {
   let retryAvailable = retryAfterSharedFailure;
   while (true) {
@@ -1378,9 +1556,9 @@ async function terminateManagedProcessTree(
           const dependencies: Parameters<typeof managedProcessTreeTerminator>[2] = { deadlineMs, signal };
           if (
             process.platform === "win32" &&
-            (rootExitObserved || record.verifiedMembersOnly) &&
+            (rootExitObserved || record.verifiedMembersOnly || newWindowsInspectionEpisode) &&
             record.rootIdentity &&
-            record.knownTreeMembers.length > 0
+            (record.knownTreeMembers.length > 0 || newWindowsInspectionEpisode)
           ) {
             const snapshot = await inspectKnownWindowsTreeMembers(
               record.rootIdentity,
@@ -1524,8 +1702,8 @@ async function finalizeAdoptedProcessExit(record: AdoptedProcessRecord): Promise
   }
 
   record.stopping = true;
+  const deadlineMs = processControlDeadline(5_000);
   try {
-    const deadlineMs = processControlDeadline(5_000);
     await withProcessControlDeadline(async (signal) => {
       const dependencies: Parameters<typeof terminateOwnedProcessTree>[2] = { deadlineMs, signal };
       if (process.platform === "win32" && record.knownTreeMembers.length > 0) {
@@ -1550,6 +1728,10 @@ async function finalizeAdoptedProcessExit(record: AdoptedProcessRecord): Promise
   } catch (error) {
     record.stopping = false;
     throw error;
+  }
+  if (!await adoptedProcessTreeIsFreshlyAbsent(record, deadlineMs)) {
+    record.stopping = false;
+    throw new Error(`Cannot mark adopted service "${serviceId}" stopped until its retained process tree is absent.`);
   }
   await withSerializedWorkspaceFinalization(record.workspaceRoot, async () => {
     await transitionProcessOwnership(record.workspaceRoot, "service", serviceId, "stopped", "not_running", record.pid);
@@ -1900,6 +2082,9 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
     stderrBuffer: "",
     launcherProgressToken: windowsManagedLaunchState?.progressToken ?? null,
     launcherProgressPhase: null,
+    launcherPayloadFailureBoundary: null,
+    launcherPayloadDiagnosticCount: 0,
+    launcherPayloadDiagnosticInvalid: false,
     variableCapturePromise: Promise.resolve(),
     workspaceRoot: workspaceRoot ?? null,
     rootIdentity,
@@ -1910,6 +2095,7 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
     treeTerminationPromise: null,
     stopDeadlineMs: null,
     exitPromise,
+    logCapturePromise: Promise.resolve(),
     finalizePromise: Promise.resolve(),
   };
   attachRuntimeLogCapture(record);
@@ -1922,7 +2108,7 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
     managedRecordActivated = true;
     managedProcesses.set(serviceId, record);
     record.treeMonitorPromise = managedProcessTreeMonitor(record).catch(() => undefined);
-    const logFinalizePromise = record.finalizePromise;
+    const logFinalizePromise = record.logCapturePromise;
     const lifecycleFinalizePromise = exitPromise.then(async ({ exitCode, signal }) => {
       const finalizationDeadlineMs = record.stopDeadlineMs !== null && remainingProcessControlMs(record.stopDeadlineMs) > 0
         ? record.stopDeadlineMs
@@ -2030,7 +2216,23 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
             await bindWindowsManagedLauncherFiles(
               child,
               windowsManagedLaunchState,
-              () => record.launcherProgressPhase,
+              async (deadlineMs) => {
+                if (probeManagedChildHandle(child) !== "owned") {
+                  // This is deliberately only the log/parser receipt. The
+                  // lifecycle finalizer can include registry and containment
+                  // work, so awaiting it here would turn a bounded launcher
+                  // diagnostic into an unbounded lifecycle wait.
+                  await settleWindowsManagedLauncherStderr(child, deadlineMs);
+                  await withProcessControlDeadline(
+                    async () => await record.logCapturePromise,
+                    { deadlineMs },
+                  );
+                }
+                return {
+                  phase: record.launcherProgressPhase,
+                  payloadFailureBoundary: managedLauncherPayloadDiagnostic(record) ?? "unknown",
+                };
+              },
             );
           } finally {
             record.launcherProgressToken = null;
@@ -2065,9 +2267,14 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
         windowsManagedLaunchState = null;
       }
     } catch (error) {
+      const earlyPayloadFailureBoundary = managedLauncherPayloadDiagnostic(record);
       const startError = error instanceof ManagedProcessStartError
         ? error
-        : new ManagedProcessStartError(startFailurePhase, error);
+        : new ManagedProcessStartError(
+          earlyPayloadFailureBoundary ? "launcher_payload_validation" : startFailurePhase,
+          error,
+          earlyPayloadFailureBoundary,
+        );
       const classifiedStartFailurePhase = managedProcessStartFailurePhase(startError) ?? startFailurePhase;
       let containmentError: unknown = null;
       if (rootIdentity) {
@@ -2130,19 +2337,12 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
               terminate: (helperSignal) => managedProcessTreeTerminator(target,
                 remainingProcessControlMs(containmentDeadlineMs),
                 { ...dependencies, signal: helperSignal }),
-              verifyStopped: async () => {
-                const stoppedTree = await inspectKnownWindowsTreeMembers(
-                  verifiedRootIdentity, record.knownTreeMembers,
-                  containmentDeadlineMs, signal,
-                  record.verifiedMembersOnly,
-                  { inspectTree: managedWindowsTreeInspector },
-                );
-                for (const member of record.knownTreeMembers) {
-                  if ((await stoppedTree.inspectProcess(member.pid)).status !== "not_running") {
-                    throw new Error("Native acknowledgement containment has not converged.");
-                  }
-                }
-              },
+              verifyStopped: async () => await verifyNativeAcknowledgementFinalContainment(
+                record,
+                verifiedRootIdentity,
+                containmentDeadlineMs,
+                signal,
+              ),
             });
           }, { deadlineMs: containmentDeadlineMs });
         } catch (cleanupError) {
@@ -2215,15 +2415,23 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
 export async function stopManagedProcess(
   serviceId: string,
   timeoutMs = DEFAULT_MANAGED_PROCESS_STOP_TIMEOUT_MS,
+  options: { newWindowsInspectionEpisode?: boolean } = {},
 ): Promise<{ exitCode: number | null; signal: NodeJS.Signals | null } | null> {
   const record = managedProcesses.get(serviceId);
   if (!record) {
-    return await stopAdoptedProcess(serviceId, timeoutMs);
+    return await stopAdoptedProcess(serviceId, timeoutMs, options);
   }
 
   const deadlineMs = processControlDeadline(timeoutMs);
   await beginManagedProcessStop(serviceId, deadlineMs);
-  await terminateManagedProcessTree(record, timeoutMs, false, false, deadlineMs);
+  await terminateManagedProcessTree(
+    record,
+    timeoutMs,
+    false,
+    false,
+    deadlineMs,
+    options.newWindowsInspectionEpisode === true,
+  );
   const result = await withProcessControlDeadline(
     async () => await record.exitPromise,
     { deadlineMs },
@@ -2258,6 +2466,7 @@ async function waitForAdoptedProcessExit(
 async function stopAdoptedProcess(
   serviceId: string,
   timeoutMs: number,
+  options: { newWindowsInspectionEpisode?: boolean },
 ): Promise<{ exitCode: number | null; signal: NodeJS.Signals | null } | null> {
   const record = adoptedProcesses.get(serviceId);
   if (!record) {
@@ -2292,7 +2501,7 @@ async function stopAdoptedProcess(
         processGroup: { kind: "none" as const, id: null },
       };
     }
-  } else if (record.knownTreeMembers.length > 0) {
+  } else if (record.knownTreeMembers.length > 0 || options.newWindowsInspectionEpisode) {
     await withProcessControlDeadline(async (signal) => {
       const snapshot = await inspectKnownWindowsTreeMembers(
         record.rootIdentity,
@@ -2320,6 +2529,14 @@ async function stopAdoptedProcess(
     terminationDependencies,
   );
 
+  // Tree-control success is not an ownership receipt. The persisted adopted
+  // record may only become stopped after every lifetime we retained has a new
+  // exact absence result. A live/reused/inaccessible PID leaves custody in
+  // place and reports the failed stop without sending another numeric signal.
+  if (!await adoptedProcessTreeIsFreshlyAbsent(record, deadlineMs)) {
+    throw new Error(`Cannot mark adopted service "${serviceId}" stopped until its retained process tree is absent.`);
+  }
+
   await withProcessControlDeadline(
     async () => await withSerializedWorkspaceFinalization(record.workspaceRoot, async () => {
       await transitionProcessOwnership(record.workspaceRoot, "service", serviceId, "stopped", "not_running", record.pid);
@@ -2333,6 +2550,24 @@ async function stopAdoptedProcess(
   return termination.forced
     ? { exitCode: null, signal: "SIGKILL" }
     : { exitCode: 0, signal: null };
+}
+
+async function adoptedProcessTreeIsFreshlyAbsent(
+  record: AdoptedProcessRecord,
+  deadlineMs: number,
+): Promise<boolean> {
+  const finalMembers = unionProcessFingerprints(
+    record.rootIdentity ? [record.rootIdentity] : [],
+    record.knownTreeMembers,
+  );
+  for (const member of finalMembers) {
+    const inspection = await withProcessControlDeadline(
+      async (signal) => await managedProcessRootInspector(member.pid, { deadlineMs, signal }),
+      { deadlineMs },
+    );
+    if (inspection.status !== "not_running") return false;
+  }
+  return true;
 }
 
 export async function waitForManagedProcessExit(

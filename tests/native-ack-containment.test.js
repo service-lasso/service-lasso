@@ -76,15 +76,31 @@ test("observed native completion proves stopped state without starting a helper"
   assert.equal(verified, true);
 });
 
-test("observation expiry retains ordinary termination", async () => {
-  let terminated = false;
+test("observation expiry runs ordinary termination before final stopped proof", async () => {
+  const phases = [];
   await observeNativeAcknowledgementContainment({
     signal: new AbortController().signal,
     nativeObservationMs: 1,
     exit: new Promise(() => undefined),
-    terminate: async () => { terminated = true; },
-    verifyStopped: async () => { assert.fail("absent native exit is not proof"); },
+    terminate: async () => { phases.push("terminate"); },
+    verifyStopped: async () => {
+      assert.deepEqual(phases, ["terminate"]);
+      phases.push("verifyStopped");
+    },
   });
+  assert.deepEqual(phases, ["terminate", "verifyStopped"]);
+});
+
+test("ordinary termination cannot waive rejected final stopped proof", async () => {
+  const failure = new Error("final tree still live");
+  let terminated = false;
+  await assert.rejects(observeNativeAcknowledgementContainment({
+    signal: new AbortController().signal,
+    nativeObservationMs: 1,
+    exit: new Promise(() => undefined),
+    terminate: async () => { terminated = true; },
+    verifyStopped: async () => { throw failure; },
+  }), (error) => error === failure);
   assert.equal(terminated, true);
 });
 
