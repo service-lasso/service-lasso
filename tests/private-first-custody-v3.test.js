@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, mkdir, readFile, rm, writeFile, symlink } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile, symlink, rename } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { promisify } from "node:util";
-import { sha256, validAcl, darwinCacheHeader, nonReparseDirectory, createExclusiveDirectory, ownership } from "../scripts/private-first-custody-v3-lib.mjs";
+import { sha256, validAcl, darwinCacheHeader, nonReparseDirectory, createExclusiveDirectory, ownership, chain, recheck } from "../scripts/private-first-custody-v3-lib.mjs";
 
 const exec = promisify(execFile);
 const producer = new URL("../scripts/record-packaged-admin-first-custody.mjs", import.meta.url);
@@ -143,5 +143,16 @@ test("BR008 native Windows owned root rejects broad foreign and inherited ACL wr
     const script = "$ErrorActionPreference='Stop';$i=Get-Item -LiteralPath $env:SERVICE_LASSO_CUSTODY_TARGET;$a=$i.GetAccessControl();$a.SetAccessRuleProtection($false,$true);$i.SetAccessControl($a)";
     await exec(powershell, ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script], { windowsHide: true, env: { ...process.env, SERVICE_LASSO_CUSTODY_TARGET: directory } });
     await assert.rejects(ownership(directory, root));
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+test("BR008 actual directory parent replacement invalidates its retained identity snapshot", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "custody-replace-"));
+  try {
+    const parent = path.join(root, "parent");
+    await mkdir(parent);
+    const snapshot = await chain(parent, root);
+    await rename(parent, path.join(root, "retained-original"));
+    await mkdir(parent);
+    await assert.rejects(recheck(snapshot), /first_custody_parent_replaced/u);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
