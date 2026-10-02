@@ -187,6 +187,21 @@ import type {
   McpGuardedActionPlan,
 } from "../runtime/operator/mcp-guarded-actions.js";
 import {
+  guardedActionPolicy,
+  assertMcpGuardedActionAuthorization,
+  invokeMcpGuardedAction,
+  McpGuardedActionError,
+  preflightMcpGuardedActionExecution,
+  readMcpGuardedActionExecution,
+  type McpGuardedActionInput,
+} from "../runtime/operator/mcp-guarded-actions.js";
+import {
+  McpOperationError,
+  McpOperationService,
+  isSafelyCancellableMcpAction,
+  type McpOperationPublicRecord,
+} from "../runtime/operator/mcp-operations.js";
+import {
   MCP_MAX_REQUEST_BODY_BYTES,
   MCP_PROTECTED_RESOURCE_METADATA_PATH,
   McpHttpPolicyError,
@@ -266,11 +281,13 @@ import {
 import type { LifecycleAction, LifecycleActionResult } from "../runtime/lifecycle/types.js";
 import {
   claimRuntimeEndpointAllocation,
+  getConfiguredPortRange,
   planAndReserveRuntimeEndpoints,
   readRuntimeEndpointAllocationPlan,
   releaseRuntimeEndpointAllocation,
   runtimeApiEndpointFromAllocation,
   servicePortsFromEndpointAllocation,
+  RuntimeEndpointAllocationError,
   type RuntimeEndpointAllocationPolicy,
   type RuntimeEndpointAllocationPlan,
 } from "../runtime/ports/allocation.js";
@@ -478,6 +495,7 @@ export interface ApiServerOptions {
   mcpPolicyTestHooks?: {
     appendAuditEvent?: typeof appendAuditEvent;
     now?: () => number;
+    afterDurableClaim?: (operation: McpOperationPublicRecord) => Promise<void>;
   };
   secretRotationTestHooks?: {
     brokerRuntime: SecretsBrokerRuntimeContext;
@@ -1788,6 +1806,83 @@ function parseLifecycleActionBody(input: unknown): { confirm: boolean } {
   return { confirm: candidate.confirm === true };
 }
 
+const durableLifecycleOperationActions = {
+  install: "service_install",
+  config: "service_configure",
+  start: "service_start",
+  stop: "service_stop",
+  restart: "service_restart",
+} as const satisfies Record<string, McpGuardedActionName>;
+
+type DurableLifecycleOperationAction = typeof durableLifecycleOperationActions[keyof typeof durableLifecycleOperationActions];
+
+function parseDurableLifecycleOperationBody(input: unknown): {
+  action: DurableLifecycleOperationAction;
+  parameters: McpGuardedActionInput;
+} {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new ApiError("invalid_body", 400, "Durable lifecycle operation body must be a JSON object.");
+  }
+  const candidate = input as Record<string, unknown>;
+  const action = typeof candidate.action === "string" ? durableLifecycleOperationActions[candidate.action as keyof typeof durableLifecycleOperationActions] : undefined;
+  if (!action) {
+    throw new ApiError("invalid_action", 400, "Durable lifecycle operations support install, config, start, stop, and restart.");
+  }
+  const unknownFields = Object.keys(candidate).filter((key) =>
+    key !== "action" && key !== "serviceId" && key !== "execute" && key !== "idempotencyKey" &&
+    key !== "confirmationId" && key !== "confirmationPhrase" && key !== "confirmationTtlSeconds"
+  );
+  if (unknownFields.length > 0) {
+    throw new ApiError("invalid_body", 400, "Durable lifecycle operation body contains an unsupported field.");
+  }
+  return {
+    action,
+    parameters: {
+      serviceId: candidate.serviceId as string | undefined,
+      execute: candidate.execute as boolean | undefined,
+      idempotencyKey: candidate.idempotencyKey as string | undefined,
+      confirmationId: candidate.confirmationId as string | undefined,
+      confirmationPhrase: candidate.confirmationPhrase as string | undefined,
+      confirmationTtlSeconds: candidate.confirmationTtlSeconds as number | undefined,
+    },
+  };
+}
+
+function durableLifecycleOperationError(error: unknown): ApiError | null {
+  if (!(error instanceof McpGuardedActionError) && !(error instanceof McpOperationError)) return null;
+  const code = error.code;
+  const statusCode = code === "authorization_required" ? 401
+    : code === "forbidden" || code === "insufficient_profile" || code === "insufficient_scope" || code === "mcp_read_only_mode" ? 403
+      : code === "operation_not_found" ? 404
+        : code === "idempotency_conflict" || code === "idempotency_in_progress" || code.startsWith("confirmation_") ? 409
+          : code === "operation_capacity" ? 429
+            : code.endsWith("_unavailable") || code.endsWith("_state_invalid") || code === "mcp_operation_audit_unavailable" || code === "mcp_audit_unavailable" ? 503
+              : 400;
+  return new ApiError(code, statusCode, error.message);
+}
+
+async function authorizeDurableLifecycleOperationRequest(
+  request: IncomingMessage,
+  response: ServerResponse,
+  auth: RuntimeAuthPolicyStatus,
+  config: ApiRouteConfig,
+): Promise<McpHttpAuthorization | null> {
+  try {
+    const mode = assertMcpTransportEnabled(config.mcpHttpIdentity);
+    assertMcpHostAllowed(request, config.mcpHttpIdentity);
+    if (mode !== "guarded") throw new McpHttpPolicyError("mcp_read_only_mode", 403);
+    const authorization = await authorizeMcpHttpRequest(request, auth, config.mcpHttpIdentity);
+    assertMcpRateLimit(config.mcpRateLimiter, authorization, config.mcpHttpIdentity);
+    return authorization;
+  } catch (error) {
+    if (error instanceof McpHttpPolicyError) {
+      writeMcpPolicyError(response, error);
+      return null;
+    }
+    throw error;
+  }
+}
+
 function parseRuntimeStartupSettingsBody(input: unknown): { autostart: boolean } {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     throw new ApiError("invalid_body", 400, "Runtime startup settings body must be a JSON object.");
@@ -2152,6 +2247,13 @@ function createServiceDetailResponse(service: ServiceSummary): ServiceDetailResp
   };
 }
 
+type LifecycleExecutionContext =
+  | { kind: "authenticated-request"; actor: PermissionActor; confirmed: boolean }
+  // This marker is constructed only by the confirmation executor after its
+  // actor, expiry, plan, and capability revalidation. It is deliberately not
+  // a representation of any caller-supplied request body.
+  | { kind: "confirmed-operator-stop" };
+
 async function executeLifecycleAction(
   action: string,
   service: RuntimeModel["discovered"][number],
@@ -2160,7 +2262,7 @@ async function executeLifecycleAction(
   allocationPlan?: RuntimeEndpointAllocationPlan,
   runtimeGenerationId?: string | null,
   runtimeInstanceId?: string | null,
-  requestContext?: { actor: PermissionActor; confirmed: boolean },
+  requestContext?: LifecycleExecutionContext,
   allowedMutationServiceIds?: ReadonlySet<string>,
   expectedArtifactRevision?: string,
   expectedArtifactRevisionsByService?: Readonly<Record<string, string>>,
@@ -2197,6 +2299,10 @@ async function executeLifecycleAction(
     expectedExecutableFiles,
     expectedStopExecutableBinding,
     expectedDoctorExecutableBindings,
+    // Only an authenticated HTTP request or a confirmation executor's
+    // revalidated stop capability may begin a new inspection episode. Internal
+    // shutdown, monitor, and finalizer calls keep their current episode.
+    newWindowsInspectionEpisode: action === "stop" && requestContext !== undefined,
   };
   const result = await (async () => {
     switch (action) {
@@ -2224,7 +2330,7 @@ async function executeLifecycleAction(
       case "restart":
         return await restartService(service, registry, allocationOptions);
       case "reload": {
-        if (!requestContext) {
+        if (requestContext?.kind !== "authenticated-request") {
           throw new ApiError("actor_required", 401, "Reload requires an authenticated runtime actor.");
         }
         if (!service.manifest.actions?.reload) {
@@ -2569,7 +2675,7 @@ function createMcpGuardedActionFacade(
     return service;
   };
 
-  const dependencyStartTargets = (serviceId: string): string[] => {
+  const dependencyClosureTargets = (serviceId: string): string[] => {
     const selected = new Set<string>();
     const visit = (candidateId: string): void => {
       if (selected.has(candidateId)) return;
@@ -2577,8 +2683,11 @@ function createMcpGuardedActionFacade(
       for (const dependencyId of runtimeModel.graph.getServiceDependencies(candidateId).dependencies) visit(dependencyId);
     };
     visit(serviceId);
-    return runtimeModel.graph.getGlobalStartupOrder()
-      .filter((candidateId) => selected.has(candidateId) && !getLifecycleState(candidateId).running);
+    return runtimeModel.graph.getGlobalStartupOrder().filter((candidateId) => selected.has(candidateId));
+  };
+
+  const dependencyStartTargets = (serviceId: string): string[] => {
+    return dependencyClosureTargets(serviceId).filter((candidateId) => !getLifecycleState(candidateId).running);
   };
 
   const plannedPortEffects = (serviceId: string): string[] => {
@@ -2681,6 +2790,27 @@ function createMcpGuardedActionFacade(
       blockers,
       revision,
     };
+  };
+
+  const stableStartContextRevision = async (serviceIds: string[]): Promise<string> => {
+    const targets = [...new Set(serviceIds)].sort();
+    const executableBindings = await runtimeExecutableBindings();
+    const bindings = await Promise.all(targets.map(async (serviceId) => {
+      const service = runtimeModel.registry.getById(serviceId);
+      if (!service) return [serviceId, "missing"] as const;
+      const definition = await buildServiceMutationDefinitionRevision(service);
+      return [serviceId, {
+        definition,
+      }] as const;
+    }));
+    return `service-start-context-${createHash("sha256").update(JSON.stringify({
+      allocationId: config.endpointAllocationPlan?.allocationId ?? null,
+      bindings,
+      executableFiles: Object.fromEntries(targets.map((serviceId) => [
+        serviceId,
+        executableBindings[serviceId]?.files.map((file) => ({ sha256: file.sha256, size: file.size })) ?? [],
+      ])),
+    })).digest("hex")}`;
   };
 
   const resultingState = (serviceIds: string[]) => [...new Set(serviceIds)]
@@ -2874,6 +3004,7 @@ function createMcpGuardedActionFacade(
         executable: allBlockers.length === 0 && steps.length > 0,
         skippedReason: allBlockers.length > 0 ? "runtime_preflight_blocked" : steps.length > 0 ? null : "no_runtime_targets_require_mutation",
         revision: artifactPlan.revision,
+        contextRevision: artifactPlan.revision,
       };
     }
 
@@ -2885,6 +3016,7 @@ function createMcpGuardedActionFacade(
       const selected = new Set(dependencyStartTargets(serviceId));
       if (!lifecycle.running) selected.add(serviceId);
       const runtimePlan = buildRuntimeOrchestrationDryRunPlan("startAll", runtimeModel.graph, runtimeModel.registry);
+      const stableTargets = dependencyClosureTargets(serviceId);
       const selectedSteps = runtimePlan.steps.filter((step) => selected.has(step.serviceId));
       const blockers = selectedSteps.filter((step) => step.status === "blocked");
       const steps = selectedSteps.filter((step) => step.status === "would_run");
@@ -2900,6 +3032,7 @@ function createMcpGuardedActionFacade(
         executable: !lifecycle.running && allBlockers.length === 0 && steps.length > 0,
         skippedReason: lifecycle.running ? "service_already_running" : allBlockers.length > 0 ? "service_start_preflight_blocked" : steps.length > 0 ? null : "service_not_startable",
         revision: artifactPlan.revision,
+        contextRevision: await stableStartContextRevision(stableTargets),
       };
     }
     if (action === "service_stop") {
@@ -2916,6 +3049,10 @@ function createMcpGuardedActionFacade(
         executable: lifecycle.running,
         skippedReason: lifecycle.running ? null : "service_not_running",
         revision: `service-stop-${createHash("sha256").update(JSON.stringify({
+          definitionRevision,
+          stopExecutableRevision: stopBinding.revision,
+        })).digest("hex")}`,
+        contextRevision: `service-stop-context-${createHash("sha256").update(JSON.stringify({
           definitionRevision,
           stopExecutableRevision: stopBinding.revision,
         })).digest("hex")}`,
@@ -2943,6 +3080,14 @@ function createMcpGuardedActionFacade(
             Object.entries(doctorExecutableBindings).map(([index, binding]) => [index, binding.revision]),
           ),
         })).digest("hex")}`,
+        contextRevision: `service-restart-context-${createHash("sha256").update(JSON.stringify({
+          allocationId: config.endpointAllocationPlan?.allocationId ?? null,
+          definitionRevision,
+          executableRevisions: await runtimeExecutableRevisions(),
+          doctorExecutableRevisions: Object.fromEntries(
+            Object.entries(doctorExecutableBindings).map(([index, binding]) => [index, binding.revision]),
+          ),
+        })).digest("hex")}`,
       };
     }
     if (action === "service_install") {
@@ -2955,6 +3100,7 @@ function createMcpGuardedActionFacade(
         executable,
         skippedReason: lifecycle.installed ? "service_already_installed" : artifactBinding.reason,
         revision: artifactBinding.revision,
+        contextRevision: `service-install-context-${artifactBinding.revision}`,
       };
     }
     if (action === "service_configure") {
@@ -2966,6 +3112,10 @@ function createMcpGuardedActionFacade(
         executable: report.status !== "blocked",
         skippedReason: report.status === "blocked" ? "configuration_preflight_blocked" : null,
         revision: `service-config-${createHash("sha256").update(JSON.stringify({
+          allocationId: config.endpointAllocationPlan?.allocationId ?? null,
+          definitionRevision,
+        })).digest("hex")}`,
+        contextRevision: `service-config-context-${createHash("sha256").update(JSON.stringify({
           allocationId: config.endpointAllocationPlan?.allocationId ?? null,
           definitionRevision,
         })).digest("hex")}`,
@@ -4149,6 +4299,173 @@ async function routeRequestWithoutMutationCoordination(
     return;
   }
 
+  if (url.pathname.startsWith("/api/operator/lifecycle/")) {
+    const authorization = await authorizeDurableLifecycleOperationRequest(request, response, auth, config);
+    if (!authorization) return;
+    const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+    const facade = createMcpGuardedActionFacade(runtimeModel, config);
+    const operationService = new McpOperationService({
+      workspaceRoot: config.workspaceRoot,
+      afterDurableClaim: config.mcpPolicyTestHooks?.afterDurableClaim,
+      recoverDetached: async (operation) => {
+        if (!operation.guardedExecutionId) {
+          return {
+            status: "unknown_after_crash",
+            phase: "unknown_after_crash",
+            progress: 100,
+            summary: "The durable operation has no persisted guarded execution result after runtime recovery.",
+          };
+        }
+        const completed = await readMcpGuardedActionExecution({
+          workspaceRoot: config.workspaceRoot,
+          executionId: operation.guardedExecutionId,
+          expectedCorrelationId: operation.correlationId,
+        });
+        if (!completed) {
+          return {
+            status: "unknown_after_crash",
+            phase: "unknown_after_crash",
+            progress: 100,
+            summary: "The durable operation has no authoritative guarded result after runtime recovery.",
+          };
+        }
+        return {
+          status: completed.status === "skipped" || completed.status === "replayed"
+            ? "skipped"
+            : completed.ok
+              ? "succeeded"
+              : "failed",
+          phase: completed.status === "replayed" ? "replayed" : "guarded_result_reconciled",
+          progress: 100,
+          summary: completed.summary,
+        };
+      },
+    });
+    const pathParts = url.pathname.split("/").filter(Boolean);
+    try {
+      if (request.method === "GET" && pathParts.length === 6 && pathParts[3] === "services" && pathParts[5] === "availability") {
+        const serviceId = decodeURIComponent(pathParts[4] ?? "");
+        const service = runtimeModel.registry.getById(serviceId);
+        if (!service) throw new ApiError("service_not_found", 404, "The requested service is not available.");
+        const actions = await Promise.all(Object.entries(durableLifecycleOperationActions).map(async ([name, action]) => {
+          const policy = guardedActionPolicy(action);
+          let authorizationFailure: McpGuardedActionError | null = null;
+          try {
+            await assertMcpGuardedActionAuthorization({
+              workspaceRoot: config.workspaceRoot,
+              operatingMode: "guarded",
+              authorization,
+              action,
+            });
+          } catch (error) {
+            if (!(error instanceof McpGuardedActionError)) throw error;
+            authorizationFailure = error;
+          }
+          const plan = authorizationFailure ? null : await facade.preflight(action, { serviceId });
+          return {
+            action: name,
+            available: !authorizationFailure && plan?.executable === true,
+            reason: authorizationFailure?.code ?? plan?.skippedReason ?? null,
+            permission: policy.requiredScope,
+            requiresConfirmation: policy.confirmationRequired,
+          };
+        }));
+        actions.push({
+          action: "reload",
+          available: false,
+          reason: "durable_operation_unavailable",
+          permission: "service-lasso:lifecycle:write",
+          requiresConfirmation: true,
+        });
+        writeJson(response, 200, {
+          contractVersion: "service-lasso-durable-lifecycle-operation.v1",
+          serviceId,
+          actions,
+          safety: { mutating: false, redacted: true, omittedSensitiveFields: ["command lines", "environment and config values"] },
+        });
+        return;
+      }
+
+      if (request.method === "GET" && url.pathname === "/api/operator/lifecycle/operations") {
+        const cursor = url.searchParams.get("cursor");
+        const limit = url.searchParams.get("limit");
+        const payload = await operationService.list({
+          authorization,
+          cursor: cursor === null ? undefined : Number(cursor),
+          limit: limit === null ? undefined : Number(limit),
+        });
+        writeJson(response, 200, payload);
+        return;
+      }
+
+      if (request.method === "POST" && url.pathname === "/api/operator/lifecycle/operations") {
+        assertMcpJsonContentType(request);
+        const body = parseDurableLifecycleOperationBody(await readJsonBody(request, { maxBytes: MCP_MAX_REQUEST_BODY_BYTES }));
+        const invoke = async (
+          signal?: AbortSignal,
+          reportProgress?: McpGuardedActionExecutionOptions["reportProgress"],
+          correlationId?: string,
+        ) => await invokeMcpGuardedAction({
+          workspaceRoot: config.workspaceRoot,
+          operatingMode: "guarded",
+          authorization,
+          facade,
+          action: body.action,
+          parameters: body.parameters,
+          signal,
+          reportProgress,
+          correlationId,
+        });
+        if (body.parameters.execute !== true) {
+          writeJson(response, 200, await invoke());
+          return;
+        }
+        const preflight = await preflightMcpGuardedActionExecution({
+          workspaceRoot: config.workspaceRoot,
+          operatingMode: "guarded",
+          authorization,
+          facade,
+          action: body.action,
+          parameters: body.parameters,
+          hasDurableClaim: async (guardedExecutionId) => await operationService.hasGuardedExecutionClaim({
+            authorization,
+            guardedExecutionId,
+          }),
+        });
+        const submission = await operationService.submit({
+          authorization,
+          action: body.action,
+          targetIds: body.parameters.serviceId ? [body.parameters.serviceId] : [],
+          cancellationSupported: isSafelyCancellableMcpAction(body.action),
+          guardedExecutionId: preflight.guardedExecutionId,
+          requestFingerprint: preflight.requestFingerprint,
+          alwaysAccept: true,
+          deduplicateByGuardedExecution: true,
+          execute: async (signal, reportProgress, correlationId) => await invoke(signal, reportProgress, correlationId),
+        });
+        writeJson(response, 202, submission.kind === "accepted" ? submission.payload : submission.response);
+        return;
+      }
+
+      if (pathParts.length === 5 && pathParts[3] === "operations") {
+        const operationId = decodeURIComponent(pathParts[4] ?? "");
+        if (request.method === "GET") {
+          writeJson(response, 200, await operationService.get(operationId, authorization));
+          return;
+        }
+      }
+
+      if (request.method === "POST" && pathParts.length === 6 && pathParts[3] === "operations" && pathParts[5] === "cancel") {
+        const operationId = decodeURIComponent(pathParts[4] ?? "");
+        writeJson(response, 200, await operationService.cancel(operationId, authorization));
+        return;
+      }
+    } catch (error) {
+      const translated = durableLifecycleOperationError(error);
+      throw translated ?? error;
+    }
+  }
+
   if (request.method === "GET" && url.pathname === "/api/services") {
     const runtimeModel = await loadRuntimeModel(config.servicesRoot);
     const sharedGlobalEnv = collectRuntimeGlobalEnv(runtimeModel.registry.list());
@@ -4597,6 +4914,7 @@ async function routeRequestWithoutMutationCoordination(
             config.endpointAllocationPlan,
             config.runtimeGenerationId,
             resolveRuntimeInstanceId(config),
+            record.command === "stop" ? { kind: "confirmed-operator-stop" } : undefined,
           );
         },
       );
@@ -6368,7 +6686,7 @@ async function routeRequestWithoutMutationCoordination(
           config.endpointAllocationPlan,
           config.runtimeGenerationId,
           resolveRuntimeInstanceId(config),
-          { actor: lifecycleActor, confirmed: body.confirm },
+          { kind: "authenticated-request", actor: lifecycleActor, confirmed: body.confirm },
         );
         await appendAuditEvent({
           serviceRoot: service.serviceRoot,
@@ -7279,6 +7597,10 @@ async function routeRequest(
 }
 
 export function createApiServer(options: ApiServerOptions = {}): Server {
+  return createApiServerOnCandidate(options);
+}
+
+function createApiServerOnCandidate(options: ApiServerOptions, existingServer?: Server): Server {
   if (options.mcpPolicyTestHooks && process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS !== "1") {
     throw new Error("MCP policy test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
   }
@@ -7313,7 +7635,8 @@ export function createApiServer(options: ApiServerOptions = {}): Server {
     key: randomBytes(32),
   };
 
-  const server: RuntimeApiServer = createServer((request, response) => {
+  const server: RuntimeApiServer = (existingServer ?? createServer()) as RuntimeApiServer;
+  server.on("request", (request, response) => {
     if (request.method === "GET" && request.url === RUNTIME_API_OWNERSHIP_PROBE_PATH) {
       const challenge = firstHeader(request.headers[RUNTIME_API_OWNERSHIP_CHALLENGE_HEADER]);
       if (!ownershipChallenge.active || !challenge) {
@@ -7787,6 +8110,9 @@ async function startApiServerGeneration(
   const requestedPort = options.port ?? 18080;
   const apiPortPolicy = runtimeApiPortPolicy(options, requestedPort);
   const bindRetryLimit = runtimeBindRetryLimit();
+  const automaticApiRange = requestedPort === 0 && apiPortPolicy === "automatic"
+    ? getConfiguredPortRange()
+    : null;
   const monitor = options.monitor
     ? createRuntimeServiceMonitor({
         registry: bootModel.registry,
@@ -7837,8 +8163,28 @@ async function startApiServerGeneration(
   for (let attempt = 1; attempt <= bindRetryLimit + 1; attempt += 1) {
     let attemptAllocationPlan: RuntimeEndpointAllocationPlan | null = null;
     let candidateServer: Server | null = null;
+    let kernelBoundPort: number | undefined;
     let ownershipRecorded = false;
     try {
+      if (requestedPort === 0 && apiPortPolicy === "automatic" && !recovery.allocationPlan) {
+        candidateServer = createServer();
+        // An unconstrained automatic API may ask the OS for an ephemeral port.
+        // With a configured range, bind an in-range candidate first and retain
+        // that listener through reservation, materialisation, and ownership
+        // proof so the allocation cannot escape the configured contract.
+        const candidatePort = automaticApiRange
+          ? automaticApiRange.start + attempt - 1
+          : 0;
+        if (automaticApiRange && candidatePort > automaticApiRange.end) {
+          throw new Error(`No automatic runtime API candidate remains in configured range ${automaticApiRange.start}-${automaticApiRange.end}.`);
+        }
+        await listenRuntimeApi(candidateServer, candidatePort, bindHost);
+        const candidateAddress = candidateServer.address();
+        if (!candidateAddress || typeof candidateAddress === "string" || candidateAddress.port <= 0) {
+          throw new Error("Automatic runtime API candidate failed to expose a TCP port.");
+        }
+        kernelBoundPort = candidateAddress.port;
+      }
       attemptAllocationPlan = attempt === 1 && recovery.allocationPlan
         ? await claimRuntimeEndpointAllocation(recovery.allocationPlan)
         : await planAndReserveRuntimeEndpoints({
@@ -7850,6 +8196,7 @@ async function startApiServerGeneration(
             advertiseHost: publicHost,
             port: requestedPort,
             policy: apiPortPolicy,
+            kernelBoundPort,
           },
           services: bootModel.discovered,
           generationId: runtimeGenerationId,
@@ -7874,7 +8221,7 @@ async function startApiServerGeneration(
         { completedActions: [`configuration_materialized:${allocationPlan.allocationId}`] },
       );
       await runStartupTransactionPhaseHook(options, transaction.journal);
-      candidateServer = createApiServer({
+      candidateServer = createApiServerOnCandidate({
         ...config,
         host: bindHost,
         autostart: runtimeAutostart,
@@ -7891,7 +8238,7 @@ async function startApiServerGeneration(
         mcpPolicyTestHooks: options.mcpPolicyTestHooks,
         secretRotationTestHooks: options.secretRotationTestHooks,
         runtimeShutdownSlot,
-      });
+      }, candidateServer ?? undefined);
       await recordProcessOwnership(config.workspaceRoot, {
         ownerType: "runtime",
         ownerId: runtimeInstanceId,
@@ -7912,7 +8259,9 @@ async function startApiServerGeneration(
         }
         await options.endpointAllocationTestHooks.beforeApiBind({ attempt, allocationPlan, endpoint: apiEndpoint });
       }
-      await listenRuntimeApi(candidateServer, apiEndpoint.port, bindHost);
+      if (!candidateServer.listening) {
+        await listenRuntimeApi(candidateServer, apiEndpoint.port, bindHost);
+      }
       await proveRuntimeApiSelectorOwnership(candidateServer, apiEndpoint.selectors.url);
       transaction.journal = await advanceStartupTransaction(
         transaction.journal,
@@ -7972,7 +8321,10 @@ async function startApiServerGeneration(
       const materializationFailures = await compensateStartupMaterializations(transaction, bootModel.discovered);
       if (materializationFailures.length > 0) throw error;
       if (recovery.allocationPlan) throw error;
-      if (!isAddressInUse(error) || apiPortPolicy === "fixed" || attempt > bindRetryLimit) throw error;
+      const heldCandidateConflict = kernelBoundPort !== undefined
+        && error instanceof RuntimeEndpointAllocationError
+        && error.ownerId === "runtime-api";
+      if ((!isAddressInUse(error) && !heldCandidateConflict) || apiPortPolicy === "fixed" || attempt > bindRetryLimit) throw error;
     }
   }
   try {

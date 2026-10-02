@@ -6,6 +6,13 @@ import { LATEST_PROTOCOL_VERSION, SUPPORTED_PROTOCOL_VERSIONS } from "@modelcont
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const MAX_CAPTURE_BYTES = 2 * 1024 * 1024;
+const RUN_COMMAND_FAILURE_KINDS = new Set([
+  "deadline_exceeded",
+  "output_capture_exceeded",
+  "spawn_failed",
+  "exit_nonzero",
+  "unknown",
+]);
 const SAFE_DIAGNOSTIC_CODE = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/u;
 const PACKAGED_ACCEPTANCE_ERROR_PREFIX = "[mcp-package-acceptance-error] ";
 const DEFAULT_DIAGNOSTIC_TIMEOUT_MS = 5_000;
@@ -62,6 +69,52 @@ const GUARDED_DIAGNOSTIC_PROCESS_START_PHASES = new Set([
   "launcher_acknowledgement_write",
   "unclassified_error",
 ]);
+const GUARDED_DIAGNOSTIC_WINDOWS_TREE_INSPECTION_PHASES = new Set([
+  "queue_wait",
+  "native_snapshot",
+  "retry_delay",
+]);
+const GUARDED_DIAGNOSTIC_WINDOWS_TREE_INSPECTION_RETRIES = new Set([
+  "helper_failed", "malformed", "incomplete", "invalid_ancestry", "inconsistent_root",
+  "ancestry_invalid_parent", "ancestry_predates_root", "ancestry_cycle",
+  "ancestry_missing_parent", "ancestry_predates_parent",
+  "ancestry_predates_parent_before_root", "ancestry_predates_parent_within_root",
+  "snapshot_create", "snapshot_enumerate", "snapshot_close", "changed_ancestry",
+  ...["root", "descendant"].flatMap((subject) => [
+    "open", "identity", "time", "image", "parent", "command_size", "command_query",
+    "command_bounds", "command_empty", "handle_close", "open_denied", "command_denied",
+    "command_length_changed", "command_unsupported", "command_native_failure",
+    "command_result_length", "command_buffer_small", "command_partial_copy",
+    "command_terminating", "command_unsuccessful", "command_buffer_overflow",
+  ].map((stage) => `${subject}_${stage}`)),
+]);
+
+const boundedDiagnosticInteger = (value, maximum) =>
+  typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= maximum ? value : null;
+
+// Keep the packaged runner's failure receipt aligned with the runtime's closed
+// tree-inspection projection. This function intentionally drops every value
+// outside the six diagnostic fields, including process identities and text.
+export function projectPackagedWindowsTreeInspection(value) {
+  if (!isRecord(value) || !GUARDED_DIAGNOSTIC_WINDOWS_TREE_INSPECTION_PHASES.has(value.windowsTreeInspectionPhase)) return null;
+  return {
+    windowsTreeInspectionPhase: value.windowsTreeInspectionPhase,
+    windowsTreeInspectionAttempts: boundedDiagnosticInteger(value.windowsTreeInspectionAttempts, 1000),
+    windowsTreeInspectionRetries: boundedDiagnosticInteger(value.windowsTreeInspectionRetries, 1000),
+    windowsTreeInspectionQueueMs: boundedDiagnosticInteger(value.windowsTreeInspectionQueueMs, 600000),
+    windowsTreeInspectionNativeMs: boundedDiagnosticInteger(value.windowsTreeInspectionNativeMs, 600000),
+    windowsTreeInspectionLastRetry: GUARDED_DIAGNOSTIC_WINDOWS_TREE_INSPECTION_RETRIES.has(value.windowsTreeInspectionLastRetry)
+      ? value.windowsTreeInspectionLastRetry
+      : null,
+  };
+}
+
+function isPackagedWindowsTreeInspection(value) {
+  const projected = projectPackagedWindowsTreeInspection(value);
+  return projected !== null &&
+    hasOnlyKeys(value, new Set(Object.keys(projected))) &&
+    Object.entries(projected).every(([key, expected]) => value[key] === expected);
+}
 export const MCP_PACKAGED_SAFE_AUDIT_DIAGNOSTIC_REASONS = Object.freeze([
   "audit_event_not_found",
   "audit_probe_failed",
@@ -219,6 +272,7 @@ export function parsePackagedAcceptanceFailure(stderr) {
         "readinessAttribution",
         "healthcheckFailed",
         "processStartFailurePhase",
+        "windowsTreeInspection",
       ])) ||
       !(parsed.guardedProbe.lifecycle.attemptStatus === null || GUARDED_DIAGNOSTIC_TRACE_STATUSES.has(parsed.guardedProbe.lifecycle.attemptStatus)) ||
       !(parsed.guardedProbe.lifecycle.phase === null || GUARDED_DIAGNOSTIC_TRACE_PHASES.has(parsed.guardedProbe.lifecycle.phase)) ||
@@ -226,7 +280,9 @@ export function parsePackagedAcceptanceFailure(stderr) {
       !(parsed.guardedProbe.lifecycle.readinessAttribution === null || GUARDED_DIAGNOSTIC_READINESS.has(parsed.guardedProbe.lifecycle.readinessAttribution)) ||
       !(parsed.guardedProbe.lifecycle.healthcheckFailed === null || typeof parsed.guardedProbe.lifecycle.healthcheckFailed === "boolean") ||
       !(parsed.guardedProbe.lifecycle.processStartFailurePhase === null ||
-        GUARDED_DIAGNOSTIC_PROCESS_START_PHASES.has(parsed.guardedProbe.lifecycle.processStartFailurePhase))
+        GUARDED_DIAGNOSTIC_PROCESS_START_PHASES.has(parsed.guardedProbe.lifecycle.processStartFailurePhase)) ||
+      !(parsed.guardedProbe.lifecycle.windowsTreeInspection === null ||
+        isPackagedWindowsTreeInspection(parsed.guardedProbe.lifecycle.windowsTreeInspection))
     ) return null;
     diagnostic.guardedProbe = {
       completed: { ...parsed.guardedProbe.completed },
@@ -282,7 +338,7 @@ export async function runCommand(command, args, options = {}) {
     let settled = false;
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
-      finish(new Error(`Command did not complete within ${timeoutMs}ms.`));
+      finish(markRunCommandFailure(new Error(`Command did not complete within ${timeoutMs}ms.`), "deadline_exceeded"));
     }, timeoutMs);
     timer.unref?.();
 
@@ -290,7 +346,7 @@ export async function runCommand(command, args, options = {}) {
       const next = kind === "stdout" ? stdoutBytes + chunk.length : stderrBytes + chunk.length;
       if (next > MAX_CAPTURE_BYTES) {
         child.kill("SIGKILL");
-        finish(new Error(`Command ${kind} exceeded the bounded capture limit.`));
+        finish(markRunCommandFailure(new Error(`Command ${kind} exceeded the bounded capture limit.`), "output_capture_exceeded"));
         return;
       }
       chunks.push(chunk);
@@ -299,7 +355,7 @@ export async function runCommand(command, args, options = {}) {
     };
     child.stdout.on("data", (chunk) => append(stdout, chunk, "stdout"));
     child.stderr.on("data", (chunk) => append(stderr, chunk, "stderr"));
-    child.once("error", finish);
+    child.once("error", (error) => finish(markRunCommandFailure(error, "spawn_failed")));
     child.once("exit", (code, signal) => {
       const result = {
         code,
@@ -308,7 +364,10 @@ export async function runCommand(command, args, options = {}) {
         stderr: Buffer.concat(stderr).toString("utf8"),
       };
       if (code === 0) finish(null, result);
-      else finish(new Error(`Command failed with exit code ${code ?? "none"} and signal ${signal ?? "none"}.`), result);
+      else finish(markRunCommandFailure(
+        new Error(`Command failed with exit code ${code ?? "none"} and signal ${signal ?? "none"}.`),
+        typeof code === "number" && code !== 0 ? "exit_nonzero" : "unknown",
+      ), result);
     });
 
     function finish(error, result) {
@@ -323,6 +382,33 @@ export async function runCommand(command, args, options = {}) {
       }
     }
   });
+}
+
+function markRunCommandFailure(error, kind) {
+  if (!error || typeof error !== "object" || !RUN_COMMAND_FAILURE_KINDS.has(kind)) return error;
+  try {
+    Object.defineProperty(error, "runCommandFailureKind", {
+      configurable: false,
+      enumerable: false,
+      value: kind,
+      writable: false,
+    });
+  } catch {
+    // The receipt stays closed when an unexpected frozen error cannot carry the
+    // wrapper observation.
+  }
+  return error;
+}
+
+export function runCommandFailureKind(error) {
+  if (!error || typeof error !== "object") return "unknown";
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(error, "runCommandFailureKind");
+    const kind = descriptor && "value" in descriptor ? descriptor.value : undefined;
+    return typeof kind === "string" && RUN_COMMAND_FAILURE_KINDS.has(kind) ? kind : "unknown";
+  } catch {
+    return "unknown";
+  }
 }
 
 async function inspectorEntrypoint() {

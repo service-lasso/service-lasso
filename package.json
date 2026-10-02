@@ -58,6 +58,8 @@
     "docs:serve": "node ./node_modules/@docusaurus/core/bin/docusaurus.mjs serve docs",
     "docs:clear": "node ./node_modules/@docusaurus/core/bin/docusaurus.mjs clear docs",
     "docs:check-secrets-ledger": "node scripts/check-secrets-capability-ledger.mjs",
+    "docs:check-staged-service-transfer": "node scripts/check-staged-service-transfer-contract.mjs",
+    "docs:check-service-producer-release-policy": "node scripts/check-service-producer-release-policy-contract.mjs",
     "verify:release-authority": "node scripts/verify-core-release-authority.mjs",
     "audit:production": "node scripts/audit-request-observation.mjs production",
     "audit:tooling": "node scripts/audit-request-observation.mjs tooling",
@@ -69,19 +71,20 @@
     "verify:release-governance": "node scripts/validate-release-governance.mjs && node --test tests/release-governance.test.js"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.30.0",
+    "@modelcontextprotocol/sdk": "1.30.1",
     "fflate": "0.8.3",
     "jose": "6.2.12",
     "tar": "7.5.22",
+    "unicode-case-folding": "1.1.1",
     "zod": "4.6.5"
   },
   "devDependencies": {
     "@docusaurus/core": "3.10.2",
     "@docusaurus/preset-classic": "3.10.2",
     "@mdx-js/react": "^3.1.1",
-    "@modelcontextprotocol/inspector": "2.7.0",
+    "@modelcontextprotocol/inspector": "2.8.0",
     "@playwright/test": "1.63.0",
-    "@types/node": "^26.6.1",
+    "@types/node": "^26.6.2",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "selfsigned": "5.5.0",
