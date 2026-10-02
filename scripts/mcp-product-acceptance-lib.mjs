@@ -281,9 +281,6 @@ export async function runCommand(command, args, options = {}) {
       env: options.env ?? process.env,
       windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"],
-      // A POSIX process group lets a deadline reclaim only this command's owned
-      // descendants, including descendants which inherited an output pipe.
-      detached: process.platform !== "win32",
     });
     const stdout = [];
     const stderr = [];
@@ -291,10 +288,9 @@ export async function runCommand(command, args, options = {}) {
     let stderrBytes = 0;
     let settled = false;
     let pendingFailure;
-    let terminationStarted = false;
     const timer = setTimeout(() => {
       failAfterClose(markRunCommandFailure(new Error(`Command did not complete within ${timeoutMs}ms.`), "deadline_exceeded"));
-      terminateOwnedTree();
+      child.kill("SIGKILL");
     }, timeoutMs);
     timer.unref?.();
 
@@ -302,7 +298,7 @@ export async function runCommand(command, args, options = {}) {
       const next = kind === "stdout" ? stdoutBytes + chunk.length : stderrBytes + chunk.length;
       if (next > MAX_CAPTURE_BYTES) {
         failAfterClose(markRunCommandFailure(new Error(`Command ${kind} exceeded the bounded capture limit.`), "output_capture_exceeded"));
-        terminateOwnedTree();
+        child.kill("SIGKILL");
         return;
       }
       chunks.push(chunk);
@@ -334,30 +330,6 @@ export async function runCommand(command, args, options = {}) {
 
     function failAfterClose(error) {
       if (!pendingFailure) pendingFailure = error;
-    }
-
-    function terminateOwnedTree() {
-      if (terminationStarted) return;
-      terminationStarted = true;
-      const pid = child.pid;
-      if (!Number.isInteger(pid) || pid <= 0) return;
-      if (process.platform === "win32") {
-        const systemRoot = process.env.SystemRoot ?? process.env.WINDIR;
-        if (!systemRoot || !path.win32.isAbsolute(systemRoot)) {
-          child.kill("SIGKILL");
-          return;
-        }
-        const taskkill = path.win32.join(path.win32.normalize(systemRoot), "System32", "taskkill.exe");
-        // taskkill receives only the live direct-child PID and `/t`, so it can
-        // reclaim the command's descendants without selecting unrelated jobs.
-        spawn(taskkill, ["/pid", String(pid), "/t", "/f"], { windowsHide: true, stdio: "ignore" });
-        return;
-      }
-      try {
-        process.kill(-pid, "SIGKILL");
-      } catch {
-        child.kill("SIGKILL");
-      }
     }
 
     function finish(error, result) {
