@@ -18,3 +18,4 @@ Apply this checklist to both long-lived branches. `develop` is the repository de
 - [ ] Allow `main` pull requests only for explicit `develop` promotions or authorised urgent hotfixes.
 - [ ] Require every urgent hotfix merged to `main` to be reconciled immediately into `develop`.
 - [ ] Reconcile the live branch-protection settings into the next bootstrap/adoption status artifact.
+- [ ] Preserve only PR #1586 / develop / codex/850-native-custody-platform-followup / service-lasso/service-lasso as SPEC-003 grandfathering of the already-owned head; all direction/current-develop ancestry checks remain required and new normal branches remain typed.

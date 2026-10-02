@@ -7,7 +7,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { promisify } from "node:util";
-import { sha256, validAcl, darwinCacheHeader, nonReparseDirectory, createExclusiveDirectory, ownership, chain, recheck } from "../scripts/private-first-custody-v3-lib.mjs";
+import { sha256, validAcl, darwinCacheHeader, nonReparseDirectory, createExclusiveDirectory, ownership, chain, recheck, exclusiveBytes } from "../scripts/private-first-custody-v3-lib.mjs";
 
 const exec = promisify(execFile);
 const producer = new URL("../scripts/record-packaged-admin-first-custody.mjs", import.meta.url);
@@ -155,4 +155,31 @@ test("BR008 actual directory parent replacement invalidates its retained identit
     await mkdir(parent);
     await assert.rejects(recheck(snapshot), /first_custody_parent_replaced/u);
   } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("BR008 own mkdir and exclusive writes preserve retained directory object identity", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "custody-own-mutation-"));
+  try {
+    const directory = path.join(root, "private");
+    const before = await chain(root, root);
+    const original = await createExclusiveDirectory(directory, root);
+    await recheck(before);
+    const snapshot = await chain(directory, root);
+    await createExclusiveDirectory(path.join(directory, "child"), root);
+    const file = await exclusiveBytes(path.join(directory, "raw.stdout"), Buffer.from("closed raw output"), directory);
+    await recheck(snapshot);
+    const after = await ownership(directory, root);
+    assert.deepEqual(after, original);
+    assert.equal(file.size, Buffer.byteLength("closed raw output"));
+    assert.equal(file.sha256, sha256("closed raw output"));
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+test("BR008 projector rejects actual retained root replacement after legitimate producer writes", async () => {
+  const f = await fixture();
+  try {
+    await command(producer, [], f.workspace, f.env);
+    await rename(f.evidence, f.evidence + "-retained-original");
+    await createExclusiveDirectory(f.evidence, path.dirname(f.privateRoot));
+    await assert.rejects(command(projector, ["--input", f.env.QUALIFICATION_INITIAL_RECEIPT_PATH, "--journal", path.join(f.privateRoot, "first-custody-journal.json"), "--output", path.join(f.evidence, "initial-projection.json")], f.workspace, f.env), /first_custody_validator_root_changed/u);
+  } finally { await rm(f.root, { recursive: true, force: true }); }
 });

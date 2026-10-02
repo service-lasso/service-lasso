@@ -186,3 +186,5 @@ Issue #1386 requires closed packaged-verifier phase diagnostics that distinguish
 Issue #1326 confirmed exit-during-query handling requires successful termination evidence from the same held native handle; live/unknown/259 statuses stay fail closed. Preserve native query rights, ancestry, retries, deadlines and original failed observations. Bind native safety tests and exact-head qualification before delivery claims.
 
 Issue #1326 parent-edge lifetime diagnostic follow-up binds AC-4BH: retain the 079eb33 startup rejection and classify only whether the rejected edge crosses before expected-root creation. No process details or membership/deadline relaxation; require bounded rejection and privacy tests plus exact-head qualification.
+
+PR #1586's bounded BR-008 review repair preserves stable directory identity, the exact two-key public v2 attestation, and only its documented existing-head tuple. This is source work; private native provenance, file stability, ancestry, and fresh ROOT admission remain mandatory before qualification.

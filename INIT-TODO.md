@@ -99,3 +99,4 @@ This file tracks bootstrap/adoption/remediation work required before product imp
   naming without retrying or weakening the primary gate.
 - [ ] Before any dependency install, build, test, or Core import, retain the
   required isolated external runtime custody record and obtain parent readback.
+- [ ] PR #1586 / ISS-850 / BR-008 C1/C2/C3 source repair: stable directory replacement identity, strict public-v2 two-key consumers, exact existing-head grandfathering. Fresh full source review and external ROOT admission precede any execution; no provider protection/check bypass or generic codex namespace admission.

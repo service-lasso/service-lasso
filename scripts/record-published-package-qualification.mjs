@@ -1,3 +1,4 @@
+import { validInitialProjection } from "./public-first-custody-projection-lib.mjs";
 import { lstat, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
@@ -50,7 +51,7 @@ const runAttemptForInitialReceipt = requirePositiveInteger(env("GITHUB_RUN_ATTEM
 const initialProjectionPath = path.resolve(env("QUALIFICATION_INITIAL_PROJECTION_PATH", /^.+$/u));
 const initialProjectionSource = await readFile(initialProjectionPath, "utf8").catch(() => null);
 const initialProjection = initialProjectionSource && strictJson(initialProjectionSource) ? JSON.parse(initialProjectionSource) : null;
-if (!initialProjection || typeof initialProjection !== "object" || Array.isArray(initialProjection) || Object.keys(initialProjection).sort().join(",") !== "candidate,localValidatorAttestation,platform,privateInitialReceiptSha256,privateJournalSha256,privateVersion,run,schema" || initialProjection.schema !== "service-lasso.qualification-first-custody-projection.v2" || initialProjection.privateVersion !== "v3" || initialProjection.platform !== platform || initialProjection.candidate?.head !== process.env.QUALIFICATION_CANDIDATE_SHA || !/^[0-9a-f]{40}$/u.test(initialProjection.candidate?.tree) || String(initialProjection.run?.id) !== String(runIdForInitialReceipt) || String(initialProjection.run?.attempt) !== String(runAttemptForInitialReceipt) || initialProjection.localValidatorAttestation?.schema !== "service-lasso.qualification-local-validator-attestation.v2" || initialProjection.localValidatorAttestation?.validated !== true || initialProjection.localValidatorAttestation?.nativeBirthCustody !== "HELD_NATIVE_V1" || !/^[0-9a-f]{64}$/u.test(initialProjection.privateInitialReceiptSha256) || !/^[0-9a-f]{64}$/u.test(initialProjection.privateJournalSha256)) throw new Error("Initial qualification projection custody is invalid.");
+if (!validInitialProjection(initialProjection, platform, runIdForInitialReceipt, runAttemptForInitialReceipt, process.env.QUALIFICATION_CANDIDATE_SHA)) throw new Error("Initial qualification projection custody is invalid.");
 const prebrowserPath = process.env.ADMIN_TRUSTED_UNLOCK_PREBROWSER_FAILURE_PATH;
 if (prebrowserPath) {
   const source = await readFile(path.resolve(prebrowserPath), "utf8").catch(() => null);

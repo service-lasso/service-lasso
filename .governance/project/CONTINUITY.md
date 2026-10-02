@@ -69,3 +69,22 @@ Next owner: parent conducts fresh full cumulative source review, reads a new
 complete external first-input custody bundle, then admits or rejects execution.
 All modified paths in this worktree are intended governed source/test/doc changes;
 the retained PR branch/worktree is the explicit bounded review/qualification path.
+
+## PR #1586 cumulative C1/C2/C3 source bundle
+
+The fresh sole author continued the same clean existing head at 28bf708 without
+branch creation or ownership transfer to unrelated workers. C1 now separates
+stable dev/ino directory object identity from file size/mtime stability; parent
+snapshots retain owner/mode, physical/reparse checks and private root ACL proof.
+C2 shares one strict public-v2 validator across both aggregates and the published
+recorder; all accept exactly {schema, validated}, with native proof private in v3.
+C3 documents/adopts only the exact PR1586/develop/full-head/same-head-repository
+tuple, preserving PR1584's bound exception and direction/current-develop ancestry.
+New sources cover own mkdir/write preservation, actual retained parent replacement,
+canonical/expanded/malformed public fixtures/recorder, and real branch-direction
+script negative tuple cases. All execution remains UNEXECUTED, including syntax,
+imports, dependencies, tests, build, native helpers and compiler actions. Only
+manual source/Git checks were used. Fresh entire cumulative review and external
+ROOT exact-source admission are next; no previous receipt qualifies these bytes.
+Keep original branch-policy run36987350575/job110775283569 and Lifecycle Ubuntu
+run36987323512/job110775201090 as failures. #1590 remains separately owned.

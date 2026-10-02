@@ -23,7 +23,7 @@ function initialProjectionFor(platform, overrides = {}) {
     schema: "service-lasso.qualification-first-custody-projection.v2", privateVersion: "v3", platform,
     run: { id: runId, attempt: runAttempt }, candidate: { head: candidateSha, tree: "e".repeat(40) },
     privateInitialReceiptSha256: "f".repeat(64), privateJournalSha256: "e".repeat(64),
-    localValidatorAttestation: { schema: "service-lasso.qualification-local-validator-attestation.v2", validated: true, nativeBirthCustody: "HELD_NATIVE_V1" },
+    localValidatorAttestation: { schema: "service-lasso.qualification-local-validator-attestation.v2", validated: true },
     ...overrides,
   };
 }
@@ -76,6 +76,9 @@ test("AC-4BY.2 rejects missing, stale, and expanded public custody projections f
   for (const [label, mutate] of [
     ["missing", async (directory) => rm(path.join(directory, "initial-projection.json"))],
     ["stale", async (directory) => writeFile(path.join(directory, "initial-projection.json"), JSON.stringify(initialProjectionFor("win32", { run: { id: String(Number(runId) - 1), attempt: runAttempt } })))],
+    ["expanded attestation", async (directory) => writeFile(path.join(directory, "initial-projection.json"), JSON.stringify(initialProjectionFor("win32", { localValidatorAttestation: { ...initialProjectionFor("win32").localValidatorAttestation, nativeBirthCustody: "HELD_NATIVE_V1" } })))],
+    ["malformed attestation", async (directory) => writeFile(path.join(directory, "initial-projection.json"), JSON.stringify(initialProjectionFor("win32", { localValidatorAttestation: ["schema", "validated"] })))],
+    ["unvalidated attestation", async (directory) => writeFile(path.join(directory, "initial-projection.json"), JSON.stringify(initialProjectionFor("win32", { localValidatorAttestation: { schema: "service-lasso.qualification-local-validator-attestation.v2", validated: false } })))],
     ["expanded", async (directory) => writeFile(path.join(directory, "initial-projection.json"), JSON.stringify({ ...initialProjectionFor("win32"), extra: true }))],
   ]) {
     const normal = await fixture(async (root) => mutate(path.join(root, `packaged-admin-lifecycle-win32-${runId}-${runAttempt}`)));
