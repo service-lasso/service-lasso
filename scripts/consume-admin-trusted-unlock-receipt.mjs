@@ -424,11 +424,14 @@ async function validateObserverTerminal(root, nonce, source, wantClose) {
       || terminal.state !== "UNRESOLVED" || !sameTuple(terminal, nonce, source) || JSON.stringify(terminal.provider) !== JSON.stringify(initial.provider)) return null;
     return { unresolved: true };
   }
-  if (!exactKeys(terminal, ["schema", "private", "nonce", "source", "plan", "activation", "unresolved", "initial", "provider", "terminal", "trustedUnlock", "streams"])
+  if (!exactKeys(terminal, ["schema", "private", "nonce", "source", "plan", "activation", "unresolved", "initial", "provider", "terminal", "providerTerminal", "trustedUnlock", "streams"])
     || terminal.schema !== "service-lasso.admin-provider-observer-close.v2" || terminal.private !== true || terminal.plan !== "plan.json" || terminal.activation !== "activation.json" || terminal.initial !== "initial.json"
     || !sameTuple(terminal, nonce, source) || JSON.stringify(terminal.provider) !== JSON.stringify(initial.provider)
     || !exactKeys(terminal.terminal, ["exitCode", "signal", "spawnError"])
-    || typeof terminal.terminal.spawnError !== "boolean" || !Array.isArray(terminal.streams) || terminal.streams.length !== 2
+    || typeof terminal.terminal.spawnError !== "boolean"
+    || !exactKeys(terminal.providerTerminal, ["childCloseObserved", "stdoutClosed", "stderrClosed"])
+    || terminal.providerTerminal.childCloseObserved !== true || terminal.providerTerminal.stdoutClosed !== true || terminal.providerTerminal.stderrClosed !== true
+    || !Array.isArray(terminal.streams) || terminal.streams.length !== 2
     || terminal.streams.some((entry) => !exactKeys(entry, ["bytes", "sha256"]) || !Number.isSafeInteger(entry.bytes) || entry.bytes < 0 || !/^[0-9a-f]{64}$/u.test(entry.sha256))
     || !["missing", "invalid", "closed"].includes(terminal.trustedUnlock?.classification)
     || (terminal.trustedUnlock.classification === "closed" && (!exactKeys(terminal.trustedUnlock, ["classification", "receipt"]) || !parseReceipt(JSON.stringify(terminal.trustedUnlock.receipt))))
@@ -464,6 +467,7 @@ async function recordAndValidateObserverExit(root, nonce, source, close, observe
     && persisted.schema === witness.schema && persisted.private === true && persisted.close === "close.json" && persisted.state === "OBSERVER_EXITED"
     && persisted.heldHandle === true && persisted.childAndPipesClosed === true && sameTuple(persisted, nonce, source)
     && JSON.stringify(persisted.observer) === JSON.stringify(initial.observer) && JSON.stringify(persisted.terminal) === JSON.stringify(observerExit)
+    && close.providerTerminal?.childCloseObserved === true && close.providerTerminal?.stdoutClosed === true && close.providerTerminal?.stderrClosed === true
     && JSON.stringify(close.provider) === JSON.stringify(initial.provider);
 }
 
@@ -500,10 +504,12 @@ export async function consumeWithDurableObserver(command, args, options = {}) {
   }
   const close = await validateObserverTerminal(root, nonce, source, true);
   if (!close) return { code: null, signal: null, executionFailure: "spawn_failed", trustedUnlock: { classification: "invalid" }, streamFailure: null };
-  let exitTimer;
-  const observerExit = await Promise.race([observerExitPromise, new Promise((resolve) => { exitTimer = setTimeout(() => resolve(null), 5_000); })]);
-  clearTimeout(exitTimer);
-  if (!observerExit || !(await recordAndValidateObserverExit(root, nonce, source, close, observer, observerExit))) {
+  // `close.json` binds a real owned provider exit and both closed pipes. Only
+  // then wait for this exact observer's native handle to close.  There is no
+  // global timeout or synthetic termination: timeout callers already settled
+  // on durable UNRESOLVED custody and do not enter this path.
+  const observerExit = await observerExitPromise;
+  if (!(await recordAndValidateObserverExit(root, nonce, source, close, observer, observerExit))) {
     observer.unref();
     return { code: null, signal: null, executionFailure: "observer_terminal_unresolved", trustedUnlock: { classification: "missing" }, streamFailure: null };
   }

@@ -222,11 +222,43 @@ test("AC-4BY.2 accepts only the complete observed observer close as a shipped po
     assert.equal(close.initial, "initial.json");
     assert.equal(close.provider.parentPid > 0, true);
     assert.equal(close.provider.birth.length > 0, true);
+    assert.deepEqual(close.providerTerminal, { childCloseObserved: true, stdoutClosed: true, stderrClosed: true });
     assert.equal(terminal.state, "OBSERVER_EXITED");
     assert.equal(terminal.heldHandle, true);
     assert.equal(terminal.childAndPipesClosed, true);
     assert.equal(terminal.observer.pid, close.provider.parentPid);
     assert.doesNotMatch(JSON.stringify(close), /workspace|instance-registry|host-port-registry/iu);
+  } finally { await rm(root, { recursive: true, force: true, maxRetries: 4, retryDelay: 100 }); }
+});
+
+test("AC-4BY.2 timeout settles only on durable UNRESOLVED custody and leaves the owned observer to record its eventual native close", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "admin-receipt-durable-timeout-"));
+  try {
+    const observerRoot = path.join(root, "observer");
+    const provider = path.join(root, "provider.mjs");
+    const inputs = {
+      workspaceRoot: path.join(root, "workspace"),
+      instanceRegistryPath: path.join(root, "instance-registry.json"),
+      hostPortRegistryPath: path.join(root, "host-port-registry.json"),
+    };
+    await writeFile(provider, "setTimeout(() => process.exit(7), 180);\n");
+    const result = await consumeWithDurableObserver(process.execPath, [provider], {
+      cwd: root, observerRoot, timeoutMs: 20,
+      source: { head: "c".repeat(40), tree: "d".repeat(40) }, inputs,
+    });
+    assert.equal(result.executionFailure, "execution_timeout");
+    const unresolved = JSON.parse(await readFile(path.join(observerRoot, "unresolved.json"), "utf8"));
+    assert.equal(unresolved.state, "UNRESOLVED");
+    const deadline = Date.now() + 3_000;
+    while (Date.now() < deadline) {
+      try {
+        const close = JSON.parse(await readFile(path.join(observerRoot, "close.json"), "utf8"));
+        assert.equal(close.terminal.exitCode, 7);
+        assert.deepEqual(close.providerTerminal, { childCloseObserved: true, stdoutClosed: true, stderrClosed: true });
+        return;
+      } catch { await new Promise((resolve) => setTimeout(resolve, 10)); }
+    }
+    assert.fail("owned observer did not retain eventual provider close");
   } finally { await rm(root, { recursive: true, force: true, maxRetries: 4, retryDelay: 100 }); }
 });
 

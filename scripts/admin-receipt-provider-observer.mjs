@@ -48,6 +48,14 @@ async function observedIdentity(pid, expectedParentPid) {
 
 function required(value, matcher) { return typeof value === "string" && matcher.test(value); }
 
+function validRuntimeInputs(inputs) {
+  if (!inputs || typeof inputs !== "object" || Array.isArray(inputs)
+    || Object.keys(inputs).sort().join(",") !== "hostPortRegistryPath,instanceRegistryPath,workspaceRoot") return false;
+  const values = Object.values(inputs);
+  return values.every((value) => typeof value === "string" && path.isAbsolute(value) && !/[\r\n\0]/u.test(value))
+    && new Set(values.map((value) => path.resolve(value))).size === values.length;
+}
+
 // The observer hashes all provider output but retains only the fixed primitive
 // receipt shape.  This keeps the positive shipped path useful without moving
 // raw browser output or private values into any custody document.
@@ -97,6 +105,7 @@ export async function observeProvider(config) {
   if (!config || typeof config !== "object" || !Array.isArray(config.args) || !required(config.command, /.+/u) || !required(config.root, /.+/u)) throw new Error("observer_config_invalid");
   const source = config.source;
   if (!source || !required(source.head, hex40) || !required(source.tree, hex40) || !required(config.nonce, hex64)) throw new Error("observer_tuple_invalid");
+  if (!validRuntimeInputs(config.inputs)) throw new Error("observer_runtime_inputs_invalid");
   const root = path.resolve(config.root);
   if (root !== config.root) throw new Error("observer_root_not_absolute");
   const existingRoot = await lstat(root).catch((error) => error?.code === "ENOENT" ? null : Promise.reject(error));
@@ -135,6 +144,16 @@ export async function observeProvider(config) {
   // which exits in that narrow window is still closed from the real child and
   // pipe events; we never substitute a pre-launch timestamp as its birth.
   const streams = [child.stdout, child.stderr].map(() => ({ bytes: 0, hash: createHash("sha256"), receipt: receiptObservation() }));
+  // Each pipe's close event is separately retained in memory before the child
+  // close event.  A `close.json` record is never an intention to observe a
+  // provider: it is emitted only after the owned OS child and both inherited
+  // pipe handles have actually reached their native terminal events.
+  const pipeClosure = [child.stdout, child.stderr].map((stream) => new Promise((resolve) => {
+    let settled = false;
+    const finish = () => { if (!settled) { settled = true; resolve(true); } };
+    stream.once("close", finish);
+    stream.once("error", finish);
+  }));
   [child.stdout, child.stderr].forEach((stream, index) => stream.on("data", (chunk) => { streams[index].bytes += chunk.length; streams[index].hash.update(chunk); streams[index].receipt.write(chunk); }));
   const closed = new Promise((resolve) => { child.once("error", () => resolve({ code: null, signal: null, spawnError: true })); child.once("close", (code, signal) => resolve({ code, signal, spawnError: false })); });
   let provider = null;
@@ -167,11 +186,14 @@ export async function observeProvider(config) {
   }, deadline);
   timer.unref?.();
   const result = await closed;
+  await Promise.all(pipeClosure);
   clearTimeout(timer);
   await exclusiveJson(path.join(root, "close.json"), {
     schema: "service-lasso.admin-provider-observer-close.v2", private: true,
     nonce: config.nonce, source, plan: "plan.json", activation: provider ? "activation.json" : null, unresolved: unresolved ? "unresolved.json" : null, initial: "initial.json",
-    provider: initial.provider, terminal: { exitCode: result.code, signal: result.signal, spawnError: result.spawnError },
+    provider: initial.provider,
+    terminal: { exitCode: result.code, signal: result.signal, spawnError: result.spawnError },
+    providerTerminal: { childCloseObserved: true, stdoutClosed: true, stderrClosed: true },
     trustedUnlock: (() => {
       const observations = streams.map((entry) => entry.receipt.end());
       const closed = observations.filter((entry) => entry.classification === "closed");

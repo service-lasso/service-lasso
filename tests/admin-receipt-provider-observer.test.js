@@ -21,7 +21,7 @@ test("AC-4BY.2 durable observer writes immutable unresolved custody then an even
   const config = path.join(root, "config.json");
   try {
     await writeFile(provider, "setInterval(() => process.stdout.write('private-raw\\n'), 20); setTimeout(() => process.exit(7), 200);\n");
-    await writeFile(config, JSON.stringify({ root: observerRoot, command: process.execPath, args: [provider], cwd: root, timeoutMs: 40, nonce: "a".repeat(64), source: { head: "b".repeat(40), tree: "c".repeat(40) }, inputs: { workspaceRoot: root } }));
+    await writeFile(config, JSON.stringify({ root: observerRoot, command: process.execPath, args: [provider], cwd: root, timeoutMs: 40, nonce: "a".repeat(64), source: { head: "b".repeat(40), tree: "c".repeat(40) }, inputs: { workspaceRoot: path.join(root, "workspace"), instanceRegistryPath: path.join(root, "instance-registry.json"), hostPortRegistryPath: path.join(root, "host-port-registry.json") } }));
     const observer = spawn(process.execPath, [fileURLToPath(new URL("../scripts/admin-receipt-provider-observer.mjs", import.meta.url)), config], { stdio: "ignore", windowsHide: true });
     const initial = await waitFor(path.join(observerRoot, "initial.json"));
     const plan = await waitFor(path.join(observerRoot, "plan.json"));
@@ -41,6 +41,7 @@ test("AC-4BY.2 durable observer writes immutable unresolved custody then an even
     assert.equal(closed.unresolved, "unresolved.json");
     assert.deepEqual(closed.provider, initial.provider);
     assert.equal(closed.terminal.exitCode, 7);
+    assert.deepEqual(closed.providerTerminal, { childCloseObserved: true, stdoutClosed: true, stderrClosed: true });
     await assert.rejects(writeFile(path.join(observerRoot, "unresolved.json"), "overwrite", { flag: "wx" }));
     // close.json is written only after the observer received the provider's
     // terminal close. Do not wait on a late listener that could miss the
@@ -55,7 +56,7 @@ test("AC-4BY.2 fast provider exit preserves a closed terminal without inventing 
   try {
     const provider = path.join(root, "provider.mjs");
     await writeFile(provider, "process.exit(7);\n");
-    await writeFile(config, JSON.stringify({ root: observerRoot, command: process.execPath, args: [provider], cwd: root, timeoutMs: 1_000, nonce: "d".repeat(64), source: { head: "e".repeat(40), tree: "f".repeat(40) }, inputs: { workspaceRoot: root } }));
+    await writeFile(config, JSON.stringify({ root: observerRoot, command: process.execPath, args: [provider], cwd: root, timeoutMs: 1_000, nonce: "d".repeat(64), source: { head: "e".repeat(40), tree: "f".repeat(40) }, inputs: { workspaceRoot: path.join(root, "workspace"), instanceRegistryPath: path.join(root, "instance-registry.json"), hostPortRegistryPath: path.join(root, "host-port-registry.json") } }));
     spawn(process.execPath, [fileURLToPath(new URL("../scripts/admin-receipt-provider-observer.mjs", import.meta.url)), config], { stdio: "ignore", windowsHide: true });
     const initial = await waitFor(path.join(observerRoot, "initial.json"));
     const closed = await waitFor(path.join(observerRoot, "close.json"));
