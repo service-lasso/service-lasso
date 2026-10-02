@@ -30,7 +30,7 @@ function validateInitialProjection(source, platform, runId, runAttempt, candidat
     String(value.run.attempt) === String(runAttempt) &&
     exactKeys(value.candidate, ["head", "tree"]) && value.candidate.head === candidateSha && /^[0-9a-f]{40}$/u.test(value.candidate.tree) &&
     /^[0-9a-f]{64}$/u.test(value.privateInitialReceiptSha256) && /^[0-9a-f]{64}$/u.test(value.privateJournalSha256) &&
-    exactKeys(value.localValidatorAttestation, ["schema", "validated", "nativeBirthCustody"]) && value.localValidatorAttestation.schema === "service-lasso.qualification-local-validator-attestation.v2" && value.localValidatorAttestation.validated === true && value.localValidatorAttestation.nativeBirthCustody === "OUT_OF_SCOPE";
+    exactKeys(value.localValidatorAttestation, ["schema", "validated", "nativeBirthCustody"]) && value.localValidatorAttestation.schema === "service-lasso.qualification-local-validator-attestation.v2" && value.localValidatorAttestation.validated === true && value.localValidatorAttestation.nativeBirthCustody === "HELD_NATIVE_V1";
 }
 function sameValue(left, right) {
   if (left === right) return true;

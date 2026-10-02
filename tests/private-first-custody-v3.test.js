@@ -32,12 +32,17 @@ test("BR008 private v3 producer holds an observed native Git protocol and projec
   } finally { await rm(f.root, { recursive: true, force: true }); }
 });
 test("BR008 validator rejects workspace/native state, registry, journal, native witness, raw output, duplicate JSON and output-boundary tampering", async () => {
-  for (const mutation of ["tracked", "registry", "journal", "native", "raw", "duplicate", "output"]) { const f = await fixture(); try { await produce(f);
+  for (const mutation of ["tracked", "registry", "journal", "native", "raw", "duplicate", "output", "blob", "extra", "compiler", "parent", "order"]) { const f = await fixture(); try { await produce(f);
       if (mutation === "tracked") await writeFile(path.join(f.workspace, "native", "asset.cs"), "tampered\n");
       if (mutation === "registry") await writeFile(f.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH, "present\n");
       if (mutation === "journal") await writeFile(path.join(f.privateRoot, "first-custody-journal.json"), "{\"schema\":\"service-lasso.qualification-first-custody-journal.v3\",\"private\":true,\"commands\":[],\"toolMetadata\":{}}\n");
       if (mutation === "native") { const journalPath = path.join(f.privateRoot, "first-custody-journal.json"), journal = JSON.parse(await readFile(journalPath, "utf8")); journal.commands[0].native.birthObserved = false; await writeFile(journalPath, JSON.stringify(journal) + "\n"); }
       if (mutation === "raw") await writeFile(path.join(f.privateRoot, "journal-0.stdout"), "forged output\n");
+      if (mutation === "blob") { const receipt = JSON.parse(await readFile(f.env.QUALIFICATION_INITIAL_RECEIPT_PATH, "utf8")); receipt.source.tracked[0].gitBlob = "0".repeat(40); await writeFile(f.env.QUALIFICATION_INITIAL_RECEIPT_PATH, JSON.stringify(receipt) + "\n"); }
+      if (mutation === "extra") await writeFile(path.join(f.workspace, "untracked-extra.txt"), "untracked\n");
+      if (mutation === "compiler") { const journalPath = path.join(f.privateRoot, "first-custody-journal.json"), journal = JSON.parse(await readFile(journalPath, "utf8")); journal.toolMetadata.sourceStatus = "CLEAN_BY_HEAD_TREE_AND_TRACKED_BYTES"; await writeFile(journalPath, JSON.stringify(journal) + "\n"); }
+      if (mutation === "parent") { const journalPath = path.join(f.privateRoot, "first-custody-journal.json"), journal = JSON.parse(await readFile(journalPath, "utf8")); journal.commands[0].native.parents[0].pid = 1; await writeFile(journalPath, JSON.stringify(journal) + "\n"); }
+      if (mutation === "order") { const journalPath = path.join(f.privateRoot, "first-custody-journal.json"), journal = JSON.parse(await readFile(journalPath, "utf8")); journal.commands.reverse(); await writeFile(journalPath, JSON.stringify(journal) + "\n"); }
       if (mutation === "duplicate") await writeFile(f.env.QUALIFICATION_INITIAL_RECEIPT_PATH, "{\"schema\":\"x\",\"schema\":\"x\"}\n");
       const target = mutation === "output" ? path.join(f.evidence, "initial-projection.json") : path.join(f.evidence, mutation + ".json");
       await assert.rejects(command(projector, ["--input", f.env.QUALIFICATION_INITIAL_RECEIPT_PATH, "--journal", path.join(f.privateRoot, "first-custody-journal.json"), "--output", target], f.workspace, f.env));

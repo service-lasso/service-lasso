@@ -23,7 +23,7 @@ function initialProjectionFor(platform, overrides = {}) {
     schema: "service-lasso.qualification-first-custody-projection.v2", privateVersion: "v3", platform,
     run: { id: runId, attempt: runAttempt }, candidate: { head: candidateSha, tree: "e".repeat(40) },
     privateInitialReceiptSha256: "f".repeat(64), privateJournalSha256: "e".repeat(64),
-    localValidatorAttestation: { schema: "service-lasso.qualification-local-validator-attestation.v2", validated: true, nativeBirthCustody: "OUT_OF_SCOPE" },
+    localValidatorAttestation: { schema: "service-lasso.qualification-local-validator-attestation.v2", validated: true, nativeBirthCustody: "HELD_NATIVE_V1" },
     ...overrides,
   };
 }
