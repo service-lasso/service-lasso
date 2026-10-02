@@ -3047,10 +3047,11 @@ export async function startManagedProcess(
 export async function stopManagedProcess(
   serviceId: string,
   timeoutMs = DEFAULT_MANAGED_PROCESS_STOP_TIMEOUT_MS,
+  options: { newWindowsInspectionEpisode?: boolean } = {},
 ): Promise<{ exitCode: number | null; signal: NodeJS.Signals | null } | null> {
   const record = managedProcesses.get(serviceId);
   if (!record) {
-    return await stopAdoptedProcess(serviceId, timeoutMs);
+    return await stopAdoptedProcess(serviceId, timeoutMs, options);
   }
 
   const deadlineMs = processControlDeadline(timeoutMs);
@@ -3102,6 +3103,7 @@ async function waitForAdoptedProcessExit(
 async function stopAdoptedProcess(
   serviceId: string,
   timeoutMs: number,
+  options: { newWindowsInspectionEpisode?: boolean } = {},
 ): Promise<{ exitCode: number | null; signal: NodeJS.Signals | null } | null> {
   const record = adoptedProcesses.get(serviceId);
   if (!record) {
@@ -3142,7 +3144,7 @@ async function stopAdoptedProcess(
         processGroup: { kind: "none" as const, id: null },
       };
     }
-  } else if (record.knownTreeMembers.length > 0) {
+  } else if (record.knownTreeMembers.length > 0 || options.newWindowsInspectionEpisode) {
     await withProcessControlDeadline(
       async (signal) => {
         const snapshot = await inspectKnownWindowsTreeMembers(
