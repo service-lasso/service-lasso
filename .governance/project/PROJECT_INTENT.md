@@ -1,5 +1,12 @@
 # Project Intent
 
+Issue #1592 reconciles MCP source conformance with the existing awaited,
+deadline-bound verification of the selected Windows native launcher before
+spawn. Legal call formatting must not change admission. Native assets,
+provenance, loader safety, ownership, privacy and deadlines remain unchanged;
+source inspection is not native acceptance. Qualification remains UNEXECUTED
+until fresh external exact-input custody and ROOT actual-read admission.
+
 Use this file to capture the project-specific intent that governance cannot provide.
 
 ## Purpose
@@ -30,6 +37,8 @@ This repo is therefore the place where the real core behavior must live and cont
 - one operator MCP on the core runtime for safe reads plus guarded lifecycle and maintenance actions through shared application facades (`SPEC-006`); never secret values, raw config/log payloads, local roots, generic shell, terminal/stdin, raw filesystem, or raw configuration tools
 
 ## Constraints
+
+- Windows tree-inspection diagnostics share the existing closed fourteen common keys; only a fully valid failure-specific partial-copy pair or ancestry quartet may add keys (SPEC-002 AC-4BH.3, #1590). Native receipts remain a separate strict two-key grammar; metadata never proves control or discloses raw native details. Source repair and review remain distinct from admitted execution and native qualification.
 
 - Hard-crash fixture failures before an intentional exit must retain only closed startup-phase and lifecycle metadata over a dedicated test IPC channel; never raw child output, error messages, paths or secrets (#1397, `SPEC-002 AC-4BJ.9a`). This adds observation, not retries or changed deadlines.
 - Governance/spec/backlog traceability must remain in place while product code starts.
@@ -190,3 +199,5 @@ Issue #1326 parent-edge lifetime diagnostic follow-up binds AC-4BH: retain the 0
 Issue #1598 (child of #1594 / #1562) binds SPEC-006 AC-6G.qualification-observation: prepare owned deadline/pipe fixtures and separate native child, nested wrapper and outer driver status, preserving all deadlines, custody checks and historical failures. Source-only preparation requires fresh entire review and new ROOT admission before execution.
 
 ENTIRE d166 F1/F2 successor retains failed fixture observations before disposing its accepted TCP handles/listener and prepares bounded actual-process negative coverage. A distinct literal Node diagnostics stage must be admitted in fresh ROOT v2 and bound through preflight/status/readback; the npm product gate is unchanged. This is source preparation with no execution or self-issued GO.
+
+Issue #1594 binds SPEC-006 AC-6G's closed owned-temp cleanup observation: terminal own-data allowlisted filesystem code or unknown, fixed remove_owned_temp_root operation and actual bounded invocation count, preserving cleanup precedence, prior safe stage/code, existing retries/deadlines/permissions and complete CLI/TUI packaging. The original #1593 Windows failures have no observed underlying cause; diagnostic source delivery, independent review, ROOT-admitted execution, three-OS MCP and complete operator-tool acceptance are distinct gates.
