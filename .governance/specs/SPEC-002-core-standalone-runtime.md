@@ -593,3 +593,18 @@ For #1552's retained `ancestry_predates_parent_before_root` receipt, evaluate a 
 
 ### Hard-crash fixture terminal custody (#1326; AC-4BH.2, AC-4BJ.9c)
 Retain the authoritative pre-crash and recovered verified-member union privately until fresh inspection proves every lifetime absent. Missing registry reads, numeric-root absence, identity mismatch and unknown ownership do not prove closure. Preserve primary and all teardown errors; retain every failed fixture and journal, restore environment even on failure, and reset/remove only after directly observed child closure, server stop, managed finalization and member absence. Emit only closed recovery/stop/finalization/absence/retention categories. Preserve original assertions, deadlines, retries, privacy and historical failures. Exact-head whole review and admitted native Windows proof for both failed phases remain required.
+
+2026-10-02 entire-source review repair (#1326 / PR #1596): actual registry persistence classification must accompany the document at the fixture boundary; missing/corrupt/read-failed evidence is unresolved, never a synthesized empty authority. The existing gated enrollment-hook registration may observe a record-local append-only fingerprint history before managed enrollment or adopted refresh; every authoritative discovery/refresh augments that private history, including after startup failure and record deletion. This fixture-only reader never changes production membership or signaling decisions and creates no global custody store. Before recursive removal, copy and verify the complete closed fixture privately outside its removal root; retain that independent copy on partial removal, reset, environment restoration, or diagnostic failure, and report actual original/copy state separately. Regression preparation must use real persistence readers, supervisor enrollment/refresh/finalization, and filesystem partial removal. No execution occurs before exact-head complete-input ROOT admission. The existing open issue branch is deliberately retained for PR review/landing; it is neither a new branch parent nor abandoned work.
+The four-finding source bundle further requires contained observer failures with
+closed fixture failure reporting; activation before any managed monitor or
+adopted refresh; retention of earlier verified lifetimes even after production
+exclusions/replacement; stable owned regular-file identities and complete
+structure/size/hash inventories; source-change rejection before removal and
+fresh private-copy readback after reset/environment handling. Report actual
+original and copy states plus reset/environment outcomes separately. Retained
+successful evidence is explicitly private qualification evidence outside the
+removal root; it is a point-in-time verified copy, not an immutable-to-owner seal.
+Prepared real-path regressions are supporting source coverage only until fresh
+entire source review and complete-input ROOT admission permit execution. The
+formal matrix, existing control deadlines/retries, original failed evidence and
+native qualification requirements remain unchanged.

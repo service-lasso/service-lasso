@@ -1,5 +1,5 @@
 import { startApiServer } from "../../dist/server/index.js";
-import { stopManagedProcess, retainManagedProcessCustodyForTest } from "../../dist/runtime/execution/supervisor.js";
+import { stopManagedProcess, setManagedProcessEnrollmentHookForTests } from "../../dist/runtime/execution/supervisor.js";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { getLifecycleState } from "../../dist/runtime/lifecycle/store.js";
@@ -11,6 +11,11 @@ if (!servicesRoot || !workspaceRoot || !phase) {
 }
 
 let lastPhase = null;
+const custodyReaders = [];
+let custodyObservationFailed = false;
+setManagedProcessEnrollmentHookForTests(null, (serviceId, read) => {
+  if (serviceId === "matrix-service") custodyReaders.push(read);
+}, () => { custodyObservationFailed = true; });
 try {
   await startApiServer({
     port: 0,
@@ -23,9 +28,10 @@ try {
         if (current === injectedFailurePhase) throw new Error("PRIVATE-CRASH-SENTINEL");
         if (current === phase) {
           if (serviceToStop) await stopManagedProcess(serviceToStop);
+          if (custodyObservationFailed) throw new Error("Fixture enrollment observation failed.");
           // Private local evidence only; never send fingerprints over diagnostic IPC.
           await writeFile(path.join(workspaceRoot, ".service-lasso", "hard-crash-fixture-custody.json"),
-            JSON.stringify(retainManagedProcessCustodyForTest("matrix-service")()), { mode: 0o600, flag: "wx" });
+            JSON.stringify(custodyReaders.flatMap((read) => read())), { mode: 0o600, flag: "wx" });
           process.exit(86);
         }
       },

@@ -1,9 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { createFixtureCustody, closeFixture, createFixtureCleanupAdapter } from "./hard-crash-fixture-custody.js";
+import { createFixtureCustody, closeFixture, createFixtureCleanupAdapter, createFixtureEvidenceBoundary } from "./hard-crash-fixture-custody.js";
+import { getProcessRegistryPath, readProcessOwnershipCustodyForTest } from "../dist/runtime/process/registry.js";
 
 const root = { pid: 1, createdAt: "root", executablePath: "PRIVATE-PATH", commandHash: "a".repeat(64) };
 const child = { ...root, pid: 2, createdAt: "child" };
@@ -29,13 +30,14 @@ for (const scenario of ["primary-and-cleanup", "registry-read", "root-gone-child
     let resets = 0;
     let summary;
     const observed = [];
+    const evidence = createFixtureEvidenceBoundary(directory);
     try {
       const work = closeFixture({ primary, custody,
         adapter: createFixtureCleanupAdapter({ workspaceRoot: directory, custodyReaders: [() => [child]] }, {
           readInterrupted: async () => JSON.parse(await readFile(interruptedFile, "utf8")),
           readRegistry: async () => {
             if (scenario === "registry-read") throw new Error("PRIVATE-REGISTRY");
-            return JSON.parse(await readFile(registryFile, "utf8"));
+            return { classification: "current", registry: JSON.parse(await readFile(registryFile, "utf8")) };
           },
           classify: async () => scenario === "unknown" ? "unknown_owner" : "not_running",
           capture: async () => { throw new Error("An absent root cannot authorize fresh tree discovery."); },
@@ -48,7 +50,7 @@ for (const scenario of ["primary-and-cleanup", "registry-read", "root-gone-child
             return { status: "not_running" };
           },
         }),
-        restore: () => { restored = true; }, reset: () => { resets++; },
+        evidence, restore: () => { restored = true; }, reset: () => { resets++; },
         remove: () => rm(directory, { recursive: true }), report: (value) => { summary = value; },
       });
       if (scenario === "success") {
@@ -56,6 +58,8 @@ for (const scenario of ["primary-and-cleanup", "registry-read", "root-gone-child
         await assert.rejects(readFile(journal), { code: "ENOENT" });
         assert.equal(resets, 1);
         assert.equal(summary.fixture, "removed");
+        assert.equal(summary.evidence, "retained");
+        assert.equal(await readFile(path.join(evidence.evidenceRoot, "journal.json"), "utf8"), "PRIVATE-JOURNAL");
       } else {
         await assert.rejects(work, (error) => {
           assert.ok(error instanceof AggregateError);
@@ -70,6 +74,89 @@ for (const scenario of ["primary-and-cleanup", "registry-read", "root-gone-child
       assert.deepEqual(observed, [1, 2]);
       assert.doesNotMatch(JSON.stringify(summary), /PRIVATE|pid|createdAt|executablePath|commandHash/);
       if (["registry-read", "root-gone-child-live", "unknown"].includes(scenario)) assert.equal(summary.absence, "unresolved");
-    } finally { await rm(directory, { recursive: true, force: true }); }
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+      if (evidence.evidenceRoot) await rm(evidence.evidenceRoot, { recursive: true, force: true });
+    }
+  });
+}
+
+for (const classification of ["missing", "corrupt"]) {
+  test(`actual ownership persistence ${classification} cannot authorize fixture removal`, async () => {
+    const previous = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+    process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
+    const directory = await mkdtemp(path.join(tmpdir(), "hard-crash-real-registry-"));
+    const evidence = createFixtureEvidenceBoundary(directory);
+    let removed = false;
+    let summary;
+    try {
+      await writeFile(path.join(directory, "journal.json"), "PRIVATE-JOURNAL");
+      if (classification === "corrupt") {
+        await mkdir(path.dirname(getProcessRegistryPath(directory)), { recursive: true });
+        await writeFile(getProcessRegistryPath(directory), "{not-json", { mode: 0o600 });
+      }
+      const actual = await readProcessOwnershipCustodyForTest(directory);
+      assert.equal(actual.classification, classification);
+      assert.equal(actual.registry, null);
+      await assert.rejects(closeFixture({ custody: createFixtureCustody(), evidence,
+        adapter: createFixtureCleanupAdapter({ workspaceRoot: directory, custodyReaders: [] }, {
+          readRegistry: readProcessOwnershipCustodyForTest, readInterrupted: async () => [],
+          stop: async () => {}, finalize: async () => {}, inspect: async () => ({ status: "not_running" }),
+        }), restore: () => {}, reset: () => { throw new Error("Must not reset."); },
+        remove: async () => { removed = true; await rm(directory, { recursive: true }); },
+        report: (value) => { summary = value; },
+      }), AggregateError);
+      assert.equal(removed, false);
+      assert.equal(summary.absence, "unresolved");
+      assert.equal(summary.fixture, "retained");
+      assert.equal(await readFile(path.join(directory, "journal.json"), "utf8"), "PRIVATE-JOURNAL");
+    } finally {
+      if (previous === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+      else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = previous;
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+}
+
+for (const failure of ["partial-removal", "reset", "environment", "copy-tamper"]) {
+  test(`verified filesystem evidence survives ${failure} with truthful state`, async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "hard-crash-partial-removal-"));
+    const evidence = createFixtureEvidenceBoundary(directory);
+    const journal = path.join(directory, "journal.json");
+    let summary;
+    let restored = false;
+    const expected = new Error(`PRIVATE-${failure}`);
+    try {
+      await writeFile(journal, "PRIVATE-JOURNAL");
+      await writeFile(path.join(directory, "remainder.json"), "PRIVATE-REMAINDER");
+      await assert.rejects(closeFixture({ custody: createFixtureCustody(), evidence,
+        adapter: { snapshot: async () => [], stop: async () => {}, finalize: async () => {}, inspect: async () => "not_running" },
+        remove: async () => {
+          // Real partial destruction, followed by a controlled removal failure.
+          // This is filesystem custody coverage, not an EBUSY reproduction.
+          if (failure === "partial-removal") { await rm(journal); throw expected; }
+          await rm(directory, { recursive: true });
+        }, reset: () => { if (failure === "reset") throw expected; },
+        restore: async () => {
+          restored = true;
+          if (failure === "environment") throw expected;
+          if (failure === "copy-tamper") await writeFile(path.join(evidence.evidenceRoot, "journal.json"), "CHANGED");
+        }, report: (value) => { summary = value; },
+      }), (error) => {
+        assert.ok(error instanceof AggregateError);
+        if (failure !== "copy-tamper") assert.ok(error.errors.includes(expected));
+        return true;
+      });
+      assert.equal(restored, true);
+      assert.equal(summary.fixture, failure === "partial-removal" ? "partial" : "removed");
+      assert.equal(summary.evidence, failure === "copy-tamper" ? "unresolved" : "retained");
+      assert.equal(summary.reset, failure === "partial-removal" ? "not_attempted" : failure === "reset" ? "failed" : "reset");
+      assert.equal(summary.environment, failure === "environment" ? "failed" : "restored");
+      if (failure !== "copy-tamper") assert.equal(await readFile(path.join(evidence.evidenceRoot, "journal.json"), "utf8"), "PRIVATE-JOURNAL");
+      assert.doesNotMatch(JSON.stringify(summary), /PRIVATE|pid|createdAt|executablePath|commandHash/);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+      if (evidence.evidenceRoot) await rm(evidence.evidenceRoot, { recursive: true, force: true });
+    }
   });
 }

@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
 import { spawn } from "node:child_process";
-import { rm } from "node:fs/promises";
+import { rm, readFile, writeFile } from "node:fs/promises";
 import { makeTempServicesRoot, writeExecutableFixtureService } from "./test-helpers.js";
 import { discoverServices } from "../dist/runtime/discovery/discoverServices.js";
 import { createDirectExecutionPlan } from "../dist/runtime/providers/direct.js";
@@ -13,6 +13,7 @@ import { startApiServer } from "../dist/server/index.js";
 import { startManagedProcess, adoptManagedProcess, stopManagedProcess,
   setManagedWindowsTreeInspectorForTests, setManagedProcessTreeTerminatorForTests,
   waitForManagedProcessFinalization,
+  setManagedProcessEnrollmentHookForTests, retainManagedProcessCustodyForTest, hasManagedProcess,
 } from "../dist/runtime/execution/supervisor.js";
 import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
 
@@ -326,3 +327,101 @@ test("Windows adopted stop retains durable ownership when its fresh absence insp
     await rm(tempRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
+
+// AC-4BH.2 / AC-4BJ.9c: real native discovery and supervisor replacement,
+// never a fabricated process-tree member. Preparation only until admission.
+for (const mode of ["managed", "adopted"]) {
+  test(`Windows ${mode} fixture history keeps a later descendant across omission and finalization`, {
+    skip: process.platform !== "win32", timeout: 120_000,
+  }, async () => {
+    const previous = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+    process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
+    const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-custody-refresh-");
+    const serviceId = `custody-refresh-${mode}`;
+    const { serviceRoot, scriptPath } = await writeExecutableFixtureService(servicesRoot, serviceId);
+    await writeFile(scriptPath, `
+      import fs from 'node:fs';
+      import { spawn } from 'node:child_process';
+      let child, stopped = false;
+      setInterval(() => {
+        let command; try { command = fs.readFileSync('custody-command.txt', 'utf8'); } catch { return; }
+        if (command === 'spawn' && !child) {
+          child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore', windowsHide: true });
+          child.once('spawn', () => fs.writeFileSync('custody-child.txt', String(child.pid)));
+        }
+        if (command === 'close' && child && !stopped) { stopped = true; child.kill('SIGTERM'); }
+      }, 25);
+    `);
+    let adoptedChild, adoptedClosed, reader, descendant;
+    let omitted = false;
+    let observerFailures = 0;
+    const waitUntil = async (predicate) => {
+      const deadline = Date.now() + 20_000;
+      while (Date.now() < deadline) {
+        if (await predicate()) return;
+        await new Promise(resolve => setTimeout(resolve, 25));
+      }
+      throw new Error("Real custody observation deadline expired.");
+    };
+    try {
+      setManagedProcessEnrollmentHookForTests(null, (id, read) => {
+        if (id === serviceId) { reader = read; throw new Error("PRIVATE-OBSERVER-FAILURE"); }
+      }, () => { observerFailures++; });
+      setManagedWindowsTreeInspectorForTests(async (root, options) => {
+        const result = await inspectWindowsProcessTree(root, options);
+        if (descendant && !result.members.some(member => member.pid === descendant.pid)) omitted = true;
+        return result;
+      });
+      const [service] = await discoverServices(servicesRoot);
+      if (mode === "managed") {
+        await startManagedProcess({ service, executionPlan: createDirectExecutionPlan(service.manifest), workspaceRoot });
+      } else {
+        adoptedChild = spawn(process.execPath, [path.relative(serviceRoot, scriptPath)], { cwd: serviceRoot, stdio: "ignore", windowsHide: true });
+        adoptedClosed = new Promise(resolve => adoptedChild.once("close", resolve));
+        await new Promise((resolve, reject) => { adoptedChild.once("spawn", resolve); adoptedChild.once("error", reject); });
+        const inspection = await inspectProcess(adoptedChild.pid);
+        assert.equal(inspection.status, "running");
+        await recordProcessOwnership(workspaceRoot, { ownerType: "service", ownerId: serviceId, serviceId,
+          pid: adoptedChild.pid, ownerRoot: serviceRoot, lifecycleState: "running", source: "legacy-verified" });
+        await adoptManagedProcess({ service, pid: adoptedChild.pid, startedAt: inspection.identity.createdAt,
+          command: `${process.execPath} ${path.relative(serviceRoot, scriptPath)}`, workspaceRoot });
+      }
+      assert.equal(typeof reader, "function");
+      assert.equal(observerFailures, 1);
+      const initial = reader();
+      const compatibilityReader = retainManagedProcessCustodyForTest(serviceId);
+      assert.ok(initial.length > 0);
+      await writeFile(path.join(serviceRoot, "custody-command.txt"), "spawn");
+      let descendantPid;
+      await waitUntil(async () => {
+        try { descendantPid = Number(await readFile(path.join(serviceRoot, "custody-child.txt"), "utf8")); return descendantPid > 0; }
+        catch (error) { if (error.code === "ENOENT") return false; throw error; }
+      });
+      assert.equal(initial.some(member => member.pid === descendantPid), false);
+      await waitUntil(() => { descendant = reader().find(member => member.pid === descendantPid); return Boolean(descendant); });
+      const copied = reader();
+      copied.find(member => member.pid === descendantPid).commandHash = "0".repeat(64);
+      assert.deepEqual(reader().find(member => member.pid === descendantPid), descendant);
+      await writeFile(path.join(serviceRoot, "custody-command.txt"), "close");
+      await waitUntil(async () => (await inspectProcess(descendantPid)).status === "not_running");
+      await waitUntil(() => omitted);
+      assert.deepEqual(reader().find(member => member.pid === descendantPid), descendant);
+      await stopManagedProcess(serviceId, 5_000);
+      await waitForManagedProcessFinalization(serviceId, Date.now() + 5_000);
+      assert.equal(hasManagedProcess(serviceId), false);
+      assert.deepEqual(reader().find(member => member.pid === descendantPid), descendant);
+      for (const member of reader()) assert.equal((await inspectProcess(member.pid)).status, "not_running");
+      assert.deepEqual(compatibilityReader().find(member => member.pid === descendantPid), descendant);
+    } finally {
+      setManagedProcessEnrollmentHookForTests(null);
+      setManagedWindowsTreeInspectorForTests(null);
+      await stopManagedProcess(serviceId, 5_000);
+      await waitForManagedProcessFinalization(serviceId, Date.now() + 5_000);
+      if (adoptedChild) await adoptedClosed;
+      if (previous === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+      else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = previous;
+      resetLifecycleState();
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+}

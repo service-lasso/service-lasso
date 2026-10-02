@@ -67,7 +67,7 @@ the original intermittent Windows failure; retain the original failed run.
 
 The crash runner saves its authoritative verified service members in a private
 fixture-local sidecar before the intentional exit. The parent retains that union
-and a test-gated read-only reference to the recovered supervisor record through
+and a test-gated append-only history acquired before recovered enrollment/adoption through
 stop/finalization. These snapshots are private custody input, not absence proof.
 Fresh bounded inspection must classify every retained member not-running before
 successful removal. A missing/read-failed snapshot or registry, live member,
@@ -75,7 +75,7 @@ unknown owner, failed stop/finalization or directly spawned child close retains
 fixture/journal evidence and all errors alongside the primary action failure.
 Every failed action retains its fixture even if processes settle. Environment
 restoration always runs; reset follows successful removal only. Closed output
-contains recovery, stop, finalization, absence and retained/removed categories.
+contains recovery, stop, finalization, absence, actual original/copy state and reset/environment categories.
 No fingerprints, paths, commands, child output or exception text enter that record.
 
 The new same-adapter filesystem regressions support this contract; the protected
@@ -84,3 +84,33 @@ executed build, syntax validation, tests, native helpers or Core imports locally
 Fresh complete-input ROOT admission, entire independent source review and direct
 Windows qualification for owned_readiness_proven and generation_committed remain
 pending. The original two EBUSY jobs remain failed and unattributed.
+
+2026-10-02 source-only completion of the four-finding preparation: the gated
+ownership reader returns actual current/legacy/missing/corrupt classification.
+The existing enrollment hook observes managed records before activation and
+adopted records before refresh; its optional closed failure callback preserves
+observation failures without changing runtime enrollment/compensation. Each
+active fixture history appends identity-verified discoveries and never removes
+an earlier lifetime when production snapshots/exclusions change. A legacy
+reader activated after enrollment seeds the present snapshot and retains future
+discovery; only observers armed before startup establish startup-lifetime custody.
+
+Original removal follows an independently private, ownership/reparse-checked
+complete copy with stable per-file identities, structure, sizes and SHA-256.
+Preservation rejects source changes; post-restoration readback revalidates the
+copy inventory, bytes and permissions. Original state is retained/partial/removed
+or unresolved; copy state is none/retained/unresolved. Reset and environment
+outcomes are reported separately. Successful evidence copies are also retained
+privately outside the removal root. This is verified point-in-time custody,
+not an immutable-to-owner seal. No private paths or process identities enter
+closed diagnostics.
+
+Prepared regressions cover the real missing/corrupt persistence reader, actual
+partial file destruction followed by controlled removal failure (not an EBUSY
+reproduction), reset/environment failure and copy tampering; native supervisor
+managed/adopted discovery of a real later descendant, later tree omission and
+record finalization; and actual recovered enrollment/adoption with startup
+failure before return. All source/syntax/build/test/native execution remains
+UNEXECUTED pending fresh entire candidate review and complete-input ROOT
+admission. The protected formal matrix and original bounds/assertions remain
+required, and original Windows failures remain failed/unattributed.
