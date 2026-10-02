@@ -5,7 +5,7 @@ using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
 
-internal static class ServiceLassoWindowsProcessInspector
+internal static partial class ServiceLassoWindowsProcessInspector
 {
     private const uint ProcessQueryLimitedInformation = 0x1000;
     private const uint SnapshotProcesses = 0x00000002;
@@ -17,6 +17,16 @@ internal static class ServiceLassoWindowsProcessInspector
     private static int failureExitCode = 1;
     private static int evidenceSubject = 0;
     private static string commandPartialCopyReceipt;
+
+#if WINDOWS_PROCESS_INSPECTOR_TEST
+    private delegate int CommandLineQuery(
+        IntPtr processHandle,
+        IntPtr information,
+        int informationLength,
+        out int returnLength);
+
+    private static CommandLineQuery testCommandLineQuery;
+#endif
 
     private static void EvidenceStage(int code)
     {
@@ -191,87 +201,125 @@ internal static class ServiceLassoWindowsProcessInspector
         return "{\"CommandQueryHeldHandleState\":" + JsonString(heldHandleState) +
             ",\"CommandQueryArchitectureRelation\":" + JsonString(CommandQueryArchitectureRelation(processHandle)) + "}";
     }
-    private static string ReadCommandLine(IntPtr processHandle)
+
+    private static bool IsTransientCommandLineQueryStatus(int status)
     {
-        EvidenceStage(25);
-        int requiredLength;
-        NtQueryInformationProcess(
+        uint value = unchecked((uint)status);
+        return value == 0xC0000004 || // STATUS_INFO_LENGTH_MISMATCH
+            value == 0xC0000023 || // STATUS_BUFFER_TOO_SMALL
+            value == 0x8000000D; // STATUS_PARTIAL_COPY
+    }
+
+    private static int QueryCommandLineInformation(
+        IntPtr processHandle,
+        IntPtr information,
+        int informationLength,
+        out int returnLength)
+    {
+#if WINDOWS_PROCESS_INSPECTOR_TEST
+        if (testCommandLineQuery != null)
+        {
+            return testCommandLineQuery(processHandle, information, informationLength, out returnLength);
+        }
+#endif
+        return NtQueryInformationProcess(
             processHandle,
             ProcessCommandLineInformation,
-            IntPtr.Zero,
-            0,
-            out requiredLength);
+            information,
+            informationLength,
+            out returnLength);
+    }
+
+    private static string ReadCommandLine(IntPtr processHandle)
+    {
         int headerSize = IntPtr.Size == 8 ? 16 : 8;
-        if (requiredLength < headerSize || requiredLength > 1024 * 1024)
+        for (int attempt = 0; attempt < 3; attempt++)
         {
-            throw new InvalidOperationException("Native process command line length was invalid.");
-        }
-
-        IntPtr buffer = Marshal.AllocHGlobal(requiredLength);
-        try
-        {
-            int returnedLength;
-            EvidenceStage(26);
-            int status = NtQueryInformationProcess(
+            EvidenceStage(25);
+            int requiredLength;
+            QueryCommandLineInformation(
                 processHandle,
-                ProcessCommandLineInformation,
-                buffer,
-                requiredLength,
-                out returnedLength);
-            if (status != 0)
+                IntPtr.Zero,
+                0,
+                out requiredLength);
+            if (requiredLength < headerSize || requiredLength > 1024 * 1024)
             {
-                if (unchecked((uint)status) == 0x8000000D)
+                throw new InvalidOperationException("Native process command line length was invalid.");
+            }
+
+            IntPtr buffer = Marshal.AllocHGlobal(requiredLength);
+            try
+            {
+                int returnedLength;
+                EvidenceStage(26);
+                int status = QueryCommandLineInformation(
+                    processHandle,
+                    buffer,
+                    requiredLength,
+                    out returnedLength);
+                if ((status != 0 && IsTransientCommandLineQueryStatus(status)) || returnedLength > requiredLength)
                 {
-                    commandPartialCopyReceipt = CommandPartialCopyReceiptJson(processHandle);
+                    if (attempt < 2)
+                    {
+                        continue;
+                    }
                 }
-                EvidenceCommandQueryFailure(status);
-            }
-            else if (returnedLength < headerSize || returnedLength > requiredLength)
-            {
-                EvidenceStage(36);
-            }
-            if (status != 0 || returnedLength < headerSize || returnedLength > requiredLength)
-            {
-                throw new InvalidOperationException("Native process command line query failed.");
-            }
+                if (status != 0)
+                {
+                    if (unchecked((uint)status) == 0x8000000D)
+                    {
+                        commandPartialCopyReceipt = CommandPartialCopyReceiptJson(processHandle);
+                    }
+                    EvidenceCommandQueryFailure(status);
+                }
+                else if (returnedLength < headerSize || returnedLength > requiredLength)
+                {
+                    EvidenceStage(36);
+                }
+                if (status != 0 || returnedLength < headerSize || returnedLength > requiredLength)
+                {
+                    throw new InvalidOperationException("Native process command line query failed.");
+                }
 
-            ushort length = unchecked((ushort)Marshal.ReadInt16(buffer, 0));
-            EvidenceStage(27);
-            ushort maximumLength = unchecked((ushort)Marshal.ReadInt16(buffer, 2));
-            int pointerOffset = IntPtr.Size == 8 ? 8 : 4;
-            IntPtr valuePointer = Marshal.ReadIntPtr(buffer, pointerOffset);
-            long bufferStart = buffer.ToInt64();
-            long bufferEnd = bufferStart + returnedLength;
-            long valueStart = valuePointer.ToInt64();
-            if (valueStart < bufferStart + headerSize || valueStart >= bufferEnd)
-            {
-                throw new InvalidOperationException("Native process command line evidence was invalid.");
-            }
+                ushort length = unchecked((ushort)Marshal.ReadInt16(buffer, 0));
+                EvidenceStage(27);
+                ushort maximumLength = unchecked((ushort)Marshal.ReadInt16(buffer, 2));
+                int pointerOffset = IntPtr.Size == 8 ? 8 : 4;
+                IntPtr valuePointer = Marshal.ReadIntPtr(buffer, pointerOffset);
+                long bufferStart = buffer.ToInt64();
+                long bufferEnd = bufferStart + returnedLength;
+                long valueStart = valuePointer.ToInt64();
+                if (valueStart < bufferStart + headerSize || valueStart >= bufferEnd)
+                {
+                    throw new InvalidOperationException("Native process command line evidence was invalid.");
+                }
 
-            long availableLength = returnedLength - (valueStart - bufferStart);
-            if (
-                length == 0 ||
-                length % 2 != 0 ||
-                maximumLength % 2 != 0 ||
-                length > maximumLength ||
-                length > availableLength ||
-                maximumLength > availableLength)
-            {
-                throw new InvalidOperationException("Native process command line evidence was invalid.");
-            }
+                long availableLength = returnedLength - (valueStart - bufferStart);
+                if (
+                    length == 0 ||
+                    length % 2 != 0 ||
+                    maximumLength % 2 != 0 ||
+                    length > maximumLength ||
+                    length > availableLength ||
+                    maximumLength > availableLength)
+                {
+                    throw new InvalidOperationException("Native process command line evidence was invalid.");
+                }
 
-            string commandLine = Marshal.PtrToStringUni(valuePointer, length / 2);
-            EvidenceStage(28);
-            if (String.IsNullOrWhiteSpace(commandLine))
-            {
-                throw new InvalidOperationException("Native process command line was empty.");
+                string commandLine = Marshal.PtrToStringUni(valuePointer, length / 2);
+                EvidenceStage(28);
+                if (String.IsNullOrWhiteSpace(commandLine))
+                {
+                    throw new InvalidOperationException("Native process command line was empty.");
+                }
+                return commandLine;
             }
-            return commandLine;
+            finally
+            {
+                Marshal.FreeHGlobal(buffer);
+            }
         }
-        finally
-        {
-            Marshal.FreeHGlobal(buffer);
-        }
+        throw new InvalidOperationException("Native process command line query failed.");
     }
 
     private static int ReadParentProcessId(IntPtr processHandle)
@@ -545,6 +593,12 @@ internal static class ServiceLassoWindowsProcessInspector
     public static int Main(string[] args)
     {
         Console.OutputEncoding = new UTF8Encoding(false);
+#if WINDOWS_PROCESS_INSPECTOR_TEST
+        if (args.Length == 1 && String.Equals(args[0], "--test-command-line-retry", StringComparison.Ordinal))
+        {
+            return RunCommandLineRetryHarness();
+        }
+#endif
         int targetProcessId;
         if (args.Length < 1 || !Int32.TryParse(args[0], NumberStyles.None, CultureInfo.InvariantCulture, out targetProcessId) || targetProcessId <= 0)
         {

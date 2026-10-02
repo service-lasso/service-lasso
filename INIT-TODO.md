@@ -26,8 +26,12 @@ This file tracks bootstrap/adoption/remediation work required before product imp
    fallback), exact actor/header precedence, fixed actor/workspace quota
    ceilings, and durable retention of uncertain recovery capacity. Canonical
    `service.json` must be a separately identified same-release service-producer
-   asset/member, not an ordinary archive scan or Core runtime inventory entry;
-   #1524 owns that prerequisite. `release-archive-profile-v1` keeps
+   asset/member, not an ordinary archive scan or Core runtime inventory entry.
+   #1524 now proposes a fixed `service-lasso-release-policy.json` v1 asset and
+   a dedicated `service.json` release asset in
+   `docs/reference/service-producer-release-policy.md`; independent review and
+   the service-producer owner's per-repository catalog pin remain mandatory
+   before #1463 can resolve or admit a stage. `release-archive-profile-v1` keeps
    the full release surface:
   ZIP plus a closed gzip TAR grammar for Linux/macOS assets, including bounded
    GNU-longname and POSIX-PAX path records, with PAX `size` required to equal
@@ -53,3 +57,8 @@ This file tracks bootstrap/adoption/remediation work required before product imp
   open until independent review of the later bytes or an explicit operator
   close with that residual.
 - Product/bootstrap adoption work is complete; use `.governance/project/BACKLOG.md` and the active service repos for any newly discovered follow-up work instead of treating this file as a live implementation queue.
+# Active development remediation
+
+- [ ] `#1505` (`SPEC-002` `AC-4BZ.3`): add and independently review the exact-`develop`, nonpublishing Core development-candidate workflow required for CLI #6 packaged-Core acceptance. Keep `Release Artifact` and `Publish Package` unchanged; hosted execution remains a post-review gate.
+- Active governed remediation: `#1552` is bound to `SPEC-002 AC-4BH` and the current backlog. Its scoped pre-root branch exclusion must retain the existing `develop`-derived branch/PR workflow, exact-head qualification, and all ownership, deadline, containment, native-provenance, and unrelated-process safety controls.
+- #1465 is mapped in the active backlog and `SPEC-006`; its bounded HTTP lifecycle-operation adapter remains subject to exact-head CI and packaged client reconciliation before closure.

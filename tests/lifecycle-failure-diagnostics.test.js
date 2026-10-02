@@ -33,6 +33,45 @@ test("lifecycle diagnostics exclude unknown strings and sensitive payload fields
   assert.deepEqual(JSON.parse(result).events, [{ phase: null, status: null, failurePhase: null }]);
 });
 
+test("AC-4BJ.9b lifecycle diagnostics project one closed launcher payload boundary or explicit unknown", () => {
+  const sensitive = "private-payload-token-path-pid-command-status";
+  for (const [boundary, expected] of [
+    ["launch_evidence", "launch_evidence"],
+    ["canonical_encoding", "canonical_encoding"],
+    ["strict_utf8", "strict_utf8"],
+    ["json_or_schema", "json_or_schema"],
+    ["semantic_payload", "semantic_payload"],
+    [sensitive, "unknown"],
+    [undefined, "unknown"],
+  ]) {
+    const result = JSON.parse(lifecycleFailureDiagnostic({ error: {
+      failurePhase: "launcher_payload_validation",
+      launcherPayloadFailureBoundary: boundary,
+      payload: sensitive, environment: sensitive, token: sensitive, path: sensitive,
+      pid: 424242, command: sensitive, status: sensitive, message: sensitive,
+    } }));
+    assert.deepEqual(result.failurePhases, ["launcher_payload_validation"]);
+    assert.equal(result.launcherPayloadFailureBoundary, expected);
+    assert.equal(JSON.stringify(result).includes(sensitive), false);
+    assert.equal(JSON.stringify(result).includes("424242"), false);
+  }
+});
+
+test("AC-4BJ.9b lifecycle diagnostics project the closed boundary retained in a failed start trace", () => {
+  const privateValue = "private-token-path-command";
+  const result = JSON.parse(lifecycleFailureDiagnostic({
+    state: { runtime: { startTrace: { current: { status: "failed", events: [{
+      phase: "process_spawn", status: "failed", metadata: {
+        processStartFailurePhase: "launcher_payload_validation",
+        launcherPayloadFailureBoundary: "canonical_encoding",
+        private: privateValue,
+      },
+    }] } } } },
+  }));
+  assert.equal(result.launcherPayloadFailureBoundary, "canonical_encoding");
+  assert.equal(JSON.stringify(result).includes(privateValue), false);
+});
+
 test("lifecycle diagnostics project only allowlisted API conflict classifications", () => {
   const allowedResult = JSON.parse(lifecycleFailureDiagnostic({
     httpStatus: 409,
@@ -121,6 +160,14 @@ test("lifecycle diagnostics retain only a complete closed parent-lifetime receip
     windowsTreeInspectionQueueMs: 2,
     windowsTreeInspectionNativeMs: 3,
     windowsTreeInspectionLastRetry: "ancestry_predates_parent_before_root",
+    windowsTreeInspectionNativeHelperSpawned: false,
+    windowsTreeInspectionNativeHelperExited: false,
+    windowsTreeInspectionNativeHelperStdioClosed: false,
+    windowsTreeInspectionNativeResultCompleted: false,
+    windowsTreeInspectionNativeSpawnWaitMs: null,
+    windowsTreeInspectionNativeWorkMs: null,
+    windowsTreeInspectionNativeStdioCloseMs: null,
+    windowsTreeInspectionNativeResultCompletionMs: null,
     windowsTreeInspectionParentBirthRelation: "parent_before_root",
     windowsTreeInspectionChildBirthRelation: "child_before_root",
     windowsTreeInspectionRootFingerprintMatch: false,

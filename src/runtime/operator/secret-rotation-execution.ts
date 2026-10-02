@@ -1,8 +1,8 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, open, readFile, readdir, rename, unlink } from "node:fs/promises";
 import path from "node:path";
 import type { DiscoveredService } from "../../contracts/service.js";
-import { ApiError } from "../../server/errors.js";
+import { ApiError, LifecycleStateError } from "../../server/errors.js";
 import { listServiceActionRuns, runServiceAction } from "../actions/runs.js";
 import type { SecretsBrokerRuntimeContext } from "../broker/runtime.js";
 import { waitForServiceReadiness } from "../health/waitForReadiness.js";
@@ -159,16 +159,66 @@ async function acquireRefLock(workspaceRoot: string, ref: string): Promise<() =>
 async function writeState(workspaceRoot: string, state: SecretRotationExecutionState): Promise<void> {
   const root = rotationRoot(workspaceRoot);
   const target = operationPath(workspaceRoot, state.operationId);
-  const temporary = `${target}.${process.pid}.tmp`;
-  await mkdir(root, { recursive: true, mode: 0o700 });
-  const handle = await open(temporary, "wx", 0o600);
+  const temporary = `${target}.${process.pid}.${randomUUID()}.tmp`;
+  let handle: Awaited<ReturnType<typeof open>> | undefined;
   try {
+    await mkdir(root, { recursive: true, mode: 0o700 });
+    handle = await open(temporary, "wx", 0o600);
     await handle.writeFile(JSON.stringify(state), "utf8");
     await handle.sync();
-  } finally {
     await handle.close();
+    handle = undefined;
+    await rename(temporary, target);
+  } catch (error) {
+    if (handle) {
+      try {
+        await handle.close();
+      } catch (closeError) {
+        retainSecondaryFailure(error, closeError);
+      }
+    }
+    try {
+      await unlink(temporary);
+    } catch (cleanupError) {
+      if (!isRecord(cleanupError) || cleanupError.code !== "ENOENT") {
+        retainSecondaryFailure(error, cleanupError);
+      }
+    }
+    throw error;
   }
-  await rename(temporary, target);
+}
+
+/**
+ * Keeps local failure causality available to recovery code without allowing
+ * filesystem details into persisted rotation metadata or API responses.
+ */
+function retainSecondaryFailure(primary: unknown, secondary: unknown): void {
+  if (!(primary instanceof Error)) return;
+  const error = primary as Error & { cause?: unknown; suppressed?: unknown[] };
+  if (error.cause === undefined) {
+    Object.defineProperty(error, "cause", { value: secondary });
+    return;
+  }
+  Object.defineProperty(error, "suppressed", { value: [...(error.suppressed ?? []), secondary] });
+}
+
+function rotationRollbackBlocked(primary: unknown, rollbackFailure: unknown): ApiError {
+  const error = new ApiError("rotation_rollback_blocked", 503, "Rotation failed and automatic rollback requires operator recovery.");
+  if (primary !== undefined) Object.defineProperty(error, "cause", { value: primary });
+  if (rollbackFailure !== undefined) Object.defineProperty(error, "suppressed", { value: [rollbackFailure] });
+  return error;
+}
+
+async function persistFailureState(
+  workspaceRoot: string,
+  state: SecretRotationExecutionState,
+  primary: unknown,
+): Promise<void> {
+  try {
+    await writeState(workspaceRoot, state);
+  } catch (persistenceFailure) {
+    retainSecondaryFailure(primary, persistenceFailure);
+  }
 }
 
 function validateState(value: unknown, expectedOperationId?: string): SecretRotationExecutionState {
@@ -264,6 +314,16 @@ function operationKey(operation: SecretRotationImpactOperation): string {
   return `${operation.serviceId}:${operation.action}:${operation.actionId ?? ""}`;
 }
 
+/**
+ * Retains an in-flight lifecycle error for local control flow only. Rotation
+ * state persists the enclosing stable failure code, never this cause.
+ */
+export function rotationConsumerNotReady(serviceId: string, cause?: unknown): ApiError {
+  const error = new ApiError("rotation_consumer_not_ready", 503, `Impacted service "${serviceId}" did not restart.`);
+  if (cause !== undefined) Object.defineProperty(error, "cause", { value: cause });
+  return error;
+}
+
 async function persistLifecycle(service: DiscoveredService): Promise<void> {
   await writeServiceState(service, getLifecycleState(service.manifest.id));
 }
@@ -343,8 +403,15 @@ async function runPlannedOperation(
     if (getLifecycleState(operation.serviceId).running) {
       await executionOperations(options).stop(service);
     }
-    if (!await executionOperations(options).start(service)) {
-      throw new ApiError("rotation_consumer_not_ready", 503, `Impacted service "${operation.serviceId}" did not restart.`);
+    try {
+      if (!await executionOperations(options).start(service)) {
+        throw rotationConsumerNotReady(operation.serviceId);
+      }
+    } catch (error) {
+      if (error instanceof LifecycleStateError && error.code === "invalid_lifecycle_state") {
+        throw rotationConsumerNotReady(operation.serviceId, error);
+      }
+      throw error;
     }
     return;
   }
@@ -629,7 +696,7 @@ export async function executeSecretRotation(
           state.outcome = "blocked";
           state.updatedAt = new Date().toISOString();
         }
-        await writeState(options.workspaceRoot, state);
+        await persistFailureState(options.workspaceRoot, state, error);
         throw error;
       }
       try {
@@ -639,8 +706,8 @@ export async function executeSecretRotation(
         state.outcome = "blocked";
         state.failureCode = safeFailureCode(rollbackError);
         state.updatedAt = new Date().toISOString();
-        await writeState(options.workspaceRoot, state);
-        throw new ApiError("rotation_rollback_blocked", 503, "Rotation failed and automatic rollback requires operator recovery.");
+        await persistFailureState(options.workspaceRoot, state, rollbackError);
+        throw rotationRollbackBlocked(error, rollbackError);
       }
       return state;
     }

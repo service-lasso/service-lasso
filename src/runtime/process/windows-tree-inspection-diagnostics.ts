@@ -52,6 +52,14 @@ export function projectWindowsTreeInspectionMetadata(value: unknown): WindowsTre
       windowsTreeInspectionQueueMs: boundedInteger(metadata.windowsTreeInspectionQueueMs, 600000),
       windowsTreeInspectionNativeMs: boundedInteger(metadata.windowsTreeInspectionNativeMs, 600000),
       windowsTreeInspectionLastRetry: typeof reason === "string" && retryReasons.has(reason) ? reason : null,
+      windowsTreeInspectionNativeHelperSpawned: metadata.windowsTreeInspectionNativeHelperSpawned === true,
+      windowsTreeInspectionNativeHelperExited: metadata.windowsTreeInspectionNativeHelperExited === true,
+      windowsTreeInspectionNativeHelperStdioClosed: metadata.windowsTreeInspectionNativeHelperStdioClosed === true,
+      windowsTreeInspectionNativeResultCompleted: metadata.windowsTreeInspectionNativeResultCompleted === true,
+      windowsTreeInspectionNativeSpawnWaitMs: boundedInteger(metadata.windowsTreeInspectionNativeSpawnWaitMs, 600000),
+      windowsTreeInspectionNativeWorkMs: boundedInteger(metadata.windowsTreeInspectionNativeWorkMs, 600000),
+      windowsTreeInspectionNativeStdioCloseMs: boundedInteger(metadata.windowsTreeInspectionNativeStdioCloseMs, 600000),
+      windowsTreeInspectionNativeResultCompletionMs: boundedInteger(metadata.windowsTreeInspectionNativeResultCompletionMs, 600000),
     };
     const parentBirthRelation = metadata.windowsTreeInspectionParentBirthRelation;
     const childBirthRelation = metadata.windowsTreeInspectionChildBirthRelation;

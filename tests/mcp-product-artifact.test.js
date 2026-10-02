@@ -12,10 +12,49 @@ import {
   MCP_PRODUCT_EVIDENCE_CONTRACT,
   fetchBoundedDiagnosticJson,
   parsePackagedAcceptanceFailure,
+  projectPackagedWindowsTreeInspection,
   validateMcpProductEvidence,
 } from "../scripts/mcp-product-acceptance-lib.mjs";
 
 const execFileAsync = promisify(execFile);
+
+test("#1326 packaged projection retains only bounded initial-inspection evidence", () => {
+  const privateValue = "C:\\private\\workspace token=secret command --password";
+  assert.deepEqual(projectPackagedWindowsTreeInspection({
+    windowsTreeInspectionPhase: "native_snapshot",
+    windowsTreeInspectionAttempts: 53,
+    windowsTreeInspectionRetries: 52,
+    windowsTreeInspectionQueueMs: 6,
+    windowsTreeInspectionNativeMs: 2600,
+    windowsTreeInspectionLastRetry: "descendant_command_partial_copy",
+    pid: 4343,
+    command: privateValue,
+    path: privateValue,
+  }), {
+    windowsTreeInspectionPhase: "native_snapshot",
+    windowsTreeInspectionAttempts: 53,
+    windowsTreeInspectionRetries: 52,
+    windowsTreeInspectionQueueMs: 6,
+    windowsTreeInspectionNativeMs: 2600,
+    windowsTreeInspectionLastRetry: "descendant_command_partial_copy",
+  });
+  assert.equal(projectPackagedWindowsTreeInspection({ windowsTreeInspectionPhase: "private_phase" }), null);
+  assert.deepEqual(projectPackagedWindowsTreeInspection({
+    windowsTreeInspectionPhase: "queue_wait",
+    windowsTreeInspectionAttempts: 1001,
+    windowsTreeInspectionRetries: -1,
+    windowsTreeInspectionQueueMs: 600001,
+    windowsTreeInspectionNativeMs: 600001,
+    windowsTreeInspectionLastRetry: privateValue,
+  }), {
+    windowsTreeInspectionPhase: "queue_wait",
+    windowsTreeInspectionAttempts: null,
+    windowsTreeInspectionRetries: null,
+    windowsTreeInspectionQueueMs: null,
+    windowsTreeInspectionNativeMs: null,
+    windowsTreeInspectionLastRetry: null,
+  });
+});
 
 test("#864 guarded diagnostic acquisition is time- and size-bounded", async () => {
   const server = createServer((request, response) => {
@@ -101,6 +140,14 @@ test("#864 packaged failure diagnostics admit one strict bounded record and disc
         readinessAttribution: "not_applicable",
         healthcheckFailed: true,
         processStartFailurePhase: "launcher_file_hash",
+        windowsTreeInspection: {
+          windowsTreeInspectionPhase: "native_snapshot",
+          windowsTreeInspectionAttempts: 53,
+          windowsTreeInspectionRetries: 52,
+          windowsTreeInspectionQueueMs: 6,
+          windowsTreeInspectionNativeMs: 2600,
+          windowsTreeInspectionLastRetry: "descendant_command_partial_copy",
+        },
       },
     },
   };
@@ -111,6 +158,33 @@ test("#864 packaged failure diagnostics admit one strict bounded record and disc
   assert.equal(parsePackagedAcceptanceFailure(`[mcp-package-acceptance-error] ${JSON.stringify({
     ...guarded,
     guardedProbe: { ...guarded.guardedProbe, message: hostile },
+  })}`), null);
+  assert.equal(parsePackagedAcceptanceFailure(`[mcp-package-acceptance-error] ${JSON.stringify({
+    ...guarded,
+    guardedProbe: {
+      ...guarded.guardedProbe,
+      lifecycle: {
+        ...guarded.guardedProbe.lifecycle,
+        windowsTreeInspection: {
+          ...guarded.guardedProbe.lifecycle.windowsTreeInspection,
+          pid: 4343,
+          command: hostile,
+        },
+      },
+    },
+  })}`), null);
+  assert.equal(parsePackagedAcceptanceFailure(`[mcp-package-acceptance-error] ${JSON.stringify({
+    ...guarded,
+    guardedProbe: {
+      ...guarded.guardedProbe,
+      lifecycle: {
+        ...guarded.guardedProbe.lifecycle,
+        windowsTreeInspection: {
+          ...guarded.guardedProbe.lifecycle.windowsTreeInspection,
+          windowsTreeInspectionAttempts: 1001,
+        },
+      },
+    },
   })}`), null);
   assert.equal(parsePackagedAcceptanceFailure(`[mcp-package-acceptance-error] ${JSON.stringify({
     ...guarded,
@@ -155,7 +229,7 @@ test("#864 packaged failure diagnostics admit one strict bounded record and disc
     },
   })}`), null);
   assert.equal(JSON.stringify(guarded).includes(hostile), false);
-  assert.ok(JSON.stringify(guarded).length < 768);
+  assert.ok(JSON.stringify(guarded).length < 1024);
 });
 
 function evidence(candidateSha, platform) {
@@ -582,7 +656,7 @@ test("#864 retained evidence verifies downloaded content, exact SHA, three OSes,
     assert.match(packagedVerifier, /installedManagedLauncherNative[\s\S]*?reviewedManagedLauncherNativeProvenance/u);
     assert.match(packagedVerifier, /requirePathAbsent[\s\S]*?Retired installed PowerShell launcher/u);
     const supervisorSource = await readFile("src/runtime/execution/supervisor.ts", "utf8");
-    assert.match(supervisorSource, /windows-managed-launcher-native\.exe[\s\S]*?9fb89ec94c6f3d1930246ca95aa9f7f0d3bd85a1801e3e0b951920a6770ea5f6/u);
+    assert.match(supervisorSource, /windows-managed-launcher-native\.exe[\s\S]*?2aa66997bdb44677350456b1d598eb30787389c6a9878000d7f55e9f9f1414fc/u);
     assert.match(supervisorSource, /assertWindowsManagedLauncherIntegrity[\s\S]*?lstat[\s\S]*?realpath[\s\S]*?open[\s\S]*?handle\.stat[\s\S]*?handle\.readFile[\s\S]*?WINDOWS_MANAGED_LAUNCHER_SHA256/u);
     assert.match(supervisorSource, /verifyWindowsManagedLauncherIntegrity[\s\S]*?withProcessControlDeadline[\s\S]*?createWindowsManagedLaunchState[\s\S]*?verifyWindowsManagedLauncherIntegrity\(windowsManagedLaunchState\.launcherExecutable\)[\s\S]*?managedProcessSpawner/u);
     assert.match(supervisorSource, /isWindowsLoaderSensitiveEnvironmentName[\s\S]*?COR_[\s\S]*?CORECLR_[\s\S]*?COMPLUS_[\s\S]*?APPDOMAIN_MANAGER[\s\S]*?targetEnvironmentOverrides/u);

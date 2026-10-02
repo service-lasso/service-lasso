@@ -115,16 +115,20 @@ jobs:
           echo "artifact_name=service-lasso-package-$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Run tests
+        env:
+          SERVICE_LASSO_RELEASE_METADATA_TOKEN: ${{ github.token }}
         run: npm test
 
       - name: Verify bounded runtime artifact
         env:
           SERVICE_LASSO_RELEASE_VERSION: ${{ steps.publish_version.outputs.version }}
+          SERVICE_LASSO_RELEASE_METADATA_TOKEN: ${{ github.token }}
         run: npm run release:verify
 
       - name: Verify publishable package
         env:
           SERVICE_LASSO_RELEASE_VERSION: ${{ steps.publish_version.outputs.version }}
+          SERVICE_LASSO_RELEASE_METADATA_TOKEN: ${{ github.token }}
         run: npm run package:verify
 
       - name: Check whether package version already exists

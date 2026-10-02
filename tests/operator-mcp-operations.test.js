@@ -261,6 +261,27 @@ async function startOperationRunner(input) {
   };
 }
 
+async function runAtomicClaimRunner(input) {
+  const child = spawn(process.execPath, ["tests/fixtures/mcp-operation-claim-runner.mjs"], {
+    cwd: process.cwd(),
+    stdio: ["pipe", "pipe", "pipe"],
+    windowsHide: true,
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  child.stdout.on("data", (chunk) => { stdout += chunk; });
+  child.stderr.on("data", (chunk) => { stderr += chunk; });
+  child.stdin.end(JSON.stringify(input));
+  const exitCode = await new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("exit", resolve);
+  });
+  assert.ok(stdout.trim(), stderr);
+  return { exitCode, payload: JSON.parse(stdout.trim()) };
+}
+
 async function startCancellableUpdateServer() {
   const archive = Buffer.from("durable update cancellation fixture", "utf8");
   const digest = `sha256:${createHash("sha256").update(archive).digest("hex")}`;
@@ -404,6 +425,13 @@ test("#863 supported cancellation reaches a deterministic terminal state and rec
     const terminal = await pollOperation(connected.client, operationId, "cancelled");
     assert.equal(terminal.outcome, "cancelled");
     assert.equal(fixture.state.executeCount, 1);
+
+    const persisted = await readPrivateJson(workspaceRoot, mcpOperationStatePath(workspaceRoot));
+    const persistedOperation = persisted.operations.find((operation) => operation.operationId === operationId);
+    assert.equal(persistedOperation?.status, "cancelled");
+    assert.equal(persistedOperation?.outcome, "cancelled");
+    assert.equal(JSON.stringify(persistedOperation).includes("fixture aborted"), false);
+    assert.equal(JSON.stringify(persistedOperation).includes(parameters.idempotencyKey), false);
 
     const audit = await readAuditEvents({ workspaceRoot });
     const operationAudit = audit.events.filter((event) => event.subject === operationId);
@@ -632,6 +660,82 @@ test("#863 cross-process cancellation is runner-owned and terminal completion wi
       runner.stop();
       await runner.exited.catch(() => undefined);
     }
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("#1465 same-process durable claim replays an exact request and rejects an altered pending request", async () => {
+  const { tempRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-mcp-operation-atomic-claim-");
+  const auth = authorization("maintainer", { actorId: "atomic-claim-actor", clientId: "atomic-claim-client" });
+  const service = new McpOperationService({ workspaceRoot, requestBudgetMs: 25 });
+  const gate = deferred();
+  const guardedExecutionId = createHash("sha256").update("atomic-claim-key").digest("hex");
+  const startFingerprint = createHash("sha256").update("service_start:atomic-claim-service").digest("hex");
+  const stopFingerprint = createHash("sha256").update("service_stop:atomic-claim-service").digest("hex");
+  const submit = async (requestFingerprint) => await service.submit({
+    authorization: auth,
+    action: "service_start",
+    targetIds: ["atomic-claim-service"],
+    cancellationSupported: false,
+    guardedExecutionId,
+    requestFingerprint,
+    deduplicateByGuardedExecution: true,
+    alwaysAccept: true,
+    execute: async () => {
+      await gate.promise;
+      return {
+        contractVersion: "service-lasso-mcp-guarded-action.v1",
+        generatedAt: new Date().toISOString(),
+        action: "service_start",
+        status: "succeeded",
+        ok: true,
+        correlationId: "mcp-action-atomic-claim",
+        preflight: { planId: "mcp-plan-atomic-claim", targets: ["atomic-claim-service"], effects: ["start"], executable: true, skippedReason: null, requiredProfile: "maintainer" },
+        confirmation: { required: false, id: null, status: "not_required", expiresAt: null },
+        idempotency: { keyId: "mcp-idempotency-atomic-claim", replayed: false },
+        summary: "Atomic claim fixture completed.",
+        result: { targets: ["atomic-claim-service"], effects: ["start"], resultingState: [] },
+        safety: { mutating: true, redacted: true, omittedSensitiveFields: [] },
+      };
+    },
+  });
+  try {
+    const [left, right] = await Promise.all([submit(startFingerprint), submit(startFingerprint)]);
+    assert.equal(left.kind, "accepted");
+    assert.equal(right.kind, "accepted");
+    assert.equal(left.payload.operation.operationId, right.payload.operation.operationId);
+    await assert.rejects(
+      () => submit(stopFingerprint),
+      (error) => error?.code === "idempotency_conflict",
+    );
+  } finally {
+    gate.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("#1465 cross-process durable claim atomically replays matching requests and rejects altered requests", async () => {
+  const { tempRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-mcp-operation-cross-process-claim-");
+  const guardedExecutionId = createHash("sha256").update("atomic-cross-process-key").digest("hex");
+  const startFingerprint = createHash("sha256").update("service_start:atomic-claim-service").digest("hex");
+  const stopFingerprint = createHash("sha256").update("service_stop:atomic-claim-service").digest("hex");
+  try {
+    const [left, right] = await Promise.all([
+      runAtomicClaimRunner({ workspaceRoot, guardedExecutionId, requestFingerprint: startFingerprint }),
+      runAtomicClaimRunner({ workspaceRoot, guardedExecutionId, requestFingerprint: startFingerprint }),
+    ]);
+    assert.equal(left.exitCode, 0, JSON.stringify(left.payload));
+    assert.equal(right.exitCode, 0, JSON.stringify(right.payload));
+    assert.equal(left.payload.operationId, right.payload.operationId);
+
+    const [matching, altered] = await Promise.all([
+      runAtomicClaimRunner({ workspaceRoot, guardedExecutionId: createHash("sha256").update("atomic-cross-process-altered-key").digest("hex"), requestFingerprint: startFingerprint }),
+      runAtomicClaimRunner({ workspaceRoot, guardedExecutionId: createHash("sha256").update("atomic-cross-process-altered-key").digest("hex"), requestFingerprint: stopFingerprint }),
+    ]);
+    assert.equal([matching.exitCode, altered.exitCode].sort().join(","), "0,1");
+    assert.equal([matching.payload.error, altered.payload.error].filter(Boolean)[0], "idempotency_conflict");
+  } finally {
     await rm(tempRoot, { recursive: true, force: true });
   }
 });
