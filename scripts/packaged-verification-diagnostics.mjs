@@ -24,6 +24,7 @@ const acquisitionOutcomes = new Set([
   "output_capture_exceeded",
   "spawn_failed",
   "exit_nonzero",
+  "close_unresolved",
   "unknown",
 ]);
 

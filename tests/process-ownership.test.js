@@ -149,6 +149,23 @@ async function postJson(url, body) {
   return result;
 }
 
+function assertNoLiveRetainedOwnership(record, serviceId) {
+  if (!record) return;
+  assert.equal(record.ownerType, "service");
+  assert.equal(record.ownerId, serviceId);
+  assert.equal(record.serviceId, serviceId);
+  assert.equal(typeof record.generationId, "string");
+  assert.equal(typeof record.workspaceId, "string");
+  assert.equal(typeof record.runtimeInstanceId, "string");
+  assert.equal(record.source, "spawn");
+  assert.equal(record.lifecycleState, "stopped");
+  assert.equal(record.identityStatus, "not_running");
+  assert.equal(record.pid, null);
+  assert.equal(record.identity, null);
+  assert.ok(record.allocation);
+  assert.equal(typeof record.allocation.revision, "string");
+}
+
 async function assertNativePayloadLifecycleProjection(protocolCase, expectedBoundary) {
   resetLifecycleState();
   const priorTestHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
@@ -229,7 +246,12 @@ async function assertNativePayloadLifecycleProjection(protocolCase, expectedBoun
     assert.equal(JSON.stringify(diagnostic).includes("SERVICE_LASSO_MANAGED_LAUNCH_PAYLOAD"), false);
     assert.equal(JSON.stringify(diagnostic).includes(tempRoot), false);
     await waitForManagedProcessFinalization("echo-service", Date.now() + 10_000);
-    assert.equal(await findProcessOwnership(workspaceRoot, "service", "echo-service"), null);
+    const retained = await findProcessOwnership(workspaceRoot, "service", "echo-service");
+    // These fixtures perturb the public diagnostic stream after the native
+    // launcher has begun its failure path, so that stream cannot prove whether
+    // durable enrollment won the race.  It must never leave live authority;
+    // if enrollment did win, preserve its recovery metadata as a stopped owner.
+    assertNoLiveRetainedOwnership(retained, "echo-service");
     assert.equal(hasManagedProcess("echo-service"), false, `${protocolCase} retained a managed process after native rejection.`);
   } finally {
     setManagedProcessSpawnerForTests(null);
@@ -1927,8 +1949,11 @@ test("Windows managed launcher rejects missing, oversized, corrupt, and redirect
   const redirectedRoot = path.join(fixtureRoot, "redirected");
   const redirectedPath = path.join(redirectedRoot, "launcher.exe");
 
+  let trustedHandle;
   try {
-    await writeExecutableFixtureService(servicesRoot, "launcher-integrity-service");
+    const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "launcher-integrity-service", {
+      readyFileAfterMs: 0,
+    });
     await Promise.all([
       mkdir(path.dirname(oversizedPath), { recursive: true }),
       mkdir(path.dirname(corruptPath), { recursive: true }),
@@ -1941,6 +1966,34 @@ test("Windows managed launcher rejects missing, oversized, corrupt, and redirect
     await writeFile(path.join(trustedRoot, "launcher.exe"), nativeBytes);
     await symlink(trustedRoot, redirectedRoot, "junction");
     const [service] = await discoverServices(servicesRoot);
+
+    // This exercises the checked-in launcher through the ordinary supervisor
+    // path. The later altered copies prove that this success is bound to the
+    // reviewed binary identity, rather than merely executing a bootstrap.
+    trustedHandle = await startManagedProcess({
+      service,
+      executionPlan: createDirectExecutionPlan(service.manifest),
+      workspaceRoot,
+    });
+    await waitFor(async () => {
+      try {
+        return (await readFile(path.join(serviceRoot, "runtime", "ready.txt"), "utf8")) === "ready";
+      } catch (error) {
+        if (error?.code === "ENOENT") return false;
+        throw error;
+      }
+    }, 5_000);
+    assert.equal(trustedHandle.pid > 0, true);
+    const runningOwnership = await findProcessOwnership(workspaceRoot, "service", service.manifest.id);
+    assert.equal(runningOwnership?.pid, trustedHandle.pid);
+    assert.equal(Number.isFinite(Date.parse(runningOwnership?.identity?.createdAt ?? "")), true);
+    const close = await stopManagedProcess(service.manifest.id, PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS);
+    assert.equal(Number.isInteger(close?.exitCode), true);
+    assert.equal(close?.signal, null);
+    await waitForProcessesStopped([trustedHandle.pid], PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS);
+    const stoppedOwnership = await findProcessOwnership(workspaceRoot, "service", service.manifest.id);
+    assert.equal(stoppedOwnership?.lifecycleState, "stopped");
+    assert.equal(stoppedOwnership?.pid, null);
 
     for (const launcherPath of [missingPath, oversizedPath, corruptPath, redirectedPath]) {
       setWindowsManagedLauncherPathForTests(launcherPath);
@@ -1955,10 +2008,16 @@ test("Windows managed launcher rejects missing, oversized, corrupt, and redirect
           return true;
         },
       );
-      assert.equal(await findProcessOwnership(workspaceRoot, "service", service.manifest.id), null);
+      const retainedOwnership = await findProcessOwnership(workspaceRoot, "service", service.manifest.id);
+      assert.equal(retainedOwnership?.lifecycleState, stoppedOwnership?.lifecycleState);
+      assert.equal(retainedOwnership?.pid, stoppedOwnership?.pid);
+      assert.deepEqual(retainedOwnership?.processGroup, stoppedOwnership?.processGroup);
+      assert.equal(retainedOwnership?.identityStatus, stoppedOwnership?.identityStatus);
       assert.equal(hasManagedProcess(service.manifest.id), false);
     }
   } finally {
+    await stopManagedProcess("launcher-integrity-service", PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS).catch(() => null);
+    forceCleanupProcesses([trustedHandle?.pid]);
     setWindowsManagedLauncherPathForTests(null);
     if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
     else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
@@ -2141,7 +2200,7 @@ test("AC-4BJ.9b Windows managed launcher projects only authenticated closed payl
   }
 });
 
-test("AC-4BJ.9b projects a real native payload rejection through enrollment, lifecycle state, and the public-safe diagnostic", {
+test("AC-4BJ.9b projects a real native payload rejection through guarded lifecycle handling and the public-safe diagnostic", {
   skip: process.platform !== "win32",
 }, async () => {
   resetLifecycleState();
@@ -2175,7 +2234,8 @@ test("AC-4BJ.9b projects a real native payload rejection through enrollment, lif
     assert.ok(diagnostic.observations[0].events.some((event) => event.failurePhase === "launcher_payload_validation"));
     assert.equal(JSON.stringify(diagnostic).includes("SERVICE_LASSO_MANAGED_LAUNCH_PAYLOAD"), false);
     assert.equal(JSON.stringify(diagnostic).includes(tempRoot), false);
-    assert.equal(await findProcessOwnership(workspaceRoot, "service", "echo-service"), null);
+    const retained = await findProcessOwnership(workspaceRoot, "service", "echo-service");
+    assertNoLiveRetainedOwnership(retained, "echo-service");
     assert.equal(hasManagedProcess("echo-service"), false);
   } finally {
     setManagedProcessSpawnerForTests(null);
@@ -2772,7 +2832,8 @@ setInterval(() => {}, 1000);
     executablePath: "C:\\Windows\\System32\\cmd.exe",
     commandHash: "a".repeat(64),
   };
-  let treeInspectionCount = 0;
+  let nativeExitObserved = false;
+  let finalLiveMemberInspected = false;
   let handle;
 
   try {
@@ -2791,15 +2852,26 @@ setInterval(() => {}, 1000);
         size: Buffer.byteLength(approvedScript),
       },
     ];
+    setManagedProcessSpawnerForTests((file, args, options) => {
+      const child = spawn(file, args, options);
+      child.once("exit", () => { nativeExitObserved = true; });
+      return child;
+    });
     setManagedWindowsTreeInspectorForTests(async () => {
-      treeInspectionCount += 1;
-      return treeInspectionCount >= 3
+      // The retained ChildProcess exit is the native acknowledgement receipt.
+      // Do not model the final tree as a third arbitrary inspection: an
+      // inspection may be skipped or coalesced by the bounded containment path.
+      return nativeExitObserved
         ? { rootStatus: "exited", members: [finalMember] }
         : { rootStatus: "owned", members: [] };
     });
-    setManagedProcessRootInspectorForTests(async (pid) => pid === finalMember.pid
-      ? { status: "running", identity: finalMember }
-      : { status: "not_running", reason: "process_not_running" });
+    setManagedProcessRootInspectorForTests(async (pid) => {
+      if (pid === finalMember.pid) {
+        finalLiveMemberInspected = true;
+        return { status: "running", identity: finalMember };
+      }
+      return { status: "not_running", reason: "process_not_running" };
+    });
     setManagedProcessFilesBoundHookForTests(async () => {
       const launchStateRoot = path.join(workspaceRoot, ".service-lasso", "runtime", "managed-launch");
       const stateDirectory = (await readdir(launchStateRoot, { withFileTypes: true })).find((entry) => entry.isDirectory());
@@ -2822,16 +2894,19 @@ setInterval(() => {}, 1000);
         return true;
       },
     );
-    assert.equal(treeInspectionCount >= 3, true);
+    assert.equal(nativeExitObserved, true, "the held native launcher receipt must precede final-tree proof");
+    assert.equal(finalLiveMemberInspected, true, "the final tree's verified live descendant must block finalization");
     assert.equal(hasManagedProcess("final-containment-union-service"), true);
     const retained = await findProcessOwnership(workspaceRoot, "service", "final-containment-union-service");
     assert.equal(retained.lifecycleState, "launching");
     assert.equal(retained.pid, handle.pid);
+    assert.equal(retained.identityStatus, "owned");
   } finally {
     setManagedProcessPostResumeDelayForTests(null);
     setManagedProcessFilesBoundHookForTests(null);
     setManagedProcessRootInspectorForTests(null);
     setManagedWindowsTreeInspectorForTests(null);
+    setManagedProcessSpawnerForTests(null);
     await stopManagedProcess("final-containment-union-service", 5_000).catch(() => null);
     try {
       const pid = Number(await readFile(markerPath, "utf8"));

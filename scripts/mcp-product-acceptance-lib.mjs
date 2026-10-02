@@ -8,6 +8,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
 const MAX_CAPTURE_BYTES = 2 * 1024 * 1024;
 const RUN_COMMAND_FAILURE_KINDS = new Set([
   "deadline_exceeded",
+  "close_unresolved",
   "output_capture_exceeded",
   "spawn_failed",
   "exit_nonzero",
@@ -324,6 +325,7 @@ export async function supportedMcpVersions() {
 
 export async function runCommand(command, args, options = {}) {
   const timeoutMs = options.timeoutMs ?? 60_000;
+  const closeWaitTimeoutMs = options.closeWaitTimeoutMs ?? 5_000;
   return await new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       cwd: options.cwd ?? repoRoot,
@@ -336,17 +338,56 @@ export async function runCommand(command, args, options = {}) {
     let stdoutBytes = 0;
     let stderrBytes = 0;
     let settled = false;
-    const timer = setTimeout(() => {
+    let pendingFailure;
+    let rootExitObserved = false;
+    let closeWaitTimer;
+    let terminationWaitTimer;
+    const observedResult = (closeObserved) => ({
+      code: child.exitCode,
+      signal: child.signalCode,
+      pid: child.pid ?? null,
+      rootExitObserved,
+      closeObserved,
+      stdout: Buffer.concat(stdout).toString("utf8"),
+      stderr: Buffer.concat(stderr).toString("utf8"),
+    });
+    const startCloseWait = () => {
+      if (!rootExitObserved || closeWaitTimer || settled) return;
+      closeWaitTimer = setTimeout(() => {
+        const failure = pendingFailure ?? markRunCommandFailure(
+          new Error("Command root exited but its owned output streams did not close within the bounded wait."),
+          "close_unresolved",
+        );
+        finish(failure, observedResult(false));
+      }, closeWaitTimeoutMs);
+      closeWaitTimer.unref?.();
+    };
+    const startTerminationWait = () => {
+      if (rootExitObserved || terminationWaitTimer || settled) return;
+      terminationWaitTimer = setTimeout(() => {
+        // No root exit was observed. Preserve the primary causal failure
+        // rather than fabricating an exit or calling this an unresolved close.
+        finish(pendingFailure, observedResult(false));
+      }, closeWaitTimeoutMs);
+      terminationWaitTimer.unref?.();
+    };
+    const terminateOwnedChild = (failure) => {
+      failAfterClose(failure);
+      // `child` is the direct process this invocation created. Descendants and
+      // unrelated processes are never selected or terminated here.
       child.kill("SIGKILL");
-      finish(markRunCommandFailure(new Error(`Command did not complete within ${timeoutMs}ms.`), "deadline_exceeded"));
+      if (rootExitObserved) startCloseWait();
+      else startTerminationWait();
+    };
+    const timer = setTimeout(() => {
+      terminateOwnedChild(markRunCommandFailure(new Error(`Command did not complete within ${timeoutMs}ms.`), "deadline_exceeded"));
     }, timeoutMs);
     timer.unref?.();
 
     const append = (chunks, chunk, kind) => {
       const next = kind === "stdout" ? stdoutBytes + chunk.length : stderrBytes + chunk.length;
       if (next > MAX_CAPTURE_BYTES) {
-        child.kill("SIGKILL");
-        finish(markRunCommandFailure(new Error(`Command ${kind} exceeded the bounded capture limit.`), "output_capture_exceeded"));
+        terminateOwnedChild(markRunCommandFailure(new Error(`Command ${kind} exceeded the bounded capture limit.`), "output_capture_exceeded"));
         return;
       }
       chunks.push(chunk);
@@ -355,14 +396,26 @@ export async function runCommand(command, args, options = {}) {
     };
     child.stdout.on("data", (chunk) => append(stdout, chunk, "stdout"));
     child.stderr.on("data", (chunk) => append(stderr, chunk, "stderr"));
-    child.once("error", (error) => finish(markRunCommandFailure(error, "spawn_failed")));
-    child.once("exit", (code, signal) => {
+    child.once("error", (error) => failAfterClose(markRunCommandFailure(error, "spawn_failed")));
+    child.once("exit", () => {
+      rootExitObserved = true;
+      if (terminationWaitTimer) clearTimeout(terminationWaitTimer);
+      startCloseWait();
+    });
+    child.once("close", (code, signal) => {
       const result = {
         code,
         signal,
+        pid: child.pid ?? null,
+        rootExitObserved,
+        closeObserved: true,
         stdout: Buffer.concat(stdout).toString("utf8"),
         stderr: Buffer.concat(stderr).toString("utf8"),
       };
+      if (pendingFailure) {
+        finish(pendingFailure, result);
+        return;
+      }
       if (code === 0) finish(null, result);
       else finish(markRunCommandFailure(
         new Error(`Command failed with exit code ${code ?? "none"} and signal ${signal ?? "none"}.`),
@@ -370,10 +423,16 @@ export async function runCommand(command, args, options = {}) {
       ), result);
     });
 
+    function failAfterClose(error) {
+      if (!pendingFailure) pendingFailure = error;
+    }
+
     function finish(error, result) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      if (closeWaitTimer) clearTimeout(closeWaitTimer);
+      if (terminationWaitTimer) clearTimeout(terminationWaitTimer);
       if (error) {
         if (result) Object.assign(error, result);
         reject(error);

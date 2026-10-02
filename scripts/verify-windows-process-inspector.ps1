@@ -2,7 +2,9 @@
 param(
   [switch]$Update,
   [switch]$ManagedLauncherNative,
-  [switch]$HeldExitFixture
+  [switch]$DirectorySyncHelper,
+  [switch]$HeldExitFixture,
+  [switch]$Behavioral
 )
 
 $ErrorActionPreference = "Stop"
@@ -14,12 +16,14 @@ if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
 }
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$fixtureCount = $(if ($ManagedLauncherNative) { 1 } else { 0 }) + $(if ($HeldExitFixture) { 1 } else { 0 })
+$fixtureCount = $(if ($ManagedLauncherNative) { 1 } else { 0 }) + $(if ($DirectorySyncHelper) { 1 } else { 0 }) + $(if ($HeldExitFixture) { 1 } else { 0 })
 if ($fixtureCount -gt 1) {
   throw "Select only one Windows native fixture."
 }
 $sourceRelativePath = if ($HeldExitFixture) {
   "tests/fixtures/windows-held-exit-probe.cs"
+} elseif ($DirectorySyncHelper) {
+  "src/runtime/operator/windows-directory-sync-helper.cs"
 } elseif ($ManagedLauncherNative) {
   "src/runtime/execution/windows-managed-launcher-native.cs"
 } else {
@@ -27,15 +31,19 @@ $sourceRelativePath = if ($HeldExitFixture) {
 }
 $binaryRelativePath = if ($HeldExitFixture) {
   "tests/fixtures/windows-held-exit-probe.exe"
+} elseif ($DirectorySyncHelper) {
+  "src/runtime/operator/windows-directory-sync-helper.exe"
 } elseif ($ManagedLauncherNative) {
-  "src/runtime/execution/windows-managed-launcher-native.exe"
+  "src/runtime/execution/windows-managed-launcher-managed.exe"
 } else {
   "src/runtime/process/windows-process-inspector.exe"
 }
 $provenanceRelativePath = if ($HeldExitFixture) {
   "tests/fixtures/windows-held-exit-probe.provenance.json"
+} elseif ($DirectorySyncHelper) {
+  "src/runtime/operator/windows-directory-sync-helper.provenance.json"
 } elseif ($ManagedLauncherNative) {
-  "src/runtime/execution/windows-managed-launcher-native.provenance.json"
+  "src/runtime/execution/windows-managed-launcher-managed.provenance.json"
 } else {
   "src/runtime/process/windows-process-inspector.provenance.json"
 }
@@ -446,6 +454,28 @@ try {
   Assert-ProvenanceManifest $actualProvenance $expectedProvenance $sourceSha256 $binarySha256 $normalizedBytes.Length
   $negativeCaseCount = 3 + (Invoke-ProvenanceNegativeTests $actualProvenance $expectedProvenance $sourceSha256 $binarySha256 $normalizedBytes.Length)
 
+  $behavioralCaseCount = 0
+  if ($Behavioral) {
+    if (-not $DirectorySyncHelper) {
+      throw "Behavioral verification is only defined for the Windows directory-sync helper."
+    }
+    $probeDirectory = Join-Path $temporaryRoot "flush-probe"
+    $null = New-Item -ItemType Directory -Path $probeDirectory
+    & $binaryPath $probeDirectory
+    if ($LASTEXITCODE -ne 0) {
+      throw "The Windows directory-sync helper did not report a successful directory flush."
+    }
+    & $binaryPath
+    if ($LASTEXITCODE -ne 2) {
+      throw "The Windows directory-sync helper did not reject an absent directory argument."
+    }
+    & $binaryPath (Join-Path $temporaryRoot "missing-directory")
+    if ($LASTEXITCODE -ne 3) {
+      throw "The Windows directory-sync helper did not report an open failure."
+    }
+    $behavioralCaseCount = 3
+  }
+
   [pscustomobject]@{
     result = "passed"
     compilerPath = "%WINDIR%/Microsoft.NET/Framework64/v4.0.30319/csc.exe"
@@ -455,6 +485,7 @@ try {
     binarySha256 = $binarySha256
     binaryByteLength = $normalizedBytes.Length
     negativeCaseCount = $negativeCaseCount
+    behavioralCaseCount = $behavioralCaseCount
   } | ConvertTo-Json -Compress
 } finally {
   if (-not $retainTemporaryRoot -and [IO.Directory]::Exists($temporaryRoot)) {

@@ -147,6 +147,83 @@ test("runCommand records closed wrapper observations for deadline, capture, spaw
   }
 });
 
+test("runCommand holds the owned boundary until inherited output pipes close", async () => {
+  const { mkdtemp, rm, writeFile } = await import("node:fs/promises");
+  const os = await import("node:os");
+  const path = (await import("node:path")).default;
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-1566-pipe-close-"));
+  const parent = path.join(tempRoot, "parent.mjs");
+  try {
+    await writeFile(parent, [
+      'import { spawn } from "node:child_process";',
+      'const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 160)"], { stdio: ["ignore", "inherit", "inherit"], detached: true }); child.unref();',
+      "process.exit(0);",
+      "",
+    ].join("\n"), "utf8");
+    const startedAt = Date.now();
+    const result = await runCommand(process.execPath, [parent], { cwd: tempRoot, timeoutMs: 5_000 });
+    assert.equal(result.code, 0);
+    assert.equal(result.closeObserved, true);
+    assert.ok(Date.now() - startedAt >= 100, "runCommand returned before the inherited pipe closed");
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("runCommand reports an owned root exit with an unresolved inherited pipe", async () => {
+  const { mkdtemp, rm, writeFile } = await import("node:fs/promises");
+  const os = await import("node:os");
+  const path = (await import("node:path")).default;
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-1566-unresolved-close-"));
+  const parent = path.join(tempRoot, "parent.mjs");
+  try {
+    await writeFile(parent, [
+      'import { spawn } from "node:child_process";',
+      'const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 250)"], { stdio: ["ignore", "inherit", "inherit"], detached: true }); child.unref();',
+      "process.exit(0);",
+      "",
+    ].join("\n"), "utf8");
+    const error = await runCommand(process.execPath, [parent], {
+      cwd: tempRoot,
+      timeoutMs: 5_000,
+      closeWaitTimeoutMs: 100,
+    }).catch(value => value);
+    assert.equal(runCommandFailureKind(error), "close_unresolved");
+    assert.equal(error.rootExitObserved, true);
+    assert.equal(error.closeObserved, false);
+    await new Promise(resolve => setTimeout(resolve, 300));
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("runCommand preserves a deadline failure while an owned root exits with an inherited pipe", async () => {
+  const { mkdtemp, rm, writeFile } = await import("node:fs/promises");
+  const os = await import("node:os");
+  const path = (await import("node:path")).default;
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-1566-deadline-close-"));
+  const parent = path.join(tempRoot, "parent.mjs");
+  try {
+    await writeFile(parent, [
+      'import { spawn } from "node:child_process";',
+      'const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 700)"], { stdio: ["ignore", "inherit", "inherit"], detached: true }); child.unref();',
+      "setTimeout(() => {}, 1_000);",
+      "",
+    ].join("\n"), "utf8");
+    const error = await runCommand(process.execPath, [parent], {
+      cwd: tempRoot,
+      timeoutMs: 300,
+      closeWaitTimeoutMs: 100,
+    }).catch(value => value);
+    assert.equal(runCommandFailureKind(error), "deadline_exceeded");
+    assert.equal(error.rootExitObserved, true);
+    assert.equal(error.closeObserved, false);
+    await new Promise(resolve => setTimeout(resolve, 750));
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("the verifier catch branch keeps npm install safeguards and emits only the reported observation", async () => {
   const { mkdtemp, readFile, rm, writeFile } = await import("node:fs/promises");
   const { createHash } = await import("node:crypto");
