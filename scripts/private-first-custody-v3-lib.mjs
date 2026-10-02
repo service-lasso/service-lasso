@@ -1,3 +1,4 @@
+import { nativeIdentity, sameNativeIdentity, directoryIdentity, sameDirectoryIdentity, nativeOwnerNumber } from "./exact-native-file-identity-lib.mjs";
 import { createHash } from "node:crypto";
 import { heldImageBytes, imageParents, recheckImageParents, startHeld } from "./native-tool-journal-v4-lib.mjs";
 import { link, lstat, mkdir, open, realpath, stat } from "node:fs/promises";
@@ -13,11 +14,8 @@ export const DIGEST = /^[0-9a-f]{64}$/u;
 export const exact = (value, keys) => !!value && typeof value === "object" && !Array.isArray(value) && Object.keys(value).sort().join(",") === [...keys].sort().join(",");
 export function requireStrictJson(source, label) { if (!strictJson(source)) throw new Error(label + "_duplicate_or_malformed_json"); return JSON.parse(source); }
 export function inside(child, root) { const relative = path.relative(path.resolve(root), path.resolve(child)); return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative)); }
-function identity(entry) { return { dev: Number.isSafeInteger(entry.dev) ? entry.dev : null, ino: Number.isSafeInteger(entry.ino) ? entry.ino : null, size: entry.size, mtimeMs: entry.mtimeMs }; }
-// Directory children mutate size/mtime; dev/ino identifies the retained object.
-function directoryIdentity(entry) { if (!Number.isSafeInteger(entry.dev) || !Number.isSafeInteger(entry.ino) || entry.ino <= 0) throw new Error("first_custody_directory_identity_unavailable"); return { dev: entry.dev, ino: entry.ino }; }
-function sameDirectoryIdentity(a, b) { return a.dev === b.dev && a.ino === b.ino; }
-function sameIdentity(a, b) { return a.dev === b.dev && a.ino === b.ino && a.size === b.size && a.mtimeMs === b.mtimeMs; }
+const identity = nativeIdentity;
+const sameIdentity = sameNativeIdentity;
 const psPath = () => path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
 let bootstrap = null, bootstrapSession = null;
 export function beginBootstrapCapture() { if(bootstrap!==null||bootstrapSession!==null)throw new Error("first_custody_bootstrap_already_started");bootstrap=[]; }
@@ -53,15 +51,15 @@ export function validAcl(proof) { if (!exact(proof, ["owner", "current", "protec
 async function windowsAcl(directory) { const proof = await psJson(directory, "acl_read", "first_custody_windows_acl_probe_invalid"); if (!validAcl(proof)) throw new Error("first_custody_windows_acl_not_exclusive"); return { checked: true, tool: "windows_sid_dacl", ownerSid: proof.owner, currentSid: proof.current, rules: proof.rules }; }
 const reparseRead = "$ErrorActionPreference='Stop';$p=[Environment]::GetEnvironmentVariable('SERVICE_LASSO_CUSTODY_TARGET','Process');$i=Get-Item -LiteralPath $p -Force -ErrorAction Stop;$r=($i.Attributes -band [IO.FileAttributes]::ReparsePoint)-ne 0;if($r){throw 'reparse_parent'};[ordered]@{attributes=[int64]$i.Attributes;reparse=$false;tag=$null}|ConvertTo-Json -Compress";
 async function windowsReparse(directory) { const result = await psJson(directory, "reparse", "first_custody_windows_reparse_probe_invalid"); if (!exact(result, ["attributes", "reparse", "tag"]) || typeof result.reparse !== "boolean" || !Number.isSafeInteger(result.attributes) || (result.attributes&16)===0 || (result.attributes&1024)!==0 || (result.reparse ? typeof result.tag !== "string" : result.tag !== null) || result.reparse) throw new Error("first_custody_windows_reparse_parent"); }
-export async function chain(directory, boundary) { const target = path.resolve(directory), root = path.resolve(boundary); if (!inside(target, root)) throw new Error("first_custody_boundary_escape"); const resolvedRoot = await realpath(root), entries=[]; for (let cursor=target;;cursor=path.dirname(cursor)) { const entry=await lstat(cursor); if (!entry.isDirectory() || entry.isSymbolicLink()) throw new Error("first_custody_reparse_parent"); if (process.platform === "win32") await windowsReparse(cursor); const resolved=await realpath(cursor); if (!inside(resolved,resolvedRoot)) throw new Error("first_custody_realpath_escape"); entries.push({cursor,resolved,identity:directoryIdentity(entry),uid:entry.uid,gid:entry.gid,mode:entry.mode}); if(cursor===root)return {entries}; if(cursor===path.dirname(cursor))throw new Error("first_custody_parent_boundary_escape"); } }
-export async function recheck(snapshot) { for (const item of snapshot.entries) { const now=await lstat(item.cursor); if(!now.isDirectory()||now.isSymbolicLink()||!sameDirectoryIdentity(item.identity,directoryIdentity(now))||item.uid!==now.uid||item.gid!==now.gid||item.mode!==now.mode)throw new Error("first_custody_parent_replaced"); if(process.platform==="win32")await windowsReparse(item.cursor); if(await realpath(item.cursor)!==item.resolved)throw new Error("first_custody_parent_realpath_replaced"); } }
+export async function chain(directory, boundary) { const target = path.resolve(directory), root = path.resolve(boundary); if (!inside(target, root)) throw new Error("first_custody_boundary_escape"); const resolvedRoot = await realpath(root), entries=[]; for (let cursor=target;;cursor=path.dirname(cursor)) { const entry=await lstat(cursor,{bigint:true}); if (!entry.isDirectory() || entry.isSymbolicLink()) throw new Error("first_custody_reparse_parent"); if (process.platform === "win32") await windowsReparse(cursor); const resolved=await realpath(cursor); if (!inside(resolved,resolvedRoot)) throw new Error("first_custody_realpath_escape"); entries.push({cursor,resolved,identity:directoryIdentity(entry),uid:entry.uid,gid:entry.gid,mode:entry.mode}); if(cursor===root)return {entries}; if(cursor===path.dirname(cursor))throw new Error("first_custody_parent_boundary_escape"); } }
+export async function recheck(snapshot) { for (const item of snapshot.entries) { const now=await lstat(item.cursor,{bigint:true}); if(!now.isDirectory()||now.isSymbolicLink()||!sameDirectoryIdentity(item.identity,directoryIdentity(now))||item.uid!==now.uid||item.gid!==now.gid||item.mode!==now.mode)throw new Error("first_custody_parent_replaced"); if(process.platform==="win32")await windowsReparse(item.cursor); if(await realpath(item.cursor)!==item.resolved)throw new Error("first_custody_parent_realpath_replaced"); } }
 export async function nonReparseDirectory(directory,boundary) { await recheck(await chain(directory,boundary)); }
-export async function ownership(directory,boundary) { const snapshot=await chain(directory,boundary), entry=await stat(directory), resolved=await realpath(directory), acl=process.platform==="win32"?await windowsAcl(resolved):{checked:true,tool:"posix",rawSha256:null}; if(process.platform!=="win32"&&(entry.mode&0o077)!==0)throw new Error("first_custody_acl_not_private"); await recheck(snapshot); return {path:resolved,uid:Number.isSafeInteger(entry.uid)?entry.uid:null,gid:Number.isSafeInteger(entry.gid)?entry.gid:null,mode:entry.mode&0o777,acl,identity:directoryIdentity(entry)}; }
-export async function createExclusiveDirectory(directory,boundary) { const target=path.resolve(directory); if(!inside(target,boundary))throw new Error("first_custody_owned_root_escape"); if(await lstat(target).catch(error=>error.code==="ENOENT"?null:Promise.reject(error)))throw new Error("first_custody_owned_root_exists"); const parents=await chain(path.dirname(target),boundary); await mkdir(target,{mode:0o700}); if(process.platform==="win32")await psJson(target,"acl_set","first_custody_windows_acl_set_failed"); await recheck(parents); return ownership(target,boundary); }
-export async function absentLeaf(file,boundary) { const target=path.resolve(file), parents=await chain(path.dirname(target),boundary); if(await lstat(target).catch(error=>error.code==="ENOENT"?null:Promise.reject(error)))throw new Error("first_custody_registry_present"); await recheck(parents); return {path:target,state:"ABSENT",parent:await ownership(path.dirname(target),boundary)}; }
-export async function regularClosedBytes(file,root,io={open}) { const target=path.resolve(file), boundary=path.resolve(root); if(!inside(target,boundary))throw new Error("first_custody_boundary_escape"); const parents=await chain(path.dirname(target),boundary), beforePath=await lstat(target); if(!beforePath.isFile()||beforePath.isSymbolicLink())throw new Error("first_custody_nonregular_or_reparse_file"); const handle=await io.open(target,"r"); let bytes; try { const before=await handle.stat(); if(!before.isFile()||!sameIdentity(identity(beforePath),identity(before)))throw new Error("first_custody_held_not_named_file"); const chunks=[],block=Buffer.allocUnsafe(65536); for(;;){const {bytesRead}=await handle.read(block,0,block.length,null);if(!bytesRead)break;chunks.push(Buffer.from(block.subarray(0,bytesRead)));} const after=await handle.stat();if(!sameIdentity(identity(before),identity(after)))throw new Error("first_custody_held_file_changed_during_hash");bytes=Buffer.concat(chunks);}finally{await handle.close();} await recheck(parents);const afterPath=await lstat(target);if(!afterPath.isFile()||afterPath.isSymbolicLink()||!sameIdentity(identity(beforePath),identity(afterPath)))throw new Error("first_custody_path_swapped_during_hash");return bytes; }
+export async function ownership(directory,boundary) { const snapshot=await chain(directory,boundary), entry=await stat(directory,{bigint:true}), resolved=await realpath(directory), acl=process.platform==="win32"?await windowsAcl(resolved):{checked:true,tool:"posix",rawSha256:null}; if(process.platform!=="win32"&&(entry.mode&0o077n)!==0n)throw new Error("first_custody_acl_not_private"); await recheck(snapshot); return {path:resolved,uid:nativeOwnerNumber(entry.uid),gid:nativeOwnerNumber(entry.gid),mode:nativeOwnerNumber(entry.mode&0o777n),acl,identity:directoryIdentity(entry)}; }
+export async function createExclusiveDirectory(directory,boundary) { const target=path.resolve(directory); if(!inside(target,boundary))throw new Error("first_custody_owned_root_escape"); if(await lstat(target,{bigint:true}).catch(error=>error.code==="ENOENT"?null:Promise.reject(error)))throw new Error("first_custody_owned_root_exists"); const parents=await chain(path.dirname(target),boundary); await mkdir(target,{mode:0o700}); if(process.platform==="win32")await psJson(target,"acl_set","first_custody_windows_acl_set_failed"); await recheck(parents); return ownership(target,boundary); }
+export async function absentLeaf(file,boundary) { const target=path.resolve(file), parents=await chain(path.dirname(target),boundary); if(await lstat(target,{bigint:true}).catch(error=>error.code==="ENOENT"?null:Promise.reject(error)))throw new Error("first_custody_registry_present"); await recheck(parents); return {path:target,state:"ABSENT",parent:await ownership(path.dirname(target),boundary)}; }
+export async function regularClosedBytes(file,root,io={open}) { const target=path.resolve(file), boundary=path.resolve(root); if(!inside(target,boundary))throw new Error("first_custody_boundary_escape"); const parents=await chain(path.dirname(target),boundary), beforePath=await lstat(target,{bigint:true}); if(!beforePath.isFile()||beforePath.isSymbolicLink())throw new Error("first_custody_nonregular_or_reparse_file"); const handle=await io.open(target,"r"); let bytes; try { const before=await handle.stat({bigint:true}); if(!before.isFile()||!sameIdentity(identity(beforePath),identity(before)))throw new Error("first_custody_held_not_named_file"); const chunks=[],block=Buffer.allocUnsafe(65536); for(;;){const {bytesRead}=await handle.read(block,0,block.length,null);if(!bytesRead)break;chunks.push(Buffer.from(block.subarray(0,bytesRead)));} const after=await handle.stat({bigint:true});if(!sameIdentity(identity(before),identity(after)))throw new Error("first_custody_held_file_changed_during_hash");bytes=Buffer.concat(chunks);if(BigInt(bytes.length)!==before.size)throw new Error("first_custody_held_file_length_mismatch");}finally{await handle.close();} await recheck(parents);const afterPath=await lstat(target,{bigint:true});if(!afterPath.isFile()||afterPath.isSymbolicLink()||!sameIdentity(identity(beforePath),identity(afterPath)))throw new Error("first_custody_path_swapped_during_hash");return bytes; }
 export async function regularClosedFile(file,root) { const bytes=await regularClosedBytes(file,root);return {size:bytes.length,sha256:sha256(bytes)}; }
-async function exclusiveWrite(file,value,root,io={open}) { const target=path.resolve(file),parents=await chain(path.dirname(target),root);if(await lstat(target).catch(error=>error.code==="ENOENT"?null:Promise.reject(error)))throw new Error("first_custody_output_exists");const handle=await io.open(target,"wx",0o600);try{await handle.writeFile(value);await handle.sync();const held=await handle.stat(),named=await lstat(target);if(!held.isFile()||!named.isFile()||named.isSymbolicLink()||!sameIdentity(identity(held),identity(named)))throw new Error("first_custody_output_path_swapped");await recheck(parents);}finally{await handle.close();}await recheck(parents);return regularClosedFile(target,root); }
+async function exclusiveWrite(file,value,root,io={open}) { const target=path.resolve(file),parents=await chain(path.dirname(target),root);if(await lstat(target,{bigint:true}).catch(error=>error.code==="ENOENT"?null:Promise.reject(error)))throw new Error("first_custody_output_exists");const handle=await io.open(target,"wx",0o600);try{await handle.writeFile(value);await handle.sync();const held=await handle.stat({bigint:true}),named=await lstat(target,{bigint:true});if(!held.isFile()||!named.isFile()||named.isSymbolicLink()||!sameIdentity(identity(held),identity(named)))throw new Error("first_custody_output_path_swapped");await recheck(parents);}finally{await handle.close();}await recheck(parents);return regularClosedFile(target,root); }
 export async function exclusiveJson(file,value,root,io={open}) { return exclusiveWrite(file,JSON.stringify(value)+"\n",root,io); }
 export async function exclusiveBytes(file,value,root) { return exclusiveWrite(file,value,root); }
 // The terminal seal is written after all native bootstrap probes have naturally
@@ -83,8 +81,8 @@ export async function sealBootstrap(privateRoot, receiptPath, journalPath, fileN
   } finally { bootstrap=null;bootstrapSession=null; }
   const bytes = Buffer.from(JSON.stringify({ schema: "service-lasso.qualification-bootstrap-seal.v1", private: true, receiptSha256: sha256(receipt), journalSha256: sha256(journal), session, commands: records }) + "\n");
   const target = path.join(privateRoot, fileName), handle = await io.open(target, "wx", 0o600);
-  async function physicalRecheck() { for (const item of snapshot.entries) { const now = await lstat(item.cursor); if (!now.isDirectory() || now.isSymbolicLink() || !sameDirectoryIdentity(item.identity, directoryIdentity(now)) || now.uid !== item.uid || now.gid !== item.gid || now.mode !== item.mode || await realpath(item.cursor) !== item.resolved) throw new Error("first_custody_bootstrap_seal_parent_changed"); } }
-  try { await physicalRecheck(); await handle.writeFile(bytes); await handle.sync(); const held = await handle.stat(), named = await lstat(target); if (!held.isFile() || !named.isFile() || named.isSymbolicLink() || !sameIdentity(identity(held), identity(named))) throw new Error("first_custody_bootstrap_seal_path_changed"); await physicalRecheck(); } finally { await handle.close(); }
+  async function physicalRecheck() { for (const item of snapshot.entries) { const now = await lstat(item.cursor,{bigint:true}); if (!now.isDirectory() || now.isSymbolicLink() || !sameDirectoryIdentity(item.identity, directoryIdentity(now)) || now.uid !== item.uid || now.gid !== item.gid || now.mode !== item.mode || await realpath(item.cursor) !== item.resolved) throw new Error("first_custody_bootstrap_seal_parent_changed"); } }
+  try { await physicalRecheck(); await handle.writeFile(bytes); await handle.sync(); const held = await handle.stat({bigint:true}), named = await lstat(target,{bigint:true}); if (!held.isFile() || !named.isFile() || named.isSymbolicLink() || !sameIdentity(identity(held), identity(named))) throw new Error("first_custody_bootstrap_seal_path_changed"); await physicalRecheck(); } finally { await handle.close(); }
   await physicalRecheck();
 }
 // All bytes and native probes are completed privately. The exclusive hard link
@@ -95,10 +93,10 @@ export async function publishAfterBootstrap(privateRoot, output, value, journalP
     const staged=path.join(privateRoot,"validator-projection.staged.json");
     await exclusiveJson(staged,value,privateRoot,io);
     const outputParents=await imageParents(output),stagedParents=await imageParents(staged);
-    const stagedState=await lstat(staged);
+    const stagedState=await lstat(staged,{bigint:true});
     await sealBootstrap(privateRoot,staged,journalPath,"validator-bootstrap-seal.json",io);
     await recheckImageParents(stagedParents);await recheckImageParents(outputParents);
-    const current=await lstat(staged);
+    const current=await lstat(staged,{bigint:true});
     if(!current.isFile()||current.isSymbolicLink()||!sameIdentity(identity(stagedState),identity(current))||!inside(output,evidenceRoot)||path.dirname(output)!==evidenceRoot)throw new Error("first_custody_validator_staged_projection_changed");
     // link fails exclusively if the public name already exists and cannot expose
     // partially written bytes. Retain the private staging inode as evidence.
@@ -120,18 +118,18 @@ export async function darwinCacheHeader(file) {
   const secureParents = async () => {
     await recheck(parents);
     for (const item of parents.entries) {
-      const entry = await lstat(item.cursor);
-      if (entry.uid !== 0 || (entry.mode & 0o022) !== 0) throw new Error("first_custody_darwin_cache_parent_not_os_owned");
+      const entry = await lstat(item.cursor,{bigint:true});
+      if (entry.uid !== 0n || (entry.mode & 0o022n) !== 0n) throw new Error("first_custody_darwin_cache_parent_not_os_owned");
     }
   };
   await secureParents();
-  const named = await lstat(target);
-  if (!named.isFile() || named.isSymbolicLink() || named.uid !== 0 || (named.mode & 0o022) !== 0) throw new Error("first_custody_darwin_cache_not_os_owned");
+  const named = await lstat(target,{bigint:true});
+  if (!named.isFile() || named.isSymbolicLink() || named.uid !== 0n || (named.mode & 0o022n) !== 0n) throw new Error("first_custody_darwin_cache_not_os_owned");
   const handle = await open(target, constants.O_RDONLY | constants.O_NOFOLLOW);
   let header;
   try {
-    const held = await handle.stat();
-    if (!held.isFile() || !sameIdentity(identity(named), identity(held)) || held.uid !== 0 || (held.mode & 0o022) !== 0) throw new Error("first_custody_darwin_cache_held_identity");
+    const held = await handle.stat({bigint:true});
+    if (!held.isFile() || !sameIdentity(identity(named), identity(held)) || held.uid !== 0n || (held.mode & 0o022n) !== 0n) throw new Error("first_custody_darwin_cache_held_identity");
     header = Buffer.alloc(104);
     let offset = 0;
     while (offset < header.length) {
@@ -139,11 +137,11 @@ export async function darwinCacheHeader(file) {
       if (!bytesRead) throw new Error("first_custody_darwin_cache_short_header");
       offset += bytesRead;
     }
-    const after = await handle.stat();
+    const after = await handle.stat({bigint:true});
     if (!sameIdentity(identity(held), identity(after)) || after.uid !== held.uid || after.mode !== held.mode) throw new Error("first_custody_darwin_cache_changed");
     if (header.subarray(0, 5).toString("ascii") !== "dyld_") throw new Error("first_custody_darwin_cache_magic");
     await secureParents();
-    const current = await lstat(target);
+    const current = await lstat(target,{bigint:true});
     if (!sameIdentity(identity(held), identity(current)) || current.uid !== held.uid || current.mode !== held.mode || await realpath(target) !== target) throw new Error("first_custody_darwin_cache_replaced");
   } finally { await handle.close(); }
   await secureParents();
