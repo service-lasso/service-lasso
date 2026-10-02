@@ -101,4 +101,3 @@ export function validateCommand(index, command, journal, toolMap, node, workspac
     observation.fail('command_stderr_eof', () => (command.result.stderrEof !== true))) throw new Error("first_custody_validator_native_journal_invalid");
   }, report);
 }
-
