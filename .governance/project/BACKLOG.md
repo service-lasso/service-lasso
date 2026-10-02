@@ -623,6 +623,8 @@ Issue #1326 parent-edge lifetime diagnostic follow-up binds AC-4BH: retain the 0
 
 # Active delivery
 
+| `ISS-1592` | `in_progress` | Reconcile MCP native-launcher source conformance | `SPEC-002`, `AC-4BH`, `AC-4BJ`; `SPEC-003`, `BR-001`, `BR-005`, `BR-008` | Preserve both natural failed attempts, awaited deadline-bound selected-launcher verification and pre-spawn ordering. Add explicit zero-spawner proof to the existing native replacement scenario. Coverage and custody/qualification limits: `MCP_LAUNCHER_CONFORMANCE_1592.md`. Whole review, fresh external custody admission and terminal exact-head natural qualification remain required. |
+
 | Status | Issue | Requirement / next action | Evidence boundary |
 | --- | --- | --- | --- |
 | In progress | [#1582](https://github.com/service-lasso/service-lasso/issues/1582) | Deliver `SPEC-009` Core-owned authenticated durable job transaction and the CLI PR #32 compiled client contract. | Fresh Core/CLI source branches, preserved failed native CI output, custody-gated direct compiled-client proof; no host activation, deployment, publication, or promotion. |
