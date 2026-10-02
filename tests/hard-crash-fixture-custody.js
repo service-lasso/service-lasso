@@ -3,7 +3,11 @@ export function createFixtureCleanupAdapter(fixture, operations) {
   return {
     snapshot: async () => {
       const registry = await operations.readRegistry(fixture.workspaceRoot);
-      const members = fixture.custodyReaders.flatMap((read) => read());
+      // Require the interrupted custody input again during teardown. Even a
+      // primary failure before the action's read must not fabricate absence.
+      const interrupted = await operations.readInterrupted(fixture.workspaceRoot);
+      if (!Array.isArray(interrupted)) throw new Error("Interrupted fixture custody is missing.");
+      const members = [...interrupted, ...fixture.custodyReaders.flatMap((read) => read())];
       for (const owner of registry.entries.filter((entry) => entry.ownerType === "service")) {
         if (!owner.identity) {
           if (owner.lifecycleState !== "stopped") throw new Error("Fixture ownership is incomplete.");

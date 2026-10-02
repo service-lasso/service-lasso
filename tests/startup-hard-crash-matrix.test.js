@@ -159,6 +159,8 @@ async function withMatrixEnvironment(phase, action) {
       readRegistry: readProcessOwnershipRegistry, classify: classifyRegisteredProcess,
       capture: captureOwnedProcessTreeMembers, stop: stopManagedProcess,
       finalize: waitForManagedProcessFinalization, inspect: inspectProcess,
+      readInterrupted: async (workspaceRoot) => JSON.parse(await readFile(
+        path.join(workspaceRoot, ".service-lasso", "hard-crash-fixture-custody.json"), "utf8")),
     }),
     restore: () => {
       for (const [key, value] of previous) {

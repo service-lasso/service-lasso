@@ -16,6 +16,8 @@ for (const scenario of ["primary-and-cleanup", "registry-read", "root-gone-child
     const journal = path.join(directory, "journal.json");
     await writeFile(journal, "PRIVATE-JOURNAL");
     const registryFile = path.join(directory, "registry.json");
+    const interruptedFile = path.join(directory, "interrupted-custody.json");
+    await writeFile(interruptedFile, JSON.stringify([root, child]));
     await writeFile(registryFile, JSON.stringify({ entries: [{ ownerType: "service", pid: root.pid,
       identity: root, lifecycleState: "running", processGroup: { kind: "none", id: null } }] }));
     const custody = createFixtureCustody();
@@ -30,6 +32,7 @@ for (const scenario of ["primary-and-cleanup", "registry-read", "root-gone-child
     try {
       const work = closeFixture({ primary, custody,
         adapter: createFixtureCleanupAdapter({ workspaceRoot: directory, custodyReaders: [() => [child]] }, {
+          readInterrupted: async () => JSON.parse(await readFile(interruptedFile, "utf8")),
           readRegistry: async () => {
             if (scenario === "registry-read") throw new Error("PRIVATE-REGISTRY");
             return JSON.parse(await readFile(registryFile, "utf8"));
