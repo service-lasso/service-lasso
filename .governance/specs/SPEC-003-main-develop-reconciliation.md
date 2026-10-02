@@ -75,3 +75,5 @@ Reviewers must be able to trace each `main`-only product change to its reconcile
   FullControl only to its creating current-user SID, LocalSystem, and built-in
   Administrators. Existing source, tool, and shared-parent paths remain
   inspection-only boundaries and are never ACL-hardened by initialization.
+
+- 2026-10-02 PR #1586 BR-008 repair: exact allowed Windows writer principals are deduplicated for ordinary/SYSTEM/Administrators creators. Both held Darwin helper witnesses must bind the complete cache object; validation reopens the physical OS-owned non-writable cache and compares only its bounded 104-byte header UUID/digest. Platform adversaries remain unexecuted pending fresh external ROOT admission. Parent replacement checks detect change and do not claim atomic directory anchoring.

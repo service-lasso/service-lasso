@@ -28,3 +28,44 @@ Promote information only when it becomes durable: session facts move into a hist
 ## Default Pickup and Closure
 
 Use the default issue-pickup flow in `.governance/project/GIT_WORKFLOW.md`. Before starting a new slice, assess inherited state on `develop`; use a new typed issue branch from `develop`; classify all kept changes at the end of the slice; and leave an evidence-backed pull request into `develop`. Normal development work never uses `main` as input.
+
+## 2026-10-02 PR #1586 source-repair checkpoint
+
+Development continuation of the existing exclusively owned PR head
+`codex/850-native-custody-platform-followup` is an explicit GOV-10 recovery
+exception. The existing branch is preserved until its governed landing path
+completes. Current develop `3a8d0c9c1510c7e5832dae1eca7bd38eacf02444` was
+merged normally and immediately pushed as `5a082198e5816fc589e94fe2a3ae905e411eea77`;
+this actual merge base supersedes the provider's older cached `7399683` base.
+
+The bounded BR-008 repair deduplicates the native Windows allowed writer SID
+set consistently and reads the owner directly as a SecurityIdentifier. Darwin
+requires exact complete cache-object binding to both held native helper outputs,
+then verifies a physical root-owned non-writable cache through held identity,
+non-reparse parent snapshots and a bounded 104-byte header read. The digest is
+only the header digest, not a complete cache/library-file claim. Parent
+replacement checks detect observed changes; they do not promise atomic anchoring.
+
+Added source adversaries are UNEXECUTED: unique SID models for ordinary,
+SYSTEM and Administrators identities, duplicate/foreign/broad/inherited/right
+drift, actual current-Windows ACL mutation, junction/symlink leaf and ancestor
+boundaries, and Darwin coherently resealed journal/receipt mutations including
+both raw witnesses plus header UUID/digest substitution. Token models are
+surrogate policy evidence only; no SYSTEM/Admin native token is claimed.
+Native platform scenarios, races, unreadability and OS owner variation remain
+unqualified until external ROOT-admitted target execution supplies direct proof.
+
+No product imports, syntax checks, dependencies, builds, tests, native helpers or
+compiler actions were executed during authoring. Static diff/structure review
+and `git diff --check` are source checks only. The original pre-admission SID
+translation failure remains invalid-input custody support. Rejected de27
+metadata/old receipts must not be reused. PR #1586 remains review/qualification
+NO-GO until fresh complete cumulative review and an external first-input ROOT
+collector read/admission. #1590 lifecycle CI repair is separate and unchanged.
+Primary-checkout retained state, other workers, provider controls, CI reruns,
+release/promotion/publication/deployment and protected branches were untouched.
+
+Next owner: parent conducts fresh full cumulative source review, reads a new
+complete external first-input custody bundle, then admits or rejects execution.
+All modified paths in this worktree are intended governed source/test/doc changes;
+the retained PR branch/worktree is the explicit bounded review/qualification path.

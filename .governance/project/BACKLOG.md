@@ -626,3 +626,5 @@ Issue #1326 parent-edge lifetime diagnostic follow-up binds AC-4BH: retain the 0
 | Status | Issue | Requirement / next action | Evidence boundary |
 | --- | --- | --- | --- |
 | In progress | [#1582](https://github.com/service-lasso/service-lasso/issues/1582) | Deliver `SPEC-009` Core-owned authenticated durable job transaction and the CLI PR #32 compiled client contract. | Fresh Core/CLI source branches, preserved failed native CI output, custody-gated direct compiled-client proof; no host activation, deployment, publication, or promotion. |
+
+- PR #1586 / ISS-850 / BR-008: complete Windows unique-SID and Darwin complete raw cache binding/header revalidation source repairs and adversarial coverage; source review and fresh external ROOT admission required before execution. Retain original pre-admission SID translation failure as invalid-input custody only.
