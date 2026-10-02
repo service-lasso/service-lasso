@@ -281,11 +281,13 @@ import {
 import type { LifecycleAction, LifecycleActionResult } from "../runtime/lifecycle/types.js";
 import {
   claimRuntimeEndpointAllocation,
+  getConfiguredPortRange,
   planAndReserveRuntimeEndpoints,
   readRuntimeEndpointAllocationPlan,
   releaseRuntimeEndpointAllocation,
   runtimeApiEndpointFromAllocation,
   servicePortsFromEndpointAllocation,
+  RuntimeEndpointAllocationError,
   type RuntimeEndpointAllocationPolicy,
   type RuntimeEndpointAllocationPlan,
 } from "../runtime/ports/allocation.js";
@@ -2245,6 +2247,13 @@ function createServiceDetailResponse(service: ServiceSummary): ServiceDetailResp
   };
 }
 
+type LifecycleExecutionContext =
+  | { kind: "authenticated-request"; actor: PermissionActor; confirmed: boolean }
+  // This marker is constructed only by the confirmation executor after its
+  // actor, expiry, plan, and capability revalidation. It is deliberately not
+  // a representation of any caller-supplied request body.
+  | { kind: "confirmed-operator-stop" };
+
 async function executeLifecycleAction(
   action: string,
   service: RuntimeModel["discovered"][number],
@@ -2253,7 +2262,7 @@ async function executeLifecycleAction(
   allocationPlan?: RuntimeEndpointAllocationPlan,
   runtimeGenerationId?: string | null,
   runtimeInstanceId?: string | null,
-  requestContext?: { actor: PermissionActor; confirmed: boolean },
+  requestContext?: LifecycleExecutionContext,
   allowedMutationServiceIds?: ReadonlySet<string>,
   expectedArtifactRevision?: string,
   expectedArtifactRevisionsByService?: Readonly<Record<string, string>>,
@@ -2290,6 +2299,10 @@ async function executeLifecycleAction(
     expectedExecutableFiles,
     expectedStopExecutableBinding,
     expectedDoctorExecutableBindings,
+    // Only an authenticated HTTP request or a confirmation executor's
+    // revalidated stop capability may begin a new inspection episode. Internal
+    // shutdown, monitor, and finalizer calls keep their current episode.
+    newWindowsInspectionEpisode: action === "stop" && requestContext !== undefined,
   };
   const result = await (async () => {
     switch (action) {
@@ -2317,7 +2330,7 @@ async function executeLifecycleAction(
       case "restart":
         return await restartService(service, registry, allocationOptions);
       case "reload": {
-        if (!requestContext) {
+        if (requestContext?.kind !== "authenticated-request") {
           throw new ApiError("actor_required", 401, "Reload requires an authenticated runtime actor.");
         }
         if (!service.manifest.actions?.reload) {
@@ -4901,6 +4914,7 @@ async function routeRequestWithoutMutationCoordination(
             config.endpointAllocationPlan,
             config.runtimeGenerationId,
             resolveRuntimeInstanceId(config),
+            record.command === "stop" ? { kind: "confirmed-operator-stop" } : undefined,
           );
         },
       );
@@ -6672,7 +6686,7 @@ async function routeRequestWithoutMutationCoordination(
           config.endpointAllocationPlan,
           config.runtimeGenerationId,
           resolveRuntimeInstanceId(config),
-          { actor: lifecycleActor, confirmed: body.confirm },
+          { kind: "authenticated-request", actor: lifecycleActor, confirmed: body.confirm },
         );
         await appendAuditEvent({
           serviceRoot: service.serviceRoot,
@@ -7583,6 +7597,10 @@ async function routeRequest(
 }
 
 export function createApiServer(options: ApiServerOptions = {}): Server {
+  return createApiServerOnCandidate(options);
+}
+
+function createApiServerOnCandidate(options: ApiServerOptions, existingServer?: Server): Server {
   if (options.mcpPolicyTestHooks && process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS !== "1") {
     throw new Error("MCP policy test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
   }
@@ -7617,7 +7635,8 @@ export function createApiServer(options: ApiServerOptions = {}): Server {
     key: randomBytes(32),
   };
 
-  const server: RuntimeApiServer = createServer((request, response) => {
+  const server: RuntimeApiServer = (existingServer ?? createServer()) as RuntimeApiServer;
+  server.on("request", (request, response) => {
     if (request.method === "GET" && request.url === RUNTIME_API_OWNERSHIP_PROBE_PATH) {
       const challenge = firstHeader(request.headers[RUNTIME_API_OWNERSHIP_CHALLENGE_HEADER]);
       if (!ownershipChallenge.active || !challenge) {
@@ -8091,6 +8110,9 @@ async function startApiServerGeneration(
   const requestedPort = options.port ?? 18080;
   const apiPortPolicy = runtimeApiPortPolicy(options, requestedPort);
   const bindRetryLimit = runtimeBindRetryLimit();
+  const automaticApiRange = requestedPort === 0 && apiPortPolicy === "automatic"
+    ? getConfiguredPortRange()
+    : null;
   const monitor = options.monitor
     ? createRuntimeServiceMonitor({
         registry: bootModel.registry,
@@ -8141,8 +8163,28 @@ async function startApiServerGeneration(
   for (let attempt = 1; attempt <= bindRetryLimit + 1; attempt += 1) {
     let attemptAllocationPlan: RuntimeEndpointAllocationPlan | null = null;
     let candidateServer: Server | null = null;
+    let kernelBoundPort: number | undefined;
     let ownershipRecorded = false;
     try {
+      if (requestedPort === 0 && apiPortPolicy === "automatic" && !recovery.allocationPlan) {
+        candidateServer = createServer();
+        // An unconstrained automatic API may ask the OS for an ephemeral port.
+        // With a configured range, bind an in-range candidate first and retain
+        // that listener through reservation, materialisation, and ownership
+        // proof so the allocation cannot escape the configured contract.
+        const candidatePort = automaticApiRange
+          ? automaticApiRange.start + attempt - 1
+          : 0;
+        if (automaticApiRange && candidatePort > automaticApiRange.end) {
+          throw new Error(`No automatic runtime API candidate remains in configured range ${automaticApiRange.start}-${automaticApiRange.end}.`);
+        }
+        await listenRuntimeApi(candidateServer, candidatePort, bindHost);
+        const candidateAddress = candidateServer.address();
+        if (!candidateAddress || typeof candidateAddress === "string" || candidateAddress.port <= 0) {
+          throw new Error("Automatic runtime API candidate failed to expose a TCP port.");
+        }
+        kernelBoundPort = candidateAddress.port;
+      }
       attemptAllocationPlan = attempt === 1 && recovery.allocationPlan
         ? await claimRuntimeEndpointAllocation(recovery.allocationPlan)
         : await planAndReserveRuntimeEndpoints({
@@ -8154,6 +8196,7 @@ async function startApiServerGeneration(
             advertiseHost: publicHost,
             port: requestedPort,
             policy: apiPortPolicy,
+            kernelBoundPort,
           },
           services: bootModel.discovered,
           generationId: runtimeGenerationId,
@@ -8178,7 +8221,7 @@ async function startApiServerGeneration(
         { completedActions: [`configuration_materialized:${allocationPlan.allocationId}`] },
       );
       await runStartupTransactionPhaseHook(options, transaction.journal);
-      candidateServer = createApiServer({
+      candidateServer = createApiServerOnCandidate({
         ...config,
         host: bindHost,
         autostart: runtimeAutostart,
@@ -8195,7 +8238,7 @@ async function startApiServerGeneration(
         mcpPolicyTestHooks: options.mcpPolicyTestHooks,
         secretRotationTestHooks: options.secretRotationTestHooks,
         runtimeShutdownSlot,
-      });
+      }, candidateServer ?? undefined);
       await recordProcessOwnership(config.workspaceRoot, {
         ownerType: "runtime",
         ownerId: runtimeInstanceId,
@@ -8216,7 +8259,9 @@ async function startApiServerGeneration(
         }
         await options.endpointAllocationTestHooks.beforeApiBind({ attempt, allocationPlan, endpoint: apiEndpoint });
       }
-      await listenRuntimeApi(candidateServer, apiEndpoint.port, bindHost);
+      if (!candidateServer.listening) {
+        await listenRuntimeApi(candidateServer, apiEndpoint.port, bindHost);
+      }
       await proveRuntimeApiSelectorOwnership(candidateServer, apiEndpoint.selectors.url);
       transaction.journal = await advanceStartupTransaction(
         transaction.journal,
@@ -8276,7 +8321,10 @@ async function startApiServerGeneration(
       const materializationFailures = await compensateStartupMaterializations(transaction, bootModel.discovered);
       if (materializationFailures.length > 0) throw error;
       if (recovery.allocationPlan) throw error;
-      if (!isAddressInUse(error) || apiPortPolicy === "fixed" || attempt > bindRetryLimit) throw error;
+      const heldCandidateConflict = kernelBoundPort !== undefined
+        && error instanceof RuntimeEndpointAllocationError
+        && error.ownerId === "runtime-api";
+      if ((!isAddressInUse(error) && !heldCandidateConflict) || apiPortPolicy === "fixed" || attempt > bindRetryLimit) throw error;
     }
   }
   try {

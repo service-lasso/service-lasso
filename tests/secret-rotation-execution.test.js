@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -181,6 +181,94 @@ test("rotation transaction stages, activates, restarts only the linked consumer,
     assert.equal(retry.outcome, "committed");
     assert.equal(calls.length, 4);
     assert.equal((await readSecretRotationExecutionState(workspaceRoot, "rotation-success")).activeVersionId, "version-2");
+  } finally {
+    resetLifecycleState();
+    await rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test("rotation state writes ignore a stale same-PID temp artifact and retain it for its owner", async () => {
+  const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-rotation-stale-temp-"));
+  const fixture = service();
+  const services = [fixture];
+  const registry = createServiceRegistry(services);
+  const calls = [];
+  const operationId = "rotation-stale-temp";
+  const target = path.join(workspaceRoot, ".service-lasso", "secret-rotations", `${operationId}.json`);
+  const staleTemporary = `${target}.${process.pid}.tmp`;
+  resetLifecycleState();
+  setRunning(fixture.manifest.id, true);
+  const plan = buildSecretRotationImpactPlan(services, ref);
+
+  try {
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(staleTemporary, "foreign transaction artifact", "utf8");
+    const result = await executeSecretRotation(request(plan, operationId), {
+      workspaceRoot,
+      services,
+      registry,
+      brokerRuntime: fakeBroker(calls),
+      operations: {
+        stop: async (targetService) => setRunning(targetService.manifest.id, false),
+        start: async (targetService) => {
+          setRunning(targetService.manifest.id, true);
+          return true;
+        },
+      },
+    });
+    assert.equal(result.outcome, "committed");
+    assert.equal(await readFile(staleTemporary, "utf8"), "foreign transaction artifact");
+  } finally {
+    resetLifecycleState();
+    await rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test("a rollback persistence failure retains the primary consumer cause without exposing either cause publicly", async () => {
+  const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-rotation-causal-write-failure-"));
+  const fixture = service();
+  const services = [fixture];
+  const registry = createServiceRegistry(services);
+  const calls = [];
+  const operationId = "rotation-causal-write-failure";
+  const target = path.join(workspaceRoot, ".service-lasso", "secret-rotations", `${operationId}.json`);
+  const originalCause = new LifecycleStateError("private fixture lifecycle cause");
+  let startAttempts = 0;
+  resetLifecycleState();
+  setRunning(fixture.manifest.id, true);
+  const plan = buildSecretRotationImpactPlan(services, ref);
+
+  try {
+    let thrown;
+    try {
+      await executeSecretRotation(request(plan, operationId), {
+        workspaceRoot,
+        services,
+        registry,
+        brokerRuntime: fakeBroker(calls),
+        operations: {
+          stop: async (targetService) => setRunning(targetService.manifest.id, false),
+          start: async (targetService) => {
+            startAttempts += 1;
+            if (startAttempts === 1) {
+              await unlink(target);
+              await mkdir(target);
+              throw originalCause;
+            }
+            setRunning(targetService.manifest.id, true);
+            return true;
+          },
+        },
+      });
+    } catch (error) {
+      thrown = error;
+    }
+    assert.equal(thrown?.code, "rotation_rollback_blocked");
+    assert.equal(thrown?.cause?.code, "rotation_consumer_not_ready");
+    assert.equal(thrown?.cause?.cause, originalCause);
+    assert.equal(["EEXIST", "EPERM"].includes(thrown?.suppressed?.[0]?.code), true);
+    assert.equal(JSON.stringify(thrown).includes(originalCause.message), false);
+    assert.equal(calls.some((call) => call.path.endsWith("/rollback")), false);
   } finally {
     resetLifecycleState();
     await rm(workspaceRoot, { recursive: true, force: true });

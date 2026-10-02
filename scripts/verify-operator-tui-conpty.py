@@ -51,9 +51,9 @@ def main():
     stage = "setup"
     process = None
     try:
-        if args.mode == "connected" and not args.api_url:
+        if not args.api_url:
             return fail(stage)
-        api_url = args.api_url if args.mode == "connected" else None
+        api_url = args.api_url
         stage = "launch"
         process = PtyProcess.spawn([args.executable], cwd=os.path.dirname(args.executable), env=child_environment(api_url), dimensions=(40, 120), backend=Backend.ConPTY)
         text = ""

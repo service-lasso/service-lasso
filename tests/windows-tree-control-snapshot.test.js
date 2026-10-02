@@ -31,15 +31,40 @@ test("filtered stop snapshot removes excluded old members, retains omitted owned
   assert.deepEqual(checks, [missing.pid, missing.pid]);
 });
 
-test("a previously filtered record retains fresh verification when its next snapshot has no exclusions", async () => {
+test("a current native member is fresh evidence while retained omissions remain separately probed", async () => {
   let checks = 0;
   const snapshot = await inspectKnownWindowsTreeMembers(root, [root], Date.now() + 500, new AbortController().signal, true, {
     inspectTree: async () => ({ rootStatus: "owned", members: [root] }),
     inspectIdentity: async () => { checks += 1; return { status: "unknown", reason: "access_denied" }; },
   });
   assert.equal(snapshot.verifiedMembersOnly, true);
-  assert.equal((await snapshot.inspectProcess(root.pid)).status, "unknown");
-  assert.equal(checks, 1);
+  assert.equal((await snapshot.inspectProcess(root.pid)).status, "running");
+  assert.equal(checks, 0);
+});
+
+test("a retained omitted PID with unknown fresh identity is never signalled", async () => {
+  const deadlineMs = Date.now() + 500;
+  const signal = new AbortController().signal;
+  const signals = [];
+  const snapshot = await inspectKnownWindowsTreeMembers(root, [root], deadlineMs, signal, false, {
+    inspectTree: async () => ({ rootStatus: "exited", members: [] }),
+    inspectIdentity: async () => ({ status: "unknown", reason: "access_denied" }),
+  });
+  await assert.rejects(terminateOwnedProcessTree({
+    rootPid: root.pid,
+    rootIdentity: root,
+    processGroup: { kind: "none", id: null },
+    knownMembers: snapshot.members,
+    forceImmediately: true,
+  }, 500, {
+    platform: "win32",
+    deadlineMs,
+    signal,
+    inspectProcess: snapshot.inspectProcess,
+    killProcess: (pid, controlSignal) => { if (controlSignal !== 0) signals.push(pid); },
+    runWindowsCommand: async () => { throw new Error("numeric tree helper must not run"); },
+  }), /Cannot verify process/);
+  assert.deepEqual(signals, []);
 });
 
 test("filtered signal-time inspection forwards its narrower grace deadline and abort signal", async () => {

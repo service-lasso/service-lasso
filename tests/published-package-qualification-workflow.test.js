@@ -43,7 +43,7 @@ test("AC-4BZ.1 workflow qualifies only exact downloaded publications on all thre
   assert.match(workflow, /ref: \$\{\{ github\.sha \}\}/);
   assert.match(
     workflow,
-    /ADMIN_HARNESS_REVISION: f7abf981f8f0bbbbd7fdf352237fd84950d95ca3/,
+    /ADMIN_HARNESS_REVISION: 3b44b9053665f8f2e54ecba610e4f94e0c1727dd/,
   );
   assert.match(
     workflow,
