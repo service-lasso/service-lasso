@@ -1630,7 +1630,7 @@ async function terminateManagedProcessTree(
             (rootExitObserved || record.verifiedMembersOnly || newWindowsInspectionEpisode) &&
             (!record.terminalWindowsCommandPartialCopy || newWindowsInspectionEpisode) &&
             record.rootIdentity &&
-            record.knownTreeMembers.length > 0
+            (record.knownTreeMembers.length > 0 || newWindowsInspectionEpisode)
           ) {
             const snapshot = await inspectKnownWindowsTreeMembers(
               record.rootIdentity,

@@ -187,6 +187,14 @@ internal static class ServiceLassoWindowsProcessInspector
         return status;
     }
 
+    private static bool IsTransientCommandLineQueryStatus(int status)
+    {
+        uint value = unchecked((uint)status);
+        return value == 0xC0000004 || // STATUS_INFO_LENGTH_MISMATCH
+            value == 0xC0000023 || // STATUS_BUFFER_TOO_SMALL
+            value == 0x8000000D; // STATUS_PARTIAL_COPY
+    }
+
     private static string ReadCommandLine(IntPtr processHandle)
     {
         int headerSize = IntPtr.Size == 8 ? 16 : 8;
@@ -222,9 +230,15 @@ internal static class ServiceLassoWindowsProcessInspector
                     buffer,
                     requiredLength,
                     out returnedLength);
-                if (status == StatusPartialCopy && attempt + 1 < CommandLineQueryAttempts)
+                if (
+                    (status != 0 && IsTransientCommandLineQueryStatus(status)) ||
+                    returnedLength > requiredLength
+                )
                 {
-                    continue;
+                    if (attempt + 1 < CommandLineQueryAttempts)
+                    {
+                        continue;
+                    }
                 }
                 if (status != 0)
                 {

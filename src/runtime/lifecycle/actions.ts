@@ -260,6 +260,7 @@ export interface ServiceLifecycleActionOptions {
   expectedExecutableRevision?: string;
   expectedExecutableFiles?: readonly ExecutableInputFileDigest[];
   expectedStopExecutableBinding?: ServiceStopExecutableMutationBinding;
+  newWindowsInspectionEpisode?: boolean;
   expectedDoctorExecutableBindings?: Readonly<Record<string, ServiceExecutableMutationBinding>>;
   supervisionRestart?: {
     reason: ServiceRuntimeSupervisionRestartReason;
@@ -1126,11 +1127,15 @@ async function stopManagedProcessWithOverride(
   current: ServiceLifecycleState,
   workspaceRoot: string | undefined,
   expectedBinding?: ServiceStopExecutableMutationBinding,
+  newWindowsInspectionEpisode = false,
 ): Promise<{ exitCode: number | null; message: string }> {
   const serviceId = service.manifest.id;
   const override = getLifecycleStopOverride(service);
   if (!override) {
-    const stopped = await stopManagedProcess(serviceId, undefined, { workspaceRoot });
+    const stopped = await stopManagedProcess(serviceId, undefined, {
+      workspaceRoot,
+      newWindowsInspectionEpisode,
+    });
     return {
       exitCode: stopped?.exitCode ?? current.runtime.exitCode ?? 0,
       message: "Stop completed.",
@@ -1148,7 +1153,10 @@ async function stopManagedProcessWithOverride(
     }
   }
 
-  const stopped = await stopManagedProcess(serviceId, undefined, { workspaceRoot });
+  const stopped = await stopManagedProcess(serviceId, undefined, {
+    workspaceRoot,
+    newWindowsInspectionEpisode,
+  });
   const reason = overrideResult.timedOut
     ? "timed out"
     : `failed with exit code ${overrideResult.exitCode ?? "unknown"}`;
@@ -1811,7 +1819,13 @@ export async function stopService(
     );
   }
 
-  const stopped = await stopManagedProcessWithOverride(service, current, options.workspaceRoot, options.expectedStopExecutableBinding);
+  const stopped = await stopManagedProcessWithOverride(
+    service,
+    current,
+    options.workspaceRoot,
+    options.expectedStopExecutableBinding,
+    options.newWindowsInspectionEpisode,
+  );
   const finishedAt = new Date().toISOString();
   const revokedIdentities = revokeServiceScopedBrokerIdentities(serviceId, {
     now: new Date(finishedAt),

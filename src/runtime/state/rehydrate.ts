@@ -30,6 +30,7 @@ import {
   type ProcessOwnershipEntry,
 } from "../process/registry.js";
 import type { ProcessInspectorDependencies, ProcessIdentityClassification } from "../process/identity.js";
+import { windowsTreeInspectionFailureMetadata } from "../process/windows-tree-inspection-diagnostics.js";
 import { readStoredState } from "./readState.js";
 import { resolveServiceRootPath } from "./paths.js";
 import { SERVICE_STATE_SCHEMA_VERSIONS, writeServiceState } from "./writeState.js";
@@ -804,6 +805,51 @@ function buildBlockedRehydrateState(
   return buildReconcileEvidenceState(service, state, status, pid, reason);
 }
 
+// Retain only the closed native-inspection receipt when adoption fails. The
+// original error still controls rehydration, ownership, and deadline behavior.
+function buildRehydrateInspectionFailureState(
+  service: DiscoveredService,
+  state: ServiceLifecycleState,
+  error: unknown,
+): ServiceLifecycleState {
+  const now = new Date().toISOString();
+  const serviceId = service.manifest.id;
+  const attempt: ServiceStartTraceAttempt = {
+    attemptId: `rehydrate-${serviceId}-${now.replace(/[:.]/g, "-")}`,
+    serviceId,
+    action: "start",
+    startedAt: now,
+    finishedAt: now,
+    status: "failed",
+    events: [{
+      order: 1,
+      phase: "process_spawn",
+      status: "failed",
+      serviceId,
+      startedAt: now,
+      finishedAt: now,
+      message: "Persisted process owner adoption did not complete.",
+      metadata: {
+        rehydrateFailure: "registry_owner_adoption",
+        ...windowsTreeInspectionFailureMetadata(error),
+      },
+    }],
+  };
+  return {
+    ...state,
+    runtime: {
+      ...state.runtime,
+      startTrace: {
+        current: attempt,
+        history: [
+          attempt,
+          ...state.runtime.startTrace.history.filter((entry) => entry.attemptId !== attempt.attemptId),
+        ].slice(0, 5),
+      },
+    },
+  };
+}
+
 /**
  * Adopt a verified registry owner and restore running state, ports, and endpoints.
  */
@@ -920,7 +966,21 @@ export async function reconcilePersistedServiceOwner(
 
   const status = await classifyRegisteredProcess(ownership, options.processInspectorDependencies);
   if (status === "owned") {
-    const adoptedState = await adoptVerifiedRegistryOwner(service, state, ownership, workspaceRoot);
+    let adoptedState: ServiceLifecycleState;
+    try {
+      adoptedState = await adoptVerifiedRegistryOwner(service, state, ownership, workspaceRoot);
+    } catch (error) {
+      // Do not turn a failed inspection into an ownership decision. Persist a
+      // closed diagnostic receipt when possible, then preserve the original
+      // failure even when the receipt cannot be written.
+      try {
+        await writeServiceState(service, buildRehydrateInspectionFailureState(service, state, error));
+      } catch {
+        // Receipt persistence is diagnostic only. The original inspection
+        // failure remains the fail-closed outcome.
+      }
+      throw error;
+    }
     await writeServiceState(service, adoptedState);
     return { status: "owned", state: adoptedState };
   }
