@@ -170,6 +170,29 @@ test("runCommand holds the owned boundary until inherited output pipes close", a
   }
 });
 
+test("runCommand bounds an inherited pipe that outlives its direct child", async () => {
+  const { mkdtemp, rm, writeFile } = await import("node:fs/promises");
+  const os = await import("node:os");
+  const path = (await import("node:path")).default;
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-1566-owned-reap-"));
+  const parent = path.join(tempRoot, "parent.mjs");
+  try {
+    await writeFile(parent, [
+      'import { spawn } from "node:child_process";',
+      'spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: ["ignore", "inherit", "inherit"] });',
+      "setInterval(() => {}, 1000);",
+      "",
+    ].join("\n"), "utf8");
+    const startedAt = Date.now();
+    const failure = await runCommand(process.execPath, [parent], { cwd: tempRoot, timeoutMs: 100 }).catch(value => value);
+    assert.equal(runCommandFailureKind(failure), "deadline_exceeded");
+    assert.equal(failure.closeObserved, true);
+    assert.ok(Date.now() - startedAt < 5_000, "owned inherited-pipe cleanup did not reach close after its deadline");
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("the verifier catch branch keeps npm install safeguards and emits only the reported observation", async () => {
   const { mkdtemp, readFile, rm, writeFile } = await import("node:fs/promises");
   const { createHash } = await import("node:crypto");
