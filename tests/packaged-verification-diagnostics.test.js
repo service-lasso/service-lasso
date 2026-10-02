@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { dependencyAcquisitionReceipt, dependencyAcquisitionSubcode, packagedVerificationDiagnostic } from "../scripts/packaged-verification-diagnostics.mjs";
 import { runCommand, runCommandFailureKind } from "../scripts/mcp-product-acceptance-lib.mjs";
+import { ownedTempCleanupObservation } from "../scripts/owned-temp-cleanup.mjs";
 
 function ownPackagedAcceptanceDiagnostic(error) {
   if (!error || typeof error !== "object") return undefined;
@@ -240,7 +241,7 @@ test("the verifier catch branch keeps npm install safeguards and emits only the 
   try {
     await writeFile(report, `process.stdout.write(JSON.stringify({ error: { code: "EINTEGRITY", detail: "${secret}" } })); process.stderr.write("${secret}"); process.exit(9);`, "utf8");
     const context = {
-      path, createHash, packagedVerificationDiagnostic, dependencyAcquisitionReceipt, runCommandFailureKind, ownPackagedAcceptanceDiagnostic, operatorToolFailureDiagnostic: () => undefined, releaseMetadataToken: undefined,
+      path, createHash, packagedVerificationDiagnostic, dependencyAcquisitionReceipt, runCommandFailureKind, ownPackagedAcceptanceDiagnostic, ownedTempCleanupObservation, operatorToolFailureDiagnostic: () => undefined, releaseMetadataToken: undefined,
       tempRoot, consumerRoot: tempRoot, servicesRoot: path.join(tempRoot, "services"),
       httpWorkspaceRoot: path.join(tempRoot, "http"), stdioWorkspaceRoot: path.join(tempRoot, "stdio"),
       repoRoot: "repo", packageOutputRoot: path.join(tempRoot, "package-output"), version: "0.1.0",
@@ -303,7 +304,7 @@ test("outer verifier reports the failed boundary, hides captured errors and alwa
         });
       };
       const context = {
-        path, createHash, packagedVerificationDiagnostic, dependencyAcquisitionReceipt, runCommandFailureKind, ownPackagedAcceptanceDiagnostic, operatorToolFailureDiagnostic: () => undefined, releaseMetadataToken: undefined,
+        path, createHash, packagedVerificationDiagnostic, dependencyAcquisitionReceipt, runCommandFailureKind, ownPackagedAcceptanceDiagnostic, ownedTempCleanupObservation, operatorToolFailureDiagnostic: () => undefined, releaseMetadataToken: undefined,
         tempRoot: "owned-temp", consumerRoot: "owned-temp/consumer", servicesRoot: "owned-temp/services",
         httpWorkspaceRoot: "owned-temp/http", stdioWorkspaceRoot: "owned-temp/stdio",
         repoRoot: "repo", packageOutputRoot: "owned-temp/package-output", version: "0.1.0",

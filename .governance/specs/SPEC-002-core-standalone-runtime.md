@@ -1,5 +1,15 @@
 # Core Standalone Runtime
 
+## #1592 MCP native launcher conformance clarification
+
+Existing `AC-4BH` / `AC-4BJ` launcher admission requires awaited, deadline-bound
+integrity verification of the selected launch-state executable before wrapper
+spawn. Source conformance accepts whitespace and an optional legal trailing
+comma while retaining that identity and ordering. This source check is a proxy;
+native positive/adversarial proof remains required. The existing native-asset
+replacement test must explicitly observe zero wrapper-spawner calls on rejected
+replacement. See [#1592 coverage and retained failures](../project/MCP_LAUNCHER_CONFORMANCE_1592.md).
+
 ## Intent
 
 Create the first real product spec for `service-lasso` by moving from bootstrap-only governance into an executable core runtime slice. This matters because the repository now has a tracked bounded runtime implementation and needs governed traceability as it widens toward production-ready service orchestration. The first core milestone proved that Service Lasso can run as a standalone manager and consume canonical service manifests directly; the current work under this spec is widening that bounded slice carefully with direct verification.

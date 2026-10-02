@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { copyFile, lstat, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, lstat, mkdir, mkdtemp, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,6 +14,7 @@ import {
 } from "./mcp-product-acceptance-lib.mjs";
 
 import { dependencyAcquisitionReceipt, packagedVerificationDiagnostic } from "./packaged-verification-diagnostics.mjs";
+import { ownedTempCleanupObservation, removeOwnedTempRoot } from "./owned-temp-cleanup.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const platform = process.platform;
@@ -111,20 +112,6 @@ function isolatedConsumerEnvironment(overrides) {
     ? { PSModulePath: path.join(process.env.SystemRoot, "System32", "WindowsPowerShell", "v1.0", "Modules") }
     : {};
   return { ...environment, ...platformEnvironment, ...overrides };
-}
-
-async function removeOwnedTempRoot(tempRoot) {
-  for (let attempt = 1; attempt <= 8; attempt += 1) {
-    try {
-      await rm(tempRoot, { recursive: true, force: true });
-      return;
-    } catch (error) {
-      if (!error || typeof error !== "object" || !["EBUSY", "ENOTEMPTY", "EPERM"].includes(error.code) || attempt === 8) {
-        throw error;
-      }
-      await new Promise((resolve) => setTimeout(resolve, attempt * 100));
-    }
-  }
 }
 
 async function writeCanonicalService(servicesRoot) {
@@ -426,10 +413,12 @@ try {
 } finally {
   try {
     await removeOwnedTempRoot(tempRoot);
-  } catch {
+  } catch (error) {
+    const cleanup = ownedTempCleanupObservation(error);
     verificationFailure = {
       stage: "temp_cleanup",
       errorCode: "cleanup_failed",
+      ...(cleanup ? { cleanup } : {}),
       ...(verificationFailure
         ? {
             verificationStage: verificationFailure.stage,
