@@ -36,6 +36,9 @@ on:
         required: true
         type: string
 
+env:
+  QUALIFICATION_CANDIDATE_SHA: ${{ github.sha }}
+
 concurrency:
   group: published-package-qualification-${{ github.run_id }}
   cancel-in-progress: false
@@ -72,21 +75,18 @@ jobs:
       CORE_NPM_INTEGRITY: ${{ inputs.core_npm_integrity }}
       CORE_RELEASE_ASSET: service-lasso-${{ inputs.core_release_tag }}-${{ matrix.core_suffix }}
       CORE_RELEASE_SHA256: ${{ matrix.core_sha256 }}
-      ADMIN_HARNESS_REVISION: 3b44b9053665f8f2e54ecba610e4f94e0c1727dd
+      ADMIN_HARNESS_REVISION: 90caf8cf0f8e3c599a1a5022936813ac8bf0983b
       QUALIFICATION_PLATFORM: ${{ matrix.platform }}
+      # Apply before checkout so Windows receives genuine tracked blob bytes.
+      GIT_CONFIG_COUNT: "1"
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: "false"
 
     steps:
       - name: Check out exact qualification harness
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
-
-      - name: Check out exact qualified Admin browser harness
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: service-lasso/lasso-serviceadmin
-          ref: ${{ env.ADMIN_HARNESS_REVISION }}
-          path: qualification/admin
 
       - name: Establish unique qualification custody before dependencies
         shell: bash
@@ -107,7 +107,7 @@ jobs:
           export QUALIFICATION_WORKSPACE_ROOT="$SERVICE_LASSO_WORKSPACE_ROOT"
           export QUALIFICATION_EVIDENCE_ROOT="$qualification_root/evidence"
           export QUALIFICATION_PRIVATE_CUSTODY_ROOT="$qualification_root/private"
-          export QUALIFICATION_SAFE_STATE_PATH="$QUALIFICATION_EVIDENCE_ROOT/qualification-state.json"
+          export QUALIFICATION_SAFE_STATE_PATH="$QUALIFICATION_PRIVATE_CUSTODY_ROOT/qualification-state.json"
           export QUALIFICATION_INITIAL_RECEIPT_PATH="$QUALIFICATION_PRIVATE_CUSTODY_ROOT/initial-receipt.json"
           export QUALIFICATION_INITIAL_PROJECTION_PATH="$QUALIFICATION_EVIDENCE_ROOT/initial-projection.json"
           printf '%s\n' \
@@ -118,6 +118,7 @@ jobs:
             "SERVICE_LASSO_TEST_SERVICES_ROOT=$SERVICE_LASSO_TEST_SERVICES_ROOT" \
             "SERVICE_LASSO_TEST_EVIDENCE_ROOT=$SERVICE_LASSO_TEST_EVIDENCE_ROOT" \
             "SERVICE_LASSO_TEST_SUPPORT_ROOT=$SERVICE_LASSO_TEST_SUPPORT_ROOT" \
+            "QUALIFICATION_PRIVATE_CUSTODY_ROOT=$QUALIFICATION_PRIVATE_CUSTODY_ROOT" \
             "QUALIFICATION_EVIDENCE_ROOT=$QUALIFICATION_EVIDENCE_ROOT" \
             "QUALIFICATION_SAFE_STATE_PATH=$QUALIFICATION_SAFE_STATE_PATH" \
             "QUALIFICATION_INITIAL_RECEIPT_PATH=$QUALIFICATION_INITIAL_RECEIPT_PATH" \
@@ -126,6 +127,38 @@ jobs:
           node scripts/record-packaged-admin-first-custody.mjs
           node scripts/project-packaged-admin-first-custody.mjs --input "$QUALIFICATION_INITIAL_RECEIPT_PATH" --journal "$QUALIFICATION_PRIVATE_CUSTODY_ROOT/first-custody-journal.json" --output "$QUALIFICATION_INITIAL_PROJECTION_PATH"
           test -s "$QUALIFICATION_INITIAL_PROJECTION_PATH"
+
+      - name: Check out exact qualified Admin browser harness
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: service-lasso/lasso-serviceadmin
+          ref: ${{ env.ADMIN_HARNESS_REVISION }}
+          path: qualification/admin
+
+      - name: Bind exact separate Admin checkout before dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C qualification/admin rev-parse HEAD)" = "$ADMIN_HARNESS_REVISION"
+          test -z "$(git -C qualification/admin -c core.autocrlf=false status --porcelain=v1 --untracked-files=all)"
+          core_custody_scripts="$GITHUB_WORKSPACE/scripts"
+          admin_custody_workspace="$GITHUB_WORKSPACE/qualification/admin"
+          admin_custody_root="$RUNNER_TEMP/admin-harness-custody-$GITHUB_RUN_ID-$GITHUB_JOB-$GITHUB_RUN_ATTEMPT-$QUALIFICATION_PLATFORM"
+          (
+            cd "$admin_custody_workspace"
+            export GITHUB_WORKSPACE="$admin_custody_workspace"
+            export QUALIFICATION_CANDIDATE_SHA="$ADMIN_HARNESS_REVISION"
+            export QUALIFICATION_PRIVATE_CUSTODY_ROOT="$admin_custody_root/private"
+            export QUALIFICATION_EVIDENCE_ROOT="$admin_custody_root/evidence"
+            export QUALIFICATION_INITIAL_RECEIPT_PATH="$QUALIFICATION_PRIVATE_CUSTODY_ROOT/initial-receipt.json"
+            export QUALIFICATION_INITIAL_PROJECTION_PATH="$QUALIFICATION_EVIDENCE_ROOT/initial-projection.json"
+            export SERVICE_LASSO_WORKSPACE_ROOT="$admin_custody_root/workspace"
+            export SERVICE_LASSO_INSTANCE_REGISTRY_PATH="$admin_custody_root/instance-registry.json"
+            export SERVICE_LASSO_HOST_PORT_REGISTRY_PATH="$admin_custody_root/host-port-registry.json"
+            node "$core_custody_scripts/record-packaged-admin-first-custody.mjs"
+            node "$core_custody_scripts/project-packaged-admin-first-custody.mjs" --input "$QUALIFICATION_INITIAL_RECEIPT_PATH" --journal "$QUALIFICATION_PRIVATE_CUSTODY_ROOT/first-custody-journal.json" --output "$QUALIFICATION_INITIAL_PROJECTION_PATH"
+            test -s "$QUALIFICATION_INITIAL_PROJECTION_PATH"
+          )
 
       - name: Set up Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0

@@ -15,6 +15,11 @@ on:
       - scripts/admin-receipt-provider-observer.mjs
       - scripts/admin-receipt-provider-bootstrap.mjs
       - scripts/record-packaged-admin-first-custody.mjs
+      - scripts/project-packaged-admin-first-custody.mjs
+      - scripts/private-first-custody-v3-lib.mjs
+      - scripts/native-tool-journal-v4-lib.mjs
+      - scripts/first-custody-git-replay-lib.mjs
+      - scripts/public-first-custody-projection-lib.mjs
       - scripts/resolve-pnpm-action-entrypoint.mjs
       - scripts/establish-admin-trusted-unlock-receipt-caller.mjs
       - scripts/record-admin-trusted-unlock-prebrowser-failure.mjs
@@ -27,6 +32,9 @@ on:
       - tests/resolve-pnpm-action-entrypoint.test.js
       - tests/packaged-admin-lifecycle-receipt-custody.test.js
       - tests/packaged-admin-lifecycle-first-custody-execution.test.js
+      - tests/private-first-custody-v3.test.js
+      - tests/public-first-custody-projection.test.js
+      - tests/packaged-admin-lifecycle-workflow.test.js
       - tests/prebrowser-failure-execution.test.js
       - package.json
       - package-lock.json
@@ -43,6 +51,11 @@ on:
       - scripts/admin-receipt-provider-observer.mjs
       - scripts/admin-receipt-provider-bootstrap.mjs
       - scripts/record-packaged-admin-first-custody.mjs
+      - scripts/project-packaged-admin-first-custody.mjs
+      - scripts/private-first-custody-v3-lib.mjs
+      - scripts/native-tool-journal-v4-lib.mjs
+      - scripts/first-custody-git-replay-lib.mjs
+      - scripts/public-first-custody-projection-lib.mjs
       - scripts/resolve-pnpm-action-entrypoint.mjs
       - scripts/establish-admin-trusted-unlock-receipt-caller.mjs
       - scripts/record-admin-trusted-unlock-prebrowser-failure.mjs
@@ -55,6 +68,9 @@ on:
       - tests/resolve-pnpm-action-entrypoint.test.js
       - tests/packaged-admin-lifecycle-receipt-custody.test.js
       - tests/packaged-admin-lifecycle-first-custody-execution.test.js
+      - tests/private-first-custody-v3.test.js
+      - tests/public-first-custody-projection.test.js
+      - tests/packaged-admin-lifecycle-workflow.test.js
       - tests/prebrowser-failure-execution.test.js
       - package.json
       - package-lock.json
@@ -105,6 +121,11 @@ jobs:
     env:
       # The first custody step runs under `set -u`; project the matrix value at
       # job scope so it is present before any dependency or receipt work.
+      QUALIFICATION_PLATFORM: ${{ matrix.admin_platform }}
+      # Apply before checkout so Windows receives genuine tracked blob bytes.
+      GIT_CONFIG_COUNT: "1"
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: "false"
       ADMIN_PLATFORM: ${{ matrix.admin_platform }}
       ADMIN_RELEASE_ID: "380051618"
       ADMIN_RELEASE_TAG: "2026.8.31-f015b44"
@@ -119,13 +140,6 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ env.QUALIFICATION_CANDIDATE_SHA }}
-
-      - name: Check out exact qualified Admin harness
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: service-lasso/lasso-serviceadmin
-          ref: ${{ env.ADMIN_HARNESS_REVISION }}
-          path: qualification/admin
 
       - name: Establish unique qualification custody before dependencies
         shell: bash
@@ -166,6 +180,38 @@ jobs:
           node "$GITHUB_WORKSPACE/scripts/project-packaged-admin-first-custody.mjs" --input "$QUALIFICATION_INITIAL_RECEIPT_PATH" --journal "$QUALIFICATION_PRIVATE_CUSTODY_ROOT/first-custody-journal.json" --output "$QUALIFICATION_INITIAL_PROJECTION_PATH"
           test -s "$QUALIFICATION_INITIAL_PROJECTION_PATH"
 
+      - name: Check out exact qualified Admin harness
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: service-lasso/lasso-serviceadmin
+          ref: ${{ env.ADMIN_HARNESS_REVISION }}
+          path: qualification/admin
+
+      - name: Bind exact separate Admin checkout before dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C qualification/admin rev-parse HEAD)" = "$ADMIN_HARNESS_REVISION"
+          test -z "$(git -C qualification/admin -c core.autocrlf=false status --porcelain=v1 --untracked-files=all)"
+          core_custody_scripts="$GITHUB_WORKSPACE/scripts"
+          admin_custody_workspace="$GITHUB_WORKSPACE/qualification/admin"
+          admin_custody_root="$RUNNER_TEMP/admin-harness-custody-$GITHUB_RUN_ID-$GITHUB_JOB-$GITHUB_RUN_ATTEMPT-$QUALIFICATION_PLATFORM"
+          (
+            cd "$admin_custody_workspace"
+            export GITHUB_WORKSPACE="$admin_custody_workspace"
+            export QUALIFICATION_CANDIDATE_SHA="$ADMIN_HARNESS_REVISION"
+            export QUALIFICATION_PRIVATE_CUSTODY_ROOT="$admin_custody_root/private"
+            export QUALIFICATION_EVIDENCE_ROOT="$admin_custody_root/evidence"
+            export QUALIFICATION_INITIAL_RECEIPT_PATH="$QUALIFICATION_PRIVATE_CUSTODY_ROOT/initial-receipt.json"
+            export QUALIFICATION_INITIAL_PROJECTION_PATH="$QUALIFICATION_EVIDENCE_ROOT/initial-projection.json"
+            export SERVICE_LASSO_WORKSPACE_ROOT="$admin_custody_root/workspace"
+            export SERVICE_LASSO_INSTANCE_REGISTRY_PATH="$admin_custody_root/instance-registry.json"
+            export SERVICE_LASSO_HOST_PORT_REGISTRY_PATH="$admin_custody_root/host-port-registry.json"
+            node "$core_custody_scripts/record-packaged-admin-first-custody.mjs"
+            node "$core_custody_scripts/project-packaged-admin-first-custody.mjs" --input "$QUALIFICATION_INITIAL_RECEIPT_PATH" --journal "$QUALIFICATION_PRIVATE_CUSTODY_ROOT/first-custody-journal.json" --output "$QUALIFICATION_INITIAL_PROJECTION_PATH"
+            test -s "$QUALIFICATION_INITIAL_PROJECTION_PATH"
+          )
+
       - name: Set up Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -198,6 +244,7 @@ jobs:
         env:
           PNPM_ACTION_BIN_DEST: ${{ steps.pnpm-action-pinned-entrypoint.outputs.bin_dest }}
           ADMIN_PNPM_PREFIX: ${{ runner.temp }}/admin-trusted-unlock-pnpm-10.34.5
+          QUALIFICATION_PLATFORM: ${{ matrix.admin_platform }}
           ADMIN_PLATFORM: ${{ matrix.admin_platform }}
         run: |
           set -euo pipefail
@@ -353,6 +400,7 @@ jobs:
         env:
           QUALIFICATION_OUTCOME: ${{ steps.qualify.outcome }}
           CORE_REVISION: ${{ steps.revisions.outputs.core_revision }}
+          QUALIFICATION_PLATFORM: ${{ matrix.admin_platform }}
           ADMIN_PLATFORM: ${{ matrix.admin_platform }}
           ADMIN_ASSET: ${{ matrix.admin_asset }}
           ADMIN_EXPECTED_SHA256: ${{ matrix.admin_sha256 }}

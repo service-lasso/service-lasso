@@ -1,3 +1,4 @@
+import { validInitialProjection } from "./public-first-custody-projection-lib.mjs";
 import { lstat, readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
@@ -16,22 +17,6 @@ import { strictJson } from "./consume-admin-trusted-unlock-receipt.mjs";
 import { parsePrebrowserFailure } from "./record-admin-trusted-unlock-prebrowser-failure.mjs";
 
 const PLATFORMS = Object.freeze(["linux", "win32", "darwin"]);
-
-function validInitialProjection(value, platform, runId, runAttempt, candidateSha) {
-  return !!value && typeof value === "object" && !Array.isArray(value)
-    && Object.keys(value).sort().join(",") === "candidate,localValidatorAttestation,platform,privateInitialReceiptSha256,privateJournalSha256,privateVersion,run,schema"
-    && value.schema === "service-lasso.qualification-first-custody-projection.v2"
-    && value.privateVersion === "v3" && value.platform === platform
-    && value.candidate?.head === candidateSha && /^[0-9a-f]{40}$/u.test(value.candidate?.tree)
-    && Object.keys(value.candidate ?? {}).sort().join(",") === "head,tree"
-    && String(value.run?.id) === runId && String(value.run?.attempt) === runAttempt
-    && Object.keys(value.run ?? {}).sort().join(",") === "attempt,id"
-    && /^[0-9a-f]{64}$/u.test(value.privateInitialReceiptSha256)
-    && /^[0-9a-f]{64}$/u.test(value.privateJournalSha256)
-    && value.localValidatorAttestation?.schema === "service-lasso.qualification-local-validator-attestation.v2"
-    && value.localValidatorAttestation?.validated === true
-    && value.localValidatorAttestation?.nativeBirthCustody === "HELD_NATIVE_V1";
-}
 
 function env(name, pattern = /^.+$/u) {
   return requirePattern(process.env[name], pattern, name);
@@ -185,6 +170,7 @@ for (const platform of PLATFORMS) {
     workflowSha,
   });
   validateRetainedEvidence(evidence, {
+    initialProjection: initial,
     platform,
     runId,
     runAttempt,
