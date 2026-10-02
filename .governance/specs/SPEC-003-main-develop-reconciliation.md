@@ -70,3 +70,8 @@ Reviewers must be able to trace each `main`-only product change to its reconcile
   written. Platform aggregates consume only that projection and must describe
   their validation as projection validation, never verification of unavailable
   private bytes.
+- 2026-10-02: Windows private-root proof records an exact SID/DACL contract,
+  rather than an `icacls` text hash. A newly owned protected custody root allows
+  FullControl only to its creating current-user SID, LocalSystem, and built-in
+  Administrators. Existing source, tool, and shared-parent paths remain
+  inspection-only boundaries and are never ACL-hardened by initialization.
