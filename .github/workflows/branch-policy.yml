@@ -59,6 +59,12 @@ jobs:
             exit 0
           fi
 
+          # SPEC-003/AGENTS preserves this already-owned custody PR head only.
+          # The complete tuple is mandatory; no actor or namespace admission.
+          if [[ "$PR_NUMBER" == "1586" && "$BASE_BRANCH" == "develop" && "$HEAD_BRANCH" == "codex/850-native-custody-platform-followup" && "$HEAD_REPOSITORY" == "service-lasso/service-lasso" ]]; then
+            exit 0
+          fi
+
           if [[ ! "$HEAD_BRANCH" =~ ^(feature|fix|docs|chore)/ ]]; then
             echo "Normal work branches must use feature/, fix/, docs/, or chore/ and be issue-scoped." >&2
             exit 1

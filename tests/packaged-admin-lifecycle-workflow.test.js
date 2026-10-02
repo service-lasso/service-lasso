@@ -47,6 +47,11 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
     "scripts/admin-receipt-provider-observer.mjs",
     "scripts/admin-receipt-provider-bootstrap.mjs",
     "scripts/record-packaged-admin-first-custody.mjs",
+    "scripts/project-packaged-admin-first-custody.mjs",
+    "scripts/private-first-custody-v3-lib.mjs",
+    "scripts/native-tool-journal-v4-lib.mjs",
+    "scripts/first-custody-git-replay-lib.mjs",
+    "scripts/public-first-custody-projection-lib.mjs",
     "scripts/resolve-pnpm-action-entrypoint.mjs",
     "scripts/establish-admin-trusted-unlock-receipt-caller.mjs",
     "scripts/record-admin-trusted-unlock-prebrowser-failure.mjs",
@@ -59,6 +64,9 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
     "tests/resolve-pnpm-action-entrypoint.test.js",
     "tests/packaged-admin-lifecycle-receipt-custody.test.js",
     "tests/packaged-admin-lifecycle-first-custody-execution.test.js",
+    "tests/private-first-custody-v3.test.js",
+    "tests/public-first-custody-projection.test.js",
+    "tests/packaged-admin-lifecycle-workflow.test.js",
     "tests/prebrowser-failure-execution.test.js",
     "package.json",
     "package-lock.json",
@@ -99,8 +107,9 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
   ]) assert.doesNotMatch(workflow.slice(workflow.indexOf("    env:"), workflow.indexOf("\n    steps:")), new RegExp(`${marker}:`));
   assert.match(
     workflow,
-    /Establish unique qualification custody before dependencies[\s\S]*?qualification_root="\$RUNNER_TEMP\/packaged-admin-lifecycle-\$GITHUB_RUN_ID-\$GITHUB_JOB-\$GITHUB_RUN_ATTEMPT-\$ADMIN_PLATFORM"[\s\S]*?QUALIFICATION_WORKSPACE_ROOT=\$QUALIFICATION_WORKSPACE_ROOT[\s\S]*?SERVICE_LASSO_INSTANCE_REGISTRY_PATH=\$SERVICE_LASSO_INSTANCE_REGISTRY_PATH[\s\S]*?SERVICE_LASSO_HOST_PORT_REGISTRY_PATH=\$SERVICE_LASSO_HOST_PORT_REGISTRY_PATH[\s\S]*?mkdir -p "\$QUALIFICATION_WORKSPACE_ROOT" "\$QUALIFICATION_EVIDENCE_ROOT"[\s\S]*?test -s "\$QUALIFICATION_INITIAL_RECEIPT_PATH"/,
+    /Establish unique qualification custody before dependencies[\s\S]*?qualification_root="\$RUNNER_TEMP\/packaged-admin-lifecycle-\$GITHUB_RUN_ID-\$GITHUB_JOB-\$GITHUB_RUN_ATTEMPT-\$ADMIN_PLATFORM"[\s\S]*?QUALIFICATION_WORKSPACE_ROOT=\$QUALIFICATION_WORKSPACE_ROOT[\s\S]*?SERVICE_LASSO_INSTANCE_REGISTRY_PATH=\$SERVICE_LASSO_INSTANCE_REGISTRY_PATH[\s\S]*?SERVICE_LASSO_HOST_PORT_REGISTRY_PATH=\$SERVICE_LASSO_HOST_PORT_REGISTRY_PATH[\s\S]*?record-packaged-admin-first-custody\.mjs[\s\S]*?test -s "\$QUALIFICATION_INITIAL_RECEIPT_PATH"/,
   );
+  const custody=parsed.jobs["packaged-admin-lifecycle"].steps.find(step=>step.name==="Establish unique qualification custody before dependencies");assert.doesNotMatch(custody.run,/mkdir -p/u);assert.equal(parsed.jobs["packaged-admin-lifecycle"].env.QUALIFICATION_PLATFORM,"${{ matrix.admin_platform }}");
   assert.doesNotMatch(workflow, /(?:timeout|deadline)[^\n]*?(?:real-browser|consume-admin-trusted-unlock-receipt)/iu);
   assert.match(
     workflow,

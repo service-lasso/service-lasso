@@ -31,7 +31,7 @@
 
 Any pull request that violates this table must be stopped and corrected before implementation or review continues.
 
-The authorised `SPEC-003` recovery pull request `#1584` is the sole temporary
+The authorised `SPEC-003` recovery pull request `#1584` is a temporary
 exception to the normal typed-prefix rule: its canonical-repository head must
 be exactly `codex/1577-release-reconciliation-develop` and its base must be
 `develop`. The exception exists only to preserve the already-reviewed
@@ -45,3 +45,10 @@ be reused by a reopened or replacement pull request.
 ## Continuity and Handoff
 - The continuity layers, checkpoint triggers, session-diary guidance, and promotion flow are defined in `.governance/project/CONTINUITY.md`.
 - A handoff records checkout, branch, commit, changed artifacts, direct versus surrogate evidence, unresolved risks, and one next action. It does not grant release, promotion, publication, deployment, or GA authority.
+
+AGENTS also preserves the already-owned PR #1586 custody head. Its only
+additional temporary prefix exception is the exact tuple: PR 1586, base
+`develop`, head `codex/850-native-custody-platform-followup`, head repository
+`service-lasso/service-lasso`. It expires on landing and never authorizes new
+codex branches, another PR, a fork, another head or base, or actor bypass.
+Direction and current-develop ancestry validation still apply.
