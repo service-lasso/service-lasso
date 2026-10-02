@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import path from "node:path";
+import { holdFixtureRoot } from "./fixture-root-custody.js";
 
 const execFileAsync = promisify(execFile);
 const privateAclScript = `
@@ -25,7 +26,6 @@ foreach ($entry in $entries) {
   if (($entry.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'Unsupported evidence entry' }
   $acl = Get-Acl -LiteralPath $entry.FullName
   if ($acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value -ne $sid.Value) { throw 'Unknown evidence owner' }
-  if ($env:SERVICE_LASSO_FIXTURE_EVIDENCE_OWNER_ONLY -eq '1') { continue }
   if ($entry.FullName -eq $p -and -not $acl.AreAccessRulesProtected) { throw 'Unprotected evidence root' }
   $rules = @($acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]))
   if ($rules.Count -eq 0) { throw 'Missing evidence permissions' }
@@ -35,23 +35,24 @@ foreach ($entry in $entries) {
 }
 `;
 
-async function evidencePermissions(root, protect, ownerOnly = false) {
+async function evidencePermissions(root, protect) {
   if (process.platform === "win32") {
     await execFileAsync(path.join(process.env.SystemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
       ["-NoProfile", "-NonInteractive", "-Command", privateAclScript], {
         windowsHide: true, timeout: 5_000, maxBuffer: 16 * 1024,
         env: { ...process.env, SERVICE_LASSO_FIXTURE_EVIDENCE_ROOT: root,
-          SERVICE_LASSO_FIXTURE_EVIDENCE_PROTECT: protect ? "1" : "0",
-          SERVICE_LASSO_FIXTURE_EVIDENCE_OWNER_ONLY: ownerOnly ? "1" : "0" },
-        // The original closed fixture must be owned; only the independent copy
-        // gets a protected ACL. No original ownership/permissions are mutated.
+          SERVICE_LASSO_FIXTURE_EVIDENCE_PROTECT: protect ? "1" : "0" },
+        // Original and copied roots are protected before sensitive writes.
       });
   } else {
     if (protect) await chmod(root, 0o700);
     const info = await lstat(root);
-    if (info.uid !== process.getuid() || (!ownerOnly && (info.mode & 0o077) !== 0)) throw new Error("Evidence permissions are unresolved.");
+    if (info.uid !== process.getuid() || (info.mode & 0o077) !== 0) throw new Error("Evidence permissions are unresolved.");
   }
 }
+
+export async function protectOriginalFixture(root) { await evidencePermissions(root, true); }
+export async function verifyOriginalFixturePrivacy(root) { await evidencePermissions(root, false); }
 
 // Preserve closed fixture bytes outside the recursive removal root. Do not
 // follow links into another owner's state. The copy is private local evidence,
@@ -60,6 +61,12 @@ export function createFixtureEvidenceBoundary(root) {
   let evidenceRoot;
   let verified = false;
   let sealedInventory;
+  let rootCustody;
+  let rootIdentity;
+  let diagnosticRoot;
+  let initialization;
+  let originalRemoved = false;
+  const stateFailures = [];
   const inventoryName = "fixture-evidence-inventory.json";
   const identity = (info) => [info.dev, info.ino, info.size, info.mtimeMs, info.ctimeMs].join(":");
   const files = async (directory, relative = "") => {
@@ -113,12 +120,37 @@ export function createFixtureEvidenceBoundary(root) {
       if (content.length !== expected.bytes || createHash("sha256").update(content).digest("hex") !== expected.sha256) throw new Error("Fixture evidence bytes changed.");
     }
   };
+  const verifyOriginalInventory = async () => {
+    await rootCustody.verify();
+    const original = await files(root);
+    if (JSON.stringify(structure(original)) !== JSON.stringify(sealedInventory.structure)) throw new Error("Original fixture inventory changed before removal.");
+    for (const entry of original.filter(entry => !entry.directory)) {
+      const expected = sealedInventory.files.find(file => file.path === entry.name);
+      const content = await bytes(root, entry);
+      if (!expected || content.length !== expected.bytes || createHash("sha256").update(content).digest("hex") !== expected.sha256) throw new Error("Original fixture bytes changed before removal.");
+    }
+    await rootCustody.verify();
+  };
   return {
+    async initialize() {
+      initialization ??= (async () => {
+        diagnosticRoot = await mkdtemp(path.join(path.dirname(root), `${path.basename(root)}-diagnostics-`));
+        await evidencePermissions(diagnosticRoot, true);
+        await protectOriginalFixture(root);
+        rootCustody = await holdFixtureRoot(root, diagnosticRoot);
+        const info = await lstat(root, { bigint: true });
+        rootIdentity = `${info.dev}:${info.ino}`;
+        await rootCustody.verify();
+      })();
+      await initialization;
+    },
     async preserve() {
+      await this.initialize();
+      await rootCustody.verify();
       if (evidenceRoot) throw new Error("Fixture evidence preservation was already attempted.");
       const manifest = await files(root);
       if (manifest.some((entry) => entry.name === inventoryName)) throw new Error("Reserved fixture inventory path already exists.");
-      await evidencePermissions(root, false, true);
+      await evidencePermissions(root, false);
       evidenceRoot = await mkdtemp(path.join(path.dirname(root), `${path.basename(root)}-evidence-`));
       await evidencePermissions(evidenceRoot, true);
       const inventory = [];
@@ -138,17 +170,43 @@ export function createFixtureEvidenceBoundary(root) {
         if (createHash("sha256").update(content).digest("hex") !== inventory.find((file) => file.path === entry.name).sha256) throw new Error("Fixture evidence changed during preservation.");
       }
       if (JSON.stringify(manifest) !== JSON.stringify(await files(root))) throw new Error("Fixture evidence changed before sealing.");
-      sealedInventory = { structure: structure(manifest), files: inventory,
-        text: JSON.stringify({ entries: structure(manifest), files: inventory }) };
+      await rootCustody.verify();
+      sealedInventory = { rootIdentity, structure: structure(manifest), files: inventory,
+        text: JSON.stringify({ rootIdentity, entries: structure(manifest), files: inventory }) };
       await writeFile(path.join(evidenceRoot, inventoryName), sealedInventory.text, { flag: "wx", mode: 0o600 });
       await verifyCopy();
       verified = true;
     },
+    async remove(beforeRemoval) {
+      if (!verified || !rootCustody) throw new Error("Fixture removal lacks original held custody.");
+      // The hook may inject actual filesystem faults, but cannot supply the
+      // destructive operation. Recheck original held/named identities after it.
+      await beforeRemoval?.();
+      await verifyCopy();
+      await verifyOriginalInventory();
+      await rootCustody.verify();
+      await rootCustody.remove();
+      originalRemoved = true;
+    },
+    async release() { if (rootCustody) { const held = rootCustody; rootCustody = undefined; await held.release(); } },
+    async retainErrors(errors) {
+      // Full exceptions are private retained bytes; public diagnostics below
+      // project closed stage names only. Never use a substituted original name.
+      if (!diagnosticRoot) throw new Error("Private diagnostic custody is unresolved.");
+      await evidencePermissions(diagnosticRoot, false);
+      await writeFile(path.join(diagnosticRoot, "fixture-private-errors.json"), JSON.stringify(errors), { flag: "wx", mode: 0o600 });
+    },
     async state(removalAttempted) {
       let fixture;
+      let originalIdentityAccepted = true;
+      if (!originalRemoved && rootCustody) {
+        try { await rootCustody.verify(); }
+        catch (error) { originalIdentityAccepted = false; stateFailures.push({ stage: "original_identity", error }); }
+      }
       try {
         const info = await lstat(root);
-        fixture = !info.isDirectory() || info.isSymbolicLink() ? "unresolved" : removalAttempted ? "partial" : "retained";
+        const named = await lstat(root, { bigint: true });
+        fixture = !originalIdentityAccepted || !info.isDirectory() || info.isSymbolicLink() || (rootIdentity && `${named.dev}:${named.ino}` !== rootIdentity) ? "unresolved" : removalAttempted ? "partial" : "retained";
         if (removalAttempted && fixture === "partial" && sealedInventory) {
           try {
             const original = await files(root);
@@ -159,17 +217,20 @@ export function createFixtureEvidenceBoundary(root) {
               if (!expected || content.length !== expected.bytes || createHash("sha256").update(content).digest("hex") !== expected.sha256) complete = false;
             }
             if (complete) fixture = "retained";
-          } catch { /* A remaining root without complete readback is partial. */ }
+          } catch (error) { stateFailures.push({ stage: "original_readback", error }); }
         }
       }
-      catch (error) { if (error?.code === "ENOENT") fixture = "removed"; else throw error; }
+      catch (error) { if (error?.code === "ENOENT") fixture = originalRemoved ? "removed" : "unresolved"; else throw error; }
       if (verified) {
-        try { await verifyCopy(); } catch { verified = false; }
+        try { await verifyCopy(); } catch (error) { verified = false; stateFailures.push({ stage: "copy_verification", error }); }
       }
       return { fixture, evidence: verified ? "retained" : evidenceRoot ? "unresolved" : "none" };
     },
     // Private test assertion surface, never included in the public projection.
     get evidenceRoot() { return evidenceRoot; },
+    get originalRoot() { return root; },
+    takeStateFailures() { return stateFailures.splice(0); },
+    get diagnosticRoot() { return diagnosticRoot; },
   };
 }
 
@@ -246,12 +307,26 @@ export function createFixtureCustody() {
   };
 }
 
-export async function closeFixture({ primary, failures = [], custody, adapter, restore, reset, remove, report, evidence, recovery = "unknown" }) {
+export async function closeFixture({ primary, primaryStage = "action", failures = [], custody, adapter, restore, reset, remove, report, evidence, recovery = "unknown" }) {
   let result;
   let removalAttempted = false;
   let resetState = "not_attempted";
   let environment = "restored";
+  const stages = ["action", "fixture_initialization", "crash_spawn", "crash_exit", "interrupted_read", "recovery_inspection", "recovery_startup", "injection_assertions", "post_compensation", "direct_child", "server_stop", "enrollment_observation", "snapshot", "stop", "finalization", "inspection", "absence", "preservation", "removal", "reset", "environment", "custody", "evidence_state", "original_identity", "original_readback", "copy_verification", "privacy", "held_release", "diagnostic", "private_diagnostic"];
+  const stageName = (stage) => stages.includes(stage) ? stage : "action";
+  const projection = () => Object.fromEntries(stages.map(stage => [stage,
+    failures.some(entry => stageName(entry.stage) === stage) || (primary && stageName(primaryStage) === stage) ? "failed" : "clear"]));
+  const privateError = (error, seen = new Set()) => {
+    if (!error || typeof error !== "object") return String(error);
+    if (seen.has(error)) return { kind: "circular" };
+    seen.add(error);
+    return { name: error.name, message: error.message, stack: error.stack,
+      cause: error.cause === undefined ? undefined : privateError(error.cause, seen),
+      errors: Array.isArray(error.errors) ? error.errors.map(entry => privateError(entry, seen)) : undefined };
+  };
   try {
+    try { await evidence.initialize(); }
+    catch (error) { failures.push({ stage: "fixture_initialization", error }); }
     result = await custody.settle(adapter);
     failures.push(...result.failures);
     // A failed action retains even successfully settled evidence.
@@ -260,7 +335,7 @@ export async function closeFixture({ primary, failures = [], custody, adapter, r
       catch (error) { failures.push({ stage: "preservation", error }); }
       if (failures.length === 0) {
         removalAttempted = true;
-        try { await remove(); }
+        try { await evidence.remove(remove); }
         catch (error) { failures.push({ stage: "removal", error }); }
         if (failures.length === 0) {
           try { await reset(); resetState = "reset"; }
@@ -275,13 +350,29 @@ export async function closeFixture({ primary, failures = [], custody, adapter, r
   let state = { fixture: "unresolved", evidence: "unresolved" };
   try { state = await evidence.state(removalAttempted); }
   catch (error) { failures.push({ stage: "evidence_state", error }); }
+  failures.push(...evidence.takeStateFailures());
+  if (state.fixture !== "removed" && state.fixture !== "unresolved") {
+    try { await verifyOriginalFixturePrivacy(evidence.originalRoot); }
+    catch (error) { failures.push({ stage: "privacy", error }); }
+  }
+  try { await evidence.release(); }
+  catch (error) { failures.push({ stage: "held_release", error }); }
   if (removalAttempted && state.evidence !== "retained") failures.push({ stage: "evidence_state", error: new Error("Preserved fixture evidence is unresolved.") });
   try { report({ kind: "hard-crash-fixture-custody", recovery,
     stop: failures.some((entry) => entry.stage === "stop") ? "failed" : "settled",
     finalization: failures.some((entry) => entry.stage === "finalization") ? "failed" : "settled",
-    absence: result?.absent ? "proven" : "unresolved", reset: resetState, environment, ...state }); }
+    absence: result?.absent ? "proven" : "unresolved", reset: resetState, environment, ...state,
+    stages: projection() }); }
   catch (error) { failures.push({ stage: "diagnostic", error }); }
-  if (primary || failures.length) throw new AggregateError([
-    ...(primary ? [primary] : []), ...failures.map((entry) => entry.error),
-  ], "Hard-crash fixture action or terminal custody failed.");
+  if (primary || failures.length) {
+    try { await evidence.retainErrors([
+      ...(primary ? [{ stage: stageName(primaryStage), error: privateError(primary) }] : []),
+      ...failures.map(entry => ({ stage: stageName(entry.stage), error: privateError(entry.error) })),
+    ]); } catch (error) { failures.push({ stage: "private_diagnostic", error }); }
+    // TAP prints this closed message even when it does not render nested errors.
+    const aggregate = new AggregateError([...(primary ? [primary] : []), ...failures.map(entry => entry.error)],
+      `Hard-crash fixture failed: ${JSON.stringify(projection())}`);
+    aggregate.fixtureStages = projection();
+    throw aggregate;
+  }
 }

@@ -16,6 +16,7 @@ import { startManagedProcess, adoptManagedProcess, stopManagedProcess,
   setManagedProcessEnrollmentHookForTests, retainManagedProcessCustodyForTest, hasManagedProcess,
 } from "../dist/runtime/execution/supervisor.js";
 import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
+import { protectOriginalFixture, verifyOriginalFixturePrivacy } from "./hard-crash-fixture-custody.js";
 
 async function postJson(url, body, headers = {}) {
   const response = await fetch(url, {
@@ -40,7 +41,10 @@ for (const mode of ["managed", "adopted", "managed-root-exit", "adopted-root-exi
     let managedHandle;
     let snapshots = 0;
     let controls = 0;
+    let custodyReader;
+    let unfilteredDiscovery = false;
     try {
+      setManagedProcessEnrollmentHookForTests(null, (id, read) => { if (id === serviceId) custodyReader = read; }, () => assert.fail("Fixture observation failed."));
       await new Promise((resolve, reject) => { sentinel.once("spawn", resolve); sentinel.once("error", reject); });
       const sentinelInspection = await inspectProcess(sentinel.pid);
       assert.equal(sentinelInspection.status, "running");
@@ -56,7 +60,7 @@ for (const mode of ["managed", "adopted", "managed-root-exit", "adopted-root-exi
             verifiedMembersOnly: true,
             excludedMemberPids: [sentinel.pid],
           }
-          : snapshot;
+          : unfilteredDiscovery ? { ...snapshot, members: [...snapshot.members, sentinelInspection.identity] } : snapshot;
       });
       setManagedProcessTreeTerminatorForTests(async (target, timeoutMs, dependencies) => {
         controls += 1;
@@ -107,6 +111,17 @@ for (const mode of ["managed", "adopted", "managed-root-exit", "adopted-root-exi
         // Adoption reconstructed the flag from a full-tree receipt, with no
         // persisted flag or in-memory managed record to inherit.
       }
+      assert.equal(typeof custodyReader, "function");
+      assert.equal(custodyReader().some(member => member.pid === sentinel.pid), false);
+      if (mode.startsWith("adopted")) {
+        const baseline = snapshots;
+        unfilteredDiscovery = true;
+        const deadline = Date.now() + 20_000;
+        while (snapshots === baseline && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 25));
+        assert.ok(snapshots > baseline);
+        assert.equal(custodyReader().some(member => member.pid === sentinel.pid), false);
+        unfilteredDiscovery = false;
+      }
       if (mode.endsWith("root-exit")) {
         process.kill(managedHandle?.pid ?? adoptedChild.pid, "SIGKILL");
         // Adopted exit detection already polls every five seconds; that delay
@@ -122,7 +137,9 @@ for (const mode of ["managed", "adopted", "managed-root-exit", "adopted-root-exi
       const ownership = await findProcessOwnership(workspaceRoot, "service", serviceId);
       assert.equal(ownership.lifecycleState, "stopped");
       assert.equal(ownership.pid, null);
+      assert.equal(custodyReader().some(member => member.pid === sentinel.pid), false);
     } finally {
+      setManagedProcessEnrollmentHookForTests(null);
       setManagedProcessTreeTerminatorForTests(null);
       setManagedWindowsTreeInspectorForTests(null);
       await stopManagedProcess(serviceId, 5_000).catch(() => null);
@@ -280,7 +297,9 @@ test("Windows adopted stop retains durable ownership when its fresh absence insp
   const sentinelClosed = new Promise(resolve => sentinel.once("close", resolve));
   let snapshots = 0;
   let freshInspection;
+  let custodyReader;
   try {
+    setManagedProcessEnrollmentHookForTests(null, (id, read) => { if (id === serviceId) custodyReader = read; }, () => assert.fail("Fixture observation failed."));
     await Promise.all([
       new Promise((resolve, reject) => { child.once("spawn", resolve); child.once("error", reject); }),
       new Promise((resolve, reject) => { sentinel.once("spawn", resolve); sentinel.once("error", reject); }),
@@ -305,6 +324,8 @@ test("Windows adopted stop retains durable ownership when its fresh absence insp
     });
     await adoptManagedProcess({ service, pid: child.pid, startedAt: childInspection.identity.createdAt,
       command: `${process.execPath} ${path.relative(serviceRoot, scriptPath)}`, workspaceRoot });
+    const acceptedSentinel = custodyReader().find(member => member.pid === sentinel.pid);
+    assert.equal(acceptedSentinel.commandHash, "f".repeat(64));
 
     await assert.rejects(
       stopManagedProcess(serviceId, 5_000, { newWindowsInspectionEpisode: true }),
@@ -316,7 +337,9 @@ test("Windows adopted stop retains durable ownership when its fresh absence insp
     assert.equal(retainedOwnership.lifecycleState, "stopping");
     assert.equal(retainedOwnership.pid, child.pid);
     assert.equal((await inspectProcess(sentinel.pid)).status, "running");
+    assert.deepEqual(custodyReader().filter(member => member.pid === sentinel.pid), [acceptedSentinel]);
   } finally {
+    setManagedProcessEnrollmentHookForTests(null);
     setManagedProcessTreeTerminatorForTests(null);
     setManagedWindowsTreeInspectorForTests(null);
     if (child.exitCode === null) child.kill("SIGKILL");
@@ -328,14 +351,15 @@ test("Windows adopted stop retains durable ownership when its fresh absence insp
   }
 });
 
-// AC-4BH.2 / AC-4BJ.9c: real native discovery and supervisor replacement,
-// never a fabricated process-tree member. Preparation only until admission.
-for (const mode of ["managed", "adopted"]) {
+// AC-4BH.2 / AC-4BJ.9c: baseline modes exercise real later-descendant native
+// discovery/replacement. Rejection modes use directly spawned native identities
+// and controlled provisional receipts as supporting acceptance-boundary proof.
+// All are preparation only until admission; the formal matrix remains required.
+for (const mode of ["managed", "adopted", "adopted-pre-enrollment-failure", "adopted-root-rejection", "managed-held-child-rejection"]) {
   test(`Windows ${mode} fixture history keeps a later descendant across omission and finalization`, {
     skip: process.platform !== "win32", timeout: 120_000,
   }, async () => {
     const previous = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
-    process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
     const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-custody-refresh-");
     const serviceId = `custody-refresh-${mode}`;
     const { serviceRoot, scriptPath } = await writeExecutableFixtureService(servicesRoot, serviceId);
@@ -353,8 +377,27 @@ for (const mode of ["managed", "adopted"]) {
       }, 25);
     `);
     let adoptedChild, adoptedClosed, reader, descendant;
+    let rejectedChild, rejectedClosed, rejectedIdentity;
+    let heldRejectedChild, heldRejectedClosed;
     let omitted = false;
     let observerFailures = 0;
+    let primary;
+    const cleanupFailures = [];
+    const preEnrollmentFailure = new Error("PRIVATE-PRE-ENROLLMENT-FAILURE");
+    const attempt = async (stage, action) => {
+      try { await action(); } catch (error) { cleanupFailures.push({ stage, error }); }
+    };
+    const closeDirectChild = async (child, closed) => {
+      if (!child) return;
+      if (!closed) throw new Error("Direct adopted child close custody is missing.");
+      if (child.exitCode === null && child.signalCode === null) child.kill("SIGTERM");
+      const closedWithinBound = () => Promise.race([closed.then(() => true),
+        new Promise(resolve => setTimeout(() => resolve(false), 5_000))]);
+      if (!await closedWithinBound()) {
+        if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+        if (!await closedWithinBound()) throw new Error("Direct adopted child closure remains unresolved.");
+      }
+    };
     const waitUntil = async (predicate) => {
       const deadline = Date.now() + 20_000;
       while (Date.now() < deadline) {
@@ -364,64 +407,114 @@ for (const mode of ["managed", "adopted"]) {
       throw new Error("Real custody observation deadline expired.");
     };
     try {
-      setManagedProcessEnrollmentHookForTests(null, (id, read) => {
+      process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
+      await protectOriginalFixture(tempRoot);
+      setManagedProcessEnrollmentHookForTests(mode === "managed-held-child-rejection" ? async (child) => {
+        heldRejectedChild = child;
+        heldRejectedClosed = new Promise(resolve => child.once("close", resolve));
+        await closeDirectChild(child, heldRejectedClosed);
+      } : null, (id, read) => {
         if (id === serviceId) { reader = read; throw new Error("PRIVATE-OBSERVER-FAILURE"); }
       }, () => { observerFailures++; });
       setManagedWindowsTreeInspectorForTests(async (root, options) => {
         const result = await inspectWindowsProcessTree(root, options);
+        if (mode === "adopted-pre-enrollment-failure") throw preEnrollmentFailure;
+        if (mode === "adopted-root-rejection") return { ...result, rootStatus: "exited", members: [...result.members, rejectedIdentity] };
         if (descendant && !result.members.some(member => member.pid === descendant.pid)) omitted = true;
         return result;
       });
       const [service] = await discoverServices(servicesRoot);
-      if (mode === "managed") {
-        await startManagedProcess({ service, executionPlan: createDirectExecutionPlan(service.manifest), workspaceRoot });
+      if (mode.startsWith("managed")) {
+        const startup = startManagedProcess({ service, executionPlan: createDirectExecutionPlan(service.manifest), workspaceRoot });
+        if (mode === "managed-held-child-rejection") {
+          await assert.rejects(startup);
+          assert.equal(hasManagedProcess(serviceId), false);
+          assert.equal(heldRejectedChild.exitCode !== null || heldRejectedChild.signalCode !== null, true);
+          assert.deepEqual(reader(), []);
+        } else await startup;
       } else {
         adoptedChild = spawn(process.execPath, [path.relative(serviceRoot, scriptPath)], { cwd: serviceRoot, stdio: "ignore", windowsHide: true });
         adoptedClosed = new Promise(resolve => adoptedChild.once("close", resolve));
         await new Promise((resolve, reject) => { adoptedChild.once("spawn", resolve); adoptedChild.once("error", reject); });
         const inspection = await inspectProcess(adoptedChild.pid);
         assert.equal(inspection.status, "running");
+        if (mode === "adopted-root-rejection") {
+          rejectedChild = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore", windowsHide: true });
+          rejectedClosed = new Promise(resolve => rejectedChild.once("close", resolve));
+          await new Promise((resolve, reject) => { rejectedChild.once("spawn", resolve); rejectedChild.once("error", reject); });
+          const rejectedInspection = await inspectProcess(rejectedChild.pid);
+          assert.equal(rejectedInspection.status, "running");
+          rejectedIdentity = rejectedInspection.identity;
+        }
         await recordProcessOwnership(workspaceRoot, { ownerType: "service", ownerId: serviceId, serviceId,
           pid: adoptedChild.pid, ownerRoot: serviceRoot, lifecycleState: "running", source: "legacy-verified" });
-        await adoptManagedProcess({ service, pid: adoptedChild.pid, startedAt: inspection.identity.createdAt,
+        const adoption = adoptManagedProcess({ service, pid: adoptedChild.pid, startedAt: inspection.identity.createdAt,
           command: `${process.execPath} ${path.relative(serviceRoot, scriptPath)}`, workspaceRoot });
+        if (mode === "adopted-pre-enrollment-failure" || mode === "adopted-root-rejection") {
+          if (mode === "adopted-pre-enrollment-failure") await assert.rejects(adoption, error => error === preEnrollmentFailure);
+          else await assert.rejects(adoption, /Cannot refresh exited adopted process/);
+          assert.equal(hasManagedProcess(serviceId), false);
+          assert.equal(adoptedChild.exitCode, null);
+          if (rejectedIdentity) assert.equal(reader().some(member => member.pid === rejectedIdentity.pid), false);
+        } else await adoption;
       }
-      assert.equal(typeof reader, "function");
-      assert.equal(observerFailures, 1);
-      const initial = reader();
-      const compatibilityReader = retainManagedProcessCustodyForTest(serviceId);
-      assert.ok(initial.length > 0);
-      await writeFile(path.join(serviceRoot, "custody-command.txt"), "spawn");
-      let descendantPid;
-      await waitUntil(async () => {
-        try { descendantPid = Number(await readFile(path.join(serviceRoot, "custody-child.txt"), "utf8")); return descendantPid > 0; }
-        catch (error) { if (error.code === "ENOENT") return false; throw error; }
-      });
-      assert.equal(initial.some(member => member.pid === descendantPid), false);
-      await waitUntil(() => { descendant = reader().find(member => member.pid === descendantPid); return Boolean(descendant); });
-      const copied = reader();
-      copied.find(member => member.pid === descendantPid).commandHash = "0".repeat(64);
-      assert.deepEqual(reader().find(member => member.pid === descendantPid), descendant);
-      await writeFile(path.join(serviceRoot, "custody-command.txt"), "close");
-      await waitUntil(async () => (await inspectProcess(descendantPid)).status === "not_running");
-      await waitUntil(() => omitted);
-      assert.deepEqual(reader().find(member => member.pid === descendantPid), descendant);
-      await stopManagedProcess(serviceId, 5_000);
-      await waitForManagedProcessFinalization(serviceId, Date.now() + 5_000);
-      assert.equal(hasManagedProcess(serviceId), false);
-      assert.deepEqual(reader().find(member => member.pid === descendantPid), descendant);
-      for (const member of reader()) assert.equal((await inspectProcess(member.pid)).status, "not_running");
-      assert.deepEqual(compatibilityReader().find(member => member.pid === descendantPid), descendant);
+      if (mode === "managed" || mode === "adopted") {
+        assert.equal(typeof reader, "function");
+        assert.equal(observerFailures, 1);
+        const initial = reader();
+        const compatibilityReader = retainManagedProcessCustodyForTest(serviceId);
+        assert.ok(initial.length > 0);
+        await writeFile(path.join(serviceRoot, "custody-command.txt"), "spawn");
+        let descendantPid;
+        await waitUntil(async () => {
+          try { descendantPid = Number(await readFile(path.join(serviceRoot, "custody-child.txt"), "utf8")); return descendantPid > 0; }
+          catch (error) { if (error.code === "ENOENT") return false; throw error; }
+        });
+        assert.equal(initial.some(member => member.pid === descendantPid), false);
+        await waitUntil(() => { descendant = reader().find(member => member.pid === descendantPid); return Boolean(descendant); });
+        const copied = reader();
+        copied.find(member => member.pid === descendantPid).commandHash = "0".repeat(64);
+        assert.deepEqual(reader().find(member => member.pid === descendantPid), descendant);
+        await writeFile(path.join(serviceRoot, "custody-command.txt"), "close");
+        await waitUntil(async () => (await inspectProcess(descendantPid)).status === "not_running");
+        await waitUntil(() => omitted);
+        assert.deepEqual(reader().find(member => member.pid === descendantPid), descendant);
+        await stopManagedProcess(serviceId, 5_000);
+        await waitForManagedProcessFinalization(serviceId, Date.now() + 5_000);
+        assert.equal(hasManagedProcess(serviceId), false);
+        assert.deepEqual(reader().find(member => member.pid === descendantPid), descendant);
+        for (const member of reader()) assert.equal((await inspectProcess(member.pid)).status, "not_running");
+        assert.deepEqual(compatibilityReader().find(member => member.pid === descendantPid), descendant);
+      }
+    } catch (error) { primary = error;
     } finally {
-      setManagedProcessEnrollmentHookForTests(null);
-      setManagedWindowsTreeInspectorForTests(null);
-      await stopManagedProcess(serviceId, 5_000);
-      await waitForManagedProcessFinalization(serviceId, Date.now() + 5_000);
-      if (adoptedChild) await adoptedClosed;
-      if (previous === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
-      else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = previous;
-      resetLifecycleState();
-      await rm(tempRoot, { recursive: true, force: true });
+      try {
+        await attempt("hook", () => setManagedProcessEnrollmentHookForTests(null));
+        await attempt("inspector", () => setManagedWindowsTreeInspectorForTests(null));
+        await attempt("stop", () => stopManagedProcess(serviceId, 5_000));
+        await attempt("finalization", () => waitForManagedProcessFinalization(serviceId, Date.now() + 5_000));
+        await attempt("direct_child", () => closeDirectChild(adoptedChild, adoptedClosed));
+        await attempt("rejected_child", () => closeDirectChild(rejectedChild, rejectedClosed));
+        await attempt("held_child", () => closeDirectChild(heldRejectedChild, heldRejectedClosed));
+      } finally {
+        if (previous === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+        else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = previous;
+      }
+      if (!primary && cleanupFailures.length === 0) {
+        await attempt("reset", () => resetLifecycleState());
+        if (cleanupFailures.length === 0) await attempt("removal", () => rm(tempRoot, { recursive: true, force: true }));
+      }
+    }
+    if (primary || cleanupFailures.length) {
+      await attempt("private_diagnostic", async () => {
+        await verifyOriginalFixturePrivacy(tempRoot);
+        await writeFile(path.join(tempRoot, "private-custody-errors.json"), JSON.stringify({
+          primary: primary && { name: primary.name, message: primary.message, stack: primary.stack },
+          cleanup: cleanupFailures.map(({ stage, error }) => ({ stage, name: error.name, message: error.message, stack: error.stack })),
+        }), { flag: "wx", mode: 0o600 });
+      });
+      throw new AggregateError([...(primary ? [primary] : []), ...cleanupFailures.map(entry => entry.error)],
+        `Windows fixture custody failed: ${JSON.stringify({ action: primary ? "failed" : "clear", cleanup: cleanupFailures.map(entry => entry.stage) })}`);
     }
   });
 }

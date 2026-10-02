@@ -143,9 +143,13 @@ async function withMatrixEnvironment(phase, action) {
   fixture.cleanupFailures = [];
   fixture.custodyReaders = [];
   fixture.recovery = "unknown";
+  fixture.actionStage = "fixture_initialization";
+  const evidence = createFixtureEvidenceBoundary(fixture.tempRoot);
   let enrollmentHookArmed = false;
   let primary;
   try {
+    await evidence.initialize();
+    fixture.actionStage = "action";
     const apiPort = await allocateFixtureApiPort();
     process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH = path.join(fixture.tempRoot, "host", "allocations.json");
     process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH = path.join(fixture.tempRoot, "host", "instances.json");
@@ -162,6 +166,7 @@ async function withMatrixEnvironment(phase, action) {
     await action(fixture, apiPort);
   } catch (error) { primary = error; }
   await closeFixture({ primary, failures: fixture.cleanupFailures, custody: fixture.custody,
+    primaryStage: fixture.actionStage,
     recovery: fixture.recovery,
     adapter: createFixtureCleanupAdapter(fixture, {
       readRegistry: readProcessOwnershipCustodyForTest, classify: classifyRegisteredProcess,
@@ -179,8 +184,7 @@ async function withMatrixEnvironment(phase, action) {
       }
     },
     reset: () => resetLifecycleState(),
-    evidence: createFixtureEvidenceBoundary(fixture.tempRoot),
-    remove: () => rm(fixture.tempRoot, { recursive: true, force: true }),
+    evidence,
     report: (summary) => console.error(JSON.stringify(summary)),
   });
 }
@@ -431,6 +435,7 @@ for (const interruptedPhase of ["process_spawned", "generation_committed"]) {
     const injected = new Error("PRIVATE-RECOVERED-STARTUP-FAILURE");
     await assert.rejects(withMatrixEnvironment(`compensation-${interruptedPhase}`, async (fixture) => {
       await writeExecutableFixtureService(fixture.servicesRoot, "matrix-service", { autostart: true });
+      fixture.actionStage = "crash_spawn";
       const crash = spawn(process.execPath, [path.resolve("tests", "fixtures", "startup-crash-runner.mjs"),
         fixture.servicesRoot, fixture.workspaceRoot, interruptedPhase], {
         env: { ...process.env }, stdio: ["ignore", "pipe", "pipe", "ipc"], windowsHide: true,
@@ -439,9 +444,11 @@ for (const interruptedPhase of ["process_spawned", "generation_committed"]) {
       collectBoundedOutput(crash.stdout);
       collectBoundedOutput(crash.stderr);
       try {
+        fixture.actionStage = "crash_exit";
         const exit = await waitForHardExit(crash);
         assert.equal(exit.code, 86);
         assert.equal(exit.signal, null);
+        fixture.actionStage = "interrupted_read";
         fixture.custody.retain(JSON.parse(await readFile(path.join(fixture.workspaceRoot,
           ".service-lasso", "hard-crash-fixture-custody.json"), "utf8")));
         const interruptedOwner = await findProcessOwnership(fixture.workspaceRoot, "service", "matrix-service");
@@ -455,11 +462,13 @@ for (const interruptedPhase of ["process_spawned", "generation_committed"]) {
         let returned = false;
         let server;
         try {
+          fixture.actionStage = "recovery_startup";
           server = await startApiServer({ port: 0, servicesRoot: fixture.servicesRoot,
             workspaceRoot: fixture.workspaceRoot, autostart: true,
             startupTransactionTestHooks: {
               afterPhase: async ({ phase }) => {
                 if (phase !== "owned_readiness_proven") return;
+                fixture.actionStage = "injection_assertions";
                 assert.equal(fixture.custodyReaders.length > 0, true);
                 const members = fixture.custodyReaders.flatMap(read => read());
                 const owner = await findProcessOwnership(fixture.workspaceRoot, "service", "matrix-service");
@@ -476,8 +485,13 @@ for (const interruptedPhase of ["process_spawned", "generation_committed"]) {
           });
           returned = true;
         } catch (error) {
+          if (error !== injected) throw error;
           assert.equal(error, injected);
-        } finally { await server?.stop(); }
+        } finally {
+          try { await server?.stop(); }
+          catch (error) { fixture.cleanupFailures.push({ stage: "server_stop", error }); }
+        }
+        fixture.actionStage = "post_compensation";
         assert.equal(returned, false);
         assert.equal(observedBeforeReturn, true);
         if (interruptedPhase === "process_spawned") {
@@ -500,7 +514,7 @@ for (const interruptedPhase of ["process_spawned", "generation_committed"]) {
       }
     }), (error) => {
       assert.ok(error instanceof AggregateError);
-      assert.ok(error.errors.includes(injected));
+      assert.ok(error.errors.includes(injected), `Recovered injection was not reached: ${JSON.stringify(error.fixtureStages)}`);
       return true;
     });
   });

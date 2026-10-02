@@ -212,6 +212,8 @@ interface ManagedProcessRecord {
   processGroup: ProcessOwnershipEntry["processGroup"];
   knownTreeMembers: ProcessFingerprint[];
   fixtureCustodyMembers?: ProcessFingerprint[];
+  fixtureExcludedMemberPids?: Set<number>;
+  fixtureAcceptedMembers?: ProcessFingerprint[];
   verifiedMembersOnly?: boolean;
   excludedTreeMemberPids: Set<number>;
   treeMonitorPromise: Promise<void>;
@@ -238,6 +240,8 @@ interface AdoptedProcessRecord {
   processGroup: ProcessOwnershipEntry["processGroup"];
   knownTreeMembers: ProcessFingerprint[];
   fixtureCustodyMembers?: ProcessFingerprint[];
+  fixtureExcludedMemberPids?: Set<number>;
+  fixtureAcceptedMembers?: ProcessFingerprint[];
   verifiedMembersOnly?: boolean;
   excludedTreeMemberPids: Set<number>;
   monitorAbortController: AbortController;
@@ -2150,7 +2154,9 @@ async function monitorManagedProcessTree(
         record.excludedTreeMemberPids.add(pid);
       }
       if (inspection.members.length > 0) {
-        retainFixtureMembers(record, inspection.members.filter((member) => !record.excludedTreeMemberPids.has(member.pid)));
+        if (inspection.rootStatus === "owned" && probeManagedChildHandle(record.child) === "owned") {
+          retainFixtureMembers(record, inspection.members.filter((member) => !record.excludedTreeMemberPids.has(member.pid)));
+        }
         record.knownTreeMembers = inspection.members.filter((member) => !record.excludedTreeMemberPids.has(member.pid));
       }
     } catch {
@@ -2784,7 +2790,9 @@ export async function startManagedProcess(
       }
       rootIdentity = ownership.identity;
       record.rootIdentity = ownership.identity;
-      retainFixtureMembers(record, [ownership.identity]);
+      if (process.platform !== "win32" || probeManagedChildHandle(child) === "owned") {
+        retainFixtureMembers(record, [ownership.identity]);
+      }
       if (process.platform === "win32") {
         startFailurePhase = "initial_tree_inspection";
         const initialTree = await inspectFixtureTree(record,
@@ -2794,7 +2802,6 @@ export async function startManagedProcess(
           },
         );
         record.verifiedMembersOnly ||= initialTree.verifiedMembersOnly;
-        retainFixtureMembers(record, initialTree.members);
         record.knownTreeMembers = initialTree.members;
         if (
           initialTree.rootStatus !== "owned" ||
@@ -2804,6 +2811,7 @@ export async function startManagedProcess(
             `Cannot start managed process "${serviceId}": root exited during ownership enrollment.`,
           );
         }
+        retainFixtureMembers(record, initialTree.members);
         if (windowsManagedLaunchState) {
           startFailurePhase = "launch_file_binding";
           try {
@@ -2884,7 +2892,6 @@ export async function startManagedProcess(
           initialTree.members,
           stabilizedTree.members,
         ).filter((member) => !excluded.has(member.pid));
-        retainFixtureMembers(record, record.knownTreeMembers);
         if (
           stabilizedTree.rootStatus !== "owned" ||
           probeManagedChildHandle(child) !== "owned"
@@ -2893,6 +2900,7 @@ export async function startManagedProcess(
             `Cannot start managed process "${serviceId}": root exited during ownership enrollment.`,
           );
         }
+        retainFixtureMembers(record, record.knownTreeMembers);
         startFailurePhase = "launch_state_cleanup";
         await removeWindowsManagedLaunchState(windowsManagedLaunchState);
         windowsManagedLaunchState = null;
@@ -2928,7 +2936,9 @@ export async function startManagedProcess(
           ).catch(() => null);
           if (emergencyTree) {
             record.verifiedMembersOnly ||= emergencyTree.verifiedMembersOnly;
-            retainFixtureMembers(record, emergencyTree.members);
+            if (emergencyTree.rootStatus === "owned" && probeManagedChildHandle(child) === "owned") {
+              retainFixtureMembers(record, emergencyTree.members);
+            }
             record.knownTreeMembers = emergencyTree.members;
           }
         }
@@ -3089,11 +3099,13 @@ async function inspectFixtureTree(
   record: ManagedProcessRecord | AdoptedProcessRecord,
   ...args: Parameters<typeof inspectWindowsProcessTree>
 ): Promise<Awaited<ReturnType<typeof inspectWindowsProcessTree>>> {
+  // Inspection is provisional. Only the caller's accepted assignment may
+  // augment fixture authority, after native/root/held-child/lifetime checks.
   const inspection = await managedWindowsTreeInspector(...args);
-  // Capture verified discovery before a caller can reject root state or a
-  // conflicting prior lifetime. Excluded candidates are never new custody.
-  const excluded = new Set(inspection.excludedMemberPids ?? []);
-  retainFixtureMembers(record, inspection.members.filter((member) => !excluded.has(member.pid)));
+  if (process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS === "1") {
+    record.fixtureExcludedMemberPids ??= new Set();
+    for (const pid of inspection.excludedMemberPids ?? []) record.fixtureExcludedMemberPids.add(pid);
+  }
   return inspection;
 }
 
@@ -3101,9 +3113,20 @@ function retainFixtureMembers(
   record: ManagedProcessRecord | AdoptedProcessRecord,
   members: ProcessFingerprint[],
 ): void {
-  if (record.fixtureCustodyMembers) {
-    record.fixtureCustodyMembers = unionProcessFingerprints(record.fixtureCustodyMembers, members)
-      .map((member) => ({ ...member }));
+  if (process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS === "1" || record.fixtureCustodyMembers) {
+    const accepted = members.filter((member) => !record.excludedTreeMemberPids.has(member.pid) &&
+      !record.fixtureExcludedMemberPids?.has(member.pid));
+    const prior = unionProcessFingerprints(record.fixtureCustodyMembers ?? record.fixtureAcceptedMembers ?? [],
+      record.rootIdentity ? [record.rootIdentity] : []);
+    // A rejected fingerprint never acquires authority. Earlier accepted
+    // lifetimes survive both production exclusion and record deletion.
+    if (accepted.some((member) => prior.some((expected) => expected.pid === member.pid &&
+      classifyProcessIdentity(expected, { status: "running", identity: member }, process.platform) !== "owned"))) return;
+    record.fixtureAcceptedMembers = accepted.map((member) => ({ ...member }));
+    if (record.fixtureCustodyMembers) {
+      record.fixtureCustodyMembers = unionProcessFingerprints(record.fixtureCustodyMembers, accepted)
+        .map((member) => ({ ...member }));
+    }
   }
 }
 
@@ -3133,13 +3156,11 @@ export function retainManagedProcessCustodyForTest(serviceId: string): () => Pro
   const record = managedProcesses.get(serviceId) ?? adoptedProcesses.get(serviceId);
   if (record) {
     record.fixtureCustodyMembers ??= [];
-    retainFixtureMembers(record, unionProcessFingerprints(
-      record.rootIdentity ? [record.rootIdentity] : [], record.knownTreeMembers,
-    ));
+    // A late reader can activate the last accepted fixture snapshot, never a
+    // provisional production assignment that a caller later rejected.
+    retainFixtureMembers(record, record.fixtureAcceptedMembers ?? []);
   }
-  return () => record ? unionProcessFingerprints(record.fixtureCustodyMembers ?? [],
-    record.rootIdentity ? [record.rootIdentity] : [], record.knownTreeMembers,
-  ).map((member) => ({ ...member })) : [];
+  return () => record ? (record.fixtureCustodyMembers ?? []).map((member) => ({ ...member })) : [];
 }
 
 export async function stopManagedProcess(
