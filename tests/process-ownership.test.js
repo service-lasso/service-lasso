@@ -47,9 +47,11 @@ import {
   startManagedProcess as startRuntimeManagedProcess,
   stopAllManagedProcesses,
   stopManagedProcess,
+  setManagedWindowsTreeInspectorForTests,
   waitForManagedProcessFinalization,
   writeManagedProcessStdin,
 } from "../dist/runtime/execution/supervisor.js";
+import { ProcessControlDeadlineError } from "../dist/runtime/process/deadline.js";
 import { getLifecycleState, resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import { startService as startRuntimeService, stopService } from "../dist/runtime/lifecycle/actions.js";
 import { createServiceRegistry } from "../dist/runtime/manager/DependencyGraph.js";
@@ -570,15 +572,21 @@ test("Windows full identity inspection aborts and observes helper closure at its
     }),
     (error) => {
       assert.equal(error?.code, "PROCESS_CONTROL_DEADLINE_EXCEEDED");
-      assert.deepEqual(error?.windowsTreeInspection, {
-        windowsTreeInspectionPhase: "native_snapshot",
-        windowsTreeInspectionAttempts: 1,
-        windowsTreeInspectionRetries: 0,
-        windowsTreeInspectionQueueMs: 0,
-        windowsTreeInspectionNativeMs: error?.windowsTreeInspection?.windowsTreeInspectionNativeMs,
-        windowsTreeInspectionLastRetry: null,
-      });
-      assert.ok(error?.windowsTreeInspection?.windowsTreeInspectionNativeMs >= 50);
+      const evidence = error?.windowsTreeInspection;
+      assert.equal(evidence?.windowsTreeInspectionPhase, "native_snapshot");
+      assert.equal(evidence?.windowsTreeInspectionAttempts, 1);
+      assert.equal(evidence?.windowsTreeInspectionRetries, 0);
+      assert.equal(evidence?.windowsTreeInspectionQueueMs, 0);
+      assert.equal(evidence?.windowsTreeInspectionLastRetry, null);
+      assert.equal(evidence?.windowsTreeInspectionNativeHelperSpawned, false);
+      assert.equal(evidence?.windowsTreeInspectionNativeHelperExited, false);
+      assert.equal(evidence?.windowsTreeInspectionNativeHelperStdioClosed, false);
+      assert.equal(evidence?.windowsTreeInspectionNativeResultCompleted, false);
+      assert.equal(evidence?.windowsTreeInspectionNativeSpawnWaitMs, null);
+      assert.equal(evidence?.windowsTreeInspectionNativeWorkMs, null);
+      assert.equal(evidence?.windowsTreeInspectionNativeStdioCloseMs, null);
+      assert.equal(evidence?.windowsTreeInspectionNativeResultCompletionMs, null);
+      assert.ok(evidence?.windowsTreeInspectionNativeMs >= 50);
       return true;
     },
   );
@@ -4029,8 +4037,13 @@ test("runtime and service ownership are durable before readiness and clear after
     assert.equal((await postJson(`${apiServer.url}/api/services/owned-service/install`)).response.status, 200);
     assert.equal((await postJson(`${apiServer.url}/api/services/owned-service/config`)).response.status, 200);
 
-    const startPromise = postJson(`${apiServer.url}/api/services/owned-service/start`);
+    let startFailure = null;
+    const startPromise = postJson(`${apiServer.url}/api/services/owned-service/start`).catch((error) => {
+      startFailure = error;
+      return null;
+    });
     const launching = await waitFor(async () => {
+      if (startFailure) throw startFailure;
       const entry = await findProcessOwnership(workspaceRoot, "service", "owned-service");
       return entry?.lifecycleState === "launching" ? entry : null;
     }, 20_000);
@@ -4038,6 +4051,8 @@ test("runtime and service ownership are durable before readiness and clear after
     assert.equal(launching.pid > 0, true);
 
     const started = await startPromise;
+    if (startFailure) throw startFailure;
+    assert.notEqual(started, null);
     assert.equal(started.response.status, 200);
     assert.equal(started.body.state.running, true);
     const running = await findProcessOwnership(workspaceRoot, "service", "owned-service");
@@ -4164,6 +4179,100 @@ test("runtime restart adopts a registry owner even when runtime.json discarded r
     await apiServer?.stop();
     await stopAllManagedProcesses().catch(() => null);
     child.kill("SIGKILL");
+    resetLifecycleState();
+    await removeTempRoot(tempRoot);
+  }
+});
+
+test("rehydration preserves the native-inspection timeout when receipt persistence fails", {
+  skip: process.platform !== "win32",
+}, async () => {
+  resetLifecycleState();
+  const priorTestHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+  process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
+  const preferredPort = 18243;
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-rehydrate-timeout-receipt-");
+  const { serviceRoot, scriptPath } = await writeExecutableFixtureService(servicesRoot, "registry-adopt-timeout", {
+    ports: { service: preferredPort },
+  });
+  const relativeScriptPath = path.relative(serviceRoot, scriptPath);
+  const child = spawn(process.execPath, [relativeScriptPath], {
+    cwd: serviceRoot,
+    stdio: "ignore",
+    windowsHide: true,
+  });
+  const deadline = new ProcessControlDeadlineError();
+  deadline.windowsTreeInspection = {
+    windowsTreeInspectionPhase: "native_snapshot",
+    windowsTreeInspectionAttempts: 1,
+    windowsTreeInspectionRetries: 0,
+    windowsTreeInspectionQueueMs: 0,
+    windowsTreeInspectionNativeMs: 15_000,
+    windowsTreeInspectionLastRetry: null,
+    rawOutput: "never-persist-this-native-output",
+  };
+
+  try {
+    await new Promise((resolve, reject) => {
+      child.once("spawn", resolve);
+      child.once("error", reject);
+    });
+    const inspection = await inspectProcess(child.pid);
+    assert.equal(inspection.status, "running");
+    await recordProcessOwnership(workspaceRoot, {
+      ownerType: "service",
+      ownerId: "registry-adopt-timeout",
+      serviceId: "registry-adopt-timeout",
+      pid: child.pid,
+      ownerRoot: serviceRoot,
+      ports: { service: preferredPort },
+      lifecycleState: "running",
+      source: "spawn",
+    });
+    await writeInstalledRuntimeState(serviceRoot, {
+      running: false,
+      pid: child.pid,
+      startedAt: inspection.identity.createdAt,
+      command: `${process.execPath} ${relativeScriptPath}`,
+      ports: { service: preferredPort },
+      lastAction: "start",
+      actionHistory: ["install", "config", "start"],
+    });
+    // Make the closed receipt write fail. This must not replace the native
+    // inspection deadline with a persistence error.
+    const runtimeStatePath = path.join(serviceRoot, ".state", "runtime.json");
+    await rm(runtimeStatePath, { force: true });
+    await mkdir(runtimeStatePath);
+    setManagedWindowsTreeInspectorForTests(async () => { throw deadline; });
+
+    const [service] = await discoverServices(servicesRoot);
+    await assert.rejects(
+      rehydrateLifecycleState(service, { workspaceRoot }),
+      (error) => error === deadline,
+    );
+
+    assert.equal(hasManagedProcess("registry-adopt-timeout"), false);
+    assert.equal(child.exitCode, null);
+    assert.equal(child.signalCode, null);
+    const postFailureInspection = await inspectProcess(child.pid);
+    assert.equal(postFailureInspection.status, "running");
+    assert.equal(postFailureInspection.identity.pid, child.pid);
+    const receiptFiles = await Promise.all([
+      readFile(path.join(serviceRoot, ".state", "service.json"), "utf8"),
+      readFile(path.join(serviceRoot, ".state", "install.json"), "utf8"),
+      readFile(path.join(serviceRoot, ".state", "config.json"), "utf8"),
+      readFile(path.join(serviceRoot, ".state", "setup.json"), "utf8"),
+    ]);
+    assert.equal(receiptFiles.join("\n").includes("never-persist-this-native-output"), false);
+    const ownership = await findProcessOwnership(workspaceRoot, "service", "registry-adopt-timeout");
+    assert.equal(ownership.lifecycleState, "running");
+    assert.equal(ownership.pid, child.pid);
+  } finally {
+    setManagedWindowsTreeInspectorForTests(null);
+    await stopManagedProcess("registry-adopt-timeout", 500).catch(() => null);
+    child.kill("SIGKILL");
+    if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+    else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
     resetLifecycleState();
     await removeTempRoot(tempRoot);
   }

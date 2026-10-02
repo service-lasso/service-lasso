@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -21,6 +21,8 @@ import {
   validateNpmMetadata,
   validateRelease,
   validateRetainedArtifactMetadata,
+  retainAdminTrustedUnlockReceipt,
+  validateRetainedAdminTrustedUnlockReceipt,
   validateRetainedEvidence,
   validateTerminalJobMetadata,
   verifyFileSha256,
@@ -248,6 +250,33 @@ test("AC-4BZ.1 retained evidence requires terminal scenarios and rejects sensiti
       checksumSource: "SHA256SUMS.txt",
     },
     adminHarnessRevision: ADMIN_HARNESS_REVISION,
+    adminTrustedUnlockReceipt: retainAdminTrustedUnlockReceipt(
+      JSON.stringify({
+        schema: "service-lasso.admin-trusted-unlock-consumer.v1",
+        outcome: "nonzero_exit",
+        exitCode: 7,
+        signal: null,
+        trustedUnlock: {
+          classification: "closed",
+          receipt: {
+            schema: "service-admin.trusted-unlock-receipt.v1",
+            status: "observed",
+            present: true,
+            verified: false,
+            localRoot: false,
+            loading: true,
+            unavailable: false,
+          },
+        },
+      }),
+      {
+        platform,
+        coreRevision: core.revision,
+        adminReleaseId: ADMIN_RELEASE.id,
+        adminRevision: ADMIN_RELEASE.revision,
+        adminHarnessRevision: ADMIN_HARNESS_REVISION,
+      },
+    ),
     retentionDays: 90,
     mutationRetry: false,
     acquisitionRetry: false,
@@ -312,6 +341,98 @@ test("AC-4BZ.1 retained evidence requires terminal scenarios and rejects sensiti
   expectCode("unsafe_evidence", () =>
     validateRetainedEvidence(unsafe, expected),
   );
+
+  const privateReceipt = structuredClone(evidence);
+  privateReceipt.adminTrustedUnlockReceipt.trustedUnlock.receipt.private = true;
+  expectCode("evidence_admin_trusted_unlock_receipt_mismatch", () =>
+    validateRetainedEvidence(privateReceipt, expected),
+  );
+});
+
+test("AC-4BY.2 retains only observed consumer receipts and never upgrades a failed Cypress consumer", () => {
+  const expected = {
+    platform: "linux",
+    coreRevision: core.revision,
+    adminReleaseId: ADMIN_RELEASE.id,
+    adminRevision: ADMIN_RELEASE.revision,
+    adminHarnessRevision: ADMIN_HARNESS_REVISION,
+  };
+  expectCode("invalid_retained_trusted_unlock_receipt", () => retainAdminTrustedUnlockReceipt(null, expected));
+  const raw = JSON.stringify({
+    schema: "service-lasso.admin-trusted-unlock-consumer.v1",
+    outcome: "nonzero_exit",
+    exitCode: 7,
+    signal: null,
+    trustedUnlock: {
+      classification: "closed",
+      receipt: {
+        schema: "service-admin.trusted-unlock-receipt.v1",
+        status: "observed",
+        present: true,
+        verified: false,
+        localRoot: false,
+        loading: true,
+        unavailable: false,
+      },
+    },
+  });
+  const retained = retainAdminTrustedUnlockReceipt(raw, expected);
+  assert.equal(retained.consumerOutcome, "nonzero_exit");
+  assert.equal(retained.consumerExitCode, 7);
+  assert.equal(retained.trustedUnlock.classification, "closed");
+  assert.doesNotMatch(JSON.stringify(retained), /stdout|stderr|token|path|url/iu);
+  assert.equal(
+    (() => { try { retainAdminTrustedUnlockReceipt(raw.replace('"loading":true', '"loading":true,"private":true'), expected); } catch (error) { return error.code; } })(),
+    "invalid_retained_trusted_unlock_receipt",
+  );
+  const success = retainAdminTrustedUnlockReceipt(JSON.stringify({ schema: "service-lasso.admin-trusted-unlock-consumer.v1", outcome: "success", exitCode: 0, signal: null, trustedUnlock: { classification: "not_emitted" } }), expected);
+  assert.deepEqual(success.trustedUnlock, { classification: "not_emitted", reason: "no_failure" });
+  const observationFailure = retainAdminTrustedUnlockReceipt(JSON.stringify({ schema: "service-lasso.admin-trusted-unlock-consumer.v1", outcome: "observation_failure", exitCode: 0, signal: null, streamFailure: "malformed_utf8", trustedUnlock: { classification: "closed", receipt: JSON.parse(raw).trustedUnlock.receipt } }), expected);
+  assert.deepEqual(observationFailure.consumerFailure, { source: "stream", classification: "malformed_utf8" });
+  assert.deepEqual(validateRetainedAdminTrustedUnlockReceipt(observationFailure, expected), observationFailure);
+  for (const classification of ["missing", "invalid"]) {
+    const unavailable = retainAdminTrustedUnlockReceipt(JSON.stringify({ schema: "service-lasso.admin-trusted-unlock-consumer.v1", outcome: "nonzero_exit", exitCode: 7, signal: null, trustedUnlock: { classification } }), expected);
+    assert.deepEqual(unavailable.trustedUnlock, { classification });
+    assert.deepEqual(validateRetainedAdminTrustedUnlockReceipt(unavailable, expected), unavailable);
+  }
+  for (const failure of [
+    { source: "stream", classification: "unknown" },
+    { source: "execution", classification: "spawn_failed", extra: true },
+    { source: "stream", classification: "pipe_hang", executionFailure: "spawn_failed" },
+  ]) expectCode("invalid_retained_trusted_unlock_receipt", () => validateRetainedAdminTrustedUnlockReceipt({ ...observationFailure, consumerFailure: failure }, expected));
+});
+
+test("AC-4BY.2 preparation rejects a stale Admin harness pin before any mutation", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "published-package-stale-pin-"));
+  try {
+    const mutationRoot = path.join(root, "service-lasso-published-mutation-1-1-linux");
+    const environment = {
+      ...process.env,
+      QUALIFICATION_PLATFORM: "linux",
+      GITHUB_TOKEN: "test-token",
+      GITHUB_WORKSPACE: root,
+      RUNNER_TEMP: root,
+      CORE_RELEASE_ID: "1",
+      CORE_RELEASE_TAG: "2026.1.1-abcdef0",
+      CORE_REVISION: core.revision,
+      CORE_NPM_VERSION: "2026.1.1-abcdef0",
+      CORE_RELEASE_ASSET: "service-lasso-2026.1.1-abcdef0-linux.tar.gz",
+      CORE_RELEASE_SHA256: "1".repeat(64),
+      CORE_NPM_INTEGRITY: `sha512-${Buffer.from("integrity").toString("base64")}`,
+      ADMIN_HARNESS_REVISION: "66ea0a5be70a8b3f3f73e4132d92b50ff6d45784",
+      QUALIFICATION_SAFE_STATE_PATH: path.join(root, "state.json"),
+      QUALIFICATION_PRIVATE_STATE_PATH: path.join(root, "private.json"),
+      GITHUB_RUN_ID: "1",
+      GITHUB_RUN_ATTEMPT: "1",
+      GITHUB_SHA: core.revision,
+      GITHUB_ENV: path.join(root, "github-env"),
+    };
+    await assert.rejects(execFileAsync(process.execPath, [fileURLToPath(new URL("../scripts/prepare-published-package-qualification.mjs", import.meta.url))], { env: environment }));
+    await assert.rejects(readdir(mutationRoot));
+    await assert.rejects(readFile(path.join(root, "state.json"), "utf8"));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("AC-4BZ.1 artifact and job API metadata must be nonempty, unexpired, 90-day, terminal-green, and wrong-head safe", () => {
