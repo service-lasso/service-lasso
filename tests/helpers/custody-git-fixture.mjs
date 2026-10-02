@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdir } from "node:fs/promises";
+import { lstat, mkdir, readFile, realpath } from "node:fs/promises";
+import path from "node:path";
 
 // Nested repositories own their Git input authority. Do not carry runner checkout
 // redirections, injected config, global hooks or object stores into these fixtures.
@@ -21,7 +22,21 @@ export async function fetchedCheckout(workspace, source, head, tree, environment
   await mkdir(workspace);
   fixtureGit(["init"], workspace, environment);
   fixtureGit(["config", "core.autocrlf", "false"], workspace, environment);
-  fixtureGit(["fetch", "--no-tags", source, head], workspace, environment);
+  const expectedGitDirectory=await realpath(path.join(workspace,".git"));
+  const gitDirectory=fixtureGit(["rev-parse","--absolute-git-dir"],workspace,environment);
+  assert.equal(await realpath(gitDirectory),expectedGitDirectory,"fixture Git must own the newly initialized checkout");
+  const fetched=spawnSync("git",["fetch","--no-tags",source,head],{cwd:workspace,env:environment,encoding:"utf8",shell:false});
+  const fetchObservation={status:fetched.status,signal:fetched.signal,errorCode:fetched.error?.code??null,stdout:fetched.stdout,stderr:fetched.stderr};
+  const diagnostic=JSON.stringify({gitDirectory,fetch:fetchObservation});
+  assert.equal(fetched.error,undefined,diagnostic);assert.equal(fetched.signal,null,diagnostic);assert.equal(fetched.status,0,diagnostic);
+  assert.equal(await realpath(fixtureGit(["rev-parse","--absolute-git-dir"],workspace,environment)),expectedGitDirectory,diagnostic);
+  const fetchHeadPath=path.join(expectedGitDirectory,"FETCH_HEAD");
+  const fetchHeadStat=await lstat(fetchHeadPath).catch(error=>{assert.fail(JSON.stringify({gitDirectory,fetch:fetchObservation,fetchHead:{state:"unreadable",errorCode:error.code??null}}));});
+  assert.equal(fetchHeadStat.isSymbolicLink(),false,diagnostic);assert.equal(fetchHeadStat.isFile(),true,diagnostic);
+  const fetchHead=await readFile(fetchHeadPath,"utf8");
+  // Observe the real fetch side effect; do not manufacture a ref to mask the
+  // retained hosted FETCH_HEAD failure or substitute an object-only check.
+  assert.ok(fetchHead.split("\n").some(line=>line.startsWith(`${head}\t`)),JSON.stringify({gitDirectory,fetch:fetchObservation,fetchHead}));
   assert.equal(fixtureGit(["rev-parse", "FETCH_HEAD^{commit}"], workspace, environment), head);
   assert.equal(fixtureGit(["rev-parse", `${head}^{tree}`], workspace, environment), tree);
   fixtureGit(["checkout", "--detach", head], workspace, environment);
