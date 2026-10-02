@@ -36,7 +36,6 @@ export async function inspectKnownWindowsTreeMembers(
     ...currentTree.members,
   ];
   if (verifiedMembersOnly || currentTree.verifiedMembersOnly) {
-    const currentByPid = new Map(currentMembers.map(identity => [identity.pid, identity]));
     for (const expected of retainedMembers) {
       const actual = currentByPid.get(expected.pid);
       if (actual && classifyProcessIdentity(expected, { status: "running", identity: actual }, "win32") !== "owned") {

@@ -60,3 +60,10 @@ new exact-head build, full suite, and supported canonical baseline evidence;
 this generated-artifact record does not waive any of them.  PR #1577 remains
 unmerged and no `main` promotion, GA, publication, or deployment is authorized
 by this status.
+
+The first exact-head typecheck exposed an unresolved reconciliation typo in
+the Windows tree-control snapshot: verified-member comparison must use the
+fresh `currentTree.members` map already built from the inspected tree.  The
+repair must preserve fail-closed identity comparison and is paired with the
+existing Windows tree-control snapshot regression before a new candidate is
+qualified.
