@@ -197,7 +197,7 @@ test("runCommand reports an owned root exit with an unresolved inherited pipe", 
   }
 });
 
-test("runCommand preserves a deadline failure while an owned root exits with an inherited pipe", async () => {
+test("runCommand preserves a deadline failure for a nonexiting owned root while an inherited pipe remains open", async () => {
   const { mkdtemp, rm, writeFile } = await import("node:fs/promises");
   const os = await import("node:os");
   const path = (await import("node:path")).default;

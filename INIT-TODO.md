@@ -14,6 +14,15 @@ This file tracks bootstrap/adoption/remediation work required before product imp
 ## Open Items
 - `ISS-1463-implementation`: retain remote-develop implementation traceability, local direct proof, independent whole review, and separate owner-catalog/TAR T1-T5 blockers.
 
+  On 2026-10-02, the prior native-acceptance attempt stopped at a TypeScript
+  parser failure before the focused transfer suite could start. Its retained
+  preliminary result and raw preflight are failure evidence only. The current
+  #1566 repair begins from the current `develop` ancestry on
+  `fix/1566-transfer-native-acceptance`, restores a compilable source tree,
+  and must run a new externally observed native acceptance after a fresh,
+  exclusive source checkout. It does not alter the owner-catalog or TAR T1--T5
+  blockers below.
+
   The corrective durable-attachment slice writes the exact claimed byte object,
   metadata, manifest, and composite publication receipt privately, synchronises
   file and supported directory boundaries before publication/outcome sealing,

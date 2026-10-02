@@ -1066,7 +1066,13 @@ function parseTransferRange(value: string): { start: number; end: number; total:
   const start = Number(match[1]), end = Number(match[2]), total = Number(match[3]);
   if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || !Number.isSafeInteger(total) || start > end || end >= total) throw new ApiError("invalid_request", 400, "Transfer request headers are invalid.");
   return { start, end, total };
+}
+
 function assertNoDuplicateJsonKeys(body: string): void {
+  assertNoDuplicateJsonObjectMembers(body);
+}
+
+/* Superseded incomplete parser body retained only until this source repair is reviewed.
   let cursor = 0;
   const skipWhitespace = () => {
     while (/\s/u.test(body[cursor] ?? "")) cursor += 1;
@@ -1116,6 +1122,7 @@ function assertNoDuplicateJsonKeys(body: string): void {
   if (cursor !== body.length) throw new Error("trailing JSON input");
 }
 
+*/
 function getAuditActor(input: unknown): string {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     return "unknown";
