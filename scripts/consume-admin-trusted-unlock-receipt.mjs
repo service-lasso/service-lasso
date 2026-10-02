@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { access, lstat, mkdir, readFile, writeFile } from "node:fs/promises";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -377,37 +377,43 @@ async function privateJson(root, name) {
 }
 
 async function validateObserverTerminal(root, nonce, source, wantClose) {
+  const rootMetadata = await lstat(root).catch(() => null);
+  if (!rootMetadata?.isDirectory() || rootMetadata.isSymbolicLink()) return null;
   const plan = await privateJson(root, "plan.json");
   const activation = await privateJson(root, "activation.json");
   const initial = await privateJson(root, "initial.json");
   const terminal = await privateJson(root, wantClose ? "close.json" : "unresolved.json");
   if (!exactKeys(plan, ["schema", "private", "nonce", "source", "state", "startedAt", "provider", "inputs"])
-    || plan.schema !== "service-lasso.admin-provider-observer-plan.v1" || plan.private !== true || plan.state !== "PLAN" || !sameTuple(plan, nonce, source)
+    || plan.schema !== "service-lasso.admin-provider-observer-plan.v2" || plan.private !== true || plan.state !== "PLAN" || !sameTuple(plan, nonce, source)
     || !validRuntimeInputs(plan.inputs)
     || !exactKeys(plan.provider, ["executable"]) || !exactKeys(plan.provider.executable, ["path", "size", "sha256"])
     || typeof plan.provider.executable.path !== "string" || !Number.isSafeInteger(plan.provider.executable.size) || !/^[0-9a-f]{64}$/u.test(plan.provider.executable.sha256)) return null;
-  if (!exactKeys(activation, ["schema", "private", "nonce", "source", "plan", "state", "provider", "inputs"])
-    || activation.schema !== "service-lasso.admin-provider-observer-activation.v1" || activation.private !== true || activation.plan !== "plan.json" || activation.state !== "ACTIVATED"
-    || !sameTuple(activation, nonce, source) || !validRuntimeInputs(activation.inputs) || JSON.stringify(activation.inputs) !== JSON.stringify(plan.inputs)
-    || JSON.stringify(activation.provider) !== JSON.stringify(plan.provider)) return null;
-  if (!exactKeys(initial, ["schema", "private", "nonce", "source", "observer", "plan", "activation", "witness", "provider", "inputs", "startedAt"])
-    || initial.schema !== "service-lasso.admin-provider-observer-initial.v1" || initial.private !== true || !sameTuple(initial, nonce, source)
+  if (!exactKeys(initial, ["schema", "private", "nonce", "source", "observer", "plan", "state", "provider", "inputs", "startedAt"])
+    || initial.schema !== "service-lasso.admin-provider-observer-initial.v2" || initial.private !== true || initial.state !== "INITIAL" || !sameTuple(initial, nonce, source)
     || !validRuntimeInputs(initial.inputs) || JSON.stringify(initial.inputs) !== JSON.stringify(plan.inputs)
-    || initial.plan !== "plan.json" || initial.activation !== "activation.json" || !["OBSERVED", "UNAVAILABLE"].includes(initial.witness)
-    || !exactKeys(initial.provider, ["pid", "parentPid", "birth", "executable"])
+    || initial.plan !== "plan.json"
+    || !exactKeys(initial.provider, ["pid", "parentPid", "birth", "nativeIdentity"])
     || !Number.isSafeInteger(initial.provider.pid) || initial.provider.pid < 1 || !Number.isSafeInteger(initial.provider.parentPid) || initial.provider.parentPid < 1
-    || initial.provider.parentPid !== initial.observer?.pid || initial.provider.executable?.path !== plan.provider.executable.path
-    || initial.provider.executable?.size !== plan.provider.executable.size || initial.provider.executable?.sha256 !== plan.provider.executable.sha256
-    || (initial.witness === "OBSERVED" && (typeof initial.provider.birth !== "string" || initial.provider.birth.length < 1))
-    || (initial.witness === "UNAVAILABLE" && initial.provider.birth !== null)) return null;
+    || initial.provider.parentPid !== initial.observer?.pid || typeof initial.provider.birth !== "string" || initial.provider.birth.length < 1
+    || !exactKeys(initial.provider.nativeIdentity, ["path", "size", "sha256"])
+    || typeof initial.provider.nativeIdentity.path !== "string" || !Number.isSafeInteger(initial.provider.nativeIdentity.size) || initial.provider.nativeIdentity.size < 1
+    || !/^[0-9a-f]{64}$/u.test(initial.provider.nativeIdentity.sha256)) return null;
+  if (!exactKeys(activation, ["schema", "private", "nonce", "source", "plan", "initial", "initialSha256", "state", "provider", "inputs"])
+    || activation.schema !== "service-lasso.admin-provider-observer-activation.v2" || activation.private !== true || activation.plan !== "plan.json" || activation.initial !== "initial.json" || activation.state !== "ACTIVATED"
+    || !sameTuple(activation, nonce, source) || !validRuntimeInputs(activation.inputs) || JSON.stringify(activation.inputs) !== JSON.stringify(plan.inputs)
+    || JSON.stringify(activation.provider) !== JSON.stringify(initial.provider)
+    || !/^[0-9a-f]{64}$/u.test(activation.initialSha256)) return null;
+  let initialDigest;
+  try { initialDigest = createHash("sha256").update(await readFile(path.join(root, "initial.json"), "utf8")).digest("hex"); } catch { return null; }
+  if (activation.initialSha256 !== initialDigest) return null;
   if (!wantClose) {
     if (!exactKeys(terminal, ["schema", "private", "nonce", "source", "plan", "activation", "initial", "state", "provider"])
-      || terminal.schema !== "service-lasso.admin-provider-observer-unresolved.v1" || terminal.private !== true || terminal.plan !== "plan.json" || terminal.activation !== "activation.json" || terminal.initial !== "initial.json"
+      || terminal.schema !== "service-lasso.admin-provider-observer-unresolved.v2" || terminal.private !== true || terminal.plan !== "plan.json" || terminal.activation !== "activation.json" || terminal.initial !== "initial.json"
       || terminal.state !== "UNRESOLVED" || !sameTuple(terminal, nonce, source) || JSON.stringify(terminal.provider) !== JSON.stringify(initial.provider)) return null;
     return { unresolved: true };
   }
   if (!exactKeys(terminal, ["schema", "private", "nonce", "source", "plan", "activation", "unresolved", "initial", "provider", "terminal", "trustedUnlock", "streams"])
-    || terminal.schema !== "service-lasso.admin-provider-observer-close.v1" || terminal.private !== true || terminal.plan !== "plan.json" || terminal.activation !== "activation.json" || terminal.initial !== "initial.json"
+    || terminal.schema !== "service-lasso.admin-provider-observer-close.v2" || terminal.private !== true || terminal.plan !== "plan.json" || terminal.activation !== "activation.json" || terminal.initial !== "initial.json"
     || !sameTuple(terminal, nonce, source) || JSON.stringify(terminal.provider) !== JSON.stringify(initial.provider)
     || !exactKeys(terminal.terminal, ["exitCode", "signal", "spawnError"])
     || typeof terminal.terminal.spawnError !== "boolean" || !Array.isArray(terminal.streams) || terminal.streams.length !== 2
@@ -415,9 +421,7 @@ async function validateObserverTerminal(root, nonce, source, wantClose) {
     || !["missing", "invalid", "closed"].includes(terminal.trustedUnlock?.classification)
     || (terminal.trustedUnlock.classification === "closed" && (!exactKeys(terminal.trustedUnlock, ["classification", "receipt"]) || !parseReceipt(JSON.stringify(terminal.trustedUnlock.receipt))))
     || (terminal.trustedUnlock.classification !== "closed" && !exactKeys(terminal.trustedUnlock, ["classification"]))) return null;
-  // An unavailable birth is deliberately useful only as a terminal failure
-  // handoff.  It never authorizes an exit claim for a PID we did not witness.
-  if (initial.witness !== "OBSERVED" || terminal.terminal.spawnError || (terminal.terminal.exitCode === null && terminal.terminal.signal === null)
+  if (terminal.terminal.spawnError || (terminal.terminal.exitCode === null && terminal.terminal.signal === null)
     || (terminal.terminal.exitCode !== null && (!Number.isSafeInteger(terminal.terminal.exitCode) || terminal.terminal.exitCode < 0 || terminal.terminal.signal !== null))
     || (terminal.terminal.signal !== null && (typeof terminal.terminal.signal !== "string" || terminal.terminal.exitCode !== null))) return null;
   return terminal;

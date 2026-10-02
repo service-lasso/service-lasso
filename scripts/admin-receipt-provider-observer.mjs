@@ -3,7 +3,7 @@
 // and both pipes until the kernel reports their terminal close.
 import { createHash, randomBytes } from "node:crypto";
 import { execFile, spawn } from "node:child_process";
-import { mkdir, open, readFile, stat } from "node:fs/promises";
+import { lstat, mkdir, open, readFile, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -16,7 +16,7 @@ const execFileAsync = promisify(execFile);
 
 async function exclusiveJson(file, value) {
   const handle = await open(file, "wx", 0o600);
-  try { await handle.writeFile(`${JSON.stringify(value)}\n`, "utf8"); }
+  try { await handle.writeFile(`${JSON.stringify(value)}\n`, "utf8"); await handle.sync(); }
   finally { await handle.close(); }
 }
 
@@ -25,6 +25,25 @@ async function executableIdentity(executable) {
   const metadata = await stat(resolved);
   if (!metadata.isFile() || metadata.size < 1) throw new Error("observer_executable_identity_unavailable");
   return { path: resolved, size: metadata.size, sha256: createHash("sha256").update(await readFile(resolved)).digest("hex") };
+}
+
+async function observedIdentity(pid, expectedParentPid) {
+  if (!Number.isSafeInteger(pid) || pid < 1 || !Number.isSafeInteger(expectedParentPid) || expectedParentPid < 1) throw new Error("observer_provider_pid_invalid");
+  let observed;
+  if (process.platform === "win32") {
+    const command = `Get-CimInstance Win32_Process -Filter \"ProcessId = ${pid}\" | Select-Object ProcessId,ParentProcessId,CreationDate,ExecutablePath | ConvertTo-Json -Compress`;
+    const { stdout } = await execFileAsync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", command], { windowsHide: true, timeout: 5_000 });
+    const value = JSON.parse(stdout);
+    observed = { pid: value.ProcessId, parentPid: value.ParentProcessId, birth: value.CreationDate, executable: value.ExecutablePath };
+  } else {
+    const { stdout } = await execFileAsync("ps", ["-o", "ppid=", "-o", "lstart=", "-p", String(pid)], { timeout: 5_000 });
+    const match = stdout.trim().match(/^(\d+)\s+(.+)$/u);
+    observed = match ? { pid, parentPid: Number(match[1]), birth: match[2], executable: process.platform === "linux" ? (await execFileAsync("readlink", ["-f", `/proc/${pid}/exe`], { timeout: 5_000 })).stdout.trim() : (await execFileAsync("ps", ["-o", "comm=", "-p", String(pid)], { timeout: 5_000 })).stdout.trim() } : null;
+  }
+  if (!observed || observed.pid !== pid || observed.parentPid !== expectedParentPid || typeof observed.birth !== "string" || observed.birth.length < 1 || typeof observed.executable !== "string" || observed.executable.length < 1) throw new Error("observer_provider_identity_unavailable");
+  const executable = await lstat(observed.executable).catch(() => null);
+  if (!executable?.isFile() || executable.isSymbolicLink() || executable.size < 1) throw new Error("observer_provider_image_unavailable");
+  return { pid, parentPid: observed.parentPid, birth: observed.birth, nativeIdentity: { path: path.resolve(observed.executable), size: executable.size, sha256: createHash("sha256").update(await readFile(observed.executable)).digest("hex") } };
 }
 
 function required(value, matcher) { return typeof value === "string" && matcher.test(value); }
@@ -79,51 +98,67 @@ export async function observeProvider(config) {
   const source = config.source;
   if (!source || !required(source.head, hex40) || !required(source.tree, hex40) || !required(config.nonce, hex64)) throw new Error("observer_tuple_invalid");
   const root = path.resolve(config.root);
-  await mkdir(root, { recursive: true, mode: 0o700 });
+  if (root !== config.root) throw new Error("observer_root_not_absolute");
+  const existingRoot = await lstat(root).catch((error) => error?.code === "ENOENT" ? null : Promise.reject(error));
+  if (existingRoot && (!existingRoot.isDirectory() || existingRoot.isSymbolicLink())) throw new Error("observer_root_invalid");
+  const parent = await lstat(path.dirname(root));
+  if (!parent.isDirectory() || parent.isSymbolicLink()) throw new Error("observer_root_parent_invalid");
+  if (!existingRoot) await mkdir(root, { mode: 0o700 });
+  const rootMetadata = await lstat(root);
+  if (!rootMetadata.isDirectory() || rootMetadata.isSymbolicLink()) throw new Error("observer_root_invalid");
   const executable = await executableIdentity(config.command);
   const startedAt = new Date().toISOString();
   // This is deliberately the first mutable custody record.  It is written
   // before the provider can be spawned, so a later timeout is never evidence
   // that a provider was merely intended rather than actually observed.
   const plan = {
-    schema: "service-lasso.admin-provider-observer-plan.v1", private: true,
+    schema: "service-lasso.admin-provider-observer-plan.v2", private: true,
     nonce: config.nonce, source, state: "PLAN", startedAt,
     provider: { executable }, inputs: config.inputs,
   };
   await exclusiveJson(path.join(root, "plan.json"), plan);
-  // The activation barrier is durable before spawn.  A provider therefore
-  // cannot import its entrypoint or cause provider side effects until this
-  // observer has accepted the immutable launch tuple.
-  await exclusiveJson(path.join(root, "activation.json"), {
-    schema: "service-lasso.admin-provider-observer-activation.v1", private: true,
-    nonce: config.nonce, source, plan: "plan.json", state: "ACTIVATED", provider: { executable }, inputs: config.inputs,
+  // The observed child is a Node bootstrap that cannot import the supplied
+  // provider until this observer writes a native-identity-bound activation.
+  // This leaves the actual browser runner in the same OS process, rather than
+  // creating an unbound intermediary process tree.
+  if (path.resolve(config.command) !== path.resolve(process.execPath)) throw new Error("observer_node_bootstrap_required");
+  const bootstrap = path.join(path.dirname(fileURLToPath(import.meta.url)), "admin-receipt-provider-bootstrap.mjs");
+  const child = spawn(config.command, [bootstrap, config.configPath, ...config.args], {
+    cwd: config.cwd,
+    env: { ...config.env, SERVICE_LASSO_ADMIN_PROVIDER_OBSERVER_ROOT: root, SERVICE_LASSO_ADMIN_PROVIDER_OBSERVER_NONCE: config.nonce },
+    detached: true, stdio: ["ignore", "pipe", "pipe"], windowsHide: true,
   });
-  const child = spawn(config.command, config.args, { cwd: config.cwd, env: config.env, detached: true, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
   // Install terminal observation before the native birth lookup.  A provider
   // which exits in that narrow window is still closed from the real child and
   // pipe events; we never substitute a pre-launch timestamp as its birth.
   const streams = [child.stdout, child.stderr].map(() => ({ bytes: 0, hash: createHash("sha256"), receipt: receiptObservation() }));
   [child.stdout, child.stderr].forEach((stream, index) => stream.on("data", (chunk) => { streams[index].bytes += chunk.length; streams[index].hash.update(chunk); streams[index].receipt.write(chunk); }));
   const closed = new Promise((resolve) => { child.once("error", () => resolve({ code: null, signal: null, spawnError: true })); child.once("close", (code, signal) => resolve({ code, signal, spawnError: false })); });
-  let birth = null;
-  let witness = "OBSERVED";
-  try { birth = await observedBirth(child.pid); }
-  catch { witness = "UNAVAILABLE"; }
+  let provider = null;
+  try { provider = await observedIdentity(child.pid, process.pid); }
+  catch { /* A fast exit is still closed below, but never activated. */ }
   const initial = {
-    schema: "service-lasso.admin-provider-observer-initial.v1", private: true,
+    schema: "service-lasso.admin-provider-observer-initial.v2", private: true,
     nonce: config.nonce, source, observer: { pid: process.pid, parentPid: process.ppid, platform: process.platform, arch: process.arch, release: os.release() },
-    plan: "plan.json", activation: "activation.json", witness,
-    provider: { pid: child.pid, parentPid: process.pid, birth, executable }, inputs: config.inputs, startedAt,
+    plan: "plan.json", state: "INITIAL", provider, inputs: config.inputs, startedAt,
   };
   await exclusiveJson(path.join(root, "initial.json"), initial);
+  if (provider) {
+    const initialBytes = await readFile(path.join(root, "initial.json"));
+    await exclusiveJson(path.join(root, "activation.json"), {
+      schema: "service-lasso.admin-provider-observer-activation.v2", private: true,
+      nonce: config.nonce, source, plan: "plan.json", initial: "initial.json", initialSha256: createHash("sha256").update(initialBytes).digest("hex"),
+      state: "ACTIVATED", provider, inputs: config.inputs,
+    });
+  }
   const deadline = Number.isSafeInteger(config.timeoutMs) && config.timeoutMs >= 0 ? config.timeoutMs : 300000;
   let unresolved = false;
   const timer = setTimeout(async () => {
     unresolved = true;
     try {
       await exclusiveJson(path.join(root, "unresolved.json"), {
-        schema: "service-lasso.admin-provider-observer-unresolved.v1", private: true,
-        nonce: config.nonce, source, plan: "plan.json", activation: "activation.json", initial: "initial.json", state: "UNRESOLVED", provider: initial.provider,
+        schema: "service-lasso.admin-provider-observer-unresolved.v2", private: true,
+        nonce: config.nonce, source, plan: "plan.json", activation: provider ? "activation.json" : null, initial: "initial.json", state: "UNRESOLVED", provider: initial.provider,
       });
     } catch { /* Existing receipt is immutable; an observer never overwrites it. */ }
   }, deadline);
@@ -131,8 +166,8 @@ export async function observeProvider(config) {
   const result = await closed;
   clearTimeout(timer);
   await exclusiveJson(path.join(root, "close.json"), {
-    schema: "service-lasso.admin-provider-observer-close.v1", private: true,
-    nonce: config.nonce, source, plan: "plan.json", activation: "activation.json", unresolved: unresolved ? "unresolved.json" : null, initial: "initial.json",
+    schema: "service-lasso.admin-provider-observer-close.v2", private: true,
+    nonce: config.nonce, source, plan: "plan.json", activation: provider ? "activation.json" : null, unresolved: unresolved ? "unresolved.json" : null, initial: "initial.json",
     provider: initial.provider, terminal: { exitCode: result.code, signal: result.signal, spawnError: result.spawnError },
     trustedUnlock: (() => {
       const observations = streams.map((entry) => entry.receipt.end());
@@ -148,5 +183,5 @@ export async function observeProvider(config) {
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const configPath = process.argv[2];
   if (!configPath) process.exitCode = 2;
-  else await observeProvider(JSON.parse(await readFile(configPath, "utf8")));
+  else await observeProvider({ ...JSON.parse(await readFile(configPath, "utf8")), configPath: path.resolve(configPath) });
 }

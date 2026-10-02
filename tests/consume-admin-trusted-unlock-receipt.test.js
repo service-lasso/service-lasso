@@ -208,7 +208,9 @@ test("AC-4BY.2 accepts only the complete observed observer close as a shipped po
       instanceRegistryPath: path.join(root, "instance-registry.json"),
       hostPortRegistryPath: path.join(root, "host-port-registry.json"),
     };
-    const result = await consumeWithDurableObserver(process.execPath, ["-e", `process.stderr.write(${JSON.stringify(`${valid}\n`)},()=>setTimeout(()=>process.exit(7),1200))`], {
+    const provider = path.join(root, "provider.mjs");
+    await writeFile(provider, `process.stderr.write(${JSON.stringify(`${valid}\n`)},()=>setTimeout(()=>process.exit(7),1200));`);
+    const result = await consumeWithDurableObserver(process.execPath, [provider], {
       cwd: root, observerRoot, timeoutMs: 5_000,
       source: { head: "a".repeat(40), tree: "b".repeat(40) }, inputs,
     });

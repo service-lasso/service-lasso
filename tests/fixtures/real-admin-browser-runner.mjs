@@ -52,6 +52,42 @@ async function sha256File(filePath) {
     .digest("hex")}`;
 }
 
+function exactKeys(value, keys) {
+  return !!value && typeof value === "object" && !Array.isArray(value)
+    && Object.keys(value).sort().join(",") === [...keys].sort().join(",");
+}
+
+async function requireProviderActivationGate(runner, source) {
+  const root = process.env.SERVICE_LASSO_ADMIN_PROVIDER_OBSERVER_ROOT;
+  const nonce = process.env.SERVICE_LASSO_ADMIN_PROVIDER_OBSERVER_NONCE;
+  if (root === undefined && nonce === undefined) return;
+  if (typeof root !== "string" || path.resolve(root) !== root || !/^[a-f0-9]{64}$/iu.test(nonce ?? "")) throw new Error("Provider activation gate is unavailable.");
+  const rootMetadata = await lstat(root).catch(() => null);
+  if (!rootMetadata?.isDirectory() || rootMetadata.isSymbolicLink()) throw new Error("Provider activation root is unsafe.");
+  const readPrivate = async (name) => {
+    const file = path.join(root, name);
+    const metadata = await lstat(file).catch(() => null);
+    if (!metadata?.isFile() || metadata.isSymbolicLink() || metadata.size < 1 || metadata.size > 65_536) throw new Error("Provider activation receipt is unavailable.");
+    const text = await readFile(file, "utf8");
+    return { value: JSON.parse(text), sha256: createHash("sha256").update(text).digest("hex") };
+  };
+  const plan = await readPrivate("plan.json");
+  const initial = await readPrivate("initial.json");
+  const activation = await readPrivate("activation.json");
+  const tuple = (value) => value?.nonce === nonce && value?.source?.head === source.head && value?.source?.tree === source.tree;
+  if (!exactKeys(plan.value, ["schema", "private", "nonce", "source", "state", "startedAt", "provider", "inputs"])
+    || plan.value.schema !== "service-lasso.admin-provider-observer-plan.v2" || plan.value.private !== true || plan.value.state !== "PLAN" || !tuple(plan.value)
+    || !exactKeys(initial.value, ["schema", "private", "nonce", "source", "observer", "plan", "state", "provider", "inputs", "startedAt"])
+    || initial.value.schema !== "service-lasso.admin-provider-observer-initial.v2" || initial.value.private !== true || initial.value.plan !== "plan.json" || initial.value.state !== "INITIAL" || !tuple(initial.value)
+    || initial.value.provider?.pid !== runner.pid || initial.value.provider?.parentPid !== runner.parentPid || initial.value.provider?.birth !== runner.birth
+    || JSON.stringify(initial.value.provider?.nativeIdentity) !== JSON.stringify(runner.nativeIdentity)
+    || !exactKeys(activation.value, ["schema", "private", "nonce", "source", "plan", "initial", "initialSha256", "state", "provider", "inputs"])
+    || activation.value.schema !== "service-lasso.admin-provider-observer-activation.v2" || activation.value.private !== true || activation.value.plan !== "plan.json" || activation.value.initial !== "initial.json" || activation.value.initialSha256 !== initial.sha256 || activation.value.state !== "ACTIVATED" || !tuple(activation.value)
+    || JSON.stringify(activation.value.provider) !== JSON.stringify(initial.value.provider)
+    || JSON.stringify(activation.value.inputs) !== JSON.stringify(initial.value.inputs)
+    || JSON.stringify(initial.value.inputs) !== JSON.stringify(plan.value.inputs)) throw new Error("Provider activation gate rejected its custody tuple.");
+}
+
 const PRELAUNCH_ASSET_PATHS = [
   "tests/fixtures/real-admin-browser-runner.mjs",
   "tests/fixtures/real-admin-browser-shutdown.mjs",
@@ -246,6 +282,7 @@ const sourceRoot = path.resolve(path.dirname(runnerPath), "..", "..");
 if (runnerPath !== path.join(sourceRoot, ...PRELAUNCH_ASSET_PATHS[0].split("/"))) {
   throw new Error("Runner must execute from its fixed qualification fixture path.");
 }
+await requireProviderActivationGate(runnerIdentity, { head: sourceHead, tree: sourceTree });
 const initialReceiptPath = path.join(evidenceRoot, "live-initial-receipt.json");
 const prelaunchReceiptPath = path.join(evidenceRoot, "live-prelaunch-receipt.json");
 const readyReceiptPath = path.join(evidenceRoot, "live-ready-receipt.json");

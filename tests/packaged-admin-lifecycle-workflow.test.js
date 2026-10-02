@@ -45,6 +45,7 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
     "src/server/**",
     "scripts/consume-admin-trusted-unlock-receipt.mjs",
     "scripts/admin-receipt-provider-observer.mjs",
+    "scripts/admin-receipt-provider-bootstrap.mjs",
     "scripts/resolve-pnpm-action-entrypoint.mjs",
     "scripts/establish-admin-trusted-unlock-receipt-caller.mjs",
     "scripts/record-admin-trusted-unlock-prebrowser-failure.mjs",
