@@ -1,37 +1,107 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { parseDocument } from "yaml";
+import { ADMIN_HARNESS_REVISION, ADMIN_RELEASE, BROKER_RELEASE } from "../scripts/published-package-qualification-lib.mjs";
 
 const workflowUrl = new URL(
   "../.github/workflows/packaged-admin-lifecycle.yml",
   import.meta.url,
 );
+const candidateExpression = "${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}";
+const eventExpression = "${{ github.sha }}";
+
+function assertCandidateProjection(source) {
+  const document = parseDocument(source, { uniqueKeys: true });
+  assert.equal(document.errors.length, 0, document.errors.map(String).join("\n"));
+  const workflow = document.toJS();
+  assert.deepEqual(workflow.env, {
+    QUALIFICATION_CANDIDATE_SHA: candidateExpression,
+    QUALIFICATION_EVENT_SHA: eventExpression,
+  });
+  const lifecycleCheckout = workflow.jobs["packaged-admin-lifecycle"].steps.find((step) => step.name === "Check out candidate Core");
+  const aggregateCheckout = workflow.jobs["require-packaged-admin-lifecycle"].steps.find((step) => step.name === "Check out exact aggregate verifier");
+  assert.equal(lifecycleCheckout.with.ref, "${{ env.QUALIFICATION_CANDIDATE_SHA }}");
+  assert.equal(aggregateCheckout.with.ref, "${{ env.QUALIFICATION_CANDIDATE_SHA }}");
+  const custody = workflow.jobs["require-packaged-admin-lifecycle"].steps.find((step) => step.name === "Validate current-run receipt custody");
+  assert.deepEqual(custody.env, {
+    PACKAGED_ARTIFACTS_ROOT: "${{ runner.temp }}/packaged-admin-lifecycle-artifacts",
+    QUALIFICATION_CANDIDATE_SHA: "${{ env.QUALIFICATION_CANDIDATE_SHA }}",
+    QUALIFICATION_EVENT_SHA: "${{ env.QUALIFICATION_EVENT_SHA }}",
+  });
+}
 
 test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS browser acceptance", async () => {
   const workflow = await readFile(workflowUrl, "utf8");
+  const document = parseDocument(workflow, { uniqueKeys: true });
+  assert.equal(document.errors.length, 0, document.errors.map(String).join("\n"));
+  const parsed = document.toJS();
+  assertCandidateProjection(workflow);
+  const expectedPaths = [
+    ".github/workflows/packaged-admin-lifecycle.yml",
+    "services/@serviceadmin/service.json",
+    "services/@secretsbroker/service.json",
+    "src/runtime/**",
+    "src/server/**",
+    "scripts/consume-admin-trusted-unlock-receipt.mjs",
+    "scripts/admin-receipt-provider-observer.mjs",
+    "scripts/admin-receipt-provider-bootstrap.mjs",
+    "scripts/record-packaged-admin-first-custody.mjs",
+    "scripts/resolve-pnpm-action-entrypoint.mjs",
+    "scripts/establish-admin-trusted-unlock-receipt-caller.mjs",
+    "scripts/record-admin-trusted-unlock-prebrowser-failure.mjs",
+    "scripts/retain-packaged-admin-lifecycle-receipt.mjs",
+    "scripts/verify-packaged-admin-lifecycle-artifacts.mjs",
+    "scripts/published-package-qualification-lib.mjs",
+    "tests/fixtures/real-admin-browser-runner.mjs",
+    "tests/consume-admin-trusted-unlock-receipt.test.js",
+    "tests/admin-receipt-provider-observer.test.js",
+    "tests/resolve-pnpm-action-entrypoint.test.js",
+    "tests/packaged-admin-lifecycle-receipt-custody.test.js",
+    "tests/packaged-admin-lifecycle-first-custody-execution.test.js",
+    "tests/prebrowser-failure-execution.test.js",
+    "package.json",
+    "package-lock.json",
+  ];
 
   assert.match(workflow, /^name: Packaged Admin Lifecycle Acceptance$/m);
-  assert.match(workflow, /pull_request:\s*\n\s+branches:\s*\n\s+- develop/);
-  assert.match(workflow, /push:\s*\n\s+branches:\s*\n\s+- develop/);
+  assert.deepEqual(Object.keys(parsed.on).sort(), ["pull_request", "push", "workflow_dispatch"]);
+  for (const trigger of ["pull_request", "push"]) {
+    assert.deepEqual(parsed.on[trigger].branches, ["develop"]);
+    assert.deepEqual(parsed.on[trigger].paths, expectedPaths);
+  }
   assert.match(
     workflow,
     /os: ubuntu-latest[\s\S]*?os: windows-latest[\s\S]*?os: macos-latest/,
   );
+  assert.match(workflow, /record-packaged-admin-first-custody\.mjs[\s\S]*?Set up Node/);
 
   assert.match(workflow, /repository: service-lasso\/lasso-serviceadmin/);
-  assert.match(
-    workflow,
-    /Check out candidate Core[\s\S]*?ref: \$\{\{ github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.sha \|\| github\.sha \}\}/,
-  );
   assert.match(
     workflow,
     /ADMIN_REVISION: "f015b4445b0526546a309301270186a697588166"/,
   );
   assert.match(
     workflow,
-    /ADMIN_HARNESS_REVISION: "1e1a85ee9478da0c95dde86be10245ff44fb879f"/,
+    /ADMIN_HARNESS_REVISION: "3b44b9053665f8f2e54ecba610e4f94e0c1727dd"/,
   );
   assert.match(workflow, /ref: \$\{\{ env\.ADMIN_HARNESS_REVISION \}\}/);
+  assert.match(workflow, /timeout-minutes: 60/);
+  assert.equal(
+    parsed.jobs["packaged-admin-lifecycle"].env.ADMIN_PLATFORM,
+    "${{ matrix.admin_platform }}",
+  );
+  for (const marker of [
+    "SERVICE_LASSO_INSTANCE_REGISTRY_PATH",
+    "SERVICE_LASSO_HOST_PORT_REGISTRY_PATH",
+    "QUALIFICATION_EVIDENCE_ROOT",
+    "QUALIFICATION_INITIAL_RECEIPT_PATH",
+  ]) assert.doesNotMatch(workflow.slice(workflow.indexOf("    env:"), workflow.indexOf("\n    steps:")), new RegExp(`${marker}:`));
+  assert.match(
+    workflow,
+    /Establish unique qualification custody before dependencies[\s\S]*?qualification_root="\$RUNNER_TEMP\/packaged-admin-lifecycle-\$GITHUB_RUN_ID-\$GITHUB_JOB-\$GITHUB_RUN_ATTEMPT-\$ADMIN_PLATFORM"[\s\S]*?QUALIFICATION_WORKSPACE_ROOT=\$QUALIFICATION_WORKSPACE_ROOT[\s\S]*?SERVICE_LASSO_INSTANCE_REGISTRY_PATH=\$SERVICE_LASSO_INSTANCE_REGISTRY_PATH[\s\S]*?SERVICE_LASSO_HOST_PORT_REGISTRY_PATH=\$SERVICE_LASSO_HOST_PORT_REGISTRY_PATH[\s\S]*?mkdir -p "\$QUALIFICATION_WORKSPACE_ROOT" "\$QUALIFICATION_EVIDENCE_ROOT"[\s\S]*?test -s "\$QUALIFICATION_INITIAL_RECEIPT_PATH"/,
+  );
+  assert.doesNotMatch(workflow, /(?:timeout|deadline)[^\n]*?(?:real-browser|consume-admin-trusted-unlock-receipt)/iu);
   assert.match(
     workflow,
     /test "\$admin_revision" = "\$ADMIN_HARNESS_REVISION"/,
@@ -42,6 +112,10 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
     workflow,
     /BROKER_REVISION: "f340883056ec3cf74b535fb46490b39382e8c823"/,
   );
+  assert.equal(ADMIN_RELEASE.id, "380051618");
+  assert.equal(ADMIN_RELEASE.revision, "f015b4445b0526546a309301270186a697588166");
+  assert.equal(ADMIN_HARNESS_REVISION, "3b44b9053665f8f2e54ecba610e4f94e0c1727dd");
+  assert.equal(BROKER_RELEASE.revision, "f340883056ec3cf74b535fb46490b39382e8c823");
 
   for (const digest of [
     "fe5e5fe01d1202f3874097e6223652d634c94677c765c5f82d20e6d274c0161c",
@@ -76,13 +150,22 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
     /checksum\.actual\.ToLowerInvariant\(\) -ne \$expectedSha/,
   );
   assert.match(workflow, /SERVICE_LASSO_TEST_ADMIN_ROOT/);
+  assert.match(workflow, /consume-admin-trusted-unlock-receipt\.mjs/);
+  assert.match(
+    workflow,
+    /consume-admin-trusted-unlock-receipt\.mjs[\s\S]*?--receipt[\s\S]*?-- "\$ADMIN_PNPM_NODE" "\$ADMIN_PNPM_ENTRYPOINT" test:secrets:real-browser/,
+  );
+  assert.match(workflow, /id: pnpm-action-pinned-entrypoint[\s\S]*?dest: \$\{\{ runner\.temp \}\}\/pnpm-action-pinned-entrypoint/);
+  assert.match(workflow, /PNPM_ACTION_BIN_DEST: \$\{\{ steps\.pnpm-action-pinned-entrypoint\.outputs\.bin_dest \}\}/);
+  assert.match(workflow, /ADMIN_PLATFORM: \$\{\{ matrix\.admin_platform \}\}/);
+  assert.doesNotMatch(workflow, /PNPM_HOME\/pnpm\.cjs|node_modules\/pnpm\/bin\/pnpm\.cjs/);
+  assert.match(workflow, /node "\$GITHUB_WORKSPACE\/scripts\/establish-admin-trusted-unlock-receipt-caller\.mjs"/);
   assert.match(workflow, /SERVICE_LASSO_REQUIRE_TEST_BROKER_BINARY: "1"/);
   assert.match(workflow, /& chmod \+x \$brokerBinary\.FullName/);
   assert.doesNotMatch(workflow, /& chmod \+x --/);
 
   for (const command of [
     "pnpm test:secrets:real-first-run-browser",
-    "pnpm test:secrets:real-browser",
     "pnpm test:secrets:real-stopped-lifecycle-browser",
     "pnpm test:secrets:real-lockout-browser",
   ]) {
@@ -92,6 +175,7 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
       1,
     );
   }
+  assert.doesNotMatch(workflow, /-- pnpm test:secrets:real-browser/);
   assert.match(
     workflow,
     /if \[ "\$RUNNER_OS" = "Windows" \]; then[\s\S]*?real-lockout-browser/,
@@ -114,4 +198,33 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
     workflow,
     /test '\$\{\{ needs\.packaged-admin-lifecycle\.result \}\}' = 'success'/,
   );
+});
+
+test("AC-4BY.2 producer retains each finite pre-browser failure with the matrix platform before record, upload, and aggregate", async () => {
+  const workflow = await readFile(workflowUrl, "utf8");
+  assert.match(workflow, /node "\$GITHUB_WORKSPACE\/scripts\/establish-admin-trusted-unlock-receipt-caller\.mjs"/);
+  assert.match(workflow, /ADMIN_PLATFORM: \$\{\{ matrix\.admin_platform \}\}[\s\S]*?establish-admin-trusted-unlock-receipt-caller\.mjs/);
+  assert.match(workflow, /if: always\(\)[\s\S]*?admin-trusted-unlock-prebrowser-failure\.json[\s\S]*?if-no-files-found: error/);
+  assert.match(workflow, /require-packaged-admin-lifecycle:[\s\S]*?if: always\(\)[\s\S]*?test '\$\{\{ needs\.packaged-admin-lifecycle\.result \}\}' = 'success'/);
+});
+
+test("AC-4BY.2 rejects YAML scalar continuations that silently remove receipt-custody triggers", async () => {
+  const workflow = await readFile(workflowUrl, "utf8");
+  const malformed = workflow.replace(
+    "\n      - scripts/retain-packaged-admin-lifecycle-receipt.mjs",
+    "\n       - scripts/retain-packaged-admin-lifecycle-receipt.mjs",
+  );
+  const document = parseDocument(malformed, { uniqueKeys: true });
+  assert.equal(document.errors.length, 0, document.errors.map(String).join("\n"));
+  const paths = document.toJS().on.pull_request.paths;
+  assert.ok(!paths.includes("scripts/retain-packaged-admin-lifecycle-receipt.mjs"));
+});
+
+test("AC-4BY.2 rejects parsed PR-head and synthetic-merge identity regressions", async () => {
+  const workflow = await readFile(workflowUrl, "utf8");
+  for (const [label, invalid] of [
+    ["candidate projection", workflow.replace("QUALIFICATION_CANDIDATE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}", "QUALIFICATION_CANDIDATE_SHA: ${{ github.sha }}")],
+    ["candidate checkout", workflow.replace("ref: ${{ env.QUALIFICATION_CANDIDATE_SHA }}", "ref: ${{ github.sha }}")],
+    ["aggregate event projection", workflow.split("\n").map((line) => line.trim() === "QUALIFICATION_EVENT_SHA: ${{ env.QUALIFICATION_EVENT_SHA }}" ? line.replace("QUALIFICATION_EVENT_SHA", "QUALIFICATION_CANDIDATE_SHA") : line).join("\n")],
+  ]) assert.throws(() => assertCandidateProjection(invalid), label);
 });
