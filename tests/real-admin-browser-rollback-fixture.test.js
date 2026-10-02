@@ -132,6 +132,19 @@ async function waitForMissing(filePath, timeoutMs = PROCESS_TIMEOUT_MS) {
   throw new Error("sample marker was not consumed within the bounded fixture window");
 }
 
+async function waitForEmptyDirectory(directoryPath, timeoutMs = PROCESS_TIMEOUT_MS) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      if ((await readdir(directoryPath)).length === 0) return;
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error("sample marker cleanup did not complete within the bounded fixture window");
+}
+
 async function reserveLoopbackPort() {
   const server = http.createServer();
   await new Promise((resolve, reject) => {
@@ -408,11 +421,13 @@ test("real browser rollback hook fails one sample start and permits the next wit
     const firstOutput = captureBounded(first);
     await waitForMissing(markerPath);
     await assert.rejects(fetch(readinessEndpoint, { signal: AbortSignal.timeout(250) }));
+    await waitForEmptyDirectory(markerDirectory);
+    assert.equal(first.exitCode, null);
     first.kill("SIGTERM");
-    const firstExit = await waitForExit(first);
+    const terminatedFirst = await waitForExit(first);
     assert.equal(
-      (firstExit.code === SAMPLE_START_FAILURE_EXIT_CODE && firstExit.signal === null) ||
-        (firstExit.code === null && firstExit.signal === "SIGTERM"),
+      (terminatedFirst.code === SAMPLE_START_FAILURE_EXIT_CODE && terminatedFirst.signal === null) ||
+        (terminatedFirst.code === null && terminatedFirst.signal === "SIGTERM"),
       true,
     );
     assert.deepEqual(firstOutput(), { stdout: "", stderr: "" });

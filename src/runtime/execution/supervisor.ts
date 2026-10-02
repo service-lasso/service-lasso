@@ -1524,6 +1524,7 @@ async function terminateManagedProcessTree(
   rootExitObserved = false,
   retryAfterSharedFailure = false,
   deadlineMs = record.stopDeadlineMs ?? processControlDeadline(timeoutMs),
+  newWindowsInspectionEpisode = false,
 ): Promise<ProcessTreeTerminationResult> {
   let retryAvailable = retryAfterSharedFailure;
   while (true) {
@@ -1555,9 +1556,9 @@ async function terminateManagedProcessTree(
           const dependencies: Parameters<typeof managedProcessTreeTerminator>[2] = { deadlineMs, signal };
           if (
             process.platform === "win32" &&
-            (rootExitObserved || record.verifiedMembersOnly) &&
+            (rootExitObserved || record.verifiedMembersOnly || newWindowsInspectionEpisode) &&
             record.rootIdentity &&
-            record.knownTreeMembers.length > 0
+            (record.knownTreeMembers.length > 0 || newWindowsInspectionEpisode)
           ) {
             const snapshot = await inspectKnownWindowsTreeMembers(
               record.rootIdentity,
@@ -1701,8 +1702,8 @@ async function finalizeAdoptedProcessExit(record: AdoptedProcessRecord): Promise
   }
 
   record.stopping = true;
+  const deadlineMs = processControlDeadline(5_000);
   try {
-    const deadlineMs = processControlDeadline(5_000);
     await withProcessControlDeadline(async (signal) => {
       const dependencies: Parameters<typeof terminateOwnedProcessTree>[2] = { deadlineMs, signal };
       if (process.platform === "win32" && record.knownTreeMembers.length > 0) {
@@ -1727,6 +1728,10 @@ async function finalizeAdoptedProcessExit(record: AdoptedProcessRecord): Promise
   } catch (error) {
     record.stopping = false;
     throw error;
+  }
+  if (!await adoptedProcessTreeIsFreshlyAbsent(record, deadlineMs)) {
+    record.stopping = false;
+    throw new Error(`Cannot mark adopted service "${serviceId}" stopped until its retained process tree is absent.`);
   }
   await withSerializedWorkspaceFinalization(record.workspaceRoot, async () => {
     await transitionProcessOwnership(record.workspaceRoot, "service", serviceId, "stopped", "not_running", record.pid);
@@ -2410,15 +2415,23 @@ export async function startManagedProcess(options: StartProcessOptions): Promise
 export async function stopManagedProcess(
   serviceId: string,
   timeoutMs = DEFAULT_MANAGED_PROCESS_STOP_TIMEOUT_MS,
+  options: { newWindowsInspectionEpisode?: boolean } = {},
 ): Promise<{ exitCode: number | null; signal: NodeJS.Signals | null } | null> {
   const record = managedProcesses.get(serviceId);
   if (!record) {
-    return await stopAdoptedProcess(serviceId, timeoutMs);
+    return await stopAdoptedProcess(serviceId, timeoutMs, options);
   }
 
   const deadlineMs = processControlDeadline(timeoutMs);
   await beginManagedProcessStop(serviceId, deadlineMs);
-  await terminateManagedProcessTree(record, timeoutMs, false, false, deadlineMs);
+  await terminateManagedProcessTree(
+    record,
+    timeoutMs,
+    false,
+    false,
+    deadlineMs,
+    options.newWindowsInspectionEpisode === true,
+  );
   const result = await withProcessControlDeadline(
     async () => await record.exitPromise,
     { deadlineMs },
@@ -2453,6 +2466,7 @@ async function waitForAdoptedProcessExit(
 async function stopAdoptedProcess(
   serviceId: string,
   timeoutMs: number,
+  options: { newWindowsInspectionEpisode?: boolean },
 ): Promise<{ exitCode: number | null; signal: NodeJS.Signals | null } | null> {
   const record = adoptedProcesses.get(serviceId);
   if (!record) {
@@ -2487,7 +2501,7 @@ async function stopAdoptedProcess(
         processGroup: { kind: "none" as const, id: null },
       };
     }
-  } else if (record.knownTreeMembers.length > 0) {
+  } else if (record.knownTreeMembers.length > 0 || options.newWindowsInspectionEpisode) {
     await withProcessControlDeadline(async (signal) => {
       const snapshot = await inspectKnownWindowsTreeMembers(
         record.rootIdentity,
@@ -2515,6 +2529,14 @@ async function stopAdoptedProcess(
     terminationDependencies,
   );
 
+  // Tree-control success is not an ownership receipt. The persisted adopted
+  // record may only become stopped after every lifetime we retained has a new
+  // exact absence result. A live/reused/inaccessible PID leaves custody in
+  // place and reports the failed stop without sending another numeric signal.
+  if (!await adoptedProcessTreeIsFreshlyAbsent(record, deadlineMs)) {
+    throw new Error(`Cannot mark adopted service "${serviceId}" stopped until its retained process tree is absent.`);
+  }
+
   await withProcessControlDeadline(
     async () => await withSerializedWorkspaceFinalization(record.workspaceRoot, async () => {
       await transitionProcessOwnership(record.workspaceRoot, "service", serviceId, "stopped", "not_running", record.pid);
@@ -2528,6 +2550,24 @@ async function stopAdoptedProcess(
   return termination.forced
     ? { exitCode: null, signal: "SIGKILL" }
     : { exitCode: 0, signal: null };
+}
+
+async function adoptedProcessTreeIsFreshlyAbsent(
+  record: AdoptedProcessRecord,
+  deadlineMs: number,
+): Promise<boolean> {
+  const finalMembers = unionProcessFingerprints(
+    record.rootIdentity ? [record.rootIdentity] : [],
+    record.knownTreeMembers,
+  );
+  for (const member of finalMembers) {
+    const inspection = await withProcessControlDeadline(
+      async (signal) => await managedProcessRootInspector(member.pid, { deadlineMs, signal }),
+      { deadlineMs },
+    );
+    if (inspection.status !== "not_running") return false;
+  }
+  return true;
 }
 
 export async function waitForManagedProcessExit(
