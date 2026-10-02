@@ -22,8 +22,13 @@ function run(command, args, options) {
 async function readOneReceipt(tempRoot) {
   const receiptDirectory = path.join(tempRoot, "isolated-test-receipts");
   const files = await readdir(receiptDirectory);
-  assert.equal(files.length, 1);
-  return JSON.parse(await readFile(path.join(receiptDirectory, files[0]), "utf8"));
+  const jsonFiles = files.filter((fileName) => fileName.endsWith(".json"));
+  assert.equal(jsonFiles.length, 1, "exactly one JSON receipt must be present");
+  const receipt = JSON.parse(await readFile(path.join(receiptDirectory, jsonFiles[0]), "utf8"));
+  assert.equal(receipt.fileName, jsonFiles[0]);
+  assert.ok(files.some((fileName) => fileName.endsWith(".stdout.log")), "raw stdout must be retained beside the receipt");
+  assert.ok(files.some((fileName) => fileName.endsWith(".stderr.log")), "raw stderr must be retained beside the receipt");
+  return receipt;
 }
 
 function sha256(value) {
@@ -69,6 +74,9 @@ test("isolated runner records an owned spawn error only after its actual close",
     assert.notEqual(outcome.code, 0);
     assert.equal(outcome.signal, null);
     const receipt = await readOneReceipt(tempRoot);
+    assert.equal(receipt.schema, "service-lasso.isolated-test-receipt.v1");
+    assert.match(receipt.source.head, /^[a-f0-9]{40}$/u);
+    assert.match(receipt.source.tree, /^[a-f0-9]{40}$/u);
     assert.equal(receipt.terminal.outcome, "failed");
     const buildProcess = receipt.processes.find((entry) => entry.label === "build");
     assert.ok(buildProcess);
@@ -80,6 +88,36 @@ test("isolated runner records an owned spawn error only after its actual close",
     assert.equal(buildProcess.close.signal, null);
     assert.notEqual(buildProcess.close.code, 0);
     assert.deepEqual(receipt.terminal.trueCloseExit, buildProcess.close);
+    assert.deepEqual(receipt.rawLogs.disposition, "retained_private");
+    assert.equal(receipt.rawLogs.files.length, 2);
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true, maxRetries: process.platform === "win32" ? 10 : 0 });
+  }
+});
+
+test("isolated runner rejects a second JSON receipt without deleting raw or prior evidence", async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-isolated-runner-collision-"));
+  const inputs = {
+    SERVICE_LASSO_WORKSPACE_ROOT: path.join(tempRoot, "workspace"),
+    SERVICE_LASSO_INSTANCE_REGISTRY_PATH: path.join(tempRoot, "instances.json"),
+    SERVICE_LASSO_HOST_PORT_REGISTRY_PATH: path.join(tempRoot, "ports.json"),
+  };
+  const receiptDirectory = path.join(tempRoot, "isolated-test-receipts");
+  try {
+    await mkdir(inputs.SERVICE_LASSO_WORKSPACE_ROOT, { recursive: true });
+    await writeFile(inputs.SERVICE_LASSO_INSTANCE_REGISTRY_PATH, "{}\n");
+    await writeFile(inputs.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH, "{}\n");
+    await mkdir(receiptDirectory, { recursive: true });
+    await writeFile(path.join(receiptDirectory, "prior-receipt.json"), "{\"preserved\":true}\n");
+    await writeFile(path.join(receiptDirectory, "prior.stderr.log"), "private retained diagnostic\n");
+    const outcome = await run(process.execPath, ["scripts/run-tests-isolated.mjs"], {
+      cwd: repoRoot,
+      env: { ...process.env, ...inputs },
+    });
+    assert.notEqual(outcome.code, 0);
+    assert.match(outcome.stderr, /already contains JSON receipt material/);
+    assert.equal(await readFile(path.join(receiptDirectory, "prior-receipt.json"), "utf8"), "{\"preserved\":true}\n");
+    assert.equal(await readFile(path.join(receiptDirectory, "prior.stderr.log"), "utf8"), "private retained diagnostic\n");
   } finally {
     await rm(tempRoot, { recursive: true, force: true, maxRetries: process.platform === "win32" ? 10 : 0 });
   }
@@ -110,6 +148,9 @@ test("isolated runner records real external inputs and native custody before a s
     assert.equal(new Set(Object.values(inputs)).size, 3);
     const receipt = await readOneReceipt(tempRoot);
     assert.equal(receipt.inputMode, "external");
+    assert.equal(receipt.schema, "service-lasso.isolated-test-receipt.v1");
+    assert.match(receipt.source.head, /^[a-f0-9]{40}$/u);
+    assert.match(receipt.source.tree, /^[a-f0-9]{40}$/u);
     assert.deepEqual(receipt.rawInputs, inputs);
     assert.deepEqual(receipt.actualInputs, inputs);
     assert.equal(receipt.initial.SERVICE_LASSO_WORKSPACE_ROOT.state, "present");
@@ -138,6 +179,8 @@ test("isolated runner records real external inputs and native custody before a s
     }
     assertActualWindowsCustody(buildProcess);
     assert.deepEqual(receipt.terminal, { outcome: "passed", trueCloseExit: testProcess.close });
+    assert.equal(receipt.rawLogs.disposition, "retained_private");
+    assert.equal(receipt.rawLogs.files.length, 4);
   } finally {
     await rm(tempRoot, { recursive: true, force: true, maxRetries: process.platform === "win32" ? 10 : 0 });
   }
