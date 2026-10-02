@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { spawnSync } from "node:child_process";
 import { strictJson } from "../scripts/consume-admin-trusted-unlock-receipt.mjs";
 
 const workflowUrl = new URL(
@@ -19,6 +22,14 @@ const browserRunnerUrl = new URL(
   "./fixtures/real-admin-browser-runner.mjs",
   import.meta.url,
 );
+
+function run(command, args, environment) {
+  return spawnSync(command, args, { encoding: "utf8", env: environment, shell: false });
+}
+
+function initialReceiptPath(root, platform) {
+  return path.join(root, `published-package-qualification-431-published-package-qualification-2-${platform}`, "evidence", "initial-receipt.json");
+}
 
 test("AC-4BZ.1 workflow qualifies only exact downloaded publications on all three terminal OS jobs", async () => {
   const workflow = await readFile(workflowUrl, "utf8");
@@ -95,7 +106,7 @@ test("AC-4BZ.1 workflow qualifies only exact downloaded publications on all thre
   );
   assert.match(
     workflow,
-    /Establish unique qualification custody before dependencies[\s\S]*?qualification_root="\$RUNNER_TEMP\/published-package-qualification-\$GITHUB_RUN_ID-\$GITHUB_JOB-\$GITHUB_RUN_ATTEMPT-\$QUALIFICATION_PLATFORM"[\s\S]*?QUALIFICATION_WORKSPACE_ROOT=\$QUALIFICATION_WORKSPACE_ROOT[\s\S]*?SERVICE_LASSO_INSTANCE_REGISTRY_PATH=\$SERVICE_LASSO_INSTANCE_REGISTRY_PATH[\s\S]*?SERVICE_LASSO_HOST_PORT_REGISTRY_PATH=\$SERVICE_LASSO_HOST_PORT_REGISTRY_PATH[\s\S]*?mkdir -p "\$QUALIFICATION_WORKSPACE_ROOT" "\$QUALIFICATION_EVIDENCE_ROOT"[\s\S]*?test -s "\$QUALIFICATION_INITIAL_RECEIPT_PATH"/,
+    /Establish unique qualification custody before dependencies[\s\S]*?qualification_root="\$RUNNER_TEMP\/published-package-qualification-\$GITHUB_RUN_ID-\$GITHUB_JOB-\$GITHUB_RUN_ATTEMPT-\$QUALIFICATION_PLATFORM"[\s\S]*?QUALIFICATION_WORKSPACE_ROOT=\$SERVICE_LASSO_WORKSPACE_ROOT[\s\S]*?SERVICE_LASSO_INSTANCE_REGISTRY_PATH=\$SERVICE_LASSO_INSTANCE_REGISTRY_PATH[\s\S]*?SERVICE_LASSO_HOST_PORT_REGISTRY_PATH=\$SERVICE_LASSO_HOST_PORT_REGISTRY_PATH[\s\S]*?record-packaged-admin-first-custody\.mjs[\s\S]*?test -s "\$QUALIFICATION_INITIAL_RECEIPT_PATH"/,
   );
 
   for (const command of [
@@ -138,6 +149,42 @@ test("AC-4BZ.1 workflow qualifies only exact downloaded publications on all thre
   );
   assert.match(workflow, /timeout-minutes: 90/);
   assert.doesNotMatch(workflow, /timeout-minutes: (?:1[0-9]{2}|[2-9][0-9]{2,})/);
+});
+
+test("AC-4BZ.1 executes v2 first custody before dependencies for every published platform", { skip: process.platform === "win32" }, async () => {
+  const workflow = await readFile(workflowUrl, "utf8");
+  const start = workflow.indexOf("      - name: Establish unique qualification custody before dependencies");
+  const end = workflow.indexOf("\n      - name: Set up Node", start);
+  const step = workflow.slice(start, end);
+  const script = step.slice(step.indexOf("run: |") + "run: |".length).replace(/^          /gm, "");
+  const root = await mkdtemp(path.join(tmpdir(), "published-first-custody-"));
+  try {
+    for (const platform of ["linux", "win32", "darwin"]) {
+      const environment = {
+        PATH: process.env.PATH,
+        RUNNER_TEMP: root,
+        GITHUB_RUN_ID: "431",
+        GITHUB_JOB: "published-package-qualification",
+        GITHUB_RUN_ATTEMPT: "2",
+        QUALIFICATION_PLATFORM: platform,
+        GITHUB_ENV: path.join(root, `${platform}.github-env`),
+        GITHUB_WORKSPACE: process.cwd(),
+        QUALIFICATION_CANDIDATE_SHA: run("git", ["rev-parse", "HEAD"], { PATH: process.env.PATH }).stdout.trim(),
+      };
+      const result = run("bash", ["-c", script], environment);
+      assert.equal(result.status, 0, result.stderr);
+      const receipt = JSON.parse(await readFile(initialReceiptPath(root, platform), "utf8"));
+      assert.equal(receipt.schema, "service-lasso.qualification-initial-receipt.v2");
+      assert.equal(receipt.platform, platform);
+      assert.equal(receipt.private, true);
+      assert.equal(receipt.ownedPaths.length, 12);
+      assert.deepEqual(receipt.registries.map(({ state }) => state), ["ABSENT", "ABSENT"]);
+      const exported = await readFile(environment.GITHUB_ENV, "utf8");
+      for (const name of ["SERVICE_LASSO_WORKSPACE_ROOT", "SERVICE_LASSO_INSTANCE_REGISTRY_PATH", "SERVICE_LASSO_HOST_PORT_REGISTRY_PATH", "QUALIFICATION_INITIAL_RECEIPT_PATH"]) assert.match(exported, new RegExp(`^${name}=.+`, "m"));
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("AC-4BZ.1 preparation verifies every downloaded identity before creating the mutation root", async () => {
