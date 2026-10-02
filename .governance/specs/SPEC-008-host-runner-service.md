@@ -17,16 +17,19 @@ host owner; it does not install, publish, or activate a service itself.
   digest and strict code identity before accepting a completion receipt. It
   accepts requests only over its declared LaunchDaemon Mach service from the
   reviewed signed client identity. A PID alone never authorises a result.
-- `AC-8C`: Parent and leaf inputs are passed as already-open FDs. The daemon
-  validates regular-file type, root ownership, protected mode, canonical
-  same-FD digest and a fixed-format parent/leaf relation; it never follows a
-  pathname between `lstat` and read. An arbitrary root-owned descriptor is not
-  an expected object.
-- `AC-8D`: A capability is an unreadable, single-use FD with an expiry. It is
-  consumed and closed by the daemon, and is revoked on connection close,
-  expiry or identity mismatch. Static/readable bearer values and arbitrary
-  caller-selected inodes are denied. Receipt output is private, bounded and
-  emits no digests, paths, commands, secret values or capability bytes.
+- `AC-8C`: Before accepting a client connection, the daemon opens its
+  root-owned expected parent and leaf objects from the owner state directory,
+  records their device/inode/digest evidence, and rechecks the same held FDs
+  at completion. It validates their fixed-format parent/leaf relation. A
+  client supplies neither paths, FDs, digests, nor the expected-object
+  authority.
+- `AC-8D`: A capability is an unreadable, single-use FD with a daemon-issued
+  nonce and expiry. The daemon retains the peer end, verifies that exact nonce
+  on completion, then consumes and closes both ends. It revokes grants on
+  connection close, expiry or identity mismatch. Static/readable bearer values
+  and arbitrary caller-selected inodes are denied. Receipt output is private,
+  bounded and emits no digests, paths, commands, secret values or capability
+  bytes.
 - `AC-8E`: Linux sealed-FD, Windows held-handle, Darwin FD-relative/OS-death,
   denied-preopen-writer, replay, substitution and downgrade cases have source
   contracts and negative tests. Native activation evidence is distinct from
