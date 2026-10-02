@@ -29,3 +29,5 @@ Account for all nineteen assertions using the governed contract map; distinguish
 prepared source, pending dependency landing, UNOBSERVED mechanism and UNMET native
 acceptance. Require a different fresh entire-source reviewer and NEW complete-input
 ROOT admission before any execution. Do not infer qualification from mocked inputs.
+
+For #1606 bind typed exact native identity migration, legacy rejection, real native and adversarial regressions, entire review and NEW ROOT; public-v2/MCP remain unchanged.
