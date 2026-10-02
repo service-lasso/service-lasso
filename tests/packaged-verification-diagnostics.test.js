@@ -4,6 +4,68 @@ import { withOwnedPipeFixture } from "./owned-command-pipe-fixture.mjs";
 import { dependencyAcquisitionReceipt, dependencyAcquisitionSubcode, packagedVerificationDiagnostic } from "../scripts/packaged-verification-diagnostics.mjs";
 import { runCommand, runCommandFailureKind } from "../scripts/mcp-product-acceptance-lib.mjs";
 
+// This negative observes a real child's natural close, without a termination
+// fallback. A failed bound detaches only our local observer handles, retains the
+// child's fixture files, and reports failure; it never asserts native absence.
+for (const peerMode of ["malformed", "nonclosing", "control-endpoint-closed"]) {
+  test(`failed owned fixture ${peerMode} cannot retain the test process`, async () => {
+    const { spawn } = await import("node:child_process");
+    const fixtureUrl = new URL("./owned-command-pipe-fixture.mjs", import.meta.url).href;
+    const script = `
+import assert from "node:assert/strict";
+import { connect } from "node:net";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import { withOwnedPipeFixture } from ${JSON.stringify(fixtureUrl)};
+let tempRoot;
+const primary = new Error("negative primary retained");
+try {
+  await withOwnedPipeFixture({ rootMode: "exit", releaseOnDisconnect: false }, async fixture => {
+    tempRoot = fixture.tempRoot;
+    const peer = connect(fixture.controlPort, "127.0.0.1");
+    peer.on("error", () => {});
+    await new Promise((resolve, reject) => { peer.once("connect", resolve); peer.once("error", reject); });
+    await fixture.waitForControlConnection();
+    peer.unref(); // Only the fixture's accepted handle may retain this child.
+    ${peerMode === "malformed" ? 'peer.write("malformed\\n");' : peerMode === "control-endpoint-closed" ? 'peer.destroy();' : '// Keep the unauthenticated peer open without any protocol data.'}
+    throw primary;
+  });
+  throw new Error("Negative fixture unexpectedly accepted");
+} catch (error) {
+  assert.ok(error instanceof AggregateError);
+  assert.equal(error.errors[0], primary);
+  const trace = JSON.parse(await readFile(path.join(tempRoot, "fixture-trace.json"), "utf8"));
+  assert.equal(trace.observationBeforeFixtureDisposal, true);
+  assert.equal(trace.primaryFailed, true); assert.equal(trace.cleanupFailed, true);
+  assert.equal(trace.ready, false);
+  assert.equal(trace.events.includes("released"), false);
+  assert.equal(trace.events.includes("pipes-ended"), false);
+  ${peerMode === "control-endpoint-closed" ? '' : 'assert.equal(trace.controlClosed, false);'}
+  process.stdout.write("retained-negative-observed\\n");
+}
+`;
+    const child = spawn(process.execPath, ["--input-type=module", "-e", script], {
+      stdio: ["ignore", "pipe", "pipe"], windowsHide: true,
+    });
+    let stdout = ""; let stderr = ""; let timer;
+    child.stdout.setEncoding("utf8"); child.stderr.setEncoding("utf8");
+    child.stdout.on("data", chunk => { stdout += chunk; });
+    child.stderr.on("data", chunk => { stderr += chunk; });
+    try {
+      const closed = await new Promise((resolve, reject) => {
+        child.once("error", reject);
+        child.once("close", (code, signal) => resolve({ code, signal }));
+        timer = setTimeout(() => reject(new Error("Negative fixture process did not naturally settle within 9000ms")), 9000);
+      });
+      assert.deepEqual(closed, { code: 0, signal: null }, stderr);
+      assert.equal(stdout, "retained-negative-observed\n");
+    } finally {
+      clearTimeout(timer);
+      child.unref(); child.stdout.destroy(); child.stderr.destroy();
+    }
+  });
+}
+
 function ownPackagedAcceptanceDiagnostic(error) {
   if (!error || typeof error !== "object") return undefined;
   const descriptor = Object.getOwnPropertyDescriptor(error, "packagedAcceptanceDiagnostic");

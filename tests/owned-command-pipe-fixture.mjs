@@ -19,9 +19,12 @@ export async function withOwnedPipeFixture({ rootMode, releaseOnDisconnect }, ex
   let channelFailure;
   let closeResolve;
   const closure = new Promise(resolve => { closeResolve = resolve; });
+  let connectionResolve;
+  const connection = new Promise(resolve => { connectionResolve = resolve; });
   const server = createServer(candidate => {
     if (socket) { candidate.destroy(); channelFailure = new Error("Duplicate fixture connection"); return; }
     socket = candidate;
+    connectionResolve();
     let pending = "";
     candidate.setEncoding("utf8");
     candidate.on("error", error => { channelFailure = error; });
@@ -120,7 +123,8 @@ holder.once("message", message => {
   ${rootMode === "exit" ? "process.exit(0);" : "// Root remains alive until the caller-owned300ms deadline terminates it."}
 });
 `, "utf8");
-    result = await exercise({ tempRoot, parent, events, release, assertHeld() {
+    result = await exercise({ tempRoot, parent, controlPort: port,
+      waitForControlConnection: () => connection, events, release, assertHeld() {
       assert.equal(channelFailure, undefined, "Owned fixture control channel failed");
       assert.equal(ready, true, "Pipe-holder readiness was not observed before command settlement");
       assert.ok(holderPid > 0);
@@ -128,8 +132,8 @@ holder.once("message", message => {
     } });
   } catch (error) { primary = error; }
   // Release only this unpredictable channel's holder. No PID signalling.
-  release();
   let cleanup;
+  try { release(); } catch (error) { cleanup = error; }
   if (socket) {
     let timer;
     try {
@@ -138,17 +142,16 @@ holder.once("message", message => {
       assert.equal(events.includes("released"), true);
       assert.equal(events.includes("pipes-ended"), true);
       assert.equal(closed, true);
-    } catch (error) { cleanup = error; }
+    } catch (error) { cleanup = cleanup ? new AggregateError([cleanup, error], "Release and closure failed") : error; }
     finally { clearTimeout(timer); }
   } else cleanup = new Error("Owned fixture never established its control channel; retain files");
   if (!cleanup && !primary) {
     await new Promise(resolve => server.close(resolve));
     await rm(tempRoot, { recursive: true, force: true });
-  } else {
-    // Closing the listener prevents new connections without claiming holder exit.
-    server.close();
   }
   if (primary || cleanup) {
+    // Snapshot the failed observation BEFORE local handle disposal can emit close.
+    // Local TCP disposal never establishes protocol completion or holder absence.
     try {
       await writeFile(path.join(tempRoot, "fixture-trace.json"), JSON.stringify({
         schema: "issue1598-owned-pipe-trace-v1", rootMode, releaseOnDisconnect,
@@ -156,9 +159,17 @@ holder.once("message", message => {
         deadlineMs: rootMode === "deadline" ? 300 : 5000, closeWaitMs: 100,
         closureMeaning: "Private dedicated channel and inherited writable-end observations; no native descendant absence claim",
         primaryFailed: Boolean(primary), cleanupFailed: Boolean(cleanup),
+        observationBeforeFixtureDisposal: true,
       }, null, 2) + "\n", "utf8");
     } catch (traceError) {
       cleanup = cleanup ? new AggregateError([cleanup, traceError], "Closure and private trace failed") : traceError;
+    }
+    try {
+      // Only the accepted handle owned by this fixture; never signal a PID.
+      socket?.destroy();
+      await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+    } catch (disposeError) {
+      cleanup = cleanup ? new AggregateError([cleanup, disposeError], "Closure and fixture disposal failed") : disposeError;
     }
   }
   if (primary && cleanup) throw new AggregateError([primary, cleanup], "Fixture assertion and retained closure failure");

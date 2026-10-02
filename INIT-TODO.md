@@ -101,3 +101,4 @@ This file tracks bootstrap/adoption/remediation work required before product imp
   required isolated external runtime custody record and obtain parent readback.
 
 - [ ] #1598 / SPEC-006 AC-6G.qualification-observation: review frozen source and copied complete harness, obtain new ROOT admission, then independently qualify unchanged300ms/100ms observations. No execution authorized in source preparation.
+- [ ] #1598 ENTIRE d166 F1/F2: retain failed pre-disposal TCP observations/errors, dispose fixture handles only, author bounded process negatives; admit separate literal diagnostics command in ROOT v2/preflight/status/readback and obtain NEW ENTIRE review/freeze/admission before any execution.

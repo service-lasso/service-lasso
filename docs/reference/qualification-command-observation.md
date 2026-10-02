@@ -8,11 +8,28 @@ The protected fixture now owns a dedicated unpredictable local control channel. 
 
 The deterministic event-order regression complements those actual process fixtures. It protects first capture/deadline failure, observed root exit versus no observed exit, bounded termination/close settlement, and late close without rewriting the settled observation. It is surrogate event evidence. Existing real spawn/nonzero/capture/deadline and privacy assertions remain protected.
 
+ENTIRE d166 F1 repair snapshots failed closure observations to the retained private trace before destroying the fixture-owned accepted TCP handle and closing its listener. That local close is never reported as successful protocol closure or native holder absence. Original primary and cleanup errors remain aggregated. Three new actual subprocess negatives connect malformed, unauthenticated nonclosing, and closed control endpoints without launching a legitimate holder. Each requires the child's natural `close` with zero status and the retained failure trace within9000ms, above the unchanged5500ms fixture cleanup bound. Bound failure reports failure and detaches only local observation handles; it sends no process signal and makes no child-absence claim. Failed fixture files remain retained.
+
 ## External harness preparation
 
 The copied external wrapper returns exactly one typed same-process completion only after a reserved completion receipt is serialized, flushed and disposed. It records success, nonzero, unqualified observation, or exception separately from native child exit. A nested script exit is no longer used to stand for outer driver exit. Native same-handle identity, caller/parent birth bounds, both original pipe EOFs, log inventories, reserved native receipts and natural closure remain unchanged. Missing or failed completion writes produce failure, never guessed status.
 
 The copied driver keeps the whole preflight audit: every tracked source and raw Git blob digest, HEAD/tree/full index/clean status, every sealed row, tool digests, physical regular chains, ACL rows, derived-link boundaries and literal environment. Historical969source/2146sealed rows remain historical; fresh counts and manifest hashes must come from a new final-candidate ROOT admission. Existing stage evidence is rejected before writes. Driver completion binds the unique invocation and preflight, the durable wrapper digest/outcome, and the exit it will propagate. Its own outer exit remains unobserved until external readback.
+
+ENTIRE d166 F2 repair adds a distinct `diagnostics` stage. The existing product script enumerates eight other files and does not discover this diagnostics file. Product success cannot qualify the fixture repair. The separate stage launches the admitted physical Node executable with exactly `--test --test-concurrency=1 tests/packaged-verification-diagnostics.test.js` from admitted source. This executes the full diagnostics file, including actual generated pipe fixtures, three negative subprocess cases and actual extracted runCommand/verifier-body surrogate cases. It does not compile, implicitly run npm product, or prove compiler/descendant custody. The literal `npm run test:mcp:product` gate and package.json are unchanged.
+
+Fresh `issue1598-root-admission-v2` retains all previous root/evidence/head/tree/count/manifests/environment fields and additionally requires a `commands` object with exactly these stage keys. Every command has literal `fileName` equal to the pinned physical Node path, literal `workingDirectory` equal to the admitted source path, and a string-array `arguments` matching this table. `postflight` is a command-map binding with an empty array; it launches nothing.
+
+| Stage | Exact arguments (npm means the admitted npm-cli physical path) |
+| --- | --- |
+| install | `[npm, "ci"]` |
+| build | `[npm, "run", "build"]` |
+| typecheck | `[npm, "run", "typecheck"]` |
+| product | `[npm, "run", "test:mcp:product"]` |
+| diagnostics | `["--test", "--test-concurrency=1", "tests/packaged-verification-diagnostics.test.js"]` |
+| postflight | `[]` |
+
+Every preflight compares the entire admitted command map against these literal argv, then stores the selected command and whole map in the retained audit. Selected command is bound in preflight, native initial receipt, driver completion and independent readback. Readback rejects admitted/preflight/audit/driver command disagreement and map disagreement. ROOT v1 is rejected; this source does not issue ROOT admission. Suggested future admitted sequence is install, build, typecheck, diagnostics, product, postflight, with separate external status/readback for each launched stage; no sequence has been executed here.
 
 Readback requires the external native session exit explicitly as OuterDriverExitCode. It checks driver/wrapper/preflight binding and stability, then the full original native receipt, identity, environment, natural wait, EOF, raw-log and terminal stability contract. Partial checks do not produce an all-true report. Missing completion, observer error, native nonzero, inconsistent success, terminal/completion/driver/readback write failure or absent externally observed outer exit fails closed. New receipt paths use CreateNew. Receipt-write failure may prevent durable status itself; absence remains failure, not synthetic successful evidence.
 

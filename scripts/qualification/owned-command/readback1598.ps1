@@ -1,5 +1,5 @@
 param(
- [Parameter(Mandatory)][ValidateSet('install','build','typecheck','product')][string]$Stage,
+ [Parameter(Mandatory)][ValidateSet('install','build','typecheck','product','diagnostics')][string]$Stage,
  [Parameter(Mandatory)][string]$EvidenceDirectory,
  [Parameter(Mandatory)][ValidateRange(1,2147483647)][int]$SessionId,
  [Parameter(Mandatory)][int]$OuterDriverExitCode,
@@ -34,12 +34,19 @@ if((Get-FileHash $terminal).Hash -cne $terminalHash){$fail.Add('terminal-stabili
   $audit=Get-Content -LiteralPath $auditPath -Raw|ConvertFrom-Json -DateKind String
   foreach($rowFile in @(@{leaf='tracked-rows.json';sha=$p.audit.trackedRowsSha256},@{leaf='sealed-rows.json';sha=$p.audit.sealedRowsSha256},@{leaf='full-acl-rows.jsonl';sha=$p.audit.aclRowsSha256})){if((Get-FileHash -LiteralPath "$e/$Stage.$($rowFile.leaf)").Hash -ine $rowFile.sha){throw 'Complete preflight row digest mismatch'}}
   $admission=Get-Content -LiteralPath $p.authority.admission -Raw|ConvertFrom-Json -DateKind String
-  if((Get-FileHash -LiteralPath $p.authority.admission).Hash -ine $p.authority.sha256 -or $admission.schema -cne 'issue1598-root-admission-v1' -or $audit.head -cne $admission.head -or $audit.tree -cne $admission.tree -or $audit.trackedCount -ne $admission.trackedCount -or $audit.sealedCount -ne $admission.sealedCount -or $audit.failures.Count -ne 0 -or $audit.status.Count -ne 0){throw 'Complete fresh-candidate preflight audit failed'}
+  if((Get-FileHash -LiteralPath $p.authority.admission).Hash -ine $p.authority.sha256 -or $admission.schema -cne 'issue1598-root-admission-v2' -or $audit.head -cne $admission.head -or $audit.tree -cne $admission.tree -or $audit.trackedCount -ne $admission.trackedCount -or $audit.sealedCount -ne $admission.sealedCount -or $audit.failures.Count -ne 0 -or $audit.status.Count -ne 0){throw 'Complete fresh-candidate preflight audit failed'}
+  $admittedCommand=$admission.commands.$Stage
+  foreach($observedCommand in @($admittedCommand,$audit.command)){
+   if(!$observedCommand -or $observedCommand.fileName -cne $p.command.fileName -or $observedCommand.workingDirectory -cne $p.command.workingDirectory -or $observedCommand.arguments -isnot [array] -or $observedCommand.arguments.Count -ne $p.command.arguments.Count){throw 'Fresh admitted/preflight/audit literal command mismatch'}
+   for($j=0;$j -lt $p.command.arguments.Count;$j++){if($observedCommand.arguments[$j] -cne $p.command.arguments[$j]){throw 'Fresh admitted/preflight/audit argv mismatch'}}
+  }
+  if(($audit.admittedStageCommands|ConvertTo-Json -Compress -Depth 10) -cne ($admission.commands|ConvertTo-Json -Compress -Depth 10)){throw 'Complete admitted stage command map mismatch'}
   $allNativeChecksCompleted=$true
 
   $driverPath="$e/$Stage.driver-completion.json";$driverHash=(Get-FileHash -LiteralPath $driverPath).Hash
   $driver=Get-Content -LiteralPath $driverPath -Raw|ConvertFrom-Json -DateKind String
   if($driver.schema -cne 'issue1598-driver-completion-v1' -or $driver.stage -cne $Stage -or $driver.invocationId -notmatch '^[a-f0-9]{32}$'){throw 'Driver completion invalid'}
+  if(!$driver.command -or ($driver.command|ConvertTo-Json -Compress -Depth 10) -cne ($p.command|ConvertTo-Json -Compress -Depth 10)){throw 'Driver status literal command binding failed'}
   if($driver.driverFailure -or !$driver.nestedCompletion){throw 'Driver/nested completion absent or failed'}
   if($driver.propagatedExitCode -isnot [int] -or $OuterDriverExitCode -ne $driver.propagatedExitCode){$fail.Add('outer-driver-observation-mismatch')}
   if($OuterDriverExitCode -ne 0){$fail.Add('outer-driver-nonzero')}
@@ -55,7 +62,7 @@ if((Get-FileHash $terminal).Hash -cne $terminalHash){$fail.Add('terminal-stabili
   if($r.qualificationPassed -isnot [bool] -or $r.qualificationPassed -ne $true){$fail.Add('native-qualification-failed')}
   $allNativeChecksCompleted=$true
  }catch{$fail.Add('readback-observer-failed: '+$_.Exception.Message)}
- $record=[ordered]@{schema='issue1598-independent-readback-v1';stage=$Stage;outerDriver=@{exitCode=$OuterDriverExitCode;sessionId=$SessionId;observationSource=$OuterObservationSource};nestedWrapperCompletion=if($nested){@{sha256=$nestedHash;outcome=$nested.outcome}}else{$null};driverCompletion=if($driver){@{sha256=$driverHash;propagatedExitCode=$driver.propagatedExitCode;failure=$driver.driverFailure}}else{$null};nativeChild=if($r){@{exitCode=$r.exitCode;native=$r.native;terminalNative=$r.terminalNative;logs=$r.logs}}else{$null};readbackAtUtc=[DateTime]::UtcNow.ToString('o');terminalSha256=$terminalHash;checks=@{fullNativeChecksCompleted=$allNativeChecksCompleted;allChecksPassed=($allNativeChecksCompleted -and $fail.Count -eq 0)};failures=$fail.ToArray();passed=($allNativeChecksCompleted -and $fail.Count -eq 0);limits='Top-level custody only; external outer status remains separately sourced; no independent compiler/descendant/native product acceptance. Supporting CIM argv absent is not decoded argv evidence.'}
+ $record=[ordered]@{schema='issue1598-independent-readback-v1';stage=$Stage;command=if($p){$p.command}else{$null};outerDriver=@{exitCode=$OuterDriverExitCode;sessionId=$SessionId;observationSource=$OuterObservationSource};nestedWrapperCompletion=if($nested){@{sha256=$nestedHash;outcome=$nested.outcome}}else{$null};driverCompletion=if($driver){@{sha256=$driverHash;propagatedExitCode=$driver.propagatedExitCode;failure=$driver.driverFailure}}else{$null};nativeChild=if($r){@{exitCode=$r.exitCode;native=$r.native;terminalNative=$r.terminalNative;logs=$r.logs}}else{$null};readbackAtUtc=[DateTime]::UtcNow.ToString('o');terminalSha256=$terminalHash;checks=@{fullNativeChecksCompleted=$allNativeChecksCompleted;allChecksPassed=($allNativeChecksCompleted -and $fail.Count -eq 0)};failures=$fail.ToArray();passed=($allNativeChecksCompleted -and $fail.Count -eq 0);limits='Top-level custody only; external outer status remains separately sourced; no independent compiler/descendant/native product acceptance. Supporting CIM argv absent is not decoded argv evidence.'}
  $bytes=[Text.UTF8Encoding]::new($false).GetBytes(($record|ConvertTo-Json -Depth 40)+[Environment]::NewLine)
  $readbackStream.Write($bytes);$readbackStream.Flush($true)
 }finally{$readbackStream.Dispose()}
