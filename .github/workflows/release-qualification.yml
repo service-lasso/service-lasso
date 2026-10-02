@@ -60,6 +60,8 @@ jobs:
         # test-harness handle on hosted runners. Force exit only after the
         # runner has produced its terminal test result; failures still fail
         # this step and product process-control deadlines are unchanged.
+        env:
+          SERVICE_LASSO_RELEASE_METADATA_TOKEN: ${{ github.token }}
         run: npm run build && node --test --test-concurrency=1 --test-force-exit tests/**/*.test.js
 
       - name: Write exact-head guarded MCP evidence
@@ -107,9 +109,13 @@ jobs:
         run: node scripts/verify-mcp-operation-artifact.mjs
 
       - name: Verify release artifacts
+        env:
+          SERVICE_LASSO_RELEASE_METADATA_TOKEN: ${{ github.token }}
         run: npm run release:verify
 
       - name: Verify publishable package
+        env:
+          SERVICE_LASSO_RELEASE_METADATA_TOKEN: ${{ github.token }}
         run: npm run package:verify
 
       - name: Validate release asset policy
@@ -313,6 +319,7 @@ jobs:
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
+          architecture: "x64"
 
       - name: Install hash-pinned Windows ConPTY host
         if: matrix.platform == 'win32'

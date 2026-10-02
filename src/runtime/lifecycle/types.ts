@@ -43,6 +43,25 @@ export interface ServiceStartTraceState {
   history: ServiceStartTraceAttempt[];
 }
 
+export type ServiceRestartTraceStage = "precheck" | "stop_request" | "finalization_settled" | "finalization_failed" | "replacement_spawn" | "readiness" | "response";
+
+export interface ServiceRestartTraceEvent {
+  order: number;
+  stage: ServiceRestartTraceStage;
+  status: ServiceStartTraceEventStatus;
+  oldNewProcessRelation: "unavailable" | "prior_generation_running" | "replacement_spawned";
+}
+
+export interface ServiceRestartTraceAttempt {
+  status: "running" | "succeeded" | "failed" | "blocked";
+  events: ServiceRestartTraceEvent[];
+}
+
+export interface ServiceRestartTraceState {
+  current: ServiceRestartTraceAttempt | null;
+  history: ServiceRestartTraceAttempt[];
+}
+
 export interface ServiceSetupStepRunState {
   runId: string;
   serviceId: string;
@@ -183,6 +202,7 @@ export interface ServiceRuntimeState {
   variables: Record<string, ServiceRuntimeVariableState>;
   brokerIdentity: ScopedBrokerIdentityMetadata | null;
   startTrace: ServiceStartTraceState;
+  restartTrace: ServiceRestartTraceState;
   supervision: ServiceRuntimeSupervisionState;
 }
 

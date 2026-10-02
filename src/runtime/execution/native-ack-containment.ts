@@ -45,8 +45,12 @@ export async function observeNativeAcknowledgementContainment(options: {
     if (outcome === "native") {
       abort();
       options.signal.throwIfAborted();
-      await options.verifyStopped();
     }
+    // A terminator completing is not an immutable receipt that every member
+    // observed by the final tree has exited.  Both native exit-106 and the
+    // ordinary termination result therefore pass through the same final proof.
+    options.signal.throwIfAborted();
+    await options.verifyStopped();
   } finally {
     abort();
     options.signal.removeEventListener("abort", abort);
