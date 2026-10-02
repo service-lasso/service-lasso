@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
+import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -14,6 +15,7 @@ if (process.platform !== "win32") {
   console.log(JSON.stringify({ ok: true, classification: "not_applicable" }));
   process.exit(0);
 }
+if (process.arch !== "x64") throw new Error("Windows ConPTY qualification supports only win32-amd64.");
 
 const tempRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-tui-conpty-"));
 const outputRoot = path.join(tempRoot, "artifacts");
@@ -37,6 +39,7 @@ async function closeUnavailableEndpoint() {
   await endpoint?.close();
 }
 
+let primaryFailure;
 try {
   const staged = await stageReleaseArtifact({ repoRoot, outputRoot });
   const coreArchive = staged.platformArchives.find((archive) => archive.platform === "win32");
@@ -63,11 +66,26 @@ try {
   apiServer = await core.startApiServer({ port: 0, servicesRoot: path.join(repoRoot, "services"), workspaceRoot: path.join(tempRoot, "workspace") });
   const connectedProbe = await runConptyHelper({ helperPath, executable: tuiExecutable, mode: "connected", apiUrl: apiServer.url, apiToken: connectedToken });
   console.log(JSON.stringify({ ok: true, evidence: "direct-conpty", platform: "win32-amd64", safeStartup: safeProbe.startup, connectedDashboard: connectedProbe.startup, navigation: connectedProbe.navigation, exit: connectedProbe.exit, artifact: staged.artifactName }));
+} catch (error) {
+  primaryFailure = error;
+  throw error;
 } finally {
-  await apiServer?.stop();
-  await closeUnavailableEndpoint();
-  if (previousLocalAdminToken === undefined) delete process.env.SERVICE_LASSO_LOCAL_ADMIN_TOKEN;
-  else process.env.SERVICE_LASSO_LOCAL_ADMIN_TOKEN = previousLocalAdminToken;
-  await extractedCoreArchive?.cleanup();
-  await rm(tempRoot, { recursive: true, force: true });
+  const cleanupFailures = [];
+  for (const cleanup of [
+    () => apiServer?.stop(),
+    () => closeUnavailableEndpoint(),
+    () => extractedCoreArchive?.cleanup(),
+    () => rm(tempRoot, { recursive: true, force: true }),
+    () => {
+      if (previousLocalAdminToken === undefined) delete process.env.SERVICE_LASSO_LOCAL_ADMIN_TOKEN;
+      else process.env.SERVICE_LASSO_LOCAL_ADMIN_TOKEN = previousLocalAdminToken;
+    },
+  ]) {
+    try {
+      await cleanup();
+    } catch (error) {
+      cleanupFailures.push(error);
+    }
+  }
+  if (cleanupFailures.length && !primaryFailure) throw new AggregateError(cleanupFailures, "Windows ConPTY qualification cleanup failed.");
 }

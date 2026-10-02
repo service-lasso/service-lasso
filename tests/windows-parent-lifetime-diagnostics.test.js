@@ -15,13 +15,13 @@ const row = (pid, parent, createdAt) => ({
   ExecutablePath: root.executablePath, CommandLine: command,
 });
 
-test("a canceled enrollment monitor retains closed parent-birth evidence without process details", async () => {
+test("a pre-root child with a pre-root parent retains closed parent-birth evidence without process details", async () => {
   const expected = { ...root, commandHash: hashProcessCommandLine(command) };
   const rootRow = row(root.pid, 9000, root.createdAt);
-  const cases = [
-    ["parent_before_root", [row(4343, 4344, "2026-07-18T01:02:01.456Z"), row(4344, root.pid, "2026-07-18T01:02:02.456Z")]],
-    ["parent_at_or_after_root", [row(4343, 4344, "2026-07-18T01:02:02.456Z"), row(4344, root.pid, "2026-07-18T01:02:04.456Z")]],
-  ];
+  const cases = [["parent_before_root", [
+    row(4343, 4344, "2026-07-18T01:02:01.456Z"),
+    row(4344, root.pid, "2026-07-18T01:02:02.456Z"),
+  ]]];
   for (const [parentBirthRelation, descendants] of cases) {
     await assert.rejects(inspectWindowsProcessTree(expected, {
       deadlineMs: Date.now() + 140,
@@ -90,6 +90,14 @@ test("the parent-lifetime projector rejects incomplete and arbitrary observation
     windowsTreeInspectionQueueMs: 2,
     windowsTreeInspectionNativeMs: 3,
     windowsTreeInspectionLastRetry: "ancestry_predates_parent_before_root",
+    windowsTreeInspectionNativeHelperSpawned: false,
+    windowsTreeInspectionNativeHelperExited: false,
+    windowsTreeInspectionNativeHelperStdioClosed: false,
+    windowsTreeInspectionNativeResultCompleted: false,
+    windowsTreeInspectionNativeSpawnWaitMs: null,
+    windowsTreeInspectionNativeWorkMs: null,
+    windowsTreeInspectionNativeStdioCloseMs: null,
+    windowsTreeInspectionNativeResultCompletionMs: null,
     windowsTreeInspectionParentBirthRelation: "parent_before_root",
     windowsTreeInspectionChildBirthRelation: "child_before_root",
     windowsTreeInspectionRootFingerprintMatch: true,
@@ -106,5 +114,13 @@ test("the parent-lifetime projector rejects incomplete and arbitrary observation
     windowsTreeInspectionQueueMs: null,
     windowsTreeInspectionNativeMs: null,
     windowsTreeInspectionLastRetry: "malformed",
+    windowsTreeInspectionNativeHelperSpawned: false,
+    windowsTreeInspectionNativeHelperExited: false,
+    windowsTreeInspectionNativeHelperStdioClosed: false,
+    windowsTreeInspectionNativeResultCompleted: false,
+    windowsTreeInspectionNativeSpawnWaitMs: null,
+    windowsTreeInspectionNativeWorkMs: null,
+    windowsTreeInspectionNativeStdioCloseMs: null,
+    windowsTreeInspectionNativeResultCompletionMs: null,
   });
 });

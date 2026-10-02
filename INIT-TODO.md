@@ -12,6 +12,37 @@ This file tracks bootstrap/adoption/remediation work required before product imp
 - Resolution used for this update run: normalize those artifacts into the current bootstrap-update output rather than discard or ignore them.
 
 ## Open Items
+- #1463 defines a release-asset-only staged transfer prerequisite in
+  `docs/api/staged-service-transfer.md`. It uses a new reviewed
+   staged-registration adapter over #1462 / PR #1464 (`a83133cc`), rather than
+  asserting the old `confirm:true` API already has stage fields. It derives
+   a non-draft published release/tag/full-SHA tuple, canonical release checksums,
+   exact asset IDs, release API byte sizes, trusted workspace identity, and a
+   single claimed Core-held byte object server-side, so client lengths, digests,
+   workspaces, and archive sources are not trusted. The direct-child importer
+   must consume that exact byte object once and cannot redownload or substitute
+   it; registration remains separate from later install/acquire materialisation.
+   It requires only explicit per-OS policy assets (no `default` or generic
+   fallback), exact actor/header precedence, fixed actor/workspace quota
+   ceilings, and durable retention of uncertain recovery capacity. Canonical
+   `service.json` must be a separately identified same-release service-producer
+   asset/member, not an ordinary archive scan or Core runtime inventory entry.
+   #1524 now proposes a fixed `service-lasso-release-policy.json` v1 asset and
+   a dedicated `service.json` release asset in
+   `docs/reference/service-producer-release-policy.md`; independent review and
+   the service-producer owner's per-repository catalog pin remain mandatory
+   before #1463 can resolve or admit a stage. `release-archive-profile-v1` keeps
+   the full release surface:
+  ZIP plus a closed gzip TAR grammar for Linux/macOS assets, including bounded
+   GNU-longname and POSIX-PAX path records, with PAX `size` required to equal
+   the raw following header in both directions. Current TAR admission remains
+  unimplemented and blocked on fresh independent review, GNU/Linux and
+  BSD/macOS real-producer fixtures/receipts, byte-level parser evidence, and
+  the checksum-bound released CLI/TUI/Core journey on all three OSs. This is a
+  qualification gate, not a denial of Linux/macOS releases. Implementation
+  must not create a generic upload route.
+  Locally authored template/source admission remains open in #1513 (`SPEC-002` /
+  `SPEC-006 AC-6E`; CLI #1/#8), outside #1463.
 
 - `#1513` is a product-spec prerequisite for remote client-local template-project admission, not bootstrap completion. Before Core implementation, the owning `service-template` repository must release the immutable machine-readable template contract, allowed-difference policy, provenance schema, fixtures, and verifier mapped in `docs/reference/source-safe-template-admission.md`; service-template `#17` tracks that prerequisite so Core does not invent template ownership policy.
 - Long-lived branch model is `develop` for governed implementation and `main` for promoted releases. Feature/fix branches merge back through PR, are archived with the `archive/` prefix after merge, and the workspace returns to clean `develop` before the next issue.
@@ -26,3 +57,8 @@ This file tracks bootstrap/adoption/remediation work required before product imp
   open until independent review of the later bytes or an explicit operator
   close with that residual.
 - Product/bootstrap adoption work is complete; use `.governance/project/BACKLOG.md` and the active service repos for any newly discovered follow-up work instead of treating this file as a live implementation queue.
+# Active development remediation
+
+- [ ] `#1505` (`SPEC-002` `AC-4BZ.3`): add and independently review the exact-`develop`, nonpublishing Core development-candidate workflow required for CLI #6 packaged-Core acceptance. Keep `Release Artifact` and `Publish Package` unchanged; hosted execution remains a post-review gate.
+- Active governed remediation: `#1552` is bound to `SPEC-002 AC-4BH` and the current backlog. Its scoped pre-root branch exclusion must retain the existing `develop`-derived branch/PR workflow, exact-head qualification, and all ownership, deadline, containment, native-provenance, and unrelated-process safety controls.
+- #1465 is mapped in the active backlog and `SPEC-006`; its bounded HTTP lifecycle-operation adapter remains subject to exact-head CI and packaged client reconciliation before closure.

@@ -14,6 +14,7 @@ const sidebars = {
         { type: "doc", id: "getting-started/beginner-todo-app", label: "Beginner — Todo app" },
         { type: "doc", id: "getting-started/intermediate-make-todo-app-durable", label: "Intermediate — Make the Todo durable" },
         { type: "doc", id: "getting-started/advanced-add-go-todo-api-service", label: "Advanced — Add a Go Todo API service" },
+        { type: "doc", id: "getting-started/zitadel-sso-hub", label: "Zitadel SSO Hub" },
       ] },
       "operate-your-service", "package-your-app", "agent-prompts",
       { type: "doc", id: "complete-first-run-setup", label: "Complete first-run setup" },
@@ -62,6 +63,7 @@ const sidebars = {
     { type: "category", label: "Technical reference", collapsed: true, items: [
       { type: "doc", id: "reference/README", label: "Technical reference" },
       { type: "doc", id: "reference/service-json-reference", label: "Manifest fields and health checks" },
+      { type: "doc", id: "reference/service-producer-release-policy", label: "Released service producer policy" },
       { type: "doc", id: "reference/readiness-gate", label: "CLI commands" },
       { type: "doc", id: "reference/product-api-facade", label: "HTTP APIs" },
       { type: "doc", id: "reference/operator-mcp", label: "Operator MCP" },
