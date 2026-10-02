@@ -831,6 +831,7 @@ async function superviseUnexpectedProcessExit(
   registry: ServiceRegistry | undefined,
   options: ServiceLifecycleActionOptions,
 ): Promise<void> {
+  return await withLifecycleWorkspace(options.workspaceRoot, async () => {
   await persistProcessExit(service, exitCode, signal);
 
   const serviceId = service.manifest.id;
@@ -913,6 +914,7 @@ async function superviseUnexpectedProcessExit(
   } finally {
     supervisionRestartClaims.delete(supervisionKey);
   }
+  });
 }
 
 function resolveExecutionPlanForLifecycle(

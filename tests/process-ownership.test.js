@@ -4814,3 +4814,55 @@ test("workspace authority isolates equal service IDs", async () => {
     await removeTempRoot(second.tempRoot);
   }
 });
+
+test("separate runtime APIs keep equal service IDs in their owning workspaces", { timeout: 45_000 }, async () => {
+  resetLifecycleState();
+  const serviceId = "same-id-api-service";
+  const first = await makeTempServicesRoot("service-lasso-same-id-api-first-");
+  const second = await makeTempServicesRoot("service-lasso-same-id-api-second-");
+  let firstApi;
+  let secondApi;
+  try {
+    await writeExecutableFixtureService(first.servicesRoot, serviceId);
+    await writeExecutableFixtureService(second.servicesRoot, serviceId);
+    firstApi = await startApiServer({ port: 0, servicesRoot: first.servicesRoot, workspaceRoot: first.workspaceRoot });
+    secondApi = await startApiServer({ port: 0, servicesRoot: second.servicesRoot, workspaceRoot: second.workspaceRoot });
+
+    for (const api of [firstApi, secondApi]) {
+      assert.equal((await postJson(`${api.url}/api/services/${serviceId}/install`)).response.status, 200);
+      assert.equal((await postJson(`${api.url}/api/services/${serviceId}/config`)).response.status, 200);
+      assert.equal((await postJson(`${api.url}/api/services/${serviceId}/start`)).response.status, 200);
+    }
+
+    const [firstDetail, secondDetail] = await Promise.all([
+      fetch(`${firstApi.url}/api/services/${serviceId}`).then(async (response) => ({ response, body: await response.json() })),
+      fetch(`${secondApi.url}/api/services/${serviceId}`).then(async (response) => ({ response, body: await response.json() })),
+    ]);
+    assert.equal(firstDetail.response.status, 200);
+    assert.equal(secondDetail.response.status, 200);
+    assert.equal(firstDetail.body.state.running, true);
+    assert.equal(secondDetail.body.state.running, true);
+    assert.notEqual(firstDetail.body.state.runtime.pid, secondDetail.body.state.runtime.pid);
+    assert.equal(getLifecycleState(serviceId, first.workspaceRoot).runtime.pid, firstDetail.body.state.runtime.pid);
+    assert.equal(getLifecycleState(serviceId, second.workspaceRoot).runtime.pid, secondDetail.body.state.runtime.pid);
+
+    const stopped = await postJson(`${firstApi.url}/api/services/${serviceId}/stop`, { confirm: true });
+    assert.equal(stopped.response.status, 200);
+    assert.equal(stopped.body.state.running, false);
+    assert.equal((await fetch(`${secondApi.url}/api/services/${serviceId}`)).status, 200);
+    assert.equal(getLifecycleState(serviceId, second.workspaceRoot).running, true);
+
+    const restarted = await postJson(`${secondApi.url}/api/services/${serviceId}/restart`, { confirm: true });
+    assert.equal(restarted.response.status, 200);
+    assert.equal(restarted.body.state.running, true);
+    assert.notEqual(restarted.body.state.runtime.pid, secondDetail.body.state.runtime.pid);
+  } finally {
+    await firstApi?.stop().catch(() => undefined);
+    await secondApi?.stop().catch(() => undefined);
+    await stopManagedProcess(serviceId, PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS, { workspaceRoot: first.workspaceRoot }).catch(() => null);
+    await stopManagedProcess(serviceId, PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS, { workspaceRoot: second.workspaceRoot }).catch(() => null);
+    resetLifecycleState();
+    await removeTempRoot(first.tempRoot);
+    await removeTempRoot(second.tempRoot);
+  }
+});

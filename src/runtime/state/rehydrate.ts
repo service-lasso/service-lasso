@@ -952,6 +952,7 @@ export async function rehydrateLifecycleState(
   service: DiscoveredService,
   options: RehydrateProcessOwnershipOptions = {},
 ): Promise<ServiceLifecycleState | null> {
+  return await withLifecycleWorkspace(options.workspaceRoot, async () => {
   const snapshot = await readStoredState(service.serviceRoot);
   const state = parseLifecycleState(service, snapshot);
   let rehydratedState = state;
@@ -1068,6 +1069,7 @@ export async function rehydrateLifecycleState(
   }
 
   return rehydratedState;
+  });
 }
 
 export async function rehydrateDiscoveredServices(
