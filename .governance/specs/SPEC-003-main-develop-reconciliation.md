@@ -22,6 +22,8 @@ Out of scope:
 
 ## Requirements and Acceptance Criteria
 
+- `BR-008` — Reconciliation qualification custody must create its private initial receipt before dependency installation, build, generation, or product imports. Every claimed source/tool result in that receipt must be bound to an owned, live native-process observation (PID, birth identity, resolved image and complete parent chain), private raw stdout/stderr closure, exact command order, and the current HEAD/tree/tracked-byte Git provenance. The public projection may publish only closed hashes and immutable identifiers; unresolved observation, alias/image mismatch, non-zero or signalled exit, missing EOF, duplicate JSON keys, raw-output tampering, or source/tree/result mismatch must fail closed.
+
 - `BR-001` — `develop` remains the development source of truth. Recovery work starts from `develop`, uses an issue-scoped branch, and targets `develop` through pull request.
 - `BR-002` — Every `main`-only commit and changed file is inventoried and classified as valid product work, promotion-only history, duplicate/superseded work, or conflict requiring an explicit resolution.
 - `BR-003` — All valid `main`-only behavior is reconciled onto the recovery branch without replacing newer `develop` behavior or losing mandatory Broker, Service Admin integration, or Core functionality.
