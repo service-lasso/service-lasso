@@ -131,6 +131,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Keep the runner-local checkout byte-stable before the first custody
+          # inventory.  This is intentionally local to this disposable checkout.
+          git config --local core.autocrlf false
+          test "$(git config --local --get core.autocrlf)" = false
+          test -z "$(git -c core.autocrlf=false status --porcelain=v1 --untracked-files=all)"
           qualification_root="$RUNNER_TEMP/packaged-admin-lifecycle-$GITHUB_RUN_ID-$GITHUB_JOB-$GITHUB_RUN_ATTEMPT-$ADMIN_PLATFORM"
           export SERVICE_LASSO_WORKSPACE_ROOT="$qualification_root/workspace"
           export SERVICE_LASSO_INSTANCE_REGISTRY_PATH="$qualification_root/instance-registry.json"
