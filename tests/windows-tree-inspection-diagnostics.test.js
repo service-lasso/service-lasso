@@ -255,6 +255,13 @@ test("partial-copy receipt is closed, failure-specific, and omits raw native det
     windowsTreeInspectionNativeMs: null,
     windowsTreeInspectionNativeHelperSpawned: false,
     windowsTreeInspectionNativeHelperExited: false,
+    // AC-4BH.3 common progress fields survive rejection of the special pair.
+    windowsTreeInspectionNativeHelperStdioClosed: false,
+    windowsTreeInspectionNativeResultCompleted: false,
+    windowsTreeInspectionNativeSpawnWaitMs: null,
+    windowsTreeInspectionNativeWorkMs: null,
+    windowsTreeInspectionNativeStdioCloseMs: null,
+    windowsTreeInspectionNativeResultCompletionMs: null,
     windowsTreeInspectionLastRetry: "descendant_command_partial_copy",
   });
   await assert.rejects(inspectWindowsProcessTree(root, {
@@ -430,4 +437,166 @@ test("older branches remain fail closed without a current matching root or compl
       return true;
     });
   }
+});
+
+// SPEC-002 AC-4BH.3: independent literal oracle, never derived from the projector.
+const closedCommonProjection = {
+  windowsTreeInspectionPhase: "native_snapshot",
+  windowsTreeInspectionAttempts: null,
+  windowsTreeInspectionRetries: null,
+  windowsTreeInspectionQueueMs: null,
+  windowsTreeInspectionNativeMs: null,
+  windowsTreeInspectionLastRetry: null,
+  windowsTreeInspectionNativeHelperSpawned: false,
+  windowsTreeInspectionNativeHelperExited: false,
+  windowsTreeInspectionNativeHelperStdioClosed: false,
+  windowsTreeInspectionNativeResultCompleted: false,
+  windowsTreeInspectionNativeSpawnWaitMs: null,
+  windowsTreeInspectionNativeWorkMs: null,
+  windowsTreeInspectionNativeStdioCloseMs: null,
+  windowsTreeInspectionNativeResultCompletionMs: null,
+};
+const partialCopyPair = {
+  windowsTreeInspectionCommandQueryHeldHandleState: "still_active_or_259",
+  windowsTreeInspectionCommandQueryArchitectureRelation: "unknown",
+};
+const ancestryQuartet = {
+  windowsTreeInspectionParentBirthRelation: "parent_before_root",
+  windowsTreeInspectionChildBirthRelation: "child_before_root",
+  windowsTreeInspectionRootFingerprintMatch: false,
+  windowsTreeInspectionAncestryDepthBucket: "five_plus",
+};
+
+test("AC-4BH.3 pairs common fourteen keys with only complete reason-specific groups", () => {
+  for (const phase of ["queue_wait", "native_snapshot", "retry_delay"]) {
+    const common = { ...closedCommonProjection, windowsTreeInspectionPhase: phase };
+    for (const reason of [null, "private-status", "helper_failed", "malformed"]) {
+      const input = { ...common, windowsTreeInspectionLastRetry: reason, ...partialCopyPair, ...ancestryQuartet,
+        ProcessId: root.pid, path: root.executablePath, command: "private-command", message: "private-message" };
+      assert.deepEqual(projectWindowsTreeInspectionMetadata(input), {
+        ...common, windowsTreeInspectionLastRetry: reason === "private-status" ? null : reason,
+      });
+    }
+    for (const reason of ["root_command_partial_copy", "descendant_command_partial_copy"]) {
+      const expected = { ...common, windowsTreeInspectionLastRetry: reason, ...partialCopyPair };
+      assert.equal(Object.keys(expected).length, 16);
+      const input = { ...expected, ...ancestryQuartet, nativeStatus: "private-status", pid: root.pid };
+      assert.deepEqual(projectWindowsTreeInspectionMetadata(input), expected);
+      for (const key of Object.keys(partialCopyPair)) {
+        for (const invalid of [undefined, null, "private-message", 259, true]) {
+          assert.deepEqual(projectWindowsTreeInspectionMetadata({ ...input, [key]: invalid }), {
+            ...common, windowsTreeInspectionLastRetry: reason,
+          });
+        }
+      }
+      const diagnostic = JSON.parse(lifecycleFailureDiagnostic({ error: { windowsTreeInspection: input },
+        state: { runtime: { startTrace: { current: { events: [{ metadata: input }] } } } } }));
+      assert.deepEqual(diagnostic.windowsTreeInspections, [expected, expected]);
+      assert.doesNotMatch(JSON.stringify(diagnostic), /private|4342|nativeStatus|ProcessId|"command"|"message"|"path"/);
+    }
+    for (const reason of ["ancestry_predates_parent_before_root", "ancestry_predates_parent_within_root"]) {
+      const expected = { ...common, windowsTreeInspectionLastRetry: reason, ...ancestryQuartet };
+      assert.equal(Object.keys(expected).length, 18);
+      const input = { ...expected, ...partialCopyPair };
+      assert.deepEqual(projectWindowsTreeInspectionMetadata(input), expected);
+      for (const key of Object.keys(ancestryQuartet)) {
+        assert.deepEqual(projectWindowsTreeInspectionMetadata({ ...input, [key]: undefined }), {
+          ...common, windowsTreeInspectionLastRetry: reason,
+        });
+      }
+    }
+    assert.equal(Object.keys(common).length, 14);
+  }
+});
+
+test("AC-4BH.3 progress bounds and literal booleans remain closed under expanded metadata", () => {
+  const numericKeys = Object.keys(closedCommonProjection).filter(key => key.endsWith("Ms") ||
+    key.endsWith("Attempts") || key.endsWith("Retries"));
+  for (const key of numericKeys) {
+    const maximum = key.endsWith("Ms") ? 600000 : 1000;
+    for (const value of [0, maximum]) {
+      assert.deepEqual(projectWindowsTreeInspectionMetadata({ ...closedCommonProjection, [key]: value }), {
+        ...closedCommonProjection, [key]: value,
+      });
+    }
+    for (const invalid of [-1, maximum + 1, 0.5, Infinity, NaN, "private-number", {}, null]) {
+      assert.deepEqual(projectWindowsTreeInspectionMetadata({ ...closedCommonProjection, [key]: invalid }), closedCommonProjection);
+    }
+  }
+  const booleans = Object.keys(closedCommonProjection).filter(key => typeof closedCommonProjection[key] === "boolean");
+  for (const key of booleans) {
+    assert.deepEqual(projectWindowsTreeInspectionMetadata({ ...closedCommonProjection, [key]: true }), {
+      ...closedCommonProjection, [key]: true,
+    });
+    for (const invalid of [1, "true", "private-value", {}, null, undefined]) {
+      assert.deepEqual(projectWindowsTreeInspectionMetadata({ ...closedCommonProjection, [key]: invalid }), closedCommonProjection);
+    }
+  }
+  for (const input of [null, undefined, false, "private-message", {}, { windowsTreeInspectionPhase: "private-phase" }]) {
+    assert.deepEqual(projectWindowsTreeInspectionMetadata(input), {});
+  }
+  assert.deepEqual(projectWindowsTreeInspectionMetadata({ windowsTreeInspectionPhase: "native_snapshot",
+    get windowsTreeInspectionNativeWorkMs() { throw new Error("private-message"); } }), {});
+});
+
+test("AC-4BH.3 native partial-copy pairs cover both failure subjects without admitting expanded receipts", async () => {
+  for (const [exitCode, reason] of [[38, "root_command_partial_copy"], [138, "descendant_command_partial_copy"]]) {
+    for (const heldHandleState of ["still_active_or_259", "exit_query_failed"]) {
+      for (const architectureRelation of ["same", "cross", "unknown"]) {
+        await assert.rejects(inspectWindowsProcessTree(root, {
+          deadlineMs: Date.now() + 80,
+          runCommand: async () => ({ exitCode, stdout: JSON.stringify({
+            CommandQueryHeldHandleState: heldHandleState, CommandQueryArchitectureRelation: architectureRelation,
+          }), stderr: "private-native-message" }),
+        }), error => {
+          const evidence = windowsTreeInspectionFailureMetadata(error);
+          assert.equal(evidence.windowsTreeInspectionLastRetry, reason);
+          assert.equal(evidence.windowsTreeInspectionCommandQueryHeldHandleState, heldHandleState);
+          assert.equal(evidence.windowsTreeInspectionCommandQueryArchitectureRelation, architectureRelation);
+          assert.equal(Object.keys(evidence).length, 16);
+          assert.doesNotMatch(JSON.stringify(evidence), /private|4342|ProcessId|ExecutablePath|CommandLine|nativeStatus/);
+          return true;
+        });
+      }
+    }
+    const canonical = '{"CommandQueryHeldHandleState":"still_active_or_259","CommandQueryArchitectureRelation":"same"}';
+    for (const stdout of ["private-native-message", "{}",
+      '{"CommandQueryHeldHandleState":"still_active_or_259"}',
+      canonical.replace('"CommandQueryHeldHandleState"', '"CommandQueryHeldHandle\\u0053tate"'),
+      canonical.replace("}", ',"CommandQueryArchitectureRelation":"cross"}'),
+      canonical.replace("}", ',"pid":4342,"path":"private-path","command":"private-command","status":"private-status","message":"private-message"}')]) {
+      await assert.rejects(inspectWindowsProcessTree(root, {
+        deadlineMs: Date.now() + 80, runCommand: async () => ({ exitCode, stdout }),
+      }), error => {
+        const evidence = windowsTreeInspectionFailureMetadata(error);
+        assert.equal(evidence.windowsTreeInspectionLastRetry, reason);
+        assert.equal(Object.keys(evidence).length, 14);
+        assert.equal(evidence.windowsTreeInspectionCommandQueryHeldHandleState, undefined);
+        assert.equal(evidence.windowsTreeInspectionCommandQueryArchitectureRelation, undefined);
+        assert.doesNotMatch(JSON.stringify(evidence), /private|4342|ProcessId|ExecutablePath|CommandLine|nativeStatus/);
+        return true;
+      });
+    }
+  }
+});
+
+test("AC-4BH.3 successful inspection does not publish failure metadata or native receipt fields", async () => {
+  const command = "private-command";
+  const expectedRoot = { ...root, commandHash: hashProcessCommandLine(command) };
+  const result = await inspectWindowsProcessTree(expectedRoot, {
+    runCommand: async (_command, _args, options) => {
+      for (const phase of ["spawned", "exited", "stdio_closed", "result_completed"]) options.onPhase?.(phase);
+      return { stdout: JSON.stringify({ Status: "tree", RootStatus: "running", Processes: [{
+        Status: "running", ProcessId: root.pid, ParentProcessId: 9000, CreationDate: root.createdAt,
+        ExecutablePath: root.executablePath, CommandLine: command,
+      }] }) };
+    },
+  });
+  assert.equal(result.rootStatus, "owned");
+  assert.equal(result.members.length, 1);
+  assert.equal(result.windowsTreeInspection, undefined);
+  assert.deepEqual(windowsTreeInspectionFailureMetadata(result), {});
+  const diagnostic = lifecycleFailureDiagnostic({ error: result });
+  assert.equal(JSON.parse(diagnostic).windowsTreeInspections, undefined);
+  assert.doesNotMatch(diagnostic, /private|4342|9000|ProcessId|ExecutablePath|CommandLine/);
 });

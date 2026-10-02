@@ -105,5 +105,6 @@ This file tracks bootstrap/adoption/remediation work required before product imp
   naming without retrying or weakening the primary gate.
 - [ ] Before any dependency install, build, test, or Core import, retain the
   required isolated external runtime custody record and obtain parent readback.
+- #1590 diagnostic contract remediation is source-only and UNEXECUTED pending fresh complete external exact-source custody and ROOT admission. SPEC-002 AC-4BH.3 maps the common fourteen-key projection and strict native receipt to paired protected proof; independent review, terminal exact-head relevant CI and native evidence remain required.
 
 - #1594 adopts SPEC-006 AC-6G closed owned-temp cleanup diagnostics before implementation. Preserve eight calls, existing retry codes/delays, deadlines, ownership/permissions, complete CLI/TUI inclusion and failure exit. Fresh cumulative review and complete first-input ROOT admission remain required before local product execution; historical #1593 cause stays UNOBSERVED and three-OS/full-operator gates stay pending.

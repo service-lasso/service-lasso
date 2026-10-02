@@ -38,6 +38,8 @@ This repo is therefore the place where the real core behavior must live and cont
 
 ## Constraints
 
+- Windows tree-inspection diagnostics share the existing closed fourteen common keys; only a fully valid failure-specific partial-copy pair or ancestry quartet may add keys (SPEC-002 AC-4BH.3, #1590). Native receipts remain a separate strict two-key grammar; metadata never proves control or discloses raw native details. Source repair and review remain distinct from admitted execution and native qualification.
+
 - Hard-crash fixture failures before an intentional exit must retain only closed startup-phase and lifecycle metadata over a dedicated test IPC channel; never raw child output, error messages, paths or secrets (#1397, `SPEC-002 AC-4BJ.9a`). This adds observation, not retries or changed deadlines.
 - Governance/spec/backlog traceability must remain in place while product code starts.
 - This repo is private and should preserve clear auditability for decisions and changes.
