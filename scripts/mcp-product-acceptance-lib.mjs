@@ -11,6 +11,7 @@ const RUN_COMMAND_FAILURE_KINDS = new Set([
   "output_capture_exceeded",
   "spawn_failed",
   "exit_nonzero",
+  "close_unresolved",
   "unknown",
 ]);
 const SAFE_DIAGNOSTIC_CODE = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/u;
@@ -275,6 +276,10 @@ export async function supportedMcpVersions() {
 
 export async function runCommand(command, args, options = {}) {
   const timeoutMs = options.timeoutMs ?? 60_000;
+  // `exit` confirms the direct child only. A child can leave its inherited
+  // stdout/stderr handles with a descendant, so wait for `close` before
+  // treating a successful root exit as a completed command.
+  const closeTimeoutMs = options.closeTimeoutMs ?? 5_000;
   return await new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       cwd: options.cwd ?? repoRoot,
@@ -287,6 +292,8 @@ export async function runCommand(command, args, options = {}) {
     let stdoutBytes = 0;
     let stderrBytes = 0;
     let settled = false;
+    let rootExit;
+    let closeTimer;
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
       finish(markRunCommandFailure(new Error(`Command did not complete within ${timeoutMs}ms.`), "deadline_exceeded"));
@@ -308,23 +315,39 @@ export async function runCommand(command, args, options = {}) {
     child.stderr.on("data", (chunk) => append(stderr, chunk, "stderr"));
     child.once("error", (error) => finish(markRunCommandFailure(error, "spawn_failed")));
     child.once("exit", (code, signal) => {
-      const result = {
+      rootExit = {
         code,
         signal,
         stdout: Buffer.concat(stdout).toString("utf8"),
         stderr: Buffer.concat(stderr).toString("utf8"),
       };
-      if (code === 0) finish(null, result);
+      if (settled) return;
+      // This timer is deliberately armed only after the owned root has
+      // actually exited. It classifies an inherited open pipe; it never
+      // substitutes for the caller's absolute process deadline.
+      closeTimer = setTimeout(() => {
+        const error = markRunCommandFailure(
+          new Error("Command root exited but inherited output streams did not close within the bounded settlement window."),
+          "close_unresolved",
+        );
+        finish(error, rootExit);
+      }, closeTimeoutMs);
+      closeTimer.unref?.();
+    });
+    child.once("close", () => {
+      if (settled || !rootExit) return;
+      if (rootExit.code === 0) finish(null, rootExit);
       else finish(markRunCommandFailure(
-        new Error(`Command failed with exit code ${code ?? "none"} and signal ${signal ?? "none"}.`),
-        typeof code === "number" && code !== 0 ? "exit_nonzero" : "unknown",
-      ), result);
+        new Error(`Command failed with exit code ${rootExit.code ?? "none"} and signal ${rootExit.signal ?? "none"}.`),
+        typeof rootExit.code === "number" && rootExit.code !== 0 ? "exit_nonzero" : "unknown",
+      ), rootExit);
     });
 
     function finish(error, result) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      clearTimeout(closeTimer);
       if (error) {
         if (result) Object.assign(error, result);
         reject(error);

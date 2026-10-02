@@ -147,6 +147,37 @@ test("runCommand records closed wrapper observations for deadline, capture, spaw
   }
 });
 
+test("runCommand waits for raw inherited stream close and classifies only a post-exit unresolved close", async () => {
+  const { mkdtemp, rm, writeFile } = await import("node:fs/promises");
+  const os = await import("node:os");
+  const path = (await import("node:path")).default;
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-1566-"));
+  const closes = path.join(tempRoot, "closes.mjs");
+  const holds = path.join(tempRoot, "holds.mjs");
+  try {
+    await Promise.all([
+      writeFile(closes, "const { spawn } = await import('node:child_process'); const child = spawn(process.execPath, ['-e', \"setTimeout(() => process.stdout.write('released'), 30)\"], { stdio: ['ignore', 'inherit', 'inherit'], detached: true }); child.unref(); process.exit(0);", "utf8"),
+      writeFile(holds, "const { spawn } = await import('node:child_process'); const child = spawn(process.execPath, ['-e', \"setTimeout(() => process.stdout.write('held'), 120)\"], { stdio: ['ignore', 'inherit', 'inherit'], detached: true }); child.unref(); process.exit(0);", "utf8"),
+    ]);
+
+    const settled = await runCommand(process.execPath, [closes], { cwd: tempRoot, timeoutMs: 1_000, closeTimeoutMs: 1_000 });
+    assert.equal(settled.code, 0);
+    const unresolved = await runCommand(process.execPath, [holds], { cwd: tempRoot, timeoutMs: 1_000, closeTimeoutMs: 20 }).catch(value => value);
+    assert.equal(runCommandFailureKind(unresolved), "close_unresolved");
+    assert.equal(unresolved.code, 0);
+    assert.equal(unresolved.signal, null);
+    assert.deepEqual(
+      dependencyAcquisitionReceipt(unresolved, runCommandFailureKind(unresolved)),
+      { outcome: "close_unresolved" },
+    );
+  } finally {
+    // The held descendant is an owned test fixture. Let it close its inherited
+    // handles before deleting the fixture directory on Windows.
+    await new Promise(resolve => setTimeout(resolve, 250));
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("the verifier catch branch keeps npm install safeguards and emits only the reported observation", async () => {
   const { mkdtemp, readFile, rm, writeFile } = await import("node:fs/promises");
   const { createHash } = await import("node:crypto");
