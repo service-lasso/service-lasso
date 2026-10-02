@@ -48,7 +48,6 @@ import {
   startManagedProcess as startRuntimeManagedProcess,
   stopAllManagedProcesses,
   stopManagedProcess,
-  setManagedWindowsTreeInspectorForTests,
   waitForManagedProcessFinalization,
   writeManagedProcessStdin,
 } from "../dist/runtime/execution/supervisor.js";
