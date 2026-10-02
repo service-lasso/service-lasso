@@ -360,6 +360,9 @@ try {
         MCP_PACKAGE_ACCEPTANCE_FORBIDDEN_SOURCE_ROOT: repoRoot,
       }),
     });
+    if (runnerResult.closeObserved !== true) {
+      throw new Error("Fresh-consumer MCP acceptance runner did not reach a closed subprocess boundary.");
+    }
   } catch (error) {
     const runner = parsePackagedAcceptanceFailure(error?.stderr);
     const safe = new Error("Fresh-consumer MCP acceptance failed safely.");

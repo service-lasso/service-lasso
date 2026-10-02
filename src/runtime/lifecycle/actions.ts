@@ -242,6 +242,10 @@ export interface ServiceLifecycleActionOptions {
   expectedExecutableRevision?: string;
   expectedExecutableFiles?: readonly ExecutableInputFileDigest[];
   expectedStopExecutableBinding?: ServiceStopExecutableMutationBinding;
+  // Only a supported explicit operator request may begin a new Windows
+  // inspection episode. Automatic supervision/finalization keeps its current
+  // bounded episode so a terminal native result cannot be reopened.
+  newWindowsInspectionEpisode?: boolean;
   expectedDoctorExecutableBindings?: Readonly<Record<string, ServiceExecutableMutationBinding>>;
   supervisionRestart?: {
     reason: ServiceRuntimeSupervisionRestartReason;
@@ -1103,11 +1107,12 @@ async function stopManagedProcessWithOverride(
   service: DiscoveredService,
   current: ServiceLifecycleState,
   expectedBinding?: ServiceStopExecutableMutationBinding,
+  newWindowsInspectionEpisode = false,
 ): Promise<{ exitCode: number | null; message: string }> {
   const serviceId = service.manifest.id;
   const override = getLifecycleStopOverride(service);
   if (!override) {
-    const stopped = await stopManagedProcess(serviceId);
+    const stopped = await stopManagedProcess(serviceId, undefined, { newWindowsInspectionEpisode });
     return {
       exitCode: stopped?.exitCode ?? current.runtime.exitCode ?? 0,
       message: "Stop completed.",
@@ -1125,7 +1130,7 @@ async function stopManagedProcessWithOverride(
     }
   }
 
-  const stopped = await stopManagedProcess(serviceId);
+  const stopped = await stopManagedProcess(serviceId, undefined, { newWindowsInspectionEpisode });
   const reason = overrideResult.timedOut
     ? "timed out"
     : `failed with exit code ${overrideResult.exitCode ?? "unknown"}`;
@@ -1779,7 +1784,12 @@ export async function stopService(
     );
   }
 
-  const stopped = await stopManagedProcessWithOverride(service, current, options.expectedStopExecutableBinding);
+  const stopped = await stopManagedProcessWithOverride(
+    service,
+    current,
+    options.expectedStopExecutableBinding,
+    options.newWindowsInspectionEpisode,
+  );
   const finishedAt = new Date().toISOString();
   const revokedIdentities = revokeServiceScopedBrokerIdentities(serviceId, {
     now: new Date(finishedAt),
