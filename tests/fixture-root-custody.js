@@ -1,4 +1,4 @@
-import { open, lstat, realpath, readdir, unlink, rmdir, writeFile } from "node:fs/promises";
+import { open, lstat, realpath, writeFile } from "node:fs/promises";
 import { constants } from "node:fs";
 import { spawn } from "node:child_process";
 import path from "node:path";
@@ -7,7 +7,8 @@ import { inspectProcess } from "../dist/runtime/process/identity.js";
 
 // This helper owns only fixture filesystem handles, never process signaling
 // authority. The Windows child holds original directory handles through copy
-// verification and performs deletion through those handles, not a new rm name.
+// verification. Destruction remains disabled without validated writer
+// exclusion; a held ancestor/root does not exclude child additions or writes.
 const guardianScript = `
 $ErrorActionPreference = 'Stop'
 Add-Type -TypeDefinition @'
@@ -28,13 +29,11 @@ public static class FixtureHandle {
     public uint Attributes, CreationLow, CreationHigh, AccessLow, AccessHigh,
       WriteLow, WriteHigh, Volume, SizeHigh, SizeLow, Links, IndexHigh, IndexLow;
   }
-  [StructLayout(LayoutKind.Sequential)] public struct Disposition { [MarshalAs(UnmanagedType.Bool)] public bool Delete; }
   [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
   static extern SafeFileHandle CreateFile(string p, uint access, uint share, IntPtr security, uint creation, uint flags, IntPtr template);
   [DllImport("kernel32.dll", SetLastError=true)] static extern bool GetFileInformationByHandle(SafeFileHandle h, out Info i);
-  [DllImport("kernel32.dll", SetLastError=true)] static extern bool SetFileInformationByHandle(SafeFileHandle h, int kind, ref Disposition d, uint size);
-  public static SafeFileHandle Open(string p, bool remove) {
-    var h = CreateFile(p, 0x80U | (remove ? 0x10000U : 0U), 3, IntPtr.Zero, 3, 0x02200000, IntPtr.Zero);
+  public static SafeFileHandle Open(string p) {
+    var h = CreateFile(p, 0x80U, 3, IntPtr.Zero, 3, 0x02200000, IntPtr.Zero);
     if(h.IsInvalid) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
     return h;
   }
@@ -47,10 +46,6 @@ public static class FixtureHandle {
     Info i; if(!GetFileInformationByHandle(h,out i)) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
     if((i.Attributes & 0x400) != 0) throw new Exception("Redirected fixture entry");
     return i.Volume.ToString() + ":" + i.IndexHigh.ToString() + ":" + i.IndexLow.ToString();
-  }
-  public static void Delete(SafeFileHandle h) {
-    var d = new Disposition { Delete = true };
-    if(!SetFileInformationByHandle(h,4,ref d,4)) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
   }
 }
 '@
@@ -71,17 +66,6 @@ function Verify-Held {
     } finally { $named.Dispose() }
   }
 }
-function Remove-Children($directory) {
-  foreach($p in [System.IO.Directory]::EnumerateFileSystemEntries($directory)) {
-    Check-Owner $p $true
-    $handle = [FixtureHandle]::Open($p, $true)
-    try {
-      [void][FixtureHandle]::Identity($handle)
-      if (([System.IO.File]::GetAttributes($p) -band [System.IO.FileAttributes]::Directory) -ne 0) { Remove-Children $p }
-      [FixtureHandle]::Delete($handle)
-    } finally { $handle.Dispose() }
-  }
-}
 try {
   $chain = New-Object System.Collections.Generic.List[string]
   $p = $root
@@ -89,7 +73,7 @@ try {
   foreach($p in $chain) {
     Check-Owner $p ($p -eq $root)
     if (([System.IO.File]::GetAttributes($p) -band [System.IO.FileAttributes]::Directory) -eq 0) { throw 'Unsupported fixture ancestor type' }
-    $handle = [FixtureHandle]::Open($p, ($p -eq $root))
+    $handle = [FixtureHandle]::Open($p)
     try { $identity = [FixtureHandle]::Identity($handle) }
     catch { $handle.Dispose(); throw }
     $held.Add([pscustomobject]@{Path=$p; Handle=$handle; Identity=$identity})
@@ -100,13 +84,7 @@ try {
   while($null -ne ($command=[Console]::In.ReadLine())) {
     if($command -eq 'close') { break }
     Verify-Held
-    if($command -eq 'remove') {
-      Remove-Children $root
-      Verify-Held
-      [FixtureHandle]::Delete($held[$held.Count-1].Handle)
-      $held[$held.Count-1].Handle.Dispose()
-      [Console]::Out.WriteLine('removed'); [Console]::Out.Flush(); break
-    }
+    if($command -eq 'remove') { throw 'Fixture writer exclusion is unavailable; original retained' }
     if($command -ne 'verify') { throw 'Unknown fixture operation' }
     [Console]::Out.WriteLine('verified'); [Console]::Out.Flush()
   }
@@ -196,7 +174,7 @@ export async function holdFixtureRoot(root, diagnosticRoot) {
       try { await retainReceipt(); } catch (cleanup) { errors.push(cleanup); }
       throw new AggregateError(errors, "Fixture handle acquisition failed.");
     }
-    return { verify: () => receipt("verify", "verified"), remove: () => receipt("remove", "removed"), async release() {
+    return { verify: () => receipt("verify", "verified"), remove: async () => { throw new Error("Fixture writer exclusion is unavailable; original retained."); }, async release() {
       const errors = [];
       try { await release(); } catch (error) { errors.push(error); }
       try { await retainReceipt(); } catch (error) { errors.push(error); }
@@ -233,28 +211,19 @@ export async function holdFixtureRoot(root, diagnosticRoot) {
     if (rootInfo.uid !== BigInt(process.getuid())) throw new Error("Original fixture root owner is unresolved.");
     await verify();
   } catch (primary) { try { await release(); } catch (cleanup) { throw new AggregateError([primary, cleanup], "Fixture directory acquisition failed."); } throw primary; }
-  const removeChildren = async (handle) => {
-    const directory = `${process.platform === "linux" ? "/proc/self/fd" : "/dev/fd"}/${handle.fd}`;
-    for (const entry of await readdir(directory, { withFileTypes: true })) {
-      const target = path.join(directory, entry.name);
-      const info = await lstat(target, { bigint: true });
-      if (info.uid !== BigInt(process.getuid()) || info.isSymbolicLink() || (!info.isDirectory() && !info.isFile())) throw new Error("Fixture removal entry custody is unresolved.");
-      if (info.isDirectory()) {
-        const child = await open(target, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
-        try {
-          if (sameDirectory(await child.stat({ bigint: true })) !== sameDirectory(info)) throw new Error("Fixture removal directory changed.");
-          await removeChildren(child);
-          if (sameDirectory(await lstat(target, { bigint: true })) !== sameDirectory(info)) throw new Error("Fixture removal directory name changed.");
-          await rmdir(target);
-        } finally { await child.close(); }
-      } else {
-        const file = await open(target, constants.O_RDONLY | constants.O_NOFOLLOW);
-        try {
-          if (sameDirectory(await file.stat({ bigint: true })) !== sameDirectory(info) || sameDirectory(await lstat(target, { bigint: true })) !== sameDirectory(info)) throw new Error("Fixture removal file changed.");
-          await unlink(target);
-        } finally { await file.close(); }
-      }
+  // Holding fds and checking names does not exclude same-uid writers or make
+  // unlink/rmdir conditional on the approved inode. Never enter that unsafe
+  // transaction. The caller keeps the verified copy and original and fails.
+  return { verify, release, async protect() {
+    await verify();
+    const original = held.at(-1);
+    const info = await original.handle.stat({ bigint: true });
+    if (info.uid !== BigInt(process.getuid()) || sameDirectory(info) !== original.identity) {
+      throw new Error("Original fixture owner or identity changed before protection.");
     }
-  };
-  return { verify, release, async remove() { await verify(); await removeChildren(held.at(-1).handle); await verify(); await rmdir(root); } };
+    await original.handle.chmod(0o700);
+    await verify();
+  }, async remove() {
+    throw new Error("Fixture writer exclusion is unavailable; original retained.");
+  } };
 }

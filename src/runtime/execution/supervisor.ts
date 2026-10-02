@@ -3120,11 +3120,13 @@ function retainFixtureMembers(
       record.rootIdentity ? [record.rootIdentity] : []);
     // A rejected fingerprint never acquires authority. Earlier accepted
     // lifetimes survive both production exclusion and record deletion.
-    if (accepted.some((member) => prior.some((expected) => expected.pid === member.pid &&
-      classifyProcessIdentity(expected, { status: "running", identity: member }, process.platform) !== "owned"))) return;
-    record.fixtureAcceptedMembers = accepted.map((member) => ({ ...member }));
+    const nonconflicting = accepted.filter((member) => !prior.some((expected) => expected.pid === member.pid &&
+      classifyProcessIdentity(expected, { status: "running", identity: member }, process.platform) !== "owned"));
+    // A conflicting A cannot discard independently accepted B. Earlier A stays
+    // in private history; the rejected new A never acquires authority.
+    record.fixtureAcceptedMembers = unionProcessFingerprints(prior, nonconflicting).map((member) => ({ ...member }));
     if (record.fixtureCustodyMembers) {
-      record.fixtureCustodyMembers = unionProcessFingerprints(record.fixtureCustodyMembers, accepted)
+      record.fixtureCustodyMembers = unionProcessFingerprints(record.fixtureCustodyMembers, nonconflicting)
         .map((member) => ({ ...member }));
     }
   }

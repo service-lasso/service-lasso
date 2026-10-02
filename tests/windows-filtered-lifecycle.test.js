@@ -355,7 +355,7 @@ test("Windows adopted stop retains durable ownership when its fresh absence insp
 // discovery/replacement. Rejection modes use directly spawned native identities
 // and controlled provisional receipts as supporting acceptance-boundary proof.
 // All are preparation only until admission; the formal matrix remains required.
-for (const mode of ["managed", "adopted", "adopted-pre-enrollment-failure", "adopted-root-rejection", "managed-held-child-rejection"]) {
+for (const mode of ["managed", "adopted", "managed-mixed-conflict", "adopted-mixed-conflict", "adopted-pre-enrollment-failure", "adopted-root-rejection", "managed-held-child-rejection"]) {
   test(`Windows ${mode} fixture history keeps a later descendant across omission and finalization`, {
     skip: process.platform !== "win32", timeout: 120_000,
   }, async () => {
@@ -366,12 +366,16 @@ for (const mode of ["managed", "adopted", "adopted-pre-enrollment-failure", "ado
     await writeFile(scriptPath, `
       import fs from 'node:fs';
       import { spawn } from 'node:child_process';
-      let child, stopped = false;
+      let child, second, stopped = false;
       setInterval(() => {
         let command; try { command = fs.readFileSync('custody-command.txt', 'utf8'); } catch { return; }
         if (command === 'spawn' && !child) {
           child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore', windowsHide: true });
           child.once('spawn', () => fs.writeFileSync('custody-child.txt', String(child.pid)));
+        }
+        if (command === 'spawn-second' && !second) {
+          second = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore', windowsHide: true });
+          second.once('spawn', () => fs.writeFileSync('custody-second.txt', String(second.pid)));
         }
         if (command === 'close' && child && !stopped) { stopped = true; child.kill('SIGTERM'); }
       }, 25);
@@ -380,6 +384,9 @@ for (const mode of ["managed", "adopted", "adopted-pre-enrollment-failure", "ado
     let rejectedChild, rejectedClosed, rejectedIdentity;
     let heldRejectedChild, heldRejectedClosed;
     let omitted = false;
+    const mixedMode = mode.endsWith("mixed-conflict");
+    let secondIdentity, mixedObserved = false, mixedOmitted = false;
+    let secondAdmissionArmed = false, mixedComplete = false;
     let observerFailures = 0;
     let primary;
     const cleanupFailures = [];
@@ -420,6 +427,20 @@ for (const mode of ["managed", "adopted", "adopted-pre-enrollment-failure", "ado
         const result = await inspectWindowsProcessTree(root, options);
         if (mode === "adopted-pre-enrollment-failure") throw preEnrollmentFailure;
         if (mode === "adopted-root-rejection") return { ...result, rootStatus: "exited", members: [...result.members, rejectedIdentity] };
+        if (mixedMode && secondAdmissionArmed && !secondIdentity) {
+          return { ...result, members: result.members.filter(member => member.pid === root.pid || member.pid === descendant.pid) };
+        }
+        if (mixedMode && !mixedComplete && secondIdentity && result.members.some(member => member.pid === secondIdentity.pid)) {
+          if (!mixedObserved) {
+            mixedObserved = true;
+            // A and B are real current root descendants. Only this provisional
+            // receipt changes A's lifetime evidence to exercise acceptance.
+            return { ...result, members: result.members.map(member => member.pid === descendant.pid
+              ? { ...member, commandHash: member.commandHash === "f".repeat(64) ? "e".repeat(64) : "f".repeat(64) } : member) };
+          }
+          mixedOmitted = true;
+          return { ...result, members: result.members.filter(member => member.pid !== secondIdentity.pid) };
+        }
         if (descendant && !result.members.some(member => member.pid === descendant.pid)) omitted = true;
         return result;
       });
@@ -458,7 +479,7 @@ for (const mode of ["managed", "adopted", "adopted-pre-enrollment-failure", "ado
           if (rejectedIdentity) assert.equal(reader().some(member => member.pid === rejectedIdentity.pid), false);
         } else await adoption;
       }
-      if (mode === "managed" || mode === "adopted") {
+      if (mode === "managed" || mode === "adopted" || mixedMode) {
         assert.equal(typeof reader, "function");
         assert.equal(observerFailures, 1);
         const initial = reader();
@@ -475,6 +496,26 @@ for (const mode of ["managed", "adopted", "adopted-pre-enrollment-failure", "ado
         const copied = reader();
         copied.find(member => member.pid === descendantPid).commandHash = "0".repeat(64);
         assert.deepEqual(reader().find(member => member.pid === descendantPid), descendant);
+        if (mixedMode) {
+          secondAdmissionArmed = true;
+          await writeFile(path.join(serviceRoot, "custody-command.txt"), "spawn-second");
+          let secondPid;
+          await waitUntil(async () => {
+            try { secondPid = Number(await readFile(path.join(serviceRoot, "custody-second.txt"), "utf8")); return secondPid > 0; }
+            catch (error) { if (error.code === "ENOENT") return false; throw error; }
+          });
+          const observed = await inspectProcess(secondPid);
+          assert.equal(observed.status, "running");
+          assert.equal(reader().some(member => member.pid === secondPid), false);
+          secondIdentity = observed.identity;
+          await waitUntil(() => mixedObserved && mixedOmitted);
+          assert.deepEqual(reader().find(member => member.pid === descendantPid), descendant);
+          assert.deepEqual(reader().find(member => member.pid === secondPid), secondIdentity);
+          assert.equal((await inspectProcess(secondPid)).status, "running");
+          // Return production control to the original real native inspector.
+          // This does not erase the omitted B from fixture lifetime history.
+          mixedComplete = true;
+        }
         await writeFile(path.join(serviceRoot, "custody-command.txt"), "close");
         await waitUntil(async () => (await inspectProcess(descendantPid)).status === "not_running");
         await waitUntil(() => omitted);
@@ -485,6 +526,10 @@ for (const mode of ["managed", "adopted", "adopted-pre-enrollment-failure", "ado
         assert.deepEqual(reader().find(member => member.pid === descendantPid), descendant);
         for (const member of reader()) assert.equal((await inspectProcess(member.pid)).status, "not_running");
         assert.deepEqual(compatibilityReader().find(member => member.pid === descendantPid), descendant);
+        if (mixedMode) {
+          assert.deepEqual(reader().find(member => member.pid === secondIdentity.pid), secondIdentity);
+          assert.equal((await inspectProcess(secondIdentity.pid)).status, "not_running");
+        }
       }
     } catch (error) { primary = error;
     } finally {

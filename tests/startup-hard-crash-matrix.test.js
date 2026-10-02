@@ -4,7 +4,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { createServer } from "node:net";
-import { observeHardCrashChildExit } from "./hard-crash-child-exit.js";
+import { observeHardCrashChildExit, settleHardCrashDirectChild, stopHardCrashDirectChild as stopExactChild } from "./hard-crash-child-exit.js";
 import { lifecycleFailureDiagnostic } from "./lifecycle-failure-diagnostics.js";
 import { readFile, readdir, rm } from "node:fs/promises";
 import { startApiServer } from "../dist/server/index.js";
@@ -56,19 +56,6 @@ function processIsAlive(pid) {
     return true;
   } catch {
     return false;
-  }
-}
-
-async function stopExactChild(child) {
-  if (!child) return;
-  const closed = child.fixtureClose;
-  if (!closed) throw new Error("Fixture child close custody is missing.");
-  if (child.exitCode === null && child.signalCode === null) child.kill("SIGTERM");
-  if (!(await Promise.race([closed.then(() => true), new Promise((resolve) => setTimeout(() => resolve(false), 5_000))]))) {
-    if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
-    if (!(await Promise.race([closed.then(() => true), new Promise((resolve) => setTimeout(() => resolve(false), 5_000))]))) {
-      throw new Error("Fixture child close remains unresolved.");
-    }
   }
 }
 
@@ -414,12 +401,12 @@ for (const phase of STARTUP_TRANSACTION_PHASES) {
       } finally {
         for (const [stage, cleanup] of [
           ["stop", () => apiServer?.stop()],
-          ["child_close", () => stopExactChild(crash)],
-          ["child_close", () => stopExactChild(unrelated)],
         ]) {
           try { await cleanup(); }
           catch (error) { fixture.cleanupFailures.push({ stage, error }); }
         }
+        await settleHardCrashDirectChild(crash, fixture.cleanupFailures, stopExactChild);
+        await settleHardCrashDirectChild(unrelated, fixture.cleanupFailures, stopExactChild);
       }
     });
   });

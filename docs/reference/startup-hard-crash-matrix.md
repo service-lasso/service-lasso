@@ -126,3 +126,41 @@ The Windows guardian is new complete review/admission input: tests/fixture-root-
 Direct adoption children now have bounded close custody and exact-child fallback before enrollment failure as well as after enrollment. Cleanup errors aggregate, and hook/environment restoration is unconditional; failed roots/process evidence remain. Closed public stage maps identify action/startup/injection/observer/snapshot/control/absence/preservation/removal/copy/privacy/reset/environment/guardian/diagnostic failures. Full errors and guardian binary streams are retained in independently private diagnostic evidence outside the removal root. Recovered regressions preserve original pre-injection errors and expose only their closed stage map.
 
 All seven formal phase rows on Windows/Linux and original recovery, generation, allocation, identity, absence, privacy, residue and unrelated-process assertions remain required. Bounds, retries, concurrency, signaling and production permissions are unchanged. Original EBUSY jobs and historical91e/current9a2 failures remain failed/unattributed; all seven current9a2 Windows rows failed and the new proof windows were not established. Controlled partial deletion is supporting filesystem coverage, not EBUSY reproduction. This source-only candidate requires a fresh entire independent source review and NEW complete-input exact-head ROOT admission before execution. It is not SOURCE GO, runtime acceptance, qualification, merge, release or programme completion.
+
+## Complete6ae seven-finding successor
+
+This current source disposition supersedes the historical deletion claims above:
+without validated namespace/content writer exclusion, POSIX and Windows removal
+reject before any destructive operation. Original and verified independent copy
+remain; reset is not attempted. Required positive removal/reset/full-matrix gates
+are **UNMET**. No existing positive assertion or formal/recovered row is waived.
+
+The fixture-only actual registry reader rejects every malformed/dropped current
+row and stale-backup substitution, including a mixed valid/invalid registry.
+Record-local history filters conflicting lifetimes per member, preserving earlier
+A and newly accepted B across subsequent omission and finalization. Production
+signaling and deadlines are unchanged. The formal direct-child caller now uses
+the shared fixed direct_child boundary; its exact TERM/KILL/close bounds remain.
+
+Privacy protection changes only prior-owned, nonredirected physical objects:
+POSIX held-directory fchmod; Windows handle owner/no-reparse proof before each
+held-object DACL change and exact readback, without owner reset, SACL or privilege
+enablement. The Windows native privacy source and controlled foreign-owner
+laboratory fixture are new complete ROOT admission inputs, not live proof.
+
+Public initialization reports six fixed safe substages. Accessible full private
+failure capture independent of rejected diagnostic privacy remains blocked on
+the concrete [private custody protocol and owner transfer decision](hard-crash-private-evidence-protocol.md).
+Current run37007665958 has no artifacts; all seven Windows rows fail before
+crash_spawn and no underlying private native cause is available or inferred.
+No workflow upload/provider permission change is prepared or authorized here.
+
+New regressions intervene after the final deletion check, substitute/add/edit
+descendants, exercise actual malformed registry bytes, drive mixed-lifetime real
+supervisor refresh/omission/finalization, reject redirected/foreign-owned public
+privacy targets with outside permission readback, and classify actual formal
+direct-child signal-delivery failure. They are unexecuted source preparation.
+Existing positive removal assertions stay intact and will fail under retention;
+unknown-owner native proof requires the explicitly admitted laboratory fixture,
+never an absent-input pass or skip. Fresh entire source review and NEW complete
+input exact-head ROOT admission precede all execution.

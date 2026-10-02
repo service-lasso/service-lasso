@@ -1,63 +1,56 @@
-import { chmod, mkdir, lstat, mkdtemp, open, readFile, readdir, realpath, writeFile } from "node:fs/promises";
+import { mkdir, lstat, mkdtemp, open, readFile, readdir, realpath, writeFile } from "node:fs/promises";
 import { constants } from "node:fs";
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import path from "node:path";
 import { holdFixtureRoot } from "./fixture-root-custody.js";
+import { fixturePrivacyScript } from "./fixture-privacy-custody.js";
 
 const execFileAsync = promisify(execFile);
-const privateAclScript = `
-$ErrorActionPreference = 'Stop'
-$p = $env:SERVICE_LASSO_FIXTURE_EVIDENCE_ROOT
-$sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
-if ($env:SERVICE_LASSO_FIXTURE_EVIDENCE_PROTECT -eq '1') {
-  $acl = New-Object System.Security.AccessControl.DirectorySecurity
-  $acl.SetOwner($sid)
-  $acl.SetAccessRuleProtection($true, $false)
-  foreach ($identity in @($sid, [System.Security.Principal.SecurityIdentifier]::new('S-1-5-18'))) {
-    $rule = [System.Security.AccessControl.FileSystemAccessRule]::new($identity, 'FullControl', 'ContainerInherit, ObjectInherit', 'None', 'Allow')
-    $acl.AddAccessRule($rule)
-  }
-  Set-Acl -LiteralPath $p -AclObject $acl
-}
-$entries = @((Get-Item -LiteralPath $p -Force)) + @(Get-ChildItem -LiteralPath $p -Recurse -Force)
-foreach ($entry in $entries) {
-  if (($entry.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'Unsupported evidence entry' }
-  $acl = Get-Acl -LiteralPath $entry.FullName
-  if ($acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value -ne $sid.Value) { throw 'Unknown evidence owner' }
-  if ($entry.FullName -eq $p -and -not $acl.AreAccessRulesProtected) { throw 'Unprotected evidence root' }
-  $rules = @($acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]))
-  if ($rules.Count -eq 0) { throw 'Missing evidence permissions' }
-  foreach ($rule in $rules) {
-    if ($rule.IdentityReference.Value -notin @($sid.Value, 'S-1-5-18') -or $rule.AccessControlType -ne 'Allow' -or $rule.FileSystemRights -ne 'FullControl') { throw 'Unprotected evidence permissions' }
-  }
-}
-`;
-
 async function evidencePermissions(root, protect) {
   if (process.platform === "win32") {
     await execFileAsync(path.join(process.env.SystemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
-      ["-NoProfile", "-NonInteractive", "-Command", privateAclScript], {
+      ["-NoProfile", "-NonInteractive", "-Command", fixturePrivacyScript], {
         windowsHide: true, timeout: 5_000, maxBuffer: 16 * 1024,
         env: { ...process.env, SERVICE_LASSO_FIXTURE_EVIDENCE_ROOT: root,
           SERVICE_LASSO_FIXTURE_EVIDENCE_PROTECT: protect ? "1" : "0" },
         // Original and copied roots are protected before sensitive writes.
       });
   } else {
-    if (protect) await chmod(root, 0o700);
+    const held = await holdFixtureRoot(root);
+    try { if (protect) await held.protect(); else await held.verify(); }
+    finally { await held.release(); }
     const info = await lstat(root);
     if (info.uid !== process.getuid() || (info.mode & 0o077) !== 0) throw new Error("Evidence permissions are unresolved.");
   }
 }
 
-export async function protectOriginalFixture(root) { await evidencePermissions(root, true); }
+export async function protectOriginalFixture(root) {
+  if (process.platform === "win32") {
+    // Recovered/crash callers may already hold an original whose private DACL
+    // is established. Read-only validation requests no DELETE/write access.
+    // An unprotected original still requires the separately held mutation path;
+    // neither path resets an owner or enables a privilege.
+    try { await evidencePermissions(root, false); return; }
+    catch (verification) {
+      try { await evidencePermissions(root, true); }
+      catch (protection) { throw new AggregateError([verification, protection], "Original fixture privacy is unresolved."); }
+    }
+  } else await evidencePermissions(root, true);
+}
 export async function verifyOriginalFixturePrivacy(root) { await evidencePermissions(root, false); }
+
+export const FIXTURE_INITIALIZATION_STAGES = Object.freeze([
+  "initialization_diagnostic_allocate", "initialization_diagnostic_privacy",
+  "initialization_original_privacy", "initialization_held_acquire",
+  "initialization_original_identity", "initialization_held_verify",
+]);
 
 // Preserve closed fixture bytes outside the recursive removal root. Do not
 // follow links into another owner's state. The copy is private local evidence,
 // including for a successful row; no copy path is emitted in diagnostics.
-export function createFixtureEvidenceBoundary(root) {
+export function createFixtureEvidenceBoundary(root, { beforeInitializationStep } = {}) {
   let evidenceRoot;
   let verified = false;
   let sealedInventory;
@@ -65,6 +58,7 @@ export function createFixtureEvidenceBoundary(root) {
   let rootIdentity;
   let diagnosticRoot;
   let initialization;
+  let initializationStage;
   let originalRemoved = false;
   const stateFailures = [];
   const inventoryName = "fixture-evidence-inventory.json";
@@ -134,13 +128,29 @@ export function createFixtureEvidenceBoundary(root) {
   return {
     async initialize() {
       initialization ??= (async () => {
-        diagnosticRoot = await mkdtemp(path.join(path.dirname(root), `${path.basename(root)}-diagnostics-`));
-        await evidencePermissions(diagnosticRoot, true);
-        await protectOriginalFixture(root);
-        rootCustody = await holdFixtureRoot(root, diagnosticRoot);
-        const info = await lstat(root, { bigint: true });
-        rootIdentity = `${info.dev}:${info.ino}`;
-        await rootCustody.verify();
+        const step = async (stage, action) => {
+          initializationStage = stage;
+          try {
+            await beforeInitializationStep?.(stage, { diagnosticRoot, originalRoot: root });
+            return await action();
+          }
+          catch (cause) {
+            const error = new Error("Fixture initialization rejected.", { cause });
+            error.fixtureInitializationStage = stage;
+            throw error;
+          }
+        };
+        diagnosticRoot = await step("initialization_diagnostic_allocate", () =>
+          mkdtemp(path.join(path.dirname(root), `${path.basename(root)}-diagnostics-`)));
+        await step("initialization_diagnostic_privacy", () => protectOriginalFixture(diagnosticRoot));
+        await step("initialization_original_privacy", () => protectOriginalFixture(root));
+        rootCustody = await step("initialization_held_acquire", () => holdFixtureRoot(root, diagnosticRoot));
+        await step("initialization_original_identity", async () => {
+          const info = await lstat(root, { bigint: true });
+          rootIdentity = `${info.dev}:${info.ino}`;
+        });
+        await step("initialization_held_verify", () => rootCustody.verify());
+        initializationStage = undefined;
       })();
       await initialization;
     },
@@ -177,7 +187,7 @@ export function createFixtureEvidenceBoundary(root) {
       await verifyCopy();
       verified = true;
     },
-    async remove(beforeRemoval) {
+    async remove(beforeRemoval, afterFinalValidation) {
       if (!verified || !rootCustody) throw new Error("Fixture removal lacks original held custody.");
       // The hook may inject actual filesystem faults, but cannot supply the
       // destructive operation. Recheck original held/named identities after it.
@@ -185,6 +195,10 @@ export function createFixtureEvidenceBoundary(root) {
       await verifyCopy();
       await verifyOriginalInventory();
       await rootCustody.verify();
+      // A real regression can intervene at the formerly unsafe last-check to
+      // delete/child-acquisition interval. No deletion exists below this hook:
+      // absent validated writer exclusion, remove rejects unconditionally.
+      await afterFinalValidation?.();
       await rootCustody.remove();
       originalRemoved = true;
     },
@@ -231,6 +245,7 @@ export function createFixtureEvidenceBoundary(root) {
     get originalRoot() { return root; },
     takeStateFailures() { return stateFailures.splice(0); },
     get diagnosticRoot() { return diagnosticRoot; },
+    get initializationStage() { return initializationStage; },
   };
 }
 
@@ -312,7 +327,7 @@ export async function closeFixture({ primary, primaryStage = "action", failures 
   let removalAttempted = false;
   let resetState = "not_attempted";
   let environment = "restored";
-  const stages = ["action", "fixture_initialization", "crash_spawn", "crash_exit", "interrupted_read", "recovery_inspection", "recovery_startup", "injection_assertions", "post_compensation", "direct_child", "server_stop", "enrollment_observation", "snapshot", "stop", "finalization", "inspection", "absence", "preservation", "removal", "reset", "environment", "custody", "evidence_state", "original_identity", "original_readback", "copy_verification", "privacy", "held_release", "diagnostic", "private_diagnostic"];
+  const stages = ["action", "fixture_initialization", ...FIXTURE_INITIALIZATION_STAGES, "crash_spawn", "crash_exit", "interrupted_read", "recovery_inspection", "recovery_startup", "injection_assertions", "post_compensation", "direct_child", "server_stop", "enrollment_observation", "snapshot", "stop", "finalization", "inspection", "absence", "preservation", "removal", "reset", "environment", "custody", "evidence_state", "original_identity", "original_readback", "copy_verification", "privacy", "held_release", "diagnostic", "private_diagnostic"];
   const stageName = (stage) => stages.includes(stage) ? stage : "action";
   const projection = () => Object.fromEntries(stages.map(stage => [stage,
     failures.some(entry => stageName(entry.stage) === stage) || (primary && stageName(primaryStage) === stage) ? "failed" : "clear"]));
@@ -326,7 +341,12 @@ export async function closeFixture({ primary, primaryStage = "action", failures 
   };
   try {
     try { await evidence.initialize(); }
-    catch (error) { failures.push({ stage: "fixture_initialization", error }); }
+    catch (error) {
+      failures.push({ stage: "fixture_initialization", error });
+      if (FIXTURE_INITIALIZATION_STAGES.includes(evidence.initializationStage)) {
+        failures.push({ stage: evidence.initializationStage, error });
+      }
+    }
     result = await custody.settle(adapter);
     failures.push(...result.failures);
     // A failed action retains even successfully settled evidence.
