@@ -72,8 +72,15 @@ jobs:
       CORE_NPM_INTEGRITY: ${{ inputs.core_npm_integrity }}
       CORE_RELEASE_ASSET: service-lasso-${{ inputs.core_release_tag }}-${{ matrix.core_suffix }}
       CORE_RELEASE_SHA256: ${{ matrix.core_sha256 }}
-      ADMIN_HARNESS_REVISION: 3b44b9053665f8f2e54ecba610e4f94e0c1727dd
+      ADMIN_HARNESS_REVISION: 90caf8cf0f8e3c599a1a5022936813ac8bf0983b
       QUALIFICATION_PLATFORM: ${{ matrix.platform }}
+      # The custody writer is shared with the Admin lifecycle workflow.  Keep
+      # its explicit platform contract bound to this matrix value as well.
+      ADMIN_PLATFORM: ${{ matrix.platform }}
+      # The dispatch SHA is the sole source candidate for this manual,
+      # published-artifact qualification.  The first custody writer binds it
+      # before dependency resolution, Core import, or browser work.
+      QUALIFICATION_CANDIDATE_SHA: ${{ github.sha }}
 
     steps:
       - name: Check out exact qualification harness
@@ -102,7 +109,11 @@ jobs:
           export QUALIFICATION_WORKSPACE_ROOT="$SERVICE_LASSO_WORKSPACE_ROOT"
           export QUALIFICATION_EVIDENCE_ROOT="$qualification_root/evidence"
           export QUALIFICATION_SAFE_STATE_PATH="$QUALIFICATION_EVIDENCE_ROOT/qualification-state.json"
-          export QUALIFICATION_INITIAL_RECEIPT_PATH="$QUALIFICATION_EVIDENCE_ROOT/initial-receipt.json"
+          # Full custody contains runner-local paths, ownership and process
+          # identity.  It is retained only under runner-local custody.  The
+          # uploaded artifact receives a closed digest projection.
+          export QUALIFICATION_PRIVATE_INITIAL_RECEIPT_PATH="$qualification_root/private/initial-receipt.json"
+          export QUALIFICATION_INITIAL_RECEIPT_PATH="$QUALIFICATION_EVIDENCE_ROOT/initial-receipt-projection.json"
           printf '%s\n' \
             "QUALIFICATION_WORKSPACE_ROOT=$QUALIFICATION_WORKSPACE_ROOT" \
             "SERVICE_LASSO_WORKSPACE_ROOT=$SERVICE_LASSO_WORKSPACE_ROOT" \
@@ -113,12 +124,14 @@ jobs:
             "SERVICE_LASSO_TEST_SUPPORT_ROOT=$SERVICE_LASSO_TEST_SUPPORT_ROOT" \
             "QUALIFICATION_EVIDENCE_ROOT=$QUALIFICATION_EVIDENCE_ROOT" \
             "QUALIFICATION_SAFE_STATE_PATH=$QUALIFICATION_SAFE_STATE_PATH" \
+            "QUALIFICATION_PRIVATE_INITIAL_RECEIPT_PATH=$QUALIFICATION_PRIVATE_INITIAL_RECEIPT_PATH" \
             "QUALIFICATION_INITIAL_RECEIPT_PATH=$QUALIFICATION_INITIAL_RECEIPT_PATH" \
             >> "$GITHUB_ENV"
-          mkdir -p "$QUALIFICATION_WORKSPACE_ROOT" "$QUALIFICATION_EVIDENCE_ROOT" "$SERVICE_LASSO_TEST_SERVICES_ROOT" "$SERVICE_LASSO_TEST_EVIDENCE_ROOT" "$SERVICE_LASSO_TEST_SUPPORT_ROOT"
+          mkdir -p "$QUALIFICATION_WORKSPACE_ROOT" "$QUALIFICATION_EVIDENCE_ROOT" "$(dirname "$QUALIFICATION_PRIVATE_INITIAL_RECEIPT_PATH")" "$SERVICE_LASSO_TEST_SERVICES_ROOT" "$SERVICE_LASSO_TEST_EVIDENCE_ROOT" "$SERVICE_LASSO_TEST_SUPPORT_ROOT"
           test ! -e "$SERVICE_LASSO_INSTANCE_REGISTRY_PATH"
           test ! -e "$SERVICE_LASSO_HOST_PORT_REGISTRY_PATH"
-          printf '{"schema":"service-lasso.qualification-initial-receipt.v1","platform":"%s","run":{"id":"%s","attempt":"%s"}}\n' "$QUALIFICATION_PLATFORM" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" > "$QUALIFICATION_INITIAL_RECEIPT_PATH"
+          node "$GITHUB_WORKSPACE/scripts/record-packaged-admin-first-custody.mjs"
+          node "$GITHUB_WORKSPACE/scripts/project-qualification-first-custody.mjs"
           test -s "$QUALIFICATION_INITIAL_RECEIPT_PATH"
 
       - name: Set up Node

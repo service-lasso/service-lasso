@@ -77,7 +77,7 @@ test("AC-4BY.2 executes each finite pre-browser producer through the packaged ag
 test("AC-4BY.2 rejects missing, stale, and expanded initial receipt custody for both normal and pre-browser artifacts", async () => {
   for (const [label, mutate] of [
     ["missing", async (directory) => rm(path.join(directory, "initial-receipt.json"))],
-    ["stale", async (directory) => writeFile(path.join(directory, "initial-receipt.json"), JSON.stringify(initialReceiptFor("win32", { run: { id: Number(runId) - 1, attempt: Number(runAttempt) } }))],
+    ["stale", async (directory) => writeFile(path.join(directory, "initial-receipt.json"), JSON.stringify(initialReceiptFor("win32", { run: { id: Number(runId) - 1, attempt: Number(runAttempt) } })))],
     ["expanded", async (directory) => writeFile(path.join(directory, "initial-receipt.json"), JSON.stringify({ ...initialReceiptFor("win32"), extra: true }))],
   ]) {
     const normal = await fixture(async (root) => mutate(path.join(root, `packaged-admin-lifecycle-win32-${runId}-${runAttempt}`)));

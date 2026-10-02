@@ -50,7 +50,7 @@ const runAttemptForInitialReceipt = requirePositiveInteger(env("GITHUB_RUN_ATTEM
 const initialReceiptPath = path.resolve(env("QUALIFICATION_INITIAL_RECEIPT_PATH", /^.+$/u));
 const initialReceiptSource = await readFile(initialReceiptPath, "utf8").catch(() => null);
 const initialReceipt = initialReceiptSource && strictJson(initialReceiptSource) ? JSON.parse(initialReceiptSource) : null;
-if (!initialReceipt || typeof initialReceipt !== "object" || Array.isArray(initialReceipt) || Object.keys(initialReceipt).sort().join(",") !== "platform,run,schema" || initialReceipt.schema !== "service-lasso.qualification-initial-receipt.v1" || initialReceipt.platform !== platform || !initialReceipt.run || typeof initialReceipt.run !== "object" || Array.isArray(initialReceipt.run) || Object.keys(initialReceipt.run).sort().join(",") !== "attempt,id" || initialReceipt.run.id !== runIdForInitialReceipt || initialReceipt.run.attempt !== runAttemptForInitialReceipt) throw new Error("Initial qualification receipt custody is invalid.");
+if (!initialReceipt || typeof initialReceipt !== "object" || Array.isArray(initialReceipt) || initialReceipt.schema !== "service-lasso.qualification-initial-receipt.v3" || initialReceipt.private !== true || initialReceipt.platform !== platform || !initialReceipt.run || typeof initialReceipt.run !== "object" || Array.isArray(initialReceipt.run) || Object.keys(initialReceipt.run).sort().join(",") !== "attempt,id" || String(initialReceipt.run.id) !== String(runIdForInitialReceipt) || String(initialReceipt.run.attempt) !== String(runAttemptForInitialReceipt) || initialReceipt.source?.status !== "CLEAN" || !Array.isArray(initialReceipt.source?.inventory) || initialReceipt.source.inventory.length !== 19 || initialReceipt.runner?.parent?.pid !== initialReceipt.runner?.ppid || !initialReceipt.inputs?.workspace || initialReceipt.inputs.workspace.env !== "SERVICE_LASSO_WORKSPACE_ROOT" || initialReceipt.inputs.instanceRegistry?.env !== "SERVICE_LASSO_INSTANCE_REGISTRY_PATH" || initialReceipt.inputs.hostPortRegistry?.env !== "SERVICE_LASSO_HOST_PORT_REGISTRY_PATH") throw new Error("Initial qualification receipt custody is invalid.");
 const prebrowserPath = process.env.ADMIN_TRUSTED_UNLOCK_PREBROWSER_FAILURE_PATH;
 if (prebrowserPath) {
   const source = await readFile(path.resolve(prebrowserPath), "utf8").catch(() => null);
@@ -98,6 +98,29 @@ const adminTrustedUnlockReceipt = retainAdminTrustedUnlockReceipt(trustedUnlockS
   adminRevision: ADMIN_RELEASE.revision,
   adminHarnessRevision,
 });
+const firstCustodyProjectionPath = path.resolve(env("QUALIFICATION_INITIAL_RECEIPT_PATH", /^.+$/u));
+const firstCustodyProjectionSource = await readFile(firstCustodyProjectionPath, "utf8");
+let firstCustody;
+try {
+  firstCustody = JSON.parse(firstCustodyProjectionSource);
+} catch {
+  throw new Error("First-custody projection is malformed.");
+}
+if (
+  firstCustody?.schema !== "service-lasso.qualification-first-custody-projection.v1" ||
+  firstCustody?.retainedContent !== "closed_digest_projection" ||
+  firstCustody?.platform !== platform ||
+  String(firstCustody?.run?.id) !== runId ||
+  String(firstCustody?.run?.attempt) !== runAttempt ||
+  firstCustody?.source?.head !== workflowSha ||
+  firstCustody?.source?.status !== "CLEAN" ||
+  !Number.isSafeInteger(firstCustody?.source?.trackedFileCount) ||
+  firstCustody.source.trackedFileCount < 1 ||
+  firstCustody?.source?.nativeFileCount !== 19 ||
+  !/^[0-9a-f]{64}$/u.test(firstCustody?.firstRecordSha256) ||
+  !/^[0-9a-f]{64}$/u.test(firstCustody?.journalSha256) ||
+  firstCustody?.terminal !== "UNRESOLVED"
+) throw new Error("First-custody projection is not a closed initial record.");
 
 let evidence;
 try {
@@ -166,6 +189,16 @@ evidence.run = {
   workflowSha,
 };
 evidence.adminTrustedUnlockReceipt = adminTrustedUnlockReceipt;
+evidence.firstCustody = {
+  schema: firstCustody.schema,
+  firstRecordSha256: firstCustody.firstRecordSha256,
+  journalSha256: firstCustody.journalSha256,
+  trackedFileCount: firstCustody.source.trackedFileCount,
+  inventorySha256: firstCustody.source.inventorySha256,
+  nativeFileCount: firstCustody.source.nativeFileCount,
+  nativeInventorySha256: firstCustody.source.nativeInventorySha256,
+  terminal: "CLOSED",
+};
 evidence.scenarios ??= {};
 evidence.scenarios.firstRun = process.env.QUALIFICATION_FIRST_RUN === "success" ? "success" : "blocked";
 const lifecycleOutcome = process.env.QUALIFICATION_LIFECYCLE === "success" ? "success" : "blocked";
@@ -273,6 +306,7 @@ try {
     },
     adminHarnessRevision,
     adminTrustedUnlockReceipt,
+    firstCustody: { schema: firstCustody.schema, firstRecordSha256: firstCustody.firstRecordSha256, journalSha256: firstCustody.journalSha256, trackedFileCount: firstCustody.source.trackedFileCount, inventorySha256: firstCustody.source.inventorySha256, nativeFileCount: firstCustody.source.nativeFileCount, nativeInventorySha256: firstCustody.source.nativeInventorySha256, terminal: "CLOSED" },
     retentionDays: RETENTION_DAYS,
     mutationRetry: false,
     acquisitionRetry: false,

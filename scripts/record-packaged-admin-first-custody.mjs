@@ -1,68 +1,30 @@
-// This is intentionally invoked before npm ci, build, test, or a Core import.
-// It records the checked-out candidate and the runner that is about to execute
-// those actions; later receipts transport this fact but never recreate it.
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
-import { lstat, mkdir, open, readFile } from "node:fs/promises";
+import { lstat, mkdir, open, readFile, realpath } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-
 const execFileAsync = promisify(execFile);
-const required = ["ADMIN_PLATFORM", "GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT", "QUALIFICATION_INITIAL_RECEIPT_PATH", "GITHUB_WORKSPACE"];
+const required = ["ADMIN_PLATFORM", "GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT", "QUALIFICATION_PRIVATE_INITIAL_RECEIPT_PATH", "GITHUB_WORKSPACE", "SERVICE_LASSO_WORKSPACE_ROOT", "SERVICE_LASSO_INSTANCE_REGISTRY_PATH", "SERVICE_LASSO_HOST_PORT_REGISTRY_PATH"];
 for (const name of required) if (!process.env[name]) throw new Error(`first_custody_${name.toLowerCase()}_missing`);
-const receiptPath = path.resolve(process.env.QUALIFICATION_INITIAL_RECEIPT_PATH);
-const root = path.dirname(receiptPath);
-if (root !== path.resolve(process.env.QUALIFICATION_EVIDENCE_ROOT ?? root)) throw new Error("first_custody_receipt_root_invalid");
-
-async function exclusiveJson(file, value) {
-  const handle = await open(file, "wx", 0o600);
-  try { await handle.writeFile(`${JSON.stringify(value)}\n`, "utf8"); await handle.sync(); }
-  finally { await handle.close(); }
-}
-async function fileState(candidate) {
-  const metadata = await lstat(candidate).catch((error) => error?.code === "ENOENT" ? null : Promise.reject(error));
-  if (!metadata) return { state: "ABSENT" };
-  if (!metadata.isFile() || metadata.isSymbolicLink()) throw new Error("first_custody_owned_path_invalid");
-  const bytes = await readFile(candidate);
-  return { state: "FILE", size: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") };
-}
-async function parentChain(candidate) {
-  const chain = [];
-  for (let cursor = path.resolve(candidate); ;) {
-    const metadata = await lstat(cursor);
-    if (metadata.isSymbolicLink()) throw new Error("first_custody_parent_link");
-    chain.push({ path: cursor, kind: metadata.isDirectory() ? "DIRECTORY" : metadata.isFile() ? "FILE" : "OTHER" });
-    const parent = path.dirname(cursor); if (parent === cursor) return chain;
-    cursor = parent;
-  }
-}
-async function command(command, args) {
-  try {
-    const result = await execFileAsync(command, args, { cwd: process.env.GITHUB_WORKSPACE, timeout: 5_000, windowsHide: true, encoding: "utf8" });
-    return { command: [command, ...args], status: 0, stdoutSha256: createHash("sha256").update(result.stdout).digest("hex"), stderrSha256: createHash("sha256").update(result.stderr).digest("hex") };
-  } catch (error) { return { command: [command, ...args], status: Number.isSafeInteger(error.code) ? error.code : null, unavailable: error.code === "ENOENT", stdoutSha256: createHash("sha256").update(error.stdout ?? "").digest("hex"), stderrSha256: createHash("sha256").update(error.stderr ?? "").digest("hex") }; }
-}
-const ownedPaths = [
-  "src/runtime/process/windows-process-inspector.cs", "src/runtime/process/windows-process-inspector.exe", "src/runtime/process/windows-process-inspector.provenance.json",
-  "src/runtime/execution/windows-managed-launcher-native.cs", "src/runtime/execution/windows-managed-launcher-native.exe", "src/runtime/execution/windows-managed-launcher-native.provenance.json",
-  "src/runtime/security/windows-dpapi-helper.cs", "src/runtime/security/windows-dpapi-helper.exe", "src/runtime/security/windows-dpapi-helper.provenance.json",
-  "tests/fixtures/windows-held-exit-probe.cs", "tests/fixtures/windows-held-exit-probe.exe", "tests/fixtures/windows-held-exit-probe.provenance.json",
-];
-const workspace = path.resolve(process.env.GITHUB_WORKSPACE);
-const sourceCommands = await Promise.all([command("git", ["rev-parse", "HEAD"]), command("git", ["rev-parse", "HEAD^{tree}"])]);
-const [headRaw, treeRaw] = await Promise.all([execFileAsync("git", ["rev-parse", "HEAD"], { cwd: workspace }), execFileAsync("git", ["rev-parse", "HEAD^{tree}"], { cwd: workspace })]);
-const head = headRaw.stdout.trim(), tree = treeRaw.stdout.trim();
-if (!/^[0-9a-f]{40}$/u.test(head) || !/^[0-9a-f]{40}$/u.test(tree) || head !== process.env.QUALIFICATION_CANDIDATE_SHA) throw new Error("first_custody_candidate_binding_invalid");
-const runtime = await fileState(process.execPath);
-const nativeAssets = await Promise.all(ownedPaths.map(async (relative) => ({ path: relative, parents: await parentChain(path.join(workspace, relative)), file: await fileState(path.join(workspace, relative)) })));
-const journal = { schema: "service-lasso.qualification-first-custody-journal.v1", private: true, commands: [...sourceCommands, await command("npm", ["--version"]), await command("csc", ["-version"]) ] };
-await mkdir(root, { recursive: true, mode: 0o700 });
-await exclusiveJson(path.join(root, "first-custody-journal.json"), journal);
-await exclusiveJson(receiptPath, {
-  schema: "service-lasso.qualification-initial-receipt.v2", private: true, platform: process.env.ADMIN_PLATFORM,
-  run: { id: process.env.GITHUB_RUN_ID, attempt: process.env.GITHUB_RUN_ATTEMPT }, source: { head, tree },
-  runner: { platform: process.platform, arch: process.arch, release: os.release(), pid: process.pid, ppid: process.ppid, executable: runtime },
-  ownedPaths: nativeAssets, registries: [process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH, process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH].map((candidate) => ({ path: candidate, state: "ABSENT" })),
-  journal: "first-custody-journal.json",
-});
+const receiptPath = path.resolve(process.env.QUALIFICATION_PRIVATE_INITIAL_RECEIPT_PATH), root = path.dirname(receiptPath), workspace = path.resolve(process.env.GITHUB_WORKSPACE);
+if (!root.startsWith(path.resolve(process.env.RUNNER_TEMP ?? root))) throw new Error("first_custody_receipt_root_invalid");
+async function exclusiveJson(file, value) { const handle = await open(file, "wx", 0o600); try { await handle.writeFile(`${JSON.stringify(value)}\n`, "utf8"); await handle.sync(); } finally { await handle.close(); } }
+async function fileState(candidate) { const metadata = await lstat(candidate).catch((error) => error?.code === "ENOENT" ? null : Promise.reject(error)); if (!metadata) return { state: "ABSENT" }; if (!metadata.isFile() || metadata.isSymbolicLink()) throw new Error("first_custody_file_invalid"); const bytes = await readFile(candidate); return { state: "FILE", size: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") }; }
+const ownerCache = new Map();
+async function owner(candidate) { if (ownerCache.has(candidate)) return ownerCache.get(candidate); const value = process.platform !== "win32" ? `${(await lstat(candidate)).uid}:${(await lstat(candidate)).gid}` : (await execFileAsync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", `(Get-Acl -LiteralPath '${candidate.replaceAll("'", "''")}').Owner`], { windowsHide: true, timeout: 15000 })).stdout.trim(); if (!value) throw new Error("first_custody_owner_unavailable"); ownerCache.set(candidate, value); return value; }
+async function parentChain(candidate) { const chain = []; for (let cursor = path.resolve(candidate); ;) { const metadata = await lstat(cursor), resolved = await realpath(cursor); if (metadata.isSymbolicLink() || resolved !== cursor) throw new Error("first_custody_parent_reparse"); chain.push({ path: cursor, resolved, kind: metadata.isDirectory() ? "DIRECTORY" : metadata.isFile() ? "FILE" : "OTHER", reparse: false, owner: await owner(cursor) }); const parent = path.dirname(cursor); if (parent === cursor) return chain; cursor = parent; } }
+async function command(command, args) { try { const result = await execFileAsync(command, args, { cwd: workspace, timeout: 5000, windowsHide: true, encoding: "utf8" }); return { command: [command, ...args], status: 0, stdoutSha256: createHash("sha256").update(result.stdout).digest("hex"), stderrSha256: createHash("sha256").update(result.stderr).digest("hex") }; } catch (error) { return { command: [command, ...args], status: Number.isSafeInteger(error.code) ? error.code : null, unavailable: error.code === "ENOENT", stdoutSha256: createHash("sha256").update(error.stdout ?? "").digest("hex"), stderrSha256: createHash("sha256").update(error.stderr ?? "").digest("hex") }; } }
+async function resolveTool(name) { const [finder, args] = process.platform === "win32" ? ["where.exe", [name]] : ["which", [name]]; const result = await execFileAsync(finder, args, { cwd: workspace, timeout: 5000, windowsHide: true, encoding: "utf8" }).catch(() => null); const candidate = result?.stdout.split(/\r?\n/u).map((line) => line.trim()).find(Boolean); if (!candidate) return { name, state: "UNAVAILABLE" }; const resolved = await realpath(candidate); return { name, state: "FILE", path: resolved, image: await fileState(resolved), parents: await parentChain(resolved) }; }
+async function processRecord(pid) { if (!Number.isSafeInteger(pid) || pid < 1) throw new Error("first_custody_pid_invalid"); if (process.platform === "win32") { const query = `Get-CimInstance Win32_Process -Filter \"ProcessId = ${pid}\" | Select-Object ProcessId,ParentProcessId,CreationDate,ExecutablePath | ConvertTo-Json -Compress`; const { stdout } = await execFileAsync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", query], { windowsHide: true, timeout: 15000 }); const value = JSON.parse(stdout); if (!value?.ProcessId || !value?.ParentProcessId || !value?.CreationDate || !value?.ExecutablePath) throw new Error("first_custody_process_identity_unavailable"); return { pid: value.ProcessId, ppid: value.ParentProcessId, birth: value.CreationDate, image: await fileState(value.ExecutablePath) }; } const { stdout } = await execFileAsync("ps", ["-o", "ppid=", "-o", "lstart=", "-p", String(pid)], { timeout: 5000 }); const match = stdout.trim().match(/^(\d+)\s+(.+)$/u); if (!match) throw new Error("first_custody_process_identity_unavailable"); const executable = process.platform === "linux" ? (await execFileAsync("readlink", ["-f", `/proc/${pid}/exe`], { timeout: 5000 })).stdout.trim() : (await execFileAsync("ps", ["-o", "comm=", "-p", String(pid)], { timeout: 5000 })).stdout.trim(); return { pid, ppid: Number(match[1]), birth: match[2], image: await fileState(executable) }; }
+async function input(name, expected) { const candidate = path.resolve(process.env[name]); if (candidate !== process.env[name]) throw new Error("first_custody_input_not_absolute"); const metadata = await lstat(candidate).catch((error) => error?.code === "ENOENT" ? null : Promise.reject(error)); const state = metadata ? metadata.isDirectory() && !metadata.isSymbolicLink() ? "DIRECTORY" : "OTHER" : "ABSENT"; if (state !== expected) throw new Error("first_custody_input_state_invalid"); return { env: name, path: candidate, state, parents: await parentChain(state === "ABSENT" ? path.dirname(candidate) : candidate) }; }
+const ownedPaths = ["src/runtime/execution/windows-managed-launcher-native-bootstrap.c", "src/runtime/execution/windows-managed-launcher-native.cs", "src/runtime/execution/windows-managed-launcher-native.exe", "src/runtime/execution/windows-managed-launcher-native.provenance.json", "src/runtime/execution/windows-managed-launcher-managed.exe", "src/runtime/execution/windows-managed-launcher-managed.provenance.json", "src/runtime/operator/windows-directory-sync-helper.cs", "src/runtime/operator/windows-directory-sync-helper.exe", "src/runtime/operator/windows-directory-sync-helper.provenance.json", "src/runtime/process/windows-process-inspector.cs", "src/runtime/process/windows-process-inspector.exe", "src/runtime/process/windows-process-inspector.provenance.json", "src/runtime/security/windows-dpapi-helper.cs", "src/runtime/security/windows-dpapi-helper.exe", "src/runtime/security/windows-dpapi-helper.provenance.json", "tests/fixtures/windows-held-exit-probe.cs", "tests/fixtures/windows-held-exit-probe.exe", "tests/fixtures/windows-held-exit-probe.provenance.json", "tests/windows-process-inspector-command-line-retry-harness.cs"];
+const [headRaw, treeRaw, stageRaw] = await Promise.all([execFileAsync("git", ["rev-parse", "HEAD"], { cwd: workspace }), execFileAsync("git", ["rev-parse", "HEAD^{tree}"], { cwd: workspace }), execFileAsync("git", ["ls-files", "--stage", "-z"], { cwd: workspace, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 })]); const head = headRaw.stdout.trim(), tree = treeRaw.stdout.trim(); if (!/^[0-9a-f]{40}$/u.test(head) || !/^[0-9a-f]{40}$/u.test(tree) || head !== process.env.QUALIFICATION_CANDIDATE_SHA) throw new Error("first_custody_candidate_binding_invalid");
+const cleanStatus = await execFileAsync("git", ["status", "--porcelain"], { cwd: workspace, timeout: 5000, windowsHide: true, encoding: "utf8" }); if (cleanStatus.stdout !== "") throw new Error("first_custody_source_not_clean");
+const stage = new Map(stageRaw.stdout.split("\0").filter(Boolean).map((entry) => { const match = /^(\d+) ([0-9a-f]{40}) (\d+)\t(.+)$/u.exec(entry); if (!match || match[1] !== "100644" && match[1] !== "100755") throw new Error("first_custody_source_inventory_invalid"); return [match[4], match[2]]; }));
+const sourceInventory = [];
+for (const [relative, gitBlob] of stage) { const candidate = path.join(workspace, relative); const file = await fileState(candidate); if (file.state !== "FILE") throw new Error("first_custody_source_inventory_incomplete"); const blob = await execFileAsync("git", ["cat-file", "blob", `${head}:${relative}`], { cwd: workspace, encoding: "buffer", maxBuffer: 64 * 1024 * 1024 }); if (createHash("sha256").update(blob.stdout).digest("hex") !== file.sha256) throw new Error("first_custody_source_byte_mismatch"); sourceInventory.push({ path: relative, gitBlob, size: file.size, sha256: file.sha256 }); }
+const [runner, parent, tools] = await Promise.all([processRecord(process.pid), processRecord(process.ppid), Promise.all(["git", "node", "npm", "csc"].map(resolveTool))]); const nativeAssets = []; for (const relative of ownedPaths) nativeAssets.push({ path: relative, parents: await parentChain(path.join(workspace, relative)), file: await fileState(path.join(workspace, relative)) }); if (nativeAssets.some((entry) => entry.file.state !== "FILE" || !stage.has(entry.path) || stage.get(entry.path) !== sourceInventory.find((source) => source.path === entry.path)?.gitBlob)) throw new Error("first_custody_native_inventory_incomplete");
+const journal = { schema: "service-lasso.qualification-first-custody-journal.v3", private: true, commands: await Promise.all([["git", ["status", "--porcelain"]], ["git", ["ls-files", "--stage", "-z"]], ["npm", ["--version"]], ["csc", ["-version"]]].map(([bin, args]) => command(bin, args))) };
+await mkdir(root, { recursive: true, mode: 0o700 }); const journalPath = path.join(root, "first-custody-journal.json"); await exclusiveJson(journalPath, journal); const journalSha256 = createHash("sha256").update(await readFile(journalPath)).digest("hex");
+await exclusiveJson(receiptPath, { schema: "service-lasso.qualification-initial-receipt.v3", private: true, platform: process.env.ADMIN_PLATFORM, run: { id: process.env.GITHUB_RUN_ID, attempt: process.env.GITHUB_RUN_ATTEMPT }, source: { head, tree, status: "CLEAN", inventory: sourceInventory }, runner: { platform: process.platform, arch: process.arch, release: os.release(), ...runner, parent }, inputs: { workspace: await input("SERVICE_LASSO_WORKSPACE_ROOT", "DIRECTORY"), instanceRegistry: await input("SERVICE_LASSO_INSTANCE_REGISTRY_PATH", "ABSENT"), hostPortRegistry: await input("SERVICE_LASSO_HOST_PORT_REGISTRY_PATH", "ABSENT") }, ownedPaths: nativeAssets, tools, journal: "first-custody-journal.json", journalSha256 });

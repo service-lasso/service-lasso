@@ -19,26 +19,17 @@ async function containsPrebrowserArtifact(root) {
   return false;
 }
 function exactKeys(value, keys) { return !!value && typeof value === "object" && !Array.isArray(value) && Object.keys(value).sort().join(",") === [...keys].sort().join(","); }
-function validFileState(value) {
-  return exactKeys(value, ["state", "size", "sha256"]) && value.state === "FILE"
-    && Number.isSafeInteger(value.size) && value.size > 0 && /^[0-9a-f]{64}$/u.test(value.sha256);
-}
 function validateInitialReceipt(source, platform, runId, runAttempt, candidateSha) {
   if (!strictJson(source)) return false;
   const value = JSON.parse(source);
-  return exactKeys(value, ["schema", "private", "platform", "run", "source", "runner", "ownedPaths", "registries", "journal"])
-    && value.schema === "service-lasso.qualification-initial-receipt.v2" && value.private === true &&
+  return exactKeys(value, ["schema", "retainedContent", "platform", "run", "source", "firstRecordSha256", "journalSha256", "terminal"])
+    && value.schema === "service-lasso.qualification-first-custody-projection.v1" && value.retainedContent === "closed_digest_projection" && value.terminal === "UNRESOLVED" &&
     value.platform === platform &&
     exactKeys(value.run, ["id", "attempt"]) &&
     String(value.run.id) === String(runId) &&
     String(value.run.attempt) === String(runAttempt) &&
-    exactKeys(value.source, ["head", "tree"]) && value.source.head === candidateSha && /^[0-9a-f]{40}$/u.test(value.source.tree) &&
-    exactKeys(value.runner, ["platform", "arch", "release", "pid", "ppid", "executable"]) &&
-    typeof value.runner.platform === "string" && typeof value.runner.arch === "string" && typeof value.runner.release === "string" &&
-    Number.isSafeInteger(value.runner.pid) && value.runner.pid > 0 && Number.isSafeInteger(value.runner.ppid) && value.runner.ppid > 0 && validFileState(value.runner.executable) &&
-    Array.isArray(value.ownedPaths) && value.ownedPaths.length === 12 && value.ownedPaths.every((entry) => exactKeys(entry, ["path", "parents", "file"]) && typeof entry.path === "string" && Array.isArray(entry.parents) && entry.parents.length > 0 && validFileState(entry.file)) &&
-    Array.isArray(value.registries) && value.registries.length === 2 && value.registries.every((entry) => exactKeys(entry, ["path", "state"]) && typeof entry.path === "string" && entry.state === "ABSENT") &&
-    value.journal === "first-custody-journal.json";
+    value.source?.head === candidateSha && /^[0-9a-f]{40}$/u.test(value.source?.tree) && value.source.status === "CLEAN" && Number.isSafeInteger(value.source?.trackedFileCount) && value.source.trackedFileCount > 0 && value.source.nativeFileCount === 19 &&
+    [value.firstRecordSha256, value.journalSha256, value.source.inventorySha256, value.source.nativeInventorySha256].every((digest) => /^[0-9a-f]{64}$/u.test(digest));
 }
 function sameValue(left, right) {
   if (left === right) return true;
@@ -119,13 +110,14 @@ export function requireTerminalPrebrowserFailure(jobs, platform, runId, runAttem
 function validateEvidence(source, platform, runId, runAttempt, candidateSha, eventSha) {
   if (!strictJson(source)) throw new Error(`${platform} evidence is malformed or has duplicate keys.`);
   const evidence = JSON.parse(source);
-  if (!exactKeys(evidence, ["schema", "retainedContent", "outcome", "platform", "core", "admin", "adminHarness", "broker", "browser", "run", "consumer"]) || evidence.schema !== "service-lasso.packaged-admin-lifecycle.v1" || evidence.retainedContent !== "metadata_only" || !["success", "failure"].includes(evidence.outcome) || evidence.platform !== platform) throw new Error(`${platform} evidence schema is invalid.`);
+  if (!exactKeys(evidence, ["schema", "retainedContent", "outcome", "platform", "core", "admin", "adminHarness", "broker", "browser", "firstCustody", "run", "consumer"]) || evidence.schema !== "service-lasso.packaged-admin-lifecycle.v1" || evidence.retainedContent !== "metadata_only" || !["success", "failure"].includes(evidence.outcome) || evidence.platform !== platform) throw new Error(`${platform} evidence schema is invalid.`);
   if (!exactKeys(evidence.core, ["revision"]) || evidence.core.revision !== candidateSha) throw new Error(`${platform} Core candidate custody validation failed.`);
   if (!exactKeys(evidence.admin, ["revision", "releaseId", "tag", "asset", "sha256", "checksumSource"]) || !sameValue(evidence.admin, expectedRelease(ADMIN_RELEASE, platform))) throw new Error(`${platform} Admin release custody validation failed.`);
   if (!exactKeys(evidence.broker, ["revision", "releaseId", "tag", "asset", "sha256", "checksumSource"]) || !sameValue(evidence.broker, expectedRelease(BROKER_RELEASE, platform))) throw new Error(`${platform} Broker release custody validation failed.`);
   if (!exactKeys(evidence.adminHarness, ["repository", "revision"]) || evidence.adminHarness.repository !== "service-lasso/lasso-serviceadmin" || evidence.adminHarness.revision !== ADMIN_HARNESS_REVISION) throw new Error(`${platform} Admin harness custody validation failed.`);
   const expectedModes = platform === "win32" ? ["first_run", "comprehensive_lifecycle", "stopped_lifecycle", "local_operator_lockout"] : ["first_run", "comprehensive_lifecycle", "stopped_lifecycle"];
   if (!exactKeys(evidence.browser, ["modes", "mutationRetry", "capturesRetained", "sensitiveEvidenceRetained"]) || !sameValue(evidence.browser.modes, expectedModes) || evidence.browser.mutationRetry !== false || evidence.browser.capturesRetained !== false || evidence.browser.sensitiveEvidenceRetained !== false) throw new Error(`${platform} browser evidence is invalid.`);
+  if (!exactKeys(evidence.firstCustody, ["schema", "firstRecordSha256", "journalSha256", "trackedFileCount", "inventorySha256", "nativeFileCount", "nativeInventorySha256", "terminal"]) || evidence.firstCustody.schema !== "service-lasso.qualification-first-custody-projection.v1" || evidence.firstCustody.terminal !== "CLOSED" || evidence.firstCustody.nativeFileCount !== 19 || !Number.isSafeInteger(evidence.firstCustody.trackedFileCount) || evidence.firstCustody.trackedFileCount < 1 || ![evidence.firstCustody.firstRecordSha256, evidence.firstCustody.journalSha256, evidence.firstCustody.inventorySha256, evidence.firstCustody.nativeInventorySha256].every((digest) => /^[0-9a-f]{64}$/u.test(digest))) throw new Error(`${platform} first custody closure is invalid.`);
   if (!exactKeys(evidence.run, ["id", "attempt", "candidateSha", "eventSha"]) || evidence.run.id !== runId || evidence.run.attempt !== runAttempt || evidence.run.candidateSha !== candidateSha || evidence.run.eventSha !== eventSha) throw new Error(`${platform} run custody validation failed.`);
   if (!evidence.consumer || typeof evidence.consumer !== "object" || Array.isArray(evidence.consumer) || evidence.consumer.attempt !== "real_browser") throw new Error(`${platform} consumer custody validation failed.`);
   const { attempt: _attempt, ...consumerSource } = evidence.consumer;
@@ -140,7 +132,7 @@ export async function verifyArtifacts({ root, runId, runAttempt, candidateSha, e
   if (directories.length !== expected.size || directories.some((entry) => !entry.isDirectory() || !expected.has(entry.name))) throw new Error("Downloaded artifacts are not the exact current attempt.");
   for (const platform of platforms) {
     const name = `packaged-admin-lifecycle-${platform}-${runId}-${runAttempt}`, directory = path.join(root, name), files = await readdir(directory, { withFileTypes: true });
-    const evidenceName = `packaged-admin-lifecycle-${platform}.json`, receiptName = "admin-trusted-unlock-receipt.json", initialReceiptName = "initial-receipt.json";
+    const evidenceName = `packaged-admin-lifecycle-${platform}.json`, receiptName = "admin-trusted-unlock-receipt.json", initialReceiptName = "initial-receipt-projection.json";
     const prebrowserName = "admin-trusted-unlock-prebrowser-failure.json";
     if (files.length === 2 && files.every((file) => file.isFile() && !file.isSymbolicLink()) && files.some((file) => file.name === prebrowserName) && files.some((file) => file.name === initialReceiptName)) {
       if (!validateInitialReceipt(await regular(path.join(directory, initialReceiptName), `${platform} initial receipt`), platform, runId, runAttempt, candidateSha)) throw new Error(`${platform} initial receipt custody validation failed.`);
@@ -151,10 +143,13 @@ export async function verifyArtifacts({ root, runId, runAttempt, candidateSha, e
       continue;
     }
     if (files.length !== 3 || files.some((entry) => !entry.isFile() || entry.isSymbolicLink()) || !files.some((entry) => entry.name === evidenceName) || !files.some((entry) => entry.name === receiptName) || !files.some((entry) => entry.name === initialReceiptName)) throw new Error(`${platform} artifact inventory is invalid.`);
-    if (!validateInitialReceipt(await regular(path.join(directory, initialReceiptName), `${platform} initial receipt`), platform, runId, runAttempt, candidateSha)) throw new Error(`${platform} initial receipt custody validation failed.`);
+    const initialSource = await regular(path.join(directory, initialReceiptName), `${platform} initial receipt`);
+    if (!validateInitialReceipt(initialSource, platform, runId, runAttempt, candidateSha)) throw new Error(`${platform} initial receipt custody validation failed.`);
     const evidenceSource = await regular(path.join(directory, evidenceName), `${platform} evidence`);
     const receipt = parseConsumerReceipt(await regular(path.join(directory, receiptName), `${platform} receipt`));
     const retained = validateEvidence(evidenceSource, platform, runId, runAttempt, candidateSha, eventSha);
+    const initial = JSON.parse(initialSource);
+    if (!sameValue(retained.firstCustody, { schema: initial.schema, firstRecordSha256: initial.firstRecordSha256, journalSha256: initial.journalSha256, trackedFileCount: initial.source.trackedFileCount, inventorySha256: initial.source.inventorySha256, nativeFileCount: initial.source.nativeFileCount, nativeInventorySha256: initial.source.nativeInventorySha256, terminal: "CLOSED" })) throw new Error(`${platform} terminal evidence does not close initial custody.`);
     if (!receipt || !isRetainableConsumerReceipt(receipt) || !sameValue(retained, receipt)) throw new Error(`${platform} retained receipt custody validation failed.`);
   }
 }
