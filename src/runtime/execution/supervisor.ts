@@ -3389,8 +3389,22 @@ export async function waitForManagedProcessExit(
   return result;
 }
 
-export async function stopAllManagedProcesses(): Promise<void> {
+export async function stopAllManagedProcesses(workspaceRoot?: string | null): Promise<void> {
   const MAX_FINALIZATION_PASSES = 8;
+  const requestedPrefix = workspaceRoot === undefined
+    ? null
+    : workspaceServiceKey("", workspaceRoot);
+  const ownsKey = (key: WorkspaceServiceKey): boolean =>
+    requestedPrefix === null || key.startsWith(requestedPrefix);
+  if (workspaceRoot === undefined) {
+    const roots = new Set(
+      [...managedProcesses.values(), ...adoptedProcesses.values()]
+        .map((record) => workspaceServiceKey("", record.workspaceRoot)),
+    );
+    if (roots.size > 1) {
+      throw new Error("Cannot stop all managed processes without workspace authority.");
+    }
+  }
   // Quiesce every monitor synchronously before any tree termination starts.
   // Persist the shared ownership-registry transitions serially so concurrent
   // atomic writes cannot race each other on Windows. Tree termination and each
@@ -3438,12 +3452,12 @@ export async function stopAllManagedProcesses(): Promise<void> {
   >();
   for (let pass = 1; pass <= MAX_FINALIZATION_PASSES; pass += 1) {
     const activeServiceIds = [
-      ...new Set([...managedProcesses.keys(), ...adoptedProcesses.keys()]),
+      ...new Set([...managedProcesses.keys(), ...adoptedProcesses.keys()].filter(ownsKey)),
     ].reverse();
     const serviceIds = [
       ...activeServiceIds,
       ...[...managedProcessFinalizers.keys()].filter(
-        (serviceId) => !activeServiceIds.includes(serviceId),
+        (serviceId) => ownsKey(serviceId) && !activeServiceIds.includes(serviceId),
       ),
     ];
     await Promise.all(
@@ -3454,9 +3468,8 @@ export async function stopAllManagedProcesses(): Promise<void> {
     if (serviceIds.length === 0) {
       await new Promise<void>((resolve) => setImmediate(resolve));
       if (
-        managedProcesses.size === 0 &&
-        adoptedProcesses.size === 0 &&
-        managedProcessFinalizers.size === 0
+        ![...managedProcesses.keys(), ...adoptedProcesses.keys(), ...managedProcessFinalizers.keys()]
+          .some(ownsKey)
       ) {
         for (const [serviceId, failures] of unresolvedFailures) {
           if (failures.every((failure) => failure.phase === "stop")) {
@@ -3514,7 +3527,7 @@ export async function stopAllManagedProcesses(): Promise<void> {
       ...managedProcesses.keys(),
       ...adoptedProcesses.keys(),
       ...managedProcessFinalizers.keys(),
-    ]);
+    ].filter(ownsKey));
     for (const [serviceId, failures] of unresolvedFailures) {
       if (
         !stillTracked.has(serviceId) &&
@@ -3525,15 +3538,13 @@ export async function stopAllManagedProcesses(): Promise<void> {
     }
     if (
       pass === MAX_FINALIZATION_PASSES &&
-      (managedProcesses.size > 0 ||
-        adoptedProcesses.size > 0 ||
-        managedProcessFinalizers.size > 0)
+      [...managedProcesses.keys(), ...adoptedProcesses.keys(), ...managedProcessFinalizers.keys()].some(ownsKey)
     ) {
       for (const serviceId of new Set([
         ...managedProcesses.keys(),
         ...adoptedProcesses.keys(),
         ...managedProcessFinalizers.keys(),
-      ])) {
+      ].filter(ownsKey))) {
         const priorFailures = unresolvedFailures.get(serviceId) ?? [];
         unresolvedFailures.set(serviceId, [
           ...priorFailures,

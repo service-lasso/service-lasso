@@ -4456,3 +4456,40 @@ test("registry identity mismatch clears stale ownership without terminating the 
     await removeTempRoot(tempRoot);
   }
 });
+
+test("workspace authority isolates equal service IDs", async () => {
+  resetLifecycleState();
+  const serviceId = "workspace-authority-service";
+  const first = await makeTempServicesRoot("service-lasso-workspace-authority-first-");
+  const second = await makeTempServicesRoot("service-lasso-workspace-authority-second-");
+  try {
+    await writeExecutableFixtureService(first.servicesRoot, serviceId);
+    await writeExecutableFixtureService(second.servicesRoot, serviceId);
+    const [firstService] = await discoverServices(first.servicesRoot);
+    const [secondService] = await discoverServices(second.servicesRoot);
+    const firstHandle = await startManagedProcess({ service: firstService, executionPlan: createDirectExecutionPlan(firstService.manifest), workspaceRoot: first.workspaceRoot });
+    const secondHandle = await startManagedProcess({ service: secondService, executionPlan: createDirectExecutionPlan(secondService.manifest), workspaceRoot: second.workspaceRoot });
+
+    assert.equal(hasManagedProcess(serviceId, first.workspaceRoot), true);
+    assert.equal(hasManagedProcess(serviceId, second.workspaceRoot), true);
+    assert.throws(() => hasManagedProcess(serviceId), /workspace authority/i);
+    await assert.rejects(stopAllManagedProcesses(), /workspace authority/i);
+
+    await stopManagedProcess(serviceId, PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS, { workspaceRoot: first.workspaceRoot });
+    await waitForManagedProcessFinalization(serviceId, Date.now() + PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS, first.workspaceRoot);
+    assert.equal((await inspectProcess(secondHandle.pid)).status, "running");
+    assert.equal((await findProcessOwnership(first.workspaceRoot, "service", serviceId)).lifecycleState, "stopped");
+    assert.equal((await findProcessOwnership(second.workspaceRoot, "service", serviceId)).pid, secondHandle.pid);
+
+    await stopAllManagedProcesses(second.workspaceRoot);
+    await waitForManagedProcessFinalization(serviceId, Date.now() + PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS, second.workspaceRoot);
+    assert.equal((await findProcessOwnership(second.workspaceRoot, "service", serviceId)).lifecycleState, "stopped");
+    assert.notEqual(firstHandle.pid, secondHandle.pid);
+  } finally {
+    await stopManagedProcess(serviceId, PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS, { workspaceRoot: first.workspaceRoot }).catch(() => null);
+    await stopManagedProcess(serviceId, PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS, { workspaceRoot: second.workspaceRoot }).catch(() => null);
+    resetLifecycleState();
+    await removeTempRoot(first.tempRoot);
+    await removeTempRoot(second.tempRoot);
+  }
+});
