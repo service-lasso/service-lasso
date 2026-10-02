@@ -18,6 +18,17 @@ const terminalJobs = ["linux", "win32", "darwin"].map((platform, index) => ({ id
 const receipt = { schema: "service-lasso.admin-trusted-unlock-consumer.v1", outcome: "nonzero_exit", exitCode: 1, signal: null, trustedUnlock: { classification: "closed", receipt: { schema: "service-admin.trusted-unlock-receipt.v1", status: "observed", present: true, verified: false, localRoot: false, loading: true, unavailable: false } } };
 const observationFailureReceipt = { ...receipt, outcome: "observation_failure", exitCode: 0, streamFailure: "malformed_utf8" };
 const unavailableReceipt = (classification) => ({ ...receipt, trustedUnlock: { classification } });
+function initialReceiptFor(platform, overrides = {}) {
+  const file = { state: "FILE", size: 1, sha256: "f".repeat(64) };
+  return {
+    schema: "service-lasso.qualification-initial-receipt.v2", private: true, platform,
+    run: { id: Number(runId), attempt: Number(runAttempt) }, source: { head: candidateSha, tree: "e".repeat(40) },
+    runner: { platform, arch: "x64", release: "fixture", pid: 1, ppid: 2, executable: file },
+    ownedPaths: Array.from({ length: 12 }, (_, index) => ({ path: `native-${index}`, parents: [{ path: "root", kind: "DIRECTORY" }], file })),
+    registries: [{ path: "instance", state: "ABSENT" }, { path: "ports", state: "ABSENT" }], journal: "first-custody-journal.json",
+    ...overrides,
+  };
+}
 function evidenceFor(platform) {
   const release = (value) => ({ revision: value.revision, releaseId: value.id, tag: value.tag, asset: value.platforms[platform].asset, sha256: value.platforms[platform].sha256, checksumSource: "SHA256SUMS.txt" });
   return { schema: "service-lasso.packaged-admin-lifecycle.v1", retainedContent: "metadata_only", outcome: "failure", platform, core: { revision: candidateSha }, admin: release(ADMIN_RELEASE), adminHarness: { repository: "service-lasso/lasso-serviceadmin", revision: ADMIN_HARNESS_REVISION }, broker: release(BROKER_RELEASE), browser: { modes: platform === "win32" ? ["first_run", "comprehensive_lifecycle", "stopped_lifecycle", "local_operator_lockout"] : ["first_run", "comprehensive_lifecycle", "stopped_lifecycle"], mutationRetry: false, capturesRetained: false, sensitiveEvidenceRetained: false } };
@@ -28,7 +39,7 @@ async function fixture(mutator, source = receipt) {
     const directory = path.join(root, `packaged-admin-lifecycle-${platform}-${runId}-${runAttempt}`);
     await mkdir(directory);
     const evidence = path.join(directory, `packaged-admin-lifecycle-${platform}.json`), retained = path.join(directory, "admin-trusted-unlock-receipt.json"), privateReceipt = path.join(await mkdtemp(path.join(tmpdir(), "packaged-private-")), "runner-private-receipt.json");
-    await writeFile(path.join(directory, "initial-receipt.json"), JSON.stringify({ schema: "service-lasso.qualification-initial-receipt.v1", platform, run: { id: Number(runId), attempt: Number(runAttempt) } }));
+    await writeFile(path.join(directory, "initial-receipt.json"), JSON.stringify(initialReceiptFor(platform)));
     await writeFile(evidence, JSON.stringify(evidenceFor(platform)));
     await writeFile(privateReceipt, JSON.stringify(source));
     await retainReceipt({ receiptPath: privateReceipt, evidencePath: evidence, retainedPath: retained, runId, runAttempt, candidateSha, eventSha, platform });
@@ -66,8 +77,8 @@ test("AC-4BY.2 executes each finite pre-browser producer through the packaged ag
 test("AC-4BY.2 rejects missing, stale, and expanded initial receipt custody for both normal and pre-browser artifacts", async () => {
   for (const [label, mutate] of [
     ["missing", async (directory) => rm(path.join(directory, "initial-receipt.json"))],
-    ["stale", async (directory) => writeFile(path.join(directory, "initial-receipt.json"), JSON.stringify({ schema: "service-lasso.qualification-initial-receipt.v1", platform: "win32", run: { id: Number(runId) - 1, attempt: Number(runAttempt) } }))],
-    ["expanded", async (directory) => writeFile(path.join(directory, "initial-receipt.json"), JSON.stringify({ schema: "service-lasso.qualification-initial-receipt.v1", platform: "win32", run: { id: Number(runId), attempt: Number(runAttempt) }, private: true }))],
+    ["stale", async (directory) => writeFile(path.join(directory, "initial-receipt.json"), JSON.stringify(initialReceiptFor("win32", { run: { id: Number(runId) - 1, attempt: Number(runAttempt) } }))],
+    ["expanded", async (directory) => writeFile(path.join(directory, "initial-receipt.json"), JSON.stringify({ ...initialReceiptFor("win32"), extra: true }))],
   ]) {
     const normal = await fixture(async (root) => mutate(path.join(root, `packaged-admin-lifecycle-win32-${runId}-${runAttempt}`)));
     await assert.rejects(verifyArtifacts({ root: normal, runId, runAttempt, candidateSha, eventSha }), /(?:initial receipt custody|artifact inventory)/u, `normal ${label}`);

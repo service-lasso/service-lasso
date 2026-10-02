@@ -3176,6 +3176,16 @@ async function stopAdoptedProcess(
     terminationDependencies,
   );
 
+  // Tree-control success proves only that the exact control operation
+  // returned.  Retained ownership may become stopped only after a new
+  // inspection classifies every root/member lifetime absent; a live, reused,
+  // unknown, or uninspectable member keeps the durable record for recovery.
+  if (!await adoptedProcessTreeIsFreshlyAbsent(record, deadlineMs)) {
+    throw new Error(
+      `Cannot mark adopted service "${serviceId}" stopped until its retained process tree is absent.`,
+    );
+  }
+
   await withProcessControlDeadline(
     async () =>
       await withSerializedWorkspaceFinalization(
@@ -3200,6 +3210,25 @@ async function stopAdoptedProcess(
   return termination.forced
     ? { exitCode: null, signal: "SIGKILL" }
     : { exitCode: 0, signal: null };
+}
+
+async function adoptedProcessTreeIsFreshlyAbsent(
+  record: AdoptedProcessRecord,
+  deadlineMs: number,
+): Promise<boolean> {
+  const finalMembers = unionProcessFingerprints(
+    record.rootIdentity ? [record.rootIdentity] : [],
+    record.knownTreeMembers,
+  );
+  for (const member of finalMembers) {
+    const inspection = await withProcessControlDeadline(
+      async (signal) =>
+        await managedProcessRootInspector(member.pid, { deadlineMs, signal }),
+      { deadlineMs },
+    );
+    if (inspection.status !== "not_running") return false;
+  }
+  return true;
 }
 
 export async function waitForManagedProcessExit(

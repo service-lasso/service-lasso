@@ -12,6 +12,16 @@ const publishedRecorder = fileURLToPath(new URL("../scripts/record-published-pac
 const packagedWorkflow = fileURLToPath(new URL("../.github/workflows/packaged-admin-lifecycle.yml", import.meta.url));
 const publishedAggregate = fileURLToPath(new URL("../scripts/verify-published-package-qualification-artifacts.mjs", import.meta.url));
 const runId = "431", runAttempt = "2";
+function initialReceiptFor(platform, candidateSha = "a".repeat(40)) {
+  const file = { state: "FILE", size: 1, sha256: "f".repeat(64) };
+  return {
+    schema: "service-lasso.qualification-initial-receipt.v2", private: true, platform,
+    run: { id: Number(runId), attempt: Number(runAttempt) }, source: { head: candidateSha, tree: "e".repeat(40) },
+    runner: { platform, arch: "x64", release: "fixture", pid: 1, ppid: 2, executable: file },
+    ownedPaths: Array.from({ length: 12 }, (_, index) => ({ path: `native-${index}`, parents: [{ path: "root", kind: "DIRECTORY" }], file })),
+    registries: [{ path: "instance", state: "ABSENT" }, { path: "ports", state: "ABSENT" }], journal: "first-custody-journal.json",
+  };
+}
 function run(script, environment) { return spawnSync(process.execPath, [script], { encoding: "utf8", shell: false, env: environment }); }
 async function npmCli() {
   if (process.platform !== "win32") return { command: "npm", args: [] };
@@ -43,7 +53,7 @@ async function actionFixture(root, name = "pinned-action") {
 async function producerEnvironment(root, fixture, extra = {}) {
   const githubEnv = path.join(root, "github-env");
   const initialReceipt = path.join(root, "initial-receipt.json");
-  await writeFile(initialReceipt, JSON.stringify({ schema: "service-lasso.qualification-initial-receipt.v1", platform: "win32", run: { id: Number(runId), attempt: Number(runAttempt) } }));
+  await writeFile(initialReceipt, JSON.stringify(initialReceiptFor("win32")));
   return { ...process.env, ...extra, QUALIFICATION_PLATFORM: "win32", GITHUB_RUN_ID: runId, GITHUB_RUN_ATTEMPT: runAttempt, RUNNER_TEMP: root, GITHUB_ENV: githubEnv, QUALIFICATION_INITIAL_RECEIPT_PATH: initialReceipt, ADMIN_PNPM_PREFIX: path.join(root, "isolated-pnpm"), PNPM_ACTION_BIN_DEST: fixture?.bin, PATH: fixture ? `${fixture.bin}${path.delimiter}${process.env.PATH}` : process.env.PATH };
 }
 async function copyWithActualPackagedProducer(root, environment, source) {
@@ -87,7 +97,7 @@ test("AC-4BY.2 executes actual pre-browser guards, GITHUB_ENV handoff, published
     assert.deepEqual(await readdir(evidenceRoot), ["admin-trusted-unlock-prebrowser-failure.json", "initial-receipt.json"]);
     const retained = JSON.parse(await readFile(path.join(evidenceRoot, "admin-trusted-unlock-prebrowser-failure.json"), "utf8"));
     assert.deepEqual(retained, { schema: "service-lasso.admin-trusted-unlock-prebrowser-failure.v1", outcome: "failure", platform: "win32", stage, run: { id: Number(runId), attempt: Number(runAttempt) } });
-    assert.deepEqual(JSON.parse(await readFile(path.join(evidenceRoot, "initial-receipt.json"), "utf8")), { schema: "service-lasso.qualification-initial-receipt.v1", platform: "win32", run: { id: Number(runId), attempt: Number(runAttempt) } });
+    assert.deepEqual(JSON.parse(await readFile(path.join(evidenceRoot, "initial-receipt.json"), "utf8")), initialReceiptFor("win32"));
   }
 });
 
@@ -98,7 +108,7 @@ test("AC-4BY.2 executes the published aggregate CLI readback for closed three-pl
     const directory = path.join(root, `published-package-qualification-${platform}-${runId}-${runAttempt}`);
     await mkdir(directory);
     await recordPrebrowserFailure({ output: path.join(directory, "admin-trusted-unlock-prebrowser-failure.json"), platform, stage: "package_identity", runId, runAttempt });
-    await writeFile(path.join(directory, "initial-receipt.json"), JSON.stringify({ schema: "service-lasso.qualification-initial-receipt.v1", platform, run: { id: Number(runId), attempt: Number(runAttempt) } }));
+    await writeFile(path.join(directory, "initial-receipt.json"), JSON.stringify(initialReceiptFor(platform, sha)));
   }
   const artifacts = { artifacts: ["linux", "win32", "darwin"].map((platform, index) => ({ id: index + 1, name: `published-package-qualification-${platform}-${runId}-${runAttempt}`, size_in_bytes: 1, expired: false, created_at: now.toISOString(), updated_at: now.toISOString(), expires_at: later.toISOString(), workflow_run: { id: Number(runId), head_sha: sha }, archive_download_url: `https://api.github.com/repos/service-lasso/service-lasso/actions/artifacts/${index + 1}/zip` })) };
   const jobs = { jobs: ["linux", "win32", "darwin"].map((platform, index) => ({ id: index + 1, name: `published-package-qualification (${platform})`, status: "completed", conclusion: "failure", run_id: Number(runId), run_attempt: Number(runAttempt) })) };

@@ -3,7 +3,7 @@
 // and both pipes until the kernel reports their terminal close.
 import { createHash, randomBytes } from "node:crypto";
 import { execFile, spawn } from "node:child_process";
-import { lstat, mkdir, open, readFile, stat } from "node:fs/promises";
+import { link, lstat, mkdir, open, readFile, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,9 +15,12 @@ const hex64 = /^[0-9a-f]{64}$/u;
 const execFileAsync = promisify(execFile);
 
 async function exclusiveJson(file, value) {
-  const handle = await open(file, "wx", 0o600);
+  const staged = `${file}.staging`;
+  const handle = await open(staged, "wx", 0o600);
   try { await handle.writeFile(`${JSON.stringify(value)}\n`, "utf8"); await handle.sync(); }
   finally { await handle.close(); }
+  try { await link(staged, file); }
+  finally { await rm(staged, { force: true }); }
 }
 
 async function executableIdentity(executable) {

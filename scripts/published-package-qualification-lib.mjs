@@ -90,7 +90,7 @@ export function validateRetainedAdminTrustedUnlockReceipt(receipt, expected) {
       fail("invalid_retained_trusted_unlock_receipt", "Retained Admin observation failure is invalid.");
     }
     if (consumerFailure.source === "stream" && ["pipe_hang", "stream_budget_exceeded", "malformed_utf8"].includes(consumerFailure.classification)) consumerSource.streamFailure = consumerFailure.classification;
-    else if (consumerFailure.source === "execution" && ["execution_timeout", "spawn_failed"].includes(consumerFailure.classification)) consumerSource.executionFailure = consumerFailure.classification;
+    else if (consumerFailure.source === "execution" && ["execution_timeout", "spawn_failed", "observer_terminal_unresolved"].includes(consumerFailure.classification)) consumerSource.executionFailure = consumerFailure.classification;
     else fail("invalid_retained_trusted_unlock_receipt", "Retained Admin observation failure mechanism is invalid.");
   } else if (consumerFailure !== null) {
     fail("invalid_retained_trusted_unlock_receipt", "Retained Admin consumer has an unexpected failure mechanism.");

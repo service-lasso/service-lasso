@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { access, lstat, mkdir, open, readFile, writeFile } from "node:fs/promises";
+import { access, link, lstat, mkdir, open, readFile, rm, writeFile } from "node:fs/promises";
 import { createHash, randomBytes } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,9 +17,12 @@ const PIPE_CLOSE_TIMEOUT_MS = 500;
 const PROPAGATED_SIGNALS = new Set(["SIGTERM", "SIGINT", "SIGHUP"]);
 
 async function exclusiveJson(file, value) {
-  const handle = await open(file, "wx", 0o600);
+  const staged = `${file}.staging`;
+  const handle = await open(staged, "wx", 0o600);
   try { await handle.writeFile(`${JSON.stringify(value)}\n`, "utf8"); await handle.sync(); }
   finally { await handle.close(); }
+  try { await link(staged, file); }
+  finally { await rm(staged, { force: true }); }
 }
 
 function parseString(source, start) {
@@ -346,16 +349,18 @@ export async function consume(command, args, options = {}) {
   return { ...result, trustedUnlock: result.code === 0 && result.signal === null && !result.executionFailure && !streamFailure ? { classification: "not_emitted" } : classifyObservations(finalized), streamFailure };
 }
 
-async function waitForPrivateObserver(root, names, timeoutMs) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() <= deadline) {
+async function waitForPrivateObserver(root, names, observerExit) {
+  for (;;) {
     for (const name of names) {
       const candidate = path.join(root, name);
       try { await access(candidate); return candidate; } catch { /* keep polling */ }
     }
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    const state = await Promise.race([
+      new Promise((resolve) => setTimeout(() => resolve("retry"), 10)),
+      observerExit.then(() => "observer_exited"),
+    ]);
+    if (state === "observer_exited") return null;
   }
-  return null;
 }
 
 function exactKeys(value, keys) {
@@ -494,7 +499,11 @@ export async function consumeWithDurableObserver(command, args, options = {}) {
   // Install this before any private-record polling. A quick observer exit must
   // still be tied to the OS child handle that created the private root.
   const observerExitPromise = observerExitWitness(observer);
-  const terminal = await waitForPrivateObserver(root, ["close.json", "unresolved.json"], Math.max(250, (options.timeoutMs ?? 300000) + 250));
+  // The provider deadline starts only after the observer has completed its
+  // native identity and activation barrier.  Before that, wait solely for the
+  // exact observer we spawned to publish a complete terminal file or exit;
+  // no wall-clock caller shortcut can turn setup latency into spawn failure.
+  const terminal = await waitForPrivateObserver(root, ["close.json", "unresolved.json"], observerExitPromise);
   if (!terminal) { observer.unref(); return { code: null, signal: null, executionFailure: "spawn_failed", trustedUnlock: { classification: "missing" }, streamFailure: null }; }
   if (terminal.endsWith("unresolved.json")) {
     const unresolved = await validateObserverTerminal(root, nonce, source, false);
