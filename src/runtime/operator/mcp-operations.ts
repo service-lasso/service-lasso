@@ -36,7 +36,6 @@ const activeOperations = new Map<string, {
   controller: AbortController;
   completion: Promise<McpOperationCompletion>;
 }>();
-const activeGuardedExecutions = new Map<string, { operationId: string; requestFingerprint: string }>();
 const workspaceHeartbeats = new Map<string, { completion: Promise<void> }>();
 const STATE_VERSION = 1;
 const STATE_LOCK_TIMEOUT_MS = 15_000;
@@ -283,27 +282,9 @@ export class McpOperationService {
     const requestFingerprint = input.deduplicateByGuardedExecution
       ? normalizeRequestFingerprint(input.requestFingerprint)
       : null;
-    const guardedExecutionKey = input.deduplicateByGuardedExecution && guardedExecutionId !== null
-      ? operationGuardedExecutionKey(this.workspaceRoot, authorization, guardedExecutionId)
-      : null;
-    if (guardedExecutionKey) {
-      const activeOperation = activeGuardedExecutions.get(guardedExecutionKey);
-      if (activeOperation) {
-        if (activeOperation.requestFingerprint !== requestFingerprint) {
-          throw new McpOperationError(
-            "idempotency_conflict",
-            "The idempotency key is already bound to different action parameters.",
-          );
-        }
-        try {
-          const current = await this.get(activeOperation.operationId, authorization);
-          return acceptedOperationPayload(this.now(), current.operation);
-        } catch (error) {
-          if (!(error instanceof McpOperationError) || error.code !== "operation_not_found") throw error;
-          activeGuardedExecutions.delete(guardedExecutionKey);
-        }
-      }
-    }
+    // The durable operation-state lock is the replay authority. Keeping a
+    // process-local mirror here would make same-key behavior depend on which
+    // daemon instance received the request after a restart or failover.
     const priorState = await this.readAndCleanState();
     for (const prior of priorState.operations.filter((operation) =>
       !isTerminal(operation.status) && Date.parse(operation.expiresAt) <= createdAt.getTime()
@@ -368,15 +349,9 @@ export class McpOperationService {
       const current = await this.get(existingOperationId, authorization);
       return acceptedOperationPayload(this.now(), current.operation);
     }
-    if (guardedExecutionKey && requestFingerprint) {
-      activeGuardedExecutions.set(guardedExecutionKey, { operationId, requestFingerprint });
-    }
     try {
       await auditOperation(this.workspaceRoot, record, "started", "accepted");
     } catch (error) {
-      if (guardedExecutionKey && activeGuardedExecutions.get(guardedExecutionKey)?.operationId === operationId) {
-        activeGuardedExecutions.delete(guardedExecutionKey);
-      }
       await this.mutateState((state) => {
         state.operations = state.operations.filter((operation) => operation.operationId !== operationId);
       }).catch(() => undefined);
@@ -395,13 +370,6 @@ export class McpOperationService {
       completion,
     });
     this.ensureWorkspaceHeartbeat();
-    if (guardedExecutionKey) {
-      void completion.finally(() => {
-        if (activeGuardedExecutions.get(guardedExecutionKey)?.operationId === operationId) {
-          activeGuardedExecutions.delete(guardedExecutionKey);
-        }
-      }).catch(() => undefined);
-    }
 
     const requestCancellation = () => {
       if (!input.cancellationSupported) return;
@@ -1098,14 +1066,6 @@ function isTerminal(status: McpOperationStatus): status is McpOperationOutcome {
 
 function operationKey(workspaceRoot: string, operationId: string): string {
   return `${path.resolve(workspaceRoot)}\0${operationId}`;
-}
-
-function operationGuardedExecutionKey(
-  workspaceRoot: string,
-  authorization: McpHttpAuthorization,
-  guardedExecutionId: string,
-): string {
-  return `${path.resolve(workspaceRoot)}\0${storedIdentity(authorization.actor.actorId, "actor")}\0${storedIdentity(authorization.actor.clientId, "client")}\0${guardedExecutionId}`;
 }
 
 function runnerOwnsLiveOperation(record: StoredOperation, now: Date): boolean {

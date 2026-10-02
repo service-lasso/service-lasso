@@ -617,3 +617,9 @@ PR #1537 test-contract repair under `SPEC-002 AC-4BH`: retain immutable failed a
 Issue #1326 parent-edge lifetime diagnostic follow-up binds AC-4BH: retain the 079eb33 startup rejection and classify only whether the rejected edge crosses before expected-root creation. No process details or membership/deadline relaxation; require bounded rejection and privacy tests plus exact-head qualification.
 
 | `ISS-1552` | `in_progress` | Exclude only verified pre-root stale parent-PID branches at owned readiness | `SPEC-002`, `AC-4BH`, `AC-4BJ.9` | Frozen run `36783336692` job `110118734168` failed before the intended hard-crash hook after 52 `ancestry_predates_parent_before_root` attempts. Model a direct child-before-root/current-parent edge only when the matching root, identity, and full structural path prove that branch cannot descend from the current root lifetime; retain every unknown, within-root, changed-root, deeper, and process-control boundary as a failure. The original hosted mechanism remains unobserved. |
+# Active delivery
+
+| Status | Issue | Requirement / next action | Evidence boundary |
+| --- | --- | --- | --- |
+| In progress | [#1582](https://github.com/service-lasso/service-lasso/issues/1582) | Deliver `SPEC-009` Core-owned authenticated durable job transaction and the CLI PR #32 compiled client contract. | Fresh Core/CLI source branches, preserved failed native CI output, custody-gated direct compiled-client proof; no host activation, deployment, publication, or promotion. |
+
