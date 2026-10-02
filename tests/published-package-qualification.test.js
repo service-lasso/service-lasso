@@ -36,6 +36,13 @@ const core = {
   revision: "abcdef0abcdef0abcdef0abcdef0abcdef0abcde",
 };
 const execFileAsync = promisify(execFile);
+const initialProjection = (platform, runId = "99") => ({
+  schema: "service-lasso.qualification-first-custody-projection.v2", privateVersion: "v3",
+  platform, candidate: { head: core.revision, tree: "b".repeat(40) },
+  run: { id: runId, attempt: "1" }, privateInitialReceiptSha256: "c".repeat(64),
+  privateJournalSha256: "d".repeat(64),
+  localValidatorAttestation: { schema: "service-lasso.qualification-local-validator-attestation.v2", validated: true },
+});
 
 test("AC-4BZ.1 release-tree harness includes its dependency-free TLS certificate generator", () => {
   assert.ok(
@@ -203,6 +210,7 @@ test("AC-4BZ.1 retained evidence requires terminal scenarios and rejects sensiti
   const platform = "linux";
   const expected = {
     platform,
+    initialProjection: initialProjection(platform),
     runId: "99",
     runAttempt: "1",
     workflowSha: core.revision,
@@ -215,6 +223,7 @@ test("AC-4BZ.1 retained evidence requires terminal scenarios and rejects sensiti
     coreNpmIntegrity: `sha512-${Buffer.from("integrity").toString("base64")}`,
   };
   const evidence = {
+    firstCustody: initialProjection(platform),
     schema: QUALIFICATION_SCHEMA,
     retainedContent: "metadata_only",
     outcome: "success",
@@ -606,4 +615,170 @@ test("published dependency releases retain exact eight-asset checksum and SBOM i
       "service.json",
     ].sort(),
   );
+});
+
+test("BR-008 actual normal prepare/record/aggregate callers preserve public-v2 custody linkage", async () => {
+  // Offline metadata contract fixture, not native custody or product qualification.
+  // Preparation is observed through its real initializer and a classified release
+  // failure. Product success metadata below is fixture input to normal retention;
+  // the full successful acquisition remains the protected three-OS workflow gate.
+  const root = await mkdtemp(path.join(os.tmpdir(), "published-normal-custody-"));
+  const platforms = ["linux", "win32", "darwin"];
+  const runId = "99", attempt = "1", repo = core.repo;
+  const integrity = `sha512-${Buffer.from("integrity").toString("base64")}`;
+  const artifactsRoot = path.join(root, "artifacts");
+  const preload = path.join(root, "api-fixture.mjs");
+  const apiFile = path.join(root, "api.json");
+  const prepared = new Map();
+  const baseEnv = { ...process.env, GITHUB_REPOSITORY: repo, GITHUB_TOKEN: "offline-fixture",
+    GITHUB_RUN_ID: runId, GITHUB_RUN_ATTEMPT: attempt, GITHUB_SHA: core.revision,
+    QUALIFICATION_CANDIDATE_SHA: core.revision, CORE_RELEASE_ID: core.id,
+    CORE_RELEASE_TAG: core.tag, CORE_REVISION: core.revision, CORE_NPM_VERSION: core.tag,
+    CORE_NPM_INTEGRITY: integrity, ADMIN_HARNESS_REVISION,
+    GITHUB_WORKSPACE: root, RUNNER_TEMP: root, GITHUB_ENV: path.join(root, "github-env") };
+  delete baseEnv.ADMIN_TRUSTED_UNLOCK_PREBROWSER_FAILURE_PATH;
+  delete baseEnv.NODE_OPTIONS;
+  const invoke = (name, env) => execFileAsync(process.execPath,
+    ["--import", preload, fileURLToPath(new URL(`../scripts/${name}.mjs`, import.meta.url))], { env });
+  try {
+    await writeFile(preload, `import { readFile } from "node:fs/promises";
+const fixture = JSON.parse(await readFile(${JSON.stringify(apiFile)}, "utf8"));
+globalThis.fetch = async url => {
+  const value = String(url);
+  if (value.endsWith("/artifacts?per_page=100")) return { ok: true, json: async () => ({ artifacts: fixture.artifacts }) };
+  if (value.endsWith("/attempts/1/jobs?per_page=100")) return { ok: true, json: async () => ({ jobs: fixture.jobs }) };
+  if (value.includes("/releases/") || value.startsWith("https://registry.npmjs.org/")) return { ok: true, json: async () => ({}) };
+  throw new Error("Unexpected offline request");
+};\n`);
+    const now = Date.now();
+    const jobs = platforms.map((platform, i) => ({ name: `published-package-qualification (${platform})`,
+      id: 101 + i, run_id: Number(runId), run_attempt: 1, head_sha: core.revision,
+      status: "completed", conclusion: "success", url: `https://api.github.com/repos/${repo}/actions/jobs/${101 + i}`,
+      run_url: `https://api.github.com/repos/${repo}/actions/runs/${runId}`,
+      html_url: `https://github.com/${repo}/actions/runs/${runId}/job/${101 + i}` }));
+    const artifacts = platforms.map((platform, i) => ({ id: 201 + i,
+      name: `published-package-qualification-${platform}-${runId}-${attempt}`, size_in_bytes: 100,
+      expired: false, created_at: new Date(now - 60000).toISOString(), updated_at: new Date(now - 30000).toISOString(),
+      expires_at: new Date(now - 60000 + 90 * 86400000).toISOString(),
+      workflow_run: { id: Number(runId), head_sha: core.revision },
+      archive_download_url: `https://api.github.com/repos/${repo}/actions/artifacts/${201 + i}/zip` }));
+    await writeFile(apiFile, JSON.stringify({ artifacts, jobs }));
+    for (const platform of platforms) {
+      const directory = path.join(artifactsRoot, `published-package-qualification-${platform}-${runId}-${attempt}`);
+      await mkdir(directory, { recursive: true });
+      const projectionFile = path.join(directory, "initial-projection.json");
+      const stateFile = path.join(root, `state-${platform}.json`);
+      const consumerFile = path.join(root, `consumer-${platform}.json`);
+      await writeFile(projectionFile, JSON.stringify(initialProjection(platform)));
+      await writeFile(consumerFile, JSON.stringify({ schema: "service-lasso.admin-trusted-unlock-consumer.v1",
+        outcome: "success", exitCode: 0, signal: null, trustedUnlock: { classification: "not_emitted" } }));
+      const env = { ...baseEnv, QUALIFICATION_PLATFORM: platform, QUALIFICATION_INITIAL_PROJECTION_PATH: projectionFile,
+        QUALIFICATION_EVIDENCE_ROOT: directory, QUALIFICATION_SAFE_STATE_PATH: stateFile,
+        QUALIFICATION_PRIVATE_STATE_PATH: path.join(root, `private-${platform}.json`),
+        CORE_RELEASE_ASSET: `service-lasso-${core.tag}-${platform === "win32" ? "win32.zip" : `${platform}.tar.gz`}`,
+        CORE_RELEASE_SHA256: "1".repeat(64), ADMIN_TRUSTED_UNLOCK_RECEIPT_PATH: consumerFile,
+        QUALIFICATION_JOB_NAME: `published-package-qualification (${platform})`, PREPARE_OUTCOME: "success",
+        QUALIFICATION_OUTCOME: "success", CLEANUP_OUTCOME: "success", QUALIFICATION_FIRST_RUN: "success",
+        QUALIFICATION_LIFECYCLE: "success", QUALIFICATION_STOPPED_LIFECYCLE: "success", QUALIFICATION_LOCKOUT: "success" };
+      // Canonical pin must reach the next real gate; wrong pin must not create state.
+      await assert.rejects(invoke("prepare-published-package-qualification", { ...env,
+        ADMIN_HARNESS_REVISION: "0".repeat(40) }), /Admin browser harness revision is not canonical/u);
+      await assert.rejects(readFile(stateFile), { code: "ENOENT" });
+      for (const mutate of [
+        value => value.candidate.head = "0".repeat(40),
+        value => value.run.id = "100",
+        value => value.run.attempt = "2",
+        value => value.localValidatorAttestation.extra = true,
+        value => value.localValidatorAttestation.validated = false,
+        value => value.privateJournalSha256 = "invalid",
+      ]) {
+        const invalid = initialProjection(platform); mutate(invalid);
+        await writeFile(projectionFile, JSON.stringify(invalid));
+        await assert.rejects(invoke("prepare-published-package-qualification", env), /Initial qualification projection custody is invalid/u);
+        await assert.rejects(readFile(stateFile), { code: "ENOENT" });
+      }
+      await assert.rejects(invoke("prepare-published-package-qualification", { ...env,
+        QUALIFICATION_INITIAL_PROJECTION_PATH: path.join(root, "missing-projection.json") }));
+      await assert.rejects(readFile(stateFile), { code: "ENOENT" });
+      await writeFile(projectionFile, JSON.stringify(initialProjection(platform)));
+      await assert.rejects(invoke("prepare-published-package-qualification", env));
+      const actualPrepared = JSON.parse(await readFile(stateFile, "utf8"));
+      assert.deepEqual(actualPrepared.firstCustody, initialProjection(platform));
+      assert.notEqual(actualPrepared.failureCode, "admin_harness_revision_mismatch");
+      // Keep actual failure separate. The following is explicit fixture metadata.
+      await writeFile(path.join(root, `actual-preparation-failure-${platform}.json`), JSON.stringify(actualPrepared));
+      const state = structuredClone(actualPrepared);
+      state.firstFailure = null; state.failurePhase = null; state.failureCode = null;
+      state.negativeProof = Object.fromEntries(["missingProvenance", "missingChecksum", "emptyPayload", "emptyChecksum",
+        "malformedChecksum", "duplicateChecksum", "unexpectedChecksum", "mismatchedPayload", "redirectedChecksum",
+        "redirectedProvenance", "wrongHeadProvenance"].map(name => [name, "success"]));
+      for (const name of ["preMutationGuards", "releaseRuntime", "npmConsumer", "productionAcquisition", "cleanupConvergence"]) state.scenarios[name] = "success";
+      prepared.set(platform, { env, state, directory, projectionFile, stateFile });
+      await writeFile(stateFile, JSON.stringify(state));
+      await invoke("record-published-package-qualification", env);
+      const recorded = JSON.parse(await readFile(path.join(directory, `published-package-qualification-${platform}.json`), "utf8"));
+      assert.equal(recorded.outcome, "success");
+      assert.deepEqual(recorded.firstCustody, actualPrepared.firstCustody);
+      assert.equal(recorded.adminHarnessRevision, ADMIN_HARNESS_REVISION);
+      assert.equal(recorded.admin.revision, ADMIN_RELEASE.revision);
+      await assert.rejects(invoke("record-published-package-qualification", { ...env, ADMIN_HARNESS_REVISION: "0".repeat(40) }), /not canonical/u);
+    }
+    const aggregateEnv = { ...baseEnv, QUALIFICATION_ARTIFACTS_ROOT: artifactsRoot,
+      CORE_LINUX_SHA256: "1".repeat(64), CORE_WIN32_SHA256: "1".repeat(64), CORE_DARWIN_SHA256: "1".repeat(64) };
+    const aggregate = () => invoke("verify-published-package-qualification-artifacts", aggregateEnv);
+    assert.match((await aggregate()).stdout, /Exact three-platform artifact API readback/u);
+    const f = prepared.get("linux");
+    const expandedState = path.join(f.directory, "qualification-state.json");
+    await writeFile(expandedState, JSON.stringify(f.state));
+    await assert.rejects(aggregate(), /exact metadata evidence/u);
+    await rm(expandedState);
+    const evidenceFile = path.join(f.directory, "published-package-qualification-linux.json");
+    const validEvidence = JSON.parse(await readFile(evidenceFile, "utf8"));
+    const mutateCases = [
+      value => delete value.firstCustody,
+      value => value.firstCustody.schema = "service-lasso.qualification-first-custody-projection.v1",
+      value => value.firstCustody.candidate.head = "0".repeat(40),
+      value => value.firstCustody.candidate.tree = "0".repeat(40),
+      value => value.firstCustody.run.id = "100",
+      value => value.firstCustody.run.attempt = "2",
+      value => value.firstCustody.privateInitialReceiptSha256 = "0".repeat(64),
+      value => value.firstCustody.privateJournalSha256 = "0".repeat(64),
+      value => value.firstCustody.localValidatorAttestation.extra = true,
+      value => value.firstCustody.localValidatorAttestation.validated = false,
+    ];
+    for (const mutate of mutateCases) {
+      const state = structuredClone(f.state); mutate(state);
+      await writeFile(f.stateFile, JSON.stringify(state));
+      await assert.rejects(invoke("record-published-package-qualification", f.env), /Prepared first-custody projection/u);
+      const evidence = structuredClone(validEvidence); mutate(evidence);
+      await writeFile(evidenceFile, JSON.stringify(evidence));
+      await assert.rejects(aggregate(), /first-custody closure is invalid/u);
+      await writeFile(evidenceFile, JSON.stringify(validEvidence));
+    }
+    // A separately valid but stale hash/tree projection must fail cross-file equality.
+    for (const key of ["privateInitialReceiptSha256", "privateJournalSha256"]) {
+      const stale = initialProjection("linux"); stale[key] = "0".repeat(64);
+      await writeFile(f.projectionFile, JSON.stringify(stale));
+      await assert.rejects(aggregate(), /first-custody closure is invalid/u);
+    }
+    await writeFile(f.projectionFile, JSON.stringify(initialProjection("linux")));
+    for (const mutate of [
+      value => value.candidate.head = "0".repeat(40),
+      value => value.run.id = "100",
+      value => value.run.attempt = "2",
+      value => value.localValidatorAttestation.extra = true,
+      value => value.localValidatorAttestation.validated = false,
+    ]) {
+      const invalid = initialProjection("linux"); mutate(invalid);
+      await writeFile(f.projectionFile, JSON.stringify(invalid));
+      await assert.rejects(aggregate(), /initial projection custody is invalid/u);
+    }
+    // Exact downloaded inventory and missing initial file remain mandatory.
+    await rm(f.projectionFile);
+    await assert.rejects(aggregate(), /exact metadata evidence/u);
+    await writeFile(f.projectionFile, JSON.stringify(initialProjection("linux")));
+    await writeFile(f.stateFile, JSON.stringify(f.state));
+    await invoke("record-published-package-qualification", f.env);
+    assert.match((await aggregate()).stdout, /Exact three-platform artifact API readback/u);
+  } finally { await rm(root, { recursive: true, force: true }); }
 });

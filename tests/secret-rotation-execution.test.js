@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, unlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rename, rm, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -233,6 +233,7 @@ test("a rollback persistence failure retains the primary consumer cause without 
   const operationId = "rotation-causal-write-failure";
   const target = path.join(workspaceRoot, ".service-lasso", "secret-rotations", `${operationId}.json`);
   const originalCause = new LifecycleStateError("private fixture lifecycle cause");
+  let observedRenameCode;
   let startAttempts = 0;
   resetLifecycleState();
   setRunning(fixture.manifest.id, true);
@@ -253,6 +254,21 @@ test("a rollback persistence failure retains the primary consumer cause without 
             if (startAttempts === 1) {
               await unlink(target);
               await mkdir(target);
+              // Establish the host's actual file-over-directory rename contract
+              // on this same owned target, without changing production persistence.
+              const probe = path.join(path.dirname(target), "rename-contract-probe.tmp");
+              await writeFile(probe, "private fixture probe", { flag: "wx" });
+              try {
+                await rename(probe, target);
+                assert.fail("File-over-directory rename unexpectedly succeeded.");
+              } catch (error) {
+                assert.equal(error.syscall, "rename");
+                const supported = process.platform === "win32" ? ["EPERM", "EEXIST"] : ["EISDIR"];
+                assert.equal(supported.includes(error.code), true, "Unexpected closed rename failure classification.");
+                observedRenameCode = error.code;
+              } finally {
+                await unlink(probe);
+              }
               throw originalCause;
             }
             setRunning(targetService.manifest.id, true);
@@ -266,7 +282,13 @@ test("a rollback persistence failure retains the primary consumer cause without 
     assert.equal(thrown?.code, "rotation_rollback_blocked");
     assert.equal(thrown?.cause?.code, "rotation_consumer_not_ready");
     assert.equal(thrown?.cause?.cause, originalCause);
-    assert.equal(["EEXIST", "EPERM"].includes(thrown?.suppressed?.[0]?.code), true);
+    assert.ok(observedRenameCode);
+    assert.equal(thrown?.suppressed?.length, 1);
+    assert.equal(thrown.suppressed[0].syscall, "rename");
+    assert.equal(thrown.suppressed[0].code, observedRenameCode);
+    assert.equal(Object.getOwnPropertyDescriptor(thrown, "cause").enumerable, false);
+    assert.equal(Object.getOwnPropertyDescriptor(thrown, "suppressed").enumerable, false);
+    assert.equal(JSON.stringify(thrown).includes(target), false);
     assert.equal(JSON.stringify(thrown).includes(originalCause.message), false);
     assert.equal(calls.some((call) => call.path.endsWith("/rollback")), false);
   } finally {

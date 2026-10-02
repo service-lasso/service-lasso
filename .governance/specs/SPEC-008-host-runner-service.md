@@ -48,3 +48,11 @@ or weak ownership modes. Isolated Windows source proof is retained as private
 external qualification evidence and does not stand in for Darwin activation.
 A root host owner must run the documented Darwin
 commands and retain the private receipt before native acceptance is claimed.
+
+## Issue #1600 fixture/input acceptance clarification
+
+Preserve existing acceptance criteria and production checks. The complete source-only
+fixture scope, original failures, dependency owners and subsequent evidence gates
+are bound in [issue 1600 contract map](../project/QUALIFICATION_FIXTURE_INPUTS_1600.md).
+This clarification authorizes faithful input/assertion reconciliation, no protected
+skip, deadline or permission widening, native-custody substitute, or release claim.

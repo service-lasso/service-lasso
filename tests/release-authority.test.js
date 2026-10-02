@@ -78,3 +78,28 @@ test("branch policy confines the SPEC-003 reconciliation exception to the exact 
   assert.match(source, /PR_NUMBER" == "1584"[\s\S]*?BASE_BRANCH" == "develop"[\s\S]*?HEAD_BRANCH" == "codex\/1577-release-reconciliation-develop"[\s\S]*?HEAD_REPOSITORY" == "service-lasso\/service-lasso"/u);
   assert.ok(source.includes('^(feature|fix|docs|chore)/'));
 });
+
+test("SPEC-003 preserved custody head admits only its exact existing PR tuple", async () => {
+  const { spawnSync } = await import("node:child_process");
+  const source = await readFile(path.join(repoRoot, ".github", "workflows", "branch-policy.yml"), "utf8");
+  const direction = source.replaceAll("\r\n", "\n").split("        run: |\n")[1].split("      - name: Check develop ancestry")[0].split("\n").map(line => line.replace(/^          /u, "")).join("\n");
+  const bash = process.platform === "win32" ? path.join(process.env.ProgramFiles ?? "C:\\Program Files", "Git", "bin", "bash.exe") : "bash";
+  const allowed = { PR_NUMBER: "1586", BASE_BRANCH: "develop", HEAD_BRANCH: "codex/850-native-custody-platform-followup", HEAD_REPOSITORY: "service-lasso/service-lasso", HEAD_LOGIN: "wildone" };
+  const check = override => {
+    const result = spawnSync(bash, ["-c", direction], { encoding: "utf8", env: { ...process.env, ...allowed, ...override } });
+    assert.ifError(result.error);
+    return result;
+  };
+  assert.equal(check({}).status, 0);
+  assert.equal(check({ PR_NUMBER: "1584", HEAD_BRANCH: "codex/1577-release-reconciliation-develop" }).status, 0);
+  assert.equal(check({ PR_NUMBER: "9999", HEAD_BRANCH: "fix/9999-normal-work" }).status, 0);
+  for (const mutation of [
+    { PR_NUMBER: "1587" }, { PR_NUMBER: "1584" }, { BASE_BRANCH: "other-base" },
+    { HEAD_BRANCH: "codex/850-native-custody-platform-followup-replacement" },
+    { HEAD_BRANCH: "codex/9999-another-work-unit" },
+    { HEAD_REPOSITORY: "fork/service-lasso" },
+    { PR_NUMBER: "9999", HEAD_LOGIN: "wildone" },
+    { PR_NUMBER: "9999", HEAD_LOGIN: "dependabot[bot]" }
+  ]) assert.notEqual(check(mutation).status, 0, JSON.stringify(mutation));
+  assert.ok(source.includes('git merge-base --is-ancestor origin/develop "$HEAD_SHA"'));
+});

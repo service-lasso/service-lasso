@@ -1,4 +1,6 @@
 import { spawn } from "node:child_process";
+import { validInitialProjection } from "./public-first-custody-projection-lib.mjs";
+import { strictJson } from "./consume-admin-trusted-unlock-receipt.mjs";
 import { createWriteStream } from "node:fs";
 import {
   access,
@@ -637,6 +639,12 @@ const privateStatePath = path.resolve(requiredEnv("QUALIFICATION_PRIVATE_STATE_P
 const runId = requiredEnv("GITHUB_RUN_ID", /^[1-9][0-9]*$/u);
 const runAttempt = requiredEnv("GITHUB_RUN_ATTEMPT", /^[1-9][0-9]*$/u);
 const workflowSha = requireSha(requiredEnv("GITHUB_SHA"), "GITHUB_SHA");
+const candidateSha = requireSha(requiredEnv("QUALIFICATION_CANDIDATE_SHA"), "QUALIFICATION_CANDIDATE_SHA");
+const initialProjectionSource = await readFile(path.resolve(requiredEnv("QUALIFICATION_INITIAL_PROJECTION_PATH")), "utf8").catch(() => null);
+const initialProjection = initialProjectionSource && strictJson(initialProjectionSource) ? JSON.parse(initialProjectionSource) : null;
+if (candidateSha !== workflowSha || !validInitialProjection(initialProjection, platform, runId, runAttempt, workflowSha)) {
+  fail("initial_projection_custody_invalid", "Initial qualification projection custody is invalid.");
+}
 
 if (coreNpmVersion !== coreTag || !coreTag.endsWith(coreRevision.slice(0, 7))) {
   fail("core_publication_identity_mismatch", "Core release, npm version, and target revision are not one identity.");
@@ -652,6 +660,7 @@ const safeState = {
   retainedContent: "metadata_only",
   outcome: "failure",
   platform,
+  firstCustody: initialProjection,
   core: {
     releaseId: coreReleaseId,
     tag: coreTag,

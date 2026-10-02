@@ -279,3 +279,11 @@ checks at its own exact head. These local checks are surrogate evidence pending
 hosted exact-head CI; the historical Docs Site and Windows #1326 failures remain
 separate and unwaived. This integration does not release, deploy, publish, or
 make a GA claim.
+
+## Issue #1600 fixture/input acceptance clarification
+
+Preserve existing acceptance criteria and production checks. The complete source-only
+fixture scope, original failures, dependency owners and subsequent evidence gates
+are bound in [issue 1600 contract map](../project/QUALIFICATION_FIXTURE_INPUTS_1600.md).
+This clarification authorizes faithful input/assertion reconciliation, no protected
+skip, deadline or permission widening, native-custody substitute, or release claim.
