@@ -7,6 +7,10 @@ corrective `develop` pull request.  It records a bounded generated-artifact
 inspection after the raw conflict decisions; it is not a release qualification,
 promotion decision, or a replacement for the historical planning receipts.
 
+The complete `BR-002` base-side commit inventory is recorded in
+[`1577-main-only-commit-ledger.md`](1577-main-only-commit-ledger.md), with
+every path resolution retained in the companion 259-path JSON ledger.
+
 The inspected source checkpoint was
 `79b34f217364e5faf29108c28f55e517b29ae367` with tree
 `730addafca9a76619a7a18fbbe9bca237233c13d`.  Its external initial receipt
