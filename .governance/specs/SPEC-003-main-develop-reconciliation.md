@@ -60,3 +60,11 @@ Reviewers must be able to trace each `main`-only product change to its reconcile
   `develop`; the branch-policy gate binds all four tuple members (PR number,
   base, head, and head repository). This temporary exception preserves the
   reviewed reconciliation ancestry and expires on that merge.
+- 2026-10-02: BR-004 private custody evolves to v3: its exclusive, fsynced
+  producer records every tracked candidate file and the native provenance subset,
+  realpath/lstat parent chains, current registry absence, and ordered command
+  closure bound to the candidate head/tree. The private validator recomputes
+  those observations locally before an explicit digest-only public projection is
+  written. Platform aggregates consume only that projection and must describe
+  their validation as projection validation, never verification of unavailable
+  private bytes.

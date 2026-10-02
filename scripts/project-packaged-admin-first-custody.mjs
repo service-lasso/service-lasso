@@ -1,36 +1,28 @@
-// Produces the only first-custody material that may leave the runner.  The
-// source receipt and journal remain private because they include local paths,
-// process identity, and filesystem observations.
-import { createHash } from "node:crypto";
-import { readFile, writeFile } from "node:fs/promises";
+// Strict local validator and the only public projector for private v3 custody.
+import { open, lstat, readFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
-
-function required(flag) {
-  const index = process.argv.indexOf(flag);
-  if (index < 0 || !process.argv[index + 1]) throw new Error(`Missing ${flag}.`);
-  return path.resolve(process.argv[index + 1]);
-}
-const input = required("--input");
-const journal = required("--journal");
-const output = required("--output");
-const receiptSource = await readFile(input, "utf8");
-const receipt = JSON.parse(receiptSource);
-const exactKeys = (value, keys) => !!value && typeof value === "object" && !Array.isArray(value) && Object.keys(value).sort().join(",") === [...keys].sort().join(",");
-const fileState = (value) => exactKeys(value, ["state", "size", "sha256"]) && value.state === "FILE" && Number.isSafeInteger(value.size) && value.size > 0 && /^[0-9a-f]{64}$/u.test(value.sha256);
-if (!exactKeys(receipt, ["schema", "private", "platform", "run", "source", "runner", "ownedPaths", "registries", "journal"]) || receipt.schema !== "service-lasso.qualification-initial-receipt.v2" || receipt.private !== true || !["linux", "win32", "darwin"].includes(receipt.platform) || !exactKeys(receipt.run, ["id", "attempt"]) || !/^[1-9][0-9]*$/u.test(String(receipt.run.id)) || !/^[1-9][0-9]*$/u.test(String(receipt.run.attempt)) || !exactKeys(receipt.source, ["head", "tree"]) || !/^[0-9a-f]{40}$/u.test(receipt.source.head) || !/^[0-9a-f]{40}$/u.test(receipt.source.tree) || !exactKeys(receipt.runner, ["platform", "arch", "release", "pid", "ppid", "executable"]) || !fileState(receipt.runner.executable) || !Array.isArray(receipt.ownedPaths) || receipt.ownedPaths.length !== 12 || !receipt.ownedPaths.every((entry) => exactKeys(entry, ["path", "parents", "file"]) && typeof entry.path === "string" && Array.isArray(entry.parents) && entry.parents.length > 0 && fileState(entry.file)) || !Array.isArray(receipt.registries) || receipt.registries.length !== 2 || !receipt.registries.every((entry) => exactKeys(entry, ["path", "state"]) && typeof entry.path === "string" && entry.state === "ABSENT") || receipt.journal !== "first-custody-journal.json") throw new Error("Private first-custody receipt is invalid.");
-const journalSource = await readFile(journal, "utf8");
-const journalValue = JSON.parse(journalSource);
-const validCommand = (entry) => (exactKeys(entry, ["command", "status", "stdoutSha256", "stderrSha256"]) || exactKeys(entry, ["command", "status", "unavailable", "stdoutSha256", "stderrSha256"])) && Array.isArray(entry.command) && (Number.isSafeInteger(entry.status) || entry.status === null) && (entry.unavailable === undefined || entry.unavailable === true) && /^[0-9a-f]{64}$/u.test(entry.stdoutSha256) && /^[0-9a-f]{64}$/u.test(entry.stderrSha256);
-if (!exactKeys(journalValue, ["schema", "private", "commands"]) || journalValue.schema !== "service-lasso.qualification-first-custody-journal.v1" || journalValue.private !== true || !Array.isArray(journalValue.commands) || journalValue.commands.length !== 4 || !journalValue.commands.every(validCommand)) throw new Error("Private first-custody journal is invalid.");
-const journalDigest = createHash("sha256").update(journalSource).digest("hex");
-const projection = {
-  schema: "service-lasso.qualification-first-custody-projection.v1",
-  candidate: { head: receipt.source.head, tree: receipt.source.tree },
-  platform: receipt.platform,
-  run: { id: String(receipt.run.id), attempt: String(receipt.run.attempt) },
-  privateInitialReceiptSha256: createHash("sha256").update(receiptSource).digest("hex"),
-  privateJournalSha256: journalDigest,
-  localValidatorAttestation: { schema: "service-lasso.qualification-local-validator-attestation.v1", validated: true },
-};
-await writeFile(output, `${JSON.stringify(projection)}\n`, { encoding: "utf8", flag: "wx" });
+import { exact, DIGEST, regularClosedFile, requireStrictJson, SHA, sha256 } from "./private-first-custody-v3-lib.mjs";
+import { spawn } from "node:child_process";
+function argument(flag){const index=process.argv.indexOf(flag);if(index<0||!process.argv[index+1])throw new Error("first_custody_"+flag+"_missing");return path.resolve(process.argv[index+1]);}
+function git(args,workspace){return new Promise((resolve,reject)=>{const child=spawn("git",args,{cwd:workspace,shell:false,stdio:["ignore","pipe","pipe"]}),out=[];child.stdout.on("data",c=>out.push(Buffer.from(c)));child.once("error",reject);child.once("close",code=>code===0?resolve(Buffer.concat(out).toString("utf8")):reject(new Error("first_custody_validator_git_failed")));});}
+const input=argument("--input"),journalPath=argument("--journal"),output=argument("--output"),workspace=path.resolve(process.env.GITHUB_WORKSPACE??"");
+if(!workspace)throw new Error("first_custody_validator_workspace_missing");
+for(const f of[input,journalPath]){const state=await lstat(f);if(!state.isFile()||state.isSymbolicLink())throw new Error("first_custody_validator_input_not_regular");}
+const source=await readFile(input,"utf8"),journalSource=await readFile(journalPath,"utf8"),receipt=requireStrictJson(source,"first_custody_validator_receipt"),journal=requireStrictJson(journalSource,"first_custody_validator_journal");
+if(!exact(receipt,["schema","private","platform","run","source","roots","registries","runner","tools","journal"])||receipt.schema!=="service-lasso.qualification-initial-receipt.v3"||receipt.private!==true||!["linux","win32","darwin"].includes(receipt.platform)||!exact(receipt.run,["id","attempt"])||!/^[1-9][0-9]*$/u.test(receipt.run.id)||!/^[1-9][0-9]*$/u.test(receipt.run.attempt)||!exact(receipt.source,["head","tree","clean","tracked"])||!SHA.test(receipt.source.head)||!SHA.test(receipt.source.tree)||receipt.source.clean!==true||!Array.isArray(receipt.source.tracked)||!receipt.source.tracked.length)throw new Error("first_custody_validator_receipt_shape_invalid");
+const [head,tree,status,listing]=await Promise.all([git(["rev-parse","HEAD"],workspace),git(["rev-parse","HEAD^{tree}"],workspace),git(["status","--porcelain=v1","-z"],workspace),git(["ls-files","-s","-z"],workspace)]);
+if(head.trim()!==receipt.source.head||tree.trim()!==receipt.source.tree||status!=="")throw new Error("first_custody_validator_live_source_invalid");
+const live=[];for(const row of listing.split("\0").filter(Boolean)){const match=/^\d+ ([0-9a-f]{40}) \d\t(.+)$/u.exec(row);if(!match)throw new Error("first_custody_validator_inventory_invalid");live.push({path:match[2].replaceAll("\\","/"),gitBlob:match[1]});}
+if(live.length!==receipt.source.tracked.length)throw new Error("first_custody_validator_inventory_length_invalid");
+for(let index=0;index<live.length;index+=1){const expected=receipt.source.tracked[index],actual=live[index];if(!exact(expected,["path","gitBlob","file"])||expected.path!==actual.path||expected.gitBlob!==actual.gitBlob||!exact(expected.file,["size","sha256"])||!Number.isSafeInteger(expected.file.size)||expected.file.size<0||!DIGEST.test(expected.file.sha256))throw new Error("first_custody_validator_inventory_binding_invalid");const file=path.resolve(workspace,actual.path);if(!file.startsWith(workspace+path.sep))throw new Error("first_custody_validator_inventory_escape");const state=await regularClosedFile(file,workspace);if(state.size!==expected.file.size||state.sha256!==expected.file.sha256)throw new Error("first_custody_validator_workspace_tampered");}
+if(!exact(receipt.roots,["workspaceRoot","instanceRegistryPath","hostPortRegistryPath"])||new Set(Object.values(receipt.roots)).size!==3)throw new Error("first_custody_validator_roots_invalid");
+for(const file of[receipt.roots.instanceRegistryPath,receipt.roots.hostPortRegistryPath])if(await lstat(file).catch(e=>e.code==="ENOENT"?null:Promise.reject(e)))throw new Error("first_custody_validator_registry_present");
+if(!exact(journal,["schema","private","commands"])||journal.schema!=="service-lasso.qualification-first-custody-journal.v3"||journal.private!==true||!Array.isArray(journal.commands)||journal.commands.length<6)throw new Error("first_custody_validator_journal_shape_invalid");
+const expectedGit=[["git",["rev-parse","HEAD"]],["git",["rev-parse","HEAD^{tree}"]],["git",["status","--porcelain=v1","-z"]],["git",["ls-files","-s","-z"]]];
+for(const [index,command] of journal.commands.entries()){if(!exact(command,["command","child","result"])||!exact(command.command,["executable","args"])||!Array.isArray(command.command.args)||!exact(command.child,["pid","ppid","birthObserved","image","parents"])||command.child.birthObserved!==true||!Array.isArray(command.child.parents)||!exact(command.result,["naturalWaitForExit","exitCode","signal","stdoutEof","stderrEof","stdout","stderr"])||command.result.naturalWaitForExit!==true||command.result.stdoutEof!==true||command.result.stderrEof!==true||!exact(command.result.stdout,["size","sha256"])||!exact(command.result.stderr,["size","sha256"])||!DIGEST.test(command.result.stdout.sha256)||!DIGEST.test(command.result.stderr.sha256))throw new Error("first_custody_validator_journal_command_invalid");if(index<4&&(path.basename(command.command.executable).replace(/\.exe$/iu,"")!==expectedGit[index][0]||JSON.stringify(command.command.args)!==JSON.stringify(expectedGit[index][1])))throw new Error("first_custody_validator_journal_order_invalid");if(index>=4&&JSON.stringify(command.command.args)!==JSON.stringify(["--version"]))throw new Error("first_custody_validator_tool_journal_invalid");}
+if(!Array.isArray(receipt.tools)||receipt.tools.length!==journal.commands.length-4||!receipt.tools.every((tool,index)=>exact(tool,["executable","file"])&&journal.commands[index+4].command.executable===tool.executable&&exact(tool.file,["size","sha256"])&&DIGEST.test(tool.file.sha256)))throw new Error("first_custody_validator_tool_binding_invalid");
+const journalFile=await regularClosedFile(journalPath,path.dirname(journalPath));
+if(!exact(receipt.journal,["path","file"])||receipt.journal.path!==journalPath||!exact(receipt.journal.file,["size","sha256"])||receipt.journal.file.size!==journalFile.size||receipt.journal.file.sha256!==journalFile.sha256)throw new Error("first_custody_validator_journal_tampered");
+const projection={schema:"service-lasso.qualification-first-custody-projection.v2",privateVersion:"v3",candidate:{head:receipt.source.head,tree:receipt.source.tree},platform:receipt.platform,run:receipt.run,privateInitialReceiptSha256:sha256(source),privateJournalSha256:journalFile.sha256,localValidatorAttestation:{schema:"service-lasso.qualification-local-validator-attestation.v2",validated:true}};
+const handle=await open(output,"wx",0o600);try{await handle.writeFile(JSON.stringify(projection)+"\n");await handle.sync();}finally{await handle.close();}

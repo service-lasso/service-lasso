@@ -95,7 +95,7 @@ test("AC-4BZ.1 workflow qualifies only exact downloaded publications on all thre
   );
   assert.match(
     workflow,
-    /Establish unique qualification custody before dependencies[\s\S]*?qualification_root="\$RUNNER_TEMP\/published-package-qualification-\$GITHUB_RUN_ID-\$GITHUB_JOB-\$GITHUB_RUN_ATTEMPT-\$QUALIFICATION_PLATFORM"[\s\S]*?QUALIFICATION_WORKSPACE_ROOT=\$QUALIFICATION_WORKSPACE_ROOT[\s\S]*?SERVICE_LASSO_INSTANCE_REGISTRY_PATH=\$SERVICE_LASSO_INSTANCE_REGISTRY_PATH[\s\S]*?SERVICE_LASSO_HOST_PORT_REGISTRY_PATH=\$SERVICE_LASSO_HOST_PORT_REGISTRY_PATH[\s\S]*?mkdir -p "\$QUALIFICATION_WORKSPACE_ROOT" "\$QUALIFICATION_EVIDENCE_ROOT"[\s\S]*?test -s "\$QUALIFICATION_INITIAL_RECEIPT_PATH"/,
+    /Establish unique qualification custody before dependencies[\s\S]*?qualification_root="\$RUNNER_TEMP\/published-package-qualification-\$GITHUB_RUN_ID-\$GITHUB_JOB-\$GITHUB_RUN_ATTEMPT-\$QUALIFICATION_PLATFORM"[\s\S]*?SERVICE_LASSO_INSTANCE_REGISTRY_PATH=\$SERVICE_LASSO_INSTANCE_REGISTRY_PATH[\s\S]*?SERVICE_LASSO_HOST_PORT_REGISTRY_PATH=\$SERVICE_LASSO_HOST_PORT_REGISTRY_PATH[\s\S]*?mkdir -p "\$qualification_root"[\s\S]*?record-packaged-admin-first-custody[\s\S]*?mkdir -p "\$QUALIFICATION_WORKSPACE_ROOT" "\$QUALIFICATION_EVIDENCE_ROOT"[\s\S]*?test -s "\$QUALIFICATION_INITIAL_PROJECTION_PATH"/,
   );
 
   for (const command of [
@@ -189,12 +189,14 @@ test("AC-4BZ.1 aggregate verifies current-attempt artifacts and retains prior-at
   assert.match(source, /validateRetainedArtifactMetadata\(artifact/);
   assert.match(source, /entries\.length !== 3/);
   assert.match(source, /admin-trusted-unlock-receipt\.json/);
-  assert.match(source, /initial-receipt\.json/);
+  assert.match(source, /initial-projection\.json/);
   assert.match(source, /validateTerminalJobMetadata\(matchingJobs\[0\]/);
   assert.match(source, /requireTerminalPrebrowserJob\(jobs, platform, runId, runAttempt\)/);
   assert.match(source, /validateRetainedEvidence\(evidence/);
   assert.match(source, /parseStrictJson\(/);
   assert.match(source, /parseStrictJson\([\s\S]*?retained trusted-unlock receipt/);
+  assert.match(source, /qualification-first-custody-projection\.v2/);
+  assert.match(source, /privateVersion === "v3"/);
 });
 
 test("AC-4BZ.1 downloaded aggregate JSON rejects raw and escaped duplicate keys before closed-shape validation", () => {

@@ -1,68 +1,28 @@
-// This is intentionally invoked before npm ci, build, test, or a Core import.
-// It records the checked-out candidate and the runner that is about to execute
-// those actions; later receipts transport this fact but never recreate it.
-import { createHash } from "node:crypto";
-import { execFile } from "node:child_process";
-import { lstat, mkdir, open, readFile } from "node:fs/promises";
+// Private v3 custody executes before dependency setup, Core import, or native work.
+import { spawn } from "node:child_process";
+import { lstat, mkdir, open, readFile, realpath, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { promisify } from "node:util";
-
-const execFileAsync = promisify(execFile);
-const required = ["ADMIN_PLATFORM", "GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT", "QUALIFICATION_INITIAL_RECEIPT_PATH", "GITHUB_WORKSPACE"];
-for (const name of required) if (!process.env[name]) throw new Error(`first_custody_${name.toLowerCase()}_missing`);
-const receiptPath = path.resolve(process.env.QUALIFICATION_INITIAL_RECEIPT_PATH);
-const root = path.dirname(receiptPath);
-if (root !== path.resolve(process.env.QUALIFICATION_EVIDENCE_ROOT ?? root)) throw new Error("first_custody_receipt_root_invalid");
-
-async function exclusiveJson(file, value) {
-  const handle = await open(file, "wx", 0o600);
-  try { await handle.writeFile(`${JSON.stringify(value)}\n`, "utf8"); await handle.sync(); }
-  finally { await handle.close(); }
-}
-async function fileState(candidate) {
-  const metadata = await lstat(candidate).catch((error) => error?.code === "ENOENT" ? null : Promise.reject(error));
-  if (!metadata) return { state: "ABSENT" };
-  if (!metadata.isFile() || metadata.isSymbolicLink()) throw new Error("first_custody_owned_path_invalid");
-  const bytes = await readFile(candidate);
-  return { state: "FILE", size: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") };
-}
-async function parentChain(candidate) {
-  const chain = [];
-  for (let cursor = path.resolve(candidate); ;) {
-    const metadata = await lstat(cursor);
-    if (metadata.isSymbolicLink()) throw new Error("first_custody_parent_link");
-    chain.push({ path: cursor, kind: metadata.isDirectory() ? "DIRECTORY" : metadata.isFile() ? "FILE" : "OTHER" });
-    const parent = path.dirname(cursor); if (parent === cursor) return chain;
-    cursor = parent;
-  }
-}
-async function command(command, args) {
-  try {
-    const result = await execFileAsync(command, args, { cwd: process.env.GITHUB_WORKSPACE, timeout: 5_000, windowsHide: true, encoding: "utf8" });
-    return { command: [command, ...args], status: 0, stdoutSha256: createHash("sha256").update(result.stdout).digest("hex"), stderrSha256: createHash("sha256").update(result.stderr).digest("hex") };
-  } catch (error) { return { command: [command, ...args], status: Number.isSafeInteger(error.code) ? error.code : null, unavailable: error.code === "ENOENT", stdoutSha256: createHash("sha256").update(error.stdout ?? "").digest("hex"), stderrSha256: createHash("sha256").update(error.stderr ?? "").digest("hex") }; }
-}
-const ownedPaths = [
-  "src/runtime/process/windows-process-inspector.cs", "src/runtime/process/windows-process-inspector.exe", "src/runtime/process/windows-process-inspector.provenance.json",
-  "src/runtime/execution/windows-managed-launcher-native.cs", "src/runtime/execution/windows-managed-launcher-native.exe", "src/runtime/execution/windows-managed-launcher-native.provenance.json",
-  "src/runtime/security/windows-dpapi-helper.cs", "src/runtime/security/windows-dpapi-helper.exe", "src/runtime/security/windows-dpapi-helper.provenance.json",
-  "tests/fixtures/windows-held-exit-probe.cs", "tests/fixtures/windows-held-exit-probe.exe", "tests/fixtures/windows-held-exit-probe.provenance.json",
-];
-const workspace = path.resolve(process.env.GITHUB_WORKSPACE);
-const sourceCommands = await Promise.all([command("git", ["rev-parse", "HEAD"]), command("git", ["rev-parse", "HEAD^{tree}"])]);
-const [headRaw, treeRaw] = await Promise.all([execFileAsync("git", ["rev-parse", "HEAD"], { cwd: workspace }), execFileAsync("git", ["rev-parse", "HEAD^{tree}"], { cwd: workspace })]);
-const head = headRaw.stdout.trim(), tree = treeRaw.stdout.trim();
-if (!/^[0-9a-f]{40}$/u.test(head) || !/^[0-9a-f]{40}$/u.test(tree) || head !== process.env.QUALIFICATION_CANDIDATE_SHA) throw new Error("first_custody_candidate_binding_invalid");
-const runtime = await fileState(process.execPath);
-const nativeAssets = await Promise.all(ownedPaths.map(async (relative) => ({ path: relative, parents: await parentChain(path.join(workspace, relative)), file: await fileState(path.join(workspace, relative)) })));
-const journal = { schema: "service-lasso.qualification-first-custody-journal.v1", private: true, commands: [...sourceCommands, await command("npm", ["--version"]), await command("csc", ["-version"]) ] };
-await mkdir(root, { recursive: true, mode: 0o700 });
-await exclusiveJson(path.join(root, "first-custody-journal.json"), journal);
-await exclusiveJson(receiptPath, {
-  schema: "service-lasso.qualification-initial-receipt.v2", private: true, platform: process.env.ADMIN_PLATFORM,
-  run: { id: process.env.GITHUB_RUN_ID, attempt: process.env.GITHUB_RUN_ATTEMPT }, source: { head, tree },
-  runner: { platform: process.platform, arch: process.arch, release: os.release(), pid: process.pid, ppid: process.ppid, executable: runtime },
-  ownedPaths: nativeAssets, registries: [process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH, process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH].map((candidate) => ({ path: candidate, state: "ABSENT" })),
-  journal: "first-custody-journal.json",
-});
+import process from "node:process";
+import { regularClosedFile, SHA } from "./private-first-custody-v3-lib.mjs";
+const required=["QUALIFICATION_PLATFORM","GITHUB_RUN_ID","GITHUB_RUN_ATTEMPT","GITHUB_WORKSPACE","QUALIFICATION_CANDIDATE_SHA","QUALIFICATION_PRIVATE_CUSTODY_ROOT","QUALIFICATION_INITIAL_RECEIPT_PATH","SERVICE_LASSO_WORKSPACE_ROOT","SERVICE_LASSO_INSTANCE_REGISTRY_PATH","SERVICE_LASSO_HOST_PORT_REGISTRY_PATH"];
+for(const key of required)if(!process.env[key])throw new Error("first_custody_"+key.toLowerCase()+"_missing");
+const workspace=path.resolve(process.env.GITHUB_WORKSPACE),privateRoot=path.resolve(process.env.QUALIFICATION_PRIVATE_CUSTODY_ROOT),receiptPath=path.resolve(process.env.QUALIFICATION_INITIAL_RECEIPT_PATH);
+if(!["linux","win32","darwin"].includes(process.env.QUALIFICATION_PLATFORM)||path.dirname(receiptPath)!==privateRoot)throw new Error("first_custody_initial_configuration_invalid");
+async function exclusive(file,value){const h=await open(file,"wx",0o600);try{await h.writeFile(JSON.stringify(value)+"\n");await h.sync();}finally{await h.close();}}
+function run(executable,args,index){return new Promise((resolve,reject)=>{const child=spawn(executable,args,{cwd:workspace,shell:false,windowsHide:true,stdio:["ignore","pipe","pipe"]}),out=[],err=[];let outEof=false,errEof=false,startError=null;child.once("error",e=>{startError=e;});child.stdout.on("data",c=>out.push(Buffer.from(c)));child.stderr.on("data",c=>err.push(Buffer.from(c)));child.stdout.once("end",()=>{outEof=true;});child.stderr.once("end",()=>{errEof=true;});child.once("close",async(code,signal)=>{try{const op=path.join(privateRoot,"journal-"+index+".stdout"),ep=path.join(privateRoot,"journal-"+index+".stderr");await writeFile(op,Buffer.concat(out),{flag:"wx",mode:0o600});await writeFile(ep,Buffer.concat(err),{flag:"wx",mode:0o600});resolve({command:{executable,args},child:{pid:child.pid??null,ppid:process.pid,birthObserved:true,image:executable,parents:[]},result:{naturalWaitForExit:startError===null,exitCode:Number.isSafeInteger(code)?code:null,signal:signal??null,stdoutEof:outEof,stderrEof:errEof,stdout:await regularClosedFile(op,privateRoot),stderr:await regularClosedFile(ep,privateRoot)}});}catch(error){reject(error);}});});}
+async function resolve(name,fallback){if(fallback)return path.resolve(fallback);for(const dir of(process.env.PATH??"").split(path.delimiter).filter(Boolean))for(const suffix of process.platform==="win32"?[".cmd",".exe",""]:[""]){const candidate=path.join(dir,name+suffix),state=await lstat(candidate).catch(()=>null);if(state?.isFile()&&!state.isSymbolicLink())return path.resolve(candidate);}throw new Error("first_custody_"+name+"_unresolved");}
+async function nonreparseParent(target,boundary){for(let c=path.resolve(target);;c=path.dirname(c)){const state=await lstat(c);if(state.isSymbolicLink())throw new Error("first_custody_reparse_parent");if(c===path.resolve(boundary))return;if(c===path.dirname(c))throw new Error("first_custody_parent_escape");}}
+await mkdir(privateRoot,{recursive:true,mode:0o700});
+const commands=[await run("git",["rev-parse","HEAD"],0),await run("git",["rev-parse","HEAD^{tree}"],1),await run("git",["status","--porcelain=v1","-z"],2),await run("git",["ls-files","-s","-z"],3)];
+if(!commands.every(c=>c.result.naturalWaitForExit&&c.result.stdoutEof&&c.result.stderrEof&&c.result.exitCode===0))throw new Error("first_custody_git_command_failed");
+const output=i=>readFile(path.join(privateRoot,"journal-"+i+".stdout"),"utf8");const [head,tree,clean,listing]=await Promise.all([output(0),output(1),output(2),output(3)]);
+if(!SHA.test(head.trim())||!SHA.test(tree.trim())||head.trim()!==process.env.QUALIFICATION_CANDIDATE_SHA||clean!=="")throw new Error("first_custody_source_binding_invalid");
+const tracked=[];for(const row of listing.split("\0").filter(Boolean)){const match=/^\d+ ([0-9a-f]{40}) \d\t(.+)$/u.exec(row);if(!match)throw new Error("first_custody_tracked_entry_invalid");const file=path.resolve(workspace,match[2]);if(!file.startsWith(workspace+path.sep))throw new Error("first_custody_tracked_path_escape");tracked.push({path:match[2].replaceAll("\\","/"),gitBlob:match[1],file:await regularClosedFile(file,workspace)});}if(!tracked.length||new Set(tracked.map(x=>x.path)).size!==tracked.length)throw new Error("first_custody_tracked_inventory_invalid");
+const tools=[];for(const [offset,executable] of(await Promise.all([resolve("node",process.execPath),resolve("npm"),resolve("csc")])).entries()){tools.push({executable,file:await regularClosedFile(executable,path.parse(executable).root)});commands.push(await run(executable,["--version"],4+offset));}
+if(!commands.slice(4).every(c=>c.result.naturalWaitForExit&&c.result.stdoutEof&&c.result.stderrEof))throw new Error("first_custody_tool_command_incomplete");
+const roots={workspaceRoot:path.resolve(process.env.SERVICE_LASSO_WORKSPACE_ROOT),instanceRegistryPath:path.resolve(process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH),hostPortRegistryPath:path.resolve(process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH)},boundary=path.dirname(path.resolve(process.env.SERVICE_LASSO_WORKSPACE_ROOT));
+if(new Set(Object.values(roots)).size!==3||!Object.values(roots).every(p=>p.startsWith(boundary+path.sep)))throw new Error("first_custody_owned_root_invalid");
+const registries=[];for(const file of[roots.instanceRegistryPath,roots.hostPortRegistryPath]){await nonreparseParent(path.dirname(file),boundary);if(await lstat(file).catch(e=>e.code==="ENOENT"?null:Promise.reject(e)))throw new Error("first_custody_registry_present");registries.push({path:file,state:"ABSENT"});}
+const journalPath=path.join(privateRoot,"first-custody-journal.json");await exclusive(journalPath,{schema:"service-lasso.qualification-first-custody-journal.v3",private:true,commands});const executable=await realpath(process.execPath);
+await exclusive(receiptPath,{schema:"service-lasso.qualification-initial-receipt.v3",private:true,platform:process.env.QUALIFICATION_PLATFORM,run:{id:String(process.env.GITHUB_RUN_ID),attempt:String(process.env.GITHUB_RUN_ATTEMPT)},source:{head:head.trim(),tree:tree.trim(),clean:true,tracked},roots,registries,runner:{platform:process.platform,arch:process.arch,release:os.release(),pid:process.pid,ppid:process.ppid,executable:{path:executable,file:await regularClosedFile(executable,path.parse(executable).root)},parents:[]},tools,journal:{path:journalPath,file:await regularClosedFile(journalPath,privateRoot)}});

@@ -101,8 +101,10 @@ jobs:
           export SERVICE_LASSO_TEST_SUPPORT_ROOT="$qualification_root/runtime-support"
           export QUALIFICATION_WORKSPACE_ROOT="$SERVICE_LASSO_WORKSPACE_ROOT"
           export QUALIFICATION_EVIDENCE_ROOT="$qualification_root/evidence"
+          export QUALIFICATION_PRIVATE_CUSTODY_ROOT="$RUNNER_TEMP/published-package-qualification-private-$GITHUB_RUN_ID-$GITHUB_JOB-$GITHUB_RUN_ATTEMPT-$QUALIFICATION_PLATFORM"
           export QUALIFICATION_SAFE_STATE_PATH="$QUALIFICATION_EVIDENCE_ROOT/qualification-state.json"
-          export QUALIFICATION_INITIAL_RECEIPT_PATH="$QUALIFICATION_EVIDENCE_ROOT/initial-receipt.json"
+          export QUALIFICATION_INITIAL_RECEIPT_PATH="$QUALIFICATION_PRIVATE_CUSTODY_ROOT/initial-receipt.json"
+          export QUALIFICATION_INITIAL_PROJECTION_PATH="$QUALIFICATION_EVIDENCE_ROOT/initial-projection.json"
           printf '%s\n' \
             "QUALIFICATION_WORKSPACE_ROOT=$QUALIFICATION_WORKSPACE_ROOT" \
             "SERVICE_LASSO_WORKSPACE_ROOT=$SERVICE_LASSO_WORKSPACE_ROOT" \
@@ -114,12 +116,13 @@ jobs:
             "QUALIFICATION_EVIDENCE_ROOT=$QUALIFICATION_EVIDENCE_ROOT" \
             "QUALIFICATION_SAFE_STATE_PATH=$QUALIFICATION_SAFE_STATE_PATH" \
             "QUALIFICATION_INITIAL_RECEIPT_PATH=$QUALIFICATION_INITIAL_RECEIPT_PATH" \
+            "QUALIFICATION_INITIAL_PROJECTION_PATH=$QUALIFICATION_INITIAL_PROJECTION_PATH" \
             >> "$GITHUB_ENV"
+          mkdir -p "$qualification_root"
+          node scripts/record-packaged-admin-first-custody.mjs
           mkdir -p "$QUALIFICATION_WORKSPACE_ROOT" "$QUALIFICATION_EVIDENCE_ROOT" "$SERVICE_LASSO_TEST_SERVICES_ROOT" "$SERVICE_LASSO_TEST_EVIDENCE_ROOT" "$SERVICE_LASSO_TEST_SUPPORT_ROOT"
-          test ! -e "$SERVICE_LASSO_INSTANCE_REGISTRY_PATH"
-          test ! -e "$SERVICE_LASSO_HOST_PORT_REGISTRY_PATH"
-          printf '{"schema":"service-lasso.qualification-initial-receipt.v1","platform":"%s","run":{"id":"%s","attempt":"%s"}}\n' "$QUALIFICATION_PLATFORM" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" > "$QUALIFICATION_INITIAL_RECEIPT_PATH"
-          test -s "$QUALIFICATION_INITIAL_RECEIPT_PATH"
+          node scripts/project-packaged-admin-first-custody.mjs --input "$QUALIFICATION_INITIAL_RECEIPT_PATH" --journal "$QUALIFICATION_PRIVATE_CUSTODY_ROOT/first-custody-journal.json" --output "$QUALIFICATION_INITIAL_PROJECTION_PATH"
+          test -s "$QUALIFICATION_INITIAL_PROJECTION_PATH"
 
       - name: Set up Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -220,6 +223,7 @@ jobs:
           CLEANUP_OUTCOME: ${{ steps.cleanup.outcome }}
           ADMIN_TRUSTED_UNLOCK_RECEIPT_PATH: ${{ runner.temp }}/admin-trusted-unlock-receipt.json
           ADMIN_TRUSTED_UNLOCK_PREBROWSER_FAILURE_PATH: ${{ env.ADMIN_TRUSTED_UNLOCK_PREBROWSER_FAILURE_PATH }}
+          QUALIFICATION_INITIAL_PROJECTION_PATH: ${{ env.QUALIFICATION_INITIAL_PROJECTION_PATH }}
         run: node scripts/record-published-package-qualification.mjs
 
       - name: Upload retained platform evidence

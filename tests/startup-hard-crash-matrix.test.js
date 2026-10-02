@@ -102,13 +102,18 @@ async function cleanupPersistedServiceOwner(workspaceRoot, serviceId) {
   await stopManagedProcess(serviceId).catch(() => undefined);
   const ownership = await findProcessOwnership(workspaceRoot, "service", serviceId).catch(() => null);
   if (!ownership?.pid || !ownership.identity) return;
-  if (ownership.lifecycleState === "stopped") return;
-  if (await classifyRegisteredProcess(ownership).catch(() => "unknown_owner") !== "owned") return;
+  const classification = await classifyRegisteredProcess(ownership).catch(() => "unknown_owner");
+  if (classification === "not_running") return;
+  if (classification !== "owned") throw new Error(`Fixture owner ${serviceId} cannot be verified for cleanup.`);
   await terminateOwnedProcessTree({
     rootPid: ownership.pid,
     rootIdentity: ownership.identity,
     processGroup: ownership.processGroup,
-  }, 5_000).catch(() => undefined);
+  }, 5_000);
+  const after = await findProcessOwnership(workspaceRoot, "service", serviceId).catch(() => null);
+  if (after?.identity && (await classifyRegisteredProcess(after).catch(() => "unknown_owner")) === "owned") {
+    throw new Error(`Fixture owner ${serviceId} remained live after precise terminal cleanup.`);
+  }
 }
 
 async function listStartupResidue(workspaceRoot) {
