@@ -1,6 +1,6 @@
 import type { DiscoveredService } from "../../contracts/service.js";
 import { adoptManagedProcess, hasManagedProcess } from "../execution/supervisor.js";
-import { getLifecycleState, setLifecycleState } from "../lifecycle/store.js";
+import { getLifecycleState, setLifecycleState, withLifecycleWorkspace } from "../lifecycle/store.js";
 import type {
   LifecycleAction,
   ServiceLifecycleState,
@@ -1074,7 +1074,9 @@ export async function rehydrateDiscoveredServices(
   services: DiscoveredService[],
   options: RehydrateProcessOwnershipOptions = {},
 ): Promise<void> {
-  for (const service of services) {
-    await rehydrateLifecycleState(service, options);
-  }
+  await withLifecycleWorkspace(options.workspaceRoot, async () => {
+    for (const service of services) {
+      await rehydrateLifecycleState(service, options);
+    }
+  });
 }

@@ -83,7 +83,7 @@ import type { MaterializationWriteHooks, StartupArtifactAcquisitionHooks } from 
 import { writeServiceState } from "../state/writeState.js";
 import { reconcilePersistedServiceOwner } from "../state/rehydrate.js";
 import { isProviderRole } from "../roles.js";
-import { getLifecycleState, setLifecycleState } from "./store.js";
+import { getLifecycleState, setLifecycleState, withLifecycleWorkspace } from "./store.js";
 import type {
   LifecycleAction,
   LifecycleActionResult,
@@ -1212,6 +1212,7 @@ export async function installService(
     })(),
     message: "Install completed.",
   }));
+  });
 }
 
 export async function configService(
@@ -1219,6 +1220,7 @@ export async function configService(
   registry?: ServiceRegistry,
   options: ServiceLifecycleActionOptions = {},
 ): Promise<LifecycleActionResult> {
+  return await withLifecycleWorkspace(options.workspaceRoot, async () => {
   const serviceId = service.manifest.id;
   const current = getLifecycleState(serviceId);
   if (!current.installed) {
@@ -1265,6 +1267,7 @@ export async function configService(
     },
     message: "Config completed.",
   }));
+  });
 }
 
 export async function startService(
@@ -1275,7 +1278,9 @@ export async function startService(
   // Automatic startup and API requests may both reach this boundary before
   // either has enrolled a process. Serialize by root, not just service ID, so
   // independent folder instances never block one another.
-  return await withServiceStartSerialization(service.serviceRoot, () => startServiceSerialized(service, registry, options));
+  return await withLifecycleWorkspace(options.workspaceRoot, async () =>
+    await withServiceStartSerialization(service.serviceRoot, () => startServiceSerialized(service, registry, options)),
+  );
 }
 
 async function startServiceSerialized(
@@ -1283,6 +1288,7 @@ async function startServiceSerialized(
   registry?: ServiceRegistry,
   options: ServiceLifecycleActionOptions = {},
 ): Promise<LifecycleActionResult> {
+  return await withLifecycleWorkspace(options.workspaceRoot, async () => {
   const serviceId = service.manifest.id;
   if (!options.supervisionRestart) {
     shutdownRequestedServiceIds.delete(supervisionServiceKey(serviceId, options.workspaceRoot));
@@ -1785,12 +1791,14 @@ async function startServiceSerialized(
   }));
   finishStartTrace(serviceId, trace, "succeeded", readiness.message);
   return { ...result, state: getLifecycleState(serviceId) };
+  });
 }
 
 export async function stopService(
   service: DiscoveredService,
   options: ServiceLifecycleActionOptions = {},
 ): Promise<LifecycleActionResult> {
+  return await withLifecycleWorkspace(options.workspaceRoot, async () => {
   const serviceId = service.manifest.id;
   cancelScheduledSupervisionRestart(serviceId, options.workspaceRoot);
   const current = getLifecycleState(serviceId);
@@ -1824,6 +1832,7 @@ export async function stopService(
     },
     message: stopped.message,
   }));
+  });
 }
 
 export async function restartService(
@@ -1831,6 +1840,7 @@ export async function restartService(
   registry?: ServiceRegistry,
   options: ServiceLifecycleActionOptions = {},
 ): Promise<LifecycleActionResult> {
+  return await withLifecycleWorkspace(options.workspaceRoot, async () => {
   const serviceId = service.manifest.id;
   shutdownRequestedServiceIds.delete(supervisionServiceKey(serviceId, options.workspaceRoot));
   cancelScheduledSupervisionRestart(serviceId, options.workspaceRoot);
@@ -2168,4 +2178,5 @@ export async function restartService(
     }
     throw error;
   }
+  });
 }

@@ -601,7 +601,7 @@ async function persistOutputVariableMatches(
   }
 
   const matchedAt = new Date().toISOString();
-  const current = getLifecycleState(record.service.manifest.id);
+  const current = getLifecycleState(record.service.manifest.id, record.workspaceRoot);
   const state = setLifecycleState(record.service.manifest.id, {
     ...current,
     runtime: {
@@ -620,7 +620,7 @@ async function persistOutputVariableMatches(
         ),
       },
     },
-  });
+  }, record.workspaceRoot);
 
   await writeServiceState(record.service, state);
 }
@@ -1814,7 +1814,7 @@ async function finalizeAdoptedProcessExit(record: AdoptedProcessRecord): Promise
   await withSerializedWorkspaceFinalization(record.workspaceRoot, async () => {
     await transitionProcessOwnership(record.workspaceRoot, "service", serviceId, "stopped", "not_running", record.pid);
 
-    const current = getLifecycleState(serviceId);
+    const current = getLifecycleState(serviceId, workspaceRoot);
     if (current.running && current.runtime.pid === record.pid) {
       const finishedAt = new Date().toISOString();
       const startedAtMs = current.runtime.startedAt ? Date.parse(current.runtime.startedAt) : Number.NaN;
@@ -1837,7 +1837,7 @@ async function finalizeAdoptedProcessExit(record: AdoptedProcessRecord): Promise
             lastRunDurationMs: durationMs,
           },
         },
-      });
+      }, workspaceRoot);
       await writeServiceState(record.service, next);
     }
     adoptedProcesses.delete(key);

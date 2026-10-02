@@ -4793,7 +4793,7 @@ test("workspace authority isolates equal service IDs", async () => {
     secondHandle = await startManagedProcess({ service: secondService, executionPlan: createDirectExecutionPlan(secondService.manifest), workspaceRoot: second.workspaceRoot });
     assert.equal(hasManagedProcess(serviceId, first.workspaceRoot), true);
     assert.equal(hasManagedProcess(serviceId, second.workspaceRoot), true);
-    assert.equal(hasManagedProcess(serviceId), false);
+    assert.throws(() => hasManagedProcess(serviceId), /workspace authority/);
     await assert.rejects(stopAllManagedProcesses(), /workspace authority/);
     assert.equal((await inspectProcess(secondHandle.pid)).status, "running");
     await stopManagedProcess(serviceId, PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS, { workspaceRoot: first.workspaceRoot });

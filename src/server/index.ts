@@ -53,7 +53,7 @@ import {
   type ExecutableInputFileDigest,
   type ServiceExecutableMutationBinding,
 } from "../runtime/setup/definition-revision.js";
-import { getLifecycleState, setLifecycleState } from "../runtime/lifecycle/store.js";
+import { getLifecycleState, setLifecycleState, withLifecycleWorkspace } from "../runtime/lifecycle/store.js";
 import { evaluateServiceHealth } from "../runtime/health/evaluateHealth.js";
 import type { ServiceHealthResult } from "../runtime/health/types.js";
 import { readServiceHealthHistory, recordServiceHealthTransitionResult } from "../runtime/health/history.js";
@@ -7659,7 +7659,7 @@ export function createApiServer(options: ApiServerOptions = {}): Server {
       }
     });
 
-    void routeRequest(
+    void withLifecycleWorkspace(routeConfig.workspaceRoot, () => routeRequest(
       request,
       response,
       routeConfig,
@@ -7667,7 +7667,7 @@ export function createApiServer(options: ApiServerOptions = {}): Server {
       apiRequestTelemetry,
       () => apiRequestTelemetryState.droppedCount,
       getTelemetryContinuousExportState,
-    ).catch((error: unknown) => {
+    )).catch((error: unknown) => {
       const body = toApiErrorBody(error);
       writeJson(response, body.statusCode, body);
     });
