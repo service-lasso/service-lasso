@@ -5,7 +5,7 @@ import path from "node:path";
 import { hasObservedConsumerReceipt, isRetainableConsumerReceipt, parseConsumerReceipt } from "./consume-admin-trusted-unlock-receipt.mjs";
 
 export const QUALIFICATION_SCHEMA =
-  "service-lasso.published-package-qualification.v1";
+  "service-lasso.published-package-qualification.v3";
 export const RETENTION_DAYS = 90;
 export const PACKAGE_NAME = "@service-lasso/service-lasso";
 export const ADMIN_HARNESS_REVISION =
@@ -766,6 +766,19 @@ export function validateRetainedEvidence(evidence, expected) {
       "evidence_admin_harness_mismatch",
       `Retained ${expected.platform} Admin harness identity is invalid.`,
     );
+  }
+  const custody = evidence.firstCustody;
+  if (
+    custody?.schema !== "service-lasso.qualification-first-custody-projection.v1" ||
+    custody?.terminal !== "CLOSED" ||
+    custody?.nativeFileCount !== 19 ||
+    !Number.isSafeInteger(custody?.trackedFileCount) || custody.trackedFileCount < 1 ||
+    !/^[0-9a-f]{64}$/u.test(custody?.firstRecordSha256) ||
+    !/^[0-9a-f]{64}$/u.test(custody?.journalSha256) ||
+    !/^[0-9a-f]{64}$/u.test(custody?.inventorySha256) ||
+    !/^[0-9a-f]{64}$/u.test(custody?.nativeInventorySha256)
+  ) {
+    fail("evidence_first_custody_mismatch", `Retained ${expected.platform} first-custody closure is invalid.`);
   }
   try {
     validateRetainedAdminTrustedUnlockReceipt(evidence.adminTrustedUnlockReceipt, {

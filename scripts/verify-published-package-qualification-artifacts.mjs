@@ -17,22 +17,16 @@ import { parsePrebrowserFailure } from "./record-admin-trusted-unlock-prebrowser
 
 const PLATFORMS = Object.freeze(["linux", "win32", "darwin"]);
 
-function validFileState(value) {
-  return !!value && typeof value === "object" && !Array.isArray(value)
-    && Object.keys(value).sort().join(",") === "sha256,size,state" && value.state === "FILE"
-    && Number.isSafeInteger(value.size) && value.size > 0 && /^[0-9a-f]{64}$/u.test(value.sha256);
-}
 function validateInitialReceipt(value, platform, runId, runAttempt, candidateSha) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  if (Object.keys(value).sort().join(",") !== "inputs,journal,ownedPaths,platform,private,run,runner,schema,source,tools") return false;
-  if (value.schema !== "service-lasso.qualification-initial-receipt.v3" || value.private !== true || value.platform !== platform) return false;
-  if (!value.run || typeof value.run !== "object" || Array.isArray(value.run)) return false;
-  return Object.keys(value.run).sort().join(",") === "attempt,id" && String(value.run.id) === runId && String(value.run.attempt) === runAttempt &&
-    value.source?.head === candidateSha && /^[0-9a-f]{40}$/u.test(value.source?.tree) && value.source.status === "CLEAN" && Array.isArray(value.source.inventory) && value.source.inventory.length === 19 &&
-    Object.keys(value.runner ?? {}).sort().join(",") === "arch,birth,image,parent,pid,platform,ppid,release" && typeof value.runner.birth === "string" && Number.isSafeInteger(value.runner.pid) && value.runner.pid > 0 && Number.isSafeInteger(value.runner.ppid) && value.runner.ppid > 0 && validFileState(value.runner.image) && value.runner.parent?.pid === value.runner.ppid && typeof value.runner.parent.birth === "string" && validFileState(value.runner.parent.image) &&
-    Array.isArray(value.ownedPaths) && value.ownedPaths.length === 19 && value.ownedPaths.every((entry) => typeof entry.path === "string" && Array.isArray(entry.parents) && entry.parents.length > 0 && entry.parents.every((parent) => parent.reparse === false && typeof parent.owner === "string" && typeof parent.resolved === "string") && validFileState(entry.file)) &&
-    Object.values(value.inputs ?? {}).length === 3 && value.inputs.workspace?.env === "SERVICE_LASSO_WORKSPACE_ROOT" && value.inputs.workspace.state === "DIRECTORY" && value.inputs.instanceRegistry?.env === "SERVICE_LASSO_INSTANCE_REGISTRY_PATH" && value.inputs.instanceRegistry.state === "ABSENT" && value.inputs.hostPortRegistry?.env === "SERVICE_LASSO_HOST_PORT_REGISTRY_PATH" && value.inputs.hostPortRegistry.state === "ABSENT" && Object.values(value.inputs).every((entry) => typeof entry.path === "string" && Array.isArray(entry.parents) && entry.parents.length > 0) &&
-    Array.isArray(value.tools) && value.tools.length === 4 && value.tools.every((tool) => typeof tool.name === "string" && ["FILE", "UNAVAILABLE"].includes(tool.state)) && value.journal === "first-custody-journal.json";
+  if (Object.keys(value).sort().join(",") !== "firstRecordSha256,journalSha256,platform,retainedContent,run,schema,source,terminal") return false;
+  const source = value.source;
+  return value.schema === "service-lasso.qualification-first-custody-projection.v1" &&
+    value.retainedContent === "closed_digest_projection" && value.terminal === "UNRESOLVED" && value.platform === platform &&
+    String(value.run?.id) === runId && String(value.run?.attempt) === runAttempt &&
+    source?.head === candidateSha && /^[0-9a-f]{40}$/u.test(source?.tree) && source?.status === "CLEAN" &&
+    Number.isSafeInteger(source?.trackedFileCount) && source.trackedFileCount > 0 && source?.nativeFileCount === 19 &&
+    [value.firstRecordSha256, value.journalSha256, source.inventorySha256, source.nativeInventorySha256].every((digest) => /^[0-9a-f]{64}$/u.test(digest));
 }
 
 function env(name, pattern = /^.+$/u) {
@@ -147,7 +141,7 @@ for (const platform of PLATFORMS) {
   const entries = await readdir(artifactDirectory, { withFileTypes: true });
   const expectedFile = `published-package-qualification-${platform}.json`;
   const expectedReceipt = "admin-trusted-unlock-receipt.json";
-  const initialReceiptName = "initial-receipt.json";
+  const initialReceiptName = "initial-receipt-projection.json";
   const prebrowserName = "admin-trusted-unlock-prebrowser-failure.json";
   if (entries.length === 2 && entries.every((entry) => entry.isFile() && !entry.isSymbolicLink()) && entries.some((entry) => entry.name === prebrowserName) && entries.some((entry) => entry.name === initialReceiptName)) {
     const initial = parseStrictJson(await readOnlyFile(path.join(artifactDirectory, initialReceiptName), `${platform} initial receipt`), `${platform} initial receipt`);
@@ -199,6 +193,9 @@ for (const platform of PLATFORMS) {
     coreNpmVersion,
     coreNpmIntegrity,
   });
+  if (evidence.firstCustody.firstRecordSha256 !== initial.firstRecordSha256 || evidence.firstCustody.journalSha256 !== initial.journalSha256 || evidence.firstCustody.inventorySha256 !== initial.source.inventorySha256 || evidence.firstCustody.nativeInventorySha256 !== initial.source.nativeInventorySha256 || evidence.firstCustody.trackedFileCount !== initial.source.trackedFileCount || evidence.firstCustody.nativeFileCount !== initial.source.nativeFileCount) {
+    throw new Error(`${platform} terminal evidence does not close the first-custody projection.`);
+  }
   if (JSON.stringify(retainedReceipt) !== JSON.stringify(evidence.adminTrustedUnlockReceipt)) {
     throw new Error(`${platform} retained trusted-unlock receipt does not match terminal evidence.`);
   }

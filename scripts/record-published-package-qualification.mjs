@@ -98,6 +98,29 @@ const adminTrustedUnlockReceipt = retainAdminTrustedUnlockReceipt(trustedUnlockS
   adminRevision: ADMIN_RELEASE.revision,
   adminHarnessRevision,
 });
+const firstCustodyProjectionPath = path.resolve(env("QUALIFICATION_INITIAL_RECEIPT_PATH", /^.+$/u));
+const firstCustodyProjectionSource = await readFile(firstCustodyProjectionPath, "utf8");
+let firstCustody;
+try {
+  firstCustody = JSON.parse(firstCustodyProjectionSource);
+} catch {
+  throw new Error("First-custody projection is malformed.");
+}
+if (
+  firstCustody?.schema !== "service-lasso.qualification-first-custody-projection.v1" ||
+  firstCustody?.retainedContent !== "closed_digest_projection" ||
+  firstCustody?.platform !== platform ||
+  String(firstCustody?.run?.id) !== runId ||
+  String(firstCustody?.run?.attempt) !== runAttempt ||
+  firstCustody?.source?.head !== workflowSha ||
+  firstCustody?.source?.status !== "CLEAN" ||
+  !Number.isSafeInteger(firstCustody?.source?.trackedFileCount) ||
+  firstCustody.source.trackedFileCount < 1 ||
+  firstCustody?.source?.nativeFileCount !== 19 ||
+  !/^[0-9a-f]{64}$/u.test(firstCustody?.firstRecordSha256) ||
+  !/^[0-9a-f]{64}$/u.test(firstCustody?.journalSha256) ||
+  firstCustody?.terminal !== "UNRESOLVED"
+) throw new Error("First-custody projection is not a closed initial record.");
 
 let evidence;
 try {
@@ -166,6 +189,16 @@ evidence.run = {
   workflowSha,
 };
 evidence.adminTrustedUnlockReceipt = adminTrustedUnlockReceipt;
+evidence.firstCustody = {
+  schema: firstCustody.schema,
+  firstRecordSha256: firstCustody.firstRecordSha256,
+  journalSha256: firstCustody.journalSha256,
+  trackedFileCount: firstCustody.source.trackedFileCount,
+  inventorySha256: firstCustody.source.inventorySha256,
+  nativeFileCount: firstCustody.source.nativeFileCount,
+  nativeInventorySha256: firstCustody.source.nativeInventorySha256,
+  terminal: "CLOSED",
+};
 evidence.scenarios ??= {};
 evidence.scenarios.firstRun = process.env.QUALIFICATION_FIRST_RUN === "success" ? "success" : "blocked";
 const lifecycleOutcome = process.env.QUALIFICATION_LIFECYCLE === "success" ? "success" : "blocked";
@@ -273,6 +306,7 @@ try {
     },
     adminHarnessRevision,
     adminTrustedUnlockReceipt,
+    firstCustody: { schema: firstCustody.schema, firstRecordSha256: firstCustody.firstRecordSha256, journalSha256: firstCustody.journalSha256, trackedFileCount: firstCustody.source.trackedFileCount, inventorySha256: firstCustody.source.inventorySha256, nativeFileCount: firstCustody.source.nativeFileCount, nativeInventorySha256: firstCustody.source.nativeInventorySha256, terminal: "CLOSED" },
     retentionDays: RETENTION_DAYS,
     mutationRetry: false,
     acquisitionRetry: false,
