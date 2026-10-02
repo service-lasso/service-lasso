@@ -3784,6 +3784,59 @@ test("whole-runtime shutdown reports safe service, pid, and finalization phase o
   }
 });
 
+test("whole-runtime shutdown classifies an unverifiable finalizer without retaining identity details", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-finalizer-identity-diagnostic-");
+  await writeExecutableFixtureService(servicesRoot, "finalizer-identity-diagnostic-service");
+  let releaseFinalizer;
+  const finalizerGate = new Promise((resolve) => {
+    releaseFinalizer = resolve;
+  });
+  let reportFinalizerStarted;
+  const finalizerStarted = new Promise((resolve) => {
+    reportFinalizerStarted = resolve;
+  });
+  let handle;
+
+  try {
+    const [service] = await discoverServices(servicesRoot);
+    handle = await startManagedProcess({
+      service,
+      executionPlan: createDirectExecutionPlan(service.manifest),
+      workspaceRoot,
+      onExit: async () => {
+        reportFinalizerStarted();
+        await finalizerGate;
+        throw new Error("Cannot verify process 55123 while controlling its process tree.");
+      },
+    });
+
+    assert.equal(process.kill(handle.pid, "SIGKILL"), true);
+    await finalizerStarted;
+    releaseFinalizer();
+    await new Promise((resolve) => setImmediate(resolve));
+
+    await assert.rejects(stopAllManagedProcesses(), (error) => {
+      assert.equal(error.name, "ManagedProcessFinalizationError");
+      assert.deepEqual(error.failures, [{
+        serviceId: "finalizer-identity-diagnostic-service",
+        pid: handle.pid,
+        phase: "finalize",
+        code: "PROCESS_IDENTITY_UNVERIFIABLE",
+      }]);
+      assert.equal(error.message.includes("55123"), false);
+      assert.equal(error.message.includes("process tree"), false);
+      return true;
+    });
+  } finally {
+    releaseFinalizer?.();
+    await stopAllManagedProcesses().catch(() => null);
+    forceCleanupProcesses([handle?.pid]);
+    resetLifecycleState();
+    await removeTempRoot(tempRoot);
+  }
+});
+
 test("rehydrated adopted ownership retains and stops the complete persisted process tree", async () => {
   resetLifecycleState();
   const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-adopted-process-tree-");

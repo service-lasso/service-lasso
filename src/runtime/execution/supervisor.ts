@@ -212,6 +212,7 @@ interface ManagedProcessRecord {
   processGroup: ProcessOwnershipEntry["processGroup"];
   knownTreeMembers: ProcessFingerprint[];
   verifiedMembersOnly?: boolean;
+  excludedTreeMemberPids: Set<number>;
   treeMonitorPromise: Promise<void>;
   treeMonitorAbortController: AbortController;
   treeTerminationPromise: Promise<ProcessTreeTerminationResult> | null;
@@ -236,6 +237,7 @@ interface AdoptedProcessRecord {
   processGroup: ProcessOwnershipEntry["processGroup"];
   knownTreeMembers: ProcessFingerprint[];
   verifiedMembersOnly?: boolean;
+  excludedTreeMemberPids: Set<number>;
   monitorAbortController: AbortController;
 }
 
@@ -558,6 +560,15 @@ function safeFinalizationErrorCode(error: unknown, fallback: string): string {
     error.message.startsWith("Timed out waiting for workspace lifecycle lock:")
   ) {
     return "WORKSPACE_LOCK_TIMEOUT";
+  }
+  // Tree control deliberately keeps process identity details out of public
+  // finalization errors. Retain the causal class when that fail-closed path
+  // is responsible, without carrying a PID, command, path, or inspector text.
+  if (error instanceof Error && error.message.startsWith("Cannot verify process ")) {
+    return "PROCESS_IDENTITY_UNVERIFIABLE";
+  }
+  if (error instanceof Error && error.message.startsWith("Cannot control lifetime-filtered process tree ")) {
+    return "FILTERED_TREE_ROOT_UNVERIFIABLE";
   }
   return fallback;
 }
@@ -1980,7 +1991,10 @@ async function terminateManagedProcessTree(
               deadlineMs,
               signal,
               record.verifiedMembersOnly,
-              { inspectTree: managedWindowsTreeInspector },
+              {
+                inspectTree: managedWindowsTreeInspector,
+                excludedMemberPids: record.excludedTreeMemberPids,
+              },
             );
             record.verifiedMembersOnly ||= snapshot.verifiedMembersOnly;
             record.knownTreeMembers = snapshot.members;
@@ -2063,7 +2077,10 @@ async function refreshAdoptedProcessTreeMembers(
       );
     }
     record.verifiedMembersOnly ||= inspection.verifiedMembersOnly;
-    record.knownTreeMembers = inspection.members;
+    for (const pid of inspection.excludedMemberPids ?? []) {
+      record.excludedTreeMemberPids.add(pid);
+    }
+    record.knownTreeMembers = inspection.members.filter((member) => !record.excludedTreeMemberPids.has(member.pid));
     return;
   }
   const members = await captureOwnedProcessTreeMembers(
@@ -2120,8 +2137,11 @@ async function monitorManagedProcessTree(
         },
       );
       record.verifiedMembersOnly ||= inspection.verifiedMembersOnly;
+      for (const pid of inspection.excludedMemberPids ?? []) {
+        record.excludedTreeMemberPids.add(pid);
+      }
       if (inspection.members.length > 0) {
-        record.knownTreeMembers = inspection.members;
+        record.knownTreeMembers = inspection.members.filter((member) => !record.excludedTreeMemberPids.has(member.pid));
       }
     } catch {
       // Process inspection can fail transiently; retain the last verified snapshot.
@@ -2391,6 +2411,7 @@ export async function adoptManagedProcess(
     rootIdentity: ownership.identity,
     processGroup: ownership.processGroup,
     knownTreeMembers: [],
+    excludedTreeMemberPids: new Set<number>(),
     monitorAbortController: new AbortController(),
   };
   await refreshAdoptedProcessTreeMembers(record);
@@ -2612,6 +2633,7 @@ export async function startManagedProcess(
     rootIdentity,
     processGroup,
     knownTreeMembers: [],
+    excludedTreeMemberPids: new Set<number>(),
     treeMonitorPromise: Promise.resolve(),
     treeMonitorAbortController: new AbortController(),
     treeTerminationPromise: null,
