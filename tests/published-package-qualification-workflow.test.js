@@ -177,8 +177,10 @@ test("AC-4BZ.1 executes v2 first custody before dependencies for every published
       assert.equal(receipt.schema, "service-lasso.qualification-initial-receipt.v2");
       assert.equal(receipt.platform, platform);
       assert.equal(receipt.private, true);
-      assert.equal(receipt.ownedPaths.length, 12);
-      assert.deepEqual(receipt.registries.map(({ state }) => state), ["ABSENT", "ABSENT"]);
+      assert.equal(receipt.ownedPaths.length, 19);
+      assert.equal(receipt.inputs.workspace.env, "SERVICE_LASSO_WORKSPACE_ROOT");
+      assert.equal(receipt.inputs.instanceRegistry.state, "ABSENT");
+      assert.equal(receipt.inputs.hostPortRegistry.state, "ABSENT");
       const exported = await readFile(environment.GITHUB_ENV, "utf8");
       for (const name of ["SERVICE_LASSO_WORKSPACE_ROOT", "SERVICE_LASSO_INSTANCE_REGISTRY_PATH", "SERVICE_LASSO_HOST_PORT_REGISTRY_PATH", "QUALIFICATION_INITIAL_RECEIPT_PATH"]) assert.match(exported, new RegExp(`^${name}=.+`, "m"));
     }

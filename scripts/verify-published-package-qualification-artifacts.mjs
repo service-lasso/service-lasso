@@ -24,14 +24,15 @@ function validFileState(value) {
 }
 function validateInitialReceipt(value, platform, runId, runAttempt, candidateSha) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  if (Object.keys(value).sort().join(",") !== "journal,ownedPaths,platform,private,registries,run,runner,schema,source") return false;
-  if (value.schema !== "service-lasso.qualification-initial-receipt.v2" || value.private !== true || value.platform !== platform) return false;
+  if (Object.keys(value).sort().join(",") !== "inputs,journal,ownedPaths,platform,private,run,runner,schema,source,tools") return false;
+  if (value.schema !== "service-lasso.qualification-initial-receipt.v3" || value.private !== true || value.platform !== platform) return false;
   if (!value.run || typeof value.run !== "object" || Array.isArray(value.run)) return false;
   return Object.keys(value.run).sort().join(",") === "attempt,id" && String(value.run.id) === runId && String(value.run.attempt) === runAttempt &&
-    value.source?.head === candidateSha && /^[0-9a-f]{40}$/u.test(value.source?.tree) && Object.keys(value.source ?? {}).sort().join(",") === "head,tree" &&
-    Object.keys(value.runner ?? {}).sort().join(",") === "arch,executable,platform,pid,ppid,release" && typeof value.runner.platform === "string" && typeof value.runner.arch === "string" && typeof value.runner.release === "string" && Number.isSafeInteger(value.runner.pid) && value.runner.pid > 0 && Number.isSafeInteger(value.runner.ppid) && value.runner.ppid > 0 && validFileState(value.runner.executable) &&
-    Array.isArray(value.ownedPaths) && value.ownedPaths.length === 12 && value.ownedPaths.every((entry) => Object.keys(entry ?? {}).sort().join(",") === "file,parents,path" && typeof entry.path === "string" && Array.isArray(entry.parents) && entry.parents.length > 0 && validFileState(entry.file)) &&
-    Array.isArray(value.registries) && value.registries.length === 2 && value.registries.every((entry) => Object.keys(entry ?? {}).sort().join(",") === "path,state" && typeof entry.path === "string" && entry.state === "ABSENT") && value.journal === "first-custody-journal.json";
+    value.source?.head === candidateSha && /^[0-9a-f]{40}$/u.test(value.source?.tree) && value.source.status === "CLEAN" && Array.isArray(value.source.inventory) && value.source.inventory.length === 19 &&
+    Object.keys(value.runner ?? {}).sort().join(",") === "arch,birth,image,parent,pid,platform,ppid,release" && typeof value.runner.birth === "string" && Number.isSafeInteger(value.runner.pid) && value.runner.pid > 0 && Number.isSafeInteger(value.runner.ppid) && value.runner.ppid > 0 && validFileState(value.runner.image) && value.runner.parent?.pid === value.runner.ppid && typeof value.runner.parent.birth === "string" && validFileState(value.runner.parent.image) &&
+    Array.isArray(value.ownedPaths) && value.ownedPaths.length === 19 && value.ownedPaths.every((entry) => typeof entry.path === "string" && Array.isArray(entry.parents) && entry.parents.length > 0 && entry.parents.every((parent) => parent.reparse === false && typeof parent.owner === "string" && typeof parent.resolved === "string") && validFileState(entry.file)) &&
+    Object.values(value.inputs ?? {}).length === 3 && value.inputs.workspace?.env === "SERVICE_LASSO_WORKSPACE_ROOT" && value.inputs.workspace.state === "DIRECTORY" && value.inputs.instanceRegistry?.env === "SERVICE_LASSO_INSTANCE_REGISTRY_PATH" && value.inputs.instanceRegistry.state === "ABSENT" && value.inputs.hostPortRegistry?.env === "SERVICE_LASSO_HOST_PORT_REGISTRY_PATH" && value.inputs.hostPortRegistry.state === "ABSENT" && Object.values(value.inputs).every((entry) => typeof entry.path === "string" && Array.isArray(entry.parents) && entry.parents.length > 0) &&
+    Array.isArray(value.tools) && value.tools.length === 4 && value.tools.every((tool) => typeof tool.name === "string" && ["FILE", "UNAVAILABLE"].includes(tool.state)) && value.journal === "first-custody-journal.json";
 }
 
 function env(name, pattern = /^.+$/u) {

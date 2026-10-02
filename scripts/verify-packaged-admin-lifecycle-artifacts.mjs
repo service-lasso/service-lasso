@@ -26,18 +26,17 @@ function validFileState(value) {
 function validateInitialReceipt(source, platform, runId, runAttempt, candidateSha) {
   if (!strictJson(source)) return false;
   const value = JSON.parse(source);
-  return exactKeys(value, ["schema", "private", "platform", "run", "source", "runner", "ownedPaths", "registries", "journal"])
-    && value.schema === "service-lasso.qualification-initial-receipt.v2" && value.private === true &&
+  return exactKeys(value, ["schema", "private", "platform", "run", "source", "runner", "inputs", "ownedPaths", "tools", "journal"])
+    && value.schema === "service-lasso.qualification-initial-receipt.v3" && value.private === true &&
     value.platform === platform &&
     exactKeys(value.run, ["id", "attempt"]) &&
     String(value.run.id) === String(runId) &&
     String(value.run.attempt) === String(runAttempt) &&
-    exactKeys(value.source, ["head", "tree"]) && value.source.head === candidateSha && /^[0-9a-f]{40}$/u.test(value.source.tree) &&
-    exactKeys(value.runner, ["platform", "arch", "release", "pid", "ppid", "executable"]) &&
-    typeof value.runner.platform === "string" && typeof value.runner.arch === "string" && typeof value.runner.release === "string" &&
-    Number.isSafeInteger(value.runner.pid) && value.runner.pid > 0 && Number.isSafeInteger(value.runner.ppid) && value.runner.ppid > 0 && validFileState(value.runner.executable) &&
-    Array.isArray(value.ownedPaths) && value.ownedPaths.length === 12 && value.ownedPaths.every((entry) => exactKeys(entry, ["path", "parents", "file"]) && typeof entry.path === "string" && Array.isArray(entry.parents) && entry.parents.length > 0 && validFileState(entry.file)) &&
-    Array.isArray(value.registries) && value.registries.length === 2 && value.registries.every((entry) => exactKeys(entry, ["path", "state"]) && typeof entry.path === "string" && entry.state === "ABSENT") &&
+    value.source?.head === candidateSha && /^[0-9a-f]{40}$/u.test(value.source?.tree) && value.source.status === "CLEAN" && Array.isArray(value.source.inventory) && value.source.inventory.length === 19 &&
+    exactKeys(value.runner, ["platform", "arch", "release", "pid", "ppid", "birth", "image", "parent"]) && typeof value.runner.birth === "string" && Number.isSafeInteger(value.runner.pid) && value.runner.pid > 0 && Number.isSafeInteger(value.runner.ppid) && value.runner.ppid > 0 && validFileState(value.runner.image) && value.runner.parent?.pid === value.runner.ppid && validFileState(value.runner.parent.image) &&
+    Array.isArray(value.ownedPaths) && value.ownedPaths.length === 19 && value.ownedPaths.every((entry) => typeof entry.path === "string" && Array.isArray(entry.parents) && entry.parents.length > 0 && entry.parents.every((parent) => parent.reparse === false && typeof parent.owner === "string" && typeof parent.resolved === "string") && validFileState(entry.file)) &&
+    exactKeys(value.inputs, ["workspace", "instanceRegistry", "hostPortRegistry"]) && value.inputs.workspace?.env === "SERVICE_LASSO_WORKSPACE_ROOT" && value.inputs.workspace.state === "DIRECTORY" && value.inputs.instanceRegistry?.env === "SERVICE_LASSO_INSTANCE_REGISTRY_PATH" && value.inputs.instanceRegistry.state === "ABSENT" && value.inputs.hostPortRegistry?.env === "SERVICE_LASSO_HOST_PORT_REGISTRY_PATH" && value.inputs.hostPortRegistry.state === "ABSENT" &&
+    Array.isArray(value.tools) && value.tools.length === 4 && value.tools.every((tool) => typeof tool.name === "string" && ["FILE", "UNAVAILABLE"].includes(tool.state)) &&
     value.journal === "first-custody-journal.json";
 }
 function sameValue(left, right) {
