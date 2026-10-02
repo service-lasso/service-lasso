@@ -99,3 +99,5 @@ This file tracks bootstrap/adoption/remediation work required before product imp
   naming without retrying or weakening the primary gate.
 - [ ] Before any dependency install, build, test, or Core import, retain the
   required isolated external runtime custody record and obtain parent readback.
+
+- #1326 fixture-custody remediation: spec/intent/backlog recorded before code. Static preparation only; build/tests/native execution require fresh complete-input ROOT admission. Preserve all unresolved fixture evidence.

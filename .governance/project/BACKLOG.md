@@ -626,3 +626,5 @@ Issue #1326 parent-edge lifetime diagnostic follow-up binds AC-4BH: retain the 0
 | Status | Issue | Requirement / next action | Evidence boundary |
 | --- | --- | --- | --- |
 | In progress | [#1582](https://github.com/service-lasso/service-lasso/issues/1582) | Deliver `SPEC-009` Core-owned authenticated durable job transaction and the CLI PR #32 compiled client contract. | Fresh Core/CLI source branches, preserved failed native CI output, custody-gated direct compiled-client proof; no host activation, deployment, publication, or promotion. |
+
+#1326 bounded fixture-custody continuation: in_progress, SPEC-002 AC-4BH.2/AC-4BJ.9c. Preserve the two original Windows EBUSY jobs without causal inference; whole source review and admitted direct native qualification remain pending.

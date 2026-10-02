@@ -1,5 +1,7 @@
 import { startApiServer } from "../../dist/server/index.js";
-import { stopManagedProcess } from "../../dist/runtime/execution/supervisor.js";
+import { stopManagedProcess, retainManagedProcessCustodyForTest } from "../../dist/runtime/execution/supervisor.js";
+import { writeFile } from "node:fs/promises";
+import path from "node:path";
 import { getLifecycleState } from "../../dist/runtime/lifecycle/store.js";
 import { startupCrashFailureDiagnostic } from "../startup-crash-diagnostics.js";
 
@@ -21,6 +23,9 @@ try {
         if (current === injectedFailurePhase) throw new Error("PRIVATE-CRASH-SENTINEL");
         if (current === phase) {
           if (serviceToStop) await stopManagedProcess(serviceToStop);
+          // Private local evidence only; never send fingerprints over diagnostic IPC.
+          await writeFile(path.join(workspaceRoot, ".service-lasso", "hard-crash-fixture-custody.json"),
+            JSON.stringify(retainManagedProcessCustodyForTest("matrix-service")()), { mode: 0o600, flag: "wx" });
           process.exit(86);
         }
       },

@@ -3062,6 +3062,18 @@ export async function startManagedProcess(
   };
 }
 
+// Test-only private custody reader. Retain the record reference across deletion
+// so finalizer-discovered members cannot disappear from the fixture's proof.
+export function retainManagedProcessCustodyForTest(serviceId: string): () => ProcessFingerprint[] {
+  if (process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS !== "1") {
+    throw new Error("Managed custody test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
+  }
+  const record = managedProcesses.get(serviceId) ?? adoptedProcesses.get(serviceId);
+  return () => record ? unionProcessFingerprints(
+    record.rootIdentity ? [record.rootIdentity] : [], record.knownTreeMembers,
+  ).map((member) => ({ ...member })) : [];
+}
+
 export async function stopManagedProcess(
   serviceId: string,
   timeoutMs = DEFAULT_MANAGED_PROCESS_STOP_TIMEOUT_MS,

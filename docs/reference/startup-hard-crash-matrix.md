@@ -62,3 +62,25 @@ runtime. A passing diagnostic test or later crash-matrix rerun does not explain
 the original intermittent Windows failure; retain the original failed run.
 
 `.github/workflows/startup-hard-crash-matrix.yml` runs one phase per job on `ubuntu-latest` and `windows-latest`. Each job has a bounded timeout and sets `SERVICE_LASSO_HARD_CRASH_PHASE` so failures identify one exact recovery boundary without rerunning unrelated runtime suites.
+
+## Terminal fixture custody (#1326)
+
+The crash runner saves its authoritative verified service members in a private
+fixture-local sidecar before the intentional exit. The parent retains that union
+and a test-gated read-only reference to the recovered supervisor record through
+stop/finalization. These snapshots are private custody input, not absence proof.
+Fresh bounded inspection must classify every retained member not-running before
+successful removal. A missing/read-failed snapshot or registry, live member,
+unknown owner, failed stop/finalization or directly spawned child close retains
+fixture/journal evidence and all errors alongside the primary action failure.
+Every failed action retains its fixture even if processes settle. Environment
+restoration always runs; reset follows successful removal only. Closed output
+contains recovery, stop, finalization, absence and retained/removed categories.
+No fingerprints, paths, commands, child output or exception text enter that record.
+
+The new same-adapter filesystem regressions support this contract; the protected
+real subprocess matrix remains required. This source-only preparation has not
+executed build, syntax validation, tests, native helpers or Core imports locally.
+Fresh complete-input ROOT admission, entire independent source review and direct
+Windows qualification for owned_readiness_proven and generation_committed remain
+pending. The original two EBUSY jobs remain failed and unattributed.
