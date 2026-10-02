@@ -25,7 +25,10 @@ export async function fetchedCheckout(workspace, source, head, tree, environment
   const expectedGitDirectory=await realpath(path.join(workspace,".git"));
   const gitDirectory=fixtureGit(["rev-parse","--absolute-git-dir"],workspace,environment);
   assert.equal(await realpath(gitDirectory),expectedGitDirectory,"fixture Git must own the newly initialized checkout");
-  const fetched=spawnSync("git",["fetch","--no-tags",source,head],{cwd:workspace,env:environment,encoding:"utf8",shell:false});
+  // Hosted checkout sources can be shallow. Let Git retain that real boundary
+  // while acquiring the exact requested OID; FETCH_HEAD still proves the fetch.
+  // https://git-scm.com/docs/git-fetch.html ( --update-shallow )
+  const fetched=spawnSync("git",["fetch","--update-shallow","--no-tags",source,head],{cwd:workspace,env:environment,encoding:"utf8",shell:false});
   const fetchObservation={status:fetched.status,signal:fetched.signal,errorCode:fetched.error?.code??null,stdout:fetched.stdout,stderr:fetched.stderr};
   const diagnostic=JSON.stringify({gitDirectory,fetch:fetchObservation});
   assert.equal(fetched.error,undefined,diagnostic);assert.equal(fetched.signal,null,diagnostic);assert.equal(fetched.status,0,diagnostic);

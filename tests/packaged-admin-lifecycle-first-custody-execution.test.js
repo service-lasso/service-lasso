@@ -23,7 +23,22 @@ async function checkout(root) {
   const environment=fixtureGitEnvironment({...process.env,GIT_DIR:path.join(root,"foreign.git"),GIT_WORK_TREE:root,GIT_INDEX_FILE:path.join(root,"foreign-index"),GIT_OBJECT_DIRECTORY:path.join(root,"foreign-objects"),GIT_CONFIG_COUNT:"2",GIT_CONFIG_KEY_0:"core.worktree",GIT_CONFIG_VALUE_0:root});
   for(const key of ["GIT_DIR","GIT_WORK_TREE","GIT_INDEX_FILE","GIT_OBJECT_DIRECTORY","GIT_CONFIG_KEY_1"])assert.equal(environment[key],undefined);
   const head=fixtureGit(["rev-parse","HEAD"],process.cwd(),environment),tree=fixtureGit(["rev-parse",`${head}^{tree}`],process.cwd(),environment);
-  return fetchedCheckout(path.join(root,"checkout"),process.cwd(),head,tree,environment);
+  // Establish a real exact-candidate shallow source even when the test runner
+  // has full history. Only Git writes its boundary and FETCH_HEAD. The ordinary,
+  // aliased and negative workflow bodies still reach their full native checks.
+  const source=path.join(root,"shallow-source");await mkdir(source);
+  fixtureGit(["init"],source,environment);
+  fixtureGit(["fetch","--depth=1","--update-shallow","--no-tags",process.cwd(),head],source,environment);
+  assert.equal(fixtureGit(["rev-parse","FETCH_HEAD^{commit}"],source,environment),head);
+  fixtureGit(["checkout","--detach",head],source,environment);
+  assert.equal(fixtureGit(["rev-parse","HEAD"],source,environment),head);
+  assert.equal(fixtureGit(["rev-parse","HEAD^{tree}"],source,environment),tree);
+  assert.equal(fixtureGit(["status","--porcelain=v1","--untracked-files=all"],source,environment),"");
+  assert.equal(fixtureGit(["rev-parse","--is-shallow-repository"],source,environment),"true");
+  const shallowPath=path.join(source,".git","shallow"),shallowStat=await lstat(shallowPath);
+  assert.equal(shallowStat.isSymbolicLink(),false);assert.equal(shallowStat.isFile(),true);
+  assert.ok((await readFile(shallowPath,"utf8")).split("\n").includes(head));
+  return fetchedCheckout(path.join(root,"checkout"),source,head,tree,environment);
 }
 function environment(root,workspace,head,name,attempt="2") { return {...fixtureGitEnvironment(),RUNNER_TEMP:root,GITHUB_RUN_ID:"431",GITHUB_JOB:name,GITHUB_RUN_ATTEMPT:attempt,ADMIN_PLATFORM:process.platform,QUALIFICATION_PLATFORM:process.platform,GITHUB_ENV:path.join(root,`${name}-${attempt}.github-env`),GITHUB_WORKSPACE:workspace,QUALIFICATION_CANDIDATE_SHA:head}; }
 function receiptPath(root,name,attempt) { return path.join(root,`${name}-431-${name}-${attempt}-${process.platform}`,"private","initial-receipt.json"); }
