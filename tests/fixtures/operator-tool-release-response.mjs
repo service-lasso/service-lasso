@@ -11,18 +11,19 @@ const hash = (value) => createHash("sha256").update(value).digest("hex");
 // This fixture supplies only GitHub release and asset responses. The production
 // stager continues to validate identity, inventory, manifests, checksums, and
 // retained bytes before packaging them.
-export async function createOperatorToolReleaseResponseFixture() {
+export async function createOperatorToolReleaseResponseFixture({ cliOptions = {}, tuiPayload = platform => `tui-${platform}`, tuiSourceSha = "97fafb04c69fce8efdd245eb186e6dfb9915485d" } = {}) {
+  const tuiVersion = `2026.9.30-${tuiSourceSha.slice(0, 7)}`;
   const tuiAssets = [
-    ["win32-amd64", "service-lasso-tui-2026.9.30-97fafb0-win32-amd64.zip"],
-    ["linux-amd64", "service-lasso-tui-2026.9.30-97fafb0-linux-amd64.tar.gz"],
-    ["darwin-amd64", "service-lasso-tui-2026.9.30-97fafb0-darwin-amd64.tar.gz"],
-    ["darwin-arm64", "service-lasso-tui-2026.9.30-97fafb0-darwin-arm64.tar.gz"],
-  ].map(([platform, name]) => ({ platform, name, sha256: hash(`tui-${platform}`) }));
+    ["win32-amd64", `service-lasso-tui-${tuiVersion}-win32-amd64.zip`],
+    ["linux-amd64", `service-lasso-tui-${tuiVersion}-linux-amd64.tar.gz`],
+    ["darwin-amd64", `service-lasso-tui-${tuiVersion}-darwin-amd64.tar.gz`],
+    ["darwin-arm64", `service-lasso-tui-${tuiVersion}-darwin-arm64.tar.gz`],
+  ].map(([platform, name]) => ({ platform, name, sha256: hash(tuiPayload(platform)) }));
   const tuiSums = Buffer.from(tuiAssets.map((asset) => `${asset.sha256}  ${asset.name}`).join("\n") + "\n");
   const release = {
     repository: "service-lasso/service-lasso-tui",
-    tag: "candidate-2026.9.30-97fafb0",
-    targetCommit: "97fafb04c69fce8efdd245eb186e6dfb9915485d",
+    tag: `candidate-${tuiVersion}`,
+    targetCommit: tuiSourceSha,
     checksumManifest: { name: "SHA256SUMS.txt", sha256: hash(tuiSums) },
     candidateManifest: {},
     assets: tuiAssets.map(asset => ({ ...asset, executable: asset.platform === "win32-amd64" ? "service-lasso-tui.exe" : "service-lasso-tui" })),
@@ -44,13 +45,13 @@ export async function createOperatorToolReleaseResponseFixture() {
     'else if (args.includes("instance") && args.includes("status")) {',
     '  try { const response = await fetch(`${coreUrl}/api/health`); if (!response.ok) throw new Error("unavailable"); console.log(JSON.stringify(await response.json())); }',
     '  catch { console.error("core_unreachable"); process.exitCode = 1; }', '}', '',
-  ].join("\n") });
+  ].join("\n"), ...cliOptions });
   const bodyFor = (asset) => {
     if (asset.name === "candidate-manifest.json") return tuiCandidate;
     if (held.has(asset.name) && asset !== release.checksumManifest) return held.get(asset.name);
     if (asset.name === "SHA256SUMS.txt") return asset === release.checksumManifest ? tuiSums : held.get("SHA256SUMS.txt");
 
-    return Buffer.from(`tui-${asset.platform}`);
+    return Buffer.from(tuiPayload(asset.platform));
   };
   const fetchImpl = async (url) => {
     const parsed = new URL(url);
@@ -60,6 +61,8 @@ export async function createOperatorToolReleaseResponseFixture() {
       ? [...cliRelease.assets, cliRelease.developmentManifest, cliRelease.checksumManifest]
       : [...tuiAssets, release.checksumManifest, release.candidateManifest];
     if (parsed.hostname === "api.github.com") {
+      if (parsed.pathname === `/repos/${selectedRelease.repository}/git/ref/tags/${selectedRelease.tag}`) return Response.json({ ref: `refs/tags/${selectedRelease.tag}`, object: { type: "commit", sha: selectedRelease.targetCommit } });
+      if (parsed.pathname !== `/repos/${selectedRelease.repository}/releases/tags/${selectedRelease.tag}`) throw new Error("fixture metadata route denied");
       return Response.json({
         tag_name: selectedRelease.tag,
         target_commitish: selectedRelease.targetCommit,

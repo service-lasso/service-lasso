@@ -108,6 +108,7 @@ function fixtureReleaseFetch({ metadataAuthorization, assetAuthorization }) {
       metadataAuthorization.push(options.headers?.authorization);
       const isCli = parsed.pathname.includes("service-lasso-cli");
       const candidate = isCli ? cliRelease : release;
+      if (parsed.pathname === `/repos/${candidate.repository}/git/ref/tags/${candidate.tag}`) return Response.json({ ref: `refs/tags/${candidate.tag}`, object: { type: "commit", sha: candidate.targetCommit } });
       assert.equal(parsed.pathname, `/repos/${candidate.repository}/releases/tags/${candidate.tag}`);
       return Response.json({ tag_name: candidate.tag, target_commitish: candidate.targetCommit, prerelease: true, draft: false, immutable: true, assets: candidateAssets(candidate, isCli) });
     }
@@ -205,14 +206,7 @@ test("workflow-projected metadata token stages package, normal, and bundled arti
     const stagedBundled = await bundled;
     assert.equal(stagedBundled.manifest.operatorToolsManifest, "operator-tools/manifest.json");
 
-    assert.deepEqual(metadataAuthorization, [
-      "Bearer projected-read-token",
-      "Bearer projected-read-token",
-      "Bearer projected-read-token",
-      "Bearer projected-read-token",
-      "Bearer projected-read-token",
-      "Bearer projected-read-token",
-    ]);
+    assert.deepEqual(metadataAuthorization, Array(12).fill("Bearer projected-read-token"));
     assert.ok(assetAuthorization.length > 0);
     assert.ok(assetAuthorization.every((authorization) => authorization === undefined));
   } finally {
@@ -251,6 +245,8 @@ test("operator tools stage only checksum-verified release bytes", async () => {
       metadataAuthorization.push(options.headers?.authorization);
 			const cli = parsed.pathname.includes("service-lasso-cli");
 			const listed = cli ? [...cliRelease.assets, cliRelease.developmentManifest, cliRelease.checksumManifest] : [...assets, release.checksumManifest, release.candidateManifest];
+      const candidate = cli ? cliRelease : release;
+      if (parsed.pathname === `/repos/${candidate.repository}/git/ref/tags/${candidate.tag}`) return Response.json({ ref: `refs/tags/${candidate.tag}`, object: { type: "commit", sha: candidate.targetCommit } });
       return Response.json({ tag_name: cli ? cliRelease.tag : release.tag, target_commitish: cli ? cliRelease.targetCommit : release.targetCommit, prerelease: true, draft: false, immutable: true, assets: listed.map((asset, index) => ({ name: asset.name, digest: `sha256:${asset.sha256}`, url: `https://api.github.com/repos/service-lasso/${cli ? "service-lasso-cli" : "service-lasso-tui"}/releases/assets/${index + 1}` })) });
 		}
 		const cli = parsed.pathname.includes("service-lasso-cli");
@@ -271,7 +267,7 @@ test("operator tools stage only checksum-verified release bytes", async () => {
     const retained = await verifyRetainedOperatorTools({ artifactRoot: root });
     assert.deepEqual(retained.manifest.tools[0].supportedPlatforms, ["win32", "linux", "darwin"]);
     assert.deepEqual([...new Set(downloadHosts)], ["github.com"]);
-    assert.deepEqual(metadataAuthorization, ["Bearer test-read-token", "Bearer test-read-token"]);
+    assert.deepEqual(metadataAuthorization, Array(4).fill("Bearer test-read-token"));
     assert.ok(assetAuthorization.every((authorization) => authorization === undefined));
   } finally { await rm(root, { recursive: true, force: true }); }
 });
@@ -362,6 +358,7 @@ test("operator tools retry only a transient 5xx asset response before checksum v
   try {
     const fetchImpl = async (url) => {
       const parsed = new URL(url);
+      if (parsed.pathname.includes("/git/ref/tags/")) return Response.json({ ref: `refs/tags/${retryRelease.tag}`, object: { type: "commit", sha: retryRelease.targetCommit } });
       if (parsed.pathname.includes("/releases/tags/")) return Response.json({ tag_name: retryRelease.tag, target_commitish: retryRelease.targetCommit, prerelease: true, draft: false, immutable: true, assets: [...retryAssets, retryRelease.checksumManifest, retryRelease.candidateManifest].map((asset, index) => ({ name: asset.name, digest: `sha256:${asset.sha256}`, url: `https://api.github.com/repos/service-lasso/service-lasso-tui/releases/assets/${index + 1}` })) });
       const asset = parsed.hostname === "github.com" ? [...retryAssets, retryRelease.checksumManifest, retryRelease.candidateManifest].find((candidate) => candidate.name === parsed.pathname.split("/").at(-1)) : [...retryAssets, retryRelease.checksumManifest, retryRelease.candidateManifest][Number(parsed.pathname.split("/").at(-1)) - 1];
       if (asset.name === "SHA256SUMS.txt" && checksumAttempts++ === 0) return new Response("temporary upstream failure", { status: 500 });

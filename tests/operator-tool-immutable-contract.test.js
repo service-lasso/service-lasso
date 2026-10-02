@@ -7,7 +7,7 @@ import path from "node:path";
 import { createProtectedCliFixture, fixtureTar } from "./fixtures/protected-operator-cli.mjs";
 import { createOperatorToolReleaseResponseFixture } from "./fixtures/operator-tool-release-response.mjs";
 import { verifyProtectedCliBytes } from "../scripts/operator-tool-cli-contract.mjs";
-import { assertProtectedOperatorTools, CURRENT_CLI_RELEASE, CURRENT_TUI_RELEASE, stageOperatorTools, verifyRetainedOperatorTools } from "../scripts/operator-tool-packaging-lib.mjs";
+import { assertProtectedOperatorTools, CURRENT_CLI_RELEASE, CURRENT_TUI_RELEASE, stageOperatorTools, validateRetainedOperatorToolBytes, verifyRetainedOperatorTools } from "../scripts/operator-tool-packaging-lib.mjs";
 const hash = bytes => createHash("sha256").update(bytes).digest("hex");
 const encode = value => Buffer.from(JSON.stringify(value));
 function rebound(fixture) {
@@ -87,8 +87,9 @@ test("AC-4CG retained full inventory validates then rejects native/provenance su
   const fixture = await createOperatorToolReleaseResponseFixture(), root = await mkdtemp(path.join(os.tmpdir(), "tool-retained-contract-"));
   try {
     const manifest = await stageOperatorTools({ artifactRoot: root, ...fixture });
-    assertProtectedOperatorTools(manifest);
-    await verifyRetainedOperatorTools({ artifactRoot: root, requireProtected: true });
+    await validateRetainedOperatorToolBytes({ artifactRoot: root });
+    assert.throws(() => assertProtectedOperatorTools(manifest), /source-approved.*catalog/);
+    await assert.rejects(verifyRetainedOperatorTools({ artifactRoot: root, requireProtected: true }), /source-approved.*catalog/);
     const cli = manifest.tools[0];
     assert.equal(cli.assets.length, 8);
     const provenance = cli.assets.find(asset => asset.kind === "provenance"), retainedPath = path.join(root, provenance.relativePath), original = await readFile(retainedPath);
@@ -110,6 +111,7 @@ test("historical mutable admission is only the two source-owned exact catalog tu
       let downloads = 0;
       const fetchImpl = async url => {
         if (new URL(url).hostname !== "api.github.com") { downloads++; return new Response("not historical bytes"); }
+        if (new URL(url).pathname.includes("/git/ref/tags/")) return Response.json({ ref: `refs/tags/${release.tag}`, object: { type: "commit", sha: release.targetCommit } });
         return Response.json({ tag_name: release.tag, target_commitish: release.targetCommit, prerelease: true, draft: false, immutable: false, assets: inventory.map((asset, index) => ({ name: asset.name, digest: `sha256:${asset.sha256}`, url: `https://api.github.com/repos/${release.repository}/releases/assets/${index + 1}` })) });
       };
       // Exact catalog metadata reaches independently pinned byte verification.
@@ -136,7 +138,7 @@ for (const [name, mutate] of [
     const fetchImpl = async (url, options) => {
       if (new URL(url).hostname !== "api.github.com") downloads++;
       const response = await fixture.fetchImpl(url, options);
-      if (new URL(url).hostname !== "api.github.com") return response;
+      if (new URL(url).hostname !== "api.github.com" || !new URL(url).pathname.includes("/releases/tags/")) return response;
       const metadata = await response.json(); mutate(metadata); return Response.json(metadata);
     };
     await assert.rejects(stageOperatorTools({ artifactRoot: root, release: null, cliRelease: fixture.cliRelease, fetchImpl }), /inventory/);
@@ -159,3 +161,107 @@ test("AC-7G binds native current producer tools/SEA when archived and sidecar pr
   fixture.held.set(`service-lassoctl-${fixture.cliRelease.version}-win32-x64.tar.gz`, fixtureTar(members)); rebound(fixture);
   assert.throws(() => verify(fixture), /tool\/SEA/);
 });
+
+// Entire-review F1: every byte/digest is internally rebound, while independent
+// production authority remains empty. These are observational inputs only.
+test("AC-4CG.2 coherent invented full bundle cannot self-admit protected publication", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "tool-full-forgery-"));
+  try {
+    const original = await createOperatorToolReleaseResponseFixture();
+    const originalManifest = await stageOperatorTools({ artifactRoot: root, ...original });
+    const forgery = await createOperatorToolReleaseResponseFixture({
+      cliOptions: { sourceSha: "abcdef0123456789abcdef0123456789abcdef01", version: "0.1.0-dev.abcdef0", payloadMarker: "substituted", entrypoint: 'console.log("substituted");\n' },
+      tuiPayload: platform => `substituted-${platform}`,
+      tuiSourceSha: "fedcba9876543210fedcba9876543210fedcba98",
+    });
+    // Stage into a fresh root: no stale prior filenames can trigger denial.
+    const forgedRoot = await mkdtemp(path.join(os.tmpdir(), "tool-coherent-forgery-"));
+    try {
+      const forged = await stageOperatorTools({ artifactRoot: forgedRoot, ...forgery });
+      await validateRetainedOperatorToolBytes({ artifactRoot: forgedRoot });
+      for (const tool of forged.tools) {
+        const prior = originalManifest.tools.find(item => item.command === tool.command);
+        assert.notEqual(tool.targetCommit, prior.targetCommit);
+        for (const asset of tool.assets) {
+          const priorAsset = prior.assets.find(item => tool.command === "service-lassoctl" ? item.kind === asset.kind && item.target === asset.target : item.platform === asset.platform);
+          assert.ok(priorAsset); assert.notEqual(asset.sha256, priorAsset.sha256);
+        }
+        assert.notEqual(tool.candidateManifest.sha256, prior.candidateManifest.sha256);
+        assert.notEqual(tool.checksumManifest.sha256, prior.checksumManifest.sha256);
+      }
+      assert.throws(() => assertProtectedOperatorTools(forged), /source-approved.*catalog/);
+      await assert.rejects(verifyRetainedOperatorTools({ artifactRoot: forgedRoot, requireProtected: true }), /source-approved.*catalog/);
+      // Extra caller-supplied authority fields cannot populate source authority.
+      await assert.rejects(verifyRetainedOperatorTools({ artifactRoot: forgedRoot, requireProtected: true, approvedCatalog: forged.tools }), /source-approved.*catalog/);
+    } finally { await rm(forgedRoot, { recursive: true, force: true }); }
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("AC-4CG.2 historical tuples and forged protected labels cannot satisfy empty authority", () => {
+  for (const receiptKind of ["historical-mutable", "protected-immutable"]) {
+    const tools = [{ ...CURRENT_CLI_RELEASE, command: "service-lassoctl", status: "available", receiptKind }, { ...CURRENT_TUI_RELEASE, command: "service-lasso-tui", status: "available", receiptKind }];
+    assert.throws(() => assertProtectedOperatorTools({ tools }), /historical|source-approved.*catalog/);
+  }
+});
+
+function tagFixtureFetch(fixture, selected, ref, tags = new Map(), observations = []) {
+  return async (url, options = {}) => {
+    const parsed = new URL(url);
+    observations.push({ url: String(url), options });
+    const root = `/repos/${selected.repository}`;
+    if (parsed.hostname === "api.github.com" && parsed.pathname === `${root}/git/ref/tags/${selected.tag}`) return ref === null ? new Response(null, { status: 404 }) : Response.json(ref);
+    if (parsed.hostname === "api.github.com" && parsed.pathname.startsWith(`${root}/git/tags/`)) {
+      const tag = tags.get(parsed.pathname.slice(`${root}/git/tags/`.length));
+      return tag === undefined ? new Response(null, { status: 404 }) : Response.json(tag);
+    }
+    return fixture.fetchImpl(url, options);
+  };
+}
+
+for (const command of ["service-lassoctl", "service-lasso-tui"]) {
+  for (const depth of [0, 1, 16]) test(`AC-4CG.2 ${command} canonical tag depth ${depth} retains producer bytes and credential isolation`, async () => {
+    const fixture = await createOperatorToolReleaseResponseFixture(), root = await mkdtemp(path.join(os.tmpdir(), "tool-tag-positive-"));
+    const selected = command === "service-lassoctl" ? fixture.cliRelease : fixture.release;
+    const tags = new Map(); let object = { type: "commit", sha: selected.targetCommit };
+    for (let index = depth; index > 0; index--) {
+      const sha = index.toString(16).padStart(40, "0"); tags.set(sha, { sha, object }); object = { type: "tag", sha };
+    }
+    const observations = [], fetchImpl = tagFixtureFetch(fixture, selected, { ref: `refs/tags/${selected.tag}`, object }, tags, observations);
+    try {
+      await stageOperatorTools({ artifactRoot: root, ...fixture, fetchImpl, releaseMetadataToken: "tag-only-read-token" });
+      await validateRetainedOperatorToolBytes({ artifactRoot: root });
+      assert.equal(observations.filter(item => new URL(item.url).pathname.startsWith(`/repos/${selected.repository}/git/tags/`)).length, depth);
+      for (const { url, options } of observations) {
+        if (new URL(url).hostname === "api.github.com") {
+          assert.equal(options.redirect, "error"); assert.equal(options.headers.authorization, "Bearer tag-only-read-token");
+          assert.match(new URL(url).pathname, /^\/repos\/service-lasso\/service-lasso-(?:cli|tui)\/(?:releases\/tags\/[A-Za-z0-9.-]+|git\/ref\/tags\/[A-Za-z0-9.-]+|git\/tags\/[a-f0-9]{40})$/);
+        } else assert.equal(options.headers, undefined);
+      }
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+  for (const variant of ["absent", "wrong-ref", "missing-object", "bad-sha", "bad-type", "wrong-commit", "wrong-annotated-commit", "wrong-object-identity", "missing-tag", "missing-tag-object", "cycle", "depth"]) test(`AC-4CG.2 ${command} rejects actual tag ${variant} despite correct release target`, async () => {
+    const fixture = await createOperatorToolReleaseResponseFixture(), root = await mkdtemp(path.join(os.tmpdir(), "tool-tag-negative-"));
+    const selected = command === "service-lassoctl" ? fixture.cliRelease : fixture.release, sha = "b".repeat(40), tags = new Map();
+    let ref = { ref: `refs/tags/${selected.tag}`, object: { type: "commit", sha: selected.targetCommit } };
+    if (variant === "absent") ref = null;
+    if (variant === "wrong-ref") ref.ref = "refs/tags/other";
+    if (variant === "missing-object") delete ref.object;
+    if (variant === "bad-sha") ref.object.sha = "123";
+    if (variant === "bad-type") ref.object.type = "tree";
+    if (variant === "wrong-commit") ref.object.sha = sha;
+    if (["wrong-annotated-commit", "wrong-object-identity", "missing-tag", "missing-tag-object", "cycle"].includes(variant)) {
+      ref.object = { type: "tag", sha };
+      if (variant !== "missing-tag") tags.set(sha, { sha: variant === "wrong-object-identity" ? "c".repeat(40) : sha, object: variant === "missing-tag-object" ? undefined : { type: variant === "cycle" ? "tag" : "commit", sha: variant === "cycle" || variant === "wrong-annotated-commit" ? sha : selected.targetCommit } });
+    }
+    if (variant === "depth") {
+      let object = { type: "commit", sha: selected.targetCommit };
+      for (let index = 17; index > 0; index--) { const id = index.toString(16).padStart(40, "0"); tags.set(id, { sha: id, object }); object = { type: "tag", sha: id }; }
+      ref.object = object;
+    }
+    const observations = [], fetchImpl = tagFixtureFetch(fixture, selected, ref, tags, observations);
+    try {
+      await assert.rejects(stageOperatorTools({ artifactRoot: root, release: command === "service-lasso-tui" ? fixture.release : null, cliRelease: command === "service-lassoctl" ? fixture.cliRelease : null, fetchImpl }), /tag.*identity|metadata failed/);
+      assert.equal(observations.some(item => new URL(item.url).hostname !== "api.github.com"), false);
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+}

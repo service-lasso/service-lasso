@@ -17,20 +17,20 @@ export function fixtureTar(entries) {
   }
   return gzipSync(Buffer.concat([...parts, Buffer.alloc(1024)]));
 }
-export function createProtectedCliFixture({ version = "0.1.0-dev.1234567", sourceSha = "1234567890123456789012345678901234567890", entrypoint = 'console.log("fixture");\n' } = {}) {
+export function createProtectedCliFixture({ version = "0.1.0-dev.1234567", sourceSha = "1234567890123456789012345678901234567890", entrypoint = 'console.log("fixture");\n', payloadMarker = "fixture" } = {}) {
   const tag = `cli-v${version}-candidate-${sourceSha.slice(0, 7)}`;
   const held = new Map(), nativeMembers = new Map();
   const portableName = `service-lassoctl-${version}.tgz`;
   held.set(portableName, fixtureTar([
     ["package/package.json", json({ name: "@service-lasso/cli", version, type: "module", engines: { node: ">=22.12.0" }, bin: { "service-lassoctl": "./dist/index.js" } })],
-    ["package/README.md", "Fixture only"], ["package/dist/index.js", entrypoint],
+    ["package/README.md", payloadMarker === "fixture" ? "Fixture only" : `${payloadMarker} only`], ["package/dist/index.js", entrypoint],
   ]));
   const portableAsset = { name: portableName, sha256: hash(held.get(portableName)), size: held.get(portableName).length };
   held.set("candidate.json", json({ schemaVersion: 1, candidateTag: tag, version, source: { repository: "service-lasso/service-lasso-cli", commit: sourceSha }, package: { name: "@service-lasso/cli", command: "service-lassoctl", entrypoint: "dist/index.js", node: ">=22.12.0" }, platforms: ["win32", "linux", "darwin"], assets: [portableAsset] }));
   const descriptors = [{ name: portableName, kind: "portable", target: null }, { name: "candidate.json", kind: "portable-record", target: null }];
   for (const [platform, architecture] of [["win32", "x64"], ["linux", "x64"], ["darwin", "arm64"]]) {
     const target = `${platform}-${architecture}`, executable = platform === "win32" ? "service-lassoctl.exe" : "service-lassoctl", writer = platform === "win32" ? "service-lasso-confined-scaffold.exe" : "service-lasso-confined-scaffold";
-    const executableBytes = Buffer.from(`fixture-executable-${target}`), writerBytes = Buffer.from(`fixture-writer-${target}`), darwinBytes = Buffer.from("fixture-darwin-helper");
+    const executableBytes = Buffer.from(`${payloadMarker}-executable-${target}`), writerBytes = Buffer.from(`${payloadMarker}-writer-${target}`), darwinBytes = Buffer.from(`${payloadMarker}-darwin-helper`);
     const provenance = { schemaVersion: 1, candidate: { tag, version }, command: "service-lassoctl", source: { commit: sourceSha }, executable: { name: executable, platform, architecture, version, sha256: hash(executableBytes) }, confinedWriter: { name: writer, platform, architecture, sha256: hash(writerBytes), sourceSha256: hash("fixture-writer-source") }, sea: { mainFormat: "commonjs", useCodeCache: false, execArgvExtension: "none" }, tools: { node: "22.23.2", esbuild: "0.28.2", postject: "1.0.0-alpha.6" } };
     if (platform === "darwin") provenance.darwinImmutableHelper = { name: "service-lasso-darwin-immutable-helper", platform, architecture, sha256: hash(darwinBytes), sourceSha256: hash("fixture-helper-source") };
     const provenanceBytes = json(provenance);

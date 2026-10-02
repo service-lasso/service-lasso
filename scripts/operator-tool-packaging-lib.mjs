@@ -140,6 +140,53 @@ function assertProtectedCliRelease(release) {
 
 function cliPublishedAssets(release) { return [...release.assets, release.developmentManifest, release.checksumManifest]; }
 
+// Publication authority is owned by reviewed source, never by retained bytes,
+// callers, ENV or fixtures. Populate only in a separately reviewed pins-only
+// change after real qualified immutable publication and same-public-byte proof.
+const APPROVED_PROTECTED_IDENTITIES = Object.freeze({
+  "service-lassoctl": Object.freeze([]),
+  "service-lasso-tui": Object.freeze([]),
+});
+function protectedCatalogIdentity(tool) {
+  const cli = tool.command === "service-lassoctl";
+  return JSON.stringify({ catalog: catalogIdentity(tool, cli),
+    developmentManifest: cli ? { name: tool.developmentManifest?.name, sha256: tool.developmentManifest?.sha256 } : undefined,
+    inventory: cli ? tool.assets?.map(asset => ({ name: asset?.name, kind: asset?.kind, target: asset?.target, sha256: asset?.sha256, size: asset?.size })) : undefined });
+}
+
+async function readGitHubToolMetadata(fetchImpl, release, route, token) {
+  // Only closed fixed repositories and source-derived read-only routes receive
+  // this credential; never trust a provider object's URL or follow redirects.
+  if (!["service-lasso/service-lasso-cli", "service-lasso/service-lasso-tui"].includes(release.repository) ||
+      (![ `/releases/tags/${release.tag}`, `/git/ref/tags/${release.tag}` ].includes(route) && !/^\/git\/tags\/[a-f0-9]{40}$/u.test(route))) throw new Error("operator tool metadata route is invalid");
+  const response = await fetchImpl(`https://api.github.com/repos/${release.repository}${route}`, {
+    redirect: "error",
+    headers: token ? { authorization: `Bearer ${token}`, accept: "application/vnd.github+json" } : { accept: "application/vnd.github+json" },
+  });
+  if (!response.ok) throw releaseMetadataFailure(response.status);
+  return parseStrictJson(Buffer.from(await response.arrayBuffer()), "operator tool release metadata");
+}
+
+async function assertGitHubToolTag(fetchImpl, release, token) {
+  const ref = await readGitHubToolMetadata(fetchImpl, release, `/git/ref/tags/${release.tag}`, token);
+  if (ref?.ref !== `refs/tags/${release.tag}`) throw new Error("operator tool tag ref identity is malformed");
+  let object = ref.object;
+  const visited = new Set();
+  for (let depth = 0; depth <= 16; depth += 1) {
+    if (!object || !/^[a-f0-9]{40}$/u.test(object.sha) || !["commit", "tag"].includes(object.type) || visited.has(object.sha)) throw new Error("operator tool tag object identity is malformed or cyclic");
+    visited.add(object.sha);
+    if (object.type === "commit") {
+      if (object.sha !== release.targetCommit) throw new Error("operator tool tag source identity mismatch");
+      return;
+    }
+    if (depth === 16) throw new Error("operator tool tag identity depth exceeded");
+    const tag = await readGitHubToolMetadata(fetchImpl, release, `/git/tags/${object.sha}`, token);
+    if (tag?.sha !== object.sha) throw new Error("operator tool annotated tag object identity mismatch");
+    object = tag.object;
+  }
+  throw new Error("operator tool tag identity unresolved");
+}
+
 async function downloadExact(fetchImpl, url, expected) {
   const initial = new URL(url);
   if (initial.protocol !== "https:" || initial.hostname !== "github.com" || !/^\/service-lasso\/[A-Za-z0-9._-]+\/releases\/download\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/u.test(initial.pathname)) throw new Error("operator tool download URL is not an exact GitHub release asset URL");
@@ -218,14 +265,7 @@ function assertChecksumManifest(bytes, assets) {
 // the selected platform archive and starts the TUI in its own terminal.
 async function assertGitHubRelease(fetchImpl, release, expectedAssets, releaseMetadataToken) {
   const token = typeof releaseMetadataToken === "string" ? releaseMetadataToken.trim() : "";
-  // This request is always the fixed GitHub REST release endpoint. Asset fetches
-  // intentionally receive no headers, including after their allowed redirects.
-  const response = await fetchImpl(`https://api.github.com/repos/${release.repository}/releases/tags/${release.tag}`, {
-    redirect: "error",
-    headers: token ? { authorization: `Bearer ${token}`, accept: "application/vnd.github+json" } : { accept: "application/vnd.github+json" },
-  });
-  if (!response.ok) throw releaseMetadataFailure(response.status);
-  const metadata = parseStrictJson(Buffer.from(await response.arrayBuffer()), "operator tool release metadata");
+  const metadata = await readGitHubToolMetadata(fetchImpl, release, `/releases/tags/${release.tag}`, token);
   const historical = isHistoricalRelease(release, release.repository === "service-lasso/service-lasso-cli");
   if (metadata.tag_name !== release.tag || metadata.target_commitish !== release.targetCommit || metadata.prerelease !== true || metadata.draft !== false || metadata.immutable !== !historical) throw new Error("operator tool release metadata does not match the pinned immutable candidate identity or exact historical catalog");
   if (!Array.isArray(metadata.assets) || metadata.assets.length !== expectedAssets.length) throw new Error("operator tool release metadata asset inventory does not match the pinned manifest");
@@ -235,6 +275,7 @@ async function assertGitHubRelease(fetchImpl, release, expectedAssets, releaseMe
     actual.set(asset.name, asset);
   }
   if (expectedAssets.some((asset) => actual.get(asset.name)?.digest !== `sha256:${asset.sha256}`)) throw new Error("operator tool release metadata asset inventory does not match the pinned manifest");
+  await assertGitHubToolTag(fetchImpl, release, token);
   return actual;
 }
 
@@ -325,9 +366,18 @@ async function readRetainedBytes(artifactRoot, relativePath) {
 
 export function assertProtectedOperatorTools(manifest) {
   if (!Array.isArray(manifest?.tools) || manifest.tools.length !== 2 || new Set(manifest.tools.map(tool => tool.command)).size !== 2 || !manifest.tools.every(tool => ["service-lassoctl", "service-lasso-tui"].includes(tool.command) && tool.status === "available" && tool.receiptKind === "protected-immutable")) throw new Error("protected operator-tool qualification requires actual immutable candidate pins; historical distribution is ineligible");
+  if (!manifest.tools.every(tool => !isHistoricalRelease(tool, tool.command === "service-lassoctl") && APPROVED_PROTECTED_IDENTITIES[tool.command].includes(protectedCatalogIdentity(tool)))) throw new Error("protected operator-tool qualification requires source-approved immutable publication catalog identities; catalog is empty until real qualification and public same-byte admission");
 }
 
 export async function verifyRetainedOperatorTools({ artifactRoot, requireProtected = false } = {}) {
+  const result = await validateRetainedOperatorToolBytes({ artifactRoot });
+  if (requireProtected) assertProtectedOperatorTools(result.manifest);
+  return result;
+}
+
+// Observational consistency only. This entrypoint never grants protected
+// eligibility, even when producer-shaped records declare immutable publication.
+export async function validateRetainedOperatorToolBytes({ artifactRoot } = {}) {
   const manifestBytes = await readRetainedBytes(artifactRoot, "operator-tools/manifest.json");
   const manifest = parseCandidateManifest(manifestBytes, "operator tools");
   if (manifest.schemaVersion !== "service-lasso.operator-tools.v2" || !Array.isArray(manifest.tools) || manifest.tools.length !== 2) throw new Error("operator tools manifest is invalid");
@@ -335,7 +385,6 @@ export async function verifyRetainedOperatorTools({ artifactRoot, requireProtect
   if (tools.size !== 2 || tools.get("service-lassoctl")?.status !== "available" || tools.get("service-lasso-tui")?.status !== "available") throw new Error("operator tools manifest availability is invalid");
   const tui = tools.get("service-lasso-tui");
   const cli = tools.get("service-lassoctl");
-  if (requireProtected) assertProtectedOperatorTools(manifest);
   for (const [tool, isCli] of [[tui, false], [cli, true]]) {
     const historical = isHistoricalRelease(tool, isCli);
     if (tool.receiptKind !== (historical ? "historical-mutable" : "protected-immutable")) throw new Error("operator tool retained receipt kind does not match catalog authority");
