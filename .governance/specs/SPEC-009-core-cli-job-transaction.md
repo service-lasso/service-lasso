@@ -2,7 +2,8 @@
 
 ## Scope
 
-Issue #1574 delivers the Core-owned job transaction consumed by CLI PR #32.
+Issue #1582 succeeds the retired #1574 slice and delivers the Core-owned job
+transaction consumed by CLI PR #32.
 This is Development work on `develop`-based issue branches. It is neither
 provider activation, host provisioning, deployment, publication, nor release
 qualification.
