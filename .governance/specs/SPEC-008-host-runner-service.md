@@ -17,10 +17,10 @@ host owner; it does not install, publish, or activate a service itself.
   digest and strict code identity before accepting a completion receipt. It
   accepts requests only over its declared LaunchDaemon Mach service from the
   reviewed signed client identity. A PID alone never authorises a result.
-- `AC-8C`: Before accepting a client connection, the daemon opens its
-  root-owned expected parent and leaf objects from the owner state directory,
-  records their device/inode/digest evidence, and rechecks the same held FDs
-  at completion. It validates their fixed-format parent/leaf relation. A
+- `AC-8C`: For every daemon-issued job grant, the daemon opens its root-owned
+  expected parent and leaf objects, records their device/inode/digest evidence,
+  and retains those same held FDs until completion, revocation, or expiry. It
+  validates their fixed-format parent/leaf relation. A
   client supplies neither paths, FDs, digests, nor the expected-object
   authority.
 - `AC-8D`: A capability is an unreadable, single-use FD with a daemon-issued

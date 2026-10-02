@@ -23,6 +23,8 @@ test("AC-8C/8D Darwin source uses held descriptors and daemon-issued one-use cap
   assert.match(source, /load_expected_object\("expected-parent"/); assert.match(source, /load_expected_object\("expected-leaf"/); assert.match(source, /expected_object_is_unchanged/); assert.match(source, /close\(capability\)/);
   assert.match(source, /reviewed_client/); assert.match(source, /strict_code_identity/); assert.match(source, /load_client_requirement/); assert.match(source, /client_requirement/);
   assert.match(source, /grants\[i\]\.birth/); assert.match(source, /grants\[i\]\.image_sha256/);
+  assert.match(source, /parent_object=parent/); assert.match(source, /leaf_object=leaf/);
+  assert.match(source, /expected_object_is_unchanged\(&grants\[i\]\.parent_object\)/);
   assert.match(source, /memcmp\(envelope, "SLHR", 4\)/); assert.doesNotMatch(source, /for \(ssize_t i = 0; i \+ SHA_LEN <= n/);
   assert.doesNotMatch(source, /xpc_dictionary_dup_fd\(message, "(?:parent|leaf)_fd"/); assert.doesNotMatch(source, /xpc_dictionary_get_string\(message, "(?:parent|leaf|capability)_path"/);
 });
