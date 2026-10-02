@@ -189,6 +189,8 @@ execution is admitted until a different fresh reviewer grants entire cumulative
 SOURCE GO and a NEW complete-input ROOT admission. Existing PR owners retain
 #1591/#1593/#1595/#1596/#1599 and #1586; normal source starts from current develop.
 
+- [ ] #1602 SPEC-007 AC-7F/AC-7G and AC-4CG complete immutable tool contract adoption. Source authoring only; no execution before separate entire review/new ROOT admission, no invented pins, no full native/ZIP acceptance claim.
 - [ ] #1603 adopt separate safe native-boundary observation grammar before source implementation; preserve exact private unavailability, guards/control/schema and historical failures. Fresh entire independent review and NEW complete-input ROOT before execution.
+- [ ] #1602 adopt both entire-review F1/F2 contracts together: empty source-owned protected authority until pins-only real publication admission, coherent retained-forgery denials, actual lightweight/annotated tag proof and malformed/absent/cycle/depth/wrong-source negatives. Source only, no qualification claim.
 
 - [ ] #1606: adopt typed private exact identity and finite observation-v2 before source; preserve public-v2/MCP and every native/owner guard. Source and regressions remain unexecuted until ENTIRE review and NEW ROOT.

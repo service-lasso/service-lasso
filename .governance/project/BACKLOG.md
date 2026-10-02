@@ -716,6 +716,8 @@ execution is admitted until a different fresh reviewer grants entire cumulative
 SOURCE GO and a NEW complete-input ROOT admission. Existing PR owners retain
 #1591/#1593/#1595/#1596/#1599 and #1586; normal source starts from current develop.
 
+- #1602 in_progress: SPEC-007 AC-7F/AC-7G, SPEC-002 AC-4CG complete immutable producer/consumer tool repair; source only; separate entire review and ROOT admission then qualification; actual publication then pins-only followup. Historical pins and Windows ZIP unmet obligation retained.
 | ISS-1603 | in_progress, source only | Parent #1594 / #1562; closed native refusal and temp-cleanup observations | SPEC-006 AC-6G.native-boundary-observation / SPEC-003 BR-008 | Different ENTIRE review, NEW ROOT admission and unchanged native/product/operator gates pending; private sink undefined. |
+- #1602 F1/F2 coherent source successor: AC-4CG.2 / AC-7F / AC-7G empty independent approved protected catalog; observational retained bytes separate; exact bounded actual tag proof; preserve develop578eb incoming eight observations. Fresh entire review and NEW ROOT required; all prior failures/native/publication/same-byte programme gates unmet.
 
 | ISS-1606 | in_progress, source only | Exact trusted native BigInt file identities and hostile rejection harness | SPEC-003 BR-008.exact-native-identity / SPEC-006 AC-6G | Parent1594/1562; ENTIRE review and NEW ROOT before local execution; old failures remain historical. |
