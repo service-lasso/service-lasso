@@ -1,14 +1,15 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, mkdir, readFile, rm, writeFile, symlink, rename, open, realpath } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile, symlink, rename, open, realpath, lstat, link } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { promisify } from "node:util";
-import { sha256, validAcl, darwinCacheHeader, nonReparseDirectory, createExclusiveDirectory, ownership, chain, recheck, exclusiveBytes, regularClosedBytes, regularClosedFile, bootstrapProtocolScript } from "../scripts/private-first-custody-v3-lib.mjs";
-import { startHeld } from "../scripts/native-tool-journal-v4-lib.mjs";
+import { sha256, validAcl, darwinCacheHeader, nonReparseDirectory, createExclusiveDirectory, ownership, chain, recheck, exclusiveBytes, regularClosedBytes, regularClosedFile, bootstrapProtocolScript, beginBootstrapCapture, publishAfterBootstrap, closeBootstrapSession } from "../scripts/private-first-custody-v3-lib.mjs";
+import { startHeld, heldImageBytes, imageParents, recheckImageParents } from "../scripts/native-tool-journal-v4-lib.mjs";
+import { validInitialProjection } from "../scripts/public-first-custody-projection-lib.mjs";
 
 const exec = promisify(execFile);
 const producer = new URL("../scripts/record-packaged-admin-first-custody.mjs", import.meta.url);
@@ -24,7 +25,7 @@ async function reseal(f) {
 }
 async function command(file, args, cwd, env) { return exec(process.execPath, [fileURLToPath(file), ...args], { cwd, env, windowsHide: true }); }
 async function fixture() {
-  const root = await mkdtemp(path.join(os.tmpdir(), "service-lasso-private-v3-"));
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "service-lasso-private-v3-")));
   const workspace = path.join(root, "checkout"), custody = path.join(root, "custody"), runtime = path.join(custody, "workspace"), privateRoot = path.join(custody, "private"), evidence = path.join(custody, "evidence");
   await mkdir(path.join(workspace, "native"), { recursive: true });
   await writeFile(path.join(workspace, "native", "asset.cs"), "sealed-native-source\n");
@@ -38,6 +39,72 @@ async function fixture() {
   return { root, workspace, privateRoot, evidence, env: { ...process.env, QUALIFICATION_PLATFORM: process.platform === "win32" ? "win32" : process.platform === "darwin" ? "darwin" : "linux", GITHUB_RUN_ID: "42", GITHUB_RUN_ATTEMPT: "1", GITHUB_WORKSPACE: workspace, QUALIFICATION_CANDIDATE_SHA: stdout.trim(), QUALIFICATION_PRIVATE_CUSTODY_ROOT: privateRoot, QUALIFICATION_INITIAL_RECEIPT_PATH: path.join(privateRoot, "initial-receipt.json"), QUALIFICATION_INITIAL_PROJECTION_PATH: path.join(evidence,"initial-projection.json"), QUALIFICATION_EVIDENCE_ROOT: evidence, SERVICE_LASSO_WORKSPACE_ROOT: runtime, SERVICE_LASSO_INSTANCE_REGISTRY_PATH: path.join(custody, "instance-registry.json"), SERVICE_LASSO_HOST_PORT_REGISTRY_PATH: path.join(custody, "host-port-registry.json") } };
 }
 async function produce(f) { await command(producer, [], f.workspace, f.env); await command(projector, ["--input", f.env.QUALIFICATION_INITIAL_RECEIPT_PATH, "--journal", path.join(f.privateRoot, "first-custody-journal.json"), "--output", path.join(f.evidence, "initial-projection.json")], f.workspace, f.env); }
+function publicFixture(f){return {schema:"service-lasso.qualification-first-custody-projection.v2",privateVersion:"v3",candidate:{head:f.env.QUALIFICATION_CANDIDATE_SHA,tree:"a".repeat(40)},platform:process.platform,run:{id:"42",attempt:"1"},privateInitialReceiptSha256:"a".repeat(64),privateJournalSha256:"b".repeat(64),localValidatorAttestation:{schema:"service-lasso.qualification-local-validator-attestation.v2",validated:true}};}
+async function absentPublic(target){assert.equal(await lstat(target).catch(error=>error.code==="ENOENT"?null:Promise.reject(error)),null);}
+test("BR008 terminal bootstrap and stage/seal write or fsync failures never publish a validated projection",async()=>{
+  const scenarios=["seal-exists","stage-write","stage-fsync","seal-write","seal-fsync","public-link"];
+  if(process.platform==="win32")scenarios.push("terminal-nonzero","terminal-signal","terminal-eof","terminal-raw-mismatch");
+  for(const scenario of scenarios){const f=await fixture();try{
+    await command(producer,[],f.workspace,f.env);
+    const target=f.env.QUALIFICATION_INITIAL_PROJECTION_PATH;
+    if(scenario==="seal-exists")await writeFile(path.join(f.privateRoot,"validator-bootstrap-seal.json"),"retained collision\n");
+    beginBootstrapCapture();
+    const io={link:async(...args)=>{if(scenario==="public-link")throw new Error("injected_public_link");return link(...args);},open:async(file,...args)=>{
+      const handle=await open(file,...args),stage=path.basename(file)==="validator-projection.staged.json",failWrite=scenario===(stage?"stage-write":"seal-write"),failSync=scenario===(stage?"stage-fsync":"seal-fsync");
+      return new Proxy(handle,{get(object,key){if(key==="writeFile"&&failWrite)return async()=>{await handle.writeFile("partial private bytes");throw new Error("injected_write");};if(key==="sync"&&failSync)return async()=>{throw new Error("injected_fsync");};const value=Reflect.get(object,key,object);return typeof value==="function"?value.bind(object):value;}});
+    },beforeTerminal:async session=>{
+      if(!scenario.startsWith("terminal-"))return;assert.ok(session,"actual Windows validator-owned bootstrap must exist");assert.equal(session.probe.native.pid,session.probe.child.pid);
+      if(scenario==="terminal-nonzero")session.probe.child.stdin.write("{}\n");
+      if(scenario==="terminal-signal"){assert.equal(session.probe.child.kill(),true);await session.probe.closed;}
+      if(scenario==="terminal-eof")session.probe.child.stdout.destroy();
+      if(scenario==="terminal-raw-mismatch")session.results.push(Buffer.from("unobserved extra result\n"));
+    }};
+    const expected=scenario==="seal-exists"?/EEXIST/u:scenario.startsWith("terminal-")?/first_custody_bootstrap_terminal_closure_invalid/u:scenario==="public-link"?/injected_public_link/u:scenario.endsWith("write")?/injected_write/u:/injected_fsync/u;
+    await assert.rejects(publishAfterBootstrap(f.privateRoot,target,publicFixture(f),path.join(f.privateRoot,"first-custody-journal.json"),f.evidence,io),expected);
+    await absentPublic(target);
+  }finally{await rm(f.root,{recursive:true,force:true});}}
+});
+test("BR008 actual projector seal collision leaves no eligible public output",async()=>{
+  const f=await fixture();try{await command(producer,[],f.workspace,f.env);await writeFile(path.join(f.privateRoot,"validator-bootstrap-seal.json"),"retained prior seal\n");await assert.rejects(command(projector,["--input",f.env.QUALIFICATION_INITIAL_RECEIPT_PATH,"--journal",path.join(f.privateRoot,"first-custody-journal.json"),"--output",f.env.QUALIFICATION_INITIAL_PROJECTION_PATH],f.workspace,f.env),/EEXIST/u);await absentPublic(f.env.QUALIFICATION_INITIAL_PROJECTION_PATH);}finally{await rm(f.root,{recursive:true,force:true});}
+});
+test("BR008 an independently owned process crash after private seal and before public commit leaves no projection",async()=>{
+  const f=await fixture();try{
+    await command(producer,[],f.workspace,f.env);
+    const moduleUrl=new URL("../scripts/private-first-custody-v3-lib.mjs",import.meta.url).href,harness=path.join(f.root,"owned-crash.mjs");
+    await writeFile(harness,`import {open} from 'node:fs/promises';import {beginBootstrapCapture,publishAfterBootstrap} from ${JSON.stringify(moduleUrl)};beginBootstrapCapture();await publishAfterBootstrap(${JSON.stringify(f.privateRoot)},${JSON.stringify(f.env.QUALIFICATION_INITIAL_PROJECTION_PATH)},${JSON.stringify(publicFixture(f))},${JSON.stringify(path.join(f.privateRoot,"first-custody-journal.json"))},${JSON.stringify(f.evidence)},{open,link:()=>process.exit(42)});`);
+    await assert.rejects(exec(process.execPath,[harness],{cwd:f.workspace,env:f.env,windowsHide:true}),error=>error.code===42);
+    assert.ok(await lstat(path.join(f.privateRoot,"validator-bootstrap-seal.json")));await absentPublic(f.env.QUALIFICATION_INITIAL_PROJECTION_PATH);
+  }finally{await rm(f.root,{recursive:true,force:true});}
+});
+test("BR008 actual owned native terminal stderr and raw mismatch cannot satisfy validator closure",{skip:process.platform!=="win32"},async()=>{
+  const requested=path.join(process.env.SystemRoot,"System32","WindowsPowerShell","v1.0","powershell.exe"),resolved=await realpath(requested),tool={name:"powershell",requested,resolved,file:await regularClosedFile(resolved,path.parse(resolved).root)};
+  for(const scenario of ["valid","stderr","raw-mismatch"]){
+    const script="$null=[Console]::In.ReadLine();"+(scenario==="stderr"?"[Console]::Error.Write('unexpected stderr');":"[Console]::Out.Write('observed');"),probe=await startHeld(tool,["-NoLogo","-NoProfile","-NonInteractive","-Command",script],process.cwd()),session={tool,args:["-NoLogo","-NoProfile","-NonInteractive","-Command",script],probe,requests:[],results:scenario==="valid"?[Buffer.from("observed")]:[]};
+    if(scenario==="valid"){const closed=await closeBootstrapSession(session);assert.equal(closed.result.exitCode,0);assert.equal(closed.result.stdoutEof,true);assert.equal(closed.result.stderrEof,true);}else await assert.rejects(closeBootstrapSession(session),/first_custody_bootstrap_terminal_closure_invalid/u);
+  }
+});
+test("BR008 Windows coherently resealed helper library substitution reaches requested physical resolution",{skip:process.platform!=="win32"},async()=>{
+  const valid=await fixture();try{await produce(valid);assert.equal(validInitialProjection(JSON.parse(await readFile(valid.env.QUALIFICATION_INITIAL_PROJECTION_PATH,"utf8")),"win32","42","1",valid.env.QUALIFICATION_CANDIDATE_SHA),true);}finally{await rm(valid.root,{recursive:true,force:true});}
+  for(const scope of ["journal","bootstrap"]){const f=await fixture();try{
+    await command(producer,[],f.workspace,f.env);
+    const journalPath=path.join(f.privateRoot,"first-custody-journal.json"),sealPath=path.join(f.privateRoot,"bootstrap-seal.json"),journal=JSON.parse(await readFile(journalPath,"utf8")),seal=JSON.parse(await readFile(sealPath,"utf8")),helper=(scope==="journal"?journal.commands[0]:seal.session).native.helper;
+    const resolved=await realpath(process.execPath),file=await regularClosedFile(resolved,path.parse(resolved).root),library=helper.libraries[0];assert.notEqual(await realpath(library.requested),resolved);
+    Object.assign(library,{resolved,...file});
+    for(const probe of [helper.first,helper.second]){const raw=JSON.parse(Buffer.from(probe.stdout.data).toString("utf8"));raw.libraryFiles[0]={...library};const bytes=Buffer.from(JSON.stringify(raw));probe.stdout=bytes;probe.stdoutSha256=sha256(bytes);}
+    await writeFile(journalPath,JSON.stringify(journal)+"\n");await writeFile(sealPath,JSON.stringify(seal)+"\n");await reseal(f);
+    await assert.rejects(command(projector,["--input",f.env.QUALIFICATION_INITIAL_RECEIPT_PATH,"--journal",journalPath,"--output",f.env.QUALIFICATION_INITIAL_PROJECTION_PATH],f.workspace,f.env),/first_custody_validator_helper_library_alias_changed/u);await absentPublic(f.env.QUALIFICATION_INITIAL_PROJECTION_PATH);
+  }finally{await rm(f.root,{recursive:true,force:true});}}
+});
+test("BR008 native and bootstrap held image reader rejects real persistent and changed physical parents",async()=>{
+  const root=await realpath(await mkdtemp(path.join(os.tmpdir(),"native-held-parent-")));
+  try{
+    const parent=path.join(root,"parent"),retained=path.join(root,"retained"),alias=path.join(root,"alias");await mkdir(parent);const file=path.join(parent,"library");await writeFile(file,"verified bytes");
+    assert.equal((await heldImageBytes(file)).toString(),"verified bytes");
+    await symlink(parent,alias,process.platform==="win32"?"junction":"dir");await assert.rejects(heldImageBytes(path.join(alias,"library")),/first_custody_native_reparse_parent/u);
+    const snapshot=await imageParents(file);await rename(parent,retained);await mkdir(parent);await writeFile(file,"verified bytes");await assert.rejects(recheckImageParents(snapshot),/first_custody_native_parent_changed/u);
+    await assert.rejects(heldImageBytes(file,{open:async(target,flags)=>{const handle=await open(target,flags);await rename(parent,path.join(root,"opened-parent"));await symlink(path.join(root,"opened-parent"),parent,process.platform==="win32"?"junction":"dir");return handle;}}),/first_custody_native_parent_changed/u);
+  }finally{await rm(root,{recursive:true,force:true});}
+});
 test("BR008 held reader rejects an actual open-time object substitution restored before its named postcheck", async () => {
   const root=await mkdtemp(path.join(os.tmpdir(),"custody-held-named-"));
   try {
@@ -118,6 +185,7 @@ test("BR008 actual native bootstrap protocol closes valid, invalid-request and o
 test("BR008 private v3 producer holds an observed native Git protocol and projects only closed identifiers", async () => {
   const f = await fixture(); try { await produce(f); const publicSource = await readFile(path.join(f.evidence, "initial-projection.json"), "utf8"); const privateSource = await readFile(f.env.QUALIFICATION_INITIAL_RECEIPT_PATH, "utf8"); const pub = JSON.parse(publicSource), priv = JSON.parse(privateSource);
     assert.equal(priv.schema, "service-lasso.qualification-initial-receipt.v3"); assert.equal(priv.source.tracked.length, 3); assert.equal(priv.runner.nativeBirthCustody, "HELD_NATIVE_V1"); const journal=JSON.parse(await readFile(priv.journal.path,"utf8"));assert.match(journal.commands[0].native.id,/^native-/u); assert.equal(pub.privateVersion, "v3"); assert.deepEqual(Object.keys(pub.localValidatorAttestation).sort(), ["schema", "validated"]); assert.equal(pub.privateInitialReceiptSha256, sha256(privateSource)); assert.equal(publicSource.includes(f.workspace), false); assert.equal(publicSource.includes("journal-0.stdout"), false); assert.equal(publicSource.includes("pid"), false);
+    const validatorSeal=JSON.parse(await readFile(path.join(f.privateRoot,"validator-bootstrap-seal.json"),"utf8"));assert.equal(validatorSeal.receiptSha256,sha256(publicSource));assert.equal(await readFile(path.join(f.privateRoot,"validator-projection.staged.json"),"utf8"),publicSource);assert.ok(process.platform==="win32"?validatorSeal.session.result.naturalWaitForExit&&validatorSeal.session.result.exitCode===0&&validatorSeal.session.result.stdoutEof&&validatorSeal.session.result.stderrEof:validatorSeal.session===null);
   } finally { await rm(f.root, { recursive: true, force: true }); }
 });
 test("BR008 validator rejects workspace/native state, registry, journal, native witness, raw output, duplicate JSON and output-boundary tampering", async () => {
@@ -178,11 +246,14 @@ test("BR008 directory boundary rejects an actual symlink or Windows junction", a
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 test("BR008 Darwin complete cache mutations fail despite coherently resealed journal and receipt", { skip: process.platform !== "darwin" }, async () => {
+  const valid=await fixture();
+  try{await produce(valid);assert.equal(validInitialProjection(JSON.parse(await readFile(valid.env.QUALIFICATION_INITIAL_PROJECTION_PATH,"utf8")),"darwin","42","1",valid.env.QUALIFICATION_CANDIDATE_SHA),true);assert.ok(await lstat(path.join(valid.privateRoot,"validator-bootstrap-seal.json")));}finally{await rm(valid.root,{recursive:true,force:true});}
   for (const scenario of ["cachePath", "loadedImageUuid", "cacheUuid", "cacheHeaderUuid", "cacheHeaderSha256", "cacheHeaderSha256:raw", "cacheUuid:raw"]) {
     const key = scenario.split(":")[0];
     const f = await fixture();
     try {
-      await produce(f);
+      // Producer only: the validator's terminal seal must still be absent.
+      await command(producer,[],f.workspace,f.env);
       const journalPath = path.join(f.privateRoot, "first-custody-journal.json");
       const journal = JSON.parse(await readFile(journalPath, "utf8"));
       for (const command of journal.commands) {
@@ -196,10 +267,11 @@ test("BR008 Darwin complete cache mutations fail despite coherently resealed jou
       }
       const bytes = JSON.stringify(journal) + "\n";
       await writeFile(journalPath, bytes);
-      const receipt = JSON.parse(await readFile(f.env.QUALIFICATION_INITIAL_RECEIPT_PATH, "utf8"));
-      receipt.journal.file = { size: Buffer.byteLength(bytes), sha256: sha256(bytes) };
-      await writeFile(f.env.QUALIFICATION_INITIAL_RECEIPT_PATH, JSON.stringify(receipt) + "\n");
-      await assert.rejects(command(projector, ["--input", f.env.QUALIFICATION_INITIAL_RECEIPT_PATH, "--journal", journalPath, "--output", path.join(f.evidence, key + ".json")], f.workspace, { ...f.env, QUALIFICATION_INITIAL_PROJECTION_PATH:target }));
+      await reseal(f);
+      const target=path.join(f.evidence,scenario.replace(":","-")+".json");
+      const intended=scenario.endsWith(":raw")?/first_custody_validator_darwin_cache_header_mismatch/u:/first_custody_validator_darwin_cache_witness_invalid/u;
+      await assert.rejects(command(projector, ["--input", f.env.QUALIFICATION_INITIAL_RECEIPT_PATH, "--journal", journalPath, "--output", target], f.workspace, { ...f.env, QUALIFICATION_INITIAL_PROJECTION_PATH:target }),intended);
+      assert.equal(await lstat(target).catch(error=>error.code==="ENOENT"?null:Promise.reject(error)),null,scenario);
     } finally { await rm(f.root, { recursive: true, force: true }); }
   }
 });

@@ -184,10 +184,16 @@ test("AC-4BY.2 round-trips actual consumer outcomes through retention and aggreg
     assert.equal(result.status, 0, `${name}: ${result.stderr}`);
   }
   const stalled = path.join(root, "timeout-child.mjs");
-  await writeFile(stalled, "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000);");
+  // Inherited fixture correction: consumer timeout records observation failure
+  // and waits for natural exit. This child owns one finite timer independently
+  // of the unchanged 25ms consumer deadline; no consumer signal manufactures exit.
+  await writeFile(stalled, "setTimeout(() => { process.exitCode = 0; }, 100);");
   const timed = await consume(process.execPath, [stalled], { timeoutMs: 25, pipeCloseTimeoutMs: 100 });
   const timeoutReceipt = { schema: "service-lasso.admin-trusted-unlock-consumer.v1", outcome: "observation_failure", exitCode: timed.code, signal: timed.signal, executionFailure: timed.executionFailure, trustedUnlock: timed.trustedUnlock };
   assert.equal(timeoutReceipt.executionFailure, "execution_timeout");
+  assert.equal(timed.code, 0);
+  assert.equal(timed.signal, null);
+  assert.equal(timed.streamFailure, null);
   const timeoutResult = verify(await fixture(undefined, timeoutReceipt));
   assert.equal(timeoutResult.status, 0, timeoutResult.stderr);
 });

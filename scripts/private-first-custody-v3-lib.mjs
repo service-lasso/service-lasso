@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { startHeld } from "./native-tool-journal-v4-lib.mjs";
-import { lstat, mkdir, open, realpath, stat } from "node:fs/promises";
+import { heldImageBytes, imageParents, recheckImageParents, startHeld } from "./native-tool-journal-v4-lib.mjs";
+import { link, lstat, mkdir, open, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { constants } from "node:fs";
 
@@ -26,15 +26,16 @@ export function bootstrapProtocolScript() {
   return "$ErrorActionPreference='Stop';[Console]::InputEncoding=[Text.UTF8Encoding]::new($false);[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false);$read=[scriptblock]::Create("+quote(aclRead)+");$set=[scriptblock]::Create("+quote(aclSet)+");$reparse=[scriptblock]::Create("+quote(reparseRead)+");while($null -ne ($line=[Console]::ReadLine())){$q=$line|ConvertFrom-Json -ErrorAction Stop;if($null -eq $q -or @($q.PSObject.Properties).Count -ne 2 -or $q.purpose -isnot [string] -or $q.target -isnot [string] -or [string]::IsNullOrWhiteSpace($q.target) -or -not [IO.Path]::IsPathRooted($q.target)){throw 'request_invalid'};$env:SERVICE_LASSO_CUSTODY_TARGET=[string]$q.target;switch([string]$q.purpose){'acl_read'{&$read};'acl_set'{&$set};'reparse'{&$reparse};default{throw 'purpose_invalid'}}}";
 }
 async function startBootstrapSession() {
-  const executable=await realpath(psPath()),named=await lstat(executable),handle=await open(executable,"r");let bytes;
-  try{const held=await handle.stat();if(!named.isFile()||named.isSymbolicLink()||!sameIdentity(identity(named),identity(held)))throw new Error("first_custody_bootstrap_tool_identity");bytes=await handle.readFile();if(!sameIdentity(identity(held),identity(await handle.stat()))||!sameIdentity(identity(held),identity(await lstat(executable))))throw new Error("first_custody_bootstrap_tool_changed");}finally{await handle.close();}
+  const executable=await realpath(psPath()),parents=await imageParents(executable),bytes=await heldImageBytes(executable);
   const tool={name:"powershell",requested:psPath(),resolved:executable,file:{size:bytes.length,sha256:sha256(bytes)}},args=["-NoLogo","-NoProfile","-NonInteractive","-Command",bootstrapProtocolScript()],probe=await startHeld(tool,args,process.env.GITHUB_WORKSPACE??process.cwd());
-  return {tool,args,probe,offset:0,requests:[],results:[]};
+  await recheckImageParents(parents);
+  return {tool,args,probe,offset:0,requests:[],results:[],parents};
 }
-async function closeBootstrapSession(session) {
+export async function closeBootstrapSession(session) {
   session.probe.child.stdin.end();const closed=await session.probe.closed;
   const result={naturalWaitForExit:true,exitCode:closed.exitCode,signal:closed.signal,stdoutEof:closed.stdoutEof,stderrEof:closed.stderrEof,stdin:Buffer.concat(session.requests),stdout:closed.stdout,stderr:closed.stderr,stdinSha256:sha256(Buffer.concat(session.requests)),stdoutSha256:sha256(closed.stdout),stderrSha256:sha256(closed.stderr)};
   if(closed.startError||closed.exitCode!==0||closed.signal!==null||!closed.stdoutEof||!closed.stderrEof||closed.stderr.length||!closed.stdout.equals(Buffer.concat(session.results)))throw new Error("first_custody_bootstrap_terminal_closure_invalid");
+  if(session.parents)await recheckImageParents(session.parents);
   return {tool:session.tool,args:session.args,native:session.probe.native,result};
 }
 async function psJson(directory,purpose,error) {
@@ -60,22 +61,55 @@ export async function createExclusiveDirectory(directory,boundary) { const targe
 export async function absentLeaf(file,boundary) { const target=path.resolve(file), parents=await chain(path.dirname(target),boundary); if(await lstat(target).catch(error=>error.code==="ENOENT"?null:Promise.reject(error)))throw new Error("first_custody_registry_present"); await recheck(parents); return {path:target,state:"ABSENT",parent:await ownership(path.dirname(target),boundary)}; }
 export async function regularClosedBytes(file,root,io={open}) { const target=path.resolve(file), boundary=path.resolve(root); if(!inside(target,boundary))throw new Error("first_custody_boundary_escape"); const parents=await chain(path.dirname(target),boundary), beforePath=await lstat(target); if(!beforePath.isFile()||beforePath.isSymbolicLink())throw new Error("first_custody_nonregular_or_reparse_file"); const handle=await io.open(target,"r"); let bytes; try { const before=await handle.stat(); if(!before.isFile()||!sameIdentity(identity(beforePath),identity(before)))throw new Error("first_custody_held_not_named_file"); const chunks=[],block=Buffer.allocUnsafe(65536); for(;;){const {bytesRead}=await handle.read(block,0,block.length,null);if(!bytesRead)break;chunks.push(Buffer.from(block.subarray(0,bytesRead)));} const after=await handle.stat();if(!sameIdentity(identity(before),identity(after)))throw new Error("first_custody_held_file_changed_during_hash");bytes=Buffer.concat(chunks);}finally{await handle.close();} await recheck(parents);const afterPath=await lstat(target);if(!afterPath.isFile()||afterPath.isSymbolicLink()||!sameIdentity(identity(beforePath),identity(afterPath)))throw new Error("first_custody_path_swapped_during_hash");return bytes; }
 export async function regularClosedFile(file,root) { const bytes=await regularClosedBytes(file,root);return {size:bytes.length,sha256:sha256(bytes)}; }
-async function exclusiveWrite(file,value,root) { const target=path.resolve(file),parents=await chain(path.dirname(target),root);if(await lstat(target).catch(error=>error.code==="ENOENT"?null:Promise.reject(error)))throw new Error("first_custody_output_exists");const handle=await open(target,"wx",0o600);try{await handle.writeFile(value);await handle.sync();const held=await handle.stat(),named=await lstat(target);if(!held.isFile()||!named.isFile()||named.isSymbolicLink()||!sameIdentity(identity(held),identity(named)))throw new Error("first_custody_output_path_swapped");await recheck(parents);}finally{await handle.close();}await recheck(parents);return regularClosedFile(target,root); }
-export async function exclusiveJson(file,value,root) { return exclusiveWrite(file,JSON.stringify(value)+"\n",root); }
+async function exclusiveWrite(file,value,root,io={open}) { const target=path.resolve(file),parents=await chain(path.dirname(target),root);if(await lstat(target).catch(error=>error.code==="ENOENT"?null:Promise.reject(error)))throw new Error("first_custody_output_exists");const handle=await io.open(target,"wx",0o600);try{await handle.writeFile(value);await handle.sync();const held=await handle.stat(),named=await lstat(target);if(!held.isFile()||!named.isFile()||named.isSymbolicLink()||!sameIdentity(identity(held),identity(named)))throw new Error("first_custody_output_path_swapped");await recheck(parents);}finally{await handle.close();}await recheck(parents);return regularClosedFile(target,root); }
+export async function exclusiveJson(file,value,root,io={open}) { return exclusiveWrite(file,JSON.stringify(value)+"\n",root,io); }
 export async function exclusiveBytes(file,value,root) { return exclusiveWrite(file,value,root); }
 // The terminal seal is written after all native bootstrap probes have naturally
 // closed. Its own write uses held/named FS identities and the retained physical
 // parent snapshot, so sealing does not generate another unrecorded native probe.
-export async function sealBootstrap(privateRoot, receiptPath, journalPath, fileName="bootstrap-seal.json") {
+export async function sealBootstrap(privateRoot, receiptPath, journalPath, fileName="bootstrap-seal.json", io={open}) {
   if (bootstrap === null) throw new Error("first_custody_bootstrap_not_started");
   const receipt = await regularClosedBytes(receiptPath, path.dirname(receiptPath)), journal = await regularClosedBytes(journalPath, privateRoot), snapshot = await chain(privateRoot, privateRoot);
   await recheck(snapshot);
-  const records = bootstrap, session = bootstrapSession===null?null:await closeBootstrapSession(bootstrapSession); bootstrap = null; bootstrapSession=null;
+  const records = bootstrap;let session;
+  try {
+    // An in-process fault observer may operate only on the actual owned child;
+    // it cannot supply or replace the terminal result. Production has no hook.
+    if(io.beforeTerminal)try{await io.beforeTerminal(bootstrapSession);}catch(error){
+      if(bootstrapSession)try{await closeBootstrapSession(bootstrapSession);}catch(closure){throw new AggregateError([error,closure],"first_custody_bootstrap_fault_observer_and_terminal_failure");}
+      throw error;
+    }
+    session=bootstrapSession===null?null:await closeBootstrapSession(bootstrapSession);
+  } finally { bootstrap=null;bootstrapSession=null; }
   const bytes = Buffer.from(JSON.stringify({ schema: "service-lasso.qualification-bootstrap-seal.v1", private: true, receiptSha256: sha256(receipt), journalSha256: sha256(journal), session, commands: records }) + "\n");
-  const target = path.join(privateRoot, fileName), handle = await open(target, "wx", 0o600);
+  const target = path.join(privateRoot, fileName), handle = await io.open(target, "wx", 0o600);
   async function physicalRecheck() { for (const item of snapshot.entries) { const now = await lstat(item.cursor); if (!now.isDirectory() || now.isSymbolicLink() || !sameDirectoryIdentity(item.identity, directoryIdentity(now)) || now.uid !== item.uid || now.gid !== item.gid || now.mode !== item.mode || await realpath(item.cursor) !== item.resolved) throw new Error("first_custody_bootstrap_seal_parent_changed"); } }
   try { await physicalRecheck(); await handle.writeFile(bytes); await handle.sync(); const held = await handle.stat(), named = await lstat(target); if (!held.isFile() || !named.isFile() || named.isSymbolicLink() || !sameIdentity(identity(held), identity(named))) throw new Error("first_custody_bootstrap_seal_path_changed"); await physicalRecheck(); } finally { await handle.close(); }
   await physicalRecheck();
+}
+// All bytes and native probes are completed privately. The exclusive hard link
+// is the final public commit point: there is no partial public write or later
+// validation/fsync that could fail after validated:true becomes consumable.
+export async function publishAfterBootstrap(privateRoot, output, value, journalPath, evidenceRoot, io={open,link}) {
+  try {
+    const staged=path.join(privateRoot,"validator-projection.staged.json");
+    await exclusiveJson(staged,value,privateRoot,io);
+    const outputParents=await imageParents(output),stagedParents=await imageParents(staged);
+    const stagedState=await lstat(staged);
+    await sealBootstrap(privateRoot,staged,journalPath,"validator-bootstrap-seal.json",io);
+    await recheckImageParents(stagedParents);await recheckImageParents(outputParents);
+    const current=await lstat(staged);
+    if(!current.isFile()||current.isSymbolicLink()||!sameIdentity(identity(stagedState),identity(current))||!inside(output,evidenceRoot)||path.dirname(output)!==evidenceRoot)throw new Error("first_custody_validator_staged_projection_changed");
+    // link fails exclusively if the public name already exists and cannot expose
+    // partially written bytes. Retain the private staging inode as evidence.
+    await io.link(staged,output);
+  } catch(error) {
+    // A private staging failure must still naturally settle our owned session.
+    // Keep the original error primary; never signal or publish on failure.
+    const session=bootstrapSession;bootstrap=null;bootstrapSession=null;
+    if(session)try{await closeBootstrapSession(session);}catch(closure){throw new AggregateError([error,closure],"first_custody_validator_private_failure_and_terminal_failure");}
+    throw error;
+  }
 }
 // This proves only the fixed dyld header, never the complete cache or libproc file.
 // Parent snapshots detect replacement; they are not an atomic directory anchor.
