@@ -50,6 +50,7 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
     "scripts/project-packaged-admin-first-custody.mjs",
     "scripts/private-first-custody-v3-lib.mjs",
     "scripts/native-tool-journal-v4-lib.mjs",
+    "scripts/exact-native-file-identity-lib.mjs",
     "scripts/first-custody-git-replay-lib.mjs",
     "scripts/public-first-custody-projection-lib.mjs",
     "scripts/resolve-pnpm-action-entrypoint.mjs",

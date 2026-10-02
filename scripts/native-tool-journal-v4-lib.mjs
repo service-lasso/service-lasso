@@ -5,6 +5,7 @@ import { readFile, realpath, lstat, open } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import process from "node:process";
+import { nativeUnsigned, nativeOwnerNumber, sameNativeIdentity } from "./exact-native-file-identity-lib.mjs";
 import { strictJson } from "./consume-admin-trusted-unlock-receipt.mjs";
 function nativeJson(source){if(!strictJson(source))throw new Error("first_custody_native_duplicate_or_malformed_json");return JSON.parse(source);}
 
@@ -17,7 +18,7 @@ const positive = value => Number.isSafeInteger(Number(value)) && Number(value) >
 // Separate finite observation only; neither private custody nor acceptance evidence.
 function reportParentFailure(observation, report) {
   try { report(`[native-boundary-failure-observation] ${JSON.stringify({
-    schema: "service-lasso.native-boundary-failure-observation.v1",
+    schema: "service-lasso.native-boundary-failure-observation.v2",
     boundary: "image_parent", privateIdentity: "unavailable", ...observation,
   })}\n`); } catch { /* Observation cannot replace the original refusal. */ }
 }
@@ -26,10 +27,11 @@ export async function imageParents(file, io = { lstat, realpath }, report = valu
   for(let cursor=path.dirname(target);;cursor=path.dirname(cursor)) {
     let entry, resolved, acquisition = "lstat", predicates;
     try {
-      entry=await io.lstat(cursor);
+      entry=await io.lstat(cursor,{bigint:true});
       acquisition="realpath";resolved=await io.realpath(cursor);
       acquisition="predicate";
-      predicates={directory:Boolean(entry.isDirectory()),symlink:Boolean(entry.isSymbolicLink()),samePhysicalPath:path.relative(cursor,resolved)==="",inoSafeInteger:Number.isSafeInteger(entry.ino),inoPositive:entry.ino>0};
+      nativeOwnerNumber(entry.uid);nativeOwnerNumber(entry.gid);nativeOwnerNumber(entry.mode);
+      predicates={directory:Boolean(entry.isDirectory()),symlink:Boolean(entry.isSymbolicLink()),samePhysicalPath:path.relative(cursor,resolved)==="",devExactInteger:nativeUnsigned(entry.dev),inoExactInteger:nativeUnsigned(entry.ino),inoPositive:(typeof entry.ino==="bigint"||typeof entry.ino==="number")&&entry.ino>0n};
     } catch(error) {
       reportParentFailure({observationStatus:"unavailable",acquisition},report);
       throw error;
@@ -38,7 +40,8 @@ export async function imageParents(file, io = { lstat, realpath }, report = valu
     if(!predicates.directory)failedPredicates.push("directory");
     if(predicates.symlink)failedPredicates.push("symlink");
     if(!predicates.samePhysicalPath)failedPredicates.push("samePhysicalPath");
-    if(!predicates.inoSafeInteger)failedPredicates.push("inoSafeInteger");
+    if(!predicates.devExactInteger)failedPredicates.push("devExactInteger");
+    if(!predicates.inoExactInteger)failedPredicates.push("inoExactInteger");
     if(!predicates.inoPositive)failedPredicates.push("inoPositive");
     if(failedPredicates.length){
       reportParentFailure({observationStatus:"captured",predicates,failedPredicates},report);
@@ -48,13 +51,13 @@ export async function imageParents(file, io = { lstat, realpath }, report = valu
   }
   return parents;
 }
-export async function recheckImageParents(parents){for(const item of parents){const now=await lstat(item.cursor);if(!now.isDirectory()||now.isSymbolicLink()||now.dev!==item.dev||now.ino!==item.ino||now.uid!==item.uid||now.gid!==item.gid||now.mode!==item.mode||await realpath(item.cursor)!==item.resolved)throw new Error("first_custody_native_parent_changed");}}
+export async function recheckImageParents(parents){for(const item of parents){const now=await lstat(item.cursor,{bigint:true});if(!now.isDirectory()||now.isSymbolicLink()||now.dev!==item.dev||now.ino!==item.ino||now.uid!==item.uid||now.gid!==item.gid||now.mode!==item.mode||await realpath(item.cursor)!==item.resolved)throw new Error("first_custody_native_parent_changed");}}
 export async function heldImageBytes(file, io = { open }) {
   const target=path.resolve(file),parents=await imageParents(target);
   await recheckImageParents(parents);
-  const named=await lstat(target),handle=await io.open(target,"r");
-  const same=(left,right)=>left.dev===right.dev&&left.ino===right.ino&&left.size===right.size&&left.mtimeMs===right.mtimeMs;
-  try { const first=await handle.stat();if(!named.isFile()||named.isSymbolicLink()||!first.isFile()||!same(named,first))throw new Error("first_custody_native_held_image_identity");const bytes=await handle.readFile(),last=await handle.stat(),after=await lstat(target);if(!same(first,last)||!after.isFile()||after.isSymbolicLink()||!same(first,after))throw new Error("first_custody_native_held_image_changed");await recheckImageParents(parents);return bytes; }finally{await handle.close();}
+  const named=await lstat(target,{bigint:true}),handle=await io.open(target,"r");
+  const same=sameNativeIdentity;
+  try { const first=await handle.stat({bigint:true});if(!named.isFile()||named.isSymbolicLink()||!first.isFile()||!same(named,first))throw new Error("first_custody_native_held_image_identity");const bytes=await handle.readFile(),last=await handle.stat({bigint:true}),after=await lstat(target,{bigint:true});if(BigInt(bytes.length)!==first.size||!same(first,last)||!after.isFile()||after.isSymbolicLink()||!same(first,after))throw new Error("first_custody_native_held_image_changed");await recheckImageParents(parents);return bytes; }finally{await handle.close();}
 }
 async function linuxOne(id) {
   const stat = await readFile(`/proc/${id}/stat`, "utf8"), end = stat.lastIndexOf(")");

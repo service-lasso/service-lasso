@@ -1,3 +1,4 @@
+import { directoryIdentity, validDirectoryIdentity, sameDirectoryIdentity, sameNativeIdentity } from "../scripts/exact-native-file-identity-lib.mjs";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { mkdtemp, mkdir, readFile, rm, writeFile, symlink, rename, open, realpath, lstat, link } from "node:fs/promises";
@@ -355,4 +356,79 @@ test("BR008 projector rejects actual retained root replacement after legitimate 
     await createExclusiveDirectory(f.evidence, path.dirname(f.privateRoot));
     await assert.rejects(command(projector, ["--input", f.env.QUALIFICATION_INITIAL_RECEIPT_PATH, "--journal", path.join(f.privateRoot, "first-custody-journal.json"), "--output", path.join(f.evidence, "initial-projection.json")], f.workspace, f.env), /first_custody_validator_root_changed/u);
   } finally { await rm(f.root, { recursive: true, force: true }); }
+});
+
+// #1606 / BR-008.exact-native-identity. These remain UNEXECUTED source.
+test("BR008 actual native BigInt stats and held descriptors preserve private exact identities", async () => {
+  const root=await realpath(await mkdtemp(path.join(os.tmpdir(),"exact-native-stat-")));
+  try {
+    const file=path.join(root,"image");await writeFile(file,Buffer.from([0,255,13,10,128]));
+    const named=await lstat(file,{bigint:true}),handle=await open(file,"r");
+    try {
+      const held=await handle.stat({bigint:true});
+      for(const field of ["dev","ino","size","mtimeNs","uid","gid","mode"])assert.equal(typeof held[field],"bigint");
+      assert.equal(sameNativeIdentity(named,held),true);
+      assert.deepEqual(await handle.readFile(),await heldImageBytes(file));
+    } finally { await handle.close(); }
+    const actual=await lstat(root,{bigint:true}),proof=directoryIdentity(actual);
+    assert.equal(proof.dev,actual.dev.toString());assert.equal(proof.ino,actual.ino.toString());
+    assert.equal(validDirectoryIdentity(JSON.parse(JSON.stringify(proof))),true);
+    const parents=await imageParents(file);assert.ok(parents.length>0);
+    for(const parent of parents) {
+      const native=await lstat(parent.cursor,{bigint:true});
+      assert.equal(parent.dev,native.dev);assert.equal(parent.ino,native.ino);
+    }
+    await recheckImageParents(parents);
+    assert.deepEqual(await regularClosedBytes(file,root),await readFile(file));
+  } finally { await rm(root,{recursive:true,force:true}); }
+});
+test("BR008 exact large inode and nanosecond comparisons reject rounded numeric collisions",()=>{
+  const base={dev:18446744073709551614n,ino:9007199254740992n,size:5n,mtimeNs:9007199254740992n};
+  const next={...base,ino:base.ino+1n};
+  assert.equal(Number(base.ino),Number(next.ino));
+  assert.equal(sameNativeIdentity(base,{...base}),true);
+  assert.equal(sameNativeIdentity(base,next),false);
+  assert.equal(sameNativeIdentity(base,{...base,dev:base.dev-1n}),false);
+  assert.equal(sameNativeIdentity(base,{...base,size:base.size+1n}),false);
+  assert.equal(sameNativeIdentity(base,{...base,mtimeNs:base.mtimeNs+1n}),false);
+  assert.equal(sameDirectoryIdentity(directoryIdentity(base),directoryIdentity(next)),false);
+  for(const field of ["dev","ino","size","mtimeNs"]) {
+    assert.throws(()=>sameNativeIdentity(base,{...base,[field]:Number(base[field])}),/exact_file_identity_unavailable/u);
+    const missing={...base};delete missing[field];
+    assert.throws(()=>sameNativeIdentity(base,missing),/exact_file_identity_unavailable/u);
+  }
+  const proof=directoryIdentity(base);
+  for(const bad of [{dev:Number(base.dev),ino:Number(base.ino)}, {...proof,ino:Number(base.ino)}, {...proof,dev:"00"}, {...proof,ino:"09007199254740992"}, {...proof,ino:"0"}, {...proof,ino:"18446744073709551616"}, {...proof,dev:"-1"}, {...proof,extra:true}, {...proof,schema:"legacy"}])assert.equal(validDirectoryIdentity(bad),false);
+  assert.throws(()=>directoryIdentity({dev:Number(base.dev),ino:Number(base.ino)}),/directory_identity_unavailable/u);
+});
+test("BR008 actual held descriptor numeric or substituted identity cannot satisfy native image reads",async()=>{
+  const root=await realpath(await mkdtemp(path.join(os.tmpdir(),"exact-native-held-")));
+  try {
+    const file=path.join(root,"image");await writeFile(file,"same verified bytes");
+    for(const field of ["dev","ino","size","mtimeNs"])for(const kind of ["number","changed","missing"]){
+      let closed=false,stats=0;
+      await assert.rejects(heldImageBytes(file,{open:async(target,flags)=>{
+        const handle=await open(target,flags);
+        return {stat:async options=>{assert.deepEqual(options,{bigint:true});stats++;const real=await handle.stat(options),copy=Object.assign(Object.create(Object.getPrototypeOf(real)),real);if(kind==="number")copy[field]=Number(real[field]);else if(kind==="changed")copy[field]=real[field]+1n;else delete copy[field];return copy;},readFile:()=>handle.readFile(),close:async()=>{closed=true;await handle.close();}};
+      }}),/first_custody_(?:exact_file_identity_unavailable|native_held_image_identity)/u);
+      assert.equal(stats,1);assert.equal(closed,true);
+    }
+  }finally{await rm(root,{recursive:true,force:true});}
+});
+test("BR008 coherently resealed legacy or malformed private directory proofs cannot project public-v2",async()=>{
+  for(const kind of ["numeric-legacy","missing-schema","noncanonical","overflow","wrong-inode"]){
+    const f=await fixture();try{
+      await command(producer,[],f.workspace,f.env);
+      const receiptPath=f.env.QUALIFICATION_INITIAL_RECEIPT_PATH,receipt=JSON.parse(await readFile(receiptPath,"utf8")),identity=receipt.roots.privateRoot.identity;
+      assert.equal(validDirectoryIdentity(identity),true);
+      if(kind==="numeric-legacy")receipt.roots.privateRoot.identity={dev:Number(identity.dev),ino:Number(identity.ino)};
+      if(kind==="missing-schema")delete identity.schema;
+      if(kind==="noncanonical")identity.ino="0"+identity.ino;
+      if(kind==="overflow")identity.ino="18446744073709551616";
+      if(kind==="wrong-inode")identity.ino=(BigInt(identity.ino)+1n).toString();
+      await writeFile(receiptPath,JSON.stringify(receipt)+"\n");await reseal(f);
+      await assert.rejects(command(projector,["--input",receiptPath,"--journal",path.join(f.privateRoot,"first-custody-journal.json"),"--output",f.env.QUALIFICATION_INITIAL_PROJECTION_PATH],f.workspace,f.env),/first_custody_validator_root_(?:changed|proof_invalid)/u);
+      await absentPublic(f.env.QUALIFICATION_INITIAL_PROJECTION_PATH);
+    }finally{await rm(f.root,{recursive:true,force:true});}
+  }
 });
