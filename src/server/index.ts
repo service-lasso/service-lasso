@@ -1066,54 +1066,10 @@ function parseTransferRange(value: string): { start: number; end: number; total:
   const start = Number(match[1]), end = Number(match[2]), total = Number(match[3]);
   if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || !Number.isSafeInteger(total) || start > end || end >= total) throw new ApiError("invalid_request", 400, "Transfer request headers are invalid.");
   return { start, end, total };
+}
+
 function assertNoDuplicateJsonKeys(body: string): void {
-  let cursor = 0;
-  const skipWhitespace = () => {
-    while (/\s/u.test(body[cursor] ?? "")) cursor += 1;
-  };
-  const parseString = (): string => {
-    const start = cursor;
-    if (body[cursor] !== '"') throw new Error("expected string");
-    cursor += 1;
-    let escaped = false;
-    while (cursor < body.length) {
-      const character = body[cursor++];
-      if (escaped) {
-        escaped = false;
-        continue;
-      if (character === "\\") {
-        escaped = true;
-      if (character === '"') return JSON.parse(body.slice(start, cursor)) as string;
-      if (character.charCodeAt(0) < 0x20) throw new Error("invalid string");
-    throw new Error("unterminated string");
-  const parseValue = (): void => {
-    skipWhitespace();
-    if (body[cursor] === "{") {
-      cursor += 1;
-      skipWhitespace();
-      const keys = new Set<string>();
-      if (body[cursor] === "}") { cursor += 1; return; }
-      while (true) {
-        skipWhitespace();
-        const key = parseString();
-        if (keys.has(key)) throw new Error("duplicate key");
-        keys.add(key);
-        if (body[cursor++] !== ":") throw new Error("expected colon");
-        parseValue();
-        if (body[cursor] === "}") { cursor += 1; return; }
-        if (body[cursor++] !== ",") throw new Error("expected comma");
-    if (body[cursor] === "[") {
-      if (body[cursor] === "]") { cursor += 1; return; }
-        if (body[cursor] === "]") { cursor += 1; return; }
-    if (body[cursor] === '"') { parseString(); return; }
-    const primitive = /(?:true|false|null|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)/uy;
-    primitive.lastIndex = cursor;
-    const match = primitive.exec(body);
-    if (!match) throw new Error("invalid JSON value");
-    cursor += match[0].length;
-  parseValue();
-  skipWhitespace();
-  if (cursor !== body.length) throw new Error("trailing JSON input");
+  assertNoDuplicateJsonObjectMembers(body);
 }
 
 function getAuditActor(input: unknown): string {
