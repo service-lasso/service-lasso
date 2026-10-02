@@ -327,6 +327,29 @@ interface WindowsProcessTreeJson {
   Processes?: unknown;
 }
 
+interface ParsedWindowsCommandPartialCopyReceipt {
+  heldHandleState: "still_active_or_259" | "exit_query_failed";
+  architectureRelation: "same" | "cross" | "unknown";
+}
+
+function parseWindowsCommandPartialCopyReceipt(value: unknown): ParsedWindowsCommandPartialCopyReceipt | null {
+  if (typeof value !== "string") return null;
+  // Console.WriteLine appends one platform newline to the native helper's
+  // canonical receipt. Remove that one boundary only; the exact matcher below
+  // still rejects embedded whitespace, extra lines, and expanded objects.
+  const receiptLine = value.endsWith("\r\n")
+    ? value.slice(0, -2)
+    : value.endsWith("\n")
+      ? value.slice(0, -1)
+      : value;
+  // The native helper emits this canonical two-key object. Matching the whole
+  // string rejects duplicate JSON keys before JSON.parse could collapse them.
+  const receipt = /^\{"CommandQueryHeldHandleState":"(still_active_or_259|exit_query_failed)","CommandQueryArchitectureRelation":"(same|cross|unknown)"\}$/u.exec(receiptLine);
+  return receipt
+    ? { heldHandleState: receipt[1] as ParsedWindowsCommandPartialCopyReceipt["heldHandleState"], architectureRelation: receipt[2] as ParsedWindowsCommandPartialCopyReceipt["architectureRelation"] }
+    : null;
+}
+
 export interface WindowsProcessTreeInspection {
   rootStatus: "owned" | "exited";
   members: ProcessFingerprint[];
@@ -453,14 +476,8 @@ async function inspectWindowsProcessOnce(
       runCommand,
       options,
     );
-    if (result.exitCode === 0) {
-      return parseWindowsProcessJson(result.stdout, pid);
-    }
-    // The helper has already spent its two command queries on one held handle.
-    // Re-launching it would reopen by PID and turn that bounded failure into a
-    // fresh handle/retry sequence.
-    return result.exitCode === 38
-      ? { status: "unknown", reason: "windows_process_command_partial_copy_exhausted" }
+    return result.exitCode === 0
+      ? parseWindowsProcessJson(result.stdout, pid)
       : { status: "unknown", reason: "windows_process_helper_failed" };
   } catch (error) {
     if (isProcessControlDeadlineError(error)) {
@@ -530,9 +547,6 @@ async function inspectWindowsProcess(
     if (last.status !== "unknown") {
       return last;
     }
-    if (last.reason === "windows_process_command_partial_copy_exhausted") {
-      return last;
-    }
     if (attempt < 3) {
       if (options.signal?.aborted) {
         return last;
@@ -592,9 +606,14 @@ async function inspectWindowsProcessTreeOnce(
   );
   if (result.exitCode !== 0 || !result.stdout.trim()) {
     const error = new Error("Native Windows process-tree inspection failed.");
+    const nativeFailure = windowsNativeInspectionFailure(result.exitCode);
     Object.defineProperty(error, "windowsNativeInspectionFailure", {
-      value: windowsNativeInspectionFailure(result.exitCode),
+      value: nativeFailure,
     });
+    if (nativeFailure === "root_command_partial_copy" || nativeFailure === "descendant_command_partial_copy") {
+      const receipt = parseWindowsCommandPartialCopyReceipt(result.stdout);
+      if (receipt) Object.defineProperty(error, "windowsCommandPartialCopyReceipt", { value: receipt });
+    }
     throw error;
   }
 
@@ -795,17 +814,6 @@ async function inspectWindowsProcessTreeOnce(
 
 function isRetryableWindowsTreeSnapshotError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
-  const nativeFailure = (error as Error & {
-    windowsNativeInspectionFailure?: unknown;
-  }).windowsNativeInspectionFailure;
-  // A root (38) or descendant (138) partial-copy exit means the helper has
-  // exhausted its same-held-handle command-query budget. Do not respawn it.
-  if (
-    nativeFailure === "root_command_partial_copy" ||
-    nativeFailure === "descendant_command_partial_copy"
-  ) {
-    return false;
-  }
   return new Set([
     "Native Windows process-tree inspection failed.",
     "Native Windows process-tree evidence was malformed.",
@@ -908,6 +916,7 @@ export async function inspectWindowsProcessTree(
   };
   let lastError: unknown;
   let lastAncestry: WindowsTreeAncestryEvidence | null = null;
+  let lastCommandPartialCopyReceipt: ParsedWindowsCommandPartialCopyReceipt | null = null;
   let lastNativeProgress: WindowsNativeSnapshotProgress | null = null;
   for (let attempt = 1; ; attempt += 1) {
     if (remainingProcessControlMs(deadlineMs) > 0) inspectionPhase = "queue_wait";
@@ -971,6 +980,12 @@ export async function inspectWindowsProcessTree(
         if (ancestry !== undefined) lastAncestry = ancestry;
         const retry = (error as { windowsNativeInspectionFailure?: unknown }).windowsNativeInspectionFailure;
         if (typeof retry === "string") lastRetry = retry;
+        const receipt = (error as { windowsCommandPartialCopyReceipt?: unknown }).windowsCommandPartialCopyReceipt;
+        if (retry === "root_command_partial_copy" || retry === "descendant_command_partial_copy") {
+          lastCommandPartialCopyReceipt = receipt && typeof receipt === "object"
+            ? receipt as unknown as ParsedWindowsCommandPartialCopyReceipt
+            : null;
+        }
       }
       if (error && typeof error === "object") {
         try {
@@ -986,6 +1001,8 @@ export async function inspectWindowsProcessTree(
               windowsTreeInspectionChildBirthRelation: lastAncestry?.childBirthRelation ?? null,
               windowsTreeInspectionRootFingerprintMatch: lastAncestry?.rootFingerprintMatch ?? null,
               windowsTreeInspectionAncestryDepthBucket: lastAncestry?.depthBucket ?? null,
+              windowsTreeInspectionCommandQueryHeldHandleState: lastCommandPartialCopyReceipt?.heldHandleState ?? null,
+              windowsTreeInspectionCommandQueryArchitectureRelation: lastCommandPartialCopyReceipt?.architectureRelation ?? null,
               ...windowsNativeSnapshotProgressMetadata(lastNativeProgress),
             })),
             configurable: true,

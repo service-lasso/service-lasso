@@ -1,6 +1,6 @@
 import type { DiscoveredService } from "../../contracts/service.js";
 import { adoptManagedProcess, hasManagedProcess } from "../execution/supervisor.js";
-import { getLifecycleState, setLifecycleState, withLifecycleWorkspace } from "../lifecycle/store.js";
+import { getLifecycleState, setLifecycleState } from "../lifecycle/store.js";
 import type {
   LifecycleAction,
   ServiceLifecycleState,
@@ -868,7 +868,7 @@ async function adoptVerifiedRegistryOwner(
     : state.runtime.ports;
   const startedAt = state.runtime.startedAt ?? ownership.identity.createdAt;
   const command = safeAdoptedCommand(state, ownership);
-  if (!hasManagedProcess(serviceId, workspaceRoot)) {
+  if (!hasManagedProcess(serviceId)) {
     await adoptManagedProcess({
       service,
       pid: ownership.pid,
@@ -917,7 +917,7 @@ export async function reconcilePersistedServiceOwner(
     return { status: "not_running", state };
   }
   const serviceId = service.manifest.id;
-  if (hasManagedProcess(serviceId, workspaceRoot) && getLifecycleState(serviceId).running) {
+  if (hasManagedProcess(serviceId) && getLifecycleState(serviceId).running) {
     return { status: "owned", state: getLifecycleState(serviceId) };
   }
 
@@ -1012,7 +1012,6 @@ export async function rehydrateLifecycleState(
   service: DiscoveredService,
   options: RehydrateProcessOwnershipOptions = {},
 ): Promise<ServiceLifecycleState | null> {
-  return await withLifecycleWorkspace(options.workspaceRoot, async () => {
   const snapshot = await readStoredState(service.serviceRoot);
   const state = parseLifecycleState(service, snapshot);
   let rehydratedState = state;
@@ -1021,7 +1020,7 @@ export async function rehydrateLifecycleState(
     const serviceId = service.manifest.id;
     const current = getLifecycleState(serviceId);
     const nextState =
-      hasManagedProcess(serviceId, options.workspaceRoot) && current.running
+      hasManagedProcess(serviceId) && current.running
         ? {
             ...state,
             running: true,
@@ -1037,7 +1036,7 @@ export async function rehydrateLifecycleState(
       Boolean(options.workspaceRoot) &&
       (!options.adoptServiceIds || options.adoptServiceIds.has(serviceId)) &&
       !options.excludeAdoptServiceIds?.has(serviceId) &&
-      !hasManagedProcess(serviceId, options.workspaceRoot);
+      !hasManagedProcess(serviceId);
     const registryOwner = mayAdopt && options.workspaceRoot
       ? await findProcessOwnership(options.workspaceRoot, "service", serviceId)
       : null;
@@ -1129,16 +1128,13 @@ export async function rehydrateLifecycleState(
   }
 
   return rehydratedState;
-  });
 }
 
 export async function rehydrateDiscoveredServices(
   services: DiscoveredService[],
   options: RehydrateProcessOwnershipOptions = {},
 ): Promise<void> {
-  await withLifecycleWorkspace(options.workspaceRoot, async () => {
-    for (const service of services) {
-      await rehydrateLifecycleState(service, options);
-    }
-  });
+  for (const service of services) {
+    await rehydrateLifecycleState(service, options);
+  }
 }

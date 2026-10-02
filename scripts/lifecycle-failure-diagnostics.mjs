@@ -31,8 +31,6 @@ const allowed = (values, value) => values.has(value) ? value : null;
 const launcherPayloadFailureBoundaries = new Set([
   "launch_evidence", "canonical_encoding", "strict_utf8", "json_or_schema", "semantic_payload", "unknown",
 ]);
-const windowsManagedEnrollmentRootStatuses = new Set(["owned", "exited"]);
-const windowsManagedEnrollmentWrapperStatuses = new Set(["owned", "exited", "unverifiable"]);
 
 // Deliberately closed: never serialize errors, messages, handles, or raw state.
 export function lifecycleFailureDiagnostic(input = {}) {
@@ -48,7 +46,6 @@ export function lifecycleFailureDiagnostic(input = {}) {
     const current = action === "restart" ? restart : (restart ?? state?.runtime?.startTrace?.current);
     const failurePhases = [];
     let launcherPayloadFailureBoundary = null;
-    let windowsManagedEnrollment = null;
     const windowsTreeInspections = [];
     let deadlineExceeded = false;
     const pending = [{ error, depth: 0 }];
@@ -67,16 +64,6 @@ export function lifecycleFailureDiagnostic(input = {}) {
         ) ?? "unknown";
       }
       deadlineExceeded ||= currentError.code === "PROCESS_CONTROL_DEADLINE_EXCEEDED";
-      if (
-        windowsManagedEnrollment === null &&
-        windowsManagedEnrollmentRootStatuses.has(currentError.windowsManagedEnrollmentRootStatus) &&
-        windowsManagedEnrollmentWrapperStatuses.has(currentError.windowsManagedEnrollmentWrapperStatus)
-      ) {
-        windowsManagedEnrollment = {
-          rootStatus: currentError.windowsManagedEnrollmentRootStatus,
-          wrapperStatus: currentError.windowsManagedEnrollmentWrapperStatus,
-        };
-      }
       const inspection = projectWindowsTreeInspectionMetadata(currentError.windowsTreeInspection);
       if (inspection.windowsTreeInspectionPhase) windowsTreeInspections.push(inspection);
       if (entry.depth < 3) {
@@ -120,7 +107,6 @@ export function lifecycleFailureDiagnostic(input = {}) {
       ...(launcherPayloadFailureBoundary || tracedPayloadBoundary
         ? { launcherPayloadFailureBoundary: launcherPayloadFailureBoundary ?? tracedPayloadBoundary }
         : {}),
-      ...(windowsManagedEnrollment ? { windowsManagedEnrollment } : {}),
       deadlineExceeded,
       ...(apiFailure ? { apiErrorCode: apiFailure } : {}),
       ...(windowsTreeInspections.length ? { windowsTreeInspections } : {}),

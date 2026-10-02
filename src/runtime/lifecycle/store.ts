@@ -6,7 +6,9 @@ const lifecycleState = new Map<string, ServiceLifecycleState>();
 const lifecycleWorkspaceContext = new AsyncLocalStorage<string | null>();
 
 function lifecycleWorkspaceKey(workspaceRoot?: string | null): string {
-  const root = workspaceRoot === undefined ? lifecycleWorkspaceContext.getStore() : workspaceRoot;
+  const root = workspaceRoot === undefined
+    ? lifecycleWorkspaceContext.getStore()
+    : workspaceRoot;
   if (!root) return "<unscoped>";
   const resolved = path.resolve(root);
   return process.platform === "win32" ? resolved.toLowerCase() : resolved;
@@ -16,9 +18,20 @@ function lifecycleServiceKey(serviceId: string, workspaceRoot?: string | null): 
   return `${lifecycleWorkspaceKey(workspaceRoot)}\u0000${serviceId}`;
 }
 
-/** Establishes asynchronous workspace authority for a lifecycle operation. */
-export function withLifecycleWorkspace<T>(workspaceRoot: string | null | undefined, operation: () => T): T {
-  return lifecycleWorkspaceContext.run(workspaceRoot ? lifecycleWorkspaceKey(workspaceRoot) : null, operation);
+/** Binds lifecycle reads and writes to the trusted runtime workspace. */
+export function withLifecycleWorkspace<T>(
+  workspaceRoot: string | null | undefined,
+  operation: () => T,
+): T {
+  return lifecycleWorkspaceContext.run(
+    workspaceRoot ? lifecycleWorkspaceKey(workspaceRoot) : null,
+    operation,
+  );
+}
+
+/** Returns the normalized workspace authority carried by the current operation. */
+export function getLifecycleWorkspaceRoot(): string | null {
+  return lifecycleWorkspaceContext.getStore() ?? null;
 }
 
 function cloneSetupOutputGuards(snapshot: SetupOutputGuardSnapshot): SetupOutputGuardSnapshot {

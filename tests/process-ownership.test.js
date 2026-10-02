@@ -14,7 +14,6 @@ import {
   inspectProcess,
   inspectWindowsProcessTree,
 } from "../dist/runtime/process/identity.js";
-import { windowsTreeInspectionFailureMetadata } from "../dist/runtime/process/windows-tree-inspection-diagnostics.js";
 import {
   findProcessOwnership,
   getProcessRegistryPath,
@@ -48,6 +47,7 @@ import {
   startManagedProcess as startRuntimeManagedProcess,
   stopAllManagedProcesses,
   stopManagedProcess,
+  setManagedWindowsTreeInspectorForTests,
   waitForManagedProcessFinalization,
   writeManagedProcessStdin,
 } from "../dist/runtime/execution/supervisor.js";
@@ -122,23 +122,6 @@ async function waitFor(check, timeoutMs = 3_000) {
   throw new Error(`Condition not met within ${timeoutMs}ms`);
 }
 
-async function runNativeCommandQuerySeam(mode) {
-  const inspectorPath = path.resolve("src", "runtime", "process", "windows-process-inspector.exe");
-  return await new Promise((resolve, reject) => {
-    const child = spawn(inspectorPath, [String(process.pid)], {
-      windowsHide: true,
-      stdio: "ignore",
-      env: {
-        ...process.env,
-        SERVICE_LASSO_ENABLE_TEST_HOOKS: "1",
-        SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY: mode,
-      },
-    });
-    child.once("error", reject);
-    child.once("close", (code, signal) => resolve({ code, signal }));
-  });
-}
-
 async function postJson(url, body) {
   const response = await fetch(url, {
     method: "POST",
@@ -164,6 +147,23 @@ async function postJson(url, body) {
     }
   }
   return result;
+}
+
+function assertNoLiveRetainedOwnership(record, serviceId) {
+  if (!record) return;
+  assert.equal(record.ownerType, "service");
+  assert.equal(record.ownerId, serviceId);
+  assert.equal(record.serviceId, serviceId);
+  assert.equal(typeof record.generationId, "string");
+  assert.equal(typeof record.workspaceId, "string");
+  assert.equal(typeof record.runtimeInstanceId, "string");
+  assert.equal(record.source, "spawn");
+  assert.equal(record.lifecycleState, "stopped");
+  assert.equal(record.identityStatus, "not_running");
+  assert.equal(record.pid, null);
+  assert.equal(record.identity, null);
+  assert.ok(record.allocation);
+  assert.equal(typeof record.allocation.revision, "string");
 }
 
 async function assertNativePayloadLifecycleProjection(protocolCase, expectedBoundary) {
@@ -239,22 +239,24 @@ async function assertNativePayloadLifecycleProjection(protocolCase, expectedBoun
     apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
     const start = await postJson(`${apiServer.url}/api/services/echo-service/start`);
     assert.equal(start.response.status, 409);
-    // The native launcher can close before its final authenticated stderr
-    // receipt is consumed. Read the persisted public diagnostic only after the
-    // existing bounded finalizer has observed that receipt.
-    await waitForManagedProcessFinalization("echo-service", Date.now() + 10_000, workspaceRoot);
     const diagnostic = await collectStartupFailure(apiServer.url, "echo-service");
     assert.equal(diagnostic.observations[0].attemptStatus, "failed");
     assert.equal(diagnostic.observations[0].launcherPayloadFailureBoundary, expectedBoundary);
     assert.ok(diagnostic.observations[0].events.some((event) => event.failurePhase === "launcher_payload_validation"));
     assert.equal(JSON.stringify(diagnostic).includes("SERVICE_LASSO_MANAGED_LAUNCH_PAYLOAD"), false);
     assert.equal(JSON.stringify(diagnostic).includes(tempRoot), false);
-    assert.equal(await findProcessOwnership(workspaceRoot, "service", "echo-service"), null);
-    assert.equal(hasManagedProcess("echo-service", workspaceRoot), false, `${protocolCase} retained a managed process after native rejection.`);
+    await waitForManagedProcessFinalization("echo-service", Date.now() + 10_000);
+    const retained = await findProcessOwnership(workspaceRoot, "service", "echo-service");
+    // These fixtures perturb the public diagnostic stream after the native
+    // launcher has begun its failure path, so that stream cannot prove whether
+    // durable enrollment won the race.  It must never leave live authority;
+    // if enrollment did win, preserve its recovery metadata as a stopped owner.
+    assertNoLiveRetainedOwnership(retained, "echo-service");
+    assert.equal(hasManagedProcess("echo-service"), false, `${protocolCase} retained a managed process after native rejection.`);
   } finally {
     setManagedProcessSpawnerForTests(null);
     await apiServer?.stop();
-    await stopManagedProcess("echo-service", 10_000, { workspaceRoot }).catch(() => null);
+    await stopManagedProcess("echo-service", 10_000).catch(() => null);
     if (priorInstanceRegistryPath === undefined) delete process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH;
     else process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH = priorInstanceRegistryPath;
     if (priorPortRegistryPath === undefined) delete process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH;
@@ -535,94 +537,6 @@ test("Windows inspection adapter captures creation, executable, and hashed comma
     },
   });
   assert.equal(receivedExplicitDeadlineMs, explicitDeadlineMs);
-});
-
-test("Windows native command query retries only partial copy on the held handle", {
-  skip: process.platform !== "win32",
-}, async () => {
-  const partialThenValid = await runNativeCommandQuerySeam("partial_then_success");
-  assert.deepEqual(partialThenValid, { code: 0, signal: null });
-
-  const persistentPartial = await runNativeCommandQuerySeam("partial_only");
-  assert.deepEqual(persistentPartial, { code: 38, signal: null });
-
-  const unrelatedStatus = await runNativeCommandQuerySeam("unsupported_then_success");
-  assert.deepEqual(unrelatedStatus, { code: 34, signal: null });
-
-  const inspectorSource = await readFile(
-    path.resolve("src", "runtime", "process", "windows-process-inspector.cs"),
-    "utf8",
-  );
-  const readCommandLine = inspectorSource.slice(
-    inspectorSource.indexOf("private static string ReadCommandLine"),
-    inspectorSource.indexOf("private static int ReadParentProcessId"),
-  );
-  assert.match(inspectorSource, /private const int CommandLineQueryAttempts = 2;/u);
-  assert.match(inspectorSource, /testCommandQueryPartialCopiesRemaining = CommandLineQueryAttempts;/u);
-  assert.match(readCommandLine, /for \(int attempt = 0; attempt < CommandLineQueryAttempts/u);
-  assert.match(readCommandLine, /status == StatusPartialCopy && attempt \+ 1 < CommandLineQueryAttempts/u);
-  assert.doesNotMatch(readCommandLine, /OpenProcess\(/u);
-});
-
-test("Windows direct inspection does not respawn after an exhausted partial-copy helper", async () => {
-  let nativeInvocations = 0;
-  const inspection = await inspectProcess(4242, {
-    platform: "win32",
-    windowsSystemRoot: WINDOWS_TEST_SYSTEM_ROOT,
-    runCommand: async () => {
-      nativeInvocations += 1;
-      return { exitCode: 38, stdout: "" };
-    },
-  });
-  assert.deepEqual(inspection, {
-    status: "unknown",
-    reason: "windows_process_command_partial_copy_exhausted",
-  });
-  assert.equal(nativeInvocations, 1);
-});
-
-test("Windows direct inspection retains its existing retry policy for unrelated helper failures", async () => {
-  let nativeInvocations = 0;
-  const inspection = await inspectProcess(4242, {
-    platform: "win32",
-    windowsSystemRoot: WINDOWS_TEST_SYSTEM_ROOT,
-    runCommand: async () => {
-      nativeInvocations += 1;
-      return { exitCode: 34, stdout: "" };
-    },
-  });
-  assert.deepEqual(inspection, {
-    status: "unknown",
-    reason: "windows_process_helper_failed",
-  });
-  assert.equal(nativeInvocations, 3);
-});
-
-test("Windows tree inspection does not respawn after a closed partial-copy helper", async () => {
-  const root = {
-    pid: 4342,
-    createdAt: "2026-07-18T01:02:03.456Z",
-    executablePath: "C:\\private\\node.exe",
-    commandHash: hashProcessCommandLine("private command"),
-  };
-  for (const [exitCode, failure] of [[38, "root_command_partial_copy"], [138, "descendant_command_partial_copy"]]) {
-    let nativeInvocations = 0;
-    await assert.rejects(inspectWindowsProcessTree(root, {
-      windowsSystemRoot: WINDOWS_TEST_SYSTEM_ROOT,
-      runCommand: async () => {
-        nativeInvocations += 1;
-        return { exitCode, stdout: "" };
-      },
-    }), error => {
-      assert.equal(error.windowsNativeInspectionFailure, failure);
-      const metadata = windowsTreeInspectionFailureMetadata(error);
-      assert.equal(metadata.windowsTreeInspectionAttempts, 1);
-      assert.equal(metadata.windowsTreeInspectionRetries, 0);
-      assert.equal(metadata.windowsTreeInspectionLastRetry, failure);
-      return true;
-    });
-    assert.equal(nativeInvocations, 1);
-  }
 });
 
 test("Windows inspection treats only an explicit absent-process result as not running", async () => {
@@ -1648,7 +1562,7 @@ test("rehydration returns adopted running state with retained ports", async () =
     assert.equal(rehydrated.runtime.pid, child.pid);
     assert.deepEqual(rehydrated.runtime.ports, { service: 18092 });
     assert.equal(rehydrated.runtime.endpoints.some((endpoint) => endpoint.port === 18092), true);
-    assert.equal(hasManagedProcess("rehydrate-adopted-service", workspaceRoot), true);
+    assert.equal(hasManagedProcess("rehydrate-adopted-service"), true);
 
     const stored = await readStoredState(serviceRoot);
     assert.equal(stored.runtime.running, true);
@@ -1660,7 +1574,7 @@ test("rehydration returns adopted running state with retained ports", async () =
     assert.equal(ownership.pid, child.pid);
     assert.deepEqual(ownership.allocation.ports, { service: 18092 });
   } finally {
-    await stopManagedProcess("rehydrate-adopted-service", 500, { workspaceRoot }).catch(() => null);
+    await stopManagedProcess("rehydrate-adopted-service", 500).catch(() => null);
     child.kill("SIGKILL");
     resetLifecycleState();
     await removeTempRoot(tempRoot);
@@ -1765,7 +1679,7 @@ test("API restart replaces an adopted persisted process and keeps retained ports
     );
 
     apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
-    assert.equal(hasManagedProcess("adopted-restart-service", workspaceRoot), true);
+    assert.equal(hasManagedProcess("adopted-restart-service"), true);
 
     const restart = await postJson(`${apiServer.url}/api/services/adopted-restart-service/restart`, { confirm: true });
 
@@ -1789,7 +1703,7 @@ test("API restart replaces an adopted persisted process and keeps retained ports
     assert.deepEqual(ownership.allocation.ports, { service: 18093 });
   } finally {
     await apiServer?.stop();
-    await stopManagedProcess("adopted-restart-service", 500, { workspaceRoot }).catch(() => null);
+    await stopManagedProcess("adopted-restart-service", 500).catch(() => null);
     child.kill("SIGKILL");
     resetLifecycleState();
     await removeTempRoot(tempRoot);
@@ -1839,21 +1753,21 @@ test("legacy adopted ownership verifies and stops descendants without a persiste
     });
 
     assert.equal(handle.pid, root.pid);
-    assert.equal(hasManagedProcess("adopted-stop-service", workspaceRoot), true);
+    assert.equal(hasManagedProcess("adopted-stop-service"), true);
     const runningOwnership = await findProcessOwnership(workspaceRoot, "service", "adopted-stop-service");
     assert.deepEqual(runningOwnership.processGroup, { kind: "none", id: null });
 
     const stopStartedAt = Date.now();
-    const stopped = await stopManagedProcess("adopted-stop-service", PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS, { workspaceRoot });
+    const stopped = await stopManagedProcess("adopted-stop-service", PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS);
     assert.ok(stopped);
     assert.equal(Date.now() - stopStartedAt < PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS + 1_000, true);
     await waitForProcessesStopped([root.pid, childPid, grandchildPid]);
-    assert.equal(hasManagedProcess("adopted-stop-service", workspaceRoot), false);
+    assert.equal(hasManagedProcess("adopted-stop-service"), false);
     const ownership = await findProcessOwnership(workspaceRoot, "service", "adopted-stop-service");
     assert.equal(ownership.lifecycleState, "stopped");
     assert.equal(ownership.pid, null);
   } finally {
-    await stopManagedProcess("adopted-stop-service", PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS, { workspaceRoot }).catch(() => null);
+    await stopManagedProcess("adopted-stop-service", PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS).catch(() => null);
     forceCleanupProcesses([root.pid, childPid, grandchildPid]);
     resetLifecycleState();
     await removeTempRoot(tempRoot);
@@ -1888,7 +1802,7 @@ test("managed stop owns and terminates the complete child and grandchild process
       assert.deepEqual(runningOwnership.processGroup, { kind: "posix", id: String(handle.pid) });
     }
 
-    const stopped = await stopManagedProcess("process-tree-service", PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS, { workspaceRoot });
+    const stopped = await stopManagedProcess("process-tree-service", PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS);
 
     assert.ok(stopped);
     await waitForProcessesStopped([handle.pid, childPid, grandchildPid]);
@@ -1896,7 +1810,7 @@ test("managed stop owns and terminates the complete child and grandchild process
     assert.equal(stoppedOwnership.lifecycleState, "stopped");
     assert.equal(stoppedOwnership.pid, null);
   } finally {
-    await stopManagedProcess("process-tree-service", PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS, { workspaceRoot }).catch(() => null);
+    await stopManagedProcess("process-tree-service", PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS).catch(() => null);
     forceCleanupProcesses([handle?.pid, childPid, grandchildPid]);
     resetLifecycleState();
     await removeTempRoot(tempRoot);
@@ -2035,8 +1949,11 @@ test("Windows managed launcher rejects missing, oversized, corrupt, and redirect
   const redirectedRoot = path.join(fixtureRoot, "redirected");
   const redirectedPath = path.join(redirectedRoot, "launcher.exe");
 
+  let trustedHandle;
   try {
-    await writeExecutableFixtureService(servicesRoot, "launcher-integrity-service");
+    const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "launcher-integrity-service", {
+      readyFileAfterMs: 0,
+    });
     await Promise.all([
       mkdir(path.dirname(oversizedPath), { recursive: true }),
       mkdir(path.dirname(corruptPath), { recursive: true }),
@@ -2049,6 +1966,34 @@ test("Windows managed launcher rejects missing, oversized, corrupt, and redirect
     await writeFile(path.join(trustedRoot, "launcher.exe"), nativeBytes);
     await symlink(trustedRoot, redirectedRoot, "junction");
     const [service] = await discoverServices(servicesRoot);
+
+    // This exercises the checked-in launcher through the ordinary supervisor
+    // path. The later altered copies prove that this success is bound to the
+    // reviewed binary identity, rather than merely executing a bootstrap.
+    trustedHandle = await startManagedProcess({
+      service,
+      executionPlan: createDirectExecutionPlan(service.manifest),
+      workspaceRoot,
+    });
+    await waitFor(async () => {
+      try {
+        return (await readFile(path.join(serviceRoot, "runtime", "ready.txt"), "utf8")) === "ready";
+      } catch (error) {
+        if (error?.code === "ENOENT") return false;
+        throw error;
+      }
+    }, 5_000);
+    assert.equal(trustedHandle.pid > 0, true);
+    const runningOwnership = await findProcessOwnership(workspaceRoot, "service", service.manifest.id);
+    assert.equal(runningOwnership?.pid, trustedHandle.pid);
+    assert.equal(Number.isFinite(Date.parse(runningOwnership?.identity?.createdAt ?? "")), true);
+    const close = await stopManagedProcess(service.manifest.id, PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS);
+    assert.equal(Number.isInteger(close?.exitCode), true);
+    assert.equal(close?.signal, null);
+    await waitForProcessesStopped([trustedHandle.pid], PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS);
+    const stoppedOwnership = await findProcessOwnership(workspaceRoot, "service", service.manifest.id);
+    assert.equal(stoppedOwnership?.lifecycleState, "stopped");
+    assert.equal(stoppedOwnership?.pid, null);
 
     for (const launcherPath of [missingPath, oversizedPath, corruptPath, redirectedPath]) {
       setWindowsManagedLauncherPathForTests(launcherPath);
@@ -2063,10 +2008,16 @@ test("Windows managed launcher rejects missing, oversized, corrupt, and redirect
           return true;
         },
       );
-      assert.equal(await findProcessOwnership(workspaceRoot, "service", service.manifest.id), null);
-      assert.equal(hasManagedProcess(service.manifest.id, workspaceRoot), false);
+      const retainedOwnership = await findProcessOwnership(workspaceRoot, "service", service.manifest.id);
+      assert.equal(retainedOwnership?.lifecycleState, stoppedOwnership?.lifecycleState);
+      assert.equal(retainedOwnership?.pid, stoppedOwnership?.pid);
+      assert.deepEqual(retainedOwnership?.processGroup, stoppedOwnership?.processGroup);
+      assert.equal(retainedOwnership?.identityStatus, stoppedOwnership?.identityStatus);
+      assert.equal(hasManagedProcess(service.manifest.id), false);
     }
   } finally {
+    await stopManagedProcess("launcher-integrity-service", PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS).catch(() => null);
+    forceCleanupProcesses([trustedHandle?.pid]);
     setWindowsManagedLauncherPathForTests(null);
     if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
     else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
@@ -2108,7 +2059,7 @@ test("Windows managed launcher revalidates its native asset after launch-state c
       },
     );
     assert.equal(await findProcessOwnership(workspaceRoot, "service", service.manifest.id), null);
-    assert.equal(hasManagedProcess(service.manifest.id, workspaceRoot), false);
+    assert.equal(hasManagedProcess(service.manifest.id), false);
   } finally {
     setManagedProcessLaunchStateCreatedHookForTests(null);
     setWindowsManagedLauncherPathForTests(null);
@@ -2249,7 +2200,7 @@ test("AC-4BJ.9b Windows managed launcher projects only authenticated closed payl
   }
 });
 
-test("AC-4BJ.9b projects a real native payload rejection through enrollment, lifecycle state, and the public-safe diagnostic", {
+test("AC-4BJ.9b projects a real native payload rejection through guarded lifecycle handling and the public-safe diagnostic", {
   skip: process.platform !== "win32",
 }, async () => {
   resetLifecycleState();
@@ -2277,22 +2228,19 @@ test("AC-4BJ.9b projects a real native payload rejection through enrollment, lif
     apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
     const start = await postJson(`${apiServer.url}/api/services/echo-service/start`);
     assert.equal(start.response.status, 409);
-    // The native launcher can close before its final authenticated stderr
-    // receipt is consumed. Read the persisted public diagnostic only after the
-    // existing bounded finalizer has observed that receipt.
-    await waitForManagedProcessFinalization("echo-service", Date.now() + 10_000, workspaceRoot);
     const diagnostic = await collectStartupFailure(apiServer.url, "echo-service");
     assert.equal(diagnostic.observations[0].attemptStatus, "failed");
     assert.equal(diagnostic.observations[0].launcherPayloadFailureBoundary, "canonical_encoding");
     assert.ok(diagnostic.observations[0].events.some((event) => event.failurePhase === "launcher_payload_validation"));
     assert.equal(JSON.stringify(diagnostic).includes("SERVICE_LASSO_MANAGED_LAUNCH_PAYLOAD"), false);
     assert.equal(JSON.stringify(diagnostic).includes(tempRoot), false);
-    assert.equal(await findProcessOwnership(workspaceRoot, "service", "echo-service"), null);
-    assert.equal(hasManagedProcess("echo-service", workspaceRoot), false);
+    const retained = await findProcessOwnership(workspaceRoot, "service", "echo-service");
+    assertNoLiveRetainedOwnership(retained, "echo-service");
+    assert.equal(hasManagedProcess("echo-service"), false);
   } finally {
     setManagedProcessSpawnerForTests(null);
     await apiServer?.stop();
-    await stopManagedProcess("echo-service", 10_000, { workspaceRoot }).catch(() => null);
+    await stopManagedProcess("echo-service", 10_000).catch(() => null);
     if (priorInstanceRegistryPath === undefined) delete process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH;
     else process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH = priorInstanceRegistryPath;
     if (priorPortRegistryPath === undefined) delete process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH;
@@ -2338,7 +2286,7 @@ test("synchronous wrapper spawn failures retain their typed phase and clean pre-
       },
     );
     assert.equal(await findProcessOwnership(workspaceRoot, "service", "sync-spawn-failure-service"), null);
-    assert.equal(hasManagedProcess("sync-spawn-failure-service", workspaceRoot), false);
+    assert.equal(hasManagedProcess("sync-spawn-failure-service"), false);
   } finally {
     setManagedProcessSpawnerForTests(null);
     if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
@@ -2386,7 +2334,7 @@ test("wrapper spawn waits are bounded and contain an unresponsive pre-enrollment
     );
     assert.equal(fakeChild.signalCode, "SIGKILL");
     assert.equal(await findProcessOwnership(workspaceRoot, "service", "spawn-deadline-service"), null);
-    assert.equal(hasManagedProcess("spawn-deadline-service", workspaceRoot), false);
+    assert.equal(hasManagedProcess("spawn-deadline-service"), false);
   } finally {
     setManagedProcessSpawnerForTests(null);
     setManagedProcessSpawnTimeoutForTests(null);
@@ -2417,12 +2365,12 @@ setInterval(() => {}, 1_000);
 
     await new Promise((resolve) => setTimeout(resolve, 100));
     assert.equal(process.kill(handle.pid, 0), true);
-    assert.equal(hasManagedProcess("stream-close-service", workspaceRoot), true);
+    assert.equal(hasManagedProcess("stream-close-service"), true);
 
-    await stopManagedProcess("stream-close-service", undefined, { workspaceRoot });
-    assert.equal(hasManagedProcess("stream-close-service", workspaceRoot), false);
+    await stopManagedProcess("stream-close-service");
+    assert.equal(hasManagedProcess("stream-close-service"), false);
   } finally {
-    await stopAllManagedProcesses(workspaceRoot);
+    await stopAllManagedProcesses();
     resetLifecycleState();
     await removeTempRoot(tempRoot);
   }
@@ -2478,7 +2426,7 @@ setInterval(() => {}, 1000);
     assert.doesNotMatch(stderr, /launcher-stdout/u);
     assert.doesNotMatch(stderr, /__SERVICE_LASSO_LAUNCHER_PROGRESS__/u);
   } finally {
-    await stopManagedProcess("launch-stdio-service", 10_000, { workspaceRoot }).catch(() => null);
+    await stopManagedProcess("launch-stdio-service", 10_000).catch(() => null);
     forceCleanupProcesses([handle?.pid]);
     resetLifecycleState();
     await removeTempRoot(tempRoot);
@@ -2543,7 +2491,7 @@ setInterval(() => {}, 1000);
     assert.equal(tree.rootStatus, "owned");
     assert.equal(tree.members.some((member) => member.pid === marker.pid), true);
   } finally {
-    await stopManagedProcess("launch-artifact-esm-service", 10_000, { workspaceRoot }).catch(() => null);
+    await stopManagedProcess("launch-artifact-esm-service", 10_000).catch(() => null);
     forceCleanupProcesses([handle?.pid]);
     resetLifecycleState();
     await removeTempRoot(tempRoot);
@@ -2588,7 +2536,7 @@ setInterval(() => {}, 1000);
     assert.equal(Number.isInteger(marker.pid) && marker.pid > 0, true);
     assert.notEqual(marker.pid, handle.pid);
   } finally {
-    await stopManagedProcess("launch-bare-artifact-esm-service", 10_000, { workspaceRoot }).catch(() => null);
+    await stopManagedProcess("launch-bare-artifact-esm-service", 10_000).catch(() => null);
     forceCleanupProcesses([handle?.pid]);
     resetLifecycleState();
     await removeTempRoot(tempRoot);
@@ -2639,7 +2587,7 @@ setInterval(() => {}, 1000);
     }, 5_000);
     assert.deepEqual(JSON.parse(await readFile(markerPath, "utf8")), expectedArgs);
   } finally {
-    await stopManagedProcess("launch-argv-service", 10_000, { workspaceRoot }).catch(() => null);
+    await stopManagedProcess("launch-argv-service", 10_000).catch(() => null);
     forceCleanupProcesses([handle?.pid]);
     resetLifecycleState();
     await removeTempRoot(tempRoot);
@@ -2682,7 +2630,7 @@ test("Windows managed launcher strips loader controls from bootstrap and restore
     }, 5_000);
     assert.deepEqual(JSON.parse(await readFile(snapshotPath, "utf8")), loaderEnvironment);
   } finally {
-    await stopManagedProcess("launch-environment-service", 10_000, { workspaceRoot }).catch(() => null);
+    await stopManagedProcess("launch-environment-service", 10_000).catch(() => null);
     forceCleanupProcesses([handle?.pid]);
     resetLifecycleState();
     await removeTempRoot(tempRoot);
@@ -2752,7 +2700,7 @@ setInterval(() => {}, 1000);
     assert.equal(stopped.pid, null);
   } finally {
     setManagedProcessEnrollmentHookForTests(null);
-    await stopManagedProcess("launch-byte-binding-service", 5_000, { workspaceRoot }).catch(() => null);
+    await stopManagedProcess("launch-byte-binding-service", 5_000).catch(() => null);
     if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
     else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
     resetLifecycleState();
@@ -2855,7 +2803,7 @@ setInterval(() => {}, 1000);
     await mutationPromise?.catch(() => undefined);
     setManagedProcessPostResumeDelayForTests(null);
     setManagedProcessFilesBoundHookForTests(null);
-    await stopManagedProcess("launch-ack-containment-service", 5_000, { workspaceRoot }).catch(() => null);
+    await stopManagedProcess("launch-ack-containment-service", 5_000).catch(() => null);
     if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
     else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
     resetLifecycleState();
@@ -2884,7 +2832,8 @@ setInterval(() => {}, 1000);
     executablePath: "C:\\Windows\\System32\\cmd.exe",
     commandHash: "a".repeat(64),
   };
-  let treeInspectionCount = 0;
+  let nativeExitObserved = false;
+  let finalLiveMemberInspected = false;
   let handle;
 
   try {
@@ -2903,15 +2852,26 @@ setInterval(() => {}, 1000);
         size: Buffer.byteLength(approvedScript),
       },
     ];
+    setManagedProcessSpawnerForTests((file, args, options) => {
+      const child = spawn(file, args, options);
+      child.once("exit", () => { nativeExitObserved = true; });
+      return child;
+    });
     setManagedWindowsTreeInspectorForTests(async () => {
-      treeInspectionCount += 1;
-      return treeInspectionCount >= 3
+      // The retained ChildProcess exit is the native acknowledgement receipt.
+      // Do not model the final tree as a third arbitrary inspection: an
+      // inspection may be skipped or coalesced by the bounded containment path.
+      return nativeExitObserved
         ? { rootStatus: "exited", members: [finalMember] }
         : { rootStatus: "owned", members: [] };
     });
-    setManagedProcessRootInspectorForTests(async (pid) => pid === finalMember.pid
-      ? { status: "running", identity: finalMember }
-      : { status: "not_running", reason: "process_not_running" });
+    setManagedProcessRootInspectorForTests(async (pid) => {
+      if (pid === finalMember.pid) {
+        finalLiveMemberInspected = true;
+        return { status: "running", identity: finalMember };
+      }
+      return { status: "not_running", reason: "process_not_running" };
+    });
     setManagedProcessFilesBoundHookForTests(async () => {
       const launchStateRoot = path.join(workspaceRoot, ".service-lasso", "runtime", "managed-launch");
       const stateDirectory = (await readdir(launchStateRoot, { withFileTypes: true })).find((entry) => entry.isDirectory());
@@ -2934,17 +2894,20 @@ setInterval(() => {}, 1000);
         return true;
       },
     );
-    assert.equal(treeInspectionCount >= 3, true);
-    assert.equal(hasManagedProcess("final-containment-union-service", workspaceRoot), true);
+    assert.equal(nativeExitObserved, true, "the held native launcher receipt must precede final-tree proof");
+    assert.equal(finalLiveMemberInspected, true, "the final tree's verified live descendant must block finalization");
+    assert.equal(hasManagedProcess("final-containment-union-service"), true);
     const retained = await findProcessOwnership(workspaceRoot, "service", "final-containment-union-service");
     assert.equal(retained.lifecycleState, "launching");
     assert.equal(retained.pid, handle.pid);
+    assert.equal(retained.identityStatus, "owned");
   } finally {
     setManagedProcessPostResumeDelayForTests(null);
     setManagedProcessFilesBoundHookForTests(null);
     setManagedProcessRootInspectorForTests(null);
     setManagedWindowsTreeInspectorForTests(null);
-    await stopManagedProcess("final-containment-union-service", 5_000, { workspaceRoot }).catch(() => null);
+    setManagedProcessSpawnerForTests(null);
+    await stopManagedProcess("final-containment-union-service", 5_000).catch(() => null);
     try {
       const pid = Number(await readFile(markerPath, "utf8"));
       forceCleanupProcesses([handle?.pid, pid]);
@@ -3026,7 +2989,7 @@ setInterval(() => {}, 1000);
     }, 5_000);
   } finally {
     setManagedProcessEnrollmentHookForTests(null);
-    await stopManagedProcess("launch-token-gates-service", 10_000, { workspaceRoot }).catch(() => null);
+    await stopManagedProcess("launch-token-gates-service", 10_000).catch(() => null);
     forceCleanupProcesses([handle?.pid]);
     if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
     else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
@@ -3062,7 +3025,7 @@ test("Windows guarded launch refuses an executable that is not bound to approved
     assert.equal(stopped.lifecycleState, "stopped");
     assert.equal(stopped.pid, null);
   } finally {
-    await stopManagedProcess("launch-unbound-executable-service", 10_000, { workspaceRoot }).catch(() => null);
+    await stopManagedProcess("launch-unbound-executable-service", 10_000).catch(() => null);
     resetLifecycleState();
     await removeTempRoot(tempRoot);
   }
@@ -3098,12 +3061,12 @@ test("Windows managed stop preserves its deadline while a canceled tree monitor 
     });
     await monitorStarted;
 
-    await stopManagedProcess("stop-monitor-deadline-service", 5_000, { workspaceRoot });
-    assert.equal(hasManagedProcess("stop-monitor-deadline-service", workspaceRoot), false);
+    await stopManagedProcess("stop-monitor-deadline-service", 5_000);
+    assert.equal(hasManagedProcess("stop-monitor-deadline-service"), false);
   } finally {
     releaseMonitor?.();
     setManagedProcessTreeMonitorForTests(null);
-    await stopManagedProcess("stop-monitor-deadline-service", 10_000, { workspaceRoot }).catch(() => null);
+    await stopManagedProcess("stop-monitor-deadline-service", 10_000).catch(() => null);
     forceCleanupProcesses([handle?.pid]);
     if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
     else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
@@ -3183,7 +3146,7 @@ setInterval(() => {}, 1000);
     assert.equal(await readFile(markerPath, "utf8"), "approved");
   } finally {
     setManagedProcessFilesBoundHookForTests(null);
-    await stopManagedProcess("launch-canonical-binding-service", 10_000, { workspaceRoot }).catch(() => null);
+    await stopManagedProcess("launch-canonical-binding-service", 10_000).catch(() => null);
     forceCleanupProcesses([handle?.pid]);
     if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
     else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
@@ -3244,7 +3207,7 @@ test("Windows enrollment containment failure returns boundedly and retains truth
     );
     assert.equal(Date.now() - startedAt < 20_000, true);
     assert.equal(verificationCount, 2);
-    assert.equal(hasManagedProcess("enrollment-containment-failure-service", workspaceRoot), true);
+    assert.equal(hasManagedProcess("enrollment-containment-failure-service"), true);
     const retained = await findProcessOwnership(
       workspaceRoot,
       "service",
@@ -3254,7 +3217,7 @@ test("Windows enrollment containment failure returns boundedly and retains truth
     assert.equal(retained.identityStatus, "owned");
 
     setManagedProcessTreeTerminatorForTests(null);
-    await stopManagedProcess("enrollment-containment-failure-service", 10_000, { workspaceRoot });
+    await stopManagedProcess("enrollment-containment-failure-service", 10_000);
     const stopped = await findProcessOwnership(
       workspaceRoot,
       "service",
@@ -3264,7 +3227,7 @@ test("Windows enrollment containment failure returns boundedly and retains truth
     assert.equal(stopped.pid, null);
   } finally {
     setManagedProcessTreeTerminatorForTests(null);
-    await stopManagedProcess("enrollment-containment-failure-service", 10_000, { workspaceRoot }).catch(() => null);
+    await stopManagedProcess("enrollment-containment-failure-service", 10_000).catch(() => null);
     if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
     else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
     resetLifecycleState();
@@ -3304,11 +3267,11 @@ test("Windows launch-state cleanup failure preserves the owning start phase and 
     const stopped = await findProcessOwnership(workspaceRoot, "service", "launch-cleanup-failure-service");
     assert.equal(stopped.lifecycleState, "stopped");
     assert.equal(stopped.pid, null);
-    assert.equal(hasManagedProcess("launch-cleanup-failure-service", workspaceRoot), false);
+    assert.equal(hasManagedProcess("launch-cleanup-failure-service"), false);
   } finally {
     setManagedProcessAfterReleaseHookForTests(null);
     setManagedProcessLaunchStateRemoverForTests(null);
-    await stopManagedProcess("launch-cleanup-failure-service", 10_000, { workspaceRoot }).catch(() => null);
+    await stopManagedProcess("launch-cleanup-failure-service", 10_000).catch(() => null);
     if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
     else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
     resetLifecycleState();
@@ -3349,10 +3312,10 @@ test("Windows primary launch-state cleanup failure is typed and reconciles stopp
     );
     assert.equal(stopped.lifecycleState, "stopped");
     assert.equal(stopped.pid, null);
-    assert.equal(hasManagedProcess("primary-launch-cleanup-failure-service", workspaceRoot), false);
+    assert.equal(hasManagedProcess("primary-launch-cleanup-failure-service"), false);
   } finally {
     setManagedProcessLaunchStateRemoverForTests(null);
-    await stopManagedProcess("primary-launch-cleanup-failure-service", 10_000, { workspaceRoot }).catch(() => null);
+    await stopManagedProcess("primary-launch-cleanup-failure-service", 10_000).catch(() => null);
     if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
     else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
     resetLifecycleState();
@@ -3383,457 +3346,13 @@ test("newcomer diagnostics observe a real API startup failure before owned clean
     assert.ok(diagnostic.observations[0].events.some(event => event.failurePhase === "post_release_hook"));
     assert.equal(JSON.stringify(diagnostic).includes("PRIVATE-DIAGNOSTIC-SENTINEL"), false);
     assert.equal(JSON.stringify(diagnostic).includes(tempRoot), false);
-    assert.equal(hasManagedProcess("echo-service", workspaceRoot), false);
+    assert.equal(hasManagedProcess("echo-service"), false);
   } finally {
     setManagedProcessAfterReleaseHookForTests(null);
     await apiServer?.stop();
-    await stopManagedProcess("echo-service", 10_000, { workspaceRoot }).catch(() => null);
+    await stopManagedProcess("echo-service", 10_000).catch(() => null);
     if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
     else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
-    resetLifecycleState();
-    await removeTempRoot(tempRoot);
-  }
-});
-
-test("Windows partial native command query reaches the startup hook with a closed receipt", {
-  skip: process.platform !== "win32",
-}, async () => {
-  resetLifecycleState();
-  const priorTestHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
-  const priorCommandQuery = process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY;
-  process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
-  process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY = "partial_then_success";
-  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-partial-command-query-");
-  const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "echo-service");
-  let apiServer;
-  let startupHookReached = false;
-  try {
-    const stateRoot = path.join(serviceRoot, ".state");
-    await mkdir(stateRoot, { recursive: true });
-    await writeFile(path.join(stateRoot, "install.json"), JSON.stringify({ installed: true }), "utf8");
-    await writeFile(path.join(stateRoot, "config.json"), JSON.stringify({ configured: true }), "utf8");
-    apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
-    setManagedProcessAfterReleaseHookForTests(async () => {
-      startupHookReached = true;
-      throw new Error("PRIVATE-PARTIAL-COPY-HOOK");
-    });
-    const start = await postJson(`${apiServer.url}/api/services/echo-service/start`);
-    assert.equal(start.response.status, 409);
-    assert.equal(startupHookReached, true);
-    const receipt = await collectStartupFailure(apiServer.url, "echo-service");
-    assert.equal(receipt.observations[0].events.some((event) => event.failurePhase === "post_release_hook"), true);
-    const closedReceipt = JSON.stringify(receipt);
-    assert.equal(closedReceipt.includes("PRIVATE-PARTIAL-COPY-HOOK"), false);
-    assert.equal(closedReceipt.includes("CommandLine"), false);
-  } finally {
-    setManagedProcessAfterReleaseHookForTests(null);
-    await apiServer?.stop();
-    await stopManagedProcess("echo-service", 10_000, { workspaceRoot }).catch(() => null);
-    if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
-    else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
-    if (priorCommandQuery === undefined) delete process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY;
-    else process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY = priorCommandQuery;
-    resetLifecycleState();
-    await removeTempRoot(tempRoot);
-  }
-});
-
-test("Windows persistent partial native command query fails before the startup hook", {
-  skip: process.platform !== "win32",
-}, async () => {
-  resetLifecycleState();
-  const priorTestHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
-  const priorCommandQuery = process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY;
-  process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
-  process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY = "partial_only";
-  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-persistent-partial-command-query-");
-  const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "echo-service");
-  let apiServer;
-  let startupHookReached = false;
-  try {
-    const stateRoot = path.join(serviceRoot, ".state");
-    await mkdir(stateRoot, { recursive: true });
-    await writeFile(path.join(stateRoot, "install.json"), JSON.stringify({ installed: true }), "utf8");
-    await writeFile(path.join(stateRoot, "config.json"), JSON.stringify({ configured: true }), "utf8");
-    apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
-    setManagedProcessAfterReleaseHookForTests(async () => {
-      startupHookReached = true;
-    });
-    const start = await postJson(`${apiServer.url}/api/services/echo-service/start`);
-    assert.equal(start.response.status, 409);
-    assert.equal(startupHookReached, false);
-    const receipt = await collectStartupFailure(apiServer.url, "echo-service");
-    assert.equal(receipt.observations[0].events.some((event) => event.failurePhase !== null), true);
-    const closedReceipt = JSON.stringify(receipt);
-    assert.equal(closedReceipt.includes("CommandLine"), false);
-  } finally {
-    setManagedProcessAfterReleaseHookForTests(null);
-    await apiServer?.stop();
-    await stopManagedProcess("echo-service", 10_000, { workspaceRoot }).catch(() => null);
-    if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
-    else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
-    if (priorCommandQuery === undefined) delete process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY;
-    else process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY = priorCommandQuery;
-    resetLifecycleState();
-    await removeTempRoot(tempRoot);
-  }
-});
-
-test("Windows adopted monitor retains a real terminal tree refresh through shutdown", {
-  skip: process.platform !== "win32",
-}, async () => {
-  resetLifecycleState();
-  const priorTestHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
-  const priorCommandQuery = process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY;
-  process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
-  delete process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY;
-  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-adopted-terminal-native-");
-  const serviceId = "adopted-terminal-native-service";
-  const { serviceRoot, scriptPath } = await writeExecutableFixtureService(servicesRoot, serviceId);
-  const relativeScriptPath = path.relative(serviceRoot, scriptPath);
-  const root = spawn(process.execPath, [relativeScriptPath], {
-    cwd: serviceRoot,
-    stdio: "ignore",
-    windowsHide: true,
-  });
-  const rootClosed = new Promise((resolve) => root.once("close", resolve));
-  let nativeTreeInvocations = 0;
-  let terminalRefreshObserved = false;
-
-  try {
-    await new Promise((resolve, reject) => {
-      root.once("spawn", resolve);
-      root.once("error", reject);
-    });
-    // This wrapper counts calls but delegates every successful identity and
-    // member result to the checked-in native executable. The only injected
-    // behavior below is the helper's closed partial-copy failure seam.
-    setManagedWindowsTreeInspectorForTests(async (identity, options) => {
-      nativeTreeInvocations += 1;
-      try {
-        return await inspectWindowsProcessTree(identity, options);
-      } catch (error) {
-        terminalRefreshObserved ||= windowsTreeInspectionFailureMetadata(error).windowsTreeInspectionLastRetry === "root_command_partial_copy";
-        throw error;
-      }
-    });
-    const rootInspection = await inspectProcess(root.pid);
-    assert.equal(rootInspection.status, "running");
-    await recordProcessOwnership(workspaceRoot, {
-      ownerType: "service",
-      ownerId: serviceId,
-      serviceId,
-      pid: root.pid,
-      ownerRoot: serviceRoot,
-      lifecycleState: "running",
-      source: "legacy-verified",
-    });
-    const [service] = await discoverServices(servicesRoot);
-    await adoptManagedProcess({
-      service,
-      pid: root.pid,
-      startedAt: rootInspection.identity.createdAt,
-      command: `${process.execPath} ${relativeScriptPath}`,
-      workspaceRoot,
-    });
-    assert.equal(nativeTreeInvocations, 1);
-
-    // Direct ownership revalidation stays real and succeeds; only the later
-    // native tree refresh exhausts its held-handle command query.
-    process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY = "partial_tree_only";
-    await waitFor(() => terminalRefreshObserved, 20_000);
-    assert.equal(nativeTreeInvocations, 2);
-    const retained = await findProcessOwnership(workspaceRoot, "service", serviceId);
-    assert.equal(retained.lifecycleState, "running");
-    assert.equal(retained.identityStatus, "owned");
-    assert.equal(retained.pid, root.pid);
-    assert.equal(hasManagedProcess(serviceId, workspaceRoot), true);
-
-    // The terminal automatic episode is not reopened by any of shutdown's
-    // eight convergence passes; retained members are used for control.
-    await stopAllManagedProcesses(workspaceRoot);
-    assert.equal(nativeTreeInvocations, 2);
-    assert.equal(hasManagedProcess(serviceId, workspaceRoot), false);
-    const stopped = await findProcessOwnership(workspaceRoot, "service", serviceId);
-    assert.equal(stopped.lifecycleState, "stopped");
-    assert.equal(stopped.pid, null);
-    await rootClosed;
-  } finally {
-    setManagedWindowsTreeInspectorForTests(null);
-    await stopAllManagedProcesses(workspaceRoot).catch(() => null);
-    forceCleanupProcesses([root.pid]);
-    if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
-    else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
-    if (priorCommandQuery === undefined) delete process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY;
-    else process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY = priorCommandQuery;
-    resetLifecycleState();
-    await removeTempRoot(tempRoot);
-  }
-});
-
-test("Windows explicit adopted stop starts a new real tree inspection episode after a terminal monitor refresh", {
-  skip: process.platform !== "win32",
-}, async () => {
-  resetLifecycleState();
-  const priorTestHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
-  const priorCommandQuery = process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY;
-  process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
-  delete process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY;
-  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-adopted-explicit-native-");
-  const serviceId = "adopted-explicit-native-service";
-  const { serviceRoot, scriptPath } = await writeExecutableFixtureService(servicesRoot, serviceId);
-  const relativeScriptPath = path.relative(serviceRoot, scriptPath);
-  const root = spawn(process.execPath, [relativeScriptPath], {
-    cwd: serviceRoot,
-    stdio: "ignore",
-    windowsHide: true,
-  });
-  const rootClosed = new Promise((resolve) => root.once("close", resolve));
-  let nativeTreeInvocations = 0;
-  let terminalRefreshObserved = false;
-
-  try {
-    await new Promise((resolve, reject) => {
-      root.once("spawn", resolve);
-      root.once("error", reject);
-    });
-    setManagedWindowsTreeInspectorForTests(async (identity, options) => {
-      nativeTreeInvocations += 1;
-      try {
-        return await inspectWindowsProcessTree(identity, options);
-      } catch (error) {
-        terminalRefreshObserved ||= windowsTreeInspectionFailureMetadata(error).windowsTreeInspectionLastRetry === "root_command_partial_copy";
-        throw error;
-      }
-    });
-    const rootInspection = await inspectProcess(root.pid);
-    assert.equal(rootInspection.status, "running");
-    await recordProcessOwnership(workspaceRoot, {
-      ownerType: "service",
-      ownerId: serviceId,
-      serviceId,
-      pid: root.pid,
-      ownerRoot: serviceRoot,
-      lifecycleState: "running",
-      source: "legacy-verified",
-    });
-    const [service] = await discoverServices(servicesRoot);
-    await adoptManagedProcess({
-      service,
-      pid: root.pid,
-      startedAt: rootInspection.identity.createdAt,
-      command: `${process.execPath} ${relativeScriptPath}`,
-      workspaceRoot,
-    });
-    assert.equal(nativeTreeInvocations, 1);
-
-    process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY = "partial_tree_only";
-    await waitFor(() => terminalRefreshObserved, 20_000);
-    assert.equal(nativeTreeInvocations, 2);
-
-    // This is a separate operator-requested action, so it receives its own
-    // existing bounded episode. Clearing the failure seam lets the actual
-    // native tree inspection provide fresh evidence for that action.
-    delete process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY;
-    await stopManagedProcess(serviceId, PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS, {
-      newWindowsInspectionEpisode: true,
-      workspaceRoot,
-    });
-    assert.equal(nativeTreeInvocations, 3);
-    assert.equal(hasManagedProcess(serviceId, workspaceRoot), false);
-    const stopped = await findProcessOwnership(workspaceRoot, "service", serviceId);
-    assert.equal(stopped.lifecycleState, "stopped");
-    assert.equal(stopped.pid, null);
-    await rootClosed;
-  } finally {
-    setManagedWindowsTreeInspectorForTests(null);
-    await stopAllManagedProcesses(workspaceRoot).catch(() => null);
-    forceCleanupProcesses([root.pid]);
-    if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
-    else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
-    if (priorCommandQuery === undefined) delete process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY;
-    else process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY = priorCommandQuery;
-    resetLifecycleState();
-    await removeTempRoot(tempRoot);
-  }
-});
-
-test("Windows managed terminal monitor keeps stopAll in the same native inspection episode", {
-  skip: process.platform !== "win32",
-}, async () => {
-  resetLifecycleState();
-  const priorTestHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
-  const priorCommandQuery = process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY;
-  process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
-  delete process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY;
-  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-managed-terminal-stop-all-");
-  const serviceId = "managed-terminal-stop-all-service";
-  await writeExecutableFixtureService(servicesRoot, serviceId);
-  let handle;
-  let nativeTreeInvocations = 0;
-  let terminalRefreshObserved = false;
-
-  try {
-    setManagedWindowsTreeInspectorForTests(async (identity, options) => {
-      nativeTreeInvocations += 1;
-      try {
-        return await inspectWindowsProcessTree(identity, options);
-      } catch (error) {
-        terminalRefreshObserved ||= windowsTreeInspectionFailureMetadata(error).windowsTreeInspectionLastRetry === "root_command_partial_copy";
-        throw error;
-      }
-    });
-    const [service] = await discoverServices(servicesRoot);
-    handle = await startManagedProcess({
-      service,
-      executionPlan: createDirectExecutionPlan(service.manifest),
-      workspaceRoot,
-    });
-    const initialNativeTreeInvocations = nativeTreeInvocations;
-    assert.equal(initialNativeTreeInvocations >= 2, true);
-
-    process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY = "partial_tree_only";
-    await waitFor(() => terminalRefreshObserved, 20_000);
-    assert.equal(nativeTreeInvocations, initialNativeTreeInvocations + 1);
-
-    await assert.rejects(stopAllManagedProcesses(workspaceRoot), (error) => {
-      assert.equal(error.name, "ManagedProcessFinalizationError");
-      return true;
-    });
-    assert.equal(nativeTreeInvocations, initialNativeTreeInvocations + 1);
-    assert.equal(hasManagedProcess(serviceId, workspaceRoot), true);
-    const retained = await findProcessOwnership(workspaceRoot, "service", serviceId);
-    assert.equal(retained.lifecycleState, "stopping");
-    assert.equal(retained.pid, handle.pid);
-  } finally {
-    setManagedWindowsTreeInspectorForTests(null);
-    await stopAllManagedProcesses(workspaceRoot).catch(() => null);
-    forceCleanupProcesses([handle?.pid]);
-    if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
-    else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
-    if (priorCommandQuery === undefined) delete process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY;
-    else process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY = priorCommandQuery;
-    resetLifecycleState();
-    await removeTempRoot(tempRoot);
-  }
-});
-
-test("Windows managed terminal monitor keeps root-exit finalization in the same native inspection episode", {
-  skip: process.platform !== "win32",
-}, async () => {
-  resetLifecycleState();
-  const priorTestHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
-  const priorCommandQuery = process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY;
-  process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
-  delete process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY;
-  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-managed-terminal-finalizer-");
-  const serviceId = "managed-terminal-finalizer-service";
-  await writeExecutableFixtureService(servicesRoot, serviceId);
-  let handle;
-  let nativeTreeInvocations = 0;
-  let terminalRefreshObserved = false;
-
-  try {
-    setManagedWindowsTreeInspectorForTests(async (identity, options) => {
-      nativeTreeInvocations += 1;
-      try {
-        return await inspectWindowsProcessTree(identity, options);
-      } catch (error) {
-        terminalRefreshObserved ||= windowsTreeInspectionFailureMetadata(error).windowsTreeInspectionLastRetry === "root_command_partial_copy";
-        throw error;
-      }
-    });
-    const [service] = await discoverServices(servicesRoot);
-    handle = await startManagedProcess({
-      service,
-      executionPlan: createDirectExecutionPlan(service.manifest),
-      workspaceRoot,
-    });
-    const initialNativeTreeInvocations = nativeTreeInvocations;
-    process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY = "partial_tree_only";
-    await waitFor(() => terminalRefreshObserved, 20_000);
-    assert.equal(nativeTreeInvocations, initialNativeTreeInvocations + 1);
-
-    assert.equal(process.kill(handle.pid, "SIGKILL"), true);
-    await assert.rejects(
-      waitForManagedProcessFinalization(serviceId, Date.now() + 15_000, workspaceRoot),
-      (error) => {
-        assert.equal(error.name, "ManagedProcessFinalizationError");
-        return true;
-      },
-    );
-    assert.equal(nativeTreeInvocations, initialNativeTreeInvocations + 1);
-    assert.equal(hasManagedProcess(serviceId, workspaceRoot), true);
-    const retained = await findProcessOwnership(workspaceRoot, "service", serviceId);
-    assert.equal(retained.lifecycleState, "launching");
-    assert.equal(retained.pid, handle.pid);
-  } finally {
-    setManagedWindowsTreeInspectorForTests(null);
-    await stopAllManagedProcesses(workspaceRoot).catch(() => null);
-    forceCleanupProcesses([handle?.pid]);
-    if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
-    else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
-    if (priorCommandQuery === undefined) delete process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY;
-    else process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY = priorCommandQuery;
-    resetLifecycleState();
-    await removeTempRoot(tempRoot);
-  }
-});
-
-test("Windows explicit managed stop starts a fresh native inspection episode after a terminal monitor refresh", {
-  skip: process.platform !== "win32",
-}, async () => {
-  resetLifecycleState();
-  const priorTestHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
-  const priorCommandQuery = process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY;
-  process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
-  delete process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY;
-  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-managed-explicit-native-");
-  const serviceId = "managed-explicit-native-service";
-  await writeExecutableFixtureService(servicesRoot, serviceId);
-  let handle;
-  let nativeTreeInvocations = 0;
-  let terminalRefreshObserved = false;
-
-  try {
-    setManagedWindowsTreeInspectorForTests(async (identity, options) => {
-      nativeTreeInvocations += 1;
-      try {
-        return await inspectWindowsProcessTree(identity, options);
-      } catch (error) {
-        terminalRefreshObserved ||= windowsTreeInspectionFailureMetadata(error).windowsTreeInspectionLastRetry === "root_command_partial_copy";
-        throw error;
-      }
-    });
-    const [service] = await discoverServices(servicesRoot);
-    handle = await startManagedProcess({
-      service,
-      executionPlan: createDirectExecutionPlan(service.manifest),
-      workspaceRoot,
-    });
-    const initialNativeTreeInvocations = nativeTreeInvocations;
-    process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY = "partial_tree_only";
-    await waitFor(() => terminalRefreshObserved, 20_000);
-    assert.equal(nativeTreeInvocations, initialNativeTreeInvocations + 1);
-
-    delete process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY;
-    await stopManagedProcess(serviceId, PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS, {
-      newWindowsInspectionEpisode: true,
-      workspaceRoot,
-    });
-    assert.equal(nativeTreeInvocations, initialNativeTreeInvocations + 2);
-    assert.equal(hasManagedProcess(serviceId, workspaceRoot), false);
-    const stopped = await findProcessOwnership(workspaceRoot, "service", serviceId);
-    assert.equal(stopped.lifecycleState, "stopped");
-    assert.equal(stopped.pid, null);
-  } finally {
-    setManagedWindowsTreeInspectorForTests(null);
-    await stopAllManagedProcesses(workspaceRoot).catch(() => null);
-    forceCleanupProcesses([handle?.pid]);
-    if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
-    else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
-    if (priorCommandQuery === undefined) delete process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY;
-    else process.env.SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY = priorCommandQuery;
     resetLifecycleState();
     await removeTempRoot(tempRoot);
   }
@@ -3864,7 +3383,7 @@ test("API preserves and can stop truthful running state after enrollment contain
 
     const start = await postJson(`${apiServer.url}/api/services/api-containment-failure-service/start`);
     assert.equal(start.response.status, 409);
-    const retainedState = getLifecycleState("api-containment-failure-service", workspaceRoot);
+    const retainedState = getLifecycleState("api-containment-failure-service");
     assert.equal(retainedState.running, true);
     assert.equal(
       retainedState.runtime.startTrace.current.events.find((event) =>
@@ -3873,7 +3392,7 @@ test("API preserves and can stop truthful running state after enrollment contain
       "post_release_hook",
     );
     assert.equal(retainedState.runtime.pid > 0, true);
-    assert.equal(hasManagedProcess("api-containment-failure-service", workspaceRoot), true);
+    assert.equal(hasManagedProcess("api-containment-failure-service"), true);
     const persisted = await readStoredState(serviceRoot);
     assert.equal(persisted.runtime.running, true);
     assert.equal(persisted.runtime.pid, retainedState.runtime.pid);
@@ -3890,7 +3409,7 @@ test("API preserves and can stop truthful running state after enrollment contain
     const stop = await postJson(`${apiServer.url}/api/services/api-containment-failure-service/stop`, { confirm: true });
     assert.equal(stop.response.status, 200);
     assert.equal(stop.body.state.running, false);
-    assert.equal(hasManagedProcess("api-containment-failure-service", workspaceRoot), false);
+    assert.equal(hasManagedProcess("api-containment-failure-service"), false);
     const stopped = await findProcessOwnership(workspaceRoot, "service", "api-containment-failure-service");
     assert.equal(stopped.lifecycleState, "stopped");
     assert.equal(stopped.pid, null);
@@ -3898,7 +3417,7 @@ test("API preserves and can stop truthful running state after enrollment contain
     setManagedProcessAfterReleaseHookForTests(null);
     setManagedProcessTreeTerminatorForTests(null);
     await apiServer?.stop();
-    await stopManagedProcess("api-containment-failure-service", 10_000, { workspaceRoot }).catch(() => null);
+    await stopManagedProcess("api-containment-failure-service", 10_000).catch(() => null);
     if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
     else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
     resetLifecycleState();
@@ -3938,11 +3457,11 @@ test("API restart preserves and can stop truthful replacement state after enroll
       { confirm: true },
     );
     assert.equal(restart.response.status, 409, JSON.stringify(restart.body));
-    const retainedState = getLifecycleState("api-restart-containment-failure-service", workspaceRoot);
+    const retainedState = getLifecycleState("api-restart-containment-failure-service");
     assert.equal(retainedState.running, true);
     assert.equal(retainedState.runtime.pid > 0, true);
     assert.notEqual(retainedState.runtime.pid, originalPid);
-    assert.equal(hasManagedProcess("api-restart-containment-failure-service", workspaceRoot), true);
+    assert.equal(hasManagedProcess("api-restart-containment-failure-service"), true);
     const persisted = await readStoredState(serviceRoot);
     assert.equal(persisted.runtime.running, true);
     assert.equal(persisted.runtime.pid, retainedState.runtime.pid);
@@ -3962,7 +3481,7 @@ test("API restart preserves and can stop truthful replacement state after enroll
     );
     assert.equal(stop.response.status, 200);
     assert.equal(stop.body.state.running, false);
-    assert.equal(hasManagedProcess("api-restart-containment-failure-service", workspaceRoot), false);
+    assert.equal(hasManagedProcess("api-restart-containment-failure-service"), false);
     const stopped = await findProcessOwnership(
       workspaceRoot,
       "service",
@@ -3974,7 +3493,7 @@ test("API restart preserves and can stop truthful replacement state after enroll
     setManagedProcessAfterReleaseHookForTests(null);
     setManagedProcessTreeTerminatorForTests(null);
     await apiServer?.stop();
-    await stopManagedProcess("api-restart-containment-failure-service", 10_000, { workspaceRoot }).catch(() => null);
+    await stopManagedProcess("api-restart-containment-failure-service", 10_000).catch(() => null);
     if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
     else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
     resetLifecycleState();
@@ -4016,7 +3535,7 @@ test("API restart persists stopped state when ordinary replacement enrollment fa
     const stoppedState = getLifecycleState("api-restart-enrollment-failure-service");
     assert.equal(stoppedState.running, false);
     assert.equal(stoppedState.runtime.pid, null);
-    assert.equal(hasManagedProcess("api-restart-enrollment-failure-service", workspaceRoot), false);
+    assert.equal(hasManagedProcess("api-restart-enrollment-failure-service"), false);
     const persisted = await readStoredState(serviceRoot);
     assert.equal(persisted.runtime.running, false);
     assert.equal(persisted.runtime.pid, null);
@@ -4030,7 +3549,7 @@ test("API restart persists stopped state when ordinary replacement enrollment fa
   } finally {
     setManagedProcessEnrollmentHookForTests(null);
     await apiServer?.stop();
-    await stopManagedProcess("api-restart-enrollment-failure-service", 10_000, { workspaceRoot }).catch(() => null);
+    await stopManagedProcess("api-restart-enrollment-failure-service", 10_000).catch(() => null);
     if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
     else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
     resetLifecycleState();
@@ -4061,8 +3580,8 @@ test("managed unexpected root exit terminates the remaining verified process tre
 
     assert.equal(process.kill(handle.pid, "SIGKILL"), true);
     await waitForProcessesStopped([handle.pid, childPid, grandchildPid], 12_000);
-    await waitForManagedProcessFinalization("managed-root-exit-service", Date.now() + 12_000, workspaceRoot);
-    assert.equal(hasManagedProcess("managed-root-exit-service", workspaceRoot), false);
+    await waitForManagedProcessFinalization("managed-root-exit-service", Date.now() + 12_000);
+    assert.equal(hasManagedProcess("managed-root-exit-service"), false);
     const stoppedOwnership = await findProcessOwnership(workspaceRoot, "service", "managed-root-exit-service");
     assert.equal(stoppedOwnership.lifecycleState, "stopped");
     assert.equal(stoppedOwnership.pid, null);
@@ -4083,7 +3602,7 @@ test("managed unexpected root exit terminates the remaining verified process tre
       } catch (error) {
         if (error?.code !== "ENOENT") throw error;
       }
-      await stopManagedProcess("managed-root-exit-service", 100, { workspaceRoot }).catch(() => null);
+      await stopManagedProcess("managed-root-exit-service", 100).catch(() => null);
       const cleanupPids = [handle?.pid, childPid, grandchildPid]
         .filter((pid) => Number.isInteger(pid) && pid > 0);
       forceCleanupProcesses(cleanupPids);
@@ -4131,14 +3650,14 @@ test("managed Windows job contains a child spawned after enrollment when the ser
     childPid = pids.childPid;
     grandchildPid = pids.grandchildPid;
 
-    await waitForManagedProcessFinalization("managed-late-child-service", Date.now() + 15_000, workspaceRoot);
+    await waitForManagedProcessFinalization("managed-late-child-service", Date.now() + 15_000);
     await waitForProcessesStopped([handle.pid, rootPid, childPid, grandchildPid], 15_000);
-    assert.equal(hasManagedProcess("managed-late-child-service", workspaceRoot), false);
+    assert.equal(hasManagedProcess("managed-late-child-service"), false);
     const stopped = await findProcessOwnership(workspaceRoot, "service", "managed-late-child-service");
     assert.equal(stopped.lifecycleState, "stopped");
     assert.equal(stopped.pid, null);
   } finally {
-    await stopManagedProcess("managed-late-child-service", 100, { workspaceRoot }).catch(() => null);
+    await stopManagedProcess("managed-late-child-service", 100).catch(() => null);
     forceCleanupProcesses([handle?.pid, rootPid, childPid, grandchildPid]);
     resetLifecycleState();
     await removeTempRoot(tempRoot);
@@ -4167,14 +3686,14 @@ test("managed Windows root auto-exit contains its verified child and grandchild 
     childPid = pids.childPid;
     grandchildPid = pids.grandchildPid;
 
-    await waitForManagedProcessFinalization("managed-root-auto-exit-service", Date.now() + 45_000, workspaceRoot);
+    await waitForManagedProcessFinalization("managed-root-auto-exit-service", Date.now() + 45_000);
     await waitForProcessesStopped([handle.pid, childPid, grandchildPid], 15_000);
-    assert.equal(hasManagedProcess("managed-root-auto-exit-service", workspaceRoot), false);
+    assert.equal(hasManagedProcess("managed-root-auto-exit-service"), false);
     const stoppedOwnership = await findProcessOwnership(workspaceRoot, "service", "managed-root-auto-exit-service");
     assert.equal(stoppedOwnership.lifecycleState, "stopped");
     assert.equal(stoppedOwnership.pid, null);
   } finally {
-    await stopManagedProcess("managed-root-auto-exit-service", 100, { workspaceRoot }).catch(() => null);
+    await stopManagedProcess("managed-root-auto-exit-service", 100).catch(() => null);
     forceCleanupProcesses([handle?.pid, childPid, grandchildPid]);
     resetLifecycleState();
     await removeTempRoot(tempRoot);
@@ -4215,13 +3734,13 @@ test("managed Windows enrollment rejects and contains a root that exits during i
     await rejectedStart;
 
     await waitForProcessesStopped([rootPid, childPid, grandchildPid], 15_000);
-    assert.equal(hasManagedProcess("managed-enrollment-exit-service", workspaceRoot), false);
+    assert.equal(hasManagedProcess("managed-enrollment-exit-service"), false);
     const stoppedOwnership = await findProcessOwnership(workspaceRoot, "service", "managed-enrollment-exit-service");
     assert.equal(stoppedOwnership.lifecycleState, "stopped");
     assert.equal(stoppedOwnership.pid, null);
   } finally {
     setManagedProcessAfterReleaseHookForTests(null);
-    await stopManagedProcess("managed-enrollment-exit-service", 100, { workspaceRoot }).catch(() => null);
+    await stopManagedProcess("managed-enrollment-exit-service", 100).catch(() => null);
     forceCleanupProcesses([rootPid, childPid, grandchildPid]);
     if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
     else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
@@ -4258,9 +3777,9 @@ test("whole-runtime shutdown waits for a pending managed finalizer before cleanu
 
     assert.equal(process.kill(handle.pid, "SIGKILL"), true);
     await finalizerStarted;
-    assert.equal(hasManagedProcess("finalizer-boundary-service", workspaceRoot), false);
+    assert.equal(hasManagedProcess("finalizer-boundary-service"), false);
 
-    const shutdown = stopAllManagedProcesses(workspaceRoot);
+    const shutdown = stopAllManagedProcesses();
     const immediateOutcome = await Promise.race([
       shutdown.then(() => "settled", () => "rejected"),
       new Promise((resolve) => setImmediate(() => resolve("pending"))),
@@ -4272,7 +3791,7 @@ test("whole-runtime shutdown waits for a pending managed finalizer before cleanu
     await rm(serviceRoot, { recursive: true, force: true });
   } finally {
     releaseFinalizer?.();
-    await stopAllManagedProcesses(workspaceRoot).catch(() => null);
+    await stopAllManagedProcesses().catch(() => null);
     forceCleanupProcesses([handle?.pid]);
     resetLifecycleState();
     await removeTempRoot(tempRoot);
@@ -4314,7 +3833,7 @@ test("whole-runtime shutdown reports safe service, pid, and finalization phase o
     // Let the finalizer reject before shutdown begins. The failure must remain
     // observable at the cleanup boundary rather than being silently discarded.
     await new Promise((resolve) => setImmediate(resolve));
-    const shutdown = stopAllManagedProcesses(workspaceRoot);
+    const shutdown = stopAllManagedProcesses();
 
     await assert.rejects(shutdown, (error) => {
       assert.equal(error.name, "ManagedProcessFinalizationError");
@@ -4333,7 +3852,60 @@ test("whole-runtime shutdown reports safe service, pid, and finalization phase o
     });
   } finally {
     releaseFinalizer?.();
-    await stopAllManagedProcesses(workspaceRoot).catch(() => null);
+    await stopAllManagedProcesses().catch(() => null);
+    forceCleanupProcesses([handle?.pid]);
+    resetLifecycleState();
+    await removeTempRoot(tempRoot);
+  }
+});
+
+test("whole-runtime shutdown classifies an unverifiable finalizer without retaining identity details", async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-finalizer-identity-diagnostic-");
+  await writeExecutableFixtureService(servicesRoot, "finalizer-identity-diagnostic-service");
+  let releaseFinalizer;
+  const finalizerGate = new Promise((resolve) => {
+    releaseFinalizer = resolve;
+  });
+  let reportFinalizerStarted;
+  const finalizerStarted = new Promise((resolve) => {
+    reportFinalizerStarted = resolve;
+  });
+  let handle;
+
+  try {
+    const [service] = await discoverServices(servicesRoot);
+    handle = await startManagedProcess({
+      service,
+      executionPlan: createDirectExecutionPlan(service.manifest),
+      workspaceRoot,
+      onExit: async () => {
+        reportFinalizerStarted();
+        await finalizerGate;
+        throw new Error("Cannot verify process 55123 while controlling its process tree.");
+      },
+    });
+
+    assert.equal(process.kill(handle.pid, "SIGKILL"), true);
+    await finalizerStarted;
+    releaseFinalizer();
+    await new Promise((resolve) => setImmediate(resolve));
+
+    await assert.rejects(stopAllManagedProcesses(), (error) => {
+      assert.equal(error.name, "ManagedProcessFinalizationError");
+      assert.deepEqual(error.failures, [{
+        serviceId: "finalizer-identity-diagnostic-service",
+        pid: handle.pid,
+        phase: "finalize",
+        code: "PROCESS_IDENTITY_UNVERIFIABLE",
+      }]);
+      assert.equal(error.message.includes("55123"), false);
+      assert.equal(error.message.includes("process tree"), false);
+      return true;
+    });
+  } finally {
+    releaseFinalizer?.();
+    await stopAllManagedProcesses().catch(() => null);
     forceCleanupProcesses([handle?.pid]);
     resetLifecycleState();
     await removeTempRoot(tempRoot);
@@ -4405,7 +3977,7 @@ test("rehydrated adopted ownership retains and stops the complete persisted proc
     const adoptedOwnership = await findProcessOwnership(workspaceRoot, "service", "adopted-process-tree-service");
     assert.deepEqual(adoptedOwnership.processGroup, processGroup);
 
-    const stopped = await stopManagedProcess("adopted-process-tree-service", PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS, { workspaceRoot });
+    const stopped = await stopManagedProcess("adopted-process-tree-service", PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS);
 
     assert.ok(stopped);
     await waitForProcessesStopped([root.pid, childPid, grandchildPid]);
@@ -4414,7 +3986,7 @@ test("rehydrated adopted ownership retains and stops the complete persisted proc
     assert.equal(stoppedOwnership.lifecycleState, "stopped");
     assert.equal(stoppedOwnership.pid, null);
   } finally {
-    await stopManagedProcess("adopted-process-tree-service", PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS, { workspaceRoot }).catch(() => null);
+    await stopManagedProcess("adopted-process-tree-service", PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS).catch(() => null);
     forceCleanupProcesses([root.pid, childPid, grandchildPid]);
     resetLifecycleState();
     await removeTempRoot(tempRoot);
@@ -4481,15 +4053,15 @@ test("adopted process monitoring clears durable running state after the root exi
     const [service] = await discoverServices(servicesRoot);
     const rehydrated = await rehydrateLifecycleState(service, { workspaceRoot });
     assert.equal(rehydrated.running, true);
-    assert.equal(hasManagedProcess("adopted-monitor-service", workspaceRoot), true);
+    assert.equal(hasManagedProcess("adopted-monitor-service"), true);
 
     const rootExit = new Promise((resolve) => root.once("close", resolve));
     assert.equal(root.kill("SIGKILL"), true);
     await rootExit;
-    await waitForManagedProcessFinalization("adopted-monitor-service", undefined, workspaceRoot);
+    await waitForManagedProcessFinalization("adopted-monitor-service");
     await waitForProcessesStopped([root.pid, childPid, grandchildPid]);
 
-    assert.equal(hasManagedProcess("adopted-monitor-service", workspaceRoot), false);
+    assert.equal(hasManagedProcess("adopted-monitor-service"), false);
     const stored = await readStoredState(serviceRoot);
     assert.equal(stored.runtime.running, false);
     assert.equal(stored.runtime.pid, null);
@@ -4499,7 +4071,7 @@ test("adopted process monitoring clears durable running state after the root exi
     assert.equal(ownership.lifecycleState, "stopped");
     assert.equal(ownership.pid, null);
   } finally {
-    await stopManagedProcess("adopted-monitor-service", 100, { workspaceRoot }).catch(() => null);
+    await stopManagedProcess("adopted-monitor-service", 100).catch(() => null);
     forceCleanupProcesses([root.pid, childPid, grandchildPid]);
     resetLifecycleState();
     await removeTempRoot(tempRoot);
@@ -4540,8 +4112,13 @@ test("runtime and service ownership are durable before readiness and clear after
     assert.equal((await postJson(`${apiServer.url}/api/services/owned-service/install`)).response.status, 200);
     assert.equal((await postJson(`${apiServer.url}/api/services/owned-service/config`)).response.status, 200);
 
-    const startPromise = postJson(`${apiServer.url}/api/services/owned-service/start`);
+    let startFailure = null;
+    const startPromise = postJson(`${apiServer.url}/api/services/owned-service/start`).catch((error) => {
+      startFailure = error;
+      return null;
+    });
     const launching = await waitFor(async () => {
+      if (startFailure) throw startFailure;
       const entry = await findProcessOwnership(workspaceRoot, "service", "owned-service");
       return entry?.lifecycleState === "launching" ? entry : null;
     }, 20_000);
@@ -4549,6 +4126,8 @@ test("runtime and service ownership are durable before readiness and clear after
     assert.equal(launching.pid > 0, true);
 
     const started = await startPromise;
+    if (startFailure) throw startFailure;
+    assert.notEqual(started, null);
     assert.equal(started.response.status, 200);
     assert.equal(started.body.state.running, true);
     const running = await findProcessOwnership(workspaceRoot, "service", "owned-service");
@@ -4645,7 +4224,7 @@ test("runtime restart adopts a registry owner even when runtime.json discarded r
     assert.equal(detailBody.service.lifecycle.running, true);
     assert.equal(detailBody.service.lifecycle.runtime.pid, child.pid);
     assert.deepEqual(detailBody.service.lifecycle.runtime.ports, { service: preferredPort });
-    assert.equal(hasManagedProcess("registry-adopt-alive", workspaceRoot), true);
+    assert.equal(hasManagedProcess("registry-adopt-alive"), true);
 
     const health = await fetch(`${apiServer.url}/api/services/registry-adopt-alive/health`);
     const healthBody = await health.json();
@@ -4660,20 +4239,20 @@ test("runtime restart adopts a registry owner even when runtime.json discarded r
 
     const start = await postJson(`${apiServer.url}/api/services/registry-adopt-alive/start`);
     assert.equal(start.response.status, 409);
-    assert.equal(hasManagedProcess("registry-adopt-alive", workspaceRoot), true);
-    assert.equal(getLifecycleState("registry-adopt-alive", workspaceRoot).runtime.pid, child.pid);
+    assert.equal(hasManagedProcess("registry-adopt-alive"), true);
+    assert.equal(getLifecycleState("registry-adopt-alive").runtime.pid, child.pid);
     assert.equal(child.exitCode, null);
 
     const stopped = await postJson(`${apiServer.url}/api/runtime/actions/stopAll`, { confirm: true });
     assert.equal(stopped.response.status, 200);
     await waitFor(() => child.exitCode !== null || child.signalCode !== null);
-    assert.equal(hasManagedProcess("registry-adopt-alive", workspaceRoot), false);
+    assert.equal(hasManagedProcess("registry-adopt-alive"), false);
     const ownership = await findProcessOwnership(workspaceRoot, "service", "registry-adopt-alive");
     assert.equal(ownership.lifecycleState, "stopped");
     assert.equal(ownership.pid, null);
   } finally {
     await apiServer?.stop();
-    await stopAllManagedProcesses(workspaceRoot).catch(() => null);
+    await stopAllManagedProcesses().catch(() => null);
     child.kill("SIGKILL");
     resetLifecycleState();
     await removeTempRoot(tempRoot);
@@ -4809,7 +4388,7 @@ test("start renegotiates a retained port when the old process is gone and the pr
     await stopService(discovered[0], { workspaceRoot });
   } finally {
     await new Promise((resolve) => occupant.close(resolve));
-    await stopManagedProcess("registry-port-renegotiate", 500, { workspaceRoot }).catch(() => null);
+    await stopManagedProcess("registry-port-renegotiate", 500).catch(() => null);
     resetLifecycleState();
     await removeTempRoot(tempRoot);
   }
@@ -4866,7 +4445,7 @@ test("registry identity mismatch clears stale ownership without terminating the 
     assert.equal(rehydrated.runtime.startTrace.current.events[0].metadata.processOwnerStatus, "identity_mismatch");
     assert.equal(child.exitCode, null);
     assert.equal(child.signalCode, null);
-    assert.equal(hasManagedProcess("registry-identity-mismatch", workspaceRoot), false);
+    assert.equal(hasManagedProcess("registry-identity-mismatch"), false);
 
     const ownership = await findProcessOwnership(workspaceRoot, "service", "registry-identity-mismatch");
     assert.equal(ownership.identityStatus, "identity_mismatch");
@@ -4875,125 +4454,5 @@ test("registry identity mismatch clears stale ownership without terminating the 
     child.kill("SIGKILL");
     resetLifecycleState();
     await removeTempRoot(tempRoot);
-  }
-});
-
-test("workspace authority isolates equal service IDs", async () => {
-  resetLifecycleState();
-  const serviceId = "workspace-authority-service";
-  const first = await makeTempServicesRoot("service-lasso-workspace-authority-first-");
-  const second = await makeTempServicesRoot("service-lasso-workspace-authority-second-");
-  let firstHandle;
-  let secondHandle;
-  try {
-    await writeExecutableFixtureService(first.servicesRoot, serviceId);
-    await writeExecutableFixtureService(second.servicesRoot, serviceId);
-    const [firstService] = await discoverServices(first.servicesRoot);
-    const [secondService] = await discoverServices(second.servicesRoot);
-    firstHandle = await startManagedProcess({ service: firstService, executionPlan: createDirectExecutionPlan(firstService.manifest), workspaceRoot: first.workspaceRoot });
-    secondHandle = await startManagedProcess({ service: secondService, executionPlan: createDirectExecutionPlan(secondService.manifest), workspaceRoot: second.workspaceRoot });
-    assert.equal(hasManagedProcess(serviceId, first.workspaceRoot), true);
-    assert.equal(hasManagedProcess(serviceId, second.workspaceRoot), true);
-    assert.throws(() => hasManagedProcess(serviceId), /workspace authority/);
-    await assert.rejects(stopAllManagedProcesses(), /workspace authority/);
-    assert.equal((await inspectProcess(secondHandle.pid)).status, "running");
-    await stopManagedProcess(serviceId, PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS, { workspaceRoot: first.workspaceRoot });
-    await waitForManagedProcessFinalization(serviceId, Date.now() + PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS, first.workspaceRoot);
-    assert.equal((await inspectProcess(secondHandle.pid)).status, "running");
-    assert.equal((await findProcessOwnership(first.workspaceRoot, "service", serviceId)).lifecycleState, "stopped");
-    const secondOwnership = await findProcessOwnership(second.workspaceRoot, "service", serviceId);
-    assert.equal(secondOwnership.lifecycleState, "launching");
-    assert.equal(secondOwnership.pid, secondHandle.pid);
-    await stopAllManagedProcesses(second.workspaceRoot);
-    await waitForManagedProcessFinalization(serviceId, Date.now() + PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS, second.workspaceRoot);
-    assert.equal((await findProcessOwnership(second.workspaceRoot, "service", serviceId)).lifecycleState, "stopped");
-  } finally {
-    await stopManagedProcess(serviceId, PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS, { workspaceRoot: first.workspaceRoot }).catch(() => null);
-    await stopManagedProcess(serviceId, PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS, { workspaceRoot: second.workspaceRoot }).catch(() => null);
-    resetLifecycleState();
-    await removeTempRoot(first.tempRoot);
-    await removeTempRoot(second.tempRoot);
-  }
-});
-
-test("separate runtime APIs keep equal service IDs in their owning workspaces", { timeout: 45_000 }, async () => {
-  resetLifecycleState();
-  const serviceId = "same-id-api-service";
-  const first = await makeTempServicesRoot("service-lasso-same-id-api-first-");
-  const second = await makeTempServicesRoot("service-lasso-same-id-api-second-");
-  let firstApi;
-  let secondApi;
-  try {
-    await writeExecutableFixtureService(first.servicesRoot, serviceId);
-    await writeExecutableFixtureService(second.servicesRoot, serviceId);
-    firstApi = await startApiServer({ port: 0, servicesRoot: first.servicesRoot, workspaceRoot: first.workspaceRoot });
-    secondApi = await startApiServer({ port: 0, servicesRoot: second.servicesRoot, workspaceRoot: second.workspaceRoot });
-
-    for (const api of [firstApi, secondApi]) {
-      assert.equal((await postJson(`${api.url}/api/services/${serviceId}/install`)).response.status, 200);
-      assert.equal((await postJson(`${api.url}/api/services/${serviceId}/config`)).response.status, 200);
-      assert.equal((await postJson(`${api.url}/api/services/${serviceId}/start`)).response.status, 200);
-    }
-
-    const [firstDetail, secondDetail] = await Promise.all([
-      fetch(`${firstApi.url}/api/services/${serviceId}`).then(async (response) => ({ response, body: await response.json() })),
-      fetch(`${secondApi.url}/api/services/${serviceId}`).then(async (response) => ({ response, body: await response.json() })),
-    ]);
-    assert.equal(firstDetail.response.status, 200);
-    assert.equal(secondDetail.response.status, 200);
-    assert.equal(firstDetail.body.service.lifecycle.running, true);
-    assert.equal(secondDetail.body.service.lifecycle.running, true);
-    const firstPid = firstDetail.body.service.lifecycle.runtime.pid;
-    const secondPid = secondDetail.body.service.lifecycle.runtime.pid;
-    assert.equal(firstPid > 0, true);
-    assert.equal(secondPid > 0, true);
-    assert.notEqual(firstPid, secondPid);
-    assert.equal(getLifecycleState(serviceId, first.workspaceRoot).runtime.pid, firstPid);
-    assert.equal(getLifecycleState(serviceId, second.workspaceRoot).runtime.pid, secondPid);
-    assert.equal((await inspectProcess(firstPid)).status, "running");
-    assert.equal((await inspectProcess(secondPid)).status, "running");
-
-    const stopped = await postJson(`${firstApi.url}/api/services/${serviceId}/stop`, { confirm: true });
-    assert.equal(stopped.response.status, 200);
-    assert.equal(stopped.body.state.running, false);
-    await waitFor(async () => (await inspectProcess(firstPid)).status !== "running");
-    const secondAfterFirstStop = await fetch(`${secondApi.url}/api/services/${serviceId}`).then(async (response) => ({
-      response,
-      body: await response.json(),
-    }));
-    assert.equal(secondAfterFirstStop.response.status, 200);
-    assert.equal(secondAfterFirstStop.body.service.lifecycle.running, true);
-    assert.equal(secondAfterFirstStop.body.service.lifecycle.runtime.pid, secondPid);
-    assert.equal((await inspectProcess(secondPid)).status, "running");
-    assert.equal(getLifecycleState(serviceId, second.workspaceRoot).running, true);
-
-    const restarted = await postJson(`${firstApi.url}/api/services/${serviceId}/restart`, { confirm: true });
-    assert.equal(restarted.response.status, 200);
-    assert.equal(restarted.body.state.running, true);
-    const restartedFirstPid = restarted.body.state.runtime.pid;
-    assert.notEqual(restartedFirstPid, firstPid);
-    assert.equal((await inspectProcess(restartedFirstPid)).status, "running");
-    const secondAfterRestart = await fetch(`${secondApi.url}/api/services/${serviceId}`).then(async (response) => ({
-      response,
-      body: await response.json(),
-    }));
-    assert.equal(secondAfterRestart.response.status, 200);
-    assert.equal(secondAfterRestart.body.service.lifecycle.running, true);
-    assert.equal(secondAfterRestart.body.service.lifecycle.runtime.pid, secondPid);
-    assert.equal((await inspectProcess(secondPid)).status, "running");
-    const finalFirstStop = await postJson(`${firstApi.url}/api/services/${serviceId}/stop`, { confirm: true });
-    const finalSecondStop = await postJson(`${secondApi.url}/api/services/${serviceId}/stop`, { confirm: true });
-    assert.equal(finalFirstStop.response.status, 200);
-    assert.equal(finalSecondStop.response.status, 200);
-    await waitFor(async () => (await inspectProcess(restartedFirstPid)).status !== "running");
-    await waitFor(async () => (await inspectProcess(secondPid)).status !== "running");
-  } finally {
-    await firstApi?.stop().catch(() => undefined);
-    await secondApi?.stop().catch(() => undefined);
-    await stopManagedProcess(serviceId, PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS, { workspaceRoot: first.workspaceRoot }).catch(() => null);
-    await stopManagedProcess(serviceId, PROCESS_TREE_STOP_CONVERGENCE_TIMEOUT_MS, { workspaceRoot: second.workspaceRoot }).catch(() => null);
-    resetLifecycleState();
-    await removeTempRoot(first.tempRoot);
-    await removeTempRoot(second.tempRoot);
   }
 });

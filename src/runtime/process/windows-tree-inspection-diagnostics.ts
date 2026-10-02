@@ -15,38 +15,6 @@ export function windowsNativeInspectionFailure(exitCode: number | null): string 
   return Number.isInteger(exitCode) && Object.hasOwn(nativeFailureReasons, exitCode as number)
     ? nativeFailureReasons[exitCode as number] : null;
 }
-
-// This deliberately recognizes only the two exhausted same-handle outcomes.
-// It traverses wrapping errors without reading messages or native output so
-// supervisor callers can stop automatic continuation without widening the
-// diagnostic surface.
-export function isTerminalWindowsCommandPartialCopy(error: unknown): boolean {
-  try {
-    const pending = [error];
-    const seen = new Set<object>();
-    for (let index = 0; index < pending.length && index < 16; index += 1) {
-      const current = pending[index];
-      if (!current || typeof current !== "object" || seen.has(current)) continue;
-      seen.add(current);
-      const candidate = current as {
-        windowsNativeInspectionFailure?: unknown;
-        cause?: unknown;
-        errors?: unknown;
-      };
-      if (
-        candidate.windowsNativeInspectionFailure === "root_command_partial_copy" ||
-        candidate.windowsNativeInspectionFailure === "descendant_command_partial_copy"
-      ) {
-        return true;
-      }
-      pending.push(candidate.cause);
-      if (Array.isArray(candidate.errors)) pending.push(...candidate.errors.slice(0, 16));
-    }
-  } catch {
-    // Classification must never replace the original inspection failure.
-  }
-  return false;
-}
 const phases = new Set(["queue_wait", "native_snapshot", "retry_delay"]);
 const retryReasons = new Set([
   "helper_failed", "malformed", "incomplete", "invalid_ancestry", "inconsistent_root",
@@ -61,6 +29,8 @@ const parentBirthRelations = new Set([
 ]);
 const childBirthRelations = new Set(["child_before_root"]);
 const depthBuckets = new Set(["one", "two_to_four", "five_plus"]);
+const commandQueryHeldHandleStates = new Set(["still_active_or_259", "exit_query_failed"]);
+const commandQueryArchitectureRelations = new Set(["same", "cross", "unknown"]);
 
 export type WindowsTreeInspectionMetadata = Record<string, string | number | boolean | null>;
 
@@ -108,6 +78,16 @@ export function projectWindowsTreeInspectionMetadata(value: unknown): WindowsTre
       result.windowsTreeInspectionChildBirthRelation = childBirthRelation;
       result.windowsTreeInspectionRootFingerprintMatch = rootFingerprintMatch;
       result.windowsTreeInspectionAncestryDepthBucket = depthBucket;
+    }
+    const commandQueryHeldHandleState = metadata.windowsTreeInspectionCommandQueryHeldHandleState;
+    const commandQueryArchitectureRelation = metadata.windowsTreeInspectionCommandQueryArchitectureRelation;
+    if (
+      (reason === "root_command_partial_copy" || reason === "descendant_command_partial_copy") &&
+      typeof commandQueryHeldHandleState === "string" && commandQueryHeldHandleStates.has(commandQueryHeldHandleState) &&
+      typeof commandQueryArchitectureRelation === "string" && commandQueryArchitectureRelations.has(commandQueryArchitectureRelation)
+    ) {
+      result.windowsTreeInspectionCommandQueryHeldHandleState = commandQueryHeldHandleState;
+      result.windowsTreeInspectionCommandQueryArchitectureRelation = commandQueryArchitectureRelation;
     }
     return result;
   } catch {

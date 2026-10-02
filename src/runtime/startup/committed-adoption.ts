@@ -1,7 +1,7 @@
 import type { DiscoveredService } from "../../contracts/service.js";
 import { adoptManagedProcess, hasManagedProcess } from "../execution/supervisor.js";
 import { readRuntimeGenerationRegistry } from "../instance/registry.js";
-import { getLifecycleState, setLifecycleState, withLifecycleWorkspace } from "../lifecycle/store.js";
+import { getLifecycleState, setLifecycleState } from "../lifecycle/store.js";
 import { buildServiceNetwork } from "../operator/network.js";
 import { resolveServiceEndpoints } from "../operator/endpoints.js";
 import {
@@ -32,7 +32,6 @@ export async function rebindCommittedServiceAdoption(
   service: DiscoveredService,
   options: CommittedServiceAdoptionOptions,
 ): Promise<number> {
-  return await withLifecycleWorkspace(options.workspaceRoot, async () => {
   const serviceId = service.manifest.id;
   const owner = await findProcessOwnership(options.workspaceRoot, "service", serviceId);
   if (!owner?.pid || !owner.identity || await classifyRegisteredProcess(owner) !== "owned") {
@@ -68,7 +67,7 @@ export async function rebindCommittedServiceAdoption(
   if (!portsAgree(owner.allocation.ports, ports)) {
     throw new Error(`Committed service "${serviceId}" cannot be rebound to a different endpoint allocation.`);
   }
-  const requiresAdoption = !hasManagedProcess(serviceId, options.workspaceRoot);
+  const requiresAdoption = !hasManagedProcess(serviceId);
   if (requiresAdoption && (!state.runtime.startedAt || !state.runtime.command)) {
     throw new Error(`Committed service "${serviceId}" cannot be adopted without runtime launch evidence.`);
   }
@@ -128,5 +127,4 @@ export async function rebindCommittedServiceAdoption(
     throw new Error(`Committed service "${serviceId}" rebound ownership could not be verified.`);
   }
   return owner.pid;
-  });
 }
