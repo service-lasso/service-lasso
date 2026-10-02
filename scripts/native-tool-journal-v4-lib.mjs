@@ -14,11 +14,36 @@ const positive = value => Number.isSafeInteger(Number(value)) && Number(value) >
 // Self-contained physical closure avoids recursively starting a bootstrap helper
 // while reading that helper's own executable. Windows raw probes additionally
 // reject native ReparsePoint attributes at their actual observation.
-export async function imageParents(file) {
+// Separate finite observation only; neither private custody nor acceptance evidence.
+function reportParentFailure(observation, report) {
+  try { report(`[native-boundary-failure-observation] ${JSON.stringify({
+    schema: "service-lasso.native-boundary-failure-observation.v1",
+    boundary: "image_parent", privateIdentity: "unavailable", ...observation,
+  })}\n`); } catch { /* Observation cannot replace the original refusal. */ }
+}
+export async function imageParents(file, io = { lstat, realpath }, report = value => process.stderr.write(value)) {
   const target=path.resolve(file), parents=[];
   for(let cursor=path.dirname(target);;cursor=path.dirname(cursor)) {
-    const entry=await lstat(cursor),resolved=await realpath(cursor);
-    if(!entry.isDirectory()||entry.isSymbolicLink()||path.relative(cursor,resolved)!==""||!Number.isSafeInteger(entry.ino)||entry.ino<=0)throw new Error("first_custody_native_reparse_parent");
+    let entry, resolved, acquisition = "lstat", predicates;
+    try {
+      entry=await io.lstat(cursor);
+      acquisition="realpath";resolved=await io.realpath(cursor);
+      acquisition="predicate";
+      predicates={directory:Boolean(entry.isDirectory()),symlink:Boolean(entry.isSymbolicLink()),samePhysicalPath:path.relative(cursor,resolved)==="",inoSafeInteger:Number.isSafeInteger(entry.ino),inoPositive:entry.ino>0};
+    } catch(error) {
+      reportParentFailure({observationStatus:"unavailable",acquisition},report);
+      throw error;
+    }
+    const failedPredicates=[];
+    if(!predicates.directory)failedPredicates.push("directory");
+    if(predicates.symlink)failedPredicates.push("symlink");
+    if(!predicates.samePhysicalPath)failedPredicates.push("samePhysicalPath");
+    if(!predicates.inoSafeInteger)failedPredicates.push("inoSafeInteger");
+    if(!predicates.inoPositive)failedPredicates.push("inoPositive");
+    if(failedPredicates.length){
+      reportParentFailure({observationStatus:"captured",predicates,failedPredicates},report);
+      throw new Error("first_custody_native_reparse_parent");
+    }
     parents.push({cursor,resolved,dev:entry.dev,ino:entry.ino,uid:entry.uid,gid:entry.gid,mode:entry.mode});if(cursor===path.dirname(cursor))break;
   }
   return parents;

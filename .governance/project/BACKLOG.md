@@ -715,3 +715,5 @@ No imports, syntax checks, compiler, helpers, tests, installation, ACL or lifecy
 execution is admitted until a different fresh reviewer grants entire cumulative
 SOURCE GO and a NEW complete-input ROOT admission. Existing PR owners retain
 #1591/#1593/#1595/#1596/#1599 and #1586; normal source starts from current develop.
+
+| ISS-1603 | in_progress, source only | Parent #1594 / #1562; closed native refusal and temp-cleanup observations | SPEC-006 AC-6G.native-boundary-observation / SPEC-003 BR-008 | Different ENTIRE review, NEW ROOT admission and unchanged native/product/operator gates pending; private sink undefined. |
