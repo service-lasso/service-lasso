@@ -454,6 +454,7 @@ export async function verifyPublishedPackage({
     });
 
     const installedToolsRoot = path.join(consumerRoot, "node_modules", "@service-lasso", "service-lasso", "operator-tools");
+    await verifyRetainedOperatorTools({ artifactRoot: path.join(consumerRoot, "node_modules", "@service-lasso", "service-lasso") });
     const installedTools = JSON.parse(await readFile(path.join(installedToolsRoot, "manifest.json"), "utf8"));
     if (!Array.isArray(installedTools.tools) || installedTools.tools.length !== 2 || installedTools.tools.some((tool) => tool.status !== "available")) {
       throw new Error("consumer-installed package does not retain both available operator tools");
@@ -471,7 +472,7 @@ export async function verifyPublishedPackage({
       [
         'import { startApiServer } from "@service-lasso/service-lasso";',
         'import { spawn } from "node:child_process";',
-        'import { copyFile, mkdir, writeFile } from "node:fs/promises";',
+        'import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";',
         'import { fileURLToPath } from "node:url";',
         "",
         `const servicesRoot = ${JSON.stringify(servicesRoot)};`,
@@ -502,7 +503,11 @@ export async function verifyPublishedPackage({
         "  throw new Error(`runtime health version ${health.api.version} did not match ${expectedVersion}`);",
         "}",
         "const cliArchive = fileURLToPath(new URL(\"./operator-cli/service-lassoctl.tgz\", import.meta.url));",
-        "await copyFile(`${packagedRoot}/operator-tools/service-lassoctl/service-lassoctl-0.1.0-dev.24d756e.tgz`, cliArchive);",
+        "const retainedTools = JSON.parse(await readFile(`${packagedRoot}/operator-tools/manifest.json`, \"utf8\"));",
+        "const retainedCli = retainedTools.tools.find(tool => tool.command === \"service-lassoctl\");",
+        "const portable = retainedCli.assets.find(asset => asset.name === retainedCli.asset.name);",
+        "if (!portable || portable.relativePath !== `operator-tools/service-lassoctl/${portable.name}`) throw new Error(\"retained portable CLI identity is invalid\");",
+        "await copyFile(`${packagedRoot}/${portable.relativePath}`, cliArchive);",
         "const npmCommand = process.platform === \"win32\" ? { command: process.env.ComSpec ?? \"cmd.exe\", args: [\"/d\", \"/s\", \"/c\", `npm.cmd install ${cliArchive}`] } : { command: \"npm\", args: [\"install\", cliArchive] };",
         "const install = spawn(npmCommand.command, npmCommand.args, { cwd: toolRootPath, stdio: \"inherit\" });",
         "await new Promise((resolve, reject) => { install.on(\"error\", reject); install.on(\"close\", (code) => code === 0 ? resolve() : reject(new Error(`operator CLI install exited ${code}`))); });",
@@ -564,7 +569,7 @@ export async function verifyPublishedPackage({
       summary: {
         ...summary,
         cliVersion: reportedVersion,
-        operatorTools: installedTools.tools.map((tool) => ({ command: tool.command, status: tool.status })),
+        operatorTools: installedTools.tools.map((tool) => ({ command: tool.command, status: tool.status, receiptKind: tool.receiptKind })),
       },
     };
   } finally {

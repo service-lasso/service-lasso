@@ -63,8 +63,8 @@ test("publishable core package can be staged and consumed by a temp project", as
     assert.equal(verified.artifactName, staged.artifactName);
     assert.equal(verified.summary.ok, true);
     assert.deepEqual(verified.summary.operatorTools, [
-      { command: "service-lassoctl", status: "available" },
-      { command: "service-lasso-tui", status: "available" },
+      { command: "service-lassoctl", status: "available", receiptKind: "protected-immutable" },
+      { command: "service-lasso-tui", status: "available", receiptKind: "protected-immutable" },
     ]);
     assert.match(verified.summary.url, /^http:\/\/127\.0\.0\.1:\d+$/);
   } finally {
