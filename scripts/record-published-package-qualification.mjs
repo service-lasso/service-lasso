@@ -2,6 +2,7 @@ import { validInitialProjection } from "./public-first-custody-projection-lib.mj
 import { lstat, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
+import { isDeepStrictEqual } from "node:util";
 import {
   ADMIN_HARNESS_REVISION,
   ADMIN_RELEASE,
@@ -70,6 +71,7 @@ const runAttempt = String(
   requirePositiveInteger(env("GITHUB_RUN_ATTEMPT", /^[1-9][0-9]*$/u), "GITHUB_RUN_ATTEMPT"),
 );
 const workflowSha = requireSha(env("GITHUB_SHA"), "GITHUB_SHA");
+if (process.env.QUALIFICATION_CANDIDATE_SHA !== workflowSha) throw new Error("Initial qualification candidate is not the workflow candidate.");
 const coreReleaseId = env("CORE_RELEASE_ID", /^[1-9][0-9]*$/u);
 const coreTag = env("CORE_RELEASE_TAG", /^20[0-9]{2}\.[1-9][0-9]*\.[1-9][0-9]*-[0-9a-f]{7}$/u);
 const coreRevision = requireSha(env("CORE_REVISION"), "CORE_REVISION");
@@ -109,6 +111,7 @@ try {
     retainedContent: "metadata_only",
     outcome: "failure",
     platform,
+    firstCustody: initialProjection,
     core: {
       releaseId: coreReleaseId,
       tag: coreTag,
@@ -145,6 +148,10 @@ try {
     negativeProof: {},
     scenarios: {},
   };
+}
+
+if (!validInitialProjection(evidence.firstCustody, platform, runId, runAttempt, workflowSha) || !isDeepStrictEqual(evidence.firstCustody, initialProjection)) {
+  throw new Error("Prepared first-custody projection does not match current initial projection.");
 }
 
 let jobId = 0;

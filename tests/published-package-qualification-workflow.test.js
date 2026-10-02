@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { strictJson } from "../scripts/consume-admin-trusted-unlock-receipt.mjs";
+import { ADMIN_HARNESS_REVISION } from "../scripts/published-package-qualification-lib.mjs";
 
 const workflowUrl = new URL(
   "../.github/workflows/published-package-qualification.yml",
@@ -43,9 +44,11 @@ test("AC-4BZ.1 workflow qualifies only exact downloaded publications on all thre
   );
   assert.match(workflow,/QUALIFICATION_CANDIDATE_SHA: \$\{\{ github\.sha \}\}/u);
   assert.match(workflow, /ref: \$\{\{ github\.sha \}\}/);
+  assert.match(workflow, /QUALIFICATION_SAFE_STATE_PATH="\$QUALIFICATION_PRIVATE_CUSTODY_ROOT\/qualification-state\.json"/u);
+  assert.doesNotMatch(workflow, /QUALIFICATION_SAFE_STATE_PATH="\$QUALIFICATION_EVIDENCE_ROOT\//u);
   assert.match(
     workflow,
-    /ADMIN_HARNESS_REVISION: 3b44b9053665f8f2e54ecba610e4f94e0c1727dd/,
+    new RegExp(`ADMIN_HARNESS_REVISION: ${ADMIN_HARNESS_REVISION}(?:\\r?\\n|$)`, "u"),
   );
   assert.match(
     workflow,

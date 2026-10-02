@@ -170,6 +170,7 @@ for (const platform of PLATFORMS) {
     workflowSha,
   });
   validateRetainedEvidence(evidence, {
+    initialProjection: initial,
     platform,
     runId,
     runAttempt,

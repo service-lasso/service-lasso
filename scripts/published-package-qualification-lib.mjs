@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { lstat, readFile, stat } from "node:fs/promises";
 import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
+import { validInitialProjection } from "./public-first-custody-projection-lib.mjs";
 import { hasObservedConsumerReceipt, isRetainableConsumerReceipt, parseConsumerReceipt } from "./consume-admin-trusted-unlock-receipt.mjs";
 
 export const QUALIFICATION_SCHEMA =
@@ -769,14 +771,9 @@ export function validateRetainedEvidence(evidence, expected) {
   }
   const custody = evidence.firstCustody;
   if (
-    custody?.schema !== "service-lasso.qualification-first-custody-projection.v1" ||
-    custody?.terminal !== "CLOSED" ||
-    custody?.nativeFileCount !== 19 ||
-    !Number.isSafeInteger(custody?.trackedFileCount) || custody.trackedFileCount < 1 ||
-    !/^[0-9a-f]{64}$/u.test(custody?.firstRecordSha256) ||
-    !/^[0-9a-f]{64}$/u.test(custody?.journalSha256) ||
-    !/^[0-9a-f]{64}$/u.test(custody?.inventorySha256) ||
-    !/^[0-9a-f]{64}$/u.test(custody?.nativeInventorySha256)
+    !validInitialProjection(custody, expected.platform, expected.runId, expected.runAttempt, expected.workflowSha) ||
+    !validInitialProjection(expected.initialProjection, expected.platform, expected.runId, expected.runAttempt, expected.workflowSha) ||
+    !isDeepStrictEqual(custody, expected.initialProjection)
   ) {
     fail("evidence_first_custody_mismatch", `Retained ${expected.platform} first-custody closure is invalid.`);
   }
