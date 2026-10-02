@@ -640,8 +640,8 @@ const runId = requiredEnv("GITHUB_RUN_ID", /^[1-9][0-9]*$/u);
 const runAttempt = requiredEnv("GITHUB_RUN_ATTEMPT", /^[1-9][0-9]*$/u);
 const workflowSha = requireSha(requiredEnv("GITHUB_SHA"), "GITHUB_SHA");
 const candidateSha = requireSha(requiredEnv("QUALIFICATION_CANDIDATE_SHA"), "QUALIFICATION_CANDIDATE_SHA");
-const initialProjectionSource = await readFile(path.resolve(requiredEnv("QUALIFICATION_INITIAL_PROJECTION_PATH")), "utf8");
-const initialProjection = strictJson(initialProjectionSource) ? JSON.parse(initialProjectionSource) : null;
+const initialProjectionSource = await readFile(path.resolve(requiredEnv("QUALIFICATION_INITIAL_PROJECTION_PATH")), "utf8").catch(() => null);
+const initialProjection = initialProjectionSource && strictJson(initialProjectionSource) ? JSON.parse(initialProjectionSource) : null;
 if (candidateSha !== workflowSha || !validInitialProjection(initialProjection, platform, runId, runAttempt, workflowSha)) {
   fail("initial_projection_custody_invalid", "Initial qualification projection custody is invalid.");
 }
