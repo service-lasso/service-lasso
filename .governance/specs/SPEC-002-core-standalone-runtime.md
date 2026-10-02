@@ -604,3 +604,11 @@ For child #1525's retained Windows `descendant_command_partial_copy` evidence, t
 For the retained 079eb33 ancestry_predates_parent failure, distinguish the rejected edge whose child or parent predates the expected root from a rejected edge wholly within that root time range. Emit only closed before_root/within_root categories; no PID, timestamps, commands or raw snapshot. Both remain failures with identical membership, retry, deadline, containment and identity behavior. Prove both classifications and sensitive-field exclusion; passing diagnostics do not establish the original hosted cause.
 
 For #1552's retained `ancestry_predates_parent_before_root` receipt, evaluate a complete candidate's verified relation to a present, fingerprint-matching root before rejecting a stale numeric parent edge. A direct child that itself predates that root may be excluded only after its full identity and structural path are valid; do not signal it, include it in owned membership, or infer its exit. A current-or-later child, a changed or absent root, incomplete identity, missing or cyclic ancestry, deeper ambiguous relation, and every within-root chronology violation remain fail-closed with the existing retry, deadline, containment, same-handle, and native provenance controls. This models a lifetime boundary without attributing the original hosted process state.
+
+## Issue #1600 fixture/input acceptance clarification
+
+Preserve existing acceptance criteria and production checks. The complete source-only
+fixture scope, original failures, dependency owners and subsequent evidence gates
+are bound in [issue 1600 contract map](../project/QUALIFICATION_FIXTURE_INPUTS_1600.md).
+This clarification authorizes faithful input/assertion reconciliation, no protected
+skip, deadline or permission widening, native-custody substitute, or release claim.

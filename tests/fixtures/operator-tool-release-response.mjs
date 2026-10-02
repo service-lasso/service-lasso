@@ -64,6 +64,7 @@ export async function createOperatorToolReleaseResponseFixture() {
   const cliRelease = {
     repository: "service-lasso/service-lasso-cli",
     tag: "cli-v0.1.0-dev.d3a3814-candidate-d3a3814",
+    version: "0.1.0-dev.d3a3814",
     targetCommit: "d3a381402c26686aa0b618055a45d525605bdbea",
     asset: { name: "service-lassoctl-0.1.0-dev.d3a3814.tgz", sha256: hash(cliBytes) },
     checksumManifest: {},
@@ -73,6 +74,7 @@ export async function createOperatorToolReleaseResponseFixture() {
   const cliCandidate = Buffer.from(JSON.stringify({
     schemaVersion: 1,
     candidateTag: cliRelease.tag,
+    version: cliRelease.version,
     source: { repository: cliRelease.repository, commit: cliRelease.targetCommit },
     package: { command: "service-lassoctl", node: ">=22.12.0" },
     platforms: cliRelease.supportedPlatforms,
@@ -102,6 +104,7 @@ export async function createOperatorToolReleaseResponseFixture() {
         target_commitish: selectedRelease.targetCommit,
         prerelease: true,
         draft: false,
+        immutable: false,
         assets: selectedAssets.map((asset, index) => ({
           name: asset.name,
           digest: `sha256:${asset.sha256}`,

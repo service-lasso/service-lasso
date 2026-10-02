@@ -686,3 +686,12 @@ No source execution/import/parser/compiler/test/helper/npm/install/native ACL/li
 | Item | Status | Parent | Requirement | Remaining evidence |
 | --- | --- | --- | --- | --- |
 | ISS-1594 / TASK-1594 | in_progress | #864 / #1386; release #1577 | SPEC-006 AC-6G closed owned-temp cleanup observation | Spec-first source implementation and meaningful production-adapter regressions; fresh cumulative independent review; external complete-input ROOT admission before execution; exact-head three-OS MCP and relevant native/CLI/TUI acceptance. Original #1593 failed Windows jobs remain retained and cause UNOBSERVED. No lifetime, release or acceptance claim from this diagnostic repair. |
+
+## Issue #1600 qualification fixture and input reconciliation
+
+Development, source preparation only. Parent #1562 remains active. The complete
+nineteen-failure contract map is [QUALIFICATION_FIXTURE_INPUTS_1600.md](QUALIFICATION_FIXTURE_INPUTS_1600.md).
+No imports, syntax checks, compiler, helpers, tests, installation, ACL or lifecycle
+execution is admitted until a different fresh reviewer grants entire cumulative
+SOURCE GO and a NEW complete-input ROOT admission. Existing PR owners retain
+#1591/#1593/#1595/#1596/#1599 and #1586; normal source starts from current develop.

@@ -125,3 +125,11 @@ Current terminal8189 full qualification reports1562 tests/1476 pass/17 fail/69 s
 Acceptance adds independent real two-commit Git source -> depth1 acquisition, actual ordinary and aliased-parent strict checkout positives, valid wrong-tree and wrong-head/failed-source negatives reaching actual fetch/tree boundaries. Both complete workflow ordinary/alias native Core/separate-Admin positives and workflow negatives use an explicitly exact shallow source before unchanged native assertions. All31 independent adversaries, native mandatory vectors, private/public authority and earlier8+3/finite-timeout/normal-publication repairs remain required. The other11 full-suite failures stay with their separate owners (#1591/#1593/#1595/#1596/#1599/#1601 and parent routing); no source is copied from those lanes.
 
 No source execution/import/parser/compiler/test/helper/npm/install/native ACL/lifecycle is authorized locally. Authored regressions are UNEXECUTED. Different fresh ENTIRE cumulative SOURCE GO and NEW complete-input ROOT admission precede any local execution; full three-OS/compiler/native/operator/product/natural-CI/publication/same-byte gates remain unmet. Parent owns tracking; no main access, nested agents, deadline/concurrency/skip/permission weakening, rerun/dispatch/cancel/settings, merge/publication or cleanup.
+
+## Issue #1600 fixture/input acceptance clarification
+
+Preserve existing acceptance criteria and production checks. The complete source-only
+fixture scope, original failures, dependency owners and subsequent evidence gates
+are bound in [issue 1600 contract map](../project/QUALIFICATION_FIXTURE_INPUTS_1600.md).
+This clarification authorizes faithful input/assertion reconciliation, no protected
+skip, deadline or permission widening, native-custody substitute, or release claim.

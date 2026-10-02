@@ -158,3 +158,12 @@ No source execution/import/parser/compiler/test/helper/npm/install/native ACL/li
 - #1590 diagnostic contract remediation is source-only and UNEXECUTED pending fresh complete external exact-source custody and ROOT admission. SPEC-002 AC-4BH.3 maps the common fourteen-key projection and strict native receipt to paired protected proof; independent review, terminal exact-head relevant CI and native evidence remain required.
 
 - #1594 adopts SPEC-006 AC-6G closed owned-temp cleanup diagnostics before implementation. Preserve eight calls, existing retry codes/delays, deadlines, ownership/permissions, complete CLI/TUI inclusion and failure exit. Fresh cumulative review and complete first-input ROOT admission remain required before local product execution; historical #1593 cause stays UNOBSERVED and three-OS/full-operator gates stay pending.
+
+## Issue #1600 qualification fixture and input reconciliation
+
+Development, source preparation only. Parent #1562 remains active. The complete
+nineteen-failure contract map is [QUALIFICATION_FIXTURE_INPUTS_1600.md](.governance/project/QUALIFICATION_FIXTURE_INPUTS_1600.md).
+No imports, syntax checks, compiler, helpers, tests, installation, ACL or lifecycle
+execution is admitted until a different fresh reviewer grants entire cumulative
+SOURCE GO and a NEW complete-input ROOT admission. Existing PR owners retain
+#1591/#1593/#1595/#1596/#1599 and #1586; normal source starts from current develop.

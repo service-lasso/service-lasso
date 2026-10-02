@@ -125,3 +125,11 @@ After actual owned-temp removal failure, retain `temp_cleanup` / `cleanup_failed
 Keep exactly the existing maximum eight outer calls, retry only EBUSY/ENOTEMPTY/EPERM, and wait attempt*100ms only between existing retry attempts. Safe own-data classification also governs retry admission; inherited/accessor codes are unknown and cannot authorize a retry. Production `rm` keeps recursive/force flags. A successful removal, including transient recovery, produces no cleanup failure. Terminal failure after an earlier passed package result must still emit the closed diagnostic and exit 1; prior validated evidence never qualifies failed cleanup. Preserve 300000ms installation and 900000ms consumer bounds, ownership, permissions, provenance, full packaged CLI/TUI inclusion and success/evidence behavior.
 
 Regression evidence must exercise the production removal adapter and the verifier's actual finalization control flow: retryable and nonretryable codes, unknown/malformed/inherited/accessor/hostile errors, privacy, exact invocation counts and delays, transient recovery, terminal exhaustion, earlier primary failure, and success followed by cleanup failure. Existing protected expectations stay intact; adding the new adapter to inert test contexts is dependency wiring, not a narrowed gate. Fresh cumulative independent review and complete external first-input ROOT admission precede exact-head runtime qualification. Original #1593 Windows failures remain unchanged with underlying cause UNOBSERVED; this observation does not establish a lifetime repair or full CLI/TUI/package acceptance.
+
+## Issue #1600 fixture/input acceptance clarification
+
+Preserve existing acceptance criteria and production checks. The complete source-only
+fixture scope, original failures, dependency owners and subsequent evidence gates
+are bound in [issue 1600 contract map](../project/QUALIFICATION_FIXTURE_INPUTS_1600.md).
+This clarification authorizes faithful input/assertion reconciliation, no protected
+skip, deadline or permission widening, native-custody substitute, or release claim.

@@ -22,3 +22,10 @@
 - [ ] Documentation updated if behavior or workflow changed
 - [ ] No product-code scope was added without spec coverage
 - [ ] Source-admission changes identify the immutable template contract, bounded input grammar, confirmation/idempotency/recovery proof, and packaged external-client evidence
+
+## Qualification fixture reconciliation (#1600 only)
+
+Account for all nineteen assertions using the governed contract map; distinguish
+prepared source, pending dependency landing, UNOBSERVED mechanism and UNMET native
+acceptance. Require a different fresh entire-source reviewer and NEW complete-input
+ROOT admission before any execution. Do not infer qualification from mocked inputs.
