@@ -28,6 +28,11 @@ qualification.
 - `CORE-CLI-JOB-005`: Native CI uses the target host's actual executable name
   on Windows, Linux, and macOS, retains the original failed job output, and
   does not waive a failed primary gate.
+- `CORE-CLI-JOB-006`: Where the owner-installed host runner is used, the
+  daemon creates and holds the per-job expected output and inventory from the
+  accepted compiled client/primary identity. Caller paths, static state files,
+  and self-issued nonce material are not job authority. Issuance and every
+  terminal revocation are durably replay-safe.
 
 ## Evidence and boundaries
 

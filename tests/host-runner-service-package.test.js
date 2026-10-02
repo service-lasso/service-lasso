@@ -20,7 +20,8 @@ test("AC-8C/8D Darwin source uses held descriptors and daemon-issued one-use cap
   assert.match(source, /fstat\(fd/); assert.match(source, /CC_SHA256_Update/);
   assert.match(source, /issue_capability/); assert.match(source, /consume_capability/); assert.match(source, /revoke_peer/);
   assert.match(source, /expiry > \(uint64_t\)time/); assert.match(source, /capability_nonce/); assert.match(source, /daemon_fd/);
-  assert.match(source, /load_expected_object\("expected-parent"/); assert.match(source, /load_expected_object\("expected-leaf"/); assert.match(source, /expected_object_is_unchanged/); assert.match(source, /close\(capability\)/);
+  assert.match(source, /create_daemon_job_outputs/); assert.match(source, /hold_created_object/); assert.match(source, /expected_object_is_unchanged/); assert.match(source, /close\(capability\)/);
+  assert.match(source, /durable_job_transition/); assert.match(source, /"issued"/); assert.match(source, /"consumed"/); assert.match(source, /"revoked"/);
   assert.match(source, /reviewed_client/); assert.match(source, /strict_code_identity/); assert.match(source, /load_client_requirement/); assert.match(source, /client_requirement/);
   assert.match(source, /grants\[i\]\.birth/); assert.match(source, /grants\[i\]\.image_sha256/);
   assert.match(source, /parent_object=parent/); assert.match(source, /leaf_object=leaf/);
@@ -32,7 +33,7 @@ test("AC-8C/8D Darwin source uses held descriptors and daemon-issued one-use cap
 test("AC-8B/8E source owns a resident primary, captures its audit identity, and keeps activation boundaries honest", () => {
   const source = read("scripts/host-runner-service/darwin/service-lasso-host-runner.c");
   const owner = read("docs/operations/host-runner-service-owner-package.md");
-  assert.match(source, /posix_spawn/); assert.match(source, /TASK_AUDIT_TOKEN/); assert.match(source, /csops/);
+  assert.match(source, /posix_spawn/); assert.match(source, /TASK_AUDIT_TOKEN/); assert.match(source, /csops/); assert.match(source, /strict_code_identity\(primary\.pid, client_requirement\)/);
   assert.match(source, /proc_pidinfo/); assert.match(source, /pbi_ppid != getpid/); assert.match(source, /audit_token_to_pid/);
   assert.match(source, /hash_pid_image/); assert.match(source, /O_NOFOLLOW/); assert.match(source, /reap_primary_on_exit/);
   assert.match(source, /strcmp\(argv\[2\], STATE_DIR\)/); assert.match(source, /private-receipt\.log/);
@@ -60,9 +61,9 @@ test("installer restores all replaced state and denies links before privileged m
 test("producer contract is versioned and binds consumer acceptance to a generated candidate hash", () => {
   const contract = JSON.parse(read("scripts/host-runner-service/contract-v1.json"));
   const build = read("scripts/host-runner-service/darwin/build.sh");
-  assert.equal(contract.protocol, "service-lasso.host-runner.v2");
+  assert.equal(contract.protocol, "service-lasso.host-runner.v3");
   assert.equal(contract.consumer, "service-lasso-cli");
-  assert.match(JSON.stringify(contract), /capability_fd/); assert.match(JSON.stringify(contract), /expected_objects/); assert.match(JSON.stringify(contract), /parent_leaf_binding/); assert.match(build, /candidate_sha256/);
+  assert.match(JSON.stringify(contract), /capability_fd/); assert.match(JSON.stringify(contract), /expected_objects/); assert.match(JSON.stringify(contract), /daemon-created/); assert.match(JSON.stringify(contract), /parent_leaf_binding/); assert.match(build, /candidate_sha256/);
   assert.match(contract.non_claims[0], /CLI acceptance/);
 });
 
