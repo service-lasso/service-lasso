@@ -1,0 +1,974 @@
+packaged-admin-lifecycle (win32)	Set up job	﻿2026-09-30T22:24:03.0144176Z Current runner version: '2.337.0'
+packaged-admin-lifecycle (win32)	Set up job	2026-09-30T22:24:03.0209020Z ##[group]Runner Image Provisioner
+packaged-admin-lifecycle (win32)	Set up job	2026-09-30T22:24:03.0210572Z Hosted Compute Agent
+packaged-admin-lifecycle (win32)	Set up job	2026-09-30T22:24:03.0211562Z Version: 20260901.588
+packaged-admin-lifecycle (win32)	Set up job	2026-09-30T22:24:03.0212578Z Commit: f88ec8081b781fac6c440065ac7ff9e710ce3d0b
+packaged-admin-lifecycle (win32)	Set up job	2026-09-30T22:24:03.0214327Z Build Date: 2026-09-01T19:56:44Z
+packaged-admin-lifecycle (win32)	Set up job	2026-09-30T22:24:03.0215468Z Worker ID: {9b0a52f3-7373-4475-8e4f-c4d160db2a82}
+packaged-admin-lifecycle (win32)	Set up job	2026-09-30T22:24:03.0216654Z Azure Region: eastus
+packaged-admin-lifecycle (win32)	Set up job	2026-09-30T22:24:03.0217635Z ##[endgroup]
+packaged-admin-lifecycle (win32)	Set up job	2026-09-30T22:24:03.0219885Z ##[group]Operating System
+packaged-admin-lifecycle (win32)	Set up job	2026-09-30T22:24:03.0221020Z Microsoft Windows Server 2025
+packaged-admin-lifecycle (win32)	Set up job	2026-09-30T22:24:03.0222035Z 10.0.26100
+packaged-admin-lifecycle (win32)	Set up job	2026-09-30T22:24:03.0223002Z Datacenter
+packaged-admin-lifecycle (win32)	Set up job	2026-09-30T22:24:03.0224045Z ##[endgroup]
+packaged-admin-lifecycle (win32)	Set up job	2026-09-30T22:24:03.0225120Z ##[group]Runner Image
+packaged-admin-lifecycle (win32)	Set up job	2026-09-30T22:24:03.0226161Z Image: windows-2025-vs2026
+packaged-admin-lifecycle (win32)	Set up job	2026-09-30T22:24:03.0227189Z Version: 20260925.250.1
+packaged-admin-lifecycle (win32)	Set up job	2026-09-30T22:24:03.0229117Z Included Software: https://github.com/actions/runner-images/blob/win25-vs2026/20260925.250/images/windows/Windows2025-VS2026-Readme.md
+packaged-admin-lifecycle (win32)	Set up job	2026-09-30T22:24:03.0232634Z Image Release: https://github.com/actions/runner-images/releases/tag/win25-vs2026%2F20260925.250
+packaged-admin-lifecycle (win32)	Set up job	2026-09-30T22:24:03.0234766Z ##[endgroup]
+packaged-admin-lifecycle (win32)	Set up job	2026-09-30T22:24:03.0236594Z ##[group]GITHUB_TOKEN Permissions
+packaged-admin-lifecycle (win32)	Set up job	2026-09-30T22:24:03.0239226Z Contents: read
+packaged-admin-lifecycle (win32)	Set up job	2026-09-30T22:24:03.0240169Z Metadata: read
+packaged-admin-lifecycle (win32)	Set up job	2026-09-30T22:24:03.0240994Z ##[endgroup]
+packaged-admin-lifecycle (win32)	Set up job	2026-09-30T22:24:03.0244171Z Secret source: Actions
+packaged-admin-lifecycle (win32)	Set up job	2026-09-30T22:24:03.0245676Z Cache mode: write
+packaged-admin-lifecycle (win32)	Set up job	2026-09-30T22:24:03.0247090Z Prepare workflow directory
+packaged-admin-lifecycle (win32)	Set up job	2026-09-30T22:24:03.0655044Z Prepare all required actions
+packaged-admin-lifecycle (win32)	Set up job	2026-09-30T22:24:03.0704221Z Getting action download info
+packaged-admin-lifecycle (win32)	Set up job	2026-09-30T22:24:03.2730948Z Download action repository 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' (SHA:3d3c42e5aac5ba805825da76410c181273ba90b1)
+packaged-admin-lifecycle (win32)	Set up job	2026-09-30T22:24:03.4174663Z Download action repository 'actions/setup-node@820762786026740c76f36085b0efc47a31fe5020' (SHA:820762786026740c76f36085b0efc47a31fe5020)
+packaged-admin-lifecycle (win32)	Set up job	2026-09-30T22:24:03.5917672Z Download action repository 'pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413' (SHA:ea17c68df8912ef543352723c149a84f56e3d413)
+packaged-admin-lifecycle (win32)	Set up job	2026-09-30T22:24:03.7280304Z Download action repository 'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a' (SHA:043fb46d1a93c77aae656e7c1c64a875d1fc6a0a)
+packaged-admin-lifecycle (win32)	Set up job	2026-09-30T22:24:03.9649894Z Complete job name: packaged-admin-lifecycle (win32)
+packaged-admin-lifecycle (win32)	Check out candidate Core	﻿2026-09-30T22:24:04.1268703Z ##[group]Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:04.1270062Z with:
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:04.1270575Z   ref: 5115a14acf157e26e8d4e9d538735f90dda353a9
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:04.1271252Z   repository: service-lasso/service-lasso
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:04.1275685Z   token: ***
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:04.1276148Z   ssh-strict: true
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:04.1276605Z   ssh-user: git
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:04.1277078Z   persist-credentials: true
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:04.1277597Z   clean: true
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:04.1278073Z   sparse-checkout-cone-mode: true
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:04.1278669Z   fetch-depth: 1
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:04.1279122Z   fetch-tags: false
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:04.1279588Z   show-progress: true
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:04.1280051Z   lfs: false
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:04.1280478Z   submodules: false
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:04.1280960Z   set-safe-directory: true
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:04.1281500Z   allow-unsafe-pr-checkout: false
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:04.1282257Z env:
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:04.1282708Z   ADMIN_RELEASE_ID: 380051618
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:04.1283301Z   ADMIN_RELEASE_TAG: 2026.8.31-f015b44
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:04.1283973Z   ADMIN_REVISION: f015b4445b0526546a309301270186a697588166
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:04.1285208Z   ADMIN_HARNESS_REVISION: 7385136072a855ca144594842344a7241a733ab4
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:04.1285985Z   BROKER_RELEASE_ID: 379635299
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:04.1286542Z   BROKER_RELEASE_TAG: 2026.8.31-f340883
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:04.1287236Z   BROKER_REVISION: f340883056ec3cf74b535fb46490b39382e8c823
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:04.1287952Z ##[endgroup]
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:04.2883794Z Syncing repository: service-lasso/service-lasso
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:04.2889463Z ##[group]Getting Git version info
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:04.2890716Z Working directory is 'D:\a\service-lasso\service-lasso'
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:04.4069613Z [command]"C:\Program Files\Git\bin\git.exe" version
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:04.7534910Z git version 2.55.0.windows.5
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:04.7583854Z ##[endgroup]
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:04.7600511Z Temporarily overriding HOME='D:\a\_temp\da5996f1-e2ad-445b-9647-8da3975f7df7' before making global git config changes
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:04.7602451Z Adding repository directory to the temporary git global config as a safe directory
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:04.7610970Z [command]"C:\Program Files\Git\bin\git.exe" config --global --add safe.directory D:\a\service-lasso\service-lasso
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:04.8243541Z Deleting the contents of 'D:\a\service-lasso\service-lasso'
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:04.8250137Z ##[group]Determining repository object format
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:04.8253579Z ##[endgroup]
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:04.8255662Z ##[group]Initializing the repository
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:04.8260879Z [command]"C:\Program Files\Git\bin\git.exe" init D:\a\service-lasso\service-lasso
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:04.9097682Z Initialized empty Git repository in D:/a/service-lasso/service-lasso/.git/
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:04.9140797Z [command]"C:\Program Files\Git\bin\git.exe" remote add origin https://github.com/service-lasso/service-lasso
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:04.9756368Z ##[endgroup]
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:04.9759287Z ##[group]Disabling automatic garbage collection
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:04.9762484Z [command]"C:\Program Files\Git\bin\git.exe" config --local gc.auto 0
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:05.0084388Z ##[endgroup]
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:05.0088307Z ##[group]Setting up auth
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:05.0091036Z Removing SSH command configuration
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:05.0102856Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp core\.sshCommand
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:05.0486524Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :\""
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:06.5778611Z Removing HTTP extra header
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:06.5789359Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:06.6091428Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :\""
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:07.1538701Z Removing includeIf entries pointing to credentials config files
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:07.1549038Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp ^includeIf\.gitdir:
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:07.1840564Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "git config --local --show-origin --name-only --get-regexp remote.origin.url"
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:07.7207806Z [command]"C:\Program Files\Git\bin\git.exe" config --file D:\a\_temp\git-credentials-07511cff-558d-4ebb-94da-dbabdd02f559.config http.https://github.com/.extraheader "AUTHORIZATION: basic ***"
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:07.7517448Z [command]"C:\Program Files\Git\bin\git.exe" config --local includeIf.gitdir:D:/a/service-lasso/service-lasso/.git.path D:\a\_temp\git-credentials-07511cff-558d-4ebb-94da-dbabdd02f559.config
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:07.7825647Z [command]"C:\Program Files\Git\bin\git.exe" config --local includeIf.gitdir:D:/a/service-lasso/service-lasso/.git/worktrees/*.path D:\a\_temp\git-credentials-07511cff-558d-4ebb-94da-dbabdd02f559.config
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:07.8192344Z [command]"C:\Program Files\Git\bin\git.exe" config --local includeIf.gitdir:/github/workspace/.git.path /github/runner_temp/git-credentials-07511cff-558d-4ebb-94da-dbabdd02f559.config
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:07.8502321Z [command]"C:\Program Files\Git\bin\git.exe" config --local includeIf.gitdir:/github/workspace/.git/worktrees/*.path /github/runner_temp/git-credentials-07511cff-558d-4ebb-94da-dbabdd02f559.config
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:07.8815674Z ##[endgroup]
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:07.8816361Z ##[group]Fetching the repository
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:07.8828452Z [command]"C:\Program Files\Git\bin\git.exe" -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin 5115a14acf157e26e8d4e9d538735f90dda353a9
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:09.1283247Z From https://github.com/service-lasso/service-lasso
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:09.1284017Z  * branch            5115a14acf157e26e8d4e9d538735f90dda353a9 -> FETCH_HEAD
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:09.1331479Z [command]"C:\Program Files\Git\bin\git.exe" rev-parse --verify --quiet 5115a14acf157e26e8d4e9d538735f90dda353a9^{object}
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:09.1629399Z 5115a14acf157e26e8d4e9d538735f90dda353a9
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:09.1665812Z ##[endgroup]
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:09.1666892Z ##[group]Determining the checkout info
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:09.1667777Z ##[endgroup]
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:09.1675609Z [command]"C:\Program Files\Git\bin\git.exe" sparse-checkout disable
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:09.2132389Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset-all extensions.worktreeConfig
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:09.2496515Z ##[group]Checking out the ref
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:09.2505909Z [command]"C:\Program Files\Git\bin\git.exe" checkout --progress --force 5115a14acf157e26e8d4e9d538735f90dda353a9
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:09.5509381Z Note: switching to '5115a14acf157e26e8d4e9d538735f90dda353a9'.
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:09.5509824Z 
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:09.5510033Z You are in 'detached HEAD' state. You can look around, make experimental
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:09.5510517Z changes and commit them, and you can discard any commits you make in this
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:09.5512391Z state without impacting any branches by switching back to a branch.
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:09.5513306Z 
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:09.5513705Z If you want to create a new branch to retain commits you create, you may
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:09.5514498Z do so (now or later) by using -c with the switch command. Example:
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:09.5514824Z 
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:09.5514966Z   git switch -c <new-branch-name>
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:09.5515149Z 
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:09.5515240Z Or undo this operation with:
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:09.5515399Z 
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:09.5515475Z   git switch -
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:09.5515594Z 
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:09.5515796Z Turn off this advice by setting config variable advice.detachedHead to false
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:09.5516110Z 
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:09.5516325Z HEAD is now at 5115a14 feat(1538): expose durable HTTP update cancellation
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:09.5627304Z ##[endgroup]
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:09.6059612Z [command]"C:\Program Files\Git\bin\git.exe" log -1 --format=%H
+packaged-admin-lifecycle (win32)	Check out candidate Core	2026-09-30T22:24:09.6353042Z 5115a14acf157e26e8d4e9d538735f90dda353a9
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	﻿2026-09-30T22:24:09.6853462Z ##[group]Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:09.6853993Z with:
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:09.6854261Z   repository: service-lasso/lasso-serviceadmin
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:09.6854698Z   ref: 7385136072a855ca144594842344a7241a733ab4
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:09.6855347Z   path: qualification/admin
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:09.6858944Z   token: ***
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:09.6859174Z   ssh-strict: true
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:09.6859399Z   ssh-user: git
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:09.6859632Z   persist-credentials: true
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:09.6859894Z   clean: true
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:09.6860130Z   sparse-checkout-cone-mode: true
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:09.6860425Z   fetch-depth: 1
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:09.6860647Z   fetch-tags: false
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:09.6860875Z   show-progress: true
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:09.6861103Z   lfs: false
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:09.6861311Z   submodules: false
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:09.6861542Z   set-safe-directory: true
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:09.6861816Z   allow-unsafe-pr-checkout: false
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:09.6862097Z env:
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:09.6862357Z   ADMIN_RELEASE_ID: 380051618
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:09.6862632Z   ADMIN_RELEASE_TAG: 2026.8.31-f015b44
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:09.6862981Z   ADMIN_REVISION: f015b4445b0526546a309301270186a697588166
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:09.6863426Z   ADMIN_HARNESS_REVISION: 7385136072a855ca144594842344a7241a733ab4
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:09.6864056Z   BROKER_RELEASE_ID: 379635299
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:09.6864331Z   BROKER_RELEASE_TAG: 2026.8.31-f340883
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:09.6864691Z   BROKER_REVISION: f340883056ec3cf74b535fb46490b39382e8c823
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:09.6865055Z ##[endgroup]
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:09.8050385Z Syncing repository: service-lasso/lasso-serviceadmin
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:09.8068523Z ##[group]Getting Git version info
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:09.8069280Z Working directory is 'D:\a\service-lasso\service-lasso\qualification\admin'
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:09.8886381Z [command]"C:\Program Files\Git\bin\git.exe" version
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:09.9164667Z git version 2.55.0.windows.5
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:09.9206057Z ##[endgroup]
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:09.9222460Z Temporarily overriding HOME='D:\a\_temp\acc5e983-70b2-4814-a9ac-b0bd337eb459' before making global git config changes
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:09.9223210Z Adding repository directory to the temporary git global config as a safe directory
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:09.9232994Z [command]"C:\Program Files\Git\bin\git.exe" config --global --add safe.directory D:\a\service-lasso\service-lasso\qualification\admin
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:09.9540224Z ##[group]Determining repository object format
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:09.9542828Z ##[endgroup]
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:09.9543271Z ##[group]Initializing the repository
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:09.9552964Z [command]"C:\Program Files\Git\bin\git.exe" init D:\a\service-lasso\service-lasso\qualification\admin
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:09.9907891Z Initialized empty Git repository in D:/a/service-lasso/service-lasso/qualification/admin/.git/
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:09.9963331Z [command]"C:\Program Files\Git\bin\git.exe" remote add origin https://github.com/service-lasso/lasso-serviceadmin
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:10.0311721Z ##[endgroup]
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:10.0312408Z ##[group]Disabling automatic garbage collection
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:10.0322459Z [command]"C:\Program Files\Git\bin\git.exe" config --local gc.auto 0
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:10.0641259Z ##[endgroup]
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:10.0641899Z ##[group]Setting up auth
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:10.0643247Z Removing SSH command configuration
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:10.0656020Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp core\.sshCommand
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:10.1025128Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :\""
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:10.6888257Z Removing HTTP extra header
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:10.6899585Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:10.7200732Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :\""
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:11.2580716Z Removing includeIf entries pointing to credentials config files
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:11.2591795Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp ^includeIf\.gitdir:
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:11.2896266Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "git config --local --show-origin --name-only --get-regexp remote.origin.url"
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:11.8019510Z [command]"C:\Program Files\Git\bin\git.exe" config --file D:\a\_temp\git-credentials-c333a275-9600-4aa2-ac46-7482ce5bb3bd.config http.https://github.com/.extraheader "AUTHORIZATION: basic ***"
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:11.8338561Z [command]"C:\Program Files\Git\bin\git.exe" config --local includeIf.gitdir:D:/a/service-lasso/service-lasso/qualification/admin/.git.path D:\a\_temp\git-credentials-c333a275-9600-4aa2-ac46-7482ce5bb3bd.config
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:11.8644326Z [command]"C:\Program Files\Git\bin\git.exe" config --local includeIf.gitdir:D:/a/service-lasso/service-lasso/qualification/admin/.git/worktrees/*.path D:\a\_temp\git-credentials-c333a275-9600-4aa2-ac46-7482ce5bb3bd.config
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:11.8963319Z [command]"C:\Program Files\Git\bin\git.exe" config --local includeIf.gitdir:/github/workspace/qualification/admin/.git.path /github/runner_temp/git-credentials-c333a275-9600-4aa2-ac46-7482ce5bb3bd.config
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:11.9278364Z [command]"C:\Program Files\Git\bin\git.exe" config --local includeIf.gitdir:/github/workspace/qualification/admin/.git/worktrees/*.path /github/runner_temp/git-credentials-c333a275-9600-4aa2-ac46-7482ce5bb3bd.config
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:11.9581873Z ##[endgroup]
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:11.9582277Z ##[group]Fetching the repository
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:11.9594045Z [command]"C:\Program Files\Git\bin\git.exe" -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin 7385136072a855ca144594842344a7241a733ab4
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:12.3551802Z From https://github.com/service-lasso/lasso-serviceadmin
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:12.3552366Z  * branch            7385136072a855ca144594842344a7241a733ab4 -> FETCH_HEAD
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:12.3598489Z [command]"C:\Program Files\Git\bin\git.exe" rev-parse --verify --quiet 7385136072a855ca144594842344a7241a733ab4^{object}
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:12.3867130Z 7385136072a855ca144594842344a7241a733ab4
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:12.3901659Z ##[endgroup]
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:12.3902054Z ##[group]Determining the checkout info
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:12.3903634Z ##[endgroup]
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:12.3912761Z [command]"C:\Program Files\Git\bin\git.exe" sparse-checkout disable
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:12.4297236Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset-all extensions.worktreeConfig
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:12.4604129Z ##[group]Checking out the ref
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:12.4613568Z [command]"C:\Program Files\Git\bin\git.exe" checkout --progress --force 7385136072a855ca144594842344a7241a733ab4
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:12.6927030Z Note: switching to '7385136072a855ca144594842344a7241a733ab4'.
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:12.6927601Z 
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:12.6927964Z You are in 'detached HEAD' state. You can look around, make experimental
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:12.6928858Z changes and commit them, and you can discard any commits you make in this
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:12.6929740Z state without impacting any branches by switching back to a branch.
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:12.6930269Z 
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:12.6930627Z If you want to create a new branch to retain commits you create, you may
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:12.6931433Z do so (now or later) by using -c with the switch command. Example:
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:12.6931933Z 
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:12.6932110Z   git switch -c <new-branch-name>
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:12.6932416Z 
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:12.6932569Z Or undo this operation with:
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:12.6932852Z 
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:12.6932986Z   git switch -
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:12.6933182Z 
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:12.6933548Z Turn off this advice by setting config variable advice.detachedHead to false
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:12.6935276Z 
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:12.6935705Z HEAD is now at 7385136 fix(1382): distinguish upstream response from browser delivery
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:12.6993163Z ##[endgroup]
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:12.7323049Z [command]"C:\Program Files\Git\bin\git.exe" log -1 --format=%H
+packaged-admin-lifecycle (win32)	Check out exact qualified Admin harness	2026-09-30T22:24:12.7597199Z 7385136072a855ca144594842344a7241a733ab4
+packaged-admin-lifecycle (win32)	Set up Node	﻿2026-09-30T22:24:12.7975294Z ##[group]Run actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+packaged-admin-lifecycle (win32)	Set up Node	2026-09-30T22:24:12.7975751Z with:
+packaged-admin-lifecycle (win32)	Set up Node	2026-09-30T22:24:12.7975932Z   node-version: 22
+packaged-admin-lifecycle (win32)	Set up Node	2026-09-30T22:24:12.7976123Z   cache: npm
+packaged-admin-lifecycle (win32)	Set up Node	2026-09-30T22:24:12.7976306Z   check-latest: false
+packaged-admin-lifecycle (win32)	Set up Node	2026-09-30T22:24:12.7978896Z   token: ***
+packaged-admin-lifecycle (win32)	Set up Node	2026-09-30T22:24:12.7979101Z   package-manager-cache: true
+packaged-admin-lifecycle (win32)	Set up Node	2026-09-30T22:24:12.7979325Z env:
+packaged-admin-lifecycle (win32)	Set up Node	2026-09-30T22:24:12.7979495Z   ADMIN_RELEASE_ID: 380051618
+packaged-admin-lifecycle (win32)	Set up Node	2026-09-30T22:24:12.7979722Z   ADMIN_RELEASE_TAG: 2026.8.31-f015b44
+packaged-admin-lifecycle (win32)	Set up Node	2026-09-30T22:24:12.7980017Z   ADMIN_REVISION: f015b4445b0526546a309301270186a697588166
+packaged-admin-lifecycle (win32)	Set up Node	2026-09-30T22:24:12.7980376Z   ADMIN_HARNESS_REVISION: 7385136072a855ca144594842344a7241a733ab4
+packaged-admin-lifecycle (win32)	Set up Node	2026-09-30T22:24:12.7980701Z   BROKER_RELEASE_ID: 379635299
+packaged-admin-lifecycle (win32)	Set up Node	2026-09-30T22:24:12.7980929Z   BROKER_RELEASE_TAG: 2026.8.31-f340883
+packaged-admin-lifecycle (win32)	Set up Node	2026-09-30T22:24:12.7981968Z   BROKER_REVISION: f340883056ec3cf74b535fb46490b39382e8c823
+packaged-admin-lifecycle (win32)	Set up Node	2026-09-30T22:24:12.7982277Z ##[endgroup]
+packaged-admin-lifecycle (win32)	Set up Node	2026-09-30T22:24:12.9878769Z Found in cache @ C:\hostedtoolcache\windows\node\22.23.3\x64
+packaged-admin-lifecycle (win32)	Set up Node	2026-09-30T22:24:12.9886273Z ##[group]Environment details
+packaged-admin-lifecycle (win32)	Set up Node	2026-09-30T22:24:17.6044673Z node: v22.23.3
+packaged-admin-lifecycle (win32)	Set up Node	2026-09-30T22:24:17.6045057Z npm: 10.9.9
+packaged-admin-lifecycle (win32)	Set up Node	2026-09-30T22:24:17.6045242Z yarn: 1.22.22
+packaged-admin-lifecycle (win32)	Set up Node	2026-09-30T22:24:17.6045690Z ##[endgroup]
+packaged-admin-lifecycle (win32)	Set up Node	2026-09-30T22:24:17.6793122Z [command]C:\Windows\system32\cmd.exe /D /S /C "C:\hostedtoolcache\windows\node\22.23.3\x64\npm.cmd config get cache"
+packaged-admin-lifecycle (win32)	Set up Node	2026-09-30T22:24:18.2165406Z C:\npm\cache
+packaged-admin-lifecycle (win32)	Set up Node	2026-09-30T22:24:18.4738741Z Cache hit for: node-cache-Windows-x64-npm-ff81f2715d2315ac8efd432a1fb0d41befa9ce7907ab439b39fa2e4e5b8d026f
+packaged-admin-lifecycle (win32)	Set up Node	2026-09-30T22:24:18.9855689Z Received 70197534 of 70197534 (100.0%), 149.8 MBs/sec
+packaged-admin-lifecycle (win32)	Set up Node	2026-09-30T22:24:18.9857831Z Cache Size: ~67 MB (70197534 B)
+packaged-admin-lifecycle (win32)	Set up Node	2026-09-30T22:24:18.9961922Z [command]"C:\Program Files\Git\usr\bin\tar.exe" -xf D:/a/_temp/11953f20-4a7a-4008-b141-a35d23d60110/cache.tzst -P -C D:/a/service-lasso/service-lasso --force-local --use-compress-program "zstd -d"
+packaged-admin-lifecycle (win32)	Set up Node	2026-09-30T22:24:29.6107530Z Cache restored successfully
+packaged-admin-lifecycle (win32)	Set up Node	2026-09-30T22:24:29.6159978Z Cache restored from key: node-cache-Windows-x64-npm-ff81f2715d2315ac8efd432a1fb0d41befa9ce7907ab439b39fa2e4e5b8d026f
+packaged-admin-lifecycle (win32)	Set up pnpm	﻿2026-09-30T22:24:29.6486533Z ##[group]Run pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413
+packaged-admin-lifecycle (win32)	Set up pnpm	2026-09-30T22:24:29.6487003Z with:
+packaged-admin-lifecycle (win32)	Set up pnpm	2026-09-30T22:24:29.6487188Z   version: 10.34.5
+packaged-admin-lifecycle (win32)	Set up pnpm	2026-09-30T22:24:29.6487626Z   dest: ~/setup-pnpm
+packaged-admin-lifecycle (win32)	Set up pnpm	2026-09-30T22:24:29.6487842Z   run_install: null
+packaged-admin-lifecycle (win32)	Set up pnpm	2026-09-30T22:24:29.6488034Z   cache: false
+packaged-admin-lifecycle (win32)	Set up pnpm	2026-09-30T22:24:29.6488248Z   cache_dependency_path: pnpm-lock.yaml
+packaged-admin-lifecycle (win32)	Set up pnpm	2026-09-30T22:24:29.6488546Z   package_json_file: package.json
+packaged-admin-lifecycle (win32)	Set up pnpm	2026-09-30T22:24:29.6488785Z   standalone: false
+packaged-admin-lifecycle (win32)	Set up pnpm	2026-09-30T22:24:29.6488971Z env:
+packaged-admin-lifecycle (win32)	Set up pnpm	2026-09-30T22:24:29.6489148Z   ADMIN_RELEASE_ID: 380051618
+packaged-admin-lifecycle (win32)	Set up pnpm	2026-09-30T22:24:29.6489385Z   ADMIN_RELEASE_TAG: 2026.8.31-f015b44
+packaged-admin-lifecycle (win32)	Set up pnpm	2026-09-30T22:24:29.6489706Z   ADMIN_REVISION: f015b4445b0526546a309301270186a697588166
+packaged-admin-lifecycle (win32)	Set up pnpm	2026-09-30T22:24:29.6490073Z   ADMIN_HARNESS_REVISION: 7385136072a855ca144594842344a7241a733ab4
+packaged-admin-lifecycle (win32)	Set up pnpm	2026-09-30T22:24:29.6490410Z   BROKER_RELEASE_ID: 379635299
+packaged-admin-lifecycle (win32)	Set up pnpm	2026-09-30T22:24:29.6490643Z   BROKER_RELEASE_TAG: 2026.8.31-f340883
+packaged-admin-lifecycle (win32)	Set up pnpm	2026-09-30T22:24:29.6490957Z   BROKER_REVISION: f340883056ec3cf74b535fb46490b39382e8c823
+packaged-admin-lifecycle (win32)	Set up pnpm	2026-09-30T22:24:29.6491301Z ##[endgroup]
+packaged-admin-lifecycle (win32)	Set up pnpm	2026-09-30T22:24:29.8636256Z ##[group]Running self-installer...
+packaged-admin-lifecycle (win32)	Set up pnpm	2026-09-30T22:24:29.8736903Z (node:4164) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+packaged-admin-lifecycle (win32)	Set up pnpm	2026-09-30T22:24:29.8738016Z (Use `node --trace-deprecation ...` to show where the warning was created)
+packaged-admin-lifecycle (win32)	Set up pnpm	2026-09-30T22:24:36.5862037Z 
+packaged-admin-lifecycle (win32)	Set up pnpm	2026-09-30T22:24:36.5863061Z added 1 package, and audited 2 packages in 6s
+packaged-admin-lifecycle (win32)	Set up pnpm	2026-09-30T22:24:36.5863573Z 
+packaged-admin-lifecycle (win32)	Set up pnpm	2026-09-30T22:24:36.5863853Z 1 package is looking for funding
+packaged-admin-lifecycle (win32)	Set up pnpm	2026-09-30T22:24:36.5864420Z   run `npm fund` for details
+packaged-admin-lifecycle (win32)	Set up pnpm	2026-09-30T22:24:36.5873962Z 
+packaged-admin-lifecycle (win32)	Set up pnpm	2026-09-30T22:24:36.5874258Z found 0 vulnerabilities
+packaged-admin-lifecycle (win32)	Set up pnpm	2026-09-30T22:24:38.5507450Z Checking for updates...
+packaged-admin-lifecycle (win32)	Set up pnpm	2026-09-30T22:24:38.8778496Z Switching pnpm from v11.25.0 to v10.34.5...
+packaged-admin-lifecycle (win32)	Set up pnpm	2026-09-30T22:24:39.3918419Z .../1124-1a0f46b7927-52254c005cacffe4    | Progress: resolved 1, reused 0, downloaded 0, added 0
+packaged-admin-lifecycle (win32)	Set up pnpm	2026-09-30T22:24:39.3941027Z .../1124-1a0f46b7927-52254c005cacffe4    |   +1 +
+packaged-admin-lifecycle (win32)	Set up pnpm	2026-09-30T22:24:40.4490266Z .../1124-1a0f46b7927-52254c005cacffe4    | Progress: resolved 1, reused 0, downloaded 1, added 0
+packaged-admin-lifecycle (win32)	Set up pnpm	2026-09-30T22:24:42.1282227Z .../1124-1a0f46b7927-52254c005cacffe4    | Progress: resolved 1, reused 0, downloaded 1, added 1
+packaged-admin-lifecycle (win32)	Set up pnpm	2026-09-30T22:24:42.1285554Z .../1124-1a0f46b7927-52254c005cacffe4    | Progress: resolved 1, reused 0, downloaded 1, added 1, done
+packaged-admin-lifecycle (win32)	Set up pnpm	2026-09-30T22:24:42.9173312Z [WARN] Detected a pnpm v10 installation layout at PNPM_HOME. The pnpm shims at PNPM_HOME have been refreshed so the new version is active, but pnpm v11 expects bins in PNPM_HOME/bin. Run "pnpm setup" to migrate your PATH to the v11 layout.
+packaged-admin-lifecycle (win32)	Set up pnpm	2026-09-30T22:24:42.9208948Z Successfully updated pnpm to v10.34.5
+packaged-admin-lifecycle (win32)	Set up pnpm	2026-09-30T22:24:42.9875756Z ##[endgroup]
+packaged-admin-lifecycle (win32)	Set up pnpm	2026-09-30T22:24:42.9876431Z Installation Completed!
+packaged-admin-lifecycle (win32)	Install and build candidate Core	﻿2026-09-30T22:24:43.0165384Z ##[group]Run npm ci
+packaged-admin-lifecycle (win32)	Install and build candidate Core	2026-09-30T22:24:43.0166270Z [36;1mnpm ci[0m
+packaged-admin-lifecycle (win32)	Install and build candidate Core	2026-09-30T22:24:43.0166501Z [36;1mnpm run build[0m
+packaged-admin-lifecycle (win32)	Install and build candidate Core	2026-09-30T22:24:43.0863685Z shell: C:\Program Files\PowerShell\7\pwsh.EXE -command ". '{0}'"
+packaged-admin-lifecycle (win32)	Install and build candidate Core	2026-09-30T22:24:43.0864160Z env:
+packaged-admin-lifecycle (win32)	Install and build candidate Core	2026-09-30T22:24:43.0864390Z   ADMIN_RELEASE_ID: 380051618
+packaged-admin-lifecycle (win32)	Install and build candidate Core	2026-09-30T22:24:43.0864690Z   ADMIN_RELEASE_TAG: 2026.8.31-f015b44
+packaged-admin-lifecycle (win32)	Install and build candidate Core	2026-09-30T22:24:43.0865076Z   ADMIN_REVISION: f015b4445b0526546a309301270186a697588166
+packaged-admin-lifecycle (win32)	Install and build candidate Core	2026-09-30T22:24:43.0865554Z   ADMIN_HARNESS_REVISION: 7385136072a855ca144594842344a7241a733ab4
+packaged-admin-lifecycle (win32)	Install and build candidate Core	2026-09-30T22:24:43.0865974Z   BROKER_RELEASE_ID: 379635299
+packaged-admin-lifecycle (win32)	Install and build candidate Core	2026-09-30T22:24:43.0866263Z   BROKER_RELEASE_TAG: 2026.8.31-f340883
+packaged-admin-lifecycle (win32)	Install and build candidate Core	2026-09-30T22:24:43.0866660Z   BROKER_REVISION: f340883056ec3cf74b535fb46490b39382e8c823
+packaged-admin-lifecycle (win32)	Install and build candidate Core	2026-09-30T22:24:43.0867144Z   PNPM_HOME: C:\Users\runneradmin\setup-pnpm\node_modules\.bin
+packaged-admin-lifecycle (win32)	Install and build candidate Core	2026-09-30T22:24:43.0867539Z ##[endgroup]
+packaged-admin-lifecycle (win32)	Install and build candidate Core	2026-09-30T22:24:55.0571239Z npm warn deprecated @modelcontextprotocol/server-legacy@2.0.0: This package is a frozen copy of v1's SSE transport and OAuth Authorization Server helpers for migration purposes only. Use StreamableHTTP from @modelcontextprotocol/server and a dedicated OAuth server in production. Will not receive new features.
+packaged-admin-lifecycle (win32)	Install and build candidate Core	2026-09-30T22:25:06.8510929Z 
+packaged-admin-lifecycle (win32)	Install and build candidate Core	2026-09-30T22:25:06.8511788Z added 1417 packages, and audited 1420 packages in 23s
+packaged-admin-lifecycle (win32)	Install and build candidate Core	2026-09-30T22:25:06.8512311Z 
+packaged-admin-lifecycle (win32)	Install and build candidate Core	2026-09-30T22:25:06.8512578Z 465 packages are looking for funding
+packaged-admin-lifecycle (win32)	Install and build candidate Core	2026-09-30T22:25:06.8513027Z   run `npm fund` for details
+packaged-admin-lifecycle (win32)	Install and build candidate Core	2026-09-30T22:25:06.8528373Z 
+packaged-admin-lifecycle (win32)	Install and build candidate Core	2026-09-30T22:25:06.8529039Z found 0 vulnerabilities
+packaged-admin-lifecycle (win32)	Install and build candidate Core	2026-09-30T22:25:07.2123537Z 
+packaged-admin-lifecycle (win32)	Install and build candidate Core	2026-09-30T22:25:07.2124302Z > service-lasso@0.1.0 build
+packaged-admin-lifecycle (win32)	Install and build candidate Core	2026-09-30T22:25:07.2128109Z > tsc -p tsconfig.json && node scripts/copy-runtime-assets.mjs
+packaged-admin-lifecycle (win32)	Install and build candidate Core	2026-09-30T22:25:07.2128619Z 
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	﻿2026-09-30T22:25:08.8088916Z ##[group]Run set -euo pipefail
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:25:08.8089329Z [36;1mset -euo pipefail[0m
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:25:08.8089621Z [36;1mpnpm install --frozen-lockfile[0m
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:25:08.8089925Z [36;1mpnpm exec cypress install[0m
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:25:08.8109593Z shell: C:\Program Files\Git\bin\bash.EXE --noprofile --norc -e -o pipefail {0}
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:25:08.8110013Z env:
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:25:08.8110211Z   ADMIN_RELEASE_ID: 380051618
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:25:08.8110459Z   ADMIN_RELEASE_TAG: 2026.8.31-f015b44
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:25:08.8110763Z   ADMIN_REVISION: f015b4445b0526546a309301270186a697588166
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:25:08.8111163Z   ADMIN_HARNESS_REVISION: 7385136072a855ca144594842344a7241a733ab4
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:25:08.8111514Z   BROKER_RELEASE_ID: 379635299
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:25:08.8111761Z   BROKER_RELEASE_TAG: 2026.8.31-f340883
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:25:08.8112075Z   BROKER_REVISION: f340883056ec3cf74b535fb46490b39382e8c823
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:25:08.8112482Z   PNPM_HOME: C:\Users\runneradmin\setup-pnpm\node_modules\.bin
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:25:08.8112855Z ##[endgroup]
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:25:09.7256920Z Lockfile is up to date, resolution step is skipped
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:25:09.8109892Z Progress: resolved 1, reused 0, downloaded 0, added 0
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:25:09.9676099Z Packages: +743
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:25:09.9678294Z ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:25:10.8163412Z Progress: resolved 743, reused 0, downloaded 20, added 0
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:25:11.8169789Z Progress: resolved 743, reused 0, downloaded 58, added 17
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:25:12.8166930Z Progress: resolved 743, reused 0, downloaded 97, added 36
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:25:13.8169781Z Progress: resolved 743, reused 0, downloaded 171, added 61
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:25:14.8245973Z Progress: resolved 743, reused 0, downloaded 224, added 81
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:25:15.8566275Z Progress: resolved 743, reused 0, downloaded 233, added 84
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:25:16.8516942Z Progress: resolved 743, reused 0, downloaded 274, added 98
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:25:17.8545475Z Progress: resolved 743, reused 0, downloaded 321, added 110
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:25:18.8586364Z Progress: resolved 743, reused 0, downloaded 416, added 151
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:25:19.8710402Z Progress: resolved 743, reused 0, downloaded 470, added 171
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:25:20.8855695Z Progress: resolved 743, reused 0, downloaded 600, added 224
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:25:21.8867105Z Progress: resolved 743, reused 0, downloaded 653, added 238
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:25:22.8873017Z Progress: resolved 743, reused 0, downloaded 667, added 242
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:25:23.8876562Z Progress: resolved 743, reused 0, downloaded 726, added 261
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:25:24.9043885Z Progress: resolved 743, reused 0, downloaded 743, added 461
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:25:25.9053831Z Progress: resolved 743, reused 0, downloaded 743, added 667
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:25:26.6683731Z Progress: resolved 743, reused 0, downloaded 743, added 743, done
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:25:27.2852408Z .../node_modules/@swc/core postinstall$ node postinstall.js
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:25:27.2998824Z .../cypress@15.21.1/node_modules/cypress postinstall$ node dist/index.js --exec install
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:25:27.3678996Z .../node_modules/@swc/core postinstall: Done
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:25:31.0343095Z .../cypress@15.21.1/node_modules/cypress postinstall: Installing Cypress (version: 15.21.1)
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:25:31.0370097Z .../cypress@15.21.1/node_modules/cypress postinstall: [33m[STARTED][39m [2m[22:25:31][22m  Downloading Cypress    
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:25:33.7229625Z .../cypress@15.21.1/node_modules/cypress postinstall: [32m[COMPLETED][39m [2m[22:25:33][22m  Downloaded Cypress     
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:25:33.7233046Z .../cypress@15.21.1/node_modules/cypress postinstall: [33m[STARTED][39m [2m[22:25:33][22m  Unzipping Cypress      
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:25.9422620Z .../cypress@15.21.1/node_modules/cypress postinstall: [32m[COMPLETED][39m [2m[22:26:25][22m  Unzipped Cypress       
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:25.9427386Z .../cypress@15.21.1/node_modules/cypress postinstall: [33m[STARTED][39m [2m[22:26:25][22m  Finishing Installation 
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:25.9609417Z .../cypress@15.21.1/node_modules/cypress postinstall: [32m[COMPLETED][39m [2m[22:26:25][22m  Finished Installation   C:\Users\runneradmin\AppData\Local\Cypress\Cache\15.21.1
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:26.9746909Z .../cypress@15.21.1/node_modules/cypress postinstall: You can now open Cypress by running one of the following, depending on your package manager:
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:26.9748975Z .../cypress@15.21.1/node_modules/cypress postinstall: - npx cypress open
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:26.9750296Z .../cypress@15.21.1/node_modules/cypress postinstall: - yarn cypress open
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:26.9751780Z .../cypress@15.21.1/node_modules/cypress postinstall: - pnpm cypress open
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:26.9754385Z .../cypress@15.21.1/node_modules/cypress postinstall: https://on.cypress.io/opening-the-app
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:26.9952583Z .../cypress@15.21.1/node_modules/cypress postinstall: Done
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2697003Z 
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2697594Z dependencies:
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2698277Z + @hookform/resolvers 5.9.1
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2698845Z + @melloware/react-logviewer 6.5.5
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2699390Z + @monaco-editor/react 4.7.0
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2699868Z + @radix-ui/react-alert-dialog 1.1.23
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2700423Z + @radix-ui/react-avatar 1.2.6
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2700969Z + @radix-ui/react-checkbox 1.3.11
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2701519Z + @radix-ui/react-collapsible 1.1.20
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2702104Z + @radix-ui/react-dialog 1.1.23
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2702606Z + @radix-ui/react-direction 1.1.4
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2703160Z + @radix-ui/react-dropdown-menu 2.1.24
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2703691Z + @radix-ui/react-icons 1.3.2
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2704187Z + @radix-ui/react-label 2.1.15
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2704663Z + @radix-ui/react-popover 1.1.23
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2705150Z + @radix-ui/react-radio-group 1.4.7
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2705670Z + @radix-ui/react-scroll-area 1.2.18
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2706661Z + @radix-ui/react-select 2.3.7
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2707942Z + @radix-ui/react-separator 1.1.15
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2708489Z + @radix-ui/react-slot 1.3.3
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2708972Z + @radix-ui/react-switch 1.3.7
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2709352Z + @radix-ui/react-tabs 1.1.21
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2709644Z + @radix-ui/react-tooltip 1.2.16
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2709943Z + @tanstack/react-query 5.103.1
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2710252Z + @tanstack/react-router 1.170.38
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2710548Z + @tanstack/react-table 8.21.3
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2710884Z + @xyflow/react 12.11.6
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2711107Z + axios 1.20.0
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2711485Z + class-variance-authority 0.7.1
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2712174Z + clsx 2.1.1
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2712378Z + cmdk 1.1.1
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2712562Z + date-fns 4.4.0
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2712780Z + input-otp 1.5.0
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2712998Z + lucide-react 1.47.0
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2713316Z + monaco-editor 0.56.0
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2713576Z + react 19.3.0
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2713828Z + react-day-picker 10.0.1
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2714140Z + react-dom 19.3.0
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2714457Z + react-hook-form 7.88.0
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2714814Z + react-is 19.3.0
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2715101Z + react-markdown 10.1.0
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2715979Z + react-top-loading-bar 3.0.2
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2717114Z + recharts 3.10.1
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2717591Z + remark-gfm 4.0.1
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2717959Z + sonner 2.0.8
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2718241Z + tailwind-merge 3.7.0
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2718583Z + tw-animate-css 1.4.0
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2719024Z + zod 4.6.5
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2719389Z + zustand 5.0.15
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2719705Z 
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2736606Z devDependencies:
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2737062Z + @eslint/js 9.39.2
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2737420Z + @faker-js/faker 10.6.0
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2737808Z + @playwright/test 1.62.1
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2738207Z + @tailwindcss/vite 4.3.3
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2796901Z + @tanstack/eslint-plugin-query 5.102.8
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2797580Z + @tanstack/react-query-devtools 5.102.8
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2797954Z + @tanstack/react-router-devtools 1.167.2
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2799476Z + @tanstack/router-plugin 1.168.38
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2799790Z + @testing-library/dom 10.4.2
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2800091Z + @testing-library/jest-dom 6.10.0
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2800391Z + @testing-library/react 16.3.3
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2800679Z + @testing-library/user-event 14.6.7
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2801022Z + @trivago/prettier-plugin-sort-imports 6.0.2
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2801340Z + @types/node 25.9.6
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2801562Z + @types/react 19.3.0
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2801788Z + @types/react-dom 19.3.0
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2802060Z + @vitejs/plugin-react-swc 4.3.3
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2802321Z + cypress 15.21.1
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2802527Z + eslint 9.39.2
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2802794Z + eslint-plugin-react-hooks 7.0.1
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2803120Z + eslint-plugin-react-refresh 0.5.2
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2803390Z + globals 17.12.0
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2803596Z + jsdom 29.1.1
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2803924Z + knip 6.35.1
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2804716Z + prettier 3.8.1
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2805300Z + prettier-plugin-tailwindcss 0.7.2
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2806842Z + start-server-and-test 3.0.12
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2807336Z + tailwindcss 4.3.3
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2808046Z + typescript 5.9.3
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2808445Z + typescript-eslint 8.57.2
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2808842Z + vite 8.3.0
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2809183Z + vitest 4.1.11
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.2809385Z 
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:27.3564087Z Done in 1m 18.1s using pnpm v10.34.5
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:29.2889938Z 
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:29.2893894Z Cypress 15.21.1 is installed in C:\Users\runneradmin\AppData\Local\Cypress\Cache\15.21.1
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:29.2894821Z 
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:29.2896324Z Skipping installation:
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:29.2896516Z 
+packaged-admin-lifecycle (win32)	Install exact Admin browser harness	2026-09-30T22:26:29.2896728Z   Pass the --force option if you'd like to reinstall anyway.
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	﻿2026-09-30T22:26:29.3380431Z ##[group]Run $ErrorActionPreference = 'Stop'
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3381681Z [36;1m$ErrorActionPreference = 'Stop'[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3381981Z [36;1m[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3382411Z [36;1mfunction Invoke-CoreInstall([string]$serviceId, [string]$servicesRoot, [string]$workspaceRoot) {[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3383212Z [36;1m  $output = @(& node dist/cli.js install $serviceId --services-root $servicesRoot --workspace-root $workspaceRoot --json)[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3384208Z [36;1m  if ($LASTEXITCODE -ne 0) {[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3384529Z [36;1m    throw "Core install failed for $serviceId."[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3384821Z [36;1m  }[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3385003Z [36;1m  try {[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3385274Z [36;1m    return (($output -join "`n") | ConvertFrom-Json)[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3385613Z [36;1m  } catch {[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3385969Z [36;1m    throw "Core install did not return the expected JSON contract for $serviceId."[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3386392Z [36;1m  }[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3386630Z [36;1m}[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3386802Z [36;1m[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3387006Z [36;1mfunction Assert-AcquiredArtifact([0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3387303Z [36;1m  [object]$payload,[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3387548Z [36;1m  [string]$serviceId,[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3387795Z [36;1m  [string]$expectedTag,[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3388050Z [36;1m  [string]$expectedAsset,[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3388310Z [36;1m  [string]$expectedSha[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3388539Z [36;1m) {[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3388812Z [36;1m  if (-not $payload.ok -or $payload.action -ne 'install') {[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3389235Z [36;1m    throw "Core install contract failed for $serviceId."[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3389568Z [36;1m  }[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3389839Z [36;1m  $artifact = $payload.state.installArtifacts.artifact[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3390396Z [36;1m  if (-not $artifact -or $artifact.tag -ne $expectedTag -or $artifact.assetName -ne $expectedAsset) {[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3391001Z [36;1m    throw "Core acquired unexpected release metadata for $serviceId."[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3391373Z [36;1m  }[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3391702Z [36;1m  if (-not $artifact.checksum -or $artifact.checksum.algorithm -ne 'sha256') {[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3392182Z [36;1m    throw "Core omitted SHA-256 evidence for $serviceId."[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3392508Z [36;1m  }[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3392978Z [36;1m  if ($artifact.checksum.source -ne 'release-asset' -or $artifact.checksum.checksumAssetName -ne 'SHA256SUMS.txt') {[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3394038Z [36;1m    throw "Core did not verify $serviceId through the published checksum manifest."[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3394476Z [36;1m  }[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3394826Z [36;1m  if ($artifact.checksum.expected.ToLowerInvariant() -ne $expectedSha) {[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3395330Z [36;1m    throw "Core resolved an unexpected checksum for $serviceId."[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3395679Z [36;1m  }[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3396004Z [36;1m  if ($artifact.checksum.actual.ToLowerInvariant() -ne $expectedSha) {[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3396509Z [36;1m    throw "Core downloaded an unexpected archive for $serviceId."[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3396859Z [36;1m  }[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3397181Z [36;1m  if (-not (Test-Path -LiteralPath $artifact.archivePath -PathType Leaf)) {[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3397681Z [36;1m    throw "Core did not retain the verified archive for $serviceId."[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3398026Z [36;1m  }[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3398379Z [36;1m  if (-not (Test-Path -LiteralPath $artifact.extractedPath -PathType Container)) {[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3398905Z [36;1m    throw "Core did not extract the verified archive for $serviceId."[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3399261Z [36;1m  }[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3399443Z [36;1m  return $artifact[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3399660Z [36;1m}[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3399829Z [36;1m[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3400137Z [36;1m$servicesRoot = Join-Path $env:RUNNER_TEMP 'packaged-admin-services'[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3402829Z [36;1m$workspaceRoot = Join-Path $env:RUNNER_TEMP 'packaged-admin-workspace'[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3403408Z [36;1mNew-Item -ItemType Directory -Path $servicesRoot, $workspaceRoot | Out-Null[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3404121Z [36;1mCopy-Item -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'services/@serviceadmin') -Destination $servicesRoot -Recurse[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3404980Z [36;1mCopy-Item -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'services/@secretsbroker') -Destination $servicesRoot -Recurse[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3405528Z [36;1m[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3405878Z [36;1m$adminPayload = Invoke-CoreInstall '@serviceadmin' $servicesRoot $workspaceRoot[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3406363Z [36;1m$adminArtifact = Assert-AcquiredArtifact `[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3406667Z [36;1m  $adminPayload `[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3406901Z [36;1m  '@serviceadmin' `[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3407149Z [36;1m  $env:ADMIN_RELEASE_TAG `[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3407427Z [36;1m  $env:EXPECTED_ADMIN_ASSET `[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3407729Z [36;1m  $env:EXPECTED_ADMIN_SHA256[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3407971Z [36;1m[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3408332Z [36;1m$brokerPayload = Invoke-CoreInstall '@secretsbroker' $servicesRoot $workspaceRoot[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3408818Z [36;1m$brokerArtifact = Assert-AcquiredArtifact `[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3409120Z [36;1m  $brokerPayload `[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3409360Z [36;1m  '@secretsbroker' `[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3409613Z [36;1m  $env:BROKER_RELEASE_TAG `[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3409876Z [36;1m  $env:EXPECTED_BROKER_ASSET `[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3410149Z [36;1m  $env:EXPECTED_BROKER_SHA256[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3410390Z [36;1m[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3410577Z [36;1m$brokerBinaries = @([0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3411091Z [36;1m  Get-ChildItem -LiteralPath $brokerArtifact.extractedPath -Filter $env:EXPECTED_BROKER_BINARY -File -Recurse[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3411622Z [36;1m)[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3411836Z [36;1mif ($brokerBinaries.Count -ne 1) {[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3412301Z [36;1m  throw 'The verified Broker archive did not contain exactly one expected executable.'[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3412725Z [36;1m}[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3412936Z [36;1m$brokerBinary = $brokerBinaries[0][0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3413265Z [36;1mif ($env:RUNNER_OS -ne 'Windows') {[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3413577Z [36;1m  & chmod +x $brokerBinary.FullName[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3414249Z [36;1m  if ($LASTEXITCODE -ne 0) {[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3414643Z [36;1m    throw 'The verified Broker executable could not be made executable.'[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3415024Z [36;1m  }[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3415209Z [36;1m}[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3415380Z [36;1m[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3415838Z [36;1m"SERVICE_LASSO_TEST_ADMIN_ROOT=$($adminArtifact.extractedPath)" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3416630Z [36;1m"SERVICE_LASSO_TEST_BROKER_BINARY=$($brokerBinary.FullName)" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3417479Z [36;1m"ADMIN_ARCHIVE_SHA256=$($adminArtifact.checksum.actual.ToLowerInvariant())" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3418385Z [36;1m"BROKER_ARCHIVE_SHA256=$($brokerArtifact.checksum.actual.ToLowerInvariant())" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append[0m
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3493096Z shell: C:\Program Files\PowerShell\7\pwsh.EXE -command ". '{0}'"
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3493501Z env:
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3493698Z   ADMIN_RELEASE_ID: 380051618
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3493955Z   ADMIN_RELEASE_TAG: 2026.8.31-f015b44
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3494266Z   ADMIN_REVISION: f015b4445b0526546a309301270186a697588166
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3495051Z   ADMIN_HARNESS_REVISION: 7385136072a855ca144594842344a7241a733ab4
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3495441Z   BROKER_RELEASE_ID: 379635299
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3495685Z   BROKER_RELEASE_TAG: 2026.8.31-f340883
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3495997Z   BROKER_REVISION: f340883056ec3cf74b535fb46490b39382e8c823
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3497283Z   PNPM_HOME: C:\Users\runneradmin\setup-pnpm\node_modules\.bin
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3500396Z   GITHUB_TOKEN: ***
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3500673Z   EXPECTED_ADMIN_ASSET: @serviceadmin-win32.zip
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3501150Z   EXPECTED_ADMIN_SHA256: fe5e5fe01d1202f3874097e6223652d634c94677c765c5f82d20e6d274c0161c
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3501630Z   EXPECTED_BROKER_ASSET: secretsbroker-win32.zip
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3502091Z   EXPECTED_BROKER_SHA256: e64ee6a85c053c6dd68e2713477dae0620a458496bbd41077b55cc4c2df3f966
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3502554Z   EXPECTED_BROKER_BINARY: secretsbroker.exe
+packaged-admin-lifecycle (win32)	Acquire checksum-bound published Admin and Broker	2026-09-30T22:26:29.3502828Z ##[endgroup]
+packaged-admin-lifecycle (win32)	Bind exact source revisions	﻿2026-09-30T22:26:32.9803714Z ##[group]Run set -euo pipefail
+packaged-admin-lifecycle (win32)	Bind exact source revisions	2026-09-30T22:26:32.9804111Z [36;1mset -euo pipefail[0m
+packaged-admin-lifecycle (win32)	Bind exact source revisions	2026-09-30T22:26:32.9804400Z [36;1mcore_revision="$(git rev-parse HEAD)"[0m
+packaged-admin-lifecycle (win32)	Bind exact source revisions	2026-09-30T22:26:32.9804800Z [36;1madmin_revision="$(git -C qualification/admin rev-parse HEAD)"[0m
+packaged-admin-lifecycle (win32)	Bind exact source revisions	2026-09-30T22:26:32.9805239Z [36;1mtest "$admin_revision" = "$ADMIN_HARNESS_REVISION"[0m
+packaged-admin-lifecycle (win32)	Bind exact source revisions	2026-09-30T22:26:32.9806068Z [36;1mecho "core_revision=$core_revision" >> "$GITHUB_OUTPUT"[0m
+packaged-admin-lifecycle (win32)	Bind exact source revisions	2026-09-30T22:26:32.9806532Z [36;1mecho "SERVICE_LASSO_TEST_CORE_REVISION=$core_revision" >> "$GITHUB_ENV"[0m
+packaged-admin-lifecycle (win32)	Bind exact source revisions	2026-09-30T22:26:32.9807047Z [36;1mecho "SERVICE_LASSO_TEST_BROKER_REVISION=$BROKER_REVISION" >> "$GITHUB_ENV"[0m
+packaged-admin-lifecycle (win32)	Bind exact source revisions	2026-09-30T22:26:32.9823596Z shell: C:\Program Files\Git\bin\bash.EXE --noprofile --norc -e -o pipefail {0}
+packaged-admin-lifecycle (win32)	Bind exact source revisions	2026-09-30T22:26:32.9824012Z env:
+packaged-admin-lifecycle (win32)	Bind exact source revisions	2026-09-30T22:26:32.9824195Z   ADMIN_RELEASE_ID: 380051618
+packaged-admin-lifecycle (win32)	Bind exact source revisions	2026-09-30T22:26:32.9824435Z   ADMIN_RELEASE_TAG: 2026.8.31-f015b44
+packaged-admin-lifecycle (win32)	Bind exact source revisions	2026-09-30T22:26:32.9824749Z   ADMIN_REVISION: f015b4445b0526546a309301270186a697588166
+packaged-admin-lifecycle (win32)	Bind exact source revisions	2026-09-30T22:26:32.9825172Z   ADMIN_HARNESS_REVISION: 7385136072a855ca144594842344a7241a733ab4
+packaged-admin-lifecycle (win32)	Bind exact source revisions	2026-09-30T22:26:32.9825507Z   BROKER_RELEASE_ID: 379635299
+packaged-admin-lifecycle (win32)	Bind exact source revisions	2026-09-30T22:26:32.9826215Z   BROKER_RELEASE_TAG: 2026.8.31-f340883
+packaged-admin-lifecycle (win32)	Bind exact source revisions	2026-09-30T22:26:32.9826540Z   BROKER_REVISION: f340883056ec3cf74b535fb46490b39382e8c823
+packaged-admin-lifecycle (win32)	Bind exact source revisions	2026-09-30T22:26:32.9826949Z   PNPM_HOME: C:\Users\runneradmin\setup-pnpm\node_modules\.bin
+packaged-admin-lifecycle (win32)	Bind exact source revisions	2026-09-30T22:26:32.9827497Z   SERVICE_LASSO_TEST_ADMIN_ROOT: D:\a\_temp\packaged-admin-services\@serviceadmin\.state\extracted\current
+packaged-admin-lifecycle (win32)	Bind exact source revisions	2026-09-30T22:26:32.9828273Z   SERVICE_LASSO_TEST_BROKER_BINARY: D:\a\_temp\packaged-admin-services\@secretsbroker\.state\extracted\current\secretsbroker.exe
+packaged-admin-lifecycle (win32)	Bind exact source revisions	2026-09-30T22:26:32.9828992Z   ADMIN_ARCHIVE_SHA256: fe5e5fe01d1202f3874097e6223652d634c94677c765c5f82d20e6d274c0161c
+packaged-admin-lifecycle (win32)	Bind exact source revisions	2026-09-30T22:26:32.9829564Z   BROKER_ARCHIVE_SHA256: e64ee6a85c053c6dd68e2713477dae0620a458496bbd41077b55cc4c2df3f966
+packaged-admin-lifecycle (win32)	Bind exact source revisions	2026-09-30T22:26:32.9829976Z ##[endgroup]
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	﻿2026-09-30T22:26:33.1172091Z ##[group]Run set -euo pipefail
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:33.1172489Z [36;1mset -euo pipefail[0m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:33.1172787Z [36;1mpnpm test:secrets:real-first-run-browser[0m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:33.1173123Z [36;1mpnpm test:secrets:real-browser[0m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:33.1173466Z [36;1mpnpm test:secrets:real-stopped-lifecycle-browser[0m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:33.1173837Z [36;1mif [ "$RUNNER_OS" = "Windows" ]; then[0m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:33.1174163Z [36;1m  pnpm test:secrets:real-lockout-browser[0m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:33.1174450Z [36;1mfi[0m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:33.1192102Z shell: C:\Program Files\Git\bin\bash.EXE --noprofile --norc -e -o pipefail {0}
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:33.1192532Z env:
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:33.1192726Z   ADMIN_RELEASE_ID: 380051618
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:33.1192979Z   ADMIN_RELEASE_TAG: 2026.8.31-f015b44
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:33.1193297Z   ADMIN_REVISION: f015b4445b0526546a309301270186a697588166
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:33.1193677Z   ADMIN_HARNESS_REVISION: 7385136072a855ca144594842344a7241a733ab4
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:33.1194049Z   BROKER_RELEASE_ID: 379635299
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:33.1194288Z   BROKER_RELEASE_TAG: 2026.8.31-f340883
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:33.1194597Z   BROKER_REVISION: f340883056ec3cf74b535fb46490b39382e8c823
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:33.1194992Z   PNPM_HOME: C:\Users\runneradmin\setup-pnpm\node_modules\.bin
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:33.1195718Z   SERVICE_LASSO_TEST_ADMIN_ROOT: D:\a\_temp\packaged-admin-services\@serviceadmin\.state\extracted\current
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:33.1196518Z   SERVICE_LASSO_TEST_BROKER_BINARY: D:\a\_temp\packaged-admin-services\@secretsbroker\.state\extracted\current\secretsbroker.exe
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:33.1197257Z   ADMIN_ARCHIVE_SHA256: fe5e5fe01d1202f3874097e6223652d634c94677c765c5f82d20e6d274c0161c
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:33.1197837Z   BROKER_ARCHIVE_SHA256: e64ee6a85c053c6dd68e2713477dae0620a458496bbd41077b55cc4c2df3f966
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:33.1198373Z   SERVICE_LASSO_TEST_CORE_REVISION: 5115a14acf157e26e8d4e9d538735f90dda353a9
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:33.1198873Z   SERVICE_LASSO_TEST_BROKER_REVISION: f340883056ec3cf74b535fb46490b39382e8c823
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:33.1199340Z   SERVICE_LASSO_TEST_CORE_ROOT: D:\a\service-lasso\service-lasso
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:33.1199708Z   SERVICE_LASSO_REQUIRE_TEST_BROKER_BINARY: 1
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:33.1199979Z ##[endgroup]
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:33.7523848Z 
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:33.7525300Z > @service-lasso/service-admin@1.0.0-rc.1 test:secrets:real-first-run-browser D:\a\service-lasso\service-lasso\qualification\admin
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:33.7526464Z > node scripts/verify-real-broker-first-run-browser.mjs
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:33.7526849Z 
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9791382Z It looks like this is your first time using Cypress: 15.21.1
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9792574Z 
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9793833Z [33m[STARTED][39m [2m[22:26:35][22m  Verifying Cypress can run C:\Users\runneradmin\AppData\Local\Cypress\Cache\15.21.1\Cypress
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9795541Z [32m[COMPLETED][39m [2m[22:26:36][22m  Verified Cypress!       C:\Users\runneradmin\AppData\Local\Cypress\Cache\15.21.1\Cypress
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9796031Z 
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9796179Z Opening Cypress...
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9796325Z 
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9796332Z 
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9796705Z [90m====================================================================================================[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9797015Z 
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9797240Z [0m  ([4m[1mRun Starting[22m[24m)[0m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9797442Z 
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9802193Z [90m  ┌[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m┐[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9808732Z [90m  │[39m [90mCypress:[39m        15.21.1                                                                        [90m│[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9809655Z [90m  │[39m [90mBrowser:[39m        Electron 138 [90m(headless)[39m                                                        [90m│[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9810696Z [90m  │[39m [90mNode Version:[39m   [0mv22.23.3 [90m(C:\hostedtoolcache\windows\node\22.23.3\x64\node.exe)[39m[0m                [90m│[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9812049Z [90m  │[39m [90mSpecs:[39m          [0m1 found (real-first-run.cy.js)[0m                                                 [90m│[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9813130Z [90m  │[39m [90mSearched:[39m       [0mD:\a\service-lasso\service-lasso\qualification\admin\cypress\e2e\secrets-broke[0m [90m│[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9814349Z [90m  │[39m                 [0mr\real-first-run.cy.js[0m                                                         [90m│[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9815264Z {"schema":"service-admin.cypress-child-exit.v1","phase":"smoke_test","event":"exit","exitCode":0,"signal":null}
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9816147Z {"schema":"service-admin.cypress-child-exit.v1","phase":"smoke_test","event":"close","exitCode":0,"signal":null}
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9816976Z {"schema":"service-admin.cypress-child-exit.v1","phase":"run","event":"exit","exitCode":0,"signal":null}
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9817766Z {"schema":"service-admin.cypress-child-exit.v1","phase":"run","event":"close","exitCode":0,"signal":null}
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9822023Z [90m  └[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m┘[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9824809Z 
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9824817Z 
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9828733Z [90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9832795Z                                                                                                     
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9833527Z   Running:  [90mreal-first-run.cy.js[39m                                                            [90m(1 of 1)[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9833904Z 
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9834016Z [0m[0m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9834416Z [0m  packaged Service Admin first-run Secrets Broker enrollment[0m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9835182Z   [32m  √[0m[90m initializes the vault, provisions declared secrets, and starts the linked consumer[0m[33m (10450ms)[0m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9835635Z 
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9835641Z 
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9835841Z [92m [0m[32m 1 passing[0m[90m (11s)[0m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9836037Z 
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9836052Z 
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9836226Z [32m  ([4m[1mResults[22m[24m)[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9836450Z 
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9843498Z [90m  ┌[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m┐[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9849927Z [90m  │[39m [90mTests:[39m        [32m1[39m                                                                                [90m│[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9852636Z [90m  │[39m [90mPassing:[39m      [32m1[39m                                                                                [90m│[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9853737Z [90m  │[39m [90mFailing:[39m      [32m0[39m                                                                                [90m│[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9854746Z [90m  │[39m [90mPending:[39m      [32m0[39m                                                                                [90m│[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9855588Z [90m  │[39m [90mSkipped:[39m      [32m0[39m                                                                                [90m│[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9856445Z [90m  │[39m [90mScreenshots:[39m  [32m0[39m                                                                                [90m│[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9857378Z [90m  │[39m [90mVideo:[39m        [32mfalse[39m                                                                            [90m│[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9858505Z [90m  │[39m [90mDuration:[39m     [32m10 seconds[39m                                                                       [90m│[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9859649Z [90m  │[39m [90mSpec Ran:[39m     [32m[32mreal-first-run.cy.js[32m[39m                                                             [90m│[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9867581Z [90m  └[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m┘[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9873102Z 
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9873119Z 
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9873768Z [90m====================================================================================================[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9874288Z 
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9874604Z [0m  ([4m[1mRun Finished[22m[24m)[0m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9874934Z 
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9874943Z 
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9876083Z [90m   [39m    [90mSpec[39m                                              [90mTests[39m  [90mPassing[39m  [90mFailing[39m  [90mPending[39m  [90mSkipped[39m [90m [39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9884145Z [90m  ┌[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m┐[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9890837Z [90m  │[39m [32m✔[39m  [0mreal-first-run.cy.js[0m                     [90m00:10[39m        [0m1[0m        [32m1[39m        [90m-[39m        [90m-[39m        [90m-[39m [90m│[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9898603Z [90m  └[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m┘[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9904624Z [90m   [39m [32m✔[39m  [32mAll specs passed![39m                        [90m00:10[39m        [0m1[0m        [32m1[39m        [90m-[39m        [90m-[39m        [90m-[39m [90m [39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:26:56.9905501Z 
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:27:01.2485516Z {"schema":"service-lasso.real-secrets-browser-result.v1","qualificationMode":"first-run","outcome":"verified","platform":"win32","coreRevision":"5115a14acf157e26e8d4e9d538735f90dda353a9","brokerRevision":"f340883056ec3cf74b535fb46490b39382e8c823","brokerSha256":"c60c4c825b56b70cc7565cad780fcdf5c604bdf47d52a53d00e84316e0987ba8","adminArtifact":"current","auditEventCount":23,"rollbackProcessVerified":false}
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:27:01.9224152Z 
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:27:01.9225566Z > @service-lasso/service-admin@1.0.0-rc.1 test:secrets:real-browser D:\a\service-lasso\service-lasso\qualification\admin
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:27:01.9226731Z > node scripts/verify-real-broker-browser.mjs
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:27:01.9227107Z 
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8203853Z 
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8203917Z 
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8205208Z [90m====================================================================================================[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8205757Z 
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8206140Z [0m  ([4m[1mRun Starting[22m[24m)[0m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8206526Z 
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8215140Z [90m  ┌[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m┐[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8221201Z [90m  │[39m [90mCypress:[39m        15.21.1                                                                        [90m│[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8222881Z [90m  │[39m [90mBrowser:[39m        Electron 138 [90m(headless)[39m                                                        [90m│[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8224811Z [90m  │[39m [90mNode Version:[39m   [0mv22.23.3 [90m(C:\hostedtoolcache\windows\node\22.23.3\x64\node.exe)[39m[0m                [90m│[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8226725Z [90m  │[39m [90mSpecs:[39m          [0m1 found (real-lifecycle.cy.js)[0m                                                 [90m│[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8228913Z [90m  │[39m [90mSearched:[39m       [0mD:\a\service-lasso\service-lasso\qualification\admin\cypress\e2e\secrets-broke[0m [90m│[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8230623Z [90m  │[39m                 [0mr\real-lifecycle.cy.js[0m                                                         [90m│[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8238660Z [90m  └[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m┘[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8242891Z 
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8242906Z 
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8244372Z {"schema":"service-admin.real-browser-progress.v1","phase":"lifecycle_started","elapsedMs":2226}
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8245628Z {"schema":"service-admin.real-browser-progress.v1","phase":"committed_rotation_complete","elapsedMs":23482}
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8247281Z {"schema":"service-admin.real-browser-progress.v1","phase":"rollback_fixture_armed","elapsedMs":35705}
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8248466Z {"schema":"service-admin.real-browser-progress.v1","phase":"rollback_rotation_complete","elapsedMs":48051}
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8249585Z {"schema":"service-admin.real-browser-progress.v1","phase":"metadata_ready","elapsedMs":51081}
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8250807Z {"schema":"service-admin.real-browser-progress.v1","phase":"rollback_rehydrated","elapsedMs":59121}
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8252198Z {"schema":"service-admin.cypress-child-exit.v1","phase":"run","event":"exit","exitCode":1,"signal":null}
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8253678Z {"schema":"service-admin.cypress-child-exit.v1","phase":"run","event":"close","exitCode":1,"signal":null}
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8263170Z [90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8269238Z                                                                                                     
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8270532Z   Running:  [90mreal-lifecycle.cy.js[39m                                                            [90m(1 of 1)[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8271249Z 
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8271517Z [0m[0m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8272203Z [0m  packaged Service Admin with real Core and Secrets Broker[0m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8273795Z   [31m  1) completes linked rotation, create, reveal, tombstone recovery, backup, key rotation, and provider validation[0m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8274965Z 
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8274995Z 
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8275409Z [92m [0m[32m 0 passing[0m[90m (3m)[0m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8276009Z [31m  1 failing[0m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8276259Z 
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8276791Z [0m  1) packaged Service Admin with real Core and Secrets Broker
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8278353Z        completes linked rotation, create, reveal, tombstone recovery, backup, key rotation, and provider validation:
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8279843Z [0m[31m     AssertionError: expected undefined to equal 200[0m[90m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8281160Z       at Context.eval (webpack://@service-lasso/service-admin/./cypress/e2e/secrets-broker/real-lifecycle.cy.js:137:38)
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8282529Z       at getRet (http://127.0.0.1:53985/__cypress/runner/cypress_runner.js:121394:20)
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8283650Z       at tryCatcher (http://127.0.0.1:53985/__cypress/runner/cypress_runner.js:1780:23)
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8284896Z       at Promise.attempt.Promise.try (http://127.0.0.1:53985/__cypress/runner/cypress_runner.js:4288:29)
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8286185Z       at Context.thenFn (http://127.0.0.1:53985/__cypress/runner/cypress_runner.js:121405:66)
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8287346Z       at Context.then (http://127.0.0.1:53985/__cypress/runner/cypress_runner.js:121656:21)
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8288626Z [0m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8288812Z 
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8288823Z 
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8288830Z 
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8289165Z [31m  ([4m[1mResults[22m[24m)[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8289494Z 
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8296789Z [90m  ┌[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m┐[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8303063Z [90m  │[39m [90mTests:[39m        [31m1[39m                                                                                [90m│[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8304670Z [90m  │[39m [90mPassing:[39m      [31m0[39m                                                                                [90m│[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8306592Z [90m  │[39m [90mFailing:[39m      [31m1[39m                                                                                [90m│[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8308195Z [90m  │[39m [90mPending:[39m      [31m0[39m                                                                                [90m│[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8309514Z [90m  │[39m [90mSkipped:[39m      [31m0[39m                                                                                [90m│[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8310739Z [90m  │[39m [90mScreenshots:[39m  [31m0[39m                                                                                [90m│[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8311973Z [90m  │[39m [90mVideo:[39m        [31mfalse[39m                                                                            [90m│[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8313252Z [90m  │[39m [90mDuration:[39m     [31m2 minutes, 41 seconds[39m                                                            [90m│[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8315082Z [90m  │[39m [90mSpec Ran:[39m     [31m[31mreal-lifecycle.cy.js[31m[39m                                                             [90m│[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8322380Z [90m  └[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m┘[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8328131Z 
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8328153Z 
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8328885Z [90m====================================================================================================[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8329437Z 
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8329827Z [0m  ([4m[1mRun Finished[22m[24m)[0m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8330177Z 
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8330190Z 
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8331415Z [90m   [39m    [90mSpec[39m                                              [90mTests[39m  [90mPassing[39m  [90mFailing[39m  [90mPending[39m  [90mSkipped[39m [90m [39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8339657Z [90m  ┌[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m┐[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8346538Z [90m  │[39m [31m✖[39m  [0mreal-lifecycle.cy.js[0m                     [90m02:41[39m        [0m1[0m        [90m-[39m        [31m1[39m        [90m-[39m        [90m-[39m [90m│[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8355283Z [90m  └[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m─[39m[90m┘[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8362180Z [90m   [39m [31m✖[39m  [31m1 of 1 failed (100%)[39m                     [90m02:41[39m        [0m1[0m        [90m-[39m        [31m1[39m        [90m-[39m        [90m-[39m [90m [39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8363428Z 
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8364142Z [90m----------------------------------------------------------------------------------------------------[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8364685Z 
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8364874Z   Debug faster with full visibility.
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8365160Z 
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8365554Z   Record to Cypress Cloud and get instant access to full test details and replays.
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8366804Z   Inspect the DOM, network events, and console logs exactly as they ran in CI.
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8367412Z 
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8367871Z   >> [36mhttps://on.cypress.io/cloud-get-started[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8368333Z 
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8369115Z [90m----------------------------------------------------------------------------------------------------[39m
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:02.8829754Z {"schema":"service-admin.real-browser-qualification-diagnostic.v1","failure":"nonzero_exit","lastPhase":"rollback_rehydrated","elapsedMs":59121,"transportPhases":["upstream_started","headers_received","body_received","downstream_closed","upstream_started","headers_received","body_received","downstream_closed"],"statuses":[200,200,200,200],"adminReachability":"reachable","providerUi":null}
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:05.1322345Z file:///D:/a/service-lasso/service-lasso/qualification/admin/scripts/verify-real-broker-browser.mjs:590
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:05.1326024Z     throw new Error(`Real Broker browser qualification failed (${cypressExit}).`)
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:05.1327143Z           ^
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:05.1327413Z 
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:05.1327788Z Error: Real Broker browser qualification failed (1).
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:05.1328983Z     at file:///D:/a/service-lasso/service-lasso/qualification/admin/scripts/verify-real-broker-browser.mjs:590:11
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:05.1330327Z     at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:05.1330975Z 
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:05.1331198Z Node.js v22.23.3
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:05.1602608Z  ELIFECYCLE  Command failed with exit code 1.
+packaged-admin-lifecycle (win32)	Drive released Admin lifecycle browser contracts	2026-09-30T22:30:05.1834282Z ##[error]Process completed with exit code 1.
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	﻿2026-09-30T22:30:05.2022144Z ##[group]Run $ErrorActionPreference = 'Stop'
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2022797Z [36;1m$ErrorActionPreference = 'Stop'[0m
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2023165Z [36;1m$hex64 = '^[0-9a-f]{64}$'[0m
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2024030Z [36;1mif ($env:CORE_REVISION -notmatch '^[0-9a-f]{40}$' -or $env:ADMIN_REVISION -notmatch '^[0-9a-f]{40}$' -or $env:ADMIN_HARNESS_REVISION -notmatch '^[0-9a-f]{40}$' -or $env:BROKER_REVISION -notmatch '^[0-9a-f]{40}$') {[0m
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2024990Z [36;1m  throw 'Packaged acceptance revision evidence is invalid.'[0m
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2025454Z [36;1m}[0m
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2025924Z [36;1mif ($env:ADMIN_ARCHIVE_SHA256 -notmatch $hex64 -or $env:BROKER_ARCHIVE_SHA256 -notmatch $hex64) {[0m
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2026593Z [36;1m  throw 'Packaged acceptance archive evidence is missing or invalid.'[0m
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2027091Z [36;1m}[0m
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2027637Z [36;1mif ($env:ADMIN_ARCHIVE_SHA256 -ne $env:ADMIN_EXPECTED_SHA256 -or $env:BROKER_ARCHIVE_SHA256 -ne $env:BROKER_EXPECTED_SHA256) {[0m
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2028530Z [36;1m  throw 'Packaged acceptance archive evidence does not match the pinned releases.'[0m
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2029027Z [36;1m}[0m
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2029268Z [36;1m[0m
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2029657Z [36;1m$modes = @('first_run', 'comprehensive_lifecycle', 'stopped_lifecycle')[0m
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2030125Z [36;1mif ($env:RUNNER_OS -eq 'Windows') {[0m
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2030499Z [36;1m  $modes += 'local_operator_lockout'[0m
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2030831Z [36;1m}[0m
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2031102Z [36;1m$evidence = [ordered]@{[0m
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2031494Z [36;1m  schema = 'service-lasso.packaged-admin-lifecycle.v1'[0m
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2032411Z [36;1m  retainedContent = 'metadata_only'[0m
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2032798Z [36;1m  outcome = $env:QUALIFICATION_OUTCOME[0m
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2033427Z [36;1m  platform = $env:ADMIN_PLATFORM[0m
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2033769Z [36;1m  core = [ordered]@{[0m
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2034082Z [36;1m    revision = $env:CORE_REVISION[0m
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2034400Z [36;1m  }[0m
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2034680Z [36;1m  admin = [ordered]@{[0m
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2034997Z [36;1m    revision = $env:ADMIN_REVISION[0m
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2035350Z [36;1m    releaseId = $env:ADMIN_RELEASE_ID[0m
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2035697Z [36;1m    tag = $env:ADMIN_RELEASE_TAG[0m
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2036056Z [36;1m    asset = $env:ADMIN_ASSET[0m
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2036394Z [36;1m    sha256 = $env:ADMIN_ARCHIVE_SHA256[0m
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2036752Z [36;1m    checksumSource = 'SHA256SUMS.txt'[0m
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2037076Z [36;1m  }[0m
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2037358Z [36;1m  adminHarness = [ordered]@{[0m
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2037731Z [36;1m    repository = 'service-lasso/lasso-serviceadmin'[0m
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2038152Z [36;1m    revision = $env:ADMIN_HARNESS_REVISION[0m
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2038492Z [36;1m  }[0m
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2038771Z [36;1m  broker = [ordered]@{[0m
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2039047Z [36;1m    revision = $env:BROKER_REVISION[0m
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2039338Z [36;1m    releaseId = $env:BROKER_RELEASE_ID[0m
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2039681Z [36;1m    tag = $env:BROKER_RELEASE_TAG[0m
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2040042Z [36;1m    asset = $env:BROKER_ASSET[0m
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2040388Z [36;1m    sha256 = $env:BROKER_ARCHIVE_SHA256[0m
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2040750Z [36;1m    checksumSource = 'SHA256SUMS.txt'[0m
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2041078Z [36;1m  }[0m
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2041358Z [36;1m  browser = [ordered]@{[0m
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2041662Z [36;1m    modes = $modes[0m
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2042003Z [36;1m    mutationRetry = $false[0m
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2042330Z [36;1m    capturesRetained = $false[0m
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2042710Z [36;1m    sensitiveEvidenceRetained = $false[0m
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2043031Z [36;1m  }[0m
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2043272Z [36;1m}[0m
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2043631Z [36;1mNew-Item -ItemType Directory -Path artifacts -Force | Out-Null[0m
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2046161Z [36;1m$evidence | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath "artifacts/packaged-admin-lifecycle-$env:ADMIN_PLATFORM.json" -Encoding utf8[0m
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2125170Z shell: C:\Program Files\PowerShell\7\pwsh.EXE -command ". '{0}'"
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2125578Z env:
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2125775Z   ADMIN_RELEASE_ID: 380051618
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2126035Z   ADMIN_RELEASE_TAG: 2026.8.31-f015b44
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2126351Z   ADMIN_REVISION: f015b4445b0526546a309301270186a697588166
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2126749Z   ADMIN_HARNESS_REVISION: 7385136072a855ca144594842344a7241a733ab4
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2127099Z   BROKER_RELEASE_ID: 379635299
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2127341Z   BROKER_RELEASE_TAG: 2026.8.31-f340883
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2127660Z   BROKER_REVISION: f340883056ec3cf74b535fb46490b39382e8c823
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2128064Z   PNPM_HOME: C:\Users\runneradmin\setup-pnpm\node_modules\.bin
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2128624Z   SERVICE_LASSO_TEST_ADMIN_ROOT: D:\a\_temp\packaged-admin-services\@serviceadmin\.state\extracted\current
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2129439Z   SERVICE_LASSO_TEST_BROKER_BINARY: D:\a\_temp\packaged-admin-services\@secretsbroker\.state\extracted\current\secretsbroker.exe
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2130572Z   ADMIN_ARCHIVE_SHA256: fe5e5fe01d1202f3874097e6223652d634c94677c765c5f82d20e6d274c0161c
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2131261Z   BROKER_ARCHIVE_SHA256: e64ee6a85c053c6dd68e2713477dae0620a458496bbd41077b55cc4c2df3f966
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2131823Z   SERVICE_LASSO_TEST_CORE_REVISION: 5115a14acf157e26e8d4e9d538735f90dda353a9
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2132323Z   SERVICE_LASSO_TEST_BROKER_REVISION: f340883056ec3cf74b535fb46490b39382e8c823
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2132707Z   QUALIFICATION_OUTCOME: failure
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2133001Z   CORE_REVISION: 5115a14acf157e26e8d4e9d538735f90dda353a9
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2133538Z   ADMIN_PLATFORM: win32
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2133788Z   ADMIN_ASSET: @serviceadmin-win32.zip
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2134215Z   ADMIN_EXPECTED_SHA256: fe5e5fe01d1202f3874097e6223652d634c94677c765c5f82d20e6d274c0161c
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2134671Z   BROKER_ASSET: secretsbroker-win32.zip
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2135128Z   BROKER_EXPECTED_SHA256: e64ee6a85c053c6dd68e2713477dae0620a458496bbd41077b55cc4c2df3f966
+packaged-admin-lifecycle (win32)	Record metadata-only packaged acceptance evidence	2026-09-30T22:30:05.2135588Z ##[endgroup]
+packaged-admin-lifecycle (win32)	Upload packaged Admin lifecycle evidence	﻿2026-09-30T22:30:05.6827990Z ##[group]Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+packaged-admin-lifecycle (win32)	Upload packaged Admin lifecycle evidence	2026-09-30T22:30:05.6828495Z with:
+packaged-admin-lifecycle (win32)	Upload packaged Admin lifecycle evidence	2026-09-30T22:30:05.6828751Z   name: packaged-admin-lifecycle-win32-36785227669-1
+packaged-admin-lifecycle (win32)	Upload packaged Admin lifecycle evidence	2026-09-30T22:30:05.6829149Z   path: artifacts/packaged-admin-lifecycle-win32.json
+packaged-admin-lifecycle (win32)	Upload packaged Admin lifecycle evidence	2026-09-30T22:30:05.6829476Z   if-no-files-found: error
+packaged-admin-lifecycle (win32)	Upload packaged Admin lifecycle evidence	2026-09-30T22:30:05.6829703Z   retention-days: 90
+packaged-admin-lifecycle (win32)	Upload packaged Admin lifecycle evidence	2026-09-30T22:30:05.6829920Z   compression-level: 6
+packaged-admin-lifecycle (win32)	Upload packaged Admin lifecycle evidence	2026-09-30T22:30:05.6830133Z   overwrite: false
+packaged-admin-lifecycle (win32)	Upload packaged Admin lifecycle evidence	2026-09-30T22:30:05.6830356Z   include-hidden-files: false
+packaged-admin-lifecycle (win32)	Upload packaged Admin lifecycle evidence	2026-09-30T22:30:05.6830581Z   archive: true
+packaged-admin-lifecycle (win32)	Upload packaged Admin lifecycle evidence	2026-09-30T22:30:05.6830762Z env:
+packaged-admin-lifecycle (win32)	Upload packaged Admin lifecycle evidence	2026-09-30T22:30:05.6830944Z   ADMIN_RELEASE_ID: 380051618
+packaged-admin-lifecycle (win32)	Upload packaged Admin lifecycle evidence	2026-09-30T22:30:05.6831179Z   ADMIN_RELEASE_TAG: 2026.8.31-f015b44
+packaged-admin-lifecycle (win32)	Upload packaged Admin lifecycle evidence	2026-09-30T22:30:05.6831488Z   ADMIN_REVISION: f015b4445b0526546a309301270186a697588166
+packaged-admin-lifecycle (win32)	Upload packaged Admin lifecycle evidence	2026-09-30T22:30:05.6831866Z   ADMIN_HARNESS_REVISION: 7385136072a855ca144594842344a7241a733ab4
+packaged-admin-lifecycle (win32)	Upload packaged Admin lifecycle evidence	2026-09-30T22:30:05.6832219Z   BROKER_RELEASE_ID: 379635299
+packaged-admin-lifecycle (win32)	Upload packaged Admin lifecycle evidence	2026-09-30T22:30:05.6832484Z   BROKER_RELEASE_TAG: 2026.8.31-f340883
+packaged-admin-lifecycle (win32)	Upload packaged Admin lifecycle evidence	2026-09-30T22:30:05.6832793Z   BROKER_REVISION: f340883056ec3cf74b535fb46490b39382e8c823
+packaged-admin-lifecycle (win32)	Upload packaged Admin lifecycle evidence	2026-09-30T22:30:05.6833184Z   PNPM_HOME: C:\Users\runneradmin\setup-pnpm\node_modules\.bin
+packaged-admin-lifecycle (win32)	Upload packaged Admin lifecycle evidence	2026-09-30T22:30:05.6833730Z   SERVICE_LASSO_TEST_ADMIN_ROOT: D:\a\_temp\packaged-admin-services\@serviceadmin\.state\extracted\current
+packaged-admin-lifecycle (win32)	Upload packaged Admin lifecycle evidence	2026-09-30T22:30:05.6834506Z   SERVICE_LASSO_TEST_BROKER_BINARY: D:\a\_temp\packaged-admin-services\@secretsbroker\.state\extracted\current\secretsbroker.exe
+packaged-admin-lifecycle (win32)	Upload packaged Admin lifecycle evidence	2026-09-30T22:30:05.6835228Z   ADMIN_ARCHIVE_SHA256: fe5e5fe01d1202f3874097e6223652d634c94677c765c5f82d20e6d274c0161c
+packaged-admin-lifecycle (win32)	Upload packaged Admin lifecycle evidence	2026-09-30T22:30:05.6835813Z   BROKER_ARCHIVE_SHA256: e64ee6a85c053c6dd68e2713477dae0620a458496bbd41077b55cc4c2df3f966
+packaged-admin-lifecycle (win32)	Upload packaged Admin lifecycle evidence	2026-09-30T22:30:05.6836346Z   SERVICE_LASSO_TEST_CORE_REVISION: 5115a14acf157e26e8d4e9d538735f90dda353a9
+packaged-admin-lifecycle (win32)	Upload packaged Admin lifecycle evidence	2026-09-30T22:30:05.6836831Z   SERVICE_LASSO_TEST_BROKER_REVISION: f340883056ec3cf74b535fb46490b39382e8c823
+packaged-admin-lifecycle (win32)	Upload packaged Admin lifecycle evidence	2026-09-30T22:30:05.6837207Z ##[endgroup]
+packaged-admin-lifecycle (win32)	Upload packaged Admin lifecycle evidence	2026-09-30T22:30:05.8702585Z With the provided path, there will be 1 file uploaded
+packaged-admin-lifecycle (win32)	Upload packaged Admin lifecycle evidence	2026-09-30T22:30:05.8709417Z Artifact name is valid!
+packaged-admin-lifecycle (win32)	Upload packaged Admin lifecycle evidence	2026-09-30T22:30:05.8711196Z Root directory input is valid!
+packaged-admin-lifecycle (win32)	Upload packaged Admin lifecycle evidence	2026-09-30T22:30:06.0930844Z Uploading artifact: packaged-admin-lifecycle-win32-36785227669-1.zip
+packaged-admin-lifecycle (win32)	Upload packaged Admin lifecycle evidence	2026-09-30T22:30:06.0981173Z Beginning upload of artifact content to blob storage
+packaged-admin-lifecycle (win32)	Upload packaged Admin lifecycle evidence	2026-09-30T22:30:06.1746103Z Uploaded bytes 790
+packaged-admin-lifecycle (win32)	Upload packaged Admin lifecycle evidence	2026-09-30T22:30:06.1900337Z Finished uploading artifact content to blob storage!
+packaged-admin-lifecycle (win32)	Upload packaged Admin lifecycle evidence	2026-09-30T22:30:06.1902446Z SHA256 digest of uploaded artifact is 57795c0a55fd471988a3677c94f8fc381011c4c513237d0b18db361e5b8918aa
+packaged-admin-lifecycle (win32)	Upload packaged Admin lifecycle evidence	2026-09-30T22:30:06.1904280Z Finalizing artifact upload
+packaged-admin-lifecycle (win32)	Upload packaged Admin lifecycle evidence	2026-09-30T22:30:06.4117487Z Artifact packaged-admin-lifecycle-win32-36785227669-1 successfully finalized. Artifact ID 11129633296
+packaged-admin-lifecycle (win32)	Upload packaged Admin lifecycle evidence	2026-09-30T22:30:06.4119614Z Artifact packaged-admin-lifecycle-win32-36785227669-1 has been successfully uploaded! Final size is 790 bytes. Artifact ID is 11129633296
+packaged-admin-lifecycle (win32)	Upload packaged Admin lifecycle evidence	2026-09-30T22:30:06.4126855Z Artifact download URL: https://github.com/service-lasso/service-lasso/actions/runs/36785227669/artifacts/11129633296
+packaged-admin-lifecycle (win32)	Post Set up pnpm	﻿2026-09-30T22:30:06.4455385Z Post job cleanup.
+packaged-admin-lifecycle (win32)	Post Set up pnpm	2026-09-30T22:30:06.6346914Z Pruning is unnecessary.
+packaged-admin-lifecycle (win32)	Post Check out exact qualified Admin harness	﻿2026-09-30T22:30:06.6705262Z Post job cleanup.
+packaged-admin-lifecycle (win32)	Post Check out exact qualified Admin harness	2026-09-30T22:30:06.8694566Z [command]"C:\Program Files\Git\bin\git.exe" version
+packaged-admin-lifecycle (win32)	Post Check out exact qualified Admin harness	2026-09-30T22:30:06.8967813Z git version 2.55.0.windows.5
+packaged-admin-lifecycle (win32)	Post Check out exact qualified Admin harness	2026-09-30T22:30:06.9037442Z Temporarily overriding HOME='D:\a\_temp\f8ab79dd-3f54-42b7-a97c-30aa71a8aaed' before making global git config changes
+packaged-admin-lifecycle (win32)	Post Check out exact qualified Admin harness	2026-09-30T22:30:06.9038773Z Adding repository directory to the temporary git global config as a safe directory
+packaged-admin-lifecycle (win32)	Post Check out exact qualified Admin harness	2026-09-30T22:30:06.9049210Z [command]"C:\Program Files\Git\bin\git.exe" config --global --add safe.directory D:\a\service-lasso\service-lasso\qualification\admin
+packaged-admin-lifecycle (win32)	Post Check out exact qualified Admin harness	2026-09-30T22:30:06.9359115Z Removing SSH command configuration
+packaged-admin-lifecycle (win32)	Post Check out exact qualified Admin harness	2026-09-30T22:30:06.9370188Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp core\.sshCommand
+packaged-admin-lifecycle (win32)	Post Check out exact qualified Admin harness	2026-09-30T22:30:06.9680172Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :\""
+packaged-admin-lifecycle (win32)	Post Check out exact qualified Admin harness	2026-09-30T22:30:07.5134275Z Removing HTTP extra header
+packaged-admin-lifecycle (win32)	Post Check out exact qualified Admin harness	2026-09-30T22:30:07.5145496Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+packaged-admin-lifecycle (win32)	Post Check out exact qualified Admin harness	2026-09-30T22:30:07.5463425Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :\""
+packaged-admin-lifecycle (win32)	Post Check out exact qualified Admin harness	2026-09-30T22:30:08.0900563Z Removing includeIf entries pointing to credentials config files
+packaged-admin-lifecycle (win32)	Post Check out exact qualified Admin harness	2026-09-30T22:30:08.0912431Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp ^includeIf\.gitdir:
+packaged-admin-lifecycle (win32)	Post Check out exact qualified Admin harness	2026-09-30T22:30:08.1181392Z includeif.gitdir:D:/a/service-lasso/service-lasso/qualification/admin/.git.path
+packaged-admin-lifecycle (win32)	Post Check out exact qualified Admin harness	2026-09-30T22:30:08.1182769Z includeif.gitdir:D:/a/service-lasso/service-lasso/qualification/admin/.git/worktrees/*.path
+packaged-admin-lifecycle (win32)	Post Check out exact qualified Admin harness	2026-09-30T22:30:08.1183917Z includeif.gitdir:/github/workspace/qualification/admin/.git.path
+packaged-admin-lifecycle (win32)	Post Check out exact qualified Admin harness	2026-09-30T22:30:08.1185366Z includeif.gitdir:/github/workspace/qualification/admin/.git/worktrees/*.path
+packaged-admin-lifecycle (win32)	Post Check out exact qualified Admin harness	2026-09-30T22:30:08.1223544Z [command]"C:\Program Files\Git\bin\git.exe" config --local --get-all includeif.gitdir:D:/a/service-lasso/service-lasso/qualification/admin/.git.path
+packaged-admin-lifecycle (win32)	Post Check out exact qualified Admin harness	2026-09-30T22:30:08.1546634Z D:\a\_temp\git-credentials-c333a275-9600-4aa2-ac46-7482ce5bb3bd.config
+packaged-admin-lifecycle (win32)	Post Check out exact qualified Admin harness	2026-09-30T22:30:08.1595923Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset includeif.gitdir:D:/a/service-lasso/service-lasso/qualification/admin/.git.path D\:\\a\\_temp\\git\-credentials\-c333a275\-9600\-4aa2\-ac46\-7482ce5bb3bd\.config
+packaged-admin-lifecycle (win32)	Post Check out exact qualified Admin harness	2026-09-30T22:30:08.1916426Z [command]"C:\Program Files\Git\bin\git.exe" config --local --get-all includeif.gitdir:D:/a/service-lasso/service-lasso/qualification/admin/.git/worktrees/*.path
+packaged-admin-lifecycle (win32)	Post Check out exact qualified Admin harness	2026-09-30T22:30:08.2177860Z D:\a\_temp\git-credentials-c333a275-9600-4aa2-ac46-7482ce5bb3bd.config
+packaged-admin-lifecycle (win32)	Post Check out exact qualified Admin harness	2026-09-30T22:30:08.2219438Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset includeif.gitdir:D:/a/service-lasso/service-lasso/qualification/admin/.git/worktrees/*.path D\:\\a\\_temp\\git\-credentials\-c333a275\-9600\-4aa2\-ac46\-7482ce5bb3bd\.config
+packaged-admin-lifecycle (win32)	Post Check out exact qualified Admin harness	2026-09-30T22:30:08.2515072Z [command]"C:\Program Files\Git\bin\git.exe" config --local --get-all includeif.gitdir:/github/workspace/qualification/admin/.git.path
+packaged-admin-lifecycle (win32)	Post Check out exact qualified Admin harness	2026-09-30T22:30:08.2770221Z /github/runner_temp/git-credentials-c333a275-9600-4aa2-ac46-7482ce5bb3bd.config
+packaged-admin-lifecycle (win32)	Post Check out exact qualified Admin harness	2026-09-30T22:30:08.2813746Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset includeif.gitdir:/github/workspace/qualification/admin/.git.path \/github\/runner_temp\/git\-credentials\-c333a275\-9600\-4aa2\-ac46\-7482ce5bb3bd\.config
+packaged-admin-lifecycle (win32)	Post Check out exact qualified Admin harness	2026-09-30T22:30:08.3127392Z [command]"C:\Program Files\Git\bin\git.exe" config --local --get-all includeif.gitdir:/github/workspace/qualification/admin/.git/worktrees/*.path
+packaged-admin-lifecycle (win32)	Post Check out exact qualified Admin harness	2026-09-30T22:30:08.3389963Z /github/runner_temp/git-credentials-c333a275-9600-4aa2-ac46-7482ce5bb3bd.config
+packaged-admin-lifecycle (win32)	Post Check out exact qualified Admin harness	2026-09-30T22:30:08.3465406Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset includeif.gitdir:/github/workspace/qualification/admin/.git/worktrees/*.path \/github\/runner_temp\/git\-credentials\-c333a275\-9600\-4aa2\-ac46\-7482ce5bb3bd\.config
+packaged-admin-lifecycle (win32)	Post Check out exact qualified Admin harness	2026-09-30T22:30:08.3775707Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "git config --local --show-origin --name-only --get-regexp remote.origin.url"
+packaged-admin-lifecycle (win32)	Post Check out exact qualified Admin harness	2026-09-30T22:30:08.9384487Z Removing credentials config 'D:\a\_temp\git-credentials-c333a275-9600-4aa2-ac46-7482ce5bb3bd.config'
+packaged-admin-lifecycle (win32)	Post Check out candidate Core	﻿2026-09-30T22:30:08.9719592Z Post job cleanup.
+packaged-admin-lifecycle (win32)	Post Check out candidate Core	2026-09-30T22:30:09.1674578Z [command]"C:\Program Files\Git\bin\git.exe" version
+packaged-admin-lifecycle (win32)	Post Check out candidate Core	2026-09-30T22:30:09.1952053Z git version 2.55.0.windows.5
+packaged-admin-lifecycle (win32)	Post Check out candidate Core	2026-09-30T22:30:09.2017404Z Temporarily overriding HOME='D:\a\_temp\f3d597bd-e032-404c-8520-71a988d89b93' before making global git config changes
+packaged-admin-lifecycle (win32)	Post Check out candidate Core	2026-09-30T22:30:09.2019189Z Adding repository directory to the temporary git global config as a safe directory
+packaged-admin-lifecycle (win32)	Post Check out candidate Core	2026-09-30T22:30:09.2028691Z [command]"C:\Program Files\Git\bin\git.exe" config --global --add safe.directory D:\a\service-lasso\service-lasso
+packaged-admin-lifecycle (win32)	Post Check out candidate Core	2026-09-30T22:30:09.2323904Z Removing SSH command configuration
+packaged-admin-lifecycle (win32)	Post Check out candidate Core	2026-09-30T22:30:09.2336347Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp core\.sshCommand
+packaged-admin-lifecycle (win32)	Post Check out candidate Core	2026-09-30T22:30:09.2658064Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :\""
+packaged-admin-lifecycle (win32)	Post Check out candidate Core	2026-09-30T22:30:09.8524230Z Removing HTTP extra header
+packaged-admin-lifecycle (win32)	Post Check out candidate Core	2026-09-30T22:30:09.8534847Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+packaged-admin-lifecycle (win32)	Post Check out candidate Core	2026-09-30T22:30:09.8853662Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :\""
+packaged-admin-lifecycle (win32)	Post Check out candidate Core	2026-09-30T22:30:10.4225516Z Removing includeIf entries pointing to credentials config files
+packaged-admin-lifecycle (win32)	Post Check out candidate Core	2026-09-30T22:30:10.4242393Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp ^includeIf\.gitdir:
+packaged-admin-lifecycle (win32)	Post Check out candidate Core	2026-09-30T22:30:10.4518977Z includeif.gitdir:D:/a/service-lasso/service-lasso/.git.path
+packaged-admin-lifecycle (win32)	Post Check out candidate Core	2026-09-30T22:30:10.4519666Z includeif.gitdir:D:/a/service-lasso/service-lasso/.git/worktrees/*.path
+packaged-admin-lifecycle (win32)	Post Check out candidate Core	2026-09-30T22:30:10.4520165Z includeif.gitdir:/github/workspace/.git.path
+packaged-admin-lifecycle (win32)	Post Check out candidate Core	2026-09-30T22:30:10.4520613Z includeif.gitdir:/github/workspace/.git/worktrees/*.path
+packaged-admin-lifecycle (win32)	Post Check out candidate Core	2026-09-30T22:30:10.4566288Z [command]"C:\Program Files\Git\bin\git.exe" config --local --get-all includeif.gitdir:D:/a/service-lasso/service-lasso/.git.path
+packaged-admin-lifecycle (win32)	Post Check out candidate Core	2026-09-30T22:30:10.4841809Z D:\a\_temp\git-credentials-07511cff-558d-4ebb-94da-dbabdd02f559.config
+packaged-admin-lifecycle (win32)	Post Check out candidate Core	2026-09-30T22:30:10.4888950Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset includeif.gitdir:D:/a/service-lasso/service-lasso/.git.path D\:\\a\\_temp\\git\-credentials\-07511cff\-558d\-4ebb\-94da\-dbabdd02f559\.config
+packaged-admin-lifecycle (win32)	Post Check out candidate Core	2026-09-30T22:30:10.5221964Z [command]"C:\Program Files\Git\bin\git.exe" config --local --get-all includeif.gitdir:D:/a/service-lasso/service-lasso/.git/worktrees/*.path
+packaged-admin-lifecycle (win32)	Post Check out candidate Core	2026-09-30T22:30:10.5496474Z D:\a\_temp\git-credentials-07511cff-558d-4ebb-94da-dbabdd02f559.config
+packaged-admin-lifecycle (win32)	Post Check out candidate Core	2026-09-30T22:30:10.5540214Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset includeif.gitdir:D:/a/service-lasso/service-lasso/.git/worktrees/*.path D\:\\a\\_temp\\git\-credentials\-07511cff\-558d\-4ebb\-94da\-dbabdd02f559\.config
+packaged-admin-lifecycle (win32)	Post Check out candidate Core	2026-09-30T22:30:10.5850524Z [command]"C:\Program Files\Git\bin\git.exe" config --local --get-all includeif.gitdir:/github/workspace/.git.path
+packaged-admin-lifecycle (win32)	Post Check out candidate Core	2026-09-30T22:30:10.6113260Z /github/runner_temp/git-credentials-07511cff-558d-4ebb-94da-dbabdd02f559.config
+packaged-admin-lifecycle (win32)	Post Check out candidate Core	2026-09-30T22:30:10.6154853Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset includeif.gitdir:/github/workspace/.git.path \/github\/runner_temp\/git\-credentials\-07511cff\-558d\-4ebb\-94da\-dbabdd02f559\.config
+packaged-admin-lifecycle (win32)	Post Check out candidate Core	2026-09-30T22:30:10.6462487Z [command]"C:\Program Files\Git\bin\git.exe" config --local --get-all includeif.gitdir:/github/workspace/.git/worktrees/*.path
+packaged-admin-lifecycle (win32)	Post Check out candidate Core	2026-09-30T22:30:10.6720150Z /github/runner_temp/git-credentials-07511cff-558d-4ebb-94da-dbabdd02f559.config
+packaged-admin-lifecycle (win32)	Post Check out candidate Core	2026-09-30T22:30:10.6799787Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset includeif.gitdir:/github/workspace/.git/worktrees/*.path \/github\/runner_temp\/git\-credentials\-07511cff\-558d\-4ebb\-94da\-dbabdd02f559\.config
+packaged-admin-lifecycle (win32)	Post Check out candidate Core	2026-09-30T22:30:10.7111319Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "git config --local --show-origin --name-only --get-regexp remote.origin.url"
+packaged-admin-lifecycle (win32)	Post Check out candidate Core	2026-09-30T22:30:11.2323406Z Removing credentials config 'D:\a\_temp\git-credentials-07511cff-558d-4ebb-94da-dbabdd02f559.config'
+packaged-admin-lifecycle (win32)	Complete job	﻿2026-09-30T22:30:11.2534807Z Cleaning up orphan processes

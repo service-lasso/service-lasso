@@ -21,22 +21,34 @@ export interface ProcessControlCommandResult {
   stdout: string;
 }
 
+export type ProcessControlCommandPhase = "spawned" | "exited" | "stdio_closed";
+
 export type ProcessControlCommandRunner = (
   command: string,
   args: string[],
-  options: { captureOutput: boolean; signal: AbortSignal },
+  options: {
+    captureOutput: boolean;
+    signal: AbortSignal;
+    onPhase?: (phase: ProcessControlCommandPhase) => void;
+  },
 ) => Promise<ProcessControlCommandResult>;
 
 async function runSpawnedProcessControlCommand(
   command: string,
   args: string[],
-  options: { captureOutput: boolean; signal: AbortSignal },
+  options: {
+    captureOutput: boolean;
+    signal: AbortSignal;
+    onPhase?: (phase: ProcessControlCommandPhase) => void;
+  },
 ): Promise<ProcessControlCommandResult> {
   return await new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       stdio: options.captureOutput ? ["ignore", "pipe", "ignore"] : "ignore",
       windowsHide: true,
     });
+    child.once("spawn", () => options.onPhase?.("spawned"));
+    child.once("exit", () => options.onPhase?.("exited"));
     let output = "";
     let abortRequested = false;
     const abort = () => {
@@ -57,6 +69,7 @@ async function runSpawnedProcessControlCommand(
     }
     child.once("close", (exitCode) => {
       options.signal.removeEventListener("abort", abort);
+      options.onPhase?.("stdio_closed");
       if (abortRequested) {
         reject(new ProcessControlDeadlineError());
         return;
@@ -79,6 +92,7 @@ export async function runProcessControlCommand(
   options: ProcessControlDeadlineOptions & {
     captureOutput: boolean;
     runner?: ProcessControlCommandRunner;
+    onPhase?: (phase: ProcessControlCommandPhase) => void;
   },
 ): Promise<ProcessControlCommandResult> {
   if (options.signal?.aborted) {
@@ -106,6 +120,7 @@ export async function runProcessControlCommand(
   const pending = Promise.resolve().then(() => runner(command, args, {
     captureOutput: options.captureOutput,
     signal: controller.signal,
+    onPhase: options.onPhase,
   }));
   void pending.catch(() => undefined);
   const deadline = remainingMs === null

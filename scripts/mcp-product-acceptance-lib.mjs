@@ -69,6 +69,52 @@ const GUARDED_DIAGNOSTIC_PROCESS_START_PHASES = new Set([
   "launcher_acknowledgement_write",
   "unclassified_error",
 ]);
+const GUARDED_DIAGNOSTIC_WINDOWS_TREE_INSPECTION_PHASES = new Set([
+  "queue_wait",
+  "native_snapshot",
+  "retry_delay",
+]);
+const GUARDED_DIAGNOSTIC_WINDOWS_TREE_INSPECTION_RETRIES = new Set([
+  "helper_failed", "malformed", "incomplete", "invalid_ancestry", "inconsistent_root",
+  "ancestry_invalid_parent", "ancestry_predates_root", "ancestry_cycle",
+  "ancestry_missing_parent", "ancestry_predates_parent",
+  "ancestry_predates_parent_before_root", "ancestry_predates_parent_within_root",
+  "snapshot_create", "snapshot_enumerate", "snapshot_close", "changed_ancestry",
+  ...["root", "descendant"].flatMap((subject) => [
+    "open", "identity", "time", "image", "parent", "command_size", "command_query",
+    "command_bounds", "command_empty", "handle_close", "open_denied", "command_denied",
+    "command_length_changed", "command_unsupported", "command_native_failure",
+    "command_result_length", "command_buffer_small", "command_partial_copy",
+    "command_terminating", "command_unsuccessful", "command_buffer_overflow",
+  ].map((stage) => `${subject}_${stage}`)),
+]);
+
+const boundedDiagnosticInteger = (value, maximum) =>
+  typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= maximum ? value : null;
+
+// Keep the packaged runner's failure receipt aligned with the runtime's closed
+// tree-inspection projection. This function intentionally drops every value
+// outside the six diagnostic fields, including process identities and text.
+export function projectPackagedWindowsTreeInspection(value) {
+  if (!isRecord(value) || !GUARDED_DIAGNOSTIC_WINDOWS_TREE_INSPECTION_PHASES.has(value.windowsTreeInspectionPhase)) return null;
+  return {
+    windowsTreeInspectionPhase: value.windowsTreeInspectionPhase,
+    windowsTreeInspectionAttempts: boundedDiagnosticInteger(value.windowsTreeInspectionAttempts, 1000),
+    windowsTreeInspectionRetries: boundedDiagnosticInteger(value.windowsTreeInspectionRetries, 1000),
+    windowsTreeInspectionQueueMs: boundedDiagnosticInteger(value.windowsTreeInspectionQueueMs, 600000),
+    windowsTreeInspectionNativeMs: boundedDiagnosticInteger(value.windowsTreeInspectionNativeMs, 600000),
+    windowsTreeInspectionLastRetry: GUARDED_DIAGNOSTIC_WINDOWS_TREE_INSPECTION_RETRIES.has(value.windowsTreeInspectionLastRetry)
+      ? value.windowsTreeInspectionLastRetry
+      : null,
+  };
+}
+
+function isPackagedWindowsTreeInspection(value) {
+  const projected = projectPackagedWindowsTreeInspection(value);
+  return projected !== null &&
+    hasOnlyKeys(value, new Set(Object.keys(projected))) &&
+    Object.entries(projected).every(([key, expected]) => value[key] === expected);
+}
 export const MCP_PACKAGED_SAFE_AUDIT_DIAGNOSTIC_REASONS = Object.freeze([
   "audit_event_not_found",
   "audit_probe_failed",
@@ -226,6 +272,7 @@ export function parsePackagedAcceptanceFailure(stderr) {
         "readinessAttribution",
         "healthcheckFailed",
         "processStartFailurePhase",
+        "windowsTreeInspection",
       ])) ||
       !(parsed.guardedProbe.lifecycle.attemptStatus === null || GUARDED_DIAGNOSTIC_TRACE_STATUSES.has(parsed.guardedProbe.lifecycle.attemptStatus)) ||
       !(parsed.guardedProbe.lifecycle.phase === null || GUARDED_DIAGNOSTIC_TRACE_PHASES.has(parsed.guardedProbe.lifecycle.phase)) ||
@@ -233,7 +280,9 @@ export function parsePackagedAcceptanceFailure(stderr) {
       !(parsed.guardedProbe.lifecycle.readinessAttribution === null || GUARDED_DIAGNOSTIC_READINESS.has(parsed.guardedProbe.lifecycle.readinessAttribution)) ||
       !(parsed.guardedProbe.lifecycle.healthcheckFailed === null || typeof parsed.guardedProbe.lifecycle.healthcheckFailed === "boolean") ||
       !(parsed.guardedProbe.lifecycle.processStartFailurePhase === null ||
-        GUARDED_DIAGNOSTIC_PROCESS_START_PHASES.has(parsed.guardedProbe.lifecycle.processStartFailurePhase))
+        GUARDED_DIAGNOSTIC_PROCESS_START_PHASES.has(parsed.guardedProbe.lifecycle.processStartFailurePhase)) ||
+      !(parsed.guardedProbe.lifecycle.windowsTreeInspection === null ||
+        isPackagedWindowsTreeInspection(parsed.guardedProbe.lifecycle.windowsTreeInspection))
     ) return null;
     diagnostic.guardedProbe = {
       completed: { ...parsed.guardedProbe.completed },

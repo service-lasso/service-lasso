@@ -195,6 +195,41 @@ test("post-signal process exit between presence and proc inspection settles clea
   assert.equal(presenceProbes, 2);
 });
 
+test("Darwin post-signal control accepts only actual absence before full fingerprint verification", async () => {
+  let absentInspections = 0;
+  const absent = await terminateOwnedProcessTree(target, CONTROL_TIMEOUT_MS, {
+    platform: "darwin",
+    inspectProcess: async () => {
+      absentInspections += 1;
+      if (absentInspections === 1) return { status: "running", identity };
+      throw new Error("Absent Darwin PID must settle before a second fingerprint inspection.");
+    },
+    killProcess: (_pid, signal) => {
+      if (signal === 0) throw missingProcessError();
+    },
+  });
+  assert.deepEqual(absent, { forced: false });
+  assert.equal(absentInspections, 1);
+
+  let presentInspections = 0;
+  await assert.rejects(
+    terminateOwnedProcessTree(target, CONTROL_TIMEOUT_MS, {
+      platform: "darwin",
+      inspectProcess: async () => {
+        presentInspections += 1;
+        return presentInspections === 1
+          ? { status: "running", identity }
+          : { status: "running", identity: { ...identity, createdAt: "2026-08-12T00:00:01.000Z" } };
+      },
+      killProcess: (_pid, signal) => {
+        if (signal === 0) return;
+      },
+    }),
+    /Cannot verify process 43123/,
+  );
+  assert.equal(presentInspections, 2);
+});
+
 test("live identity mismatch blocks process-tree control before and after signaling", async () => {
   const mismatch = {
     status: "running",
@@ -228,7 +263,10 @@ test("live identity mismatch blocks process-tree control before and after signal
     }),
     /Cannot verify process 43123/,
   );
-  assert.equal(postSignalExitProbes, 0);
+  // The Linux zombie check is a bounded post-signal observation only. A
+  // present PID still reaches the full fingerprint comparison and the changed
+  // incarnation remains fail-closed without another signal.
+  assert.equal(postSignalExitProbes, 1);
 });
 
 test("post-signal unverifiable active process remains fail closed", async () => {
