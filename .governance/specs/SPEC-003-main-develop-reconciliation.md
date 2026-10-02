@@ -38,6 +38,7 @@ Out of scope:
 - Targeted tests for Broker generated-secret planning, Service Admin canonical demo/API behavior, action/workflow APIs, config history, audit persistence, runtime log streams, and smoke isolation.
 - Canonical demo/baseline smoke where supported by the execution environment.
 - Pull-request diff and status checks against `develop`.
+- When BR-004 evidence uses an external platform aggregate, retain and fully validate the complete private custody record locally; upload only an explicit digest-bound public projection. The aggregate may report its own projection checks, but never claims validation of private receipt bytes unavailable to that environment.
 
 ## Documentation Impact
 
@@ -53,3 +54,9 @@ Reviewers must be able to trace each `main`-only product change to its reconcile
 
 - 2026-07-13: Recovery initiated after normal development PRs were found merged into `main` while `develop` continued independently. Direct `main -> develop` merging was rejected as the working model; reconciliation is performed on `fix/ISS-850-main-develop-reconciliation`, created from `develop`.
 - 2026-07-13: Reconciliation completed locally with 445 passing tests. During validation, telemetry was found actively probing arbitrary manifest health URLs; it now uses persisted/passive health evidence, and the external-URL sentinel regression passes without an outbound request.
+- 2026-10-02: Exact-head repair qualification requires one coherent private-custody producer/validator/fixture/platform contract and a separate public digest projection. Synthetic v1 custody records and public uploads of raw custody data are invalid inputs and cannot satisfy BR-004.
+- 2026-10-02: The authorised reconciliation PR `#1584` alone may use the
+  canonical-repository head `codex/1577-release-reconciliation-develop` into
+  `develop`; the branch-policy gate binds all four tuple members (PR number,
+  base, head, and head repository). This temporary exception preserves the
+  reviewed reconciliation ancestry and expires on that merge.

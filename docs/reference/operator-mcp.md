@@ -10,7 +10,7 @@ The runtime currently exposes:
 - discovery and compatibility metadata at `GET /api/mcp/info`
 - a bounded migration response at `GET /api/mcp` that returns `405 Method Not Allowed`
 - negotiated protocol revision `2025-11-25`, with the complete SDK-supported set advertised by `GET /api/mcp/info` (`2025-11-25`, `2025-06-18`, `2025-03-26`, `2024-11-05`, and `2024-10-07`)
-- `@modelcontextprotocol/sdk` `1.30.0` pinned for MCP server registration and Streamable HTTP handling
+- `@modelcontextprotocol/sdk` `1.30.1` pinned for MCP server registration and Streamable HTTP handling
 - `@modelcontextprotocol/inspector` `2.4.0` pinned as the blocking official Inspector client
 - RFC 9728 protected-resource metadata at `GET /.well-known/oauth-protected-resource` when MCP OAuth is fully configured
 - asymmetric JWT signature, issuer, expiry, configured-audience, and scope validation for configured Streamable HTTP

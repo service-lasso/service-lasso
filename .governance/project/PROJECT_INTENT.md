@@ -47,6 +47,7 @@ This repo is therefore the place where the real core behavior must live and cont
   SBOM/provenance/signature, or failed published-package evidence (`SPEC-007`
   `AC-7G`).
 - Release authority and readiness follow `gov-09-release-authority.mdc` and `RELEASE_TRACEABILITY.md`. Agents report exact-candidate technical readiness; only the release owner accepts residual risk, declares GA, and authorizes promotion, publication, or deployment. Independent review is required only when the owner explicitly mandates it and names the reviewer (`SPEC-007` `AC-7H`, `#1409`). Missing or failed technical proof is never converted into a pass.
+- Cross-platform release aggregation may publish only a digest-bound public projection of a locally validated private custody receipt. Raw receipt paths, ACLs, process identities, tool identities, and other private fields remain in the private receipt and are never made public merely by setting a JSON field. The aggregate must retain the full expected inventory and journal linkage and distinguish local private validation from public cross-platform aggregation.
 
 ## Risks
 

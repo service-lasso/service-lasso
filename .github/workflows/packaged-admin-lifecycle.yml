@@ -361,7 +361,7 @@ jobs:
             }
             New-Item -ItemType Directory -Path artifacts -Force | Out-Null
             Copy-Item -LiteralPath $env:ADMIN_TRUSTED_UNLOCK_PREBROWSER_FAILURE_PATH -Destination "artifacts/admin-trusted-unlock-prebrowser-failure.json"
-            Copy-Item -LiteralPath $env:QUALIFICATION_INITIAL_RECEIPT_PATH -Destination "artifacts/initial-receipt.json"
+            node scripts/project-packaged-admin-first-custody.mjs --input "$env:QUALIFICATION_INITIAL_RECEIPT_PATH" --journal "$env:QUALIFICATION_EVIDENCE_ROOT/first-custody-journal.json" --output "artifacts/initial-projection.json"
             exit 0
           }
           $hex64 = '^[0-9a-f]{64}$'
@@ -416,7 +416,7 @@ jobs:
           }
           New-Item -ItemType Directory -Path artifacts -Force | Out-Null
           $evidence | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath "artifacts/packaged-admin-lifecycle-$env:ADMIN_PLATFORM.json" -Encoding utf8
-          Copy-Item -LiteralPath $env:QUALIFICATION_INITIAL_RECEIPT_PATH -Destination "artifacts/initial-receipt.json"
+          node scripts/project-packaged-admin-first-custody.mjs --input "$env:QUALIFICATION_INITIAL_RECEIPT_PATH" --journal "$env:QUALIFICATION_EVIDENCE_ROOT/first-custody-journal.json" --output "artifacts/initial-projection.json"
           node scripts/retain-packaged-admin-lifecycle-receipt.mjs --receipt "$env:RUNNER_TEMP/admin-trusted-unlock-receipt.json" --evidence "artifacts/packaged-admin-lifecycle-$env:ADMIN_PLATFORM.json" --retained "artifacts/admin-trusted-unlock-receipt.json"
 
       - name: Upload packaged Admin lifecycle evidence
@@ -428,7 +428,7 @@ jobs:
             artifacts/packaged-admin-lifecycle-${{ matrix.admin_platform }}.json
             artifacts/admin-trusted-unlock-receipt.json
             artifacts/admin-trusted-unlock-prebrowser-failure.json
-            artifacts/initial-receipt.json
+            artifacts/initial-projection.json
           if-no-files-found: error
           retention-days: 90
 

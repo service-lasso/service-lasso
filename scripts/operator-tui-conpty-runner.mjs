@@ -17,8 +17,11 @@ const WINDOWS_MANAGED_LAUNCHER = path.resolve(
   "execution",
   "windows-managed-launcher-native.exe",
 );
-const WINDOWS_MANAGED_LAUNCHER_BYTES = 34_304;
-const WINDOWS_MANAGED_LAUNCHER_SHA256 = "9fb89ec94c6f3d1930246ca95aa9f7f0d3bd85a1801e3e0b951920a6770ea5f6";
+// Keep this independent consumer bound to the current checked-in launcher.
+// The supervisor validates the same exact bytes before it accepts a managed
+// Windows child.
+const WINDOWS_MANAGED_LAUNCHER_BYTES = 141_824;
+const WINDOWS_MANAGED_LAUNCHER_SHA256 = "401699f683f56e081236e550ab59c06f888929ec5e30588f4e27cce972d4364c";
 
 function appendBounded(current, chunk) {
   if (current.length >= MAX_CAPTURED_BYTES) return current;

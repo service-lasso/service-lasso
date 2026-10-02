@@ -27,6 +27,13 @@
 
 Any pull request that violates this table must be stopped and corrected before implementation or review continues.
 
+The authorised `SPEC-003` recovery pull request `#1584` is the sole temporary
+exception to the normal typed-prefix rule: its canonical-repository head must
+be exactly `codex/1577-release-reconciliation-develop` and its base must be
+`develop`. The exception exists only to preserve the already-reviewed
+reconciliation ancestry. It expires when that pull request merges and may not
+be reused by a reopened or replacement pull request.
+
 ## Commit Policy
 - Bootstrap update runs should state `required`, `allowed`, or `forbidden` explicitly in their status artifact.
 - This repository's current bootstrap update run uses `allowed`.

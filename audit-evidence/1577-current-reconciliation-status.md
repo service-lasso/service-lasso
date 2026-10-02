@@ -67,3 +67,19 @@ fresh `currentTree.members` map already built from the inspected tree.  The
 repair must preserve fail-closed identity comparison and is paired with the
 existing Windows tree-control snapshot regression before a new candidate is
 qualified.
+
+The subsequent exact-head qualification started from a fresh detached
+`ba19f1bdea1ef7026c45c8964bdfcb66b87b1740` checkout after independent source
+review. Its dependency acquisition, clean build, and typecheck passed, but its
+full isolated suite recorded two corrective findings before the run reached a
+terminal receipt: the concurrent durable HTTP replay fixture closed its owned
+server and removed its workspace without awaiting its two accepted operations
+or stopping its fixture-owned services; and the packaged launcher assertion
+required a one-line invocation even though the retained launcher integrity,
+deadline, launch-state, second integrity check, and managed-spawn ordering is
+present across whitespace. The corrective candidate must await only those
+fixture-owned operations, close those fixture-owned services before cleanup,
+and make the assertion whitespace-tolerant while retaining the full ordered
+control invariant. This is not a BR-004 pass, baseline result, promotion, or
+release claim; the raw failure-bearing receipt remains authoritative until a
+new exact-head qualification completes.

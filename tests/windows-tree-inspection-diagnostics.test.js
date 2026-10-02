@@ -253,6 +253,8 @@ test("partial-copy receipt is closed, failure-specific, and omits raw native det
     windowsTreeInspectionRetries: null,
     windowsTreeInspectionQueueMs: null,
     windowsTreeInspectionNativeMs: null,
+    windowsTreeInspectionNativeHelperSpawned: false,
+    windowsTreeInspectionNativeHelperExited: false,
     windowsTreeInspectionLastRetry: "descendant_command_partial_copy",
   });
   await assert.rejects(inspectWindowsProcessTree(root, {
