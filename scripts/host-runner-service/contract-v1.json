@@ -1,5 +1,5 @@
 {
-  "protocol": "service-lasso.host-runner.v2",
+  "protocol": "service-lasso.host-runner.v3",
   "producer": "service-lasso-core",
   "consumer": "service-lasso-cli",
   "transport": "darwin-root-xpc-mach-service",
@@ -12,8 +12,8 @@
     "build": "darwin/build.sh"
   },
   "requests": {
-    "issue_grant": { "operation": "issue-grant", "expires_at_unix": "integer; daemon accepts now+1 through now+60", "client_identity": "daemon-validated signed client audit identity", "reply": "daemon-issued write capability FD and opaque one-use nonce" },
-    "complete": { "capability_fd": "daemon-issued write-only FD carrying the issued nonce", "expected_objects": "daemon-held root-owned expected-parent and expected-leaf objects loaded before client connection", "parent_leaf_binding": "fixed binary envelope, not a digest substring" }
+    "issue_grant": { "operation": "issue-grant", "expires_at_unix": "integer; daemon accepts now+1 through now+60", "client_identity": "daemon-validated signed client audit identity", "reply": "daemon-issued write capability FD and opaque one-use nonce", "expected_objects": "fresh daemon-created root-owned job output and inventory held through completion" },
+    "complete": { "capability_fd": "daemon-issued write-only FD carrying the issued nonce", "parent_leaf_binding": "fixed binary inventory envelope, not a digest substring", "replay": "durable issuance, consumption and revocation journal" }
   },
   "receipt": { "accepted": "boolean", "private_fields": ["primary audit identity", "PID", "birth", "parent", "code identity", "grant expiry and revocation class"] },
   "non_claims": ["No CLI-selected executable, PID, code digest, pathname, state directory, expected object, static bearer token, host installation, or CLI acceptance is authorised by this contract."]

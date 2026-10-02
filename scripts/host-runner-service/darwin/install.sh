@@ -14,7 +14,7 @@ expected=$(awk 'NF == 2 { print $1 }' "$manifest"); test "$(printf '%s' "$expect
 actual=$(shasum -a 256 "$src" | awk '{print $1}'); test "$actual" = "$expected" || exit 68; codesign --verify --strict --deep "$src"
 client_expected=$(awk 'NF == 2 { print $1 }' "$client_manifest"); test "$(printf '%s' "$client_expected" | wc -c | tr -d ' ')" = 64 || exit 67
 client_actual=$(shasum -a 256 "$client" | awk '{print $1}'); test "$client_actual" = "$client_expected" || exit 68; codesign --verify --strict --deep "$client"
-install -d -o root -g wheel -m 0700 "$base" "$state"
+install -d -o root -g wheel -m 0700 "$base" "$state" "$state/jobs"
 stage=$(mktemp "$base/.host-runner.new.XXXXXX"); client_stage=$(mktemp "$base/.host-runner-client.new.XXXXXX"); requirement_stage=$(mktemp "$state/.client-requirement.new.XXXXXX"); old_binary="$base/.host-runner.previous"; old_client="$base/.host-runner-client.previous"; old_requirement="$state/.client-requirement.previous"; old_plist="$base/.host-runner.previous.plist"
 had_binary=0; had_client=0; had_requirement=0; had_plist=0; was_loaded=0
 cleanup() { rm -f "$stage" "$client_stage" "$requirement_stage"; }

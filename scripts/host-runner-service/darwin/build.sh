@@ -13,7 +13,7 @@ shasum -a 256 "$out-client" | awk '{print $1 "  service-lasso-host-runner-client
 source_sha=$(shasum -a 256 "$root/service-lasso-host-runner.c" | awk '{print $1}')
 binary_sha=$(awk '{print $1}' "$out.sha256")
 client_sha=$(shasum -a 256 "$out-client" | awk '{print $1}')
-printf '{"protocol":"service-lasso.host-runner.v2","source_sha256":"%s","candidate_sha256":"%s","client_candidate_sha256":"%s","binary":"service-lasso-host-runner","client_binary":"service-lasso-host-runner-client"}\n' "$source_sha" "$binary_sha" "$client_sha" > "$out.provenance.json"
+printf '{"protocol":"service-lasso.host-runner.v3","source_sha256":"%s","candidate_sha256":"%s","client_candidate_sha256":"%s","binary":"service-lasso-host-runner","client_binary":"service-lasso-host-runner-client"}\n' "$source_sha" "$binary_sha" "$client_sha" > "$out.provenance.json"
 chmod 0500 "$out-client"
 chmod 0600 "$out-client.sha256"
 chmod 0500 "$out"; chmod 0600 "$out.sha256"

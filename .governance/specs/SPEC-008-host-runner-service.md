@@ -17,10 +17,12 @@ host owner; it does not install, publish, or activate a service itself.
   digest and strict code identity before accepting a completion receipt. It
   accepts requests only over its declared LaunchDaemon Mach service from the
   reviewed signed client identity. A PID alone never authorises a result.
-- `AC-8C`: For every daemon-issued job grant, the daemon opens its root-owned
-  expected parent and leaf objects, records their device/inode/digest evidence,
-  and retains those same held FDs until completion, revocation, or expiry. It
-  validates their fixed-format parent/leaf relation. A
+- `AC-8C`: For every daemon-issued job grant, the daemon itself creates a fresh
+  root-owned expected-output leaf and a root-owned inventory parent from the
+  accepted primary image and issued nonce. It opens, records, and retains the
+  resulting device/inode/digest evidence through the same held FDs until
+  completion, revocation, or expiry. It validates their fixed-format
+  parent/leaf relation. A
   client supplies neither paths, FDs, digests, nor the expected-object
   authority.
 - `AC-8D`: A capability is an unreadable, single-use FD with a daemon-issued
@@ -30,6 +32,9 @@ host owner; it does not install, publish, or activate a service itself.
   and arbitrary caller-selected inodes are denied. Receipt output is private,
   bounded and emits no digests, paths, commands, secret values or capability
   bytes.
+- `AC-8D.1`: The daemon durably records issuance, terminal consumption, and
+  revocation for each job before replying. A nonce is never reusable after a
+  daemon restart, expiry, disconnect, identity mismatch, or failed completion.
 - `AC-8E`: Linux sealed-FD, Windows held-handle, Darwin FD-relative/OS-death,
   denied-preopen-writer, replay, substitution and downgrade cases have source
   contracts and negative tests. Native activation evidence is distinct from

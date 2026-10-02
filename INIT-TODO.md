@@ -14,6 +14,15 @@ This file tracks bootstrap/adoption/remediation work required before product imp
 ## Open Items
 - `ISS-1463-implementation`: retain remote-develop implementation traceability, local direct proof, independent whole review, and separate owner-catalog/TAR T1-T5 blockers.
 
+  On 2026-10-02, the prior native-acceptance attempt stopped at a TypeScript
+  parser failure before the focused transfer suite could start. Its retained
+  preliminary result and raw preflight are failure evidence only. The current
+  #1566 repair begins from the current `develop` ancestry on
+  `fix/1566-transfer-native-acceptance`, restores a compilable source tree,
+  and must run a new externally observed native acceptance after a fresh,
+  exclusive source checkout. It does not alter the owner-catalog or TAR T1--T5
+  blockers below.
+
   The corrective durable-attachment slice writes the exact claimed byte object,
   metadata, manifest, and composite publication receipt privately, synchronises
   file and supported directory boundaries before publication/outcome sealing,
@@ -80,3 +89,11 @@ This file tracks bootstrap/adoption/remediation work required before product imp
 - Active governed remediation: `#1539` remains bound to `SPEC-002 AC-4BY.2`. Repair the owned Windows consumer launch only through the pinned Node/`pnpm.cjs` argv path and deterministic bounded fixture custody. Every pre-browser stage fixture must provision the real pinned `pnpm@11.25.0` bootstrap and its `10.34.5` self-update; the controlled action-binding failure must bind a real selected Windows `.cmd` or `.exe` PATH command to a different real reported action bin under a literal spaced action root, without Node shell interpolation or missing-environment substitution. A caller-establishment failure before Core acquisition or browser execution must retain only a closed run/attempt/platform/stage artifact paired with its exact closed initial receipt, while both aggregates preserve it, read exactly one positive-integer terminal failed job with the requested run and attempt through their existing authority, and retain the failed job as primary; stale, duplicate, invalid, missing, or unobserved provider identity fails closed. All three unique workspace, instance-registry, and host-port-registry paths must be created and emitted into the runner environment before dependencies; GitHub's job-level `env` cannot read `runner.temp`. No Core, receipt, exit, or correlation identity may be invented. Preserve PR #1540 failures `36799800406`/`110171350993` and `36799800318`/`110171350530`, plus zero-job workflow failures `36916405039`/`36916406332` at `2a4c7404533e4b661d3a3a38caec776536271051`; use an exact lockfile-declared package fixture rather than ambient `node_modules`, and retain all original receipt/aggregate rejection rules. Fresh terminal exact-head three-OS hosted qualification remains required.
 - #1465 is mapped in the active backlog and `SPEC-006`; its bounded HTTP lifecycle-operation adapter remains subject to exact-head CI and packaged client reconciliation before closure.
 - #1553 remains active under `SPEC-006 AC-6F`: durable reconciliation authority may be freshly created only when its bounded protocol records and exact named backup, migration, and writer-temp custody artifacts are absent. Residue is a fail-closed condition; no workspace-wide scan, sidecar adoption, cleanup, or replacement authority is permitted. Direct HTTP test fixtures must await their owned initialization settlement before deleting a workspace and retain state when startup is unknown or failed. Actual initialization rejection must propagate without an unhandled rejection or false ready state. MCP authorization Audit test hooks receive a closed redacted projection while the production appender retains the workspace context required to persist the event.
+# #1582 Core/CLI job transaction successor
+
+- [ ] Bind Core durable job authority and CLI #32 transport to `SPEC-009`.
+- [ ] Preserve the PR #32 native CI failure and repair all target executable
+  naming without retrying or weakening the primary gate.
+- [ ] Before any dependency install, build, test, or Core import, retain the
+  required isolated external runtime custody record and obtain parent readback.
+
