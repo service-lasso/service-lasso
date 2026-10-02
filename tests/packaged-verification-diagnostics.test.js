@@ -170,6 +170,33 @@ test("runCommand holds the owned boundary until inherited output pipes close", a
   }
 });
 
+test("runCommand reports an owned root exit with an unresolved inherited pipe", async () => {
+  const { mkdtemp, rm, writeFile } = await import("node:fs/promises");
+  const os = await import("node:os");
+  const path = (await import("node:path")).default;
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-1566-unresolved-close-"));
+  const parent = path.join(tempRoot, "parent.mjs");
+  try {
+    await writeFile(parent, [
+      'import { spawn } from "node:child_process";',
+      'spawn(process.execPath, ["-e", "setTimeout(() => {}, 250)"], { stdio: ["ignore", "inherit", "inherit"] });',
+      "process.exit(0);",
+      "",
+    ].join("\n"), "utf8");
+    const error = await runCommand(process.execPath, [parent], {
+      cwd: tempRoot,
+      timeoutMs: 5_000,
+      closeWaitTimeoutMs: 100,
+    }).catch(value => value);
+    assert.equal(runCommandFailureKind(error), "close_unresolved");
+    assert.equal(error.rootExitObserved, true);
+    assert.equal(error.closeObserved, false);
+    await new Promise(resolve => setTimeout(resolve, 300));
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("the verifier catch branch keeps npm install safeguards and emits only the reported observation", async () => {
   const { mkdtemp, readFile, rm, writeFile } = await import("node:fs/promises");
   const { createHash } = await import("node:crypto");

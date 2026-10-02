@@ -8,6 +8,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
 const MAX_CAPTURE_BYTES = 2 * 1024 * 1024;
 const RUN_COMMAND_FAILURE_KINDS = new Set([
   "deadline_exceeded",
+  "close_unresolved",
   "output_capture_exceeded",
   "spawn_failed",
   "exit_nonzero",
@@ -275,6 +276,7 @@ export async function supportedMcpVersions() {
 
 export async function runCommand(command, args, options = {}) {
   const timeoutMs = options.timeoutMs ?? 60_000;
+  const closeWaitTimeoutMs = options.closeWaitTimeoutMs ?? 5_000;
   return await new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       cwd: options.cwd ?? repoRoot,
@@ -288,9 +290,31 @@ export async function runCommand(command, args, options = {}) {
     let stderrBytes = 0;
     let settled = false;
     let pendingFailure;
+    let rootExitObserved = false;
+    let closeWaitTimer;
+    const startCloseWait = () => {
+      if (closeWaitTimer || settled) return;
+      closeWaitTimer = setTimeout(() => {
+        const failure = markRunCommandFailure(
+          new Error("Command root exited but its owned output streams did not close within the bounded wait."),
+          "close_unresolved",
+        );
+        finish(failure, {
+          code: child.exitCode,
+          signal: child.signalCode,
+          pid: child.pid ?? null,
+          rootExitObserved,
+          closeObserved: false,
+          stdout: Buffer.concat(stdout).toString("utf8"),
+          stderr: Buffer.concat(stderr).toString("utf8"),
+        });
+      }, closeWaitTimeoutMs);
+      closeWaitTimer.unref?.();
+    };
     const timer = setTimeout(() => {
       failAfterClose(markRunCommandFailure(new Error(`Command did not complete within ${timeoutMs}ms.`), "deadline_exceeded"));
       child.kill("SIGKILL");
+      startCloseWait();
     }, timeoutMs);
     timer.unref?.();
 
@@ -308,11 +332,16 @@ export async function runCommand(command, args, options = {}) {
     child.stdout.on("data", (chunk) => append(stdout, chunk, "stdout"));
     child.stderr.on("data", (chunk) => append(stderr, chunk, "stderr"));
     child.once("error", (error) => failAfterClose(markRunCommandFailure(error, "spawn_failed")));
+    child.once("exit", () => {
+      rootExitObserved = true;
+      startCloseWait();
+    });
     child.once("close", (code, signal) => {
       const result = {
         code,
         signal,
         pid: child.pid ?? null,
+        rootExitObserved,
         closeObserved: true,
         stdout: Buffer.concat(stdout).toString("utf8"),
         stderr: Buffer.concat(stderr).toString("utf8"),
@@ -336,6 +365,7 @@ export async function runCommand(command, args, options = {}) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      if (closeWaitTimer) clearTimeout(closeWaitTimer);
       if (error) {
         if (result) Object.assign(error, result);
         reject(error);
