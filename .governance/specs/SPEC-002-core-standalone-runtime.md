@@ -535,6 +535,10 @@ For #1326 under AC-4BH, unexpected-root-exit qualification cleanup retains the e
 
 Issue #1272 established documentation theme behaviour. Follow-up #1301 makes the default system-following choice explicit as Auto: documentation defaults to Auto, follows live prefers-color-scheme changes while Auto is selected, and exposes accessible Auto / Light / Dark choices on desktop and mobile. Explicit choices persist across navigation and reload; returning to Auto clears the override. Use Docusaurus color-mode state and pre-hydration handling. Custom catalog panels, inputs, tables and error/empty states must remain legible in both themes. Verify build, browser selection/persistence, live system changes, and keyboard interaction.
 
+## Qualification contract repair (#1578)
+
+`AC-4CG.1`, `AC-4BY.2`, and `AC-4BZ.1` require the ConPTY runner to bind the reviewed native launcher at exactly 141824 bytes and SHA-256 `401699f683f56e081236e550ab59c06f888929ec5e30588f4e27cce972d4364c`. They also require every packaged and published Admin producer, recorder, upload, and aggregate consumer to use the merged trusted-unlock harness revision `90caf8cf0f8e3c599a1a5022936813ac8bf0983b`. Mismatched bytes or revisions fail closed; matching exact contracts are the only source-level acceptance condition. This repair preserves existing closed receipt, timeout, mutation, and release authority constraints and does not establish runtime or hosted qualification.
+
 ## Packaged Admin restart investigation (#1382)
 
 Use the exact merged Admin restart-diagnostic harness for the Core three-OS packaged lifecycle gate, preserving the existing immutable Admin/Broker release identities. Bind observation to Admin SPEC-SERVICEADMIN-RESTART-DIAGNOSTICS RD-001 through RD-005. This adds post-unlock service-detail readiness metadata only: trusted-identity unlock failures occur earlier and remain outside that diagnostic. Preserve assertions, timeouts, mutation counts and cleanup. A passing run does not identify the historical intermittent cause or establish direct macOS newcomer acceptance.

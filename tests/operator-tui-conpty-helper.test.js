@@ -30,6 +30,13 @@ test("Windows ConPTY helper uses a bounded host with a sanitized child environme
   assert.match(source, /\{"ok": False, "stage": stage\}/u);
 });
 
+test("Windows ConPTY runner binds the reviewed native launcher bytes before creating a containment launch", async () => {
+  const source = await readFile(path.join(repoRoot, "scripts", "operator-tui-conpty-runner.mjs"), "utf8");
+  assert.match(source, /WINDOWS_MANAGED_LAUNCHER_BYTES = 141_824/u);
+  assert.match(source, /WINDOWS_MANAGED_LAUNCHER_SHA256 = "401699f683f56e081236e550ab59c06f888929ec5e30588f4e27cce972d4364c"/u);
+  assert.match(source, /assertWindowsManagedLauncher\(launcherPath\)[\s\S]*?bytes\.length !== WINDOWS_MANAGED_LAUNCHER_BYTES[\s\S]*?WINDOWS_MANAGED_LAUNCHER_SHA256/u);
+});
+
 test("Windows ConPTY helper results are closed, mode-specific schemas", () => {
   assert.deepEqual(parseConptyProbeResult('{"ok":true,"mode":"unavailable","startup":"unavailable","navigation":"not_applicable","exit":"q"}', "unavailable"), {
     ok: true, mode: "unavailable", startup: "unavailable", navigation: "not_applicable", exit: "q",
