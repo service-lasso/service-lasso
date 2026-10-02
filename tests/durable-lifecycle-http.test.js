@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { createServer, request as httpRequest } from "node:http";
 import { rm } from "node:fs/promises";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
-import { createApiServer, startApiServer } from "../dist/server/index.js";
+import { createApiServer, startApiServer, waitForApiServerInitialization } from "../dist/server/index.js";
 import { mcpOperationStatePath } from "../dist/runtime/operator/mcp-operations.js";
 import { readAuditEvents } from "../dist/runtime/audit/store.js";
 import { writePrivateJson } from "../dist/runtime/security/private-json.js";
@@ -96,6 +96,7 @@ async function abandonLifecycleRequest(apiServer, path, body, token) {
 
 async function startDirectApiServer(options) {
   const server = createApiServer(options);
+  await waitForApiServerInitialization(server);
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   const address = server.address();

@@ -1,5 +1,5 @@
 import { once } from "node:events";
-import { createApiServer } from "../../dist/server/index.js";
+import { createApiServer, waitForApiServerInitialization } from "../../dist/server/index.js";
 
 let serialized = "";
 process.stdin.setEncoding("utf8");
@@ -10,6 +10,7 @@ const server = createApiServer({
   workspaceRoot: input.workspaceRoot,
   mcpHttpIdentity: { env: input.env },
 });
+await waitForApiServerInitialization(server);
 server.listen(0, "127.0.0.1");
 await once(server, "listening");
 const address = server.address();
