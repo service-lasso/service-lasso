@@ -27,11 +27,14 @@ public static class HeldHandleContract {
       ByHandleFileInformation before; if (!GetFileInformationByHandle(handle, out before) || (before.Attributes & FileAttributeReparsePoint) != 0 || before.NumberOfLinks != 1) throw new UnauthorizedAccessException("unsafe held object");
       RawSecurityDescriptor security = HeldSecurity(handle); var owner = security.Owner;
       if (owner == null || !StringComparer.OrdinalIgnoreCase.Equals(owner.Value, expectedOwnerSid)) throw new UnauthorizedAccessException("unexpected owner");
-      if (security.DiscretionaryAcl != null) foreach (GenericAce ace in security.DiscretionaryAcl) {
+      if (security.DiscretionaryAcl == null) throw new UnauthorizedAccessException("null DACL denied");
+      SecurityIdentifier administrators = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
+      SecurityIdentifier localSystem = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
+      foreach (GenericAce ace in security.DiscretionaryAcl) {
         QualifiedAce rule = ace as QualifiedAce; if (rule == null) continue;
         var sid = rule.SecurityIdentifier;
         FileSystemRights mutable = FileSystemRights.WriteData | FileSystemRights.AppendData | FileSystemRights.Delete | FileSystemRights.Modify | FileSystemRights.FullControl;
-        if (rule.AceQualifier == AceQualifier.AccessAllowed && sid != null && (sid.IsWellKnown(WellKnownSidType.WorldSid) || sid.IsWellKnown(WellKnownSidType.BuiltinUsersSid)) && (((FileSystemRights)rule.AccessMask & mutable) != 0)) throw new UnauthorizedAccessException("mutable broad DACL denied");
+        if (rule.AceQualifier == AceQualifier.AccessAllowed && sid != null && ((FileSystemRights)rule.AccessMask & mutable) != 0 && !sid.Equals(owner) && !sid.Equals(administrators) && !sid.Equals(localSystem)) throw new UnauthorizedAccessException("mutable non-owner DACL denied");
       }
       var builder = new System.Text.StringBuilder(32768); if (GetFinalPathNameByHandle(handle, builder, (uint)builder.Capacity, 0) == 0) throw new UnauthorizedAccessException("canonical handle path unavailable");
       byte[] digest; using (var readingHandle = new SafeFileHandle(handle.DangerousGetHandle(), false)) using (var stream = new FileStream(readingHandle, FileAccess.Read, 8192, false)) using (var sha = SHA256.Create()) { digest = sha.ComputeHash(stream); }

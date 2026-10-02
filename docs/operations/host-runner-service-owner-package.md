@@ -4,14 +4,18 @@ This package is a source/build/install package for a Darwin owner with an
 existing legitimate root-service authority. It is not authority to change a
 provider setting, publish a runner, or activate any other host.
 
-The daemon creates its own resident primary, records its audit token, birth
-time, daemon-parent relation and `csops`-validated code-signature status, then keeps
-that record private. It issues a write-only pipe capability itself, binds it to
-the XPC peer audit identity, expires it after sixty seconds, consumes it once,
-and revokes peer grants on disconnect. Completion accepts only root-owned,
-single-link regular-file descriptors, hashes those held descriptors, and
-requires the parent descriptor to bind the leaf digest. A client never supplies
-the daemon's executable, PID, image digest, or a readable bearer capability.
+The daemon is reachable only through the declared LaunchDaemon Mach service. It
+creates its own resident primary, records and rechecks its audit token, birth
+time, direct daemon-parent relation, held executable digest and `csops` strict
+code identity, then keeps that record private. It admits only the reviewed signed
+client identity. It issues a write-only pipe capability itself, binds it to the
+XPC peer audit identity, expires it after sixty seconds, consumes it once, and
+revokes peer grants on disconnect, expiry, identity mismatch and completion.
+Completion accepts only root-owned, single-link regular-file descriptors,
+hashes those held descriptors, and requires a fixed parent envelope binding the
+leaf digest. An arbitrary root-owned descriptor is not an expected object. A
+client never supplies the daemon's executable, PID, image digest, state path,
+or a readable bearer capability.
 
 On the designated Darwin host, after root approval, build and sign in the
 owner-controlled pipeline, then install the checksum-bound binary:
@@ -23,12 +27,15 @@ sudo scripts/host-runner-service/darwin/install.sh /absolute/output/service-lass
 sudo scripts/host-runner-service/darwin/verify.sh
 ```
 
-The installer validates root ownership, restricted modes, SHA-256 and a strict
-code signature before staging a replacement under the service root. It unloads
-the old label, atomically swaps the binary, bootstraps and reads launchd back;
-failure restores the prior binary. Uninstall fails if unload fails and only
-then removes program files. Both uninstall and failed-install rollback retain
-the private state directory for owner review.
+The installer accepts only canonical fixed service paths, validates every
+ancestor and leaf against links, root ownership and restrictive modes, plus
+SHA-256 and a strict code signature before staging a replacement. It snapshots
+the binary, plist, and prior loaded state; a failed bootstrap restores all three
+and reactivates a previously loaded prior service. Temporary staging and backup
+files are root-owned and are torn down only after the replacement is read back.
+Uninstall fails if unload fails and only then removes program files. Both
+uninstall and failed-install rollback retain the private state directory for
+owner review.
 
 Retain the private receipt containing only service identity, launchd state,
 FD/capability expiry and revocation events, primary identity fields, and result
