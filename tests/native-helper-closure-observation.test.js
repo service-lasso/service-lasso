@@ -53,7 +53,7 @@ test("acquisition errors stay identical with zero hostile exception inspection a
   let traps=0;const primary=new Proxy({}, {get(){traps++;throw 17;},ownKeys(){traps++;throw 18;}});
   for(const spawnHelper of [()=>{throw primary;},fixture({error:primary})]) {
     const lines=[];
-    await assert.rejects(capture("private-path",["private-script"],spawnHelper,line=>lines.push(line)),error=>error===primary);
+    let caught=false; try { await capture("private-path",["private-script"],spawnHelper,line=>lines.push(line)); } catch(error) { caught=true; assert.equal(error,primary); } assert.equal(caught,true);
     assert.deepEqual(decode(lines[0]),{schema:"service-lasso.native-helper-closure-observation.v1",observationStatus:"unavailable",reason:"unavailable"});
   }
   assert.equal(traps,0);
@@ -61,7 +61,7 @@ test("acquisition errors stay identical with zero hostile exception inspection a
 test("observer throw or hostile then return never replaces or assimilates original acquisition value", async () => {
   const primary={}; let traps=0;const hostile=new Proxy({}, {get(){traps++;throw 19;}});
   for(const report of [()=>{throw hostile;},()=>hostile]) {
-    await assert.rejects(capture("private-path",[],()=>{throw primary;},report),error=>error===primary);
+    let caught=false; try { await capture("private-path",[],()=>{throw primary;},report); } catch(error) { caught=true; assert.equal(error,primary); } assert.equal(caught,true);
   }
   assert.equal(traps,0);
   await assert.rejects(run({stderrEof:false},()=>{throw hostile;}),/first_custody_native_helper_incomplete/u);
