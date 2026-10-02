@@ -18,7 +18,12 @@ Apply these files in order:
 5. `gov-06-issues.mdc` (issue lifecycle)
 6. `gov-07-tasks.mdc` (task hygiene)
 7. `gov-08-exploratory-review.mdc` (continuous exploratory discovery + backlog hydration)
-8. `gov-09-release-authority.mdc` (release owner authority + exact-candidate GA readiness)
+8. `gov-09-agent-continuity-bootstrap.mdc` (continuity layers, checkpoint triggers, and bootstrap memory discipline)
+9. `gov-10-agent-state-closure-git-hygiene.mdc` (work-unit state closure and repository accounting discipline)
+10. `gov-11-agent-legibility-in-repo-truth.mdc` (in-repo truth and durable knowledge promotion)
+11. `gov-12-drift-control-garbage-collection.mdc` (continuous cleanup and drift-control governance)
+12. `gov-13-review-loops-completion-discipline.mdc` (review-loop closure and completion semantics)
+13. `gov-14-architect-conductor-boundaries.mdc` (architectural decision boundaries and escalation thresholds)
 
 ## Source-of-Truth Layout
 
@@ -48,4 +53,3 @@ Intent should outlive implementation:
 - clarify why before changing how
 - keep decisions reviewable
 - maintain traceability between intent, change, verification, and outcomes
-

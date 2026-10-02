@@ -57,6 +57,29 @@ Only after review/confirmation can the issue enter active implementation.
 3. review outcomes and risks
 4. close with traceable resolution
 
+## Active Work Visibility (mandatory)
+
+While an issue is actively being worked, the issue comments must show the work as it happens.
+
+Leave a visible issue comment at every meaningful state change, not just at the end.
+Minimum states to comment:
+- start/resume
+- meaningful plan change
+- blocker/risk
+- validation result
+- final outcome, including commit/PR links when present
+
+Do not spam micro-steps with no durable state change, for example:
+- opening files
+- reading code
+- rerunning the same command without a new result
+
+Preferred behavior:
+- update the current working comment for small same-phase follow-ups when practical
+- create a new comment when the issue changes phase
+
+Goal: someone reading only the issue should be able to see what was planned, what happened, what evidence exists, and what remains.
+
 ## Closure Standard
 
 Before closing, ensure:
