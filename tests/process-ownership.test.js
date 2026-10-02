@@ -4941,22 +4941,52 @@ test("separate runtime APIs keep equal service IDs in their owning workspaces", 
     ]);
     assert.equal(firstDetail.response.status, 200);
     assert.equal(secondDetail.response.status, 200);
-    assert.equal(firstDetail.body.state.running, true);
-    assert.equal(secondDetail.body.state.running, true);
-    assert.notEqual(firstDetail.body.state.runtime.pid, secondDetail.body.state.runtime.pid);
-    assert.equal(getLifecycleState(serviceId, first.workspaceRoot).runtime.pid, firstDetail.body.state.runtime.pid);
-    assert.equal(getLifecycleState(serviceId, second.workspaceRoot).runtime.pid, secondDetail.body.state.runtime.pid);
+    assert.equal(firstDetail.body.service.lifecycle.running, true);
+    assert.equal(secondDetail.body.service.lifecycle.running, true);
+    const firstPid = firstDetail.body.service.lifecycle.runtime.pid;
+    const secondPid = secondDetail.body.service.lifecycle.runtime.pid;
+    assert.equal(firstPid > 0, true);
+    assert.equal(secondPid > 0, true);
+    assert.notEqual(firstPid, secondPid);
+    assert.equal(getLifecycleState(serviceId, first.workspaceRoot).runtime.pid, firstPid);
+    assert.equal(getLifecycleState(serviceId, second.workspaceRoot).runtime.pid, secondPid);
+    assert.equal((await inspectProcess(firstPid)).status, "running");
+    assert.equal((await inspectProcess(secondPid)).status, "running");
 
     const stopped = await postJson(`${firstApi.url}/api/services/${serviceId}/stop`, { confirm: true });
     assert.equal(stopped.response.status, 200);
     assert.equal(stopped.body.state.running, false);
-    assert.equal((await fetch(`${secondApi.url}/api/services/${serviceId}`)).status, 200);
+    await waitFor(async () => (await inspectProcess(firstPid)).status !== "running");
+    const secondAfterFirstStop = await fetch(`${secondApi.url}/api/services/${serviceId}`).then(async (response) => ({
+      response,
+      body: await response.json(),
+    }));
+    assert.equal(secondAfterFirstStop.response.status, 200);
+    assert.equal(secondAfterFirstStop.body.service.lifecycle.running, true);
+    assert.equal(secondAfterFirstStop.body.service.lifecycle.runtime.pid, secondPid);
+    assert.equal((await inspectProcess(secondPid)).status, "running");
     assert.equal(getLifecycleState(serviceId, second.workspaceRoot).running, true);
 
-    const restarted = await postJson(`${secondApi.url}/api/services/${serviceId}/restart`, { confirm: true });
+    const restarted = await postJson(`${firstApi.url}/api/services/${serviceId}/restart`, { confirm: true });
     assert.equal(restarted.response.status, 200);
     assert.equal(restarted.body.state.running, true);
-    assert.notEqual(restarted.body.state.runtime.pid, secondDetail.body.state.runtime.pid);
+    const restartedFirstPid = restarted.body.state.runtime.pid;
+    assert.notEqual(restartedFirstPid, firstPid);
+    assert.equal((await inspectProcess(restartedFirstPid)).status, "running");
+    const secondAfterRestart = await fetch(`${secondApi.url}/api/services/${serviceId}`).then(async (response) => ({
+      response,
+      body: await response.json(),
+    }));
+    assert.equal(secondAfterRestart.response.status, 200);
+    assert.equal(secondAfterRestart.body.service.lifecycle.running, true);
+    assert.equal(secondAfterRestart.body.service.lifecycle.runtime.pid, secondPid);
+    assert.equal((await inspectProcess(secondPid)).status, "running");
+    const finalFirstStop = await postJson(`${firstApi.url}/api/services/${serviceId}/stop`, { confirm: true });
+    const finalSecondStop = await postJson(`${secondApi.url}/api/services/${serviceId}/stop`, { confirm: true });
+    assert.equal(finalFirstStop.response.status, 200);
+    assert.equal(finalSecondStop.response.status, 200);
+    await waitFor(async () => (await inspectProcess(restartedFirstPid)).status !== "running");
+    await waitFor(async () => (await inspectProcess(secondPid)).status !== "running");
   } finally {
     await firstApi?.stop().catch(() => undefined);
     await secondApi?.stop().catch(() => undefined);
