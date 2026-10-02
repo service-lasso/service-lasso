@@ -23,8 +23,14 @@ const retryReasons = new Set([
   "ancestry_predates_parent_before_root", "ancestry_predates_parent_within_root",
   ...Object.values(nativeFailureReasons),
 ]);
+const parentBirthRelations = new Set([
+  "parent_before_root",
+  "parent_at_or_after_root",
+]);
+const childBirthRelations = new Set(["child_before_root"]);
+const depthBuckets = new Set(["one", "two_to_four", "five_plus"]);
 
-export type WindowsTreeInspectionMetadata = Record<string, string | number | null>;
+export type WindowsTreeInspectionMetadata = Record<string, string | number | boolean | null>;
 
 const boundedInteger = (value: unknown, maximum: number): number | null =>
   typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= maximum ? value : null;
@@ -37,14 +43,41 @@ export function projectWindowsTreeInspectionMetadata(value: unknown): WindowsTre
     const phase = metadata.windowsTreeInspectionPhase;
     if (typeof phase !== "string" || !phases.has(phase)) return {};
     const reason = metadata.windowsTreeInspectionLastRetry;
-    return {
+    const result: WindowsTreeInspectionMetadata = {
       windowsTreeInspectionPhase: phase,
       windowsTreeInspectionAttempts: boundedInteger(metadata.windowsTreeInspectionAttempts, 1000),
       windowsTreeInspectionRetries: boundedInteger(metadata.windowsTreeInspectionRetries, 1000),
       windowsTreeInspectionQueueMs: boundedInteger(metadata.windowsTreeInspectionQueueMs, 600000),
       windowsTreeInspectionNativeMs: boundedInteger(metadata.windowsTreeInspectionNativeMs, 600000),
       windowsTreeInspectionLastRetry: typeof reason === "string" && retryReasons.has(reason) ? reason : null,
+      windowsTreeInspectionNativeHelperSpawned: metadata.windowsTreeInspectionNativeHelperSpawned === true,
+      windowsTreeInspectionNativeHelperExited: metadata.windowsTreeInspectionNativeHelperExited === true,
+      windowsTreeInspectionNativeHelperStdioClosed: metadata.windowsTreeInspectionNativeHelperStdioClosed === true,
+      windowsTreeInspectionNativeResultCompleted: metadata.windowsTreeInspectionNativeResultCompleted === true,
+      windowsTreeInspectionNativeSpawnWaitMs: boundedInteger(metadata.windowsTreeInspectionNativeSpawnWaitMs, 600000),
+      windowsTreeInspectionNativeWorkMs: boundedInteger(metadata.windowsTreeInspectionNativeWorkMs, 600000),
+      windowsTreeInspectionNativeStdioCloseMs: boundedInteger(metadata.windowsTreeInspectionNativeStdioCloseMs, 600000),
+      windowsTreeInspectionNativeResultCompletionMs: boundedInteger(metadata.windowsTreeInspectionNativeResultCompletionMs, 600000),
     };
+    const parentBirthRelation = metadata.windowsTreeInspectionParentBirthRelation;
+    const childBirthRelation = metadata.windowsTreeInspectionChildBirthRelation;
+    const rootFingerprintMatch = metadata.windowsTreeInspectionRootFingerprintMatch;
+    const depthBucket = metadata.windowsTreeInspectionAncestryDepthBucket;
+    if (
+      typeof reason === "string" &&
+      (reason === "ancestry_predates_parent_before_root" ||
+        reason === "ancestry_predates_parent_within_root") &&
+      typeof parentBirthRelation === "string" && parentBirthRelations.has(parentBirthRelation) &&
+      typeof childBirthRelation === "string" && childBirthRelations.has(childBirthRelation) &&
+      typeof rootFingerprintMatch === "boolean" &&
+      typeof depthBucket === "string" && depthBuckets.has(depthBucket)
+    ) {
+      result.windowsTreeInspectionParentBirthRelation = parentBirthRelation;
+      result.windowsTreeInspectionChildBirthRelation = childBirthRelation;
+      result.windowsTreeInspectionRootFingerprintMatch = rootFingerprintMatch;
+      result.windowsTreeInspectionAncestryDepthBucket = depthBucket;
+    }
+    return result;
   } catch {
     return {};
   }

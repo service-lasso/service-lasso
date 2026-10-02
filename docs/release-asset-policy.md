@@ -72,3 +72,21 @@ Before the next Service Lasso core release is considered complete, add a release
 1. builds/stages Windows, Linux, and macOS release bundle assets with the names in this policy;
 2. uploads those assets to the GitHub release; and
 3. runs a release-asset policy check before or immediately after upload so missing OS bundles fail the release job.
+
+## Staged-transfer qualification
+
+The same per-OS release assets are the only archive inputs eligible for the
+release-asset staged-transfer protocol. Core resolves the release, asset IDs,
+and canonical checksum itself; a CLI or TUI caller cannot supply an asset ID,
+checksum, URL, or parser choice. Windows uses the closed ZIP profile. Linux and
+macOS use the closed gzip TAR profile in
+[the staged-transfer contract](api/staged-service-transfer.md), which admits
+only bounded regular/directory USTAR members plus immediate GNU long-name or
+POSIX per-file PAX path records.
+
+TAR is not qualified merely because this policy requires `.tar.gz` assets or
+because `tar -xzf` succeeds. Before Core enables staged TAR admission, the
+release owner must retain real current GNU/Linux and BSD/macOS producer
+fixtures/receipts, parser denial evidence, and the checksum-bound released
+CLI/TUI/Core journey for Windows, Linux, and macOS. That gate preserves the
+full three-OS release target while leaving unqualified TAR transfer fail-closed.

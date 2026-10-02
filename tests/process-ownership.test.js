@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import net from "node:net";
 import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
 import { spawn } from "node:child_process";
 import { createHash, createHmac } from "node:crypto";
 import { mkdir, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
@@ -36,17 +37,21 @@ import {
   setManagedProcessLaunchStateCreatedHookForTests,
   setManagedProcessLaunchStateRemoverForTests,
   setManagedProcessPostResumeDelayForTests,
+  setManagedProcessRootInspectorForTests,
   setManagedProcessSpawnTimeoutForTests,
   setManagedProcessSpawnerForTests,
   setManagedProcessTreeMonitorForTests,
   setManagedProcessTreeTerminatorForTests,
+  setManagedWindowsTreeInspectorForTests,
   setWindowsManagedLauncherPathForTests,
   startManagedProcess as startRuntimeManagedProcess,
   stopAllManagedProcesses,
   stopManagedProcess,
+  setManagedWindowsTreeInspectorForTests,
   waitForManagedProcessFinalization,
   writeManagedProcessStdin,
 } from "../dist/runtime/execution/supervisor.js";
+import { ProcessControlDeadlineError } from "../dist/runtime/process/deadline.js";
 import { getLifecycleState, resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import { startService as startRuntimeService, stopService } from "../dist/runtime/lifecycle/actions.js";
 import { createServiceRegistry } from "../dist/runtime/manager/DependencyGraph.js";
@@ -142,6 +147,103 @@ async function postJson(url, body) {
     }
   }
   return result;
+}
+
+async function assertNativePayloadLifecycleProjection(protocolCase, expectedBoundary) {
+  resetLifecycleState();
+  const priorTestHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+  const priorInstanceRegistryPath = process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH;
+  const priorPortRegistryPath = process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH;
+  process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot(`service-lasso-launcher-payload-${protocolCase}-`);
+  const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "echo-service");
+  let apiServer;
+  try {
+    process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH = path.join(tempRoot, "instances.json");
+    process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH = path.join(tempRoot, "ports.json");
+    const stateRoot = path.join(serviceRoot, ".state");
+    await mkdir(stateRoot, { recursive: true });
+    await writeFile(path.join(stateRoot, "install.json"), JSON.stringify({ installed: true }), "utf8");
+    await writeFile(path.join(stateRoot, "config.json"), JSON.stringify({ configured: true }), "utf8");
+    setManagedProcessSpawnerForTests((file, args, options) => {
+      const child = spawn(file, args, {
+        ...options,
+        env: {
+          ...options.env,
+          SERVICE_LASSO_MANAGED_LAUNCH_PAYLOAD: `${options.env.SERVICE_LASSO_MANAGED_LAUNCH_PAYLOAD}\n`,
+        },
+      });
+      if (protocolCase === "canonical") return child;
+      const nativeStderr = child.stderr;
+      assert.ok(nativeStderr);
+      const capturedStderr = new PassThrough();
+      let pending = "";
+      nativeStderr.setEncoding("utf8");
+      nativeStderr.on("data", (chunk) => {
+        pending += chunk;
+        const lines = pending.split(/\r?\n/u);
+        pending = lines.pop() ?? "";
+        for (const line of lines) {
+          const payloadRecord = line.startsWith("__SERVICE_LASSO_LAUNCHER_PROGRESS__:launcher_payload_validation:") && line.split(":").length === 4;
+          if (payloadRecord && protocolCase === "missing") continue;
+          if (payloadRecord && protocolCase === "prefix_chunk") {
+            capturedStderr.write(line.slice(0, 23));
+            capturedStderr.write(`${line.slice(23)}\n`);
+            continue;
+          }
+          if (payloadRecord && protocolCase === "truncated") {
+            capturedStderr.write("__SERVICE_LASSO_LAUNCHER_PROGRESS__:launcher_payload_validation:sem");
+            continue;
+          }
+          if (payloadRecord && protocolCase === "untrusted") {
+            capturedStderr.write(`${line.replace(/[0-9a-f]{64}$/u, "0".repeat(64))}\n`);
+            continue;
+          }
+          capturedStderr.write(`${line}${payloadRecord && (protocolCase === "malformed" || protocolCase === "expanded") ? ":extra" : ""}\n`);
+          if (payloadRecord && protocolCase === "duplicate") capturedStderr.write(`${line}\n`);
+        }
+      });
+      nativeStderr.once("end", () => {
+        if (pending) capturedStderr.write(pending);
+        if (protocolCase === "prefix_chunk") {
+          // The owned launcher has already exited, but its final authenticated
+          // record reaches the parser before this delayed stderr end. This
+          // exercises the exit/check/subscribe boundary without extending the
+          // launcher deadline or exposing raw progress in runtime logs.
+          setTimeout(() => capturedStderr.end(), 20);
+        } else {
+          capturedStderr.end();
+        }
+      });
+      nativeStderr.once("error", (error) => capturedStderr.destroy(error));
+      Object.defineProperty(child, "stderr", { value: capturedStderr });
+      return child;
+    });
+    apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
+    const start = await postJson(`${apiServer.url}/api/services/echo-service/start`);
+    assert.equal(start.response.status, 409);
+    const diagnostic = await collectStartupFailure(apiServer.url, "echo-service");
+    assert.equal(diagnostic.observations[0].attemptStatus, "failed");
+    assert.equal(diagnostic.observations[0].launcherPayloadFailureBoundary, expectedBoundary);
+    assert.ok(diagnostic.observations[0].events.some((event) => event.failurePhase === "launcher_payload_validation"));
+    assert.equal(JSON.stringify(diagnostic).includes("SERVICE_LASSO_MANAGED_LAUNCH_PAYLOAD"), false);
+    assert.equal(JSON.stringify(diagnostic).includes(tempRoot), false);
+    await waitForManagedProcessFinalization("echo-service", Date.now() + 10_000);
+    assert.equal(await findProcessOwnership(workspaceRoot, "service", "echo-service"), null);
+    assert.equal(hasManagedProcess("echo-service"), false, `${protocolCase} retained a managed process after native rejection.`);
+  } finally {
+    setManagedProcessSpawnerForTests(null);
+    await apiServer?.stop();
+    await stopManagedProcess("echo-service", 10_000).catch(() => null);
+    if (priorInstanceRegistryPath === undefined) delete process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH;
+    else process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH = priorInstanceRegistryPath;
+    if (priorPortRegistryPath === undefined) delete process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH;
+    else process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH = priorPortRegistryPath;
+    if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+    else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
+    resetLifecycleState();
+    await removeTempRoot(tempRoot);
+  }
 }
 
 function windowsInspector(identity) {
@@ -470,15 +572,21 @@ test("Windows full identity inspection aborts and observes helper closure at its
     }),
     (error) => {
       assert.equal(error?.code, "PROCESS_CONTROL_DEADLINE_EXCEEDED");
-      assert.deepEqual(error?.windowsTreeInspection, {
-        windowsTreeInspectionPhase: "native_snapshot",
-        windowsTreeInspectionAttempts: 1,
-        windowsTreeInspectionRetries: 0,
-        windowsTreeInspectionQueueMs: 0,
-        windowsTreeInspectionNativeMs: error?.windowsTreeInspection?.windowsTreeInspectionNativeMs,
-        windowsTreeInspectionLastRetry: null,
-      });
-      assert.ok(error?.windowsTreeInspection?.windowsTreeInspectionNativeMs >= 50);
+      const evidence = error?.windowsTreeInspection;
+      assert.equal(evidence?.windowsTreeInspectionPhase, "native_snapshot");
+      assert.equal(evidence?.windowsTreeInspectionAttempts, 1);
+      assert.equal(evidence?.windowsTreeInspectionRetries, 0);
+      assert.equal(evidence?.windowsTreeInspectionQueueMs, 0);
+      assert.equal(evidence?.windowsTreeInspectionLastRetry, null);
+      assert.equal(evidence?.windowsTreeInspectionNativeHelperSpawned, false);
+      assert.equal(evidence?.windowsTreeInspectionNativeHelperExited, false);
+      assert.equal(evidence?.windowsTreeInspectionNativeHelperStdioClosed, false);
+      assert.equal(evidence?.windowsTreeInspectionNativeResultCompleted, false);
+      assert.equal(evidence?.windowsTreeInspectionNativeSpawnWaitMs, null);
+      assert.equal(evidence?.windowsTreeInspectionNativeWorkMs, null);
+      assert.equal(evidence?.windowsTreeInspectionNativeStdioCloseMs, null);
+      assert.equal(evidence?.windowsTreeInspectionNativeResultCompletionMs, null);
+      assert.ok(evidence?.windowsTreeInspectionNativeMs >= 50);
       return true;
     },
   );
@@ -1762,8 +1870,41 @@ test("Windows launcher progress authenticates split records and suppresses malfo
     assert.equal(observedPhase, phase);
     assert.deepEqual(
       filterWindowsManagedLauncherProgressLineForTests(null, checkpoint),
-      { suppressed: true, phase: null },
+      { suppressed: true, phase: null, payloadFailureBoundary: null, invalidPayloadDiagnostic: false },
     );
+  } finally {
+    if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+    else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
+  }
+});
+
+test("Windows launcher payload diagnostic records fail closed for malformed, expanded, duplicate, untrusted, truncated, and missing evidence", () => {
+  const priorTestHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+  process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
+  const token = "cd".repeat(32);
+  const phase = "launcher_payload_validation";
+  const boundary = "semantic_payload";
+  const digest = createHmac("sha256", token).update(`${phase}:${boundary}`, "utf8").digest("hex");
+  const valid = `__SERVICE_LASSO_LAUNCHER_PROGRESS__:${phase}:${boundary}:${digest}`;
+  try {
+    assert.deepEqual(filterWindowsManagedLauncherProgressLineForTests(token, valid), {
+      suppressed: true, phase, payloadFailureBoundary: boundary, invalidPayloadDiagnostic: false,
+    });
+    for (const record of [
+      `__SERVICE_LASSO_LAUNCHER_PROGRESS__:${phase}:private-boundary:${digest}`,
+      `${valid}:expanded`,
+      `__SERVICE_LASSO_LAUNCHER_PROGRESS__:${phase}:${boundary}:${"0".repeat(64)}`,
+      `__SERVICE_LASSO_LAUNCHER_PROGRESS__:${phase}:sem`,
+    ]) {
+      const parsed = filterWindowsManagedLauncherProgressLineForTests(token, record, record.endsWith(":sem"));
+      assert.equal(parsed.suppressed, true);
+      assert.equal(parsed.phase, null);
+      assert.equal(parsed.payloadFailureBoundary, null);
+      assert.equal(parsed.invalidPayloadDiagnostic, true);
+    }
+    assert.deepEqual(filterWindowsManagedLauncherProgressLineForTests(null, valid), {
+      suppressed: true, phase: null, payloadFailureBoundary: null, invalidPayloadDiagnostic: true,
+    });
   } finally {
     if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
     else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
@@ -1870,12 +2011,13 @@ test("Windows managed launcher revalidates its native asset after launch-state c
   }
 });
 
-test("Windows managed launcher rejects non-closed or mistyped payload envelopes", {
+test("AC-4BJ.9b Windows managed launcher projects only authenticated closed payload rejection boundaries", {
   skip: process.platform !== "win32",
 }, async () => {
+  const priorTestHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+  process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
   const { tempRoot } = await makeTempServicesRoot("service-lasso-launcher-payload-");
   const launcherPath = path.resolve("dist/runtime/execution/windows-managed-launcher-native.exe");
-  const gatePath = path.join(tempRoot, "release.gate");
   const basePayload = {
     executable: process.execPath,
     args: [],
@@ -1900,58 +2042,163 @@ test("Windows managed launcher rejects non-closed or mistyped payload envelopes"
     `{"executable":${JSON.stringify(process.execPath)},"executable":`,
   );
   const invalidPayloads = [
-    JSON.stringify({ ...basePayload, unexpected: true }),
-    JSON.stringify({ ...basePayload, args: [null] }),
-    JSON.stringify({ ...basePayload, args: ["before\u0000after"] }),
-    JSON.stringify({ ...basePayload, ackPath: "\\rooted-but-not-qualified" }),
-    JSON.stringify({ ...basePayload, executableBindingIndex: "-1" }),
-    JSON.stringify({
-      ...basePayload,
-      approvedFiles: [{ file: process.execPath, sha256: "aa".repeat(32), size: 1, unexpected: true }],
-    }),
-    JSON.stringify({
-      ...basePayload,
-      args: ["value"],
-      approvedFiles: [{ file: process.execPath, sha256: "aa".repeat(32), size: 1 }],
-      argumentBindings: [{ index: 0, prefix: null, bindingIndex: 0 }],
-    }),
-    JSON.stringify({ ...basePayload, targetEnvironmentOverrides: [{ name: "COR_ENABLE_PROFILING", value: null }] }),
-    duplicatePayload,
+    { boundary: "launch_evidence", encodedPayload: null },
+    { boundary: "canonical_encoding", encodedPayload: Buffer.from(canonicalPayload, "utf8").toString("base64") + "\n" },
+    { boundary: "strict_utf8", encodedPayload: Buffer.from([0xc3, 0x28]).toString("base64") },
+    { boundary: "json_or_schema", encodedPayload: Buffer.from(duplicatePayload, "utf8").toString("base64") },
+    { boundary: "semantic_payload", encodedPayload: Buffer.from(JSON.stringify({ ...basePayload, ackToken: basePayload.releaseToken }), "utf8").toString("base64") },
   ];
   const bootstrapEnvironment = Object.fromEntries(
     Object.entries(process.env).filter(([name]) => !/^(?:COR_|CORECLR_|COMPLUS_|APPDOMAIN_MANAGER)/iu.test(name)),
   );
+  let fixtureCleanupVerified = true;
 
   try {
-    for (const payloadJson of invalidPayloads) {
+    for (const [index, payloadCase] of invalidPayloads.entries()) {
+      const fixtureRoot = path.join(tempRoot, `rejection-${index}`);
+      await mkdir(fixtureRoot, { recursive: true });
+      const gatePath = path.join(fixtureRoot, "release.gate");
       const result = await new Promise((resolve, reject) => {
         const child = spawn(launcherPath, [], {
-          cwd: tempRoot,
+          cwd: fixtureRoot,
           env: {
             ...bootstrapEnvironment,
-            SERVICE_LASSO_MANAGED_LAUNCH_PAYLOAD: Buffer.from(payloadJson, "utf8").toString("base64"),
+            ...(payloadCase.encodedPayload === null ? {} : { SERVICE_LASSO_MANAGED_LAUNCH_PAYLOAD: payloadCase.encodedPayload }),
             SERVICE_LASSO_MANAGED_LAUNCH_GATE: gatePath,
             SERVICE_LASSO_MANAGED_LAUNCH_PROGRESS_TOKEN: "55".repeat(32),
           },
-          stdio: "ignore",
+          stdio: ["ignore", "ignore", "pipe"],
           windowsHide: true,
         });
+        const ownedPid = child.pid;
+        assert.ok(Number.isInteger(ownedPid) && ownedPid > 0);
+        let ownedIdentity = null;
+        let stderr = "";
+        let timedOut = false;
+        child.stderr.setEncoding("utf8");
+        child.stderr.on("data", (chunk) => { stderr += chunk; });
         const timeout = setTimeout(() => {
-          child.kill("SIGKILL");
-          reject(new Error("Invalid managed-launch payload was not rejected boundedly."));
+          timedOut = true;
+          void (async () => {
+            if (child.exitCode !== null || child.signalCode !== null) return;
+            const inspection = await inspectProcess(ownedPid);
+            if (inspection.status !== "running") {
+              fixtureCleanupVerified = false;
+              reject(new Error("Owned invalid-payload fixture was not verifiably live at its cleanup boundary."));
+              return;
+            }
+            ownedIdentity = inspection.identity;
+            if (!child.kill("SIGKILL")) {
+              fixtureCleanupVerified = false;
+              reject(new Error("Owned invalid-payload fixture could not be signalled for bounded cleanup."));
+            }
+          })().catch((error) => {
+            fixtureCleanupVerified = false;
+            reject(error);
+          });
         }, 5_000);
-        child.once("error", reject);
+        child.once("error", (error) => {
+          fixtureCleanupVerified = false;
+          reject(error);
+        });
         child.once("close", (exitCode, signal) => {
           clearTimeout(timeout);
-          resolve({ exitCode, signal });
+          if (ownedIdentity === null) {
+            resolve({ exitCode, signal, stderr, ownedPid, timedOut, terminalExitCode: child.exitCode, terminalSignal: child.signalCode, terminalIdentity: "not_inspected" });
+            return;
+          }
+          void inspectProcess(ownedPid).then((terminalInspection) => {
+            const terminalIdentity = classifyProcessIdentity(ownedIdentity, terminalInspection);
+            if (terminalIdentity !== "not_running") fixtureCleanupVerified = false;
+            resolve({ exitCode, signal, stderr, ownedPid, timedOut, terminalExitCode: child.exitCode, terminalSignal: child.signalCode, terminalIdentity });
+          }, (error) => {
+            fixtureCleanupVerified = false;
+            reject(error);
+          });
         });
       });
-      assert.deepEqual(result, { exitCode: 100, signal: null });
+      assert.equal(result.timedOut, false, "Invalid managed-launch payload was not rejected boundedly.");
+      assert.equal(result.terminalExitCode, 100);
+      assert.equal(result.terminalSignal, null);
+      assert.equal(result.terminalIdentity, "not_inspected");
+      assert.equal(result.exitCode, 100);
+      assert.equal(result.signal, null);
+      const records = result.stderr.trim().split(/\r?\n/u)
+        .map((line) => filterWindowsManagedLauncherProgressLineForTests("55".repeat(32), line));
+      assert.equal(
+        records.some((record) => record.payloadFailureBoundary === payloadCase.boundary),
+        true,
+        JSON.stringify({ expectedBoundary: payloadCase.boundary, records, stderr: result.stderr }),
+      );
+      assert.equal(records.every((record) => record.suppressed), true);
+      assert.doesNotMatch(result.stderr, /SECRET|release\.gate/u);
       await assert.rejects(readFile(basePayload.filesBoundPath, "utf8"), { code: "ENOENT" });
     }
   } finally {
+    if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+    else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
+    if (fixtureCleanupVerified) await removeTempRoot(tempRoot);
+  }
+});
+
+test("AC-4BJ.9b projects a real native payload rejection through enrollment, lifecycle state, and the public-safe diagnostic", {
+  skip: process.platform !== "win32",
+}, async () => {
+  resetLifecycleState();
+  const priorTestHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+  const priorInstanceRegistryPath = process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH;
+  const priorPortRegistryPath = process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH;
+  process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-launcher-payload-lifecycle-");
+  const { serviceRoot } = await writeExecutableFixtureService(servicesRoot, "echo-service");
+  let apiServer;
+  try {
+    process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH = path.join(tempRoot, "instances.json");
+    process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH = path.join(tempRoot, "ports.json");
+    const stateRoot = path.join(serviceRoot, ".state");
+    await mkdir(stateRoot, { recursive: true });
+    await writeFile(path.join(stateRoot, "install.json"), JSON.stringify({ installed: true }), "utf8");
+    await writeFile(path.join(stateRoot, "config.json"), JSON.stringify({ configured: true }), "utf8");
+    setManagedProcessSpawnerForTests((file, args, options) => spawn(file, args, {
+      ...options,
+      env: {
+        ...options.env,
+        SERVICE_LASSO_MANAGED_LAUNCH_PAYLOAD: `${options.env.SERVICE_LASSO_MANAGED_LAUNCH_PAYLOAD}\n`,
+      },
+    }));
+    apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
+    const start = await postJson(`${apiServer.url}/api/services/echo-service/start`);
+    assert.equal(start.response.status, 409);
+    const diagnostic = await collectStartupFailure(apiServer.url, "echo-service");
+    assert.equal(diagnostic.observations[0].attemptStatus, "failed");
+    assert.equal(diagnostic.observations[0].launcherPayloadFailureBoundary, "canonical_encoding");
+    assert.ok(diagnostic.observations[0].events.some((event) => event.failurePhase === "launcher_payload_validation"));
+    assert.equal(JSON.stringify(diagnostic).includes("SERVICE_LASSO_MANAGED_LAUNCH_PAYLOAD"), false);
+    assert.equal(JSON.stringify(diagnostic).includes(tempRoot), false);
+    assert.equal(await findProcessOwnership(workspaceRoot, "service", "echo-service"), null);
+    assert.equal(hasManagedProcess("echo-service"), false);
+  } finally {
+    setManagedProcessSpawnerForTests(null);
+    await apiServer?.stop();
+    await stopManagedProcess("echo-service", 10_000).catch(() => null);
+    if (priorInstanceRegistryPath === undefined) delete process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH;
+    else process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH = priorInstanceRegistryPath;
+    if (priorPortRegistryPath === undefined) delete process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH;
+    else process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH = priorPortRegistryPath;
+    if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+    else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
+    resetLifecycleState();
     await removeTempRoot(tempRoot);
   }
+});
+
+test("AC-4BJ.9b fails closed for duplicate, missing, malformed, untrusted, expanded, truncated, and chunked actual payload diagnostics", {
+  skip: process.platform !== "win32",
+}, async () => {
+  for (const protocolCase of ["duplicate", "missing", "malformed", "untrusted", "expanded", "truncated"]) {
+    await assertNativePayloadLifecycleProjection(protocolCase, "unknown");
+  }
+  await assertNativePayloadLifecycleProjection("prefix_chunk", "canonical_encoding");
 });
 
 test("synchronous wrapper spawn failures retain their typed phase and clean pre-enrollment state", async () => {
@@ -2497,6 +2744,101 @@ setInterval(() => {}, 1000);
     setManagedProcessPostResumeDelayForTests(null);
     setManagedProcessFilesBoundHookForTests(null);
     await stopManagedProcess("launch-ack-containment-service", 5_000).catch(() => null);
+    if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+    else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
+    resetLifecycleState();
+    await removeTempRoot(tempRoot);
+  }
+});
+
+test("Windows acknowledgement containment retains launching when the final tree reveals a live descendant", {
+  skip: process.platform !== "win32",
+}, async () => {
+  resetLifecycleState();
+  const priorTestHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+  process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-final-containment-union-");
+  const { serviceRoot, scriptPath } = await writeExecutableFixtureService(servicesRoot, "final-containment-union-service");
+  const markerPath = path.join(serviceRoot, "runtime", "final-containment-union.marker");
+  const approvedScript = `
+import { writeFile } from "node:fs/promises";
+await writeFile(${JSON.stringify(markerPath)}, String(process.pid), "utf8");
+setInterval(() => {}, 1000);
+`.trim();
+  const changedScript = approvedScript.replace("final-containment-union.marker", "final_containment_union.marker");
+  const finalMember = {
+    pid: 8675309,
+    createdAt: "2026-10-01T00:00:00.000Z",
+    executablePath: "C:\\Windows\\System32\\cmd.exe",
+    commandHash: "a".repeat(64),
+  };
+  let treeInspectionCount = 0;
+  let handle;
+
+  try {
+    assert.equal(Buffer.byteLength(changedScript), Buffer.byteLength(approvedScript));
+    await writeFile(scriptPath, approvedScript, "utf8");
+    const executableBytes = await readFile(process.execPath);
+    const bindings = [
+      {
+        file: process.execPath,
+        sha256: createHash("sha256").update(executableBytes).digest("hex"),
+        size: executableBytes.byteLength,
+      },
+      {
+        file: scriptPath,
+        sha256: createHash("sha256").update(approvedScript).digest("hex"),
+        size: Buffer.byteLength(approvedScript),
+      },
+    ];
+    setManagedWindowsTreeInspectorForTests(async () => {
+      treeInspectionCount += 1;
+      return treeInspectionCount >= 3
+        ? { rootStatus: "exited", members: [finalMember] }
+        : { rootStatus: "owned", members: [] };
+    });
+    setManagedProcessRootInspectorForTests(async (pid) => pid === finalMember.pid
+      ? { status: "running", identity: finalMember }
+      : { status: "not_running", reason: "process_not_running" });
+    setManagedProcessFilesBoundHookForTests(async () => {
+      const launchStateRoot = path.join(workspaceRoot, ".service-lasso", "runtime", "managed-launch");
+      const stateDirectory = (await readdir(launchStateRoot, { withFileTypes: true })).find((entry) => entry.isDirectory());
+      assert.ok(stateDirectory);
+      await mkdir(path.join(launchStateRoot, stateDirectory.name, "launched.pid"));
+      await writeFile(scriptPath, changedScript, "utf8");
+    });
+    const [service] = await discoverServices(servicesRoot);
+    await assert.rejects(
+      startManagedProcess({
+        service,
+        executionPlan: createDirectExecutionPlan(service.manifest),
+        workspaceRoot,
+        verifyBeforeSpawn: async () => bindings,
+      }),
+      (error) => {
+        assert.equal(error instanceof ManagedProcessEnrollmentContainmentError, true);
+        assert.equal(managedProcessStartFailurePhase(error), "target_acknowledgement");
+        handle = error.handle;
+        return true;
+      },
+    );
+    assert.equal(treeInspectionCount >= 3, true);
+    assert.equal(hasManagedProcess("final-containment-union-service"), true);
+    const retained = await findProcessOwnership(workspaceRoot, "service", "final-containment-union-service");
+    assert.equal(retained.lifecycleState, "launching");
+    assert.equal(retained.pid, handle.pid);
+  } finally {
+    setManagedProcessPostResumeDelayForTests(null);
+    setManagedProcessFilesBoundHookForTests(null);
+    setManagedProcessRootInspectorForTests(null);
+    setManagedWindowsTreeInspectorForTests(null);
+    await stopManagedProcess("final-containment-union-service", 5_000).catch(() => null);
+    try {
+      const pid = Number(await readFile(markerPath, "utf8"));
+      forceCleanupProcesses([handle?.pid, pid]);
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
     if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
     else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
     resetLifecycleState();
@@ -3784,6 +4126,100 @@ test("runtime restart adopts a registry owner even when runtime.json discarded r
     await apiServer?.stop();
     await stopAllManagedProcesses().catch(() => null);
     child.kill("SIGKILL");
+    resetLifecycleState();
+    await removeTempRoot(tempRoot);
+  }
+});
+
+test("rehydration preserves the native-inspection timeout when receipt persistence fails", {
+  skip: process.platform !== "win32",
+}, async () => {
+  resetLifecycleState();
+  const priorTestHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+  process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
+  const preferredPort = 18243;
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-rehydrate-timeout-receipt-");
+  const { serviceRoot, scriptPath } = await writeExecutableFixtureService(servicesRoot, "registry-adopt-timeout", {
+    ports: { service: preferredPort },
+  });
+  const relativeScriptPath = path.relative(serviceRoot, scriptPath);
+  const child = spawn(process.execPath, [relativeScriptPath], {
+    cwd: serviceRoot,
+    stdio: "ignore",
+    windowsHide: true,
+  });
+  const deadline = new ProcessControlDeadlineError();
+  deadline.windowsTreeInspection = {
+    windowsTreeInspectionPhase: "native_snapshot",
+    windowsTreeInspectionAttempts: 1,
+    windowsTreeInspectionRetries: 0,
+    windowsTreeInspectionQueueMs: 0,
+    windowsTreeInspectionNativeMs: 15_000,
+    windowsTreeInspectionLastRetry: null,
+    rawOutput: "never-persist-this-native-output",
+  };
+
+  try {
+    await new Promise((resolve, reject) => {
+      child.once("spawn", resolve);
+      child.once("error", reject);
+    });
+    const inspection = await inspectProcess(child.pid);
+    assert.equal(inspection.status, "running");
+    await recordProcessOwnership(workspaceRoot, {
+      ownerType: "service",
+      ownerId: "registry-adopt-timeout",
+      serviceId: "registry-adopt-timeout",
+      pid: child.pid,
+      ownerRoot: serviceRoot,
+      ports: { service: preferredPort },
+      lifecycleState: "running",
+      source: "spawn",
+    });
+    await writeInstalledRuntimeState(serviceRoot, {
+      running: false,
+      pid: child.pid,
+      startedAt: inspection.identity.createdAt,
+      command: `${process.execPath} ${relativeScriptPath}`,
+      ports: { service: preferredPort },
+      lastAction: "start",
+      actionHistory: ["install", "config", "start"],
+    });
+    // Make the closed receipt write fail. This must not replace the native
+    // inspection deadline with a persistence error.
+    const runtimeStatePath = path.join(serviceRoot, ".state", "runtime.json");
+    await rm(runtimeStatePath, { force: true });
+    await mkdir(runtimeStatePath);
+    setManagedWindowsTreeInspectorForTests(async () => { throw deadline; });
+
+    const [service] = await discoverServices(servicesRoot);
+    await assert.rejects(
+      rehydrateLifecycleState(service, { workspaceRoot }),
+      (error) => error === deadline,
+    );
+
+    assert.equal(hasManagedProcess("registry-adopt-timeout"), false);
+    assert.equal(child.exitCode, null);
+    assert.equal(child.signalCode, null);
+    const postFailureInspection = await inspectProcess(child.pid);
+    assert.equal(postFailureInspection.status, "running");
+    assert.equal(postFailureInspection.identity.pid, child.pid);
+    const receiptFiles = await Promise.all([
+      readFile(path.join(serviceRoot, ".state", "service.json"), "utf8"),
+      readFile(path.join(serviceRoot, ".state", "install.json"), "utf8"),
+      readFile(path.join(serviceRoot, ".state", "config.json"), "utf8"),
+      readFile(path.join(serviceRoot, ".state", "setup.json"), "utf8"),
+    ]);
+    assert.equal(receiptFiles.join("\n").includes("never-persist-this-native-output"), false);
+    const ownership = await findProcessOwnership(workspaceRoot, "service", "registry-adopt-timeout");
+    assert.equal(ownership.lifecycleState, "running");
+    assert.equal(ownership.pid, child.pid);
+  } finally {
+    setManagedWindowsTreeInspectorForTests(null);
+    await stopManagedProcess("registry-adopt-timeout", 500).catch(() => null);
+    child.kill("SIGKILL");
+    if (priorTestHooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+    else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = priorTestHooks;
     resetLifecycleState();
     await removeTempRoot(tempRoot);
   }

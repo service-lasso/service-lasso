@@ -11,17 +11,21 @@ on:
       - .github/workflows/release-qualification.yml
       - .governance/project/BACKLOG.md
       - .governance/project/PROJECT_INTENT.md
+      - .governance/specs/SPEC-002-core-standalone-runtime.md
       - .governance/specs/SPEC-006-operator-mcp.md
       - docs/reference/operator-mcp.md
+      - docs/reference/source-safe-template-admission.md
       - docs/reference/process-ownership-registry.md
       - package.json
       - package-lock.json
       - scripts/copy-runtime-assets.mjs
       - scripts/mcp-product-acceptance-lib.mjs
+      - scripts/packaged-verification-diagnostics.mjs
       - scripts/mcp-packaged-consumer-runner.mjs
       - scripts/demo-verify-canonical.mjs
       - scripts/verify-mcp-packaged.mjs
       - scripts/verify-windows-process-inspector.ps1
+      - scripts/windows-compiler-process-budget.ps1
       - scripts/verify-windows-dpapi-helper.ps1
       - scripts/verify-mcp-product-artifact.mjs
       - scripts/verify-mcp-product-acceptance-run.mjs
@@ -49,9 +53,13 @@ on:
       - tests/private-json.test.js
       - tests/service-start-trace.test.js
       - tests/operator-mcp*.test.js
+      - tests/packaged-verification-diagnostics.test.js
       - tests/fixtures/current-process-identity-runner.mjs
       - tests/demo-instance.test.js
       - tests/mcp-product-artifact.test.js
+      - tests/windows-compiler-process-budget.test.ps1
+      - tests/windows-compiler-process-budget-real-adapter.test.ps1
+      - tests/verify-windows-process-inspector-powershell-compatibility.test.ps1
       - docs/reference/secrets-capability-ledger.json
       - docs/reference/secrets-capability-ledger.md
   push:
@@ -63,17 +71,21 @@ on:
       - .github/workflows/release-qualification.yml
       - .governance/project/BACKLOG.md
       - .governance/project/PROJECT_INTENT.md
+      - .governance/specs/SPEC-002-core-standalone-runtime.md
       - .governance/specs/SPEC-006-operator-mcp.md
       - docs/reference/operator-mcp.md
+      - docs/reference/source-safe-template-admission.md
       - docs/reference/process-ownership-registry.md
       - package.json
       - package-lock.json
       - scripts/copy-runtime-assets.mjs
       - scripts/mcp-product-acceptance-lib.mjs
+      - scripts/packaged-verification-diagnostics.mjs
       - scripts/mcp-packaged-consumer-runner.mjs
       - scripts/demo-verify-canonical.mjs
       - scripts/verify-mcp-packaged.mjs
       - scripts/verify-windows-process-inspector.ps1
+      - scripts/windows-compiler-process-budget.ps1
       - scripts/verify-windows-dpapi-helper.ps1
       - scripts/verify-mcp-product-artifact.mjs
       - scripts/verify-mcp-product-acceptance-run.mjs
@@ -101,9 +113,13 @@ on:
       - tests/private-json.test.js
       - tests/service-start-trace.test.js
       - tests/operator-mcp*.test.js
+      - tests/packaged-verification-diagnostics.test.js
       - tests/fixtures/current-process-identity-runner.mjs
       - tests/demo-instance.test.js
       - tests/mcp-product-artifact.test.js
+      - tests/windows-compiler-process-budget.test.ps1
+      - tests/windows-compiler-process-budget-real-adapter.test.ps1
+      - tests/verify-windows-process-inspector-powershell-compatibility.test.ps1
       - docs/reference/secrets-capability-ledger.json
       - docs/reference/secrets-capability-ledger.md
 
@@ -181,10 +197,14 @@ jobs:
           $dateUtc = [DateTime]::UtcNow.ToString('yyyy.M.d')
           "SERVICE_LASSO_RELEASE_VERSION=$dateUtc-$shortSha" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
+      - name: Build packaged MCP verifier
+        run: npm run build
+
       - name: Verify fresh-consumer packaged MCP and canonical action
         env:
           MCP_PRODUCT_EVIDENCE_PATH: artifacts/mcp-product-${{ matrix.platform }}.json
-        run: npm run verify:mcp:packaged
+          SERVICE_LASSO_RELEASE_METADATA_TOKEN: ${{ github.token }}
+        run: node scripts/verify-mcp-packaged-bootstrap.mjs
 
       - name: Upload exact-SHA metadata-only MCP product evidence
         id: mcp_product_artifact

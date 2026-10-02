@@ -59,7 +59,7 @@ test("#864 packaged failure diagnostics admit one strict bounded record and disc
     errorCode: "guarded_preflight_failed",
     result: { isError: true, status: null, errorCode: "invalid_request" },
     componentProbe: { stage: "component_probe", errorCode: null },
-    auditProbe: { stage: "audit_probe", reason: "confirmation_private_state_system_utilities_unavailable" },
+    auditProbe: { stage: "audit_probe", reason: "confirmation_private_state_protect_integrity_timeout" },
   };
   const hostile = "token=secret C:\\private\\workspace /opt/private command --password";
   assert.deepEqual(
@@ -78,6 +78,14 @@ test("#864 packaged failure diagnostics admit one strict bounded record and disc
   assert.equal(parsePackagedAcceptanceFailure(`[mcp-package-acceptance-error] ${JSON.stringify(safe)}\n[mcp-package-acceptance-error] ${JSON.stringify(safe)}`), null);
   assert.equal(JSON.stringify(safe).includes(hostile), false);
   assert.ok(JSON.stringify(safe).length < 512);
+  const helperTimeout = {
+    ...safe,
+    auditProbe: { stage: "audit_probe", reason: "confirmation_private_state_protect_helper_timeout" },
+  };
+  assert.deepEqual(
+    parsePackagedAcceptanceFailure(`[mcp-package-acceptance-error] ${JSON.stringify(helperTimeout)}`),
+    helperTimeout,
+  );
 
   const guarded = {
     stage: "guarded_replay",
@@ -377,21 +385,25 @@ test("#864 retained evidence verifies downloaded content, exact SHA, three OSes,
     const releaseWorkflow = await readFile(".github/workflows/release-qualification.yml", "utf8");
     assert.match(releaseWorkflow, /qualify-mcp-product:[\s\S]*?npm run test:mcp:product/u);
     assert.match(releaseWorkflow, /qualify-mcp-packaged:[\s\S]*?platform: win32[\s\S]*?platform: linux[\s\S]*?platform: darwin/u);
-    assert.match(releaseWorkflow, /qualify-mcp-packaged:[\s\S]*?npm run verify:mcp:packaged/u);
+    assert.match(releaseWorkflow, /qualify-mcp-packaged:[\s\S]*?Build packaged MCP verifier[\s\S]*?npm run build[\s\S]*?SERVICE_LASSO_RELEASE_METADATA_TOKEN: \$\{\{ github\.token \}\}[\s\S]*?node scripts\/verify-mcp-packaged-bootstrap\.mjs/u);
+    assert.match(releaseWorkflow, /Verify attached-terminal TUI behavior \(Windows ConPTY\)[\s\S]*?if: matrix\.platform == 'win32'[\s\S]*?node scripts\/verify-operator-tui-conpty\.mjs/u);
     assert.match(releaseWorkflow, /MCP_PRODUCT_EVIDENCE_PATH: artifacts\/mcp-product-\$\{\{ matrix\.platform \}\}\.json[\s\S]*?path: artifacts\/mcp-product-\$\{\{ matrix\.platform \}\}\.json/u);
     assert.match(releaseWorkflow, /qualify-release:[\s\S]*?needs:[\s\S]*?- qualify-mcp-product[\s\S]*?- qualify-mcp-packaged/u);
 
     for (const workflowPath of [".github/workflows/publish-package.yml", ".github/workflows/release-artifact.yml"]) {
       const publicationWorkflow = await readFile(workflowPath, "utf8");
       assert.match(publicationWorkflow, /qualify-mcp-packaged:[\s\S]*?platform: win32[\s\S]*?platform: linux[\s\S]*?platform: darwin/u);
-      assert.match(publicationWorkflow, /qualify-mcp-packaged:[\s\S]*?npm run verify:mcp:packaged/u);
+      assert.match(publicationWorkflow, /qualify-mcp-packaged:[\s\S]*?Build packaged MCP verifier[\s\S]*?npm run build[\s\S]*?SERVICE_LASSO_RELEASE_METADATA_TOKEN: \$\{\{ github\.token \}\}[\s\S]*?node scripts\/verify-mcp-packaged-bootstrap\.mjs/u);
       assert.match(publicationWorkflow, /MCP_PRODUCT_EVIDENCE_PATH: artifacts\/mcp-product-\$\{\{ matrix\.platform \}\}\.json[\s\S]*?path: artifacts\/mcp-product-\$\{\{ matrix\.platform \}\}\.json/u);
       assert.match(publicationWorkflow, /needs:[\s\S]*?- qualify-mcp-packaged/u);
       assert.match(publicationWorkflow, /retention-days: 90/u);
       assert.match(publicationWorkflow, /node scripts\/verify-mcp-product-artifact\.mjs/u);
     }
 
+    const packagedBootstrap = await readFile("scripts/verify-mcp-packaged-bootstrap.mjs", "utf8");
+    assert.match(packagedBootstrap, /bootstrapReleaseMetadataToken\(\);[\s\S]*?await import\("\.\/verify-mcp-packaged\.mjs"\)/u);
     const packagedVerifier = await readFile("scripts/verify-mcp-packaged.mjs", "utf8");
+    assert.match(packagedVerifier, /takeBootstrappedReleaseMetadataToken\(\)/u);
     assert.match(packagedVerifier, /const tempRoot = await realpath\(await mkdtemp/u);
     assert.match(packagedVerifier, /PSModulePath: path\.join\(process\.env\.SystemRoot, "System32", "WindowsPowerShell", "v1\.0", "Modules"\)/u);
     assert.match(packagedVerifier, /verifyWindowsProcessInspectorProvenance[\s\S]*?verify-windows-process-inspector\.ps1/u);
@@ -570,7 +582,7 @@ test("#864 retained evidence verifies downloaded content, exact SHA, three OSes,
     assert.match(packagedVerifier, /installedManagedLauncherNative[\s\S]*?reviewedManagedLauncherNativeProvenance/u);
     assert.match(packagedVerifier, /requirePathAbsent[\s\S]*?Retired installed PowerShell launcher/u);
     const supervisorSource = await readFile("src/runtime/execution/supervisor.ts", "utf8");
-    assert.match(supervisorSource, /windows-managed-launcher-native\.exe[\s\S]*?9fb89ec94c6f3d1930246ca95aa9f7f0d3bd85a1801e3e0b951920a6770ea5f6/u);
+    assert.match(supervisorSource, /windows-managed-launcher-native\.exe[\s\S]*?2aa66997bdb44677350456b1d598eb30787389c6a9878000d7f55e9f9f1414fc/u);
     assert.match(supervisorSource, /assertWindowsManagedLauncherIntegrity[\s\S]*?lstat[\s\S]*?realpath[\s\S]*?open[\s\S]*?handle\.stat[\s\S]*?handle\.readFile[\s\S]*?WINDOWS_MANAGED_LAUNCHER_SHA256/u);
     assert.match(supervisorSource, /verifyWindowsManagedLauncherIntegrity[\s\S]*?withProcessControlDeadline[\s\S]*?createWindowsManagedLaunchState[\s\S]*?verifyWindowsManagedLauncherIntegrity\(windowsManagedLaunchState\.launcherExecutable\)[\s\S]*?managedProcessSpawner/u);
     assert.match(supervisorSource, /isWindowsLoaderSensitiveEnvironmentName[\s\S]*?COR_[\s\S]*?CORECLR_[\s\S]*?COMPLUS_[\s\S]*?APPDOMAIN_MANAGER[\s\S]*?targetEnvironmentOverrides/u);

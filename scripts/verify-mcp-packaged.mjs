@@ -1,24 +1,28 @@
 import { createHash } from "node:crypto";
-import { copyFile, lstat, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { copyFile, lstat, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { stagePublishedPackage } from "./publish-package-lib.mjs";
+import { takeBootstrappedReleaseMetadataToken, operatorToolFailureDiagnostic } from "./operator-tool-packaging-lib.mjs";
 import {
   MCP_PRODUCT_EVIDENCE_CONTRACT,
   parsePackagedAcceptanceFailure,
   runCommand,
+  runCommandFailureKind,
   validateMcpProductEvidence,
 } from "./mcp-product-acceptance-lib.mjs";
 
-import { packagedVerificationDiagnostic } from "./packaged-verification-diagnostics.mjs";
+import { dependencyAcquisitionReceipt, packagedVerificationDiagnostic } from "./packaged-verification-diagnostics.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const platform = process.platform;
-const npmEntrypoint = process.env.npm_execpath?.trim();
-if (!npmEntrypoint) {
-  throw new Error("Packaged MCP acceptance must run through the governed npm script entrypoint.");
-}
+const releaseMetadataToken = takeBootstrappedReleaseMetadataToken();
+const configuredNpmEntrypoint = process.env.SERVICE_LASSO_NPM_ENTRYPOINT?.trim() || process.env.npm_execpath?.trim();
+const npmEntrypoint = configuredNpmEntrypoint || (process.platform === "win32"
+  ? path.join(path.dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js")
+  : path.resolve(path.dirname(process.execPath), "..", "lib", "node_modules", "npm", "bin", "npm-cli.js"));
+try { await stat(npmEntrypoint); } catch { throw new Error("Packaged MCP acceptance could not resolve the governed npm entrypoint."); }
 
 async function exactCandidateSha() {
   const configured = process.env.CANDIDATE_SHA?.trim().toLowerCase();
@@ -34,6 +38,16 @@ async function requirePathAbsent(candidatePath, label) {
     throw error;
   }
   throw new Error(`${label} must be absent.`);
+}
+
+function ownPackagedAcceptanceDiagnostic(error) {
+  if (!error || typeof error !== "object") return undefined;
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(error, "packagedAcceptanceDiagnostic");
+    return descriptor && "value" in descriptor ? descriptor.value : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 async function runWindowsProvenanceVerifier(scriptName, label, scriptArgs = []) {
@@ -208,13 +222,14 @@ try {
   ]);
   const serviceId = await writeCanonicalService(servicesRoot);
   verificationStage = "package_staging";
-  const staged = await stagePublishedPackage({ repoRoot, outputRoot: packageOutputRoot, version });
+  const staged = await stagePublishedPackage({ repoRoot, outputRoot: packageOutputRoot, version, releaseMetadataToken });
   const packageArchiveBytes = await readFile(staged.packageArchivePath);
   const packageArchiveSha256 = createHash("sha256").update(packageArchiveBytes).digest("hex");
   await writeFile(path.join(consumerRoot, "package.json"), `${JSON.stringify({ private: true, type: "module" }, null, 2)}\n`);
   verificationStage = "dependency_acquisition";
   await runCommand(process.execPath, [npmEntrypoint,
     "install",
+    "--json",
     "--ignore-scripts",
     "--no-audit",
     "--no-fund",
@@ -367,7 +382,11 @@ try {
     result: "passed",
   })}\n`);
 } catch (error) {
-  verificationFailure = error?.packagedAcceptanceDiagnostic ?? packagedVerificationDiagnostic(verificationStage);
+  verificationFailure = ownPackagedAcceptanceDiagnostic(error) ?? packagedVerificationDiagnostic(
+    verificationStage,
+    operatorToolFailureDiagnostic(error),
+    verificationStage === "dependency_acquisition" ? dependencyAcquisitionReceipt(error, runCommandFailureKind(error)) : undefined,
+  );
 } finally {
   try {
     await removeOwnedTempRoot(tempRoot);

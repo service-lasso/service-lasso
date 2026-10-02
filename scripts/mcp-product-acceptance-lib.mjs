@@ -6,6 +6,13 @@ import { LATEST_PROTOCOL_VERSION, SUPPORTED_PROTOCOL_VERSIONS } from "@modelcont
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const MAX_CAPTURE_BYTES = 2 * 1024 * 1024;
+const RUN_COMMAND_FAILURE_KINDS = new Set([
+  "deadline_exceeded",
+  "output_capture_exceeded",
+  "spawn_failed",
+  "exit_nonzero",
+  "unknown",
+]);
 const SAFE_DIAGNOSTIC_CODE = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/u;
 const PACKAGED_ACCEPTANCE_ERROR_PREFIX = "[mcp-package-acceptance-error] ";
 const DEFAULT_DIAGNOSTIC_TIMEOUT_MS = 5_000;
@@ -69,11 +76,15 @@ export const MCP_PACKAGED_SAFE_AUDIT_DIAGNOSTIC_REASONS = Object.freeze([
   "confirmation_private_state_acl_failed",
   "confirmation_private_state_commit_failed",
   "confirmation_private_state_protect_failed",
+  "confirmation_private_state_protect_helper_timeout",
+  "confirmation_private_state_protect_integrity_timeout",
   "confirmation_private_state_protect_timeout",
   "confirmation_private_state_protect_unavailable",
   "confirmation_private_state_sid_failed",
   "confirmation_private_state_system_utilities_unavailable",
   "confirmation_private_state_unprotect_failed",
+  "confirmation_private_state_unprotect_helper_timeout",
+  "confirmation_private_state_unprotect_integrity_timeout",
   "confirmation_private_state_unprotect_timeout",
   "confirmation_private_state_unprotect_unavailable",
   "confirmation_state_unavailable",
@@ -278,7 +289,7 @@ export async function runCommand(command, args, options = {}) {
     let settled = false;
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
-      finish(new Error(`Command did not complete within ${timeoutMs}ms.`));
+      finish(markRunCommandFailure(new Error(`Command did not complete within ${timeoutMs}ms.`), "deadline_exceeded"));
     }, timeoutMs);
     timer.unref?.();
 
@@ -286,7 +297,7 @@ export async function runCommand(command, args, options = {}) {
       const next = kind === "stdout" ? stdoutBytes + chunk.length : stderrBytes + chunk.length;
       if (next > MAX_CAPTURE_BYTES) {
         child.kill("SIGKILL");
-        finish(new Error(`Command ${kind} exceeded the bounded capture limit.`));
+        finish(markRunCommandFailure(new Error(`Command ${kind} exceeded the bounded capture limit.`), "output_capture_exceeded"));
         return;
       }
       chunks.push(chunk);
@@ -295,7 +306,7 @@ export async function runCommand(command, args, options = {}) {
     };
     child.stdout.on("data", (chunk) => append(stdout, chunk, "stdout"));
     child.stderr.on("data", (chunk) => append(stderr, chunk, "stderr"));
-    child.once("error", finish);
+    child.once("error", (error) => finish(markRunCommandFailure(error, "spawn_failed")));
     child.once("exit", (code, signal) => {
       const result = {
         code,
@@ -304,7 +315,10 @@ export async function runCommand(command, args, options = {}) {
         stderr: Buffer.concat(stderr).toString("utf8"),
       };
       if (code === 0) finish(null, result);
-      else finish(new Error(`Command failed with exit code ${code ?? "none"} and signal ${signal ?? "none"}.`), result);
+      else finish(markRunCommandFailure(
+        new Error(`Command failed with exit code ${code ?? "none"} and signal ${signal ?? "none"}.`),
+        typeof code === "number" && code !== 0 ? "exit_nonzero" : "unknown",
+      ), result);
     });
 
     function finish(error, result) {
@@ -319,6 +333,33 @@ export async function runCommand(command, args, options = {}) {
       }
     }
   });
+}
+
+function markRunCommandFailure(error, kind) {
+  if (!error || typeof error !== "object" || !RUN_COMMAND_FAILURE_KINDS.has(kind)) return error;
+  try {
+    Object.defineProperty(error, "runCommandFailureKind", {
+      configurable: false,
+      enumerable: false,
+      value: kind,
+      writable: false,
+    });
+  } catch {
+    // The receipt stays closed when an unexpected frozen error cannot carry the
+    // wrapper observation.
+  }
+  return error;
+}
+
+export function runCommandFailureKind(error) {
+  if (!error || typeof error !== "object") return "unknown";
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(error, "runCommandFailureKind");
+    const kind = descriptor && "value" in descriptor ? descriptor.value : undefined;
+    return typeof kind === "string" && RUN_COMMAND_FAILURE_KINDS.has(kind) ? kind : "unknown";
+  } catch {
+    return "unknown";
+  }
 }
 
 async function inspectorEntrypoint() {

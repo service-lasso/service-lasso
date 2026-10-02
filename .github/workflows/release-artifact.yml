@@ -39,6 +39,26 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
 
+      - name: Build external operator package verifier
+        run: npm run build
+
+      - name: Verify packaged external operator tools
+        env:
+          SERVICE_LASSO_RELEASE_METADATA_TOKEN: ${{ github.token }}
+        run: node scripts/publish-package-verify.mjs
+
+      - name: Verify attached-terminal TUI behavior (Windows ConPTY)
+        if: matrix.platform == 'win32'
+        env:
+          SERVICE_LASSO_RELEASE_METADATA_TOKEN: ${{ github.token }}
+        run: node scripts/verify-operator-tui-conpty.mjs
+
+      - name: Verify attached-terminal TUI behavior (Unix PTY)
+        if: matrix.platform != 'win32'
+        env:
+          SERVICE_LASSO_RELEASE_METADATA_TOKEN: ${{ github.token }}
+        run: node scripts/verify-operator-tui-pty.mjs
+
       - name: Compute candidate package version
         shell: pwsh
         run: |
@@ -46,10 +66,14 @@ jobs:
           $dateUtc = [DateTime]::UtcNow.ToString('yyyy.M.d')
           "SERVICE_LASSO_RELEASE_VERSION=$dateUtc-$shortSha" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
+      - name: Build packaged MCP verifier
+        run: npm run build
+
       - name: Verify fresh-consumer packaged MCP before publication
         env:
           MCP_PRODUCT_EVIDENCE_PATH: artifacts/mcp-product-${{ matrix.platform }}.json
-        run: npm run verify:mcp:packaged
+          SERVICE_LASSO_RELEASE_METADATA_TOKEN: ${{ github.token }}
+        run: node scripts/verify-mcp-packaged-bootstrap.mjs
 
       - name: Upload exact-SHA publication MCP evidence
         id: release_publish_mcp_artifact
@@ -106,11 +130,14 @@ jobs:
           echo "bundled_artifact_name=service-lasso-bundled-$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Run tests
+        env:
+          SERVICE_LASSO_RELEASE_METADATA_TOKEN: ${{ github.token }}
         run: npm test
 
       - name: Verify bounded release artifact
         env:
           SERVICE_LASSO_RELEASE_VERSION: ${{ steps.release_version.outputs.version }}
+          SERVICE_LASSO_RELEASE_METADATA_TOKEN: ${{ github.token }}
         run: npm run release:verify
 
       - name: Validate staged release asset policy

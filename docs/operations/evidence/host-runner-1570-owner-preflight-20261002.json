@@ -1,0 +1,29 @@
+{
+  "purpose": "pre-test and pre-import source qualification capture",
+  "checkout": "D:\\projects\\service-lasso\\_worktrees\\core1570-host-service-owner",
+  "branch": "feature/cli32-host-service-owner",
+  "head": "73e3e0722aa00fa3848c3e38a3aba28ae42c3827",
+  "head_tree": "4a258bd8c895b59f75b8560df36d48510479dca4",
+  "candidate_dirty_files": 10,
+  "runtime_inputs": {
+    "workspace": "D:\\projects\\service-lasso\\_qualification\\slhr-1570-workspace-20261002-6b4d",
+    "workspace_existed": false,
+    "workspace_link": null,
+    "instance": "slhr-1570-instance-20261002-f82a",
+    "ports": "24571,24572",
+    "node_modules_present": false,
+    "host_runner_registry_present": false
+  },
+  "host": {
+    "os": "Windows_NT",
+    "process": "pwsh.exe",
+    "pid": 82904,
+    "parent_pid": 6792,
+    "process_birth_utc": "2026-10-02T00:42:25.4478193Z"
+  },
+  "planned_commands": [
+    "node --test tests/host-runner-service-package.test.js tests/host-runner-native-contract.test.js",
+    "node scripts/host-runner-service/qualification.mjs"
+  ],
+  "result": "Both planned source checks passed. No Darwin build, installation, launchctl mutation, provider mutation, publication, runner registration, or host activation occurred."
+}
