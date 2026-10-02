@@ -25,7 +25,7 @@ async function createGhMock() {
   const commandPath = join(directory, 'gh.cmd');
   const callLog = join(directory, 'gh-calls.log');
   await writeFile(callLog, '');
-  await writeFile(commandPath, `@echo off\r\nsetlocal\r\nif /I "%1"=="auth" if /I "%2"=="status" exit /b 0\r\nif /I "%1"=="api" (echo [{"workflow_runs":[{"id":101,"status":"queued","name":"CI","display_title":"queued test","head_branch":"develop","created_at":"2026-10-02T00:00:00Z","html_url":"https://example.test/runs/101"}]}] & exit /b 0)\r\nif /I "%1"=="run" if /I "%2"=="cancel" if "%3"=="101" (echo run cancel 101 --repo %5 --force>>"%GH_CALL_LOG%" & exit /b 0)\r\necho unexpected gh invocation 1>&2\r\nexit /b 1\r\n`);
+  await writeFile(commandPath, `@echo off\r\nsetlocal\r\nif /I "%1"=="auth" if /I "%2"=="status" exit /b 0\r\nif /I "%1"=="api" (echo [{"workflow_runs":[{"id":101,"status":"queued","name":"CI","display_title":"queued test","head_branch":"develop","created_at":"2026-10-02T00:00:00Z","html_url":"https://example.test/runs/101"}]}] & exit /b 0)\r\nif /I "%1"=="run" if /I "%2"=="cancel" if "%3"=="101" if "%GH_COMPLETE_CANCEL%"=="1" (echo Cannot cancel a workflow run that is completed 1>&2 & exit /b 1)\r\nif /I "%1"=="run" if /I "%2"=="cancel" if "%3"=="101" (echo run cancel 101 --repo %5 --force>>"%GH_CALL_LOG%" & exit /b 0)\r\necho unexpected gh invocation 1>&2\r\nexit /b 1\r\n`);
   return { callLog, directory };
 }
 
@@ -68,6 +68,30 @@ test('bulk cancellation script sends a force-cancel request only after exact con
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
     assert.match(result.stdout, /Requested force cancellation for 1 active GitHub Actions run/);
     assert.match(await readFile(callLog, 'utf8'), /run cancel 101 --repo service-lasso\/service-lasso --force/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('bulk cancellation script skips a run that completes after the preview', async () => {
+  const { callLog, directory } = await createGhMock();
+  const env = {
+    ...process.env,
+    PATH: `${directory};${process.env.PATH}`,
+    GH_CALL_LOG: callLog,
+    GH_COMPLETE_CANCEL: '1'
+  };
+
+  try {
+    const result = runPowerShell([
+      '-Execute',
+      '-Confirmation',
+      'CANCEL service-lasso/service-lasso'
+    ], env);
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    assert.match(`${result.stdout}${result.stderr}`, /completed before it could be cancelled/);
+    assert.match(result.stdout, /Skipped 1 run/);
+    assert.equal(await readFile(callLog, 'utf8'), '');
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

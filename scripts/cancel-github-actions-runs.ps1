@@ -118,9 +118,31 @@ if ($Confirmation -cne $expectedConfirmation) {
     throw "Cancellation was not requested. Re-run with -Confirmation '$expectedConfirmation' after reviewing the dry run."
 }
 
+$requestedCancellations = 0
+$skippedTerminalRuns = 0
+$cancellationFailures = @()
 foreach ($run in $runs) {
     Write-Host "Requesting force cancellation for run $($run.Id) ($($run.Workflow), $($run.Status))."
-    Invoke-GitHubCli -Arguments @('run', 'cancel', [string]$run.Id, '--repo', $Repository, '--force') | Out-Null
+    try {
+        Invoke-GitHubCli -Arguments @('run', 'cancel', [string]$run.Id, '--repo', $Repository, '--force') | Out-Null
+        $requestedCancellations++
+    }
+    catch {
+        if ($_.Exception.Message -match 'Cannot cancel a workflow run that is completed') {
+            $skippedTerminalRuns++
+            Write-Warning "Run $($run.Id) completed before it could be cancelled; skipping it."
+            continue
+        }
+
+        $cancellationFailures += "run $($run.Id): $($_.Exception.Message)"
+    }
 }
 
-Write-Host "Requested force cancellation for $($runs.Count) active GitHub Actions run(s) in $Repository."
+if ($cancellationFailures.Count -gt 0) {
+    throw "Cancellation requests failed for $($cancellationFailures.Count) run(s):$([Environment]::NewLine)$($cancellationFailures -join [Environment]::NewLine)"
+}
+
+Write-Host "Requested force cancellation for $requestedCancellations active GitHub Actions run(s) in $Repository."
+if ($skippedTerminalRuns -gt 0) {
+    Write-Host "Skipped $skippedTerminalRuns run(s) that completed before GitHub accepted cancellation."
+}
