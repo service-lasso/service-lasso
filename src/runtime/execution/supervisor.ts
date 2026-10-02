@@ -1814,7 +1814,7 @@ async function finalizeAdoptedProcessExit(record: AdoptedProcessRecord): Promise
   await withSerializedWorkspaceFinalization(record.workspaceRoot, async () => {
     await transitionProcessOwnership(record.workspaceRoot, "service", serviceId, "stopped", "not_running", record.pid);
 
-    const current = getLifecycleState(serviceId, workspaceRoot);
+    const current = getLifecycleState(serviceId, record.workspaceRoot);
     if (current.running && current.runtime.pid === record.pid) {
       const finishedAt = new Date().toISOString();
       const startedAtMs = current.runtime.startedAt ? Date.parse(current.runtime.startedAt) : Number.NaN;
@@ -1837,7 +1837,7 @@ async function finalizeAdoptedProcessExit(record: AdoptedProcessRecord): Promise
             lastRunDurationMs: durationMs,
           },
         },
-      }, workspaceRoot);
+      }, record.workspaceRoot);
       await writeServiceState(record.service, next);
     }
     adoptedProcesses.delete(key);

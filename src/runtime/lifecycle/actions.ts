@@ -1161,6 +1161,7 @@ export async function installService(
   registry?: ServiceRegistry,
   options: ServiceLifecycleActionOptions = {},
 ): Promise<LifecycleActionResult> {
+  return await withLifecycleWorkspace(options.workspaceRoot, async () => {
   const serviceId = service.manifest.id;
   const sharedGlobalEnv = registry
     ? collectRuntimeGlobalEnv(registry.list())
