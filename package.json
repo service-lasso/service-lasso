@@ -75,6 +75,7 @@
     "fflate": "0.8.3",
     "jose": "6.2.12",
     "tar": "7.5.22",
+    "unicode-case-folding": "1.1.1",
     "zod": "4.6.5"
   },
   "devDependencies": {
