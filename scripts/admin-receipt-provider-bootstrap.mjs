@@ -65,4 +65,8 @@ if (!config || typeof config !== "object" || typeof config.root !== "string" || 
 if (path.resolve(config.root) !== config.root || path.resolve(configPath) !== configPath) throw new Error("observer_config_path_invalid");
 if (process.env.SERVICE_LASSO_ADMIN_PROVIDER_OBSERVER_ROOT !== config.root || process.env.SERVICE_LASSO_ADMIN_PROVIDER_OBSERVER_NONCE !== config.nonce) throw new Error("observer_activation_environment_invalid");
 await waitForActivation(config);
+// The target remains the observed Node process.  Restore its argv before the
+// dynamic import so established fixtures still bind their own fixed pathname
+// and command arguments rather than trusting this gate's bootstrap path.
+process.argv.splice(1, process.argv.length - 1, ...targetArgs);
 await import(pathToFileURL(path.resolve(targetArgs[0])).href);
