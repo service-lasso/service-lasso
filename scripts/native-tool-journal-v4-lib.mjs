@@ -77,14 +77,26 @@ async function linux(pid, caller) {
   }
   throw new Error("first_custody_native_parent_depth");
 }
-async function capture(executable, args) {
-  const child = spawn(executable, args, { shell: false, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+export async function capture(executable, args, spawnHelper = spawn, report = value => process.stderr.write(value)) {
+  let child, state, out, err, reason = "unavailable", refused = false;
   const stdout = [], stderr = []; let stdoutEof = false, stderrEof = false;
-  child.stdout.on("data", value => stdout.push(Buffer.from(value))); child.stderr.on("data", value => stderr.push(Buffer.from(value)));
-  child.stdout.once("end", () => { stdoutEof = true; }); child.stderr.once("end", () => { stderrEof = true; });
-  const state = await new Promise((resolve, reject) => { child.once("error", reject); child.once("close", (exitCode, signal) => resolve({ exitCode, signal: signal ?? null })); });
-  const out = Buffer.concat(stdout), err = Buffer.concat(stderr);
-  if (state.exitCode !== 0 || state.signal !== null || !stdoutEof || !stderrEof) throw new Error("first_custody_native_helper_incomplete");
+  try {
+    child = spawnHelper(executable, args, { shell: false, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+    child.stdout.on("data", value => stdout.push(Buffer.from(value))); child.stderr.on("data", value => stderr.push(Buffer.from(value)));
+    child.stdout.once("end", () => { stdoutEof = true; }); child.stderr.once("end", () => { stderrEof = true; });
+    state = await new Promise((resolve, reject) => { child.once("error", reject); child.once("close", (exitCode, signal) => resolve({ exitCode, signal: signal ?? null })); });
+    out = Buffer.concat(stdout); err = Buffer.concat(stderr);
+    // Assignment records only the predicate currently reached by the original OR.
+    if ((reason = "exit_nonzero", state.exitCode !== 0) || (reason = "signal_present", state.signal !== null) || (reason = "stdout_eof_missing", !stdoutEof) || (reason = "stderr_eof_missing", !stderrEof)) {
+      refused = true;
+      throw new Error("first_custody_native_helper_incomplete");
+    }
+
+  } catch (error) {
+    try { report(`[native-helper-closure-observation] ${JSON.stringify({schema:"service-lasso.native-helper-closure-observation.v1",observationStatus:refused?"captured":"unavailable",reason:refused?reason:"unavailable"})}\n`); }
+    catch { /* The observer must preserve the original thrown value. */ }
+    throw error;
+  }
   let witness;try{witness=nativeJson(out.toString("utf8"));}catch{throw new Error("first_custody_native_helper_json_invalid");}if(!positive(child.pid)||witness.self?.pid!==child.pid||witness.self?.chain?.[0]?.pid!==child.pid)throw new Error("first_custody_native_helper_actual_child_mismatch");return { ...state, spawnedPid:child.pid, selfIdentity:witness.self.chain[0], stdout: out, stderr: err, stdoutEof, stderrEof, stdoutSha256: digest(out), stderrSha256: digest(err) };
 }
 function witnessTarget(value) {
