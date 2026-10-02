@@ -70,3 +70,11 @@ Reviewers must be able to trace each `main`-only product change to its reconcile
   written. Platform aggregates consume only that projection and must describe
   their validation as projection validation, never verification of unavailable
   private bytes.
+
+## Issue #1600 fixture/input acceptance clarification
+
+Preserve existing acceptance criteria and production checks. The complete source-only
+fixture scope, original failures, dependency owners and subsequent evidence gates
+are bound in [issue 1600 contract map](../project/QUALIFICATION_FIXTURE_INPUTS_1600.md).
+This clarification authorizes faithful input/assertion reconciliation, no protected
+skip, deadline or permission widening, native-custody substitute, or release claim.

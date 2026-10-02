@@ -110,7 +110,7 @@ function fixtureReleaseFetch({ metadataAuthorization, assetAuthorization }) {
       const isCli = parsed.pathname.includes("service-lasso-cli");
       const candidate = isCli ? cliRelease : release;
       assert.equal(parsed.pathname, `/repos/${candidate.repository}/releases/tags/${candidate.tag}`);
-      return Response.json({ tag_name: candidate.tag, target_commitish: candidate.targetCommit, prerelease: true, draft: false, assets: candidateAssets(candidate, isCli) });
+      return Response.json({ tag_name: candidate.tag, target_commitish: candidate.targetCommit, prerelease: true, draft: false, immutable: false, assets: candidateAssets(candidate, isCli) });
     }
     assetAuthorization.push(options.headers?.authorization);
     assert.equal(parsed.hostname, "github.com");

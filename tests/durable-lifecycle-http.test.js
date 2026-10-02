@@ -266,7 +266,15 @@ async function stopFixtureService(apiServer, serviceId, token) {
     action: "stop",
     serviceId,
   }, token);
-  if (plan.status !== 200 || plan.body.confirmation?.status !== "pending") return;
+  if (plan.status !== 200) return { kind: "failed_plan", response: plan };
+  if (plan.body.confirmation?.status !== "pending") {
+    if (plan.body.ok === true && plan.body.preflight?.executable === false
+      && plan.body.preflight.skippedReason === "service_not_running"
+      && plan.body.confirmation?.status === "not_required") {
+      return { kind: "already_stopped", response: plan };
+    }
+    return { kind: "failed_plan", response: plan };
+  }
   const accepted = await lifecycleRequest(apiServer, "/api/operator/lifecycle/operations", "POST", {
     action: "stop",
     serviceId,
@@ -278,7 +286,7 @@ async function stopFixtureService(apiServer, serviceId, token) {
   assert.equal(accepted.status, 202);
   for (let attempt = 0; attempt < 30; attempt += 1) {
     const readback = await lifecycleRequest(apiServer, `/api/operator/lifecycle/operations/${accepted.body.operation.operationId}`, "GET", undefined, token);
-    if (readback.body.operation.outcome !== null) return readback;
+    if (readback.body.operation.outcome !== null) return { kind: "executed", response: readback };
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   assert.fail("Fixture stop operation did not reach a terminal state.");
@@ -876,8 +884,15 @@ test("#1465 concurrent HTTP replay is actor-scoped and rejects changed same-key 
       stopFixtureService(apiServer, "durable-concurrent-replay-service", ownerToken),
       stopFixtureService(apiServer, "durable-concurrent-other-service", otherToken),
     ]);
-    assert.equal(ownerStop.body.operation.outcome, "succeeded");
-    assert.equal(otherStop.body.operation.outcome, "succeeded");
+    for (const stop of [ownerStop, otherStop]) {
+      assert.notEqual(stop.kind, "failed_plan", JSON.stringify(stop.response.body));
+      if (stop.kind === "executed") assert.equal(stop.response.body.operation.outcome, "succeeded");
+      else {
+        assert.equal(stop.kind, "already_stopped");
+        assert.equal(stop.response.status, 200);
+        assert.equal(stop.response.body.preflight.skippedReason, "service_not_running");
+      }
+    }
   } finally {
     await apiServer?.stop().catch(() => undefined);
     await jwks.stop();

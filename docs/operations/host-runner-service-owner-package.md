@@ -14,7 +14,7 @@ repository-selected team, certificate, CDHash, or broad identifier. For each
 accepted job, the daemon creates a fresh root-owned output leaf and inventory
 parent from the held primary and client image identities plus its nonce. It
 retains their descriptors and identity/digest evidence, and rechecks those
-same descriptors plus their fixed parent envelope relation on completion. It
+same descriptors for the expected parent and leaf plus their fixed parent envelope relation on completion. It
 records issuance and every terminal transition in its root-only journal before
 replying. It issues a write-only pipe capability and opaque nonce itself,
 binds both to the XPC peer audit identity, expires them after sixty seconds,

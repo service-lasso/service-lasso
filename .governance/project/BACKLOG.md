@@ -626,3 +626,12 @@ Issue #1326 parent-edge lifetime diagnostic follow-up binds AC-4BH: retain the 0
 | Status | Issue | Requirement / next action | Evidence boundary |
 | --- | --- | --- | --- |
 | In progress | [#1582](https://github.com/service-lasso/service-lasso/issues/1582) | Deliver `SPEC-009` Core-owned authenticated durable job transaction and the CLI PR #32 compiled client contract. | Fresh Core/CLI source branches, preserved failed native CI output, custody-gated direct compiled-client proof; no host activation, deployment, publication, or promotion. |
+
+## Issue #1600 qualification fixture and input reconciliation
+
+Development, source preparation only. Parent #1562 remains active. The complete
+nineteen-failure contract map is [QUALIFICATION_FIXTURE_INPUTS_1600.md](QUALIFICATION_FIXTURE_INPUTS_1600.md).
+No imports, syntax checks, compiler, helpers, tests, installation, ACL or lifecycle
+execution is admitted until a different fresh reviewer grants entire cumulative
+SOURCE GO and a NEW complete-input ROOT admission. Existing PR owners retain
+#1591/#1593/#1595/#1596/#1599 and #1586; normal source starts from current develop.
