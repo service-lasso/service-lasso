@@ -9,10 +9,11 @@ import {
   MCP_PRODUCT_EVIDENCE_CONTRACT,
   parsePackagedAcceptanceFailure,
   runCommand,
+  runCommandFailureKind,
   validateMcpProductEvidence,
 } from "./mcp-product-acceptance-lib.mjs";
 
-import { packagedVerificationDiagnostic } from "./packaged-verification-diagnostics.mjs";
+import { dependencyAcquisitionReceipt, packagedVerificationDiagnostic } from "./packaged-verification-diagnostics.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const platform = process.platform;
@@ -37,6 +38,16 @@ async function requirePathAbsent(candidatePath, label) {
     throw error;
   }
   throw new Error(`${label} must be absent.`);
+}
+
+function ownPackagedAcceptanceDiagnostic(error) {
+  if (!error || typeof error !== "object") return undefined;
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(error, "packagedAcceptanceDiagnostic");
+    return descriptor && "value" in descriptor ? descriptor.value : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 async function runWindowsProvenanceVerifier(scriptName, label, scriptArgs = []) {
@@ -218,6 +229,7 @@ try {
   verificationStage = "dependency_acquisition";
   await runCommand(process.execPath, [npmEntrypoint,
     "install",
+    "--json",
     "--ignore-scripts",
     "--no-audit",
     "--no-fund",
@@ -370,7 +382,11 @@ try {
     result: "passed",
   })}\n`);
 } catch (error) {
-  verificationFailure = error?.packagedAcceptanceDiagnostic ?? packagedVerificationDiagnostic(verificationStage, operatorToolFailureDiagnostic(error));
+  verificationFailure = ownPackagedAcceptanceDiagnostic(error) ?? packagedVerificationDiagnostic(
+    verificationStage,
+    operatorToolFailureDiagnostic(error),
+    verificationStage === "dependency_acquisition" ? dependencyAcquisitionReceipt(error, runCommandFailureKind(error)) : undefined,
+  );
 } finally {
   try {
     await removeOwnedTempRoot(tempRoot);

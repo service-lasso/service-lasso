@@ -17,6 +17,8 @@ const launchPhases = new Set([
 ]);
 const eventStatuses = new Set(["completed", "blocked", "failed", "skipped"]);
 const attemptStatuses = new Set(["running", "succeeded", "failed", "blocked"]);
+const restartStages = new Set(["precheck", "stop_request", "finalization_settled", "finalization_failed", "replacement_spawn", "readiness", "response"]);
+const restartRelations = new Set(["unavailable", "prior_generation_running", "replacement_spawned"]);
 // API response bodies are not diagnostic input. This closed projection only
 // distinguishes the lifecycle conflicts that can explain a post-action 409.
 const lifecycleApiErrorCodes = new Set([
@@ -26,13 +28,24 @@ const lifecycleApiErrorCodes = new Set([
   "startup_transaction_recovery_required",
 ]);
 const allowed = (values, value) => values.has(value) ? value : null;
+const launcherPayloadFailureBoundaries = new Set([
+  "launch_evidence", "canonical_encoding", "strict_utf8", "json_or_schema", "semantic_payload", "unknown",
+]);
 
 // Deliberately closed: never serialize errors, messages, handles, or raw state.
 export function lifecycleFailureDiagnostic(input = {}) {
   try {
-    let { httpStatus, state, error, apiErrorCode } = input ?? {};
-    const current = state?.runtime?.startTrace?.current;
+    let { httpStatus, state, error, apiErrorCode, action } = input ?? {};
+    const restartCandidate = action === "restart" ? state?.runtime?.restartTrace?.current : null;
+    const restart = restartCandidate &&
+      (restartCandidate.status === "failed" || restartCandidate.status === "blocked") &&
+      Array.isArray(restartCandidate.events) &&
+      restartCandidate.events.some((event) => event?.stage === "response" && (event?.status === "failed" || event?.status === "blocked"))
+      ? restartCandidate
+      : null;
+    const current = action === "restart" ? restart : (restart ?? state?.runtime?.startTrace?.current);
     const failurePhases = [];
+    let launcherPayloadFailureBoundary = null;
     const windowsTreeInspections = [];
     let deadlineExceeded = false;
     const pending = [{ error, depth: 0 }];
@@ -44,6 +57,12 @@ export function lifecycleFailureDiagnostic(input = {}) {
       seen.add(currentError);
       const phase = allowed(launchPhases, currentError.failurePhase);
       if (phase) failurePhases.push(phase);
+      if (phase === "launcher_payload_validation") {
+        launcherPayloadFailureBoundary = allowed(
+          launcherPayloadFailureBoundaries,
+          currentError.launcherPayloadFailureBoundary,
+        ) ?? "unknown";
+      }
       deadlineExceeded ||= currentError.code === "PROCESS_CONTROL_DEADLINE_EXCEEDED";
       const inspection = projectWindowsTreeInspectionMetadata(currentError.windowsTreeInspection);
       if (inspection.windowsTreeInspectionPhase) windowsTreeInspections.push(inspection);
@@ -63,17 +82,31 @@ export function lifecycleFailureDiagnostic(input = {}) {
         if (inspection.windowsTreeInspectionPhase) windowsTreeInspections.push(inspection);
       }
     }
+    const tracedPayloadBoundary = Array.isArray(current?.events)
+      ? current.events.slice(-16).reduce((boundary, event) => {
+        if (event?.metadata?.processStartFailurePhase !== "launcher_payload_validation") return boundary;
+        return allowed(launcherPayloadFailureBoundaries, event?.metadata?.launcherPayloadFailureBoundary) ?? "unknown";
+      }, null)
+      : null;
     const apiFailure = allowed(lifecycleApiErrorCodes, apiErrorCode);
     return JSON.stringify({
       kind: "lifecycle-failure",
       httpStatus: Number.isInteger(httpStatus) && httpStatus >= 100 && httpStatus <= 599 ? httpStatus : null,
       attemptStatus: allowed(attemptStatuses, current?.status),
-      events: Array.isArray(current?.events) ? current.events.slice(-16).map(event => ({
+      ...(restart ? { attemptAction: "restart" } : {}),
+      events: restart && Array.isArray(restart.events) ? restart.events.slice(-7).map(event => ({
+        stage: allowed(restartStages, event?.stage),
+        status: allowed(eventStatuses, event?.status),
+        oldNewProcessRelation: allowed(restartRelations, event?.oldNewProcessRelation) ?? "unavailable",
+      })) : Array.isArray(current?.events) ? current.events.slice(-16).map(event => ({
         phase: allowed(phases, event?.phase),
         status: allowed(eventStatuses, event?.status),
         failurePhase: allowed(launchPhases, event?.metadata?.processStartFailurePhase),
       })) : [],
       failurePhases,
+      ...(launcherPayloadFailureBoundary || tracedPayloadBoundary
+        ? { launcherPayloadFailureBoundary: launcherPayloadFailureBoundary ?? tracedPayloadBoundary }
+        : {}),
       deadlineExceeded,
       ...(apiFailure ? { apiErrorCode: apiFailure } : {}),
       ...(windowsTreeInspections.length ? { windowsTreeInspections } : {}),

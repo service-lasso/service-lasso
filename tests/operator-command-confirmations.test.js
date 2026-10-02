@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
-import { readFile, rm } from "node:fs/promises";
+import { readFile, rm, writeFile } from "node:fs/promises";
 import { startApiServer } from "../dist/server/index.js";
 import { getLifecycleState, resetLifecycleState, setLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import { makeTempServicesRoot, writeExecutableFixtureService } from "./test-helpers.js";
@@ -250,6 +250,43 @@ test("operator command confirmations reject execution when the confirmed plan ch
     const store = JSON.parse(await readFile(path.join(workspaceRoot, ".state", "operator-command-confirmations.json"), "utf8"));
     assert.equal(store.records[0].status, "denied");
     assert.equal(store.records[0].denialReason, "plan_changed");
+  });
+});
+
+test("operator command confirmations reject unconfirmed and expired execution", async () => {
+  await withApiServer("service-lasso-command-confirmation-execution-state-", async ({ apiServer, workspaceRoot }) => {
+    const headers = { "x-service-lasso-chat-bridge-token": "SERVICE_LASSO_TEST_BRIDGE_TOKEN" };
+    const issue = (planId) => postJson(apiServer.url + "/api/operator/confirmations", {
+      command: "stop alpha-service", actor: chatActor(), planId, plan: safePlan("stop"),
+    }, headers);
+
+    const pending = await issue("stop-plan-pending");
+    const unconfirmed = await postJson(
+      apiServer.url + `/api/operator/confirmations/${encodeURIComponent(pending.body.confirmation.id)}/execute`,
+      { actor: chatActor(), plan: safePlan("stop") },
+      headers,
+    );
+    assert.equal(unconfirmed.status, 409);
+    assert.equal(unconfirmed.body.error, "confirmation_not_confirmed");
+
+    const expiring = await issue("stop-plan-expired");
+    const confirmed = await postJson(
+      apiServer.url + `/api/operator/confirmations/${encodeURIComponent(expiring.body.confirmation.id)}/confirm`,
+      { actor: chatActor(), plan: safePlan("stop"), confirmationPhrase: expiring.body.confirmationPhrase },
+      headers,
+    );
+    assert.equal(confirmed.status, 200);
+    const storePath = path.join(workspaceRoot, ".state", "operator-command-confirmations.json");
+    const store = JSON.parse(await readFile(storePath, "utf8"));
+    store.records.find((record) => record.id === expiring.body.confirmation.id).expiresAt = "2000-01-01T00:00:00.000Z";
+    await writeFile(storePath, JSON.stringify(store, null, 2) + "\n", "utf8");
+    const expired = await postJson(
+      apiServer.url + `/api/operator/confirmations/${encodeURIComponent(expiring.body.confirmation.id)}/execute`,
+      { actor: chatActor(), plan: safePlan("stop") },
+      headers,
+    );
+    assert.equal(expired.status, 409);
+    assert.equal(expired.body.error, "confirmation_expired");
   });
 });
 
