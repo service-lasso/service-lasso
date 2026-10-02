@@ -7,14 +7,21 @@ export async function inspectKnownWindowsTreeMembers(
   deadlineMs: number,
   signal: AbortSignal,
   verifiedMembersOnly = false,
-  dependencies: { inspectTree?: typeof inspectWindowsProcessTree; inspectIdentity?: typeof inspectProcess } = {},
+  dependencies: {
+    inspectTree?: typeof inspectWindowsProcessTree;
+    inspectIdentity?: typeof inspectProcess;
+    excludedMemberPids?: ReadonlySet<number>;
+  } = {},
 ): Promise<{
   members: ProcessFingerprint[];
   verifiedMembersOnly: boolean;
   inspectProcess: (pid: number, options?: { deadlineMs?: number; signal?: AbortSignal }) => Promise<ProcessInspection>;
 }> {
   const currentTree = await (dependencies.inspectTree ?? inspectWindowsProcessTree)(rootIdentity, { deadlineMs, signal });
-  const excluded = new Set(currentTree.excludedMemberPids ?? []);
+  const excluded = new Set([
+    ...(currentTree.excludedMemberPids ?? []),
+    ...(dependencies.excludedMemberPids ?? []),
+  ]);
   const retainedMembers = knownMembers.filter(member => !excluded.has(member.pid));
   const currentPids = new Set(currentTree.members.map(identity => identity.pid));
   // A tree omission is not an absence receipt. Keep the prior immutable
@@ -29,7 +36,7 @@ export async function inspectKnownWindowsTreeMembers(
     ...currentTree.members,
   ];
   if (verifiedMembersOnly || currentTree.verifiedMembersOnly) {
-    const currentByPid = new Map(currentTree.members.map(identity => [identity.pid, identity]));
+    const currentByPid = new Map(currentMembers.map(identity => [identity.pid, identity]));
     for (const expected of retainedMembers) {
       const actual = currentByPid.get(expected.pid);
       if (actual && classifyProcessIdentity(expected, { status: "running", identity: actual }, "win32") !== "owned") {

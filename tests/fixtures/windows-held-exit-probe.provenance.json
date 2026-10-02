@@ -13,11 +13,11 @@
   },
   "source": {
     "path": "tests/fixtures/windows-held-exit-probe.cs",
-    "sha256": "e3dd8775977894f472a35c19036a620e5f774254a661aba44ba43b63e8001765"
+    "sha256": "df7af2cb89af9cbc0312b97d5253c0032c1166b0c3a91e66e224d6b83e8d3ae0"
   },
   "binary": {
     "path": "tests/fixtures/windows-held-exit-probe.exe",
-    "sha256": "0ecf7133ff0fd07137fdd88b5dec1128993ec1582aeba163fa66b5def521e2f6",
+    "sha256": "ff01a96acf4c8fffbe2b780f6fee9d03160053e4a78ecb4b98f1a20771a7ce07",
     "byteLength": 6656,
     "peTimestamp": "zero",
     "moduleVersionId": "zero"

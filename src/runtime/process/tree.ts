@@ -425,7 +425,7 @@ async function requirePostSignalIdentity(
   // not spend the caller's remaining deadline launching another CIM helper.
   // A still-present or ambiguous PID continues through full fingerprint
   // verification, preserving fail-closed PID-reuse protection.
-  if ((dependencies.platform ?? process.platform) === "win32" && await verifyPostSignalExit(identity.pid, dependencies)) {
+  if (await verifyPostSignalExit(identity.pid, dependencies)) {
     return "exited";
   }
   const classification = classifyProcessIdentity(identity, await processInspector(dependencies)(identity.pid));

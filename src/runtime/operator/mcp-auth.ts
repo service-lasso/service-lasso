@@ -606,7 +606,8 @@ function localMcpAuthorization(
   };
 }
 
-export async function authorizeMcpHttpRequest(
+/** Resolves a validated transport identity before a route applies its scope. */
+export async function authenticateMcpHttpRequest(
   request: IncomingMessage,
   runtimeAuth: RuntimeAuthPolicyStatus,
   options: McpHttpIdentityOptions = {},
@@ -617,6 +618,15 @@ export async function authorizeMcpHttpRequest(
   const authorization = config.enabled
     ? await verifyMcpBearerToken(request, config)
     : localMcpAuthorization(runtimeAuth, config);
+  return authorization;
+}
+
+export async function authorizeMcpHttpRequest(
+  request: IncomingMessage,
+  runtimeAuth: RuntimeAuthPolicyStatus,
+  options: McpHttpIdentityOptions = {},
+): Promise<McpHttpAuthorization> {
+  const authorization = await authenticateMcpHttpRequest(request, runtimeAuth, options);
   assertMcpScopes(authorization, [MCP_READ_SCOPE]);
   return authorization;
 }

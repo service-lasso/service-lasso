@@ -74,8 +74,6 @@ jobs:
       CORE_RELEASE_SHA256: ${{ matrix.core_sha256 }}
       ADMIN_HARNESS_REVISION: 3b44b9053665f8f2e54ecba610e4f94e0c1727dd
       QUALIFICATION_PLATFORM: ${{ matrix.platform }}
-      QUALIFICATION_SAFE_STATE_PATH: ${{ github.workspace }}/artifacts/qualification-state-${{ matrix.platform }}.json
-      QUALIFICATION_EVIDENCE_ROOT: ${{ github.workspace }}/artifacts/retained-${{ matrix.platform }}
 
     steps:
       - name: Check out exact qualification harness
@@ -90,15 +88,50 @@ jobs:
           ref: ${{ env.ADMIN_HARNESS_REVISION }}
           path: qualification/admin
 
+      - name: Establish unique qualification custody before dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          qualification_root="$RUNNER_TEMP/published-package-qualification-$GITHUB_RUN_ID-$GITHUB_JOB-$GITHUB_RUN_ATTEMPT-$QUALIFICATION_PLATFORM"
+          export SERVICE_LASSO_WORKSPACE_ROOT="$qualification_root/workspace"
+          export SERVICE_LASSO_INSTANCE_REGISTRY_PATH="$qualification_root/instance-registry.json"
+          export SERVICE_LASSO_HOST_PORT_REGISTRY_PATH="$qualification_root/host-port-registry.json"
+          export SERVICE_LASSO_TEST_SERVICES_ROOT="$qualification_root/runtime-services"
+          export SERVICE_LASSO_TEST_EVIDENCE_ROOT="$qualification_root/runtime-evidence"
+          export SERVICE_LASSO_TEST_SUPPORT_ROOT="$qualification_root/runtime-support"
+          export QUALIFICATION_WORKSPACE_ROOT="$SERVICE_LASSO_WORKSPACE_ROOT"
+          export QUALIFICATION_EVIDENCE_ROOT="$qualification_root/evidence"
+          export QUALIFICATION_SAFE_STATE_PATH="$QUALIFICATION_EVIDENCE_ROOT/qualification-state.json"
+          export QUALIFICATION_INITIAL_RECEIPT_PATH="$QUALIFICATION_EVIDENCE_ROOT/initial-receipt.json"
+          printf '%s\n' \
+            "QUALIFICATION_WORKSPACE_ROOT=$QUALIFICATION_WORKSPACE_ROOT" \
+            "SERVICE_LASSO_WORKSPACE_ROOT=$SERVICE_LASSO_WORKSPACE_ROOT" \
+            "SERVICE_LASSO_INSTANCE_REGISTRY_PATH=$SERVICE_LASSO_INSTANCE_REGISTRY_PATH" \
+            "SERVICE_LASSO_HOST_PORT_REGISTRY_PATH=$SERVICE_LASSO_HOST_PORT_REGISTRY_PATH" \
+            "SERVICE_LASSO_TEST_SERVICES_ROOT=$SERVICE_LASSO_TEST_SERVICES_ROOT" \
+            "SERVICE_LASSO_TEST_EVIDENCE_ROOT=$SERVICE_LASSO_TEST_EVIDENCE_ROOT" \
+            "SERVICE_LASSO_TEST_SUPPORT_ROOT=$SERVICE_LASSO_TEST_SUPPORT_ROOT" \
+            "QUALIFICATION_EVIDENCE_ROOT=$QUALIFICATION_EVIDENCE_ROOT" \
+            "QUALIFICATION_SAFE_STATE_PATH=$QUALIFICATION_SAFE_STATE_PATH" \
+            "QUALIFICATION_INITIAL_RECEIPT_PATH=$QUALIFICATION_INITIAL_RECEIPT_PATH" \
+            >> "$GITHUB_ENV"
+          mkdir -p "$QUALIFICATION_WORKSPACE_ROOT" "$QUALIFICATION_EVIDENCE_ROOT" "$SERVICE_LASSO_TEST_SERVICES_ROOT" "$SERVICE_LASSO_TEST_EVIDENCE_ROOT" "$SERVICE_LASSO_TEST_SUPPORT_ROOT"
+          test ! -e "$SERVICE_LASSO_INSTANCE_REGISTRY_PATH"
+          test ! -e "$SERVICE_LASSO_HOST_PORT_REGISTRY_PATH"
+          printf '{"schema":"service-lasso.qualification-initial-receipt.v1","platform":"%s","run":{"id":"%s","attempt":"%s"}}\n' "$QUALIFICATION_PLATFORM" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" > "$QUALIFICATION_INITIAL_RECEIPT_PATH"
+          test -s "$QUALIFICATION_INITIAL_RECEIPT_PATH"
+
       - name: Set up Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
 
-      - name: Set up pnpm
+      - name: Set up isolated pinned pnpm action entrypoint
+        id: pnpm-action-pinned-entrypoint
         uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:
           version: 10.34.5
+          dest: ${{ runner.temp }}/pnpm-action-pinned-entrypoint
 
       - name: Install exact Admin browser harness dependencies
         working-directory: qualification/admin
@@ -107,6 +140,17 @@ jobs:
           set -euo pipefail
           pnpm install --frozen-lockfile
           pnpm exec cypress install
+
+      - name: Establish exact trusted-unlock receipt caller
+        working-directory: qualification/admin
+        shell: bash
+        env:
+          PNPM_ACTION_BIN_DEST: ${{ steps.pnpm-action-pinned-entrypoint.outputs.bin_dest }}
+          ADMIN_PNPM_PREFIX: ${{ runner.temp }}/admin-trusted-unlock-pnpm-10.34.5
+          QUALIFICATION_PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          node "$GITHUB_WORKSPACE/scripts/establish-admin-trusted-unlock-receipt-caller.mjs"
 
       - name: Verify and prepare published packages
         id: prepare
@@ -119,18 +163,36 @@ jobs:
           test "$(git -C qualification/admin rev-parse HEAD)" = "$ADMIN_HARNESS_REVISION"
           node scripts/prepare-published-package-qualification.mjs
 
+      - name: Bind exact qualification fixture source
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_head="$(git rev-parse HEAD)"
+          source_tree="$(git rev-parse HEAD^{tree})"
+          printf '%s\n' \
+            "SERVICE_LASSO_TEST_SOURCE_HEAD=$source_head" \
+            "SERVICE_LASSO_TEST_SOURCE_TREE=$source_tree" >> "$GITHUB_ENV"
+
       - name: Drive released Admin full browser contracts
         id: qualify
         working-directory: qualification/admin
         shell: bash
         env:
           SERVICE_LASSO_REQUIRE_TEST_BROKER_BINARY: "1"
+          SERVICE_LASSO_WORKSPACE_ROOT: ${{ env.SERVICE_LASSO_WORKSPACE_ROOT }}
+          SERVICE_LASSO_INSTANCE_REGISTRY_PATH: ${{ env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH }}
+          SERVICE_LASSO_HOST_PORT_REGISTRY_PATH: ${{ env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH }}
+          SERVICE_LASSO_TEST_SERVICES_ROOT: ${{ env.SERVICE_LASSO_TEST_SERVICES_ROOT }}
+          SERVICE_LASSO_TEST_EVIDENCE_ROOT: ${{ env.SERVICE_LASSO_TEST_EVIDENCE_ROOT }}
+          SERVICE_LASSO_TEST_SUPPORT_ROOT: ${{ env.SERVICE_LASSO_TEST_SUPPORT_ROOT }}
+          SERVICE_LASSO_TEST_SOURCE_HEAD: ${{ env.SERVICE_LASSO_TEST_SOURCE_HEAD }}
+          SERVICE_LASSO_TEST_SOURCE_TREE: ${{ env.SERVICE_LASSO_TEST_SOURCE_TREE }}
         run: |
           set -euo pipefail
           test "$QUALIFICATION_PREPARED" = "1"
           pnpm test:secrets:real-first-run-browser
           echo "QUALIFICATION_FIRST_RUN=success" >> "$GITHUB_ENV"
-          pnpm test:secrets:real-browser
+          "$ADMIN_PNPM_NODE" "$GITHUB_WORKSPACE/scripts/consume-admin-trusted-unlock-receipt.mjs" --receipt "$RUNNER_TEMP/admin-trusted-unlock-receipt.json" -- "$ADMIN_PNPM_NODE" "$ADMIN_PNPM_ENTRYPOINT" test:secrets:real-browser
           echo "QUALIFICATION_LIFECYCLE=success" >> "$GITHUB_ENV"
           pnpm test:secrets:real-stopped-lifecycle-browser
           echo "QUALIFICATION_STOPPED_LIFECYCLE=success" >> "$GITHUB_ENV"
@@ -156,6 +218,8 @@ jobs:
           PREPARE_OUTCOME: ${{ steps.prepare.outcome }}
           QUALIFICATION_OUTCOME: ${{ steps.qualify.outcome }}
           CLEANUP_OUTCOME: ${{ steps.cleanup.outcome }}
+          ADMIN_TRUSTED_UNLOCK_RECEIPT_PATH: ${{ runner.temp }}/admin-trusted-unlock-receipt.json
+          ADMIN_TRUSTED_UNLOCK_PREBROWSER_FAILURE_PATH: ${{ env.ADMIN_TRUSTED_UNLOCK_PREBROWSER_FAILURE_PATH }}
         run: node scripts/record-published-package-qualification.mjs
 
       - name: Upload retained platform evidence
@@ -163,7 +227,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: published-package-qualification-${{ matrix.platform }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: artifacts/retained-${{ matrix.platform }}/published-package-qualification-${{ matrix.platform }}.json
+          path: ${{ env.QUALIFICATION_EVIDENCE_ROOT }}/
           if-no-files-found: error
           retention-days: 90
 

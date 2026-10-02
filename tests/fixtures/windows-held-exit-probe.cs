@@ -99,6 +99,9 @@ internal static class HeldExit
             Require(!Confirm(IntPtr.Zero));
             Probe(0);
             Probe(259);
+            MethodInfo architecture = inspector.GetMethod("CommandQueryArchitectureRelation", BindingFlags.Static | BindingFlags.NonPublic);
+            Require(architecture != null);
+            Require((string)architecture.Invoke(null, new object[] { new IntPtr(123456) }) == "unknown");
             Console.WriteLine("held_handle_cases_passed");
             return 0;
         }

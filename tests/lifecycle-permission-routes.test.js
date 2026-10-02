@@ -2,10 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import path from "node:path";
-import { readFile, rm, writeFile } from "node:fs/promises";
-import { createApiServer } from "../dist/server/index.js";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { createApiServer, waitForApiServerInitialization } from "../dist/server/index.js";
 import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import { readAuditEvents } from "../dist/runtime/audit/store.js";
+import { getLifecycleDocumentPath, RECONCILIATION_CONTEXT_AUTHORITY_POLICY } from "../dist/runtime/state/lifecycle-persistence.js";
 import { makeTempServicesRoot, writeExecutableFixtureService } from "./test-helpers.js";
 
 /**
@@ -91,8 +92,14 @@ function restartMutationCount(state) {
   return (state?.actionHistory ?? []).filter((action) => action === "restart").length;
 }
 
-async function startTestApiServer(options) {
+async function startTestApiServer(options, onInitializationFailure) {
   const server = createApiServer({ ...options, host: "0.0.0.0" });
+  try {
+    await waitForApiServerInitialization(server);
+  } catch (error) {
+    onInitializationFailure?.(server);
+    throw error;
+  }
   const listening = once(server, "listening");
   server.listen(0, "127.0.0.1");
   await listening;
@@ -109,6 +116,27 @@ async function startTestApiServer(options) {
     },
   };
 }
+
+test("#1553 lifecycle fixture rejects reconciliation initialization before binding a listener", async () => {
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-lifecycle-initialization-");
+  const authorityPath = getLifecycleDocumentPath(workspaceRoot, RECONCILIATION_CONTEXT_AUTHORITY_POLICY);
+  await mkdir(path.dirname(authorityPath), { recursive: true });
+  await writeFile(authorityPath, "{malformed", "utf8");
+  let observedUnbound = false;
+  try {
+    await assert.rejects(
+      () => startTestApiServer({ servicesRoot, workspaceRoot }, (server) => {
+        observedUnbound = true;
+        assert.equal(server.listening, false);
+      }),
+      /reconciliation/i,
+    );
+    assert.equal(observedUnbound, true);
+    await assert.doesNotReject(() => writeFile(authorityPath, "{malformed", "utf8"));
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
 
 test("lifecycle routes project and enforce config and declared reload permissions from the trusted actor", async () => {
   resetLifecycleState();

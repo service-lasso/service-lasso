@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
+import { createServer } from "node:net";
 import { observeHardCrashChildExit } from "./hard-crash-child-exit.js";
 import { lifecycleFailureDiagnostic } from "./lifecycle-failure-diagnostics.js";
 import { readFile, readdir, rm } from "node:fs/promises";
@@ -128,26 +129,47 @@ async function listStartupResidue(workspaceRoot) {
   });
 }
 
+async function allocateFixtureApiPort() {
+  const server = createServer();
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  const closed = once(server, "close");
+  server.close();
+  await closed;
+  return address.port;
+}
+
 async function withMatrixEnvironment(phase, action) {
   const fixture = await makeTempServicesRoot(`service-lasso-hard-crash-${phase}-`);
   const previous = {
     hostRegistry: process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH,
     instanceRegistry: process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH,
+    portRangeStart: process.env.SERVICE_LASSO_PORT_RANGE_START,
+    portRangeEnd: process.env.SERVICE_LASSO_PORT_RANGE_END,
     hooks: process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS,
     secret: process.env.SERVICE_LASSO_HARD_CRASH_SECRET,
   };
+  const apiPort = await allocateFixtureApiPort();
   process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH = path.join(fixture.tempRoot, "host", "allocations.json");
   process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH = path.join(fixture.tempRoot, "host", "instances.json");
+  process.env.SERVICE_LASSO_PORT_RANGE_START = String(apiPort);
+  process.env.SERVICE_LASSO_PORT_RANGE_END = String(apiPort);
   process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
   process.env.SERVICE_LASSO_HARD_CRASH_SECRET = "matrix-secret-must-not-appear";
   try {
-    await action(fixture);
+    await action(fixture, apiPort);
   } finally {
     await cleanupPersistedServiceOwner(fixture.workspaceRoot, "matrix-service");
     if (previous.hostRegistry === undefined) delete process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH;
     else process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH = previous.hostRegistry;
     if (previous.instanceRegistry === undefined) delete process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH;
     else process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH = previous.instanceRegistry;
+    if (previous.portRangeStart === undefined) delete process.env.SERVICE_LASSO_PORT_RANGE_START;
+    else process.env.SERVICE_LASSO_PORT_RANGE_START = previous.portRangeStart;
+    if (previous.portRangeEnd === undefined) delete process.env.SERVICE_LASSO_PORT_RANGE_END;
+    else process.env.SERVICE_LASSO_PORT_RANGE_END = previous.portRangeEnd;
     if (previous.hooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
     else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = previous.hooks;
     if (previous.secret === undefined) delete process.env.SERVICE_LASSO_HARD_CRASH_SECRET;
@@ -175,7 +197,7 @@ for (const phase of STARTUP_TRANSACTION_PHASES) {
     skip: selectedPhase !== null && selectedPhase !== phase,
     timeout: 720_000,
   }, async () => {
-    await withMatrixEnvironment(phase, async (fixture) => {
+    await withMatrixEnvironment(phase, async (fixture, apiPort) => {
       await writeExecutableFixtureService(fixture.servicesRoot, "matrix-service", {
         autostart: true,
         env: { MATRIX_PRIVATE_VALUE: "matrix-secret-must-not-appear" },
@@ -228,6 +250,9 @@ for (const phase of STARTUP_TRANSACTION_PHASES) {
         assert.equal(processIsAlive(unrelated.pid), true);
         assert.deepEqual(await listStartupResidue(fixture.workspaceRoot), []);
         assert.equal(Boolean(interruptedServiceOwner), serviceWasStartedBeforeCrash.has(phase));
+        if (interruptedAllocation) {
+          assert.equal(runtimeApiEndpointFromAllocation(interruptedAllocation).port, apiPort);
+        }
 
         const config = resolveRuntimeConfig({
           servicesRoot: fixture.servicesRoot,
@@ -285,6 +310,7 @@ for (const phase of STARTUP_TRANSACTION_PHASES) {
         assert.equal(allocation.phase, "reserved");
         assert.equal(allocation.generationId, apiServer.generationId);
         assert.equal(allocation.allocationId, apiServer.endpointAllocationPlan.allocationId);
+        assert.equal(runtimeApiEndpointFromAllocation(allocation).port, apiPort);
         assert.equal(runtimeApiEndpointFromAllocation(allocation).selectors.url.replace(/\/$/, ""), apiServer.url);
         assert.equal(workspaceInstance.generationId, apiServer.generationId);
         assert.equal(workspaceInstance.pid, process.pid);

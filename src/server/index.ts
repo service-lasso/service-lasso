@@ -137,7 +137,7 @@ import {
 } from "../runtime/broker/client.js";
 import { buildServiceNetwork } from "../runtime/operator/network.js";
 import { buildEffectiveRouteMetadata } from "../runtime/operator/endpoints.js";
-import { appendAuditEvent, readAuditEvents } from "../runtime/audit/store.js";
+import { appendAuditEvent, readAuditEvents, type AppendAuditEventInput } from "../runtime/audit/store.js";
 import { executeOperatorCommandFacade } from "../runtime/operator/command-facade.js";
 import {
   confirmOperatorCommandConfirmation,
@@ -150,7 +150,13 @@ import {
   parseRemoteServiceRegistrationRequest,
   readRemoteServiceRegistrationOperation,
   registerReleasedService,
+  createStagedReleaseAssetImporter,
+  claimStagedRegistrationOperation,
+  completeStagedRegistrationOperation,
 } from "../runtime/operator/remote-service-registration.js";
+import { StagedServiceTransfer, TransferError, type DirectChildImporter, type StageResolver } from "../runtime/release/staged-service-transfer.js";
+import { readWorkspaceAuthority } from "../runtime/workspace/authority.js";
+import { ServiceProducerReleaseResolver } from "../runtime/release/service-producer-release-resolver.js";
 import { buildServiceConfigDriftReport } from "../runtime/operator/config-drift.js";
 import { buildServiceConfigApplyPreflightReport } from "../runtime/operator/config-apply-preflight.js";
 import {
@@ -199,8 +205,13 @@ import {
   McpOperationError,
   McpOperationService,
   isSafelyCancellableMcpAction,
+  type McpOperationOutcome,
   type McpOperationPublicRecord,
 } from "../runtime/operator/mcp-operations.js";
+import {
+  initializeReconciliationContextIdentity,
+  ReconciliationContextIdentityError,
+} from "../runtime/operator/reconciliation-context-identity.js";
 import {
   MCP_MAX_REQUEST_BODY_BYTES,
   MCP_PROTECTED_RESOURCE_METADATA_PATH,
@@ -211,6 +222,7 @@ import {
   assertMcpRateLimit,
   assertMcpScopes,
   assertMcpTransportEnabled,
+  authenticateMcpHttpRequest,
   authorizeMcpHttpRequest,
   createMcpRateLimiter,
   createMcpProtectedResourceMetadata,
@@ -493,15 +505,31 @@ export interface ApiServerOptions {
   mcpHttpIdentity?: McpHttpIdentityOptions;
   mcpStdio?: ServiceLassoMcpStdioOptions & McpHttpIdentityOptions;
   mcpPolicyTestHooks?: {
-    appendAuditEvent?: typeof appendAuditEvent;
+    appendAuditEvent?: (event: McpAuthorizationAuditProjection) => Promise<void>;
     now?: () => number;
     afterDurableClaim?: (operation: McpOperationPublicRecord) => Promise<void>;
+    afterCancellationAccepted?: (operation: McpOperationPublicRecord) => Promise<void>;
+    beforeTerminalStage?: (operation: McpOperationPublicRecord, outcome: McpOperationOutcome) => Promise<void>;
   };
   secretRotationTestHooks?: {
     brokerRuntime: SecretsBrokerRuntimeContext;
   };
   runtimeShutdownSlot?: RuntimeShutdownSlot;
+  /** Injected only by Core's release-provenance and direct-child adapters. */
+  stagedServiceTransfer?: {
+    resolver: StageResolver;
+    importer: DirectChildImporter;
+    /**
+     * In-process fixture clock. HTTP callers cannot influence transfer time;
+     * the production adapter always uses Date.now.
+     */
+    now?: () => number;
+  };
+  /** Owner-approved, persisted producer pins. Without it #1463 remains closed. */
+  stagedServiceTransferCatalogPath?: string;
 }
+
+type McpAuthorizationAuditProjection = Omit<AppendAuditEventInput, "workspaceRoot" | "serviceRoot">;
 
 interface RuntimeShutdownSlot {
   invoke: (() => Promise<void>) | null;
@@ -543,6 +571,9 @@ interface ApiRouteConfig extends RuntimeConfig {
   mcpPolicyTestHooks?: ApiServerOptions["mcpPolicyTestHooks"];
   secretRotationTestHooks?: ApiServerOptions["secretRotationTestHooks"];
   runtimeShutdownSlot?: RuntimeShutdownSlot;
+  stagedServiceTransfer?: ApiServerOptions["stagedServiceTransfer"];
+  stagedServiceTransferCatalogPath?: ApiServerOptions["stagedServiceTransferCatalogPath"];
+  reconciliationContextIdentity: Promise<ReconciliationContextInitialization>;
 }
 
 export interface RunningApiServer {
@@ -872,7 +903,7 @@ function parseOperatorCommandBody(input: unknown): OperatorCommandRequest {
 
 async function readJsonBody(
   request: IncomingMessage,
-  options: { maxBytes?: number } = {},
+  options: { maxBytes?: number; rejectDuplicateKeys?: boolean } = {},
 ): Promise<unknown> {
   const chunks: Buffer[] = [];
   let totalBytes = 0;
@@ -900,10 +931,189 @@ async function readJsonBody(
   }
 
   try {
+    if (options.rejectDuplicateKeys) assertNoDuplicateJsonKeys(body);
     return JSON.parse(body) as unknown;
   } catch {
     throw new ApiError("invalid_json", 400, "Request body must be valid JSON.");
   }
+}
+
+async function readBinaryBody(request: IncomingMessage, maxBytes: number): Promise<Buffer> {
+  const chunks: Buffer[] = []; let total = 0;
+  for await (const chunk of request) {
+    const value = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
+    total += value.length;
+    if (total > maxBytes) throw new ApiError("payload_too_large", 413, "Request body exceeds the allowed size.");
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks);
+}
+
+function exactTransferHeader(request: IncomingMessage, name: string, pattern: RegExp): string {
+  const values: string[] = [];
+  for (let index = 0; index < request.rawHeaders.length; index += 2) {
+    if (request.rawHeaders[index]?.toLowerCase() === name) values.push(request.rawHeaders[index + 1] ?? "");
+  }
+  if (values.length !== 1 || values[0]!.includes(",") || !pattern.test(values[0]!)) {
+    throw new ApiError("invalid_request", 400, "Transfer request headers are invalid.");
+  }
+  return values[0]!;
+}
+
+/**
+ * Transfer credentials are a transport prerequisite, distinct from the
+ * runtime policy actor.  Check it after closed-header shape validation so a
+ * duplicated credential cannot reveal whether any actor or stage exists.
+ */
+function transferBearerCredential(request: IncomingMessage): string {
+  const values: string[] = [];
+  for (let index = 0; index < request.rawHeaders.length; index += 2) {
+    if (request.rawHeaders[index]?.toLowerCase() === "authorization") values.push(request.rawHeaders[index + 1] ?? "");
+  }
+  if (values.length === 0) throw new ApiError("actor_credential_missing", 401, "Transfer actor credential is required.");
+  if (values.length !== 1 || values[0]!.includes(",")) throw new ApiError("invalid_request", 400, "Transfer request headers are invalid.");
+  if (!/^Bearer [^\s,]+$/u.test(values[0]!)) throw new ApiError("actor_credential_invalid", 401, "Transfer actor credential is invalid.");
+  return values[0]!;
+}
+
+/** Parse the complete closed transfer-header grammar before authentication. */
+function parseClosedTransferHeaders(request: IncomingMessage, method: string | undefined, tail: string): void {
+  const routeHeaders = new Set(["authorization", "content-type", "content-length", "content-range", "x-service-transfer-token", "x-service-transfer-confirmation", "x-chunk-sha256"]);
+  const seen = new Map<string, string[]>();
+  for (let index = 0; index < request.rawHeaders.length; index += 2) {
+    const name = request.rawHeaders[index]?.toLowerCase() ?? "";
+    const value = request.rawHeaders[index + 1] ?? "";
+    if (name.startsWith("x-service-transfer-") && !routeHeaders.has(name)) throw new ApiError("invalid_request", 400, "Transfer request headers are invalid.");
+    if (routeHeaders.has(name)) seen.set(name, [...(seen.get(name) ?? []), value]);
+  }
+  const expected = new Set<string>(["authorization"]);
+  if (method === "PUT" && /^chunks\/(0|[1-9][0-9]{0,1})$/u.test(tail)) {
+    expected.add("x-service-transfer-token"); expected.add("x-chunk-sha256"); expected.add("content-range"); expected.add("content-length");
+  }
+  if (method === "POST" && tail === "registration") expected.add("x-service-transfer-confirmation");
+  const allowed = new Set([...expected, "content-type", "content-length"]);
+  for (const [name, values] of seen) if (values.length !== 1 || values[0]!.includes(",") || !allowed.has(name)) throw new ApiError("invalid_request", 400, "Transfer request headers are invalid.");
+  // Credential absence has a stable authentication result. All other route
+  // prerequisites remain closed-header validation failures.
+  for (const name of expected) if (name !== "authorization" && !seen.has(name)) throw new ApiError("invalid_request", 400, "Transfer request headers are invalid.");
+  if (expected.has("x-service-transfer-token")) exactTransferHeader(request, "x-service-transfer-token", /^sut_[A-Za-z0-9_-]{43}$/u);
+  if (expected.has("x-service-transfer-confirmation")) exactTransferHeader(request, "x-service-transfer-confirmation", /^scf_[A-Za-z0-9_-]{32}$/u);
+  if (expected.has("x-chunk-sha256")) exactTransferHeader(request, "x-chunk-sha256", /^[a-f0-9]{64}$/u);
+  if (expected.has("content-range")) parseTransferRange(exactTransferHeader(request, "content-range", /^bytes [0-9]+-[0-9]+\/[0-9]+$/u));
+  if (expected.has("content-length")) exactTransferHeader(request, "content-length", /^[1-9][0-9]{0,6}$/u);
+  const jsonBody = method === "POST" && (tail === "" || tail === "registration");
+  if (jsonBody && exactTransferHeader(request, "content-type", /^application\/json$/u) !== "application/json") {
+    throw new ApiError("invalid_request", 400, "Transfer request headers are invalid.");
+  }
+  if (expected.has("x-service-transfer-token") && exactTransferHeader(request, "content-type", /^application\/octet-stream$/u) !== "application/octet-stream") {
+    throw new ApiError("invalid_request", 400, "Transfer request headers are invalid.");
+  }
+}
+
+/** Reject duplicate object members before JSON.parse discards their spelling. */
+function assertNoDuplicateJsonObjectMembers(source: string): void {
+  const stack: Array<Set<string> | null> = [];
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index]!;
+    if (character === '"') {
+      let encoded = "";
+      index += 1;
+      for (; index < source.length; index += 1) {
+        const current = source[index]!;
+        if (current === "\\") { encoded += current + (source[index + 1] ?? ""); index += 1; continue; }
+        if (current === '"') break;
+        encoded += current;
+      }
+      let value: string;
+      try { value = JSON.parse(`"${encoded}"`) as string; }
+      catch { throw new ApiError("invalid_json", 400, "Request body must be valid JSON."); }
+      let next = index + 1;
+      while (/\s/u.test(source[next] ?? "")) next += 1;
+      const object = stack.at(-1);
+      if (source[next] === ":" && object) {
+        if (object.has(value)) throw new ApiError("invalid_request", 400, "Transfer request body is invalid.");
+        object.add(value);
+      }
+      continue;
+    }
+    if (character === "{") stack.push(new Set<string>());
+    else if (character === "[") stack.push(null);
+    else if (character === "}" || character === "]") stack.pop();
+  }
+}
+
+async function readTransferJsonBody(request: IncomingMessage, options: { maxBytes: number }): Promise<unknown> {
+  const chunks: Buffer[] = [];
+  let totalBytes = 0;
+  const contentLength = Number(request.headers["content-length"]);
+  if (Number.isFinite(contentLength) && contentLength > options.maxBytes) throw new ApiError("payload_too_large", 413, "Request body exceeds the allowed size.");
+  for await (const chunk of request) {
+    const buffer = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
+    totalBytes += buffer.length;
+    if (totalBytes > options.maxBytes) throw new ApiError("payload_too_large", 413, "Request body exceeds the allowed size.");
+    chunks.push(buffer);
+  }
+  const body = Buffer.concat(chunks).toString("utf8").trim();
+  if (!body) return {};
+  assertNoDuplicateJsonObjectMembers(body);
+  try { return JSON.parse(body) as unknown; }
+  catch { throw new ApiError("invalid_json", 400, "Request body must be valid JSON."); }
+}
+
+function parseTransferRange(value: string): { start: number; end: number; total: number } {
+  const match = /^bytes (0|[1-9][0-9]*)-(0|[1-9][0-9]*)\/(0|[1-9][0-9]*)$/u.exec(value);
+  if (!match) throw new ApiError("invalid_request", 400, "Transfer request headers are invalid.");
+  const start = Number(match[1]), end = Number(match[2]), total = Number(match[3]);
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || !Number.isSafeInteger(total) || start > end || end >= total) throw new ApiError("invalid_request", 400, "Transfer request headers are invalid.");
+  return { start, end, total };
+function assertNoDuplicateJsonKeys(body: string): void {
+  let cursor = 0;
+  const skipWhitespace = () => {
+    while (/\s/u.test(body[cursor] ?? "")) cursor += 1;
+  };
+  const parseString = (): string => {
+    const start = cursor;
+    if (body[cursor] !== '"') throw new Error("expected string");
+    cursor += 1;
+    let escaped = false;
+    while (cursor < body.length) {
+      const character = body[cursor++];
+      if (escaped) {
+        escaped = false;
+        continue;
+      if (character === "\\") {
+        escaped = true;
+      if (character === '"') return JSON.parse(body.slice(start, cursor)) as string;
+      if (character.charCodeAt(0) < 0x20) throw new Error("invalid string");
+    throw new Error("unterminated string");
+  const parseValue = (): void => {
+    skipWhitespace();
+    if (body[cursor] === "{") {
+      cursor += 1;
+      skipWhitespace();
+      const keys = new Set<string>();
+      if (body[cursor] === "}") { cursor += 1; return; }
+      while (true) {
+        skipWhitespace();
+        const key = parseString();
+        if (keys.has(key)) throw new Error("duplicate key");
+        keys.add(key);
+        if (body[cursor++] !== ":") throw new Error("expected colon");
+        parseValue();
+        if (body[cursor] === "}") { cursor += 1; return; }
+        if (body[cursor++] !== ",") throw new Error("expected comma");
+    if (body[cursor] === "[") {
+      if (body[cursor] === "]") { cursor += 1; return; }
+        if (body[cursor] === "]") { cursor += 1; return; }
+    if (body[cursor] === '"') { parseString(); return; }
+    const primitive = /(?:true|false|null|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)/uy;
+    primitive.lastIndex = cursor;
+    const match = primitive.exec(body);
+    if (!match) throw new Error("invalid JSON value");
+    cursor += match[0].length;
+  parseValue();
+  skipWhitespace();
+  if (cursor !== body.length) throw new Error("trailing JSON input");
 }
 
 function getAuditActor(input: unknown): string {
@@ -1299,7 +1509,7 @@ function isUnauthenticatedRuntimeRoute(method: string, pathname: string): boolea
 }
 
 function isMcpOwnedAuthenticationRoute(pathname: string): boolean {
-  return pathname === "/api/mcp" || pathname === MCP_PROTECTED_RESOURCE_METADATA_PATH;
+  return pathname === "/api/mcp" || pathname === MCP_PROTECTED_RESOURCE_METADATA_PATH || pathname === "/api/operator/lifecycle/reconciliation-context";
 }
 
 function writeMcpPolicyError(response: ServerResponse, error: McpHttpPolicyError): void {
@@ -1352,22 +1562,29 @@ async function recordMcpAuthorizationAudit(
   authorization?: McpHttpAuthorization,
   reason?: string,
   parsedBody?: unknown,
+  routeTemplate: string = "/api/mcp",
+  authorizationDecision?: "allowed" | "denied",
 ): Promise<void> {
   try {
-    const appender = config.mcpPolicyTestHooks?.appendAuditEvent ?? appendAuditEvent;
-    await appender({
+    const appendAuthorizationAudit = async (event: AppendAuditEventInput): Promise<void> => {
+      await appendAuditEvent(event);
+      const { workspaceRoot: _workspaceRoot, serviceRoot: _serviceRoot, ...projection } = event;
+      await config.mcpPolicyTestHooks?.appendAuditEvent?.(projection);
+    };
+    await appendAuthorizationAudit({
       workspaceRoot: config.workspaceRoot,
       source: "runtime-api",
-      action: outcome === "success" ? "mcp.auth.allowed" : "mcp.auth.denied",
+      action: `mcp.auth.${authorizationDecision ?? (outcome === "success" ? "allowed" : "denied")}`,
       actor: authorization?.actor.actorId ?? "mcp-unauthenticated",
       method: request.method ?? "POST",
-      routeTemplate: "/api/mcp",
+      routeTemplate,
       outcome,
       statusCode,
       summary: outcome === "success"
         ? "Operator MCP request passed the transport identity and scope boundary."
         : "Operator MCP request was denied by the transport identity or scope boundary.",
       reason: reason ?? (outcome === "success" ? "authorized" : "denied"),
+      correlationId: `mcp-auth-${randomUUID()}`,
       metadata: authorization
         ? {
             actorKind: authorization.actor.kind,
@@ -1379,7 +1596,7 @@ async function recordMcpAuthorizationAudit(
     });
     if (outcome === "failure" && authorization) {
       for (const attempt of safeDeniedMcpGuardedAttempts(parsedBody)) {
-        await appender({
+        await appendAuthorizationAudit({
           workspaceRoot: config.workspaceRoot,
           source: "runtime-mcp",
           action: "mcp.action.denied",
@@ -1812,7 +2029,63 @@ const durableLifecycleOperationActions = {
   start: "service_start",
   stop: "service_stop",
   restart: "service_restart",
+  update_check: "update_check",
+  update_download: "update_download",
 } as const satisfies Record<string, McpGuardedActionName>;
+
+const DURABLE_RECONCILIATION_CONTEXT_CONTRACT_VERSION = "service-lasso-durable-reconciliation-context.v1";
+
+/**
+ * The reconciler needs a durable comparison value, not a transport credential
+ * or a description of the runtime's local topology. Core creates the opaque
+ * authority once at its initialization boundary and keeps it under the
+ * workspace lifecycle lock, so a restart retains it while a replacement
+ * workspace at the same URL receives a distinct authority.
+ */
+function durableReconciliationBinding(
+  authorityId: string,
+  kind: "instance" | "workspace" | "actor" | "client",
+  authorization: McpHttpAuthorization,
+): string {
+  const identity = authorization.actor;
+  const input = kind === "actor"
+    ? `v1\u0000actor\u0000${identity.kind}\u0000${identity.actorId}`
+    : kind === "client"
+      ? `v1\u0000client\u0000${identity.kind}\u0000${identity.clientId}`
+      : `v1\u0000${kind}`;
+  return `slrc_${createHmac("sha256", authorityId).update(input, "utf8").digest("hex")}`;
+}
+
+async function createDurableReconciliationContextResponse(
+  config: Pick<ApiRouteConfig, "reconciliationContextIdentity">,
+  authorization: McpHttpAuthorization,
+): Promise<{
+  contractVersion: typeof DURABLE_RECONCILIATION_CONTEXT_CONTRACT_VERSION;
+  context: {
+    instanceBinding: string;
+    workspaceBinding: string;
+    actorBinding: string;
+    clientBinding: string;
+  };
+}> {
+  const initialized = await config.reconciliationContextIdentity;
+  if (!initialized.ok) {
+    if (initialized.error instanceof ReconciliationContextIdentityError) {
+      throw new ApiError("reconciliation_context_unavailable", 503, "Durable reconciliation context is unavailable.");
+    }
+    throw initialized.error;
+  }
+  const authorityId = initialized.authorityId;
+  return {
+    contractVersion: DURABLE_RECONCILIATION_CONTEXT_CONTRACT_VERSION,
+    context: {
+      instanceBinding: durableReconciliationBinding(authorityId, "instance", authorization),
+      workspaceBinding: durableReconciliationBinding(authorityId, "workspace", authorization),
+      actorBinding: durableReconciliationBinding(authorityId, "actor", authorization),
+      clientBinding: durableReconciliationBinding(authorityId, "client", authorization),
+    },
+  };
+}
 
 type DurableLifecycleOperationAction = typeof durableLifecycleOperationActions[keyof typeof durableLifecycleOperationActions];
 
@@ -1826,7 +2099,7 @@ function parseDurableLifecycleOperationBody(input: unknown): {
   const candidate = input as Record<string, unknown>;
   const action = typeof candidate.action === "string" ? durableLifecycleOperationActions[candidate.action as keyof typeof durableLifecycleOperationActions] : undefined;
   if (!action) {
-    throw new ApiError("invalid_action", 400, "Durable lifecycle operations support install, config, start, stop, and restart.");
+    throw new ApiError("invalid_action", 400, "Durable lifecycle operations support install, config, start, stop, restart, update_check, and update_download.");
   }
   const unknownFields = Object.keys(candidate).filter((key) =>
     key !== "action" && key !== "serviceId" && key !== "execute" && key !== "idempotencyKey" &&
@@ -1876,6 +2149,49 @@ async function authorizeDurableLifecycleOperationRequest(
     return authorization;
   } catch (error) {
     if (error instanceof McpHttpPolicyError) {
+      writeMcpPolicyError(response, error);
+      return null;
+    }
+    throw error;
+  }
+}
+
+async function authorizeDurableReconciliationContextRequest(
+  request: IncomingMessage,
+  response: ServerResponse,
+  auth: RuntimeAuthPolicyStatus,
+  config: ApiRouteConfig,
+): Promise<McpHttpAuthorization | null> {
+  let authorization: McpHttpAuthorization | undefined;
+  try {
+    assertMcpTransportEnabled(config.mcpHttpIdentity);
+    assertMcpHostAllowed(request, config.mcpHttpIdentity);
+    authorization = await authenticateMcpHttpRequest(request, auth, config.mcpHttpIdentity);
+    assertMcpScopes(authorization, ["service-lasso:read"]);
+    assertMcpRateLimit(config.mcpRateLimiter, authorization, config.mcpHttpIdentity);
+    return authorization;
+  } catch (error) {
+    if (error instanceof McpHttpPolicyError) {
+      try {
+        await recordMcpAuthorizationAudit(
+          config,
+          request,
+          "failure",
+          error.statusCode,
+          authorization,
+          error.code,
+          undefined,
+          "/api/operator/lifecycle/reconciliation-context",
+        );
+      } catch (auditError) {
+        writeMcpPolicyError(
+          response,
+          auditError instanceof McpHttpPolicyError
+            ? auditError
+            : new McpHttpPolicyError("mcp_audit_unavailable", 503),
+        );
+        return null;
+      }
       writeMcpPolicyError(response, error);
       return null;
     }
@@ -4299,6 +4615,51 @@ async function routeRequestWithoutMutationCoordination(
     return;
   }
 
+  if (request.method === "GET" && url.pathname === "/api/operator/lifecycle/reconciliation-context") {
+    const authorization = await authorizeDurableReconciliationContextRequest(request, response, auth, config);
+    if (!authorization) return;
+    try {
+      const reconciliationContext = await createDurableReconciliationContextResponse(config, authorization);
+      await recordMcpAuthorizationAudit(
+        config,
+        request,
+        "success",
+        200,
+        authorization,
+        undefined,
+        undefined,
+        "/api/operator/lifecycle/reconciliation-context",
+      );
+      writeJson(response, 200, reconciliationContext);
+    } catch (error) {
+      if (error instanceof ApiError && error.code === "reconciliation_context_unavailable") {
+        try {
+          await recordMcpAuthorizationAudit(
+            config,
+            request,
+            "failure",
+            503,
+            authorization,
+            "reconciliation_context_unavailable",
+            undefined,
+            "/api/operator/lifecycle/reconciliation-context",
+            "allowed",
+          );
+        } catch (auditError) {
+          writeMcpPolicyError(
+            response,
+            auditError instanceof McpHttpPolicyError
+              ? auditError
+              : new McpHttpPolicyError("mcp_audit_unavailable", 503),
+          );
+          return;
+        }
+      }
+      throw error;
+    }
+    return;
+  }
+
   if (url.pathname.startsWith("/api/operator/lifecycle/")) {
     const authorization = await authorizeDurableLifecycleOperationRequest(request, response, auth, config);
     if (!authorization) return;
@@ -4307,6 +4668,8 @@ async function routeRequestWithoutMutationCoordination(
     const operationService = new McpOperationService({
       workspaceRoot: config.workspaceRoot,
       afterDurableClaim: config.mcpPolicyTestHooks?.afterDurableClaim,
+      afterCancellationAccepted: config.mcpPolicyTestHooks?.afterCancellationAccepted,
+      beforeTerminalStage: config.mcpPolicyTestHooks?.beforeTerminalStage,
       recoverDetached: async (operation) => {
         if (!operation.guardedExecutionId) {
           return {
@@ -4400,7 +4763,10 @@ async function routeRequestWithoutMutationCoordination(
 
       if (request.method === "POST" && url.pathname === "/api/operator/lifecycle/operations") {
         assertMcpJsonContentType(request);
-        const body = parseDurableLifecycleOperationBody(await readJsonBody(request, { maxBytes: MCP_MAX_REQUEST_BODY_BYTES }));
+        const body = parseDurableLifecycleOperationBody(await readJsonBody(request, {
+          maxBytes: MCP_MAX_REQUEST_BODY_BYTES,
+          rejectDuplicateKeys: true,
+        }));
         const invoke = async (
           signal?: AbortSignal,
           reportProgress?: McpGuardedActionExecutionOptions["reportProgress"],
@@ -7058,6 +7424,83 @@ async function routeRequestWithoutMutationCoordination(
     return;
   }
 
+  // #1463 has its own closed surface. The default resolver intentionally
+  // refuses creation until an independently owner-pinned producer catalog is
+  // installed; it is not a generic upload endpoint.
+  if (url.pathname === "/api/v1/service-transfers" || /^\/api\/v1\/service-transfers\/stg_[A-Za-z0-9_-]{32}(?:\/(?:chunks\/(?:0|[1-9][0-9]{0,1})|finalize|confirmation|registration))?$/u.test(url.pathname)) {
+    if ([...url.searchParams.keys()].length !== 0) throw new ApiError("invalid_request", 400, "Transfer request query is invalid.");
+    const preliminary = /^\/api\/v1\/service-transfers\/stg_[A-Za-z0-9_-]{32}(?:\/(.*))?$/u.exec(url.pathname);
+    parseClosedTransferHeaders(request, request.method, preliminary?.[1] ?? "");
+    const authorization = transferBearerCredential(request);
+    void authorization; // trusted request-policy authentication remains authoritative.
+    const permissionActor = permissionActorFromRuntimeAuth(auth);
+    await enforcePermission({ workspaceRoot: config.workspaceRoot, actor: permissionActor, permission: "service:configure", method: request.method ?? "GET", routeTemplate: "/api/v1/service-transfers", subject: "release-asset" });
+    // This is a normal-startup-owned opaque record. The route only reads it;
+    // neither a caller nor an API option can choose or mint a workspace bucket.
+    const workspaceId = await readWorkspaceAuthority({ workspaceRoot: config.workspaceRoot, servicesRoot: config.servicesRoot });
+    if (!workspaceId) throw new ApiError("registration_unavailable", 503, "Staged transfer workspace authority is unavailable.");
+    const actor = { id: permissionActor.id, workspaceId, canConfigure: true };
+    const adapter = config.stagedServiceTransfer ?? {
+      resolver: new ServiceProducerReleaseResolver(config.stagedServiceTransferCatalogPath),
+      importer: createStagedReleaseAssetImporter({ servicesRoot: config.servicesRoot }),
+    };
+    const transfer = new StagedServiceTransfer(config.workspaceRoot, adapter.resolver, adapter.importer, adapter.now ?? Date.now, {
+      claim: async (input) => {
+        const operation = await claimStagedRegistrationOperation({
+          workspaceRoot: config.workspaceRoot, actorId: input.actorId, workspaceId: input.workspaceId,
+          idempotencyKey: input.idempotencyKey, fingerprint: input.fingerprint, stageId: input.stageId,
+          byteObjectId: input.byteObjectId, byteLength: input.byteLength, fullDigest: input.fullDigest,
+          repo: input.identity.repo, releaseTag: input.identity.releaseTag, commitSha: input.identity.commitSha,
+          serviceId: input.identity.targetServiceId, manifestSha256: input.identity.manifestSha256,
+          releaseId: input.identity.releaseId, platform: input.identity.platform, assetName: input.identity.assetName,
+          archiveType: input.identity.archiveType, manifestAssetId: input.identity.manifestAssetId ?? null,
+          checksumAssetId: input.identity.checksumAssetId ?? null,
+        });
+        return { id: operation.id, state: operation.status, replayed: operation.replayed };
+      },
+      complete: async (input) => await completeStagedRegistrationOperation({ workspaceRoot: config.workspaceRoot, ...input }),
+    });
+    try {
+      if (request.method === "POST" && url.pathname === "/api/v1/service-transfers") {
+        const body = await readTransferJsonBody(request, { maxBytes: 8 * 1024 });
+        const provenance = body && typeof body === "object" && !Array.isArray(body) ? (body as { provenance?: unknown }).provenance : null;
+        if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).length !== 4 ||
+          !Object.prototype.hasOwnProperty.call(body, "targetServiceId") || !Object.prototype.hasOwnProperty.call(body, "provenance") ||
+          !Object.prototype.hasOwnProperty.call(body, "platform") || !Object.prototype.hasOwnProperty.call(body, "manifestSchemaVersion") ||
+          !provenance || typeof provenance !== "object" || Array.isArray(provenance) || Object.keys(provenance).length !== 3 ||
+          !Object.prototype.hasOwnProperty.call(provenance, "repo") || !Object.prototype.hasOwnProperty.call(provenance, "releaseTag") || !Object.prototype.hasOwnProperty.call(provenance, "commitSha")) {
+          throw new ApiError("invalid_request", 400, "Transfer create body is invalid.");
+        }
+        const created = await transfer.create(actor, body as { targetServiceId: string; provenance: { repo: string; releaseTag: string; commitSha: string }; platform: string; manifestSchemaVersion: string });
+        writeJson(response, 201, created); return;
+      }
+      const match = /^\/api\/v1\/service-transfers\/(stg_[A-Za-z0-9_-]{32})(?:\/(.*))?$/u.exec(url.pathname);
+      if (!match) { notFound(response); return; }
+      const stageId = match[1]!, tail = match[2] ?? "";
+      if (request.method === "GET" && !tail) { writeJson(response, 200, await transfer.status(actor, stageId)); return; }
+      if (request.method === "PUT" && /^chunks\/(0|[1-9][0-9]{0,1})$/u.test(tail)) {
+        const token = exactTransferHeader(request, "x-service-transfer-token", /^sut_[A-Za-z0-9_-]{43}$/u);
+        const digest = exactTransferHeader(request, "x-chunk-sha256", /^[a-f0-9]{64}$/u);
+        const range = parseTransferRange(exactTransferHeader(request, "content-range", /^bytes [0-9]+-[0-9]+\/[0-9]+$/u));
+        await transfer.upload(actor, stageId, Number(tail.slice(7)), token, digest, await readBinaryBody(request, 1024 * 1024), range);
+        response.statusCode = 204; response.end(); return;
+      }
+      if (request.method === "POST" && tail === "finalize") { writeJson(response, 200, await transfer.finalize(actor, stageId)); return; }
+      if (request.method === "POST" && tail === "confirmation") { writeJson(response, 200, await transfer.confirmation(actor, stageId)); return; }
+      if (request.method === "POST" && tail === "registration") {
+        const confirmation = exactTransferHeader(request, "x-service-transfer-confirmation", /^scf_[A-Za-z0-9_-]{32}$/u);
+        const body = await readTransferJsonBody(request, { maxBytes: 8 * 1024 });
+        if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).length !== 1 || typeof (body as { idempotencyKey?: unknown }).idempotencyKey !== "string") throw new ApiError("invalid_request", 400, "Transfer registration body is invalid.");
+        const registered = await transfer.register(actor, stageId, confirmation, (body as { idempotencyKey: string }).idempotencyKey);
+        writeJson(response, registered.replayed ? 200 : 202, { operation: registered.operation, replayed: registered.replayed }); return;
+      }
+    } catch (error) {
+      if (error instanceof TransferError) throw new ApiError(error.code, error.statusCode, "Staged service transfer request denied.");
+      throw error;
+    }
+    notFound(response); return;
+  }
+
   if (request.method === "GET" && url.pathname.startsWith("/api/operator/operations/")) {
     const operationId = decodeURIComponent(url.pathname.slice("/api/operator/operations/".length));
     if (!operationId || operationId.includes("/")) {
@@ -7596,6 +8039,23 @@ async function routeRequest(
   await withRuntimeMutationCoordination(config.workspaceRoot, route);
 }
 
+type ReconciliationContextInitialization =
+  | { ok: true; authorityId: string }
+  | { ok: false; error: unknown };
+
+const apiServerInitialization = new WeakMap<Server, Promise<ReconciliationContextInitialization>>();
+
+/**
+ * Test-only direct servers do not use startApiServer's awaited startup path.
+ * Expose their owned initialization promise so their teardown can quiesce it.
+ */
+export async function waitForApiServerInitialization(server: Server): Promise<void> {
+  const initialization = apiServerInitialization.get(server);
+  if (!initialization) throw new Error("Server does not have an owned API initialization.");
+  const initialized = await initialization;
+  if (!initialized.ok) throw initialized.error;
+}
+
 export function createApiServer(options: ApiServerOptions = {}): Server {
   return createApiServerOnCandidate(options);
 }
@@ -7608,6 +8068,10 @@ function createApiServerOnCandidate(options: ApiServerOptions, existingServer?: 
     throw new Error("Secret rotation test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
   }
   const resolvedConfig = resolveRuntimeConfig(options);
+  const reconciliationContextIdentity = initializeReconciliationContextIdentity(resolvedConfig.workspaceRoot).then(
+    (authorityId): ReconciliationContextInitialization => ({ ok: true, authorityId }),
+    (error: unknown): ReconciliationContextInitialization => ({ ok: false, error }),
+  );
   const routeConfig: ApiRouteConfig = {
     ...resolvedConfig,
     bindHost: options.host ?? process.env.SERVICE_LASSO_HOST ?? "127.0.0.1",
@@ -7625,6 +8089,9 @@ function createApiServerOnCandidate(options: ApiServerOptions, existingServer?: 
     mcpPolicyTestHooks: options.mcpPolicyTestHooks,
     secretRotationTestHooks: options.secretRotationTestHooks,
     runtimeShutdownSlot: options.runtimeShutdownSlot,
+    stagedServiceTransfer: options.stagedServiceTransfer,
+    stagedServiceTransferCatalogPath: options.stagedServiceTransferCatalogPath,
+    reconciliationContextIdentity,
   };
   const workflowRunFacadeState = cloneWorkflowRunFacadeState(options.workflowRunFacadeState ?? exampleWorkflowRunFacadeState);
   const apiRequestTelemetryState = options.apiRequestTelemetryState ?? { requests: [], droppedCount: 0 };
@@ -7693,6 +8160,7 @@ function createApiServerOnCandidate(options: ApiServerOptions, existingServer?: 
   Object.defineProperty(server, runtimeApiOwnershipChallengeSymbol, {
     value: ownershipChallenge,
   });
+  apiServerInitialization.set(server, reconciliationContextIdentity);
   return server;
 }
 
@@ -7858,6 +8326,7 @@ async function startApiServerInternal(
   }
   const baselineServiceIds = requestedBaselineServiceIds(options);
   const config = await ensureRuntimeConfig(resolveRuntimeConfig(options));
+  await initializeReconciliationContextIdentity(config.workspaceRoot);
   const recoveryModel = await loadRuntimeModel(config.servicesRoot);
   const recovery = await inspectStartupRecovery(config, recoveryModel.discovered);
   let recoveryClassification = recovery.classification;
@@ -8237,8 +8706,11 @@ async function startApiServerGeneration(
         mcpHttpIdentity: options.mcpHttpIdentity,
         mcpPolicyTestHooks: options.mcpPolicyTestHooks,
         secretRotationTestHooks: options.secretRotationTestHooks,
+        stagedServiceTransfer: options.stagedServiceTransfer,
+        stagedServiceTransferCatalogPath: options.stagedServiceTransferCatalogPath,
         runtimeShutdownSlot,
       }, candidateServer ?? undefined);
+      await waitForApiServerInitialization(candidateServer);
       await recordProcessOwnership(config.workspaceRoot, {
         ownerType: "runtime",
         ownerId: runtimeInstanceId,
