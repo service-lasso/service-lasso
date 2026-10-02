@@ -133,3 +133,5 @@ fixture scope, original failures, dependency owners and subsequent evidence gate
 are bound in [issue 1600 contract map](../project/QUALIFICATION_FIXTURE_INPUTS_1600.md).
 This clarification authorizes faithful input/assertion reconciliation, no protected
 skip, deadline or permission widening, native-custody substitute, or release claim.
+
+BR-008 #1603 binds the separate safe failure observation in SPEC-006 AC-6G.native-boundary-observation. Preserve private-v3/public-v2 shapes, every image-parent refusal/recheck and identity-precision guard. No private sink is invented; source-only review/admission gates remain required.

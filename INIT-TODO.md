@@ -188,3 +188,5 @@ No imports, syntax checks, compiler, helpers, tests, installation, ACL or lifecy
 execution is admitted until a different fresh reviewer grants entire cumulative
 SOURCE GO and a NEW complete-input ROOT admission. Existing PR owners retain
 #1591/#1593/#1595/#1596/#1599 and #1586; normal source starts from current develop.
+
+- [ ] #1603 adopt separate safe native-boundary observation grammar before source implementation; preserve exact private unavailability, guards/control/schema and historical failures. Fresh entire independent review and NEW complete-input ROOT before execution.

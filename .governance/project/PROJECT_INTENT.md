@@ -274,3 +274,5 @@ No imports, syntax checks, compiler, helpers, tests, installation, ACL or lifecy
 execution is admitted until a different fresh reviewer grants entire cumulative
 SOURCE GO and a NEW complete-input ROOT admission. Existing PR owners retain
 #1591/#1593/#1595/#1596/#1599 and #1586; normal source starts from current develop.
+
+#1603 observes actual native image-parent predicates and terminal owned-temp code/syscall through a separate versioned finite stderr grammar. Private exact values and owner/descendant cause remain unavailable; no acceptance/control/schema changes. SPEC-006 AC-6G.native-boundary-observation / SPEC-003 BR-008; source-only until fresh entire review and new complete-input admission.

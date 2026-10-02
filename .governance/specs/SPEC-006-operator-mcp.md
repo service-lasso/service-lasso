@@ -133,3 +133,11 @@ fixture scope, original failures, dependency owners and subsequent evidence gate
 are bound in [issue 1600 contract map](../project/QUALIFICATION_FIXTURE_INPUTS_1600.md).
 This clarification authorizes faithful input/assertion reconciliation, no protected
 skip, deadline or permission widening, native-custody substitute, or release claim.
+
+## AC-6G.native-boundary-observation (#1603, parent #1594 / #1562)
+
+Separate stderr records use service-lasso.native-boundary-failure-observation.v1 and never extend public-v2 custody or MCP evidence. Image-parent refusal retains its original error and all acceptance/recheck/precision predicates. From the SAME original lstat/realpath, record directory, symlink, samePhysicalPath, inoSafeInteger and inoPositive booleans plus ordered failed predicates. Acquisition failure records unavailable and lstat/realpath/predicate acquisition only, without fabricated booleans or raw errors. Exact private paths and numeric identity are unavailable.
+
+Terminal owned-temp removal records only actual code, own data-valued syscall from rmdir/unlink/scandir/lstat/stat/open/rm or unknown, observed 1..8 attempt count, fixed targetRole owned_temp_root. Reject proxies before descriptor inspection and never call getters/coercion or retain arbitrary native fields. Path, errno, PID, physical identity, lock owner and descendant absence remain unavailable; F7 private sink remains undefined. No extra probes, waits, retries, signals, roots, environment grants or uploads. Original cleanup projection and exit precedence remain unchanged. Log-write failure must preserve primary refusal.
+
+Author each predicate refusal/acquisition/unavailable/privacy/proxy/capture-failure and unchanged control regression. Authored source is UNEXECUTED until different fresh ENTIRE source review and NEW complete-input ROOT admission. Natural CI may run on pushed bytes. Actual three-OS/native/product/operator/publication/same-byte acceptance remains separate; historical a7 failures remain failed and unattributed.
