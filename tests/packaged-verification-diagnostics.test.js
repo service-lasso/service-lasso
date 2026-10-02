@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { withOwnedPipeFixture } from "./owned-command-pipe-fixture.mjs";
 import { dependencyAcquisitionReceipt, dependencyAcquisitionSubcode, packagedVerificationDiagnostic } from "../scripts/packaged-verification-diagnostics.mjs";
 import { runCommand, runCommandFailureKind } from "../scripts/mcp-product-acceptance-lib.mjs";
 
@@ -147,83 +148,47 @@ test("runCommand records closed wrapper observations for deadline, capture, spaw
   }
 });
 
-test("runCommand holds the owned boundary until inherited output pipes close", async () => {
-  const { mkdtemp, rm, writeFile } = await import("node:fs/promises");
-  const os = await import("node:os");
-  const path = (await import("node:path")).default;
-  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-1566-pipe-close-"));
-  const parent = path.join(tempRoot, "parent.mjs");
-  try {
-    await writeFile(parent, [
-      'import { spawn } from "node:child_process";',
-      'const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 160)"], { stdio: ["ignore", "inherit", "inherit"], detached: true }); child.unref();',
-      "process.exit(0);",
-      "",
-    ].join("\n"), "utf8");
-    const startedAt = Date.now();
-    const result = await runCommand(process.execPath, [parent], { cwd: tempRoot, timeoutMs: 5_000 });
+test("runCommand holds the owned boundary until acknowledged inherited output pipes close", async () => {
+  await withOwnedPipeFixture({ rootMode: "exit", releaseOnDisconnect: true }, async fixture => {
+    const result = await runCommand(process.execPath, [fixture.parent], { cwd: fixture.tempRoot, timeoutMs: 5_000 });
+    fixture.assertHeld();
     assert.equal(result.code, 0);
+    assert.equal(result.rootExitObserved, true);
     assert.equal(result.closeObserved, true);
-    assert.ok(Date.now() - startedAt >= 100, "runCommand returned before the inherited pipe closed");
-  } finally {
-    await rm(tempRoot, { recursive: true, force: true });
-  }
+    assert.ok(fixture.events.indexOf("pipe-held") < fixture.events.indexOf("root-disconnected"));
+    assert.equal(fixture.events.includes("released"), true);
+  });
 });
 
-test("runCommand reports an owned root exit with an unresolved inherited pipe", async () => {
-  const { mkdtemp, rm, writeFile } = await import("node:fs/promises");
-  const os = await import("node:os");
-  const path = (await import("node:path")).default;
-  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-1566-unresolved-close-"));
-  const parent = path.join(tempRoot, "parent.mjs");
-  try {
-    await writeFile(parent, [
-      'import { spawn } from "node:child_process";',
-      'const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 250)"], { stdio: ["ignore", "inherit", "inherit"], detached: true }); child.unref();',
-      "process.exit(0);",
-      "",
-    ].join("\n"), "utf8");
-    const error = await runCommand(process.execPath, [parent], {
-      cwd: tempRoot,
-      timeoutMs: 5_000,
-      closeWaitTimeoutMs: 100,
+test("runCommand reports an owned root exit with an acknowledged unresolved inherited pipe", async () => {
+  await withOwnedPipeFixture({ rootMode: "exit", releaseOnDisconnect: false }, async fixture => {
+    const error = await runCommand(process.execPath, [fixture.parent], {
+      cwd: fixture.tempRoot, timeoutMs: 5_000, closeWaitTimeoutMs: 100,
     }).catch(value => value);
+    fixture.assertHeld();
     assert.equal(runCommandFailureKind(error), "close_unresolved");
+    assert.equal(error.code, 0);
     assert.equal(error.rootExitObserved, true);
     assert.equal(error.closeObserved, false);
-    await new Promise(resolve => setTimeout(resolve, 300));
-  } finally {
-    await rm(tempRoot, { recursive: true, force: true });
-  }
+    assert.equal(fixture.events.includes("release-requested"), false);
+  });
 });
 
-test("runCommand preserves a deadline failure for a nonexiting owned root while an inherited pipe remains open", async () => {
-  const { mkdtemp, rm, writeFile } = await import("node:fs/promises");
-  const os = await import("node:os");
-  const path = (await import("node:path")).default;
-  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-1566-deadline-close-"));
-  const parent = path.join(tempRoot, "parent.mjs");
-  try {
-    await writeFile(parent, [
-      'import { spawn } from "node:child_process";',
-      'const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 700)"], { stdio: ["ignore", "inherit", "inherit"], detached: true }); child.unref();',
-      "setTimeout(() => {}, 1_000);",
-      "",
-    ].join("\n"), "utf8");
-    const error = await runCommand(process.execPath, [parent], {
-      cwd: tempRoot,
-      timeoutMs: 300,
-      closeWaitTimeoutMs: 100,
-    }).catch(value => value);
-    assert.equal(runCommandFailureKind(error), "deadline_exceeded");
-    assert.equal(error.rootExitObserved, true);
-    assert.equal(error.closeObserved, false);
-    await new Promise(resolve => setTimeout(resolve, 750));
-  } finally {
-    await rm(tempRoot, { recursive: true, force: true });
-  }
-});
-
+for (const closeExpected of [false, true]) {
+  test(`runCommand preserves deadline failure with observed close=${closeExpected}`, async () => {
+    await withOwnedPipeFixture({ rootMode: "deadline", releaseOnDisconnect: closeExpected }, async fixture => {
+      const error = await runCommand(process.execPath, [fixture.parent], {
+        cwd: fixture.tempRoot, timeoutMs: 300, closeWaitTimeoutMs: 100,
+      }).catch(value => value);
+      fixture.assertHeld();
+      assert.equal(runCommandFailureKind(error), "deadline_exceeded");
+      assert.equal(error.rootExitObserved, true);
+      assert.equal(error.closeObserved, closeExpected);
+      assert.equal(fixture.events.includes("release-requested"), closeExpected);
+      if (closeExpected) assert.equal(fixture.events.includes("released"), true);
+    });
+  });
+}
 test("the verifier catch branch keeps npm install safeguards and emits only the reported observation", async () => {
   const { mkdtemp, readFile, rm, writeFile } = await import("node:fs/promises");
   const { createHash } = await import("node:crypto");
@@ -329,6 +294,51 @@ test("outer verifier reports the failed boundary, hides captured errors and alwa
             errorCode: "verification_failed",
             ...(failurePhase === "dependency_acquisition" ? { outcome: "unknown" } : {}),
           });
+    }
+  }
+});
+
+// Deterministic event-order contract complements the real owned pipe fixtures.
+// It is surrogate event evidence, not native process/handle acceptance.
+test("runCommand keeps first capture/deadline failure and never fabricates an unobserved root exit", async () => {
+  const { EventEmitter } = await import("node:events");
+  const { readFile } = await import("node:fs/promises");
+  const source = await readFile(new URL("../scripts/mcp-product-acceptance-lib.mjs", import.meta.url), "utf8");
+  const body = source.slice(source.indexOf("export async function runCommand("), source.indexOf("function markRunCommandFailure("));
+  const compile = new Function("spawn", "setTimeout", "clearTimeout", "markRunCommandFailure", "MAX_CAPTURE_BYTES", "repoRoot", body.replace("export async function", "async function") + "; return runCommand;");
+  for (const first of ["deadline_exceeded", "output_capture_exceeded"]) {
+    for (const exitObserved of [false, true]) {
+      const child = new EventEmitter();
+      child.stdout = new EventEmitter(); child.stderr = new EventEmitter();
+      child.pid = 123; child.exitCode = null; child.signalCode = null;
+      const kills = [];
+      child.kill = signal => { kills.push(signal); return exitObserved; };
+      const timers = [];
+      const command = compile(() => child, (callback, ms) => {
+        const timer = { callback, ms, cleared: false, unref() {} }; timers.push(timer); return timer;
+      }, timer => { timer.cleared = true; }, (error, kind) => {
+        Object.defineProperty(error, "runCommandFailureKind", { value: kind }); return error;
+      }, 8, "fixture");
+      const settlement = command("owned", [], { timeoutMs: 300, closeWaitTimeoutMs: 100 }).catch(value => value);
+      if (first === "output_capture_exceeded") child.stdout.emit("data", Buffer.alloc(9));
+      timers[0].callback();
+      if (exitObserved) {
+        child.signalCode = "SIGKILL"; child.emit("exit", null, "SIGKILL");
+        const closeWait = timers.find(timer => timer.ms === 100 && !timer.cleared);
+        assert.ok(closeWait); closeWait.callback();
+      } else {
+        const terminationWait = timers.find(timer => timer.ms === 100 && !timer.cleared);
+        assert.ok(terminationWait); terminationWait.callback();
+      }
+      const error = await settlement;
+      assert.equal(runCommandFailureKind(error), first);
+      assert.equal(error.rootExitObserved, exitObserved);
+      assert.equal(error.closeObserved, false);
+      assert.equal(error.code, null);
+      assert.deepEqual(kills, first === "output_capture_exceeded" ? ["SIGKILL", "SIGKILL"] : ["SIGKILL"]);
+      // A late close must not relabel the already settled bounded observation.
+      child.emit("close", null, "SIGKILL");
+      assert.equal(error.closeObserved, false);
     }
   }
 });

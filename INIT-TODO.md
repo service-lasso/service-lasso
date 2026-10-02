@@ -99,3 +99,5 @@ This file tracks bootstrap/adoption/remediation work required before product imp
   naming without retrying or weakening the primary gate.
 - [ ] Before any dependency install, build, test, or Core import, retain the
   required isolated external runtime custody record and obtain parent readback.
+
+- [ ] #1598 / SPEC-006 AC-6G.qualification-observation: review frozen source and copied complete harness, obtain new ROOT admission, then independently qualify unchanged300ms/100ms observations. No execution authorized in source preparation.

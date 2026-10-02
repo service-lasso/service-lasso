@@ -626,3 +626,5 @@ Issue #1326 parent-edge lifetime diagnostic follow-up binds AC-4BH: retain the 0
 | Status | Issue | Requirement / next action | Evidence boundary |
 | --- | --- | --- | --- |
 | In progress | [#1582](https://github.com/service-lasso/service-lasso/issues/1582) | Deliver `SPEC-009` Core-owned authenticated durable job transaction and the CLI PR #32 compiled client contract. | Fresh Core/CLI source branches, preserved failed native CI output, custody-gated direct compiled-client proof; no host activation, deployment, publication, or promotion. |
+
+| In progress | [#1598](https://github.com/service-lasso/service-lasso/issues/1598), parent #1594 / #1562 | SPEC-006 AC-6G.qualification-observation; owned fixture handshake and truthful three-boundary qualification status | Source-only; fresh entire independent review and exact complete-input admission pending. Historical e37 failed/unqualified retained. |

@@ -186,3 +186,5 @@ Issue #1386 requires closed packaged-verifier phase diagnostics that distinguish
 Issue #1326 confirmed exit-during-query handling requires successful termination evidence from the same held native handle; live/unknown/259 statuses stay fail closed. Preserve native query rights, ancestry, retries, deadlines and original failed observations. Bind native safety tests and exact-head qualification before delivery claims.
 
 Issue #1326 parent-edge lifetime diagnostic follow-up binds AC-4BH: retain the 079eb33 startup rejection and classify only whether the rejected edge crosses before expected-root creation. No process details or membership/deadline relaxation; require bounded rejection and privacy tests plus exact-head qualification.
+
+Issue #1598 (child of #1594 / #1562) binds SPEC-006 AC-6G.qualification-observation: prepare owned deadline/pipe fixtures and separate native child, nested wrapper and outer driver status, preserving all deadlines, custody checks and historical failures. Source-only preparation requires fresh entire review and new ROOT admission before execution.
