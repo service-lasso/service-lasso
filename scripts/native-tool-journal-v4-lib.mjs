@@ -36,9 +36,18 @@ async function capture(executable, args) {
   if (state.exitCode !== 0 || state.signal !== null || !stdoutEof || !stderrEof) throw new Error("first_custody_native_helper_incomplete");
   return { ...state, stdout: out, stderr: err, stdoutEof, stderrEof, stdoutSha256: digest(out), stderrSha256: digest(err) };
 }
+function witnessTarget(value) {
+  if (!value || typeof value !== "object" || !Array.isArray(value.target?.chain) || !value.target.chain.length) throw new Error("first_custody_native_helper_target_invalid");
+  return JSON.stringify(value.target);
+}
 async function helper(executable, script, args) {
   const resolved = await realpath(executable), first = await capture(resolved, args(script)), second = await capture(resolved, args(script));
-  if (!first.stdout.equals(second.stdout)) throw new Error("first_custody_native_helper_probe_changed");
+  // A helper's own identity is deliberately different for each probe.  The
+  // held target observation is the stable comparison; each raw helper-self
+  // witness is retained for independent validator closure below.
+  let firstWitness, secondWitness;
+  try { firstWitness = JSON.parse(first.stdout.toString("utf8")); secondWitness = JSON.parse(second.stdout.toString("utf8")); } catch { throw new Error("first_custody_native_helper_json_invalid"); }
+  if (witnessTarget(firstWitness) !== witnessTarget(secondWitness)) throw new Error("first_custody_native_helper_target_changed");
   return { executable: resolved, executableSha256: digest(await readFile(resolved)), scriptSha256: digest(script), scriptBytes: Buffer.byteLength(script), first, second };
 }
 async function helperLibraries(requested) {
@@ -57,19 +66,20 @@ async function windows(pid, caller) {
   // Win32_Process/GetOwnerSid is the OS-supported process/owner source.
   const root = process.env.SystemRoot ?? process.env.WINDIR;
   if (!root) throw new Error("first_custody_native_windows_root_missing");
-  const script = `$ErrorActionPreference='Stop';$p=${pid};$stop=${caller};$r=@();while($p -gt 0 -and $r.Count -lt 64){$q=Get-CimInstance Win32_Process -Filter ('ProcessId='+$p);if($null -eq $q){throw 'missing_process'};$o=Invoke-CimMethod -InputObject $q -MethodName GetOwnerSid;if($o.ReturnValue -ne 0 -or [string]::IsNullOrWhiteSpace($q.ExecutablePath)){throw 'identity_incomplete'};$b=if($q.CreationDate -is [datetime]){$q.CreationDate.ToUniversalTime().Ticks}else{[Management.ManagementDateTimeConverter]::ToDateTime([string]$q.CreationDate).ToUniversalTime().Ticks};$s=[IO.File]::OpenRead($q.ExecutablePath);try{$h=([BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($s))).Replace('-','').ToLowerInvariant()}finally{$s.Dispose()};$r+=[ordered]@{pid=[int]$q.ProcessId;ppid=[int]$q.ParentProcessId;birth=[string]$b;image=[string]$q.ExecutablePath;imageSha256=[string]$h;uid=[string]$o.Sid};if($q.ProcessId -eq $stop){break};$p=[int]$q.ParentProcessId};if($r.Count -eq 0 -or $r.Count -ge 64 -or $r[$r.Count-1].pid -ne $stop){throw 'qualified_caller_missing'};[ordered]@{chain=@($r);libraries=@([string][Management.ManagementDateTimeConverter].Assembly.Location)}|ConvertTo-Json -Compress`;
+  const script = `$ErrorActionPreference='Stop';function L($p,$stop){$r=@();while($p -gt 0 -and $r.Count -lt 64){$q=Get-CimInstance Win32_Process -Filter ('ProcessId='+$p);if($null -eq $q){throw 'missing_process'};$o=Invoke-CimMethod -InputObject $q -MethodName GetOwnerSid;if($o.ReturnValue -ne 0 -or [string]::IsNullOrWhiteSpace($q.ExecutablePath)){throw 'identity_incomplete'};$b=if($q.CreationDate -is [datetime]){$q.CreationDate.ToUniversalTime().Ticks}else{[Management.ManagementDateTimeConverter]::ToDateTime([string]$q.CreationDate).ToUniversalTime().Ticks};$s=[IO.File]::OpenRead($q.ExecutablePath);try{$h=([BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($s))).Replace('-','').ToLowerInvariant()}finally{$s.Dispose()};$r+=[ordered]@{pid=[int]$q.ProcessId;ppid=[int]$q.ParentProcessId;birth=[string]$b;image=[string]$q.ExecutablePath;imageSha256=[string]$h;uid=[string]$o.Sid};if($q.ProcessId -eq $stop){break};$p=[int]$q.ParentProcessId};if($r.Count -eq 0 -or $r.Count -ge 64 -or $r[$r.Count-1].pid -ne $stop){throw 'qualified_caller_missing'};return $r};$self=L $PID ${caller};$target=L ${pid} ${caller};[ordered]@{self=[ordered]@{pid=[int]$PID;chain=$self};target=[ordered]@{chain=$target};libraries=@([string][Management.ManagementDateTimeConverter].Assembly.Location)}|ConvertTo-Json -Compress -Depth 8`;
   const witness = await helper(`${root}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`, script, body => ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", body]);
   const parsed = JSON.parse(witness.first.stdout.toString("utf8"));
-  if (!parsed || !Array.isArray(parsed.chain)) throw new Error("first_custody_native_windows_witness_invalid");
-  return { chain: parsed.chain, helper: { platform: "win32", ...witness, libraries: await helperLibraries(parsed.libraries) } };
+  if (!parsed || !Array.isArray(parsed.target?.chain)) throw new Error("first_custody_native_windows_witness_invalid");
+  return { chain: parsed.target.chain, helper: { platform: "win32", ...witness, libraries: await helperLibraries(parsed.libraries) } };
 }
 async function darwin(pid, caller) {
-  // libproc supplies the target image; ps supplies documented parent/UID data.
-  const script = "import ctypes,hashlib,json,subprocess,sys\npid=int(sys.argv[1]);stop=int(sys.argv[2]);rows={}\nfor line in subprocess.check_output(['/bin/ps','-ax','-o','pid=,ppid=,uid=,lstart='],text=True).splitlines():\n p=line.split();\n if len(p)>=8:rows[int(p[0])]=(int(p[1]),p[2],' '.join(p[3:8]))\nlib_path='/usr/lib/libproc.dylib';lib=ctypes.CDLL(lib_path);out=[];seen=set();p=pid\nwhile p>0 and len(out)<64:\n if p in seen or p not in rows:raise RuntimeError('lineage_incomplete')\n seen.add(p);b=ctypes.create_string_buffer(4096)\n if lib.proc_pidpath(p,b,4096)<=0:raise RuntimeError('image_unavailable')\n image=b.value.decode();pp,uid,birth=rows[p];out.append({'pid':p,'ppid':pp,'birth':birth,'image':image,'imageSha256':hashlib.sha256(open(image,'rb').read()).hexdigest(),'uid':uid})\n if p==stop:break\n p=pp\nif not out or len(out)>=64 or out[-1]['pid']!=stop:raise RuntimeError('qualified_caller_missing')\nprint(json.dumps({'chain':out,'libraries':[lib_path]},separators=(',',':')))";
+  // proc_pidinfo exposes the kernel start timeval, avoiding ps lstart's
+  // second-level granularity for PID-reuse custody.
+  const script = "import ctypes,hashlib,json,os,sys\nclass B(ctypes.Structure):_fields_=[('f',ctypes.c_uint32),('s',ctypes.c_uint32),('x',ctypes.c_uint32),('pid',ctypes.c_uint32),('ppid',ctypes.c_uint32),('uid',ctypes.c_uint32),('gid',ctypes.c_uint32),('ruid',ctypes.c_uint32),('rgid',ctypes.c_uint32),('svuid',ctypes.c_uint32),('svgid',ctypes.c_uint32),('rfu',ctypes.c_uint32),('comm',ctypes.c_char*16),('name',ctypes.c_char*32),('nfiles',ctypes.c_uint32),('pgid',ctypes.c_uint32),('pjobc',ctypes.c_uint32),('tdev',ctypes.c_uint32),('tpgid',ctypes.c_uint32),('nice',ctypes.c_int32),('ts',ctypes.c_uint64),('tu',ctypes.c_uint64)]\nlib_path='/usr/lib/libproc.dylib';lib=ctypes.CDLL(lib_path);lib.proc_pidinfo.argtypes=[ctypes.c_int,ctypes.c_int,ctypes.c_uint64,ctypes.c_void_p,ctypes.c_int]\ndef one(p):\n b=B();\n if lib.proc_pidinfo(p,3,0,ctypes.byref(b),ctypes.sizeof(b))!=ctypes.sizeof(b):raise RuntimeError('bsdinfo_unavailable')\n out=ctypes.create_string_buffer(4096)\n if lib.proc_pidpath(p,out,4096)<=0:raise RuntimeError('image_unavailable')\n image=out.value.decode();return {'pid':p,'ppid':int(b.ppid),'birth':str(b.ts)+':'+str(b.tu),'image':image,'imageSha256':hashlib.sha256(open(image,'rb').read()).hexdigest(),'uid':str(b.uid)}\ndef chain(p,stop):\n out=[];seen=set()\n while p>0 and len(out)<64:\n  if p in seen:raise RuntimeError('lineage_cycle')\n  seen.add(p);x=one(p);out.append(x)\n  if p==stop:break\n  p=x['ppid']\n if not out or len(out)>=64 or out[-1]['pid']!=stop:raise RuntimeError('qualified_caller_missing')\n return out\nprint(json.dumps({'self':{'pid':os.getpid(),'chain':chain(os.getpid(),int(sys.argv[2]))},'target':{'chain':chain(int(sys.argv[1]),int(sys.argv[2]))},'libraries':[lib_path]},separators=(',',':')))";
   const witness = await helper("/usr/bin/python3", script, body => ["-c", body, String(pid), String(caller)]);
   const parsed = JSON.parse(witness.first.stdout.toString("utf8"));
-  if (!parsed || !Array.isArray(parsed.chain)) throw new Error("first_custody_native_darwin_witness_invalid");
-  return { chain: parsed.chain, helper: { platform: "darwin", ...witness, libraries: await helperLibraries(parsed.libraries) } };
+  if (!parsed || !Array.isArray(parsed.target?.chain)) throw new Error("first_custody_native_darwin_witness_invalid");
+  return { chain: parsed.target.chain, helper: { platform: "darwin", ...witness, libraries: await helperLibraries(parsed.libraries) } };
 }
 
 export async function startHeld(tool, args, sourceRoot) {
