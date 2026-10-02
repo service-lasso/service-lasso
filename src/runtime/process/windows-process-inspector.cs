@@ -5,28 +5,22 @@ using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
 
-internal static partial class ServiceLassoWindowsProcessInspector
+internal static class ServiceLassoWindowsProcessInspector
 {
     private const uint ProcessQueryLimitedInformation = 0x1000;
     private const uint SnapshotProcesses = 0x00000002;
     private const int ErrorNoMoreFiles = 18;
     private const int ErrorInvalidParameter = 87;
     private const int ProcessCommandLineInformation = 60;
-    private const ushort ImageFileMachineUnknown = 0;
     private const int ProcessBasicInformation = 0;
+    private const int StatusInfoLengthMismatch = unchecked((int)0xC0000004);
+    private const int StatusPartialCopy = unchecked((int)0x8000000D);
+    private const int CommandLineQueryAttempts = 2;
     private static int failureExitCode = 1;
     private static int evidenceSubject = 0;
-    private static string commandPartialCopyReceipt;
-
-#if WINDOWS_PROCESS_INSPECTOR_TEST
-    private delegate int CommandLineQuery(
-        IntPtr processHandle,
-        IntPtr information,
-        int informationLength,
-        out int returnLength);
-
-    private static CommandLineQuery testCommandLineQuery;
-#endif
+    private static int testCommandQueryPartialCopiesRemaining = 0;
+    private static int testCommandQueryFailureStatus = 0;
+    private static bool testCommandQueryTreeOnly = false;
 
     private static void EvidenceStage(int code)
     {
@@ -86,16 +80,6 @@ internal static partial class ServiceLassoWindowsProcessInspector
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetExitCodeProcess(IntPtr processHandle, out uint exitCode);
 
-    [DllImport("kernel32.dll")]
-    private static extern IntPtr GetCurrentProcess();
-
-    [DllImport("kernel32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool IsWow64Process2(
-        IntPtr processHandle,
-        out ushort processMachine,
-        out ushort nativeMachine);
-
     [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetProcessTimes(
@@ -152,54 +136,55 @@ internal static partial class ServiceLassoWindowsProcessInspector
         else EvidenceStage(35);
     }
 
-    private static string CommandQueryHeldHandleState(IntPtr processHandle)
+    private static void ConfigureTestCommandQuerySeam()
     {
-        uint exitCode;
-        if (!GetExitCodeProcess(processHandle, out exitCode))
+        if (!String.Equals(Environment.GetEnvironmentVariable("SERVICE_LASSO_ENABLE_TEST_HOOKS"), "1", StringComparison.Ordinal))
         {
-            return "exit_query_failed";
+            return;
         }
-        // STILL_ACTIVE is also a legal process exit code, so it is not exit proof.
-        return exitCode == 259 ? "still_active_or_259" : null;
-    }
-
-    private static string CommandQueryArchitectureRelation(IntPtr processHandle)
-    {
-        try
+        string requested = Environment.GetEnvironmentVariable("SERVICE_LASSO_WINDOWS_INSPECTOR_TEST_COMMAND_QUERY") ?? "";
+        if (String.Equals(requested, "partial_then_success", StringComparison.Ordinal))
         {
-            ushort runtimeProcessMachine;
-            ushort runtimeNativeMachine;
-            ushort subjectProcessMachine;
-            ushort subjectNativeMachine;
-            if (!IsWow64Process2(GetCurrentProcess(), out runtimeProcessMachine, out runtimeNativeMachine) ||
-                !IsWow64Process2(processHandle, out subjectProcessMachine, out subjectNativeMachine))
-            {
-                return "unknown";
-            }
-            ushort runtimeMachine = runtimeProcessMachine == ImageFileMachineUnknown ? runtimeNativeMachine : runtimeProcessMachine;
-            ushort subjectMachine = subjectProcessMachine == ImageFileMachineUnknown ? subjectNativeMachine : subjectProcessMachine;
-            return runtimeMachine == subjectMachine ? "same" : "cross";
+            testCommandQueryPartialCopiesRemaining = 1;
         }
-        catch (EntryPointNotFoundException)
+        else if (String.Equals(requested, "partial_only", StringComparison.Ordinal))
         {
-            return "unknown";
+            testCommandQueryPartialCopiesRemaining = CommandLineQueryAttempts;
         }
-        catch
+        else if (String.Equals(requested, "partial_tree_only", StringComparison.Ordinal))
         {
-            return "unknown";
+            // The lifecycle monitor first makes a direct identity query and
+            // only then refreshes the owned tree. Keep that real identity
+            // evidence intact so the test seam injects failure only at the
+            // later native tree command-query boundary.
+            testCommandQueryTreeOnly = true;
+        }
+        else if (String.Equals(requested, "unsupported_then_success", StringComparison.Ordinal))
+        {
+            testCommandQueryFailureStatus = unchecked((int)0xC0000002);
         }
     }
 
-    private static string CommandPartialCopyReceiptJson(IntPtr processHandle)
+    private static int QueryCommandLineInformation(IntPtr processHandle, IntPtr buffer, int length, out int returnedLength)
     {
-        string heldHandleState = CommandQueryHeldHandleState(processHandle);
-        if (heldHandleState == null)
+        int status = NtQueryInformationProcess(
+            processHandle,
+            ProcessCommandLineInformation,
+            buffer,
+            length,
+            out returnedLength);
+        if (buffer != IntPtr.Zero && testCommandQueryPartialCopiesRemaining > 0)
         {
-            // A confirmed exit remains omitted by the existing held-handle rule.
-            return null;
+            testCommandQueryPartialCopiesRemaining -= 1;
+            return StatusPartialCopy;
         }
-        return "{\"CommandQueryHeldHandleState\":" + JsonString(heldHandleState) +
-            ",\"CommandQueryArchitectureRelation\":" + JsonString(CommandQueryArchitectureRelation(processHandle)) + "}";
+        if (buffer != IntPtr.Zero && testCommandQueryFailureStatus != 0)
+        {
+            int failureStatus = testCommandQueryFailureStatus;
+            testCommandQueryFailureStatus = 0;
+            return failureStatus;
+        }
+        return status;
     }
 
     private static bool IsTransientCommandLineQueryStatus(int status)
@@ -210,38 +195,26 @@ internal static partial class ServiceLassoWindowsProcessInspector
             value == 0x8000000D; // STATUS_PARTIAL_COPY
     }
 
-    private static int QueryCommandLineInformation(
-        IntPtr processHandle,
-        IntPtr information,
-        int informationLength,
-        out int returnLength)
-    {
-#if WINDOWS_PROCESS_INSPECTOR_TEST
-        if (testCommandLineQuery != null)
-        {
-            return testCommandLineQuery(processHandle, information, informationLength, out returnLength);
-        }
-#endif
-        return NtQueryInformationProcess(
-            processHandle,
-            ProcessCommandLineInformation,
-            information,
-            informationLength,
-            out returnLength);
-    }
-
     private static string ReadCommandLine(IntPtr processHandle)
     {
         int headerSize = IntPtr.Size == 8 ? 16 : 8;
-        for (int attempt = 0; attempt < 3; attempt++)
+        for (int attempt = 0; attempt < CommandLineQueryAttempts; attempt += 1)
         {
             EvidenceStage(25);
             int requiredLength;
-            QueryCommandLineInformation(
+            int sizeStatus = QueryCommandLineInformation(
                 processHandle,
                 IntPtr.Zero,
                 0,
                 out requiredLength);
+            if (sizeStatus != 0 && sizeStatus != StatusInfoLengthMismatch)
+            {
+                EvidenceCommandQueryFailure(sizeStatus);
+            }
+            if (sizeStatus != 0 && sizeStatus != StatusInfoLengthMismatch)
+            {
+                throw new InvalidOperationException("Native process command line size query failed.");
+            }
             if (requiredLength < headerSize || requiredLength > 1024 * 1024)
             {
                 throw new InvalidOperationException("Native process command line length was invalid.");
@@ -257,19 +230,18 @@ internal static partial class ServiceLassoWindowsProcessInspector
                     buffer,
                     requiredLength,
                     out returnedLength);
-                if ((status != 0 && IsTransientCommandLineQueryStatus(status)) || returnedLength > requiredLength)
+                if (
+                    (status != 0 && IsTransientCommandLineQueryStatus(status)) ||
+                    returnedLength > requiredLength
+                )
                 {
-                    if (attempt < 2)
+                    if (attempt + 1 < CommandLineQueryAttempts)
                     {
                         continue;
                     }
                 }
                 if (status != 0)
                 {
-                    if (unchecked((uint)status) == 0x8000000D)
-                    {
-                        commandPartialCopyReceipt = CommandPartialCopyReceiptJson(processHandle);
-                    }
                     EvidenceCommandQueryFailure(status);
                 }
                 else if (returnedLength < headerSize || returnedLength > requiredLength)
@@ -417,20 +389,12 @@ internal static partial class ServiceLassoWindowsProcessInspector
         }
         catch (Win32Exception)
         {
-            if (IsConfirmedExited(processHandle))
-            {
-                commandPartialCopyReceipt = null;
-                return null;
-            }
+            if (IsConfirmedExited(processHandle)) return null;
             throw;
         }
         catch (InvalidOperationException)
         {
-            if (IsConfirmedExited(processHandle))
-            {
-                commandPartialCopyReceipt = null;
-                return null;
-            }
+            if (IsConfirmedExited(processHandle)) return null;
             throw;
         }
         finally
@@ -593,12 +557,7 @@ internal static partial class ServiceLassoWindowsProcessInspector
     public static int Main(string[] args)
     {
         Console.OutputEncoding = new UTF8Encoding(false);
-#if WINDOWS_PROCESS_INSPECTOR_TEST
-        if (args.Length == 1 && String.Equals(args[0], "--test-command-line-retry", StringComparison.Ordinal))
-        {
-            return RunCommandLineRetryHarness();
-        }
-#endif
+        ConfigureTestCommandQuerySeam();
         int targetProcessId;
         if (args.Length < 1 || !Int32.TryParse(args[0], NumberStyles.None, CultureInfo.InvariantCulture, out targetProcessId) || targetProcessId <= 0)
         {
@@ -607,6 +566,10 @@ internal static partial class ServiceLassoWindowsProcessInspector
         bool includeDescendants = args.Length > 1 &&
             (String.Equals(args[1], "--include-descendants", StringComparison.Ordinal) ||
              String.Equals(args[1], "-IncludeDescendants", StringComparison.Ordinal));
+        if (testCommandQueryTreeOnly && includeDescendants)
+        {
+            testCommandQueryPartialCopiesRemaining = CommandLineQueryAttempts;
+        }
 
         try
         {
@@ -644,10 +607,6 @@ internal static partial class ServiceLassoWindowsProcessInspector
         }
         catch
         {
-            if ((failureExitCode == 38 || failureExitCode == 138) && commandPartialCopyReceipt != null)
-            {
-                Console.WriteLine(commandPartialCopyReceipt);
-            }
             return failureExitCode;
         }
     }

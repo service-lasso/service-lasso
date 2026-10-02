@@ -195,7 +195,7 @@ export function createRuntimeServiceMonitor(options: RuntimeServiceMonitorOption
     }
 
     if (!lifecycle.running) {
-      if (hasPendingSupervisionRestart(serviceId)) {
+      if (hasPendingSupervisionRestart(serviceId, options.lifecycleOptions?.().workspaceRoot)) {
         return createEvent(service, "skip", "in_flight", "Automatic supervision restart is already in progress.", now);
       }
       if (lifecycle.runtime.lastTermination === "crashed" && activeRestartPolicy.onCrash === true) {

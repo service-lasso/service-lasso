@@ -331,7 +331,7 @@ async function persistLifecycle(service: DiscoveredService): Promise<void> {
 function executionOperations(options: SecretRotationExecutionOptions): SecretRotationExecutionOperations {
   return {
     stop: options.operations?.stop ?? (async (service) => {
-      const result = await stopService(service);
+      const result = await stopService(service, lifecycleOptions(options, service.manifest.id));
       await writeServiceState(service, result.state);
     }),
     config: options.operations?.config ?? (async (service) => {

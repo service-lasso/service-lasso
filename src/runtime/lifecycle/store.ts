@@ -1,6 +1,25 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+import path from "node:path";
 import type { ServiceLifecycleState, SetupInputFingerprintSnapshot, SetupOutputGuardSnapshot } from "./types.js";
 
 const lifecycleState = new Map<string, ServiceLifecycleState>();
+const lifecycleWorkspaceContext = new AsyncLocalStorage<string | null>();
+
+function lifecycleWorkspaceKey(workspaceRoot?: string | null): string {
+  const root = workspaceRoot === undefined ? lifecycleWorkspaceContext.getStore() : workspaceRoot;
+  if (!root) return "<unscoped>";
+  const resolved = path.resolve(root);
+  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+}
+
+function lifecycleServiceKey(serviceId: string, workspaceRoot?: string | null): string {
+  return `${lifecycleWorkspaceKey(workspaceRoot)}\u0000${serviceId}`;
+}
+
+/** Establishes asynchronous workspace authority for a lifecycle operation. */
+export function withLifecycleWorkspace<T>(workspaceRoot: string | null | undefined, operation: () => T): T {
+  return lifecycleWorkspaceContext.run(workspaceRoot ? lifecycleWorkspaceKey(workspaceRoot) : null, operation);
+}
 
 function cloneSetupOutputGuards(snapshot: SetupOutputGuardSnapshot): SetupOutputGuardSnapshot {
   return {
@@ -174,11 +193,12 @@ function createInitialState(): ServiceLifecycleState {
   };
 }
 
-export function getLifecycleState(serviceId: string): ServiceLifecycleState {
-  const current = lifecycleState.get(serviceId) ?? createInitialState();
+export function getLifecycleState(serviceId: string, workspaceRoot?: string | null): ServiceLifecycleState {
+  const key = lifecycleServiceKey(serviceId, workspaceRoot);
+  const current = lifecycleState.get(key) ?? createInitialState();
 
-  if (!lifecycleState.has(serviceId)) {
-    lifecycleState.set(serviceId, current);
+  if (!lifecycleState.has(key)) {
+    lifecycleState.set(key, current);
   }
 
   return {
@@ -260,7 +280,11 @@ export function getLifecycleState(serviceId: string): ServiceLifecycleState {
   };
 }
 
-export function setLifecycleState(serviceId: string, nextState: ServiceLifecycleState): ServiceLifecycleState {
+export function setLifecycleState(
+  serviceId: string,
+  nextState: ServiceLifecycleState,
+  workspaceRoot?: string | null,
+): ServiceLifecycleState {
   const cloned = {
     installed: nextState.installed,
     configured: nextState.configured,
@@ -339,8 +363,8 @@ export function setLifecycleState(serviceId: string, nextState: ServiceLifecycle
     },
   };
 
-  lifecycleState.set(serviceId, cloned);
-  return getLifecycleState(serviceId);
+  lifecycleState.set(lifecycleServiceKey(serviceId, workspaceRoot), cloned);
+  return getLifecycleState(serviceId, workspaceRoot);
 }
 
 export function resetLifecycleState(): void {

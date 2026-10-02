@@ -7,7 +7,7 @@ import { isProviderRole } from "../roles.js";
 import { listSetupStepIds, runServiceSetup, type SetupTransactionHooks } from "../setup/steps.js";
 import { writeServiceState } from "../state/writeState.js";
 import { configService, installService, startService, type ServiceLifecycleActionOptions } from "./actions.js";
-import { getLifecycleState } from "./store.js";
+import { getLifecycleState, withLifecycleWorkspace } from "./store.js";
 import { withServiceStartSerialization } from "./start-serialization.js";
 import type { LifecycleActionResult, ServiceLifecycleState } from "./types.js";
 import type {
@@ -133,7 +133,9 @@ export async function prepareAndStartService(
   registry: ServiceRegistry,
   options: PreparedStartOptions = {},
 ): Promise<PreparedStartResult> {
-  return await withServiceStartSerialization(service.serviceRoot, () => prepareAndStartServiceSerialized(service, registry, options));
+  return await withLifecycleWorkspace(options.workspaceRoot, async () =>
+    await withServiceStartSerialization(service.serviceRoot, () => prepareAndStartServiceSerialized(service, registry, options)),
+  );
 }
 
 async function prepareAndStartServiceSerialized(
@@ -154,7 +156,7 @@ async function prepareAndStartServiceSerialized(
   }
   const initialState = getLifecycleState(serviceId);
 
-  if (initialState.running || hasManagedProcess(serviceId)) {
+  if (initialState.running || hasManagedProcess(serviceId, options.workspaceRoot)) {
     return { result: null, skippedReason: "already_running", state: initialState };
   }
   if (options.allowedMutationServiceIds && !options.allowedMutationServiceIds.has(serviceId)) {

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { inspectWindowsProcessTree, hashProcessCommandLine } from "../dist/runtime/process/identity.js";
-import { projectWindowsTreeInspectionMetadata, windowsTreeInspectionFailureMetadata, windowsNativeInspectionFailure } from "../dist/runtime/process/windows-tree-inspection-diagnostics.js";
+import { isTerminalWindowsCommandPartialCopy, projectWindowsTreeInspectionMetadata, windowsTreeInspectionFailureMetadata, windowsNativeInspectionFailure } from "../dist/runtime/process/windows-tree-inspection-diagnostics.js";
 import { lifecycleFailureDiagnostic } from "./lifecycle-failure-diagnostics.js";
 
 const root = { pid: 4342, createdAt: "2026-07-18T01:02:03.456Z", executablePath: "C:\\private\\node.exe", commandHash: "private-command-hash" };
@@ -16,6 +16,17 @@ test("native failure codes distinguish root/descendant denial without forwarding
     windowsTreeInspectionLastRetry: windowsNativeInspectionFailure(131), command: "private-secret" });
   assert.equal(evidence.windowsTreeInspectionLastRetry, "descendant_open_denied");
   assert.equal(JSON.stringify(evidence).includes("private-secret"), false);
+});
+
+test("exhausted partial-copy classification survives supervisor wrapping without exposing native detail", () => {
+  for (const failure of ["root_command_partial_copy", "descendant_command_partial_copy"]) {
+    const native = Object.assign(new Error("closed native failure"), { windowsNativeInspectionFailure: failure });
+    assert.equal(isTerminalWindowsCommandPartialCopy(new AggregateError([new Error("private"), native])), true);
+  }
+  assert.equal(isTerminalWindowsCommandPartialCopy(Object.assign(new Error("private"), {
+    windowsNativeInspectionFailure: "root_command_query",
+  })), false);
+  assert.equal(isTerminalWindowsCommandPartialCopy(new Error("root_command_partial_copy")), false);
 });
 
 test("queued deadline reports queue time and never starts the expired helper", async () => {
@@ -122,19 +133,6 @@ test("repeated rejected snapshots retain closed retry evidence and hide raw outp
     assert.equal(lifecycleFailureDiagnostic({ error }).includes("private"), false);
     return true;
   });
-  await assert.rejects(inspectWindowsProcessTree(root, {
-    deadlineMs: Date.now() + 80,
-    runCommand: async () => ({
-      exitCode: 138,
-      stdout: '{"CommandQueryHeldHandleState":"exit_query_failed","CommandQueryHeldHandleState":"still_active_or_259","CommandQueryArchitectureRelation":"same"}',
-    }),
-  }), error => {
-    const evidence = windowsTreeInspectionFailureMetadata(error);
-    assert.equal(evidence.windowsTreeInspectionLastRetry, "descendant_command_partial_copy");
-    assert.equal(evidence.windowsTreeInspectionCommandQueryHeldHandleState, undefined);
-    assert.equal(evidence.windowsTreeInspectionCommandQueryArchitectureRelation, undefined);
-    return true;
-  });
 });
 
 test("projection excludes arbitrary fields, invalid codes and unbounded numbers", () => {
@@ -219,101 +217,6 @@ test("native command status categories remain closed through actual bounded insp
       assert.equal(evidence.windowsTreeInspectionLastRetry, reason);
       assert.ok(evidence.windowsTreeInspectionAttempts >= 1);
       assert.equal(JSON.stringify(evidence).includes("private"), false);
-      return true;
-    });
-  }
-});
-
-test("partial-copy receipt is closed, failure-specific, and omits raw native details", async () => {
-  await assert.rejects(inspectWindowsProcessTree(root, {
-    deadlineMs: Date.now() + 80,
-    runCommand: async () => ({
-      exitCode: 138,
-      stdout: JSON.stringify({
-        CommandQueryHeldHandleState: "exit_query_failed",
-        CommandQueryArchitectureRelation: "cross",
-      }),
-    }),
-  }), error => {
-    const evidence = windowsTreeInspectionFailureMetadata(error);
-    assert.equal(evidence.windowsTreeInspectionLastRetry, "descendant_command_partial_copy");
-    assert.equal(evidence.windowsTreeInspectionCommandQueryHeldHandleState, "exit_query_failed");
-    assert.equal(evidence.windowsTreeInspectionCommandQueryArchitectureRelation, "cross");
-    assert.doesNotMatch(JSON.stringify(evidence), /138|partial-native|status|pid|path/i);
-    return true;
-  });
-  assert.deepEqual(projectWindowsTreeInspectionMetadata({
-    windowsTreeInspectionPhase: "native_snapshot",
-    windowsTreeInspectionLastRetry: "descendant_command_partial_copy",
-    windowsTreeInspectionCommandQueryHeldHandleState: "confirmed_exit",
-    windowsTreeInspectionCommandQueryArchitectureRelation: "x64",
-  }), {
-    windowsTreeInspectionPhase: "native_snapshot",
-    windowsTreeInspectionAttempts: null,
-    windowsTreeInspectionRetries: null,
-    windowsTreeInspectionQueueMs: null,
-    windowsTreeInspectionNativeMs: null,
-    windowsTreeInspectionLastRetry: "descendant_command_partial_copy",
-  });
-  await assert.rejects(inspectWindowsProcessTree(root, {
-    deadlineMs: Date.now() + 80,
-    runCommand: async () => ({
-      exitCode: 138,
-      stdout: JSON.stringify({
-        CommandQueryHeldHandleState: "still_active_or_259",
-        CommandQueryArchitectureRelation: "same",
-        ProcessId: 4342,
-      }),
-    }),
-  }), error => {
-    const evidence = windowsTreeInspectionFailureMetadata(error);
-    assert.equal(evidence.windowsTreeInspectionLastRetry, "descendant_command_partial_copy");
-    assert.equal(evidence.windowsTreeInspectionCommandQueryHeldHandleState, undefined);
-    assert.equal(evidence.windowsTreeInspectionCommandQueryArchitectureRelation, undefined);
-    return true;
-  });
-});
-
-test("partial-copy receipt accepts exactly one native terminal newline through retry metadata", async () => {
-  const canonicalReceipt = "{\"CommandQueryHeldHandleState\":\"still_active_or_259\",\"CommandQueryArchitectureRelation\":\"same\"}";
-  for (const terminalNewline of ["\r\n", "\n"]) {
-    let calls = 0;
-    await assert.rejects(inspectWindowsProcessTree(root, {
-      deadlineMs: Date.now() + 80,
-      runCommand: async () => {
-        calls += 1;
-        return { exitCode: 138, stdout: canonicalReceipt + terminalNewline };
-      },
-    }), error => {
-      const evidence = windowsTreeInspectionFailureMetadata(error);
-      assert.equal(evidence.windowsTreeInspectionLastRetry, "descendant_command_partial_copy");
-      assert.equal(evidence.windowsTreeInspectionCommandQueryHeldHandleState, "still_active_or_259");
-      assert.equal(evidence.windowsTreeInspectionCommandQueryArchitectureRelation, "same");
-      assert.doesNotMatch(JSON.stringify(evidence), /ProcessId|private|\\r|\\n/i);
-      return true;
-    });
-    assert.ok(calls >= 1);
-  }
-});
-
-test("partial-copy receipt rejects extra boundaries and non-canonical newline variants", async () => {
-  const canonicalReceipt = "{\"CommandQueryHeldHandleState\":\"exit_query_failed\",\"CommandQueryArchitectureRelation\":\"cross\"}";
-  for (const stdout of [
-    canonicalReceipt + "\r",
-    canonicalReceipt + "\r\n\r\n",
-    canonicalReceipt + "\n\n",
-    canonicalReceipt + "\r\n{\"CommandQueryHeldHandleState\":\"exit_query_failed\",\"CommandQueryArchitectureRelation\":\"cross\"}",
-    " " + canonicalReceipt + "\r\n",
-    canonicalReceipt + " \r\n",
-  ]) {
-    await assert.rejects(inspectWindowsProcessTree(root, {
-      deadlineMs: Date.now() + 80,
-      runCommand: async () => ({ exitCode: 138, stdout }),
-    }), error => {
-      const evidence = windowsTreeInspectionFailureMetadata(error);
-      assert.equal(evidence.windowsTreeInspectionLastRetry, "descendant_command_partial_copy");
-      assert.equal(evidence.windowsTreeInspectionCommandQueryHeldHandleState, undefined);
-      assert.equal(evidence.windowsTreeInspectionCommandQueryArchitectureRelation, undefined);
       return true;
     });
   }

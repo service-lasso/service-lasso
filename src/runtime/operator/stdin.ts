@@ -14,7 +14,10 @@ const NO_PIPE_REASON = "No live stdin pipe is attached to this service.";
  * process still has a writable stdin pipe. Adopted processes and ignored stdio
  * stay unavailable.
  */
-export function buildServiceStdinCapability(service: DiscoveredService): ServiceStdinCapabilityResponse {
+export function buildServiceStdinCapability(
+  service: DiscoveredService,
+  workspaceRoot?: string | null,
+): ServiceStdinCapabilityResponse {
   const declaration = service.manifest.stdin;
   if (declaration?.enabled !== true) {
     return {
@@ -25,7 +28,7 @@ export function buildServiceStdinCapability(service: DiscoveredService): Service
   }
 
   const provider = declaration.provider ?? "direct";
-  const pipe = inspectManagedStdin(service.manifest.id);
+  const pipe = inspectManagedStdin(service.manifest.id, workspaceRoot);
   if (!pipe.writable) {
     return {
       available: false,
