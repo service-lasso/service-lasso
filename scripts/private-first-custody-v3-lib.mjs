@@ -14,7 +14,8 @@ export function requireStrictJson(source, label) {
 }
 export function inside(child, root) {
   const resolvedChild = path.resolve(child), resolvedRoot = path.resolve(root);
-  return resolvedChild === resolvedRoot || resolvedChild.startsWith(resolvedRoot + path.sep);
+  const relative = path.relative(resolvedRoot, resolvedChild);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 export async function regularClosedFile(file, root) {
   const target = path.resolve(file), boundary = path.resolve(root);

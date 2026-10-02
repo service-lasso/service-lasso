@@ -20,9 +20,10 @@ const output=i=>readFile(path.join(privateRoot,"journal-"+i+".stdout"),"utf8");c
 if(!SHA.test(head.trim())||!SHA.test(tree.trim())||head.trim()!==process.env.QUALIFICATION_CANDIDATE_SHA||clean!=="")throw new Error("first_custody_source_binding_invalid");
 const tracked=[];for(const row of listing.split("\0").filter(Boolean)){const match=/^\d+ ([0-9a-f]{40}) \d\t(.+)$/u.exec(row);if(!match)throw new Error("first_custody_tracked_entry_invalid");const file=path.resolve(workspace,match[2]);if(!file.startsWith(workspace+path.sep))throw new Error("first_custody_tracked_path_escape");tracked.push({path:match[2].replaceAll("\\","/"),gitBlob:match[1],file:await regularClosedFile(file,workspace)});}if(!tracked.length||new Set(tracked.map(x=>x.path)).size!==tracked.length)throw new Error("first_custody_tracked_inventory_invalid");
 const tools=[];for(const [offset,executable] of(await Promise.all([resolve("node",process.execPath),resolve("npm")])).entries()){tools.push({name:offset===0?"node":"npm",state:"RESOLVED",executable,file:await regularClosedFile(executable,path.parse(executable).root)});commands.push(await run(executable,["--version"],4+offset));}
-const csc=await resolve("csc").catch(()=>null);
-if(csc)tools.push({name:"csc",state:"RESOLVED",executable:csc,file:await regularClosedFile(csc,path.parse(csc).root)});else tools.push({name:"csc",state:"ABSENT"});
-if(csc)commands.push(await run(csc,["--version"],commands.length));
+const csc=process.platform==="win32"?path.join(process.env.WINDIR??"C:\\Windows","Microsoft.NET","Framework64","v4.0.30319","csc.exe"):await resolve("csc");
+const cscState=await lstat(csc).catch(()=>null);if(!cscState?.isFile()||cscState.isSymbolicLink())throw new Error("first_custody_configured_csc_missing");
+tools.push({name:"csc",state:"RESOLVED",executable:csc,file:await regularClosedFile(csc,path.parse(csc).root)});
+commands.push(await run(csc,["--version"],commands.length));
 if(!commands.slice(4).every(c=>c.result.naturalWaitForExit&&c.result.stdoutEof&&c.result.stderrEof))throw new Error("first_custody_tool_command_incomplete");
 const roots={workspaceRoot:path.resolve(process.env.SERVICE_LASSO_WORKSPACE_ROOT),instanceRegistryPath:path.resolve(process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH),hostPortRegistryPath:path.resolve(process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH)},boundary=path.dirname(path.resolve(process.env.SERVICE_LASSO_WORKSPACE_ROOT));
 if(new Set(Object.values(roots)).size!==3||!Object.values(roots).every(p=>p.startsWith(boundary+path.sep)))throw new Error("first_custody_owned_root_invalid");
