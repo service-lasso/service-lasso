@@ -626,3 +626,9 @@ Issue #1326 parent-edge lifetime diagnostic follow-up binds AC-4BH: retain the 0
 | Status | Issue | Requirement / next action | Evidence boundary |
 | --- | --- | --- | --- |
 | In progress | [#1582](https://github.com/service-lasso/service-lasso/issues/1582) | Deliver `SPEC-009` Core-owned authenticated durable job transaction and the CLI PR #32 compiled client contract. | Fresh Core/CLI source branches, preserved failed native CI output, custody-gated direct compiled-client proof; no host activation, deployment, publication, or promotion. |
+
+## Closed packaged cleanup diagnostic child
+
+| Item | Status | Parent | Requirement | Remaining evidence |
+| --- | --- | --- | --- | --- |
+| ISS-1594 / TASK-1594 | in_progress | #864 / #1386; release #1577 | SPEC-006 AC-6G closed owned-temp cleanup observation | Spec-first source implementation and meaningful production-adapter regressions; fresh cumulative independent review; external complete-input ROOT admission before execution; exact-head three-OS MCP and relevant native/CLI/TUI acceptance. Original #1593 failed Windows jobs remain retained and cause UNOBSERVED. No lifetime, release or acceptance claim from this diagnostic repair. |
