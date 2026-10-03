@@ -24,7 +24,7 @@ export function decodeFixturePrivacyResponse(stdout) {
   if (typeof stdout !== "string") return undefined;
   // Fixed ordered bytes also reject duplicate keys and trailing output.
   const response = /^\{"schema":"service-lasso\.fixture-privacy-response\.v1","outcome":"(passed|failed)","operation":(null|"[a-z_]+")\}$/.exec(stdout);
-  if (!response) return undefined;
+  if (!response || response[0].length !== stdout.length) return undefined;
   if (response[1] === "passed" && response[2] === "null") return "passed";
   const operation = response[2].slice(1, -1);
   if (response[1] === "failed" && nativePrivacyOperations.includes(operation)) return operation;
