@@ -45,6 +45,10 @@ This repo is therefore the place where the real core behavior must live and cont
 
 ## Constraints
 
+- Unpatched docs-tool advisories are remediated through local versioned tooling copies with retained source/license provenance and direct regressions; audit thresholds remain unchanged (`SPEC-002 AC-4AJ.6`, #1612).
+
+- Documentation publication supports an explicit owner-authorized manual `Docs Site` run from `develop`, with `publish=true`, after existing audit, ledger and build gates through `github-pages` (`SPEC-002 AC-4AJ.5`, #1612). Ordinary develop pushes and PRs remain validation-only; automatic release-branch docs publication remains supported.
+
 - Windows tree-inspection diagnostics share the existing closed fourteen common keys; only a fully valid failure-specific partial-copy pair or ancestry quartet may add keys (SPEC-002 AC-4BH.3, #1590). Native receipts remain a separate strict two-key grammar; metadata never proves control or discloses raw native details. Source repair and review remain distinct from admitted execution and native qualification.
 
 - Hard-crash fixture failures before an intentional exit must retain only closed startup-phase and lifecycle metadata over a dedicated test IPC channel; never raw child output, error messages, paths or secrets (#1397, `SPEC-002 AC-4BJ.9a`). This adds observation, not retries or changed deadlines.
