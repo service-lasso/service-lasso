@@ -117,12 +117,15 @@ async function acquirePackageStageLock(outputRoot) {
   );
 }
 
-export async function withPackageStageLock(outputRoot, callback) {
-  const release = await acquirePackageStageLock(outputRoot);
+export async function withPackageStageLock(outputRoot, callback, resourceObservation) {
+  const release = resourceObservation
+    ? await resourceObservation.create(() => acquirePackageStageLock(outputRoot))
+    : await acquirePackageStageLock(outputRoot);
   try {
     return await callback();
   } finally {
-    await release();
+    if (resourceObservation) await resourceObservation.close(() => release());
+    else await release();
   }
 }
 
@@ -298,6 +301,8 @@ export async function stagePublishedPackage({
   // This test-only observer brackets the complete locked staging transaction.
   // It cannot alter staging or verification behavior.
   testOnlyStageObserver,
+  resourceObservation,
+  stageLockObservation,
 } = {}) {
   const metadataToken = releaseMetadataToken ?? consumeReleaseMetadataToken();
   return await withPackageStageLock(outputRoot, async () => {
@@ -339,6 +344,7 @@ export async function stagePublishedPackage({
 
       const packResult = await runNpmCommand(["pack"], {
         cwd: artifactRoot,
+        resourceObservation,
       });
 
       const packageArchiveName = packResult.stdout
@@ -363,7 +369,7 @@ export async function stagePublishedPackage({
     } finally {
       await testOnlyStageObserver?.({ phase: "leaving" });
     }
-  });
+  }, stageLockObservation);
 }
 
 export async function verifyPublishedPackage({

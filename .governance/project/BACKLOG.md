@@ -735,6 +735,7 @@ SOURCE GO and a NEW complete-input ROOT admission. Existing PR owners retain
 | ISS-1621 | in_progress, source only | U2/U3 first privacy refusal and actual recovered protected assertion | SPEC-002 AC-4BJ.9c.fixture-observation-v1 / AC-4BH.2 | Entire review and NEW ROOT pending; F7 private authority and U1 removal remain unresolved; original gates unchanged. |
 
 
+| ISS-1623 | in_progress source preparation | Complete packaged owning-resource lifetime observations | SPEC-006 AC-6G.owning-resource-observation | Spec review before code, different entire review and NEW ROOT; Windows/Linux direct package proof UNEXECUTED, owner unknown. |
 ## Durable two-OS release contract (#1619)
 
 [ADR-001](../decisions/ADR-001-two-os-release-evidence.md) and active [SPEC-008](../specs/SPEC-008-two-os-release-evidence.md) make the reviewed whole-chain migration concrete under SPEC-007 AC-7F/7G/7H. R1/R2 bind immutable policy and closed schema versions/keys; R3/R4 define custody and exact inventories; R5 binds workflow inputs/selectors/terminal gates; R6 requires real boundary denial/compatibility and direct proof; R7 retains unresolved blockers. The [canonical policy](ga-platform-scope.json) exact-byte SHA-256 is `159d644c161cf532c94d3bfe17ed55e32bf94c5d2843928945c450f6d8140c12`. Its actual commit/blob will be pinned from landed source, never guessed or caller-selected.
@@ -748,3 +749,5 @@ SOURCE GO and a NEW complete-input ROOT admission. Existing PR owners retain
 | #1562 native/operator/template delivery | SPEC-008 R6-R7 and original product requirements | blocked by retained current qualification defects; no blanket rerun authority |
 | CLI #30 Windows ZIP | SPEC-008 R4 / original CLI protected-native spec | UNMET; independently reviewed ZIP producer/consumer contract and direct Windows evidence required |
 | Actual protected publication/catalog pins | SPEC-008 R3/R7 / SPEC-007 AC-7G/7H | pending actual qualified immutable bytes/public readback and separate pins-only source review |
+
+#1623 F1 review repair: shared producer/relay boundary roles and command/awaited/transport families; contradictory canonical rows rejected, actual owning paths preserved. Source preparation only, current independent entire review and NEW ROOT remain pending.
