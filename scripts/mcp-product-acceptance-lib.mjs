@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { types } from "node:util";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -323,16 +324,102 @@ export async function supportedMcpVersions() {
   };
 }
 
+const RESOURCE_ROLES = new Set(["candidate_command", "provenance_command", "install_command", "pack_command", "consumer_command", "inspector_command", "http_server", "http_transport", "http_client", "stdio_transport", "stdio_client"]);
+const RESOURCE_STATUSES = new Set(["not_created", "creation_attempted", "created", "creation_rejected", "close_attempted", "close_resolved", "close_rejected", "exit_observed", "close_observed", "unavailable"]);
+const RESOURCE_SCHEMA = "service-lasso.owning-resource-observation.v1";
+const RESOURCE_PREFIX = "[owning-resource-observation] ";
+
+export function ownedCommandStderr(error) {
+  if (!error || typeof error !== "object" || types.isProxy(error)) return undefined;
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(error, "stderr");
+    return descriptor && "value" in descriptor && typeof descriptor.value === "string" ? descriptor.value : undefined;
+  } catch { return undefined; }
+}
+
+// Each factory belongs to one actual verifier/consumer invocation. It receives
+// no resource identity or exception and cannot grant acceptance authority.
+export function owningResourceObservations(boundary, report = value => process.stderr.write(value)) {
+  if (boundary !== "verifier" && boundary !== "consumer") throw new Error("Invalid resource observation boundary.");
+  let sequence = 0;
+  return role => {
+    if (!RESOURCE_ROLES.has(role) || sequence === 32) throw new Error("Invalid resource observation role.");
+    const ordinal = ++sequence;
+    let created = false;
+    const record = status => {
+      if (!RESOURCE_STATUSES.has(status)) return;
+      if (status === "created") created = true;
+      try { report(`${RESOURCE_PREFIX}${JSON.stringify({ schema: RESOURCE_SCHEMA, boundary, role, sequence: ordinal, status })}\n`); } catch { /* Observation must preserve the original result. */ }
+    };
+    record("not_created");
+    return Object.freeze({
+      record,
+      unavailableIfCreated() { if (created) record("unavailable"); },
+      async create(action) {
+        record("creation_attempted");
+        try { const resource = await action(); record("created"); return resource; }
+        catch (error) { record("creation_rejected"); throw error; }
+      },
+      async close(action) {
+        record("close_attempted");
+        try { const result = await action(); record("close_resolved"); return result; }
+        catch (error) { record("close_rejected"); throw error; }
+      },
+    });
+  };
+}
+
+// Consumer stderr is untrusted. Relay only this exact finite grammar; never
+// forward its surrounding output or let observations become evidence fields.
+export function relayOwningResourceObservations(serialized, report = value => process.stderr.write(value)) {
+  if (typeof serialized !== "string" || serialized.length > MAX_CAPTURE_BYTES) return;
+  let records = 0;
+  const roles = new Map();
+  const states = new Map();
+  for (const line of serialized.split("\n")) {
+    if (!line.startsWith(RESOURCE_PREFIX) || line.length > 512 || records === 256) continue;
+    let value;
+    try { value = JSON.parse(line.slice(RESOURCE_PREFIX.length)); } catch { continue; }
+    if (!value || Array.isArray(value) || Object.keys(value).sort().join(",") !== "boundary,role,schema,sequence,status" ||
+      value.schema !== RESOURCE_SCHEMA || value.boundary !== "consumer" || !RESOURCE_ROLES.has(value.role) ||
+      !RESOURCE_STATUSES.has(value.status) || !Number.isInteger(value.sequence) || value.sequence < 1 || value.sequence > 32) continue;
+    if (line !== RESOURCE_PREFIX + JSON.stringify(value)) continue;
+    if (roles.has(value.sequence) && roles.get(value.sequence) !== value.role) continue;
+    const prior = states.get(value.sequence);
+    const allowed = prior === undefined ? ["not_created"]
+      : prior === "not_created" ? ["creation_attempted"]
+      : prior === "creation_attempted" ? ["created", "creation_rejected"]
+      : prior === "created" ? ["creation_rejected", "close_attempted", "exit_observed", "close_observed", "unavailable"]
+      : prior === "close_attempted" ? ["close_resolved", "close_rejected"]
+      : prior === "close_resolved" || prior === "close_rejected" ? ["close_attempted", "unavailable"]
+      : prior === "exit_observed" || prior === "creation_rejected" ? ["close_observed", "unavailable"]
+      : prior === "unavailable" && value.role.endsWith("_command") ? ["exit_observed", "close_observed"] : [];
+    if (!allowed.includes(value.status) || (prior === undefined && value.sequence !== roles.size + 1)) continue;
+    roles.set(value.sequence, value.role);
+    states.set(value.sequence, value.status);
+    records++;
+    try { report(`${RESOURCE_PREFIX}${JSON.stringify(value)}\n`); } catch { /* Preserve verifier behavior. */ }
+  }
+}
+
 export async function runCommand(command, args, options = {}) {
   const timeoutMs = options.timeoutMs ?? 60_000;
   const closeWaitTimeoutMs = options.closeWaitTimeoutMs ?? 5_000;
+  const observeResource = status => { try { options.resourceObservation?.record(status); } catch { /* Preserve primary command behavior. */ } };
   return await new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
+    observeResource("creation_attempted");
+    let child;
+    try { child = spawn(command, args, {
       cwd: options.cwd ?? repoRoot,
       env: options.env ?? process.env,
       windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"],
-    });
+    }); } catch (error) {
+      observeResource("creation_rejected");
+      reject(error);
+      return;
+    }
+    observeResource("created");
     const stdout = [];
     const stderr = [];
     let stdoutBytes = 0;
@@ -396,13 +483,18 @@ export async function runCommand(command, args, options = {}) {
     };
     child.stdout.on("data", (chunk) => append(stdout, chunk, "stdout"));
     child.stderr.on("data", (chunk) => append(stderr, chunk, "stderr"));
-    child.once("error", (error) => failAfterClose(markRunCommandFailure(error, "spawn_failed")));
+    child.once("error", (error) => {
+      observeResource("creation_rejected");
+      failAfterClose(markRunCommandFailure(error, "spawn_failed"));
+    });
     child.once("exit", () => {
+      observeResource("exit_observed");
       rootExitObserved = true;
       if (terminationWaitTimer) clearTimeout(terminationWaitTimer);
       startCloseWait();
     });
     child.once("close", (code, signal) => {
+      observeResource("close_observed");
       const result = {
         code,
         signal,
@@ -430,6 +522,7 @@ export async function runCommand(command, args, options = {}) {
     function finish(error, result) {
       if (settled) return;
       settled = true;
+      if (!result?.closeObserved) observeResource("unavailable");
       clearTimeout(timer);
       if (closeWaitTimer) clearTimeout(closeWaitTimer);
       if (terminationWaitTimer) clearTimeout(terminationWaitTimer);
@@ -487,6 +580,7 @@ export async function runInspector({
   strict = false,
   timeoutMs = 60_000,
   env,
+  resourceObservation,
 }) {
   const nodeArgs = [
     await inspectorEntrypoint(),
@@ -505,7 +599,7 @@ export async function runInspector({
   if (toolName) nodeArgs.push("--tool-name", toolName);
   if (toolArgs !== undefined) nodeArgs.push("--tool-args-json", JSON.stringify(toolArgs));
   if (strict) nodeArgs.push("--strict");
-  const result = await runCommand(process.execPath, nodeArgs, { timeoutMs, env });
+  const result = await runCommand(process.execPath, nodeArgs, { timeoutMs, env, resourceObservation });
   const serialized = result.stdout.trim();
   if (!serialized) throw new Error("MCP Inspector returned no JSON output.");
   try {

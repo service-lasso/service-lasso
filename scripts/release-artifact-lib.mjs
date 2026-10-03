@@ -363,10 +363,15 @@ async function acquireBundledServices({
 
 export function runCommand(command, args, options = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
+    const { resourceObservation, ...spawnOptions } = options;
+    const observeResource = status => { try { resourceObservation?.record(status); } catch { /* Preserve original command result. */ } };
+    observeResource("creation_attempted");
+    let child;
+    try { child = spawn(command, args, {
       stdio: ["ignore", "pipe", "pipe"],
-      ...options,
-    });
+      ...spawnOptions,
+    }); } catch (error) { observeResource("creation_rejected"); reject(error); return; }
+    observeResource("created");
 
     let stdout = "";
     let stderr = "";
@@ -379,8 +384,10 @@ export function runCommand(command, args, options = {}) {
       stderr += chunk.toString();
     });
 
-    child.on("error", reject);
+    child.on("error", error => { observeResource("creation_rejected"); reject(error); });
+    child.on("exit", () => observeResource("exit_observed"));
     child.on("close", (code) => {
+      observeResource("close_observed");
       if (code === 0) {
         resolve({ stdout, stderr });
         return;

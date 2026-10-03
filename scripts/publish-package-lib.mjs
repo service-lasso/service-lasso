@@ -298,6 +298,7 @@ export async function stagePublishedPackage({
   // This test-only observer brackets the complete locked staging transaction.
   // It cannot alter staging or verification behavior.
   testOnlyStageObserver,
+  resourceObservation,
 } = {}) {
   const metadataToken = releaseMetadataToken ?? consumeReleaseMetadataToken();
   return await withPackageStageLock(outputRoot, async () => {
@@ -339,6 +340,7 @@ export async function stagePublishedPackage({
 
       const packResult = await runNpmCommand(["pack"], {
         cwd: artifactRoot,
+        resourceObservation,
       });
 
       const packageArchiveName = packResult.stdout
