@@ -72,13 +72,15 @@ test("startup path collector is invocation-local, finite, private and failure-ne
     const original = new Proxy({}, { get() { throw new Error("PRIVATE-ERROR-GETTER"); } });
     let failure;
     let calls = 0;
-    await assert.rejects(withFixtureStartupPathForTests({ serviceId: "matrix-service", observe: record => {
+    let rejected;
+    try { await withFixtureStartupPathForTests({ serviceId: "matrix-service", observe: record => {
       failure = record; if (calls++ === 0) throw original;
     } }, async () => {
       observeFixtureStartupPath("enrollment", "managed", "matrix-service");
       observeFixtureStartupPath("readiness", "reached");
       throw original;
-    }), error => error === original);
+    }); } catch (error) { rejected = error; }
+    assert.equal(rejected, original);
     assert.equal(failure.complete, false);
     assert.deepEqual(failure.events.at(-1), { sequence: 2, boundary: "observation", result: "failed" });
     delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;

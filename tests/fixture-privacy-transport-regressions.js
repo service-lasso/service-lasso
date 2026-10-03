@@ -75,8 +75,11 @@ export function registerFixturePrivacyTransportTests() {
       });
       return child;
     };
+    let rejected;
     try {
-      await assert.rejects(runFixturePrivacy("PRIVATE-ROOT", false, (_result, record) => { witness = record; throw original; }, launch), error => error === original);
+      try { await runFixturePrivacy("PRIVATE-ROOT", false, (_result, record) => { witness = record; throw original; }, launch); }
+      catch (error) { rejected = error; }
+      assert.equal(rejected, original);
     } finally {
       if (priorSystemRoot === undefined) delete process.env.SystemRoot; else process.env.SystemRoot = priorSystemRoot;
     }
