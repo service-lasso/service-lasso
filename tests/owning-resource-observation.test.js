@@ -133,3 +133,20 @@ test("nested staging command uses actual release command exit/close and preserve
     assert.equal(output.includes("private"),false);
   }
 });
+test("actual staging lock finally records release without changing callback/release precedence",async()=>{
+  const source=await readFile(new URL("../scripts/publish-package-lib.mjs",import.meta.url),"utf8");
+  const body=source.slice(source.indexOf("export async function withPackageStageLock("),source.indexOf("function buildPublishedPackageJson("));
+  for(const fail of ["acquire","callback","release","both","none"]) {
+    let output="";const resourceObservation=owningResourceObservations("verifier",value=>{output+=value;})("stage_lock");
+    const primary=Object.create(null);const releaseFailure=Object.create(null);let releases=0;
+    const run=new Function("acquirePackageStageLock",body.replace("export async function","async function")+";return withPackageStageLock;")(async()=>{
+      if(fail === "acquire")throw primary;
+      return async()=>{releases++;if(["release","both"].includes(fail))throw releaseFailure;};
+    });
+    let caught;try{await run("private",async()=>{if(["callback","both"].includes(fail))throw primary;return "passed";},resourceObservation);}catch(error){caught=error;}
+    assert.equal(caught,["release","both"].includes(fail) ? releaseFailure : ["acquire","callback"].includes(fail) ? primary : undefined);
+    assert.equal(releases,fail === "acquire" ? 0 : 1);
+    assert.deepEqual(decode(output).map(row=>row.status),fail === "acquire" ? ["not_created","creation_attempted","creation_rejected"] : ["not_created","creation_attempted","created","close_attempted",["release","both"].includes(fail) ? "close_rejected" : "close_resolved"]);
+    assert.equal(output.includes("private"),false);
+  }
+});

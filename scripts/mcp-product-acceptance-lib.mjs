@@ -324,7 +324,7 @@ export async function supportedMcpVersions() {
   };
 }
 
-const RESOURCE_ROLES = new Set(["candidate_command", "provenance_command", "install_command", "pack_command", "consumer_command", "inspector_command", "http_server", "http_transport", "http_client", "stdio_transport", "stdio_client"]);
+const RESOURCE_ROLES = new Set(["candidate_command", "provenance_command", "install_command", "pack_command", "stage_lock", "consumer_command", "inspector_command", "http_server", "http_transport", "http_client", "stdio_transport", "stdio_client"]);
 const RESOURCE_STATUSES = new Set(["not_created", "creation_attempted", "created", "creation_rejected", "close_attempted", "close_resolved", "close_rejected", "exit_observed", "close_observed", "unavailable"]);
 const RESOURCE_SCHEMA = "service-lasso.owning-resource-observation.v1";
 const RESOURCE_PREFIX = "[owning-resource-observation] ";

@@ -132,7 +132,7 @@ test("real verifier finalization preserves primary failure and makes success fol
         inspector: { version: "2.4.0" }, packagedRuntime: {}, canonical: {}, coverage: {}, assertions: {},
       };
       const context = {
-        path, createHash, ownedCommandStderr, relayOwningResourceObservations, packObservation: undefined, installObservation: undefined, consumerObservation: undefined, packagedVerificationDiagnostic, dependencyAcquisitionReceipt,
+        path, createHash, ownedCommandStderr, relayOwningResourceObservations, packObservation: undefined, stageLockObservation: undefined, installObservation: undefined, consumerObservation: undefined, packagedVerificationDiagnostic, dependencyAcquisitionReceipt,
         runCommandFailureKind: () => "unknown", ownPackagedAcceptanceDiagnostic, ownedTempCleanupObservation,
         operatorToolFailureDiagnostic: () => undefined, releaseMetadataToken: undefined,
         tempRoot: "private-owned-root", consumerRoot, servicesRoot: "private-services",

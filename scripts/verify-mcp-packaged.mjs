@@ -23,6 +23,7 @@ const allocateResource = owningResourceObservations("verifier");
 const candidateObservation = allocateResource("candidate_command");
 const provenanceObservations = Array.from({ length: 4 }, () => allocateResource("provenance_command"));
 const packObservation = allocateResource("pack_command");
+const stageLockObservation = allocateResource("stage_lock");
 const installObservation = allocateResource("install_command");
 const consumerObservation = allocateResource("consumer_command");
 let provenanceOrdinal = 0;
@@ -224,7 +225,7 @@ try {
   ]);
   const serviceId = await writeCanonicalService(servicesRoot);
   verificationStage = "package_staging";
-  const staged = await stagePublishedPackage({ repoRoot, outputRoot: packageOutputRoot, version, releaseMetadataToken, resourceObservation: packObservation });
+  const staged = await stagePublishedPackage({ repoRoot, outputRoot: packageOutputRoot, version, releaseMetadataToken, resourceObservation: packObservation, stageLockObservation });
   const packageArchiveBytes = await readFile(staged.packageArchivePath);
   const packageArchiveSha256 = createHash("sha256").update(packageArchiveBytes).digest("hex");
   await writeFile(path.join(consumerRoot, "package.json"), `${JSON.stringify({ private: true, type: "module" }, null, 2)}\n`);
