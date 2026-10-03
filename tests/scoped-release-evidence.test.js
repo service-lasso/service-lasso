@@ -18,6 +18,8 @@ import { requireScopedTechnicalAuthority } from "../scripts/scoped-technical-aut
 import { verifyDevelopmentCandidateUpload } from "../scripts/verify-development-candidate-upload-scoped.mjs";
 import { readVerifiedDevelopmentCandidate } from "../scripts/verify-development-candidate-artifact-scoped.mjs";
 import { verifyPublishedPackageQualificationArtifacts } from "../scripts/verify-published-package-qualification-artifacts-scoped.mjs";
+import { verifyPackagedAdminLifecycleArtifactsScoped } from "../scripts/verify-packaged-admin-lifecycle-artifacts-scoped.mjs";
+import { writeFileSync } from "node:fs";
 import { readOriginalMetadataArtifact } from "../scripts/scoped-metadata-artifact-lib.mjs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { gunzipSync, gzipSync } from "node:zlib";
@@ -511,4 +513,83 @@ test("final protected publisher requires only its environment credential and wor
   const script = await readFile(new URL("../scripts/publish-scoped-release.mjs", import.meta.url), "utf8");
   assert.match(script, /const token = requireScopedPublisherCredential\(\)/);
   assert.doesNotMatch(script, /process\.env\.GITHUB_TOKEN/);
+});
+
+test("actual scoped Admin original ZIP caller retains both-platform buffers through semantics and wrapper refs", async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "admin-original-bridge-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const prefix = `/repos/${source.repository}`, routes = new Map(), artifacts = [], jobs = [], members = [];
+  const receipt = { schema: "service-lasso.admin-trusted-unlock-consumer.v1", outcome: "success", exitCode: 0, signal: null, trustedUnlock: { classification: "not_emitted" } };
+  for (const [index, platform] of ["win32", "linux"].entries()) {
+    const { expected } = publishedEvidence(platform);
+    const release = value => ({ revision: value.revision, releaseId: value.id, tag: value.tag, asset: value.platforms[platform].asset, sha256: value.platforms[platform].sha256, checksumSource: "SHA256SUMS.txt" });
+    const evidence = { schema: "service-lasso.packaged-admin-lifecycle.v1", retainedContent: "metadata_only", outcome: "success", platform,
+      core: { revision: source.commit }, admin: release(ADMIN_RELEASE), broker: release(BROKER_RELEASE),
+      adminHarness: { repository: "service-lasso/lasso-serviceadmin", revision: ADMIN_HARNESS_REVISION },
+      browser: { modes: platform === "win32" ? ["first_run", "comprehensive_lifecycle", "stopped_lifecycle", "local_operator_lockout"] : ["first_run", "comprehensive_lifecycle", "stopped_lifecycle"], mutationRetry: false, capturesRetained: false, sensitiveEvidenceRetained: false },
+      run: { id: "20", attempt: "2", candidateSha: source.commit, eventSha: source.commit }, consumer: { attempt: "real_browser", ...receipt } };
+    const held = new Map([[`packaged-admin-lifecycle-${platform}.json`, json(evidence)], ["admin-trusted-unlock-receipt.json", json(receipt)], ["initial-projection.json", json(expected.initialProjection)]]);
+    const bytes = zipMembers(held), artifact = fixtureArtifact(7 + index, `packaged-admin-lifecycle-${platform}-20-2`, bytes);
+    artifacts.push(artifact); jobs.push(fixtureJob(101 + index, `packaged-admin-lifecycle (${platform})`));
+    routes.set(`${prefix}/actions/artifacts/${artifact.id}/zip`, bytes);
+    await writeMembers(path.join(root, artifact.name), held); members.push({ held, artifact, platform });
+  }
+  routes.set(`${prefix}/actions/runs/20/artifacts?per_page=100`, { total_count: 2, artifacts });
+  routes.set(`${prefix}/actions/runs/20/attempts/2/jobs?per_page=100`, { total_count: 2, jobs });
+  routes.set(`${prefix}/actions/runs/20`, { head_sha: source.commit, run_attempt: 2, path: ".github/workflows/packaged-admin-lifecycle-scoped.yml" });
+  entrypointContext(t, { ...baseEntrypointEnv(), GITHUB_TOKEN: "finite-fixture", QUALIFICATION_CANDIDATE_SHA: source.commit, PACKAGED_ARTIFACTS_ROOT: root }, routes);
+  const output = path.join(root, "scoped-admin-qualification.json");
+  const invoke = async () => { await rm(output, { force: true }); return verifyPackagedAdminLifecycleArtifactsScoped(); };
+  const first = members[0], metadataName = "packaged-admin-lifecycle-win32.json", location = path.join(root, first.artifact.name, metadataName);
+  const originalRefs = (await invoke()).receipts;
+  assert.deepEqual(originalRefs.map(ref => ref.sha256), members.map(member => digest(member.held.get(`packaged-admin-lifecycle-${member.platform}.json`))));
+  // Fetching the second ZIP occurs after the first platform's complete byte
+  // comparison. Replace its downloaded set by a separately coherent set B.
+  const replacement = new Map(first.held), projectionB = JSON.parse(replacement.get("initial-projection.json"));
+  projectionB.privateJournalSha256 = "e".repeat(64); replacement.set("initial-projection.json", json(projectionB));
+  replacement.set(metadataName, Buffer.concat([replacement.get(metadataName), Buffer.from(" \n")]));
+  let mutateAfterCompare = true;
+  const fetchBeforeRace = globalThis.fetch;
+  t.mock.method(globalThis, "fetch", async (...args) => {
+    if (mutateAfterCompare && new URL(args[0]).pathname.endsWith("/artifacts/8/zip")) {
+      mutateAfterCompare = false;
+      await writeMembers(path.join(root, first.artifact.name), replacement);
+    }
+    return fetchBeforeRace(...args);
+  });
+  assert.deepEqual((await invoke()).receipts, originalRefs);
+  assert.equal(mutateAfterCompare, false);
+  await writeMembers(path.join(root, first.artifact.name), first.held);
+  // The terminal-job selector runs after all strict held-body semantics. A
+  // deterministic fixture intercepts that selector to replace metadata by C.
+  const filter = Array.prototype.filter;
+  let replacedAfterValidation = false;
+  const filterMock = t.mock.method(Array.prototype, "filter", function (...args) {
+    const result = Reflect.apply(filter, this, args);
+    if (!replacedAfterValidation && this.length === 2 && this[0]?.id === 101 && this[0]?.name === "packaged-admin-lifecycle (win32)") {
+      replacedAfterValidation = true; writeFileSync(location, Buffer.alloc(first.held.get(metadataName).length, 0x43));
+    }
+    return result;
+  });
+  assert.deepEqual((await invoke()).receipts, originalRefs);
+  assert.equal(replacedAfterValidation, true); filterMock.mock.restore();
+  await writeMembers(path.join(root, first.artifact.name), first.held);
+  await writeFile(location, Buffer.from("substitution"));
+  await assert.rejects(invoke(), /original metadata differs/);
+  await writeMembers(path.join(root, first.artifact.name), first.held);
+  routes.set(`${prefix}/actions/artifacts/7/zip`, zipMembers(replacement));
+  await assert.rejects(invoke(), /original metadata artifact body/);
+  const extra = new Map(first.held); extra.set("unexpected.json", json({ extra: true }));
+  const extraZip = zipMembers(extra); first.artifact.digest = `sha256:${digest(extraZip)}`; routes.set(`${prefix}/actions/artifacts/7/zip`, extraZip);
+  await assert.rejects(invoke(), /declared inventory/);
+  const invalid = new Map(first.held); invalid.set("initial-projection.json", Buffer.from([0xff]));
+  const invalidZip = zipMembers(invalid); first.artifact.digest = `sha256:${digest(invalidZip)}`; routes.set(`${prefix}/actions/artifacts/7/zip`, invalidZip);
+  await writeMembers(path.join(root, first.artifact.name), invalid);
+  await assert.rejects(invoke(), /encoded data|encoding|UTF-8/);
+  const failed = new Map([["initial-projection.json", first.held.get("initial-projection.json")], ["admin-trusted-unlock-prebrowser-failure.json", json({ schema: "service-lasso.admin-trusted-unlock-prebrowser-failure.v1", outcome: "failure", platform: "win32", stage: "isolated_install", run: { id: 20, attempt: 2 } })]]);
+  const failedZip = zipMembers(failed); first.artifact.digest = `sha256:${digest(failedZip)}`; routes.set(`${prefix}/actions/artifacts/7/zip`, failedZip); jobs[0].conclusion = "failure";
+  await rm(path.join(root, first.artifact.name), { recursive: true }); await writeMembers(path.join(root, first.artifact.name), failed);
+  await assert.rejects(invoke(), /prebrowser evidence retains failure and cannot qualify/);
+  jobs[0].conclusion = "success";
+  await assert.rejects(invoke(), /matching terminal failed job/);
 });
