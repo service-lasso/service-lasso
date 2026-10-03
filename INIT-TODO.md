@@ -210,3 +210,9 @@ SOURCE GO and a NEW complete-input ROOT admission. Existing PR owners retain
 - #1612 / PR #1615: explicit owner-authorized develop documentation publication is verified at `7d6f1ce6c244543c65b0efac2218c6f8dc456bc0`, Docs Site run `37140638976`. Live source receipt, current contributor instructions, three pages and CSS/JS assets read back successfully. Tooling advisories are locally patched with upstream provenance and 14 direct regressions; audit gates remain unchanged. Native runtime-qualification failures are retained separately in the issue; this receipt makes no runtime release or GA claim.
 
 - [ ] #1622 / SPEC-002 AC-4BH.4: prepare attempt-coherent JS diagnostics using compatible stale optional omission. Preserve native helper bytes and public schemas; require fresh entire source review and NEW complete-input ROOT before parser/import/build/test/native execution. Actual Windows case66/native partial-copy proof remains unexecuted.
+
+## #1619 two-OS durable contract remediation
+- [ ] Land independently reviewed [ADR-001](.governance/decisions/ADR-001-two-os-release-evidence.md) and active [SPEC-008 R1-R7](.governance/specs/SPEC-008-two-os-release-evidence.md), with exact source-owned policy custody, closed evidence migrations, inventories and workflow mappings.
+- [ ] #1613: implement coherent reader-first Core/CLI/TUI/template propagation in separately owned branches after satellite spec mapping, entire final-source review and NEW complete-input admission.
+- [ ] CLI #30: resolve separately UNMET Windows ZIP through reviewed producer/consumer delivery and direct Windows proof; Core ZIP/CLI TAR are not substitutes.
+- [ ] #1562: resolve retained Windows/Linux runtime/native/cleanup/input/private custody gaps, then actual immutable publication/public byte readback, separate approved catalog pins, same-byte Core/npm and terminal published qualification. Empty catalogs and original failures stay retained; Darwin deferred never PASS.
