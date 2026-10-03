@@ -17,8 +17,8 @@ function Record-Failure($errorRecord) {
     $script:firstFailure=$script:operation
     if($script:operation -ne 'compiler' -and ('FixturePrivacy' -as [type])) { $script:firstFailure=[FixturePrivacy]::Operation }
   }
-  // These original ErrorRecords remain child-private. The enum channel cannot
-  // transfer raw custody when initialization privacy itself was rejected.
+  # These original ErrorRecords remain child-private. The enum channel cannot
+  # transfer raw custody when initialization privacy itself was rejected.
   $script:privateErrors.Add($errorRecord)
 }
 try {
@@ -168,8 +168,8 @@ function Verify-Names {
     } catch { Record-Failure $_; throw }
     finally { try { [FixturePrivacy]::Operation='release'; $h.Dispose() } catch { Record-Failure $_; throw } }
   }
-  // Enumerate only approved held directories, never recursively follow a new
-  // name/reparse entry. Additional names reject before any mutation/writes.
+  # Enumerate only approved held directories, never recursively follow a new
+  # name/reparse entry. Additional names reject before any mutation/writes.
   [FixturePrivacy]::Operation='inventory'
   $names=@($held | Where-Object Directory | ForEach-Object { [System.IO.Directory]::EnumerateFileSystemEntries($_.Path) } | Sort-Object)
   $expected=@($held | Where-Object Path -ne $root | ForEach-Object Path | Sort-Object)
@@ -183,7 +183,7 @@ try {
   $entry=Acquire $root $true $protect; $held.Add($entry); [FixturePrivacy]::Operation='type'; if(-not $entry.Directory) { throw 'Unsupported original' }
   Acquire-Children $root
   Verify-Names
-  // Every original prior owner/no-reparse check completed before first change.
+  # Every original prior owner/no-reparse check completed before first change.
   if($protect) { foreach($entry in $held) { [FixturePrivacy]::Protect($entry.Handle,$sid,$entry.Directory) } }
   foreach($entry in $held) { [FixturePrivacy]::Verify($entry.Handle,$sid,($entry.Path -eq $root)) }
   Verify-Names
