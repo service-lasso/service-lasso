@@ -1,5 +1,7 @@
 # Project Intent
 
+PR1638 scoped npm argv correction (#1626, 85ca successor) is Development source-only under SPEC-008 R3/R5/R6. Sole author accepts the clean retained feature/1626-two-os-core-release-evidence branch as the bounded open-PR recovery exception. Preserve the verified archive as data argv using the landed canonical npm descriptor and force shell:false/windowsVerbatimArguments:false after options; retain original scoped command/error/output/close/retry/first-failure semantics and all protected consumer gates. Authored regressions are UNEXECUTED pending a different fresh ENTIRE cumulative review and NEW complete-input ROOT admission. All R1-R7/F1/F2/F3/R5, EMPTY catalogs, prior failed/private evidence and owner exact-candidate GA authority remain required; parent owns provider CodeQL19 conversation disposition and tracking/landing.
+
 
 ## Current GA applicability (2026-10-04, #1613)
 

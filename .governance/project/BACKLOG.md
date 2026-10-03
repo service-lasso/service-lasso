@@ -1,5 +1,7 @@
 # Backlog
 
+PR1638 #1626 scoped npm argv correction (85ca successor): in_progress, SPEC-008 R3/R5/R6. Replace only the owned scoped preparer's cmd-string npm boundary with the landed canonical descriptor; preserve caller options, original Error/output/close behavior, one pre-mutation retry and first failure. Add actual receiving-child/legal-hostile-root/env override/integrity/installed-fixture and failure regressions without weakening protected gates. Sources UNEXECUTED; different ENTIRE cumulative review and NEW complete-input ROOT admission remain pending. R1-R7/F1/F2/F3/R5, EMPTY catalogs, prior failures/private evidence/native and owner GA gates remain required. Parent retains CodeQL19 conversation disposition and tracking/landing.
+
 
 ## Current GA applicability (2026-10-04, #1613)
 

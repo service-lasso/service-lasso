@@ -1,5 +1,7 @@
 ## Summary
 
+For #1626 PR1638 scoped npm argv correction, bind SPEC-008 R3/R5/R6 and preserve original caller options/Error/output/close/retry/first-failure plus protected installed-consumer gates. Source regressions remain UNEXECUTED until a different fresh ENTIRE cumulative review and NEW complete-input ROOT admission. Record CodeQL19 conversation as parent-owned pending disposition; source correction grants no dismissal, resolution, bypass, native acceptance or GA claim.
+
 - describe the governed change
 - link the active spec and any issue/task IDs
 

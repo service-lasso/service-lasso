@@ -1,5 +1,7 @@
 # Bootstrap Adoption TODO
 
+PR1638 #1626 scoped npm argv correction (85ca successor), SPEC-008 R3/R5/R6: active source-only remediation on the clean retained issue branch. Canonical npm descriptor and post-options shell:false/windowsVerbatimArguments:false must preserve the actual integrity-verified archive argument and original scoped command/retry/first-failure contract. Regression sources are UNEXECUTED; different ENTIRE cumulative review and NEW complete-input ROOT admission precede any execution. Preserve R1-R7/F1/F2/F3/R5, EMPTY catalogs, all original failures/private evidence and release authority. Parent owns CodeQL19 conversation and provider disposition; no settings, dispatch, merge, main access or cleanup.
+
 
 ## Current GA applicability (2026-10-04, #1613)
 
