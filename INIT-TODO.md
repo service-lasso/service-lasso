@@ -217,6 +217,7 @@ SOURCE GO and a NEW complete-input ROOT admission. Existing PR owners retain
 - [ ] #1613: implement coherent reader-first Core/CLI/TUI/template propagation in separately owned branches after satellite spec mapping, entire final-source review and NEW complete-input admission.
 - [ ] CLI #30: resolve separately UNMET Windows ZIP through reviewed producer/consumer delivery and direct Windows proof; Core ZIP/CLI TAR are not substitutes.
 - [ ] #1562: resolve retained Windows/Linux runtime/native/cleanup/input/private custody gaps, then actual immutable publication/public byte readback, separate approved catalog pins, same-byte Core/npm and terminal published qualification. Empty catalogs and original failures stay retained; Darwin deferred never PASS.
+- [ ] #1632 prepare coherent source+regression contract for AC-4BJ.9c v2/startup v1 and AC-4BH.2 native exclusions; execution deferred to different entire review and new complete-input ROOT.
 
 
 - [ ] #1622 F1: independently review cumulative one-time guarded message/reason acquisition and authored retryable native-getter/unreadable-message regressions; NEW ROOT before execution. Original failures remain retained.

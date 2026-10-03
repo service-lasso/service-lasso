@@ -22,6 +22,8 @@ function Record-Failure($errorRecord) {
   $script:privateErrors.Add($errorRecord)
 }
 try {
+Emit-FixtureFrame 'compiler_enter'
+try {
 Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
@@ -114,11 +116,17 @@ public static class FixturePrivacy {
   }
 }
 '@ 2>$null
+} catch { Emit-FixtureFrame 'compiler_failed'; throw }
+Emit-FixtureFrame 'compiler_ok'
 $operation='prepare'; [FixturePrivacy]::Operation='prepare'
 $root=[System.IO.Path]::GetFullPath($env:SERVICE_LASSO_FIXTURE_EVIDENCE_ROOT)
 $sid=[System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 $protect=$env:SERVICE_LASSO_FIXTURE_EVIDENCE_PROTECT -eq '1'
 function Acquire($p,$isOriginal,$mutate) {
+  if(-not $script:fixtureNativeEntered) {
+    $script:fixtureNativeEntered=$true
+    Emit-FixtureFrame 'native_enter_acquire'
+  }
   $h=[FixturePrivacy]::Open($p,$mutate)
   try {
     $i=[FixturePrivacy]::Information($h)

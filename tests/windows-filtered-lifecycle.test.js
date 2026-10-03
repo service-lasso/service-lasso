@@ -27,8 +27,68 @@ async function postJson(url, body, headers = {}) {
   return { status: response.status, body: await response.json() };
 }
 
-for (const mode of ["managed", "adopted", "managed-root-exit", "adopted-root-exit"]) {
-  test(`Windows filtered ${mode} lifecycle retains restriction after an unfiltered refresh`, { skip: process.platform !== "win32" }, async () => {
+test("Windows rejected initial tree persists native exclusions through emergency startup containment", {
+  skip: process.platform !== "win32", timeout: 120_000,
+}, async () => {
+  const previous = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+  process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-excluded-emergency-");
+  const serviceId = "excluded-emergency";
+  await writeExecutableFixtureService(servicesRoot, serviceId);
+  const sentinel = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore", windowsHide: true });
+  const closed = new Promise(resolve => sentinel.once("close", resolve));
+  let snapshots = 0;
+  let controls = 0;
+  let reader;
+  try {
+    await new Promise((resolve, reject) => { sentinel.once("spawn", resolve); sentinel.once("error", reject); });
+    const sentinelInspection = await inspectProcess(sentinel.pid);
+    assert.equal(sentinelInspection.status, "running");
+    setManagedProcessEnrollmentHookForTests(null, (id, read) => { if (id === serviceId) reader = read; });
+    setManagedWindowsTreeInspectorForTests(async (root, options) => {
+      const actual = await inspectWindowsProcessTree(root, options);
+      snapshots++;
+      return snapshots === 1
+        ? { ...actual, rootStatus: "exited", members: [], verifiedMembersOnly: true, excludedMemberPids: [sentinel.pid] }
+        : { ...actual, members: [...actual.members, sentinelInspection.identity] };
+    });
+    setManagedProcessTreeTerminatorForTests(async (target, timeoutMs, dependencies) => {
+      controls++;
+      assert.equal(timeoutMs <= 5_000, true);
+      assert.equal(target.verifiedMembersOnly, true);
+      assert.equal(target.knownMembers.some(member => member.pid === sentinel.pid), false);
+      await assert.rejects(dependencies.inspectProcess(sentinel.pid), /control excludes/);
+      return await terminateOwnedProcessTree(target, timeoutMs, {
+        ...dependencies,
+        runWindowsCommand: async () => { throw new Error("Emergency containment must never use taskkill /T."); },
+      });
+    });
+    const [service] = await discoverServices(servicesRoot);
+    await assert.rejects(startManagedProcess({ service, executionPlan: createDirectExecutionPlan(service.manifest), workspaceRoot }), /root exited during ownership enrollment/);
+    assert.equal(snapshots >= 3, true);
+    assert.equal(controls, 1);
+    assert.equal(typeof reader, "function");
+    assert.equal(reader().some(member => member.pid === sentinel.pid), false);
+    assert.equal((await inspectProcess(sentinel.pid)).status, "running");
+    assert.equal(hasManagedProcess(serviceId), false);
+    const ownership = await findProcessOwnership(workspaceRoot, "service", serviceId);
+    assert.equal(ownership.lifecycleState, "stopped"); assert.equal(ownership.pid, null);
+  } finally {
+    setManagedProcessEnrollmentHookForTests(null);
+    setManagedProcessTreeTerminatorForTests(null);
+    setManagedWindowsTreeInspectorForTests(null);
+    await stopManagedProcess(serviceId, 5_000).catch(() => null);
+    await waitForManagedProcessFinalization(serviceId, Date.now() + 5_000).catch(() => null);
+    if (sentinel.exitCode === null) sentinel.kill("SIGKILL");
+    await closed;
+    if (previous === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS; else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = previous;
+    resetLifecycleState();
+    await rm(tempRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});
+
+for (const earlyRefresh of [false, true]) for (const mode of ["managed", "adopted", "managed-root-exit", "adopted-root-exit"]) {
+  test(`Windows filtered ${mode} lifecycle retains restriction after an unfiltered refresh${earlyRefresh ? " including enrollment" : ""}`, { skip: process.platform !== "win32" }, async () => {
     const priorHooks = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
     process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
     const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot(`service-lasso-filtered-${mode}-`);
@@ -42,7 +102,7 @@ for (const mode of ["managed", "adopted", "managed-root-exit", "adopted-root-exi
     let snapshots = 0;
     let controls = 0;
     let custodyReader;
-    let unfilteredDiscovery = false;
+    let unfilteredDiscovery = earlyRefresh;
     try {
       setManagedProcessEnrollmentHookForTests(null, (id, read) => { if (id === serviceId) custodyReader = read; }, () => assert.fail("Fixture observation failed."));
       await new Promise((resolve, reject) => { sentinel.once("spawn", resolve); sentinel.once("error", reject); });
@@ -68,6 +128,7 @@ for (const mode of ["managed", "adopted", "managed-root-exit", "adopted-root-exi
         assert.equal(target.verifiedMembersOnly, true);
         if (mode.endsWith("root-exit")) assert.equal(target.rootExitObserved, true);
         assert.equal(target.knownMembers.some(member => member.pid === sentinel.pid), false);
+        if (earlyRefresh) await assert.rejects(dependencies.inspectProcess(sentinel.pid), /control excludes/);
         const started = Date.now();
         const phases = [];
         try {
@@ -120,7 +181,7 @@ for (const mode of ["managed", "adopted", "managed-root-exit", "adopted-root-exi
         while (snapshots === baseline && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 25));
         assert.ok(snapshots > baseline);
         assert.equal(custodyReader().some(member => member.pid === sentinel.pid), false);
-        unfilteredDiscovery = false;
+        unfilteredDiscovery = earlyRefresh;
       }
       if (mode.endsWith("root-exit")) {
         process.kill(managedHandle?.pid ?? adoptedChild.pid, "SIGKILL");
