@@ -748,3 +748,5 @@ SOURCE GO and a NEW complete-input ROOT admission. Existing PR owners retain
 | #1562 native/operator/template delivery | SPEC-008 R6-R7 and original product requirements | blocked by retained current qualification defects; no blanket rerun authority |
 | CLI #30 Windows ZIP | SPEC-008 R4 / original CLI protected-native spec | UNMET; independently reviewed ZIP producer/consumer contract and direct Windows evidence required |
 | Actual protected publication/catalog pins | SPEC-008 R3/R7 / SPEC-007 AC-7G/7H | pending actual qualified immutable bytes/public readback and separate pins-only source review |
+
+| `ISS-1633` | `in_review` | Record complete canonical source-admission durable contract | `SPEC-002 AC-4CF.1b`; `SPEC-006 AC-6E.SA1`; CA01..CA08 | Coordinated CLI #37/TC01..TC12, pending Core PR1631/CLI PR36 register. Fresh entire durable review and develop landing before product authors; source/native/immutable tuple/provider/key/remote running-service gates remain incomplete, fail closed. |

@@ -215,3 +215,5 @@ SOURCE GO and a NEW complete-input ROOT admission. Existing PR owners retain
 - [ ] #1613: implement coherent reader-first Core/CLI/TUI/template propagation in separately owned branches after satellite spec mapping, entire final-source review and NEW complete-input admission.
 - [ ] CLI #30: resolve separately UNMET Windows ZIP through reviewed producer/consumer delivery and direct Windows proof; Core ZIP/CLI TAR are not substitutes.
 - [ ] #1562: resolve retained Windows/Linux runtime/native/cleanup/input/private custody gaps, then actual immutable publication/public byte readback, separate approved catalog pins, same-byte Core/npm and terminal published qualification. Empty catalogs and original failures stay retained; Darwin deferred never PASS.
+
+- [ ] #1633/#37: entire coordinated durable contract review and develop landing, integrating separately owned PR1631/CLI36 after their landing; then whole CA01..CA08/TC01..TC12 source authors, different entire source review and NEW complete-input native admission. Missing original immutable tuple/catalog/provider/key/native capabilities remain fail-closed; no doc claim completes delivery.
