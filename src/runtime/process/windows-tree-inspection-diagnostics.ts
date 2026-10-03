@@ -94,6 +94,8 @@ export function projectWindowsTreeInspectionMetadata(value: unknown): WindowsTre
     }
     const commandQueryHeldHandleState = metadata.windowsTreeInspectionCommandQueryHeldHandleState;
     const commandQueryArchitectureRelation = metadata.windowsTreeInspectionCommandQueryArchitectureRelation;
+    // Optional as a pair: the producer omits stale receipts. Reprojection must
+    // never reconstruct them from a historical last-retry category.
     if (
       (reason === "root_command_partial_copy" || reason === "descendant_command_partial_copy") &&
       typeof commandQueryHeldHandleState === "string" && commandQueryHeldHandleStates.has(commandQueryHeldHandleState) &&
