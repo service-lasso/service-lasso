@@ -2,21 +2,86 @@ import { mkdir, lstat, mkdtemp, open, readFile, readdir, realpath, writeFile } f
 import { constants } from "node:fs";
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import path from "node:path";
 import { holdFixtureRoot } from "./fixture-root-custody.js";
 import { fixturePrivacyScript } from "./fixture-privacy-custody.js";
 
-const execFileAsync = promisify(execFile);
-async function evidencePermissions(root, protect) {
+export const FIXTURE_PRIVACY_RESULTS = Object.freeze([
+  "not_attempted", "passed", "compiler", "prepare", "acquire", "information",
+  "type", "redirect", "security", "owner", "inventory", "identity",
+  "descriptor", "protect", "readback", "release", "spawn_unavailable",
+  "timeout_unavailable", "response_unavailable", "malformed_response",
+]);
+const nativePrivacyOperations = FIXTURE_PRIVACY_RESULTS.slice(2, 16);
+const privacyByError = new WeakMap();
+const privacyByBoundary = new WeakMap();
+const privacyObservation = (verification = "not_attempted", protection = "not_attempted") =>
+  Object.freeze({ schema: "service-lasso.fixture-privacy-observation.v1", verification, protection });
+
+// Only a string received from our owned child is decoded. No thrown value is
+// read, formatted, spread or inspected to classify this diagnostic.
+export function decodeFixturePrivacyResponse(stdout) {
+  if (typeof stdout !== "string") return undefined;
+  // Fixed ordered bytes also reject duplicate keys and trailing output.
+  const response = /^\{"schema":"service-lasso\.fixture-privacy-response\.v1","outcome":"(passed|failed)","operation":(null|"[a-z_]+")\}$/.exec(stdout);
+  if (!response || response[0].length !== stdout.length) return undefined;
+  if (response[1] === "passed" && response[2] === "null") return "passed";
+  const operation = response[2].slice(1, -1);
+  if (response[1] === "failed" && nativePrivacyOperations.includes(operation)) return operation;
+  return undefined;
+}
+export function fixturePrivacyFailureObservation(error) {
+  return privacyByError.get(error) ?? privacyObservation("response_unavailable", "not_attempted");
+}
+export function classifyFixturePrivacyCompletion(stdout, failed, spawnFailed, timeoutReached) {
+  const response = decodeFixturePrivacyResponse(stdout);
+  if (response && response !== "passed") return response;
+  if (failed === true) {
+    if (spawnFailed === true) return "spawn_unavailable";
+    if (timeoutReached === true) return "timeout_unavailable";
+    return response === "passed" || stdout === "" ? "response_unavailable" : "malformed_response";
+  }
+  return failed === false && response === "passed" ? "passed" : "malformed_response";
+}
+const deliverPrivacyObservation = (observe, value) => {
+  try { observe(value); } catch { /* Observation never changes privacy authority. */ }
+};
+
+// The timer observes the same existing timeout; it adds no retry/deadline or
+// process action. Spawn is witnessed by our own child's events, not error.code.
+async function runFixturePrivacy(root, protect, observe) {
+  return await new Promise((resolve, reject) => {
+    let spawnFailed = false;
+    let timeoutReached = false;
+    let timer;
+    let child;
+    try {
+      timer = setTimeout(() => { timeoutReached = true; }, 5_000);
+      timer.unref();
+      child = execFile(path.join(process.env.SystemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
+        ["-NoProfile", "-NonInteractive", "-Command", fixturePrivacyScript], {
+          windowsHide: true, timeout: 5_000, maxBuffer: 16 * 1024,
+          env: { ...process.env, SERVICE_LASSO_FIXTURE_EVIDENCE_ROOT: root,
+            SERVICE_LASSO_FIXTURE_EVIDENCE_PROTECT: protect ? "1" : "0" },
+        }, (error, stdout) => {
+          clearTimeout(timer);
+          const result = classifyFixturePrivacyCompletion(stdout, Boolean(error), spawnFailed, timeoutReached);
+          observe(result);
+          if (error) { reject(error); return; }
+          if (result !== "passed") { reject(new Error("Fixture privacy response rejected.")); return; }
+          resolve();
+        });
+      child.once("error", () => { spawnFailed = true; });
+    } catch (error) {
+      clearTimeout(timer);
+      observe("spawn_unavailable");
+      reject(error);
+    }
+  });
+}
+async function evidencePermissions(root, protect, observe = () => {}) {
   if (process.platform === "win32") {
-    await execFileAsync(path.join(process.env.SystemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
-      ["-NoProfile", "-NonInteractive", "-Command", fixturePrivacyScript], {
-        windowsHide: true, timeout: 5_000, maxBuffer: 16 * 1024,
-        env: { ...process.env, SERVICE_LASSO_FIXTURE_EVIDENCE_ROOT: root,
-          SERVICE_LASSO_FIXTURE_EVIDENCE_PROTECT: protect ? "1" : "0" },
-        // Original and copied roots are protected before sensitive writes.
-      });
+    await runFixturePrivacy(root, protect, observe);
   } else {
     const held = await holdFixtureRoot(root);
     try { if (protect) await held.protect(); else await held.verify(); }
@@ -26,16 +91,33 @@ async function evidencePermissions(root, protect) {
   }
 }
 
-export async function protectOriginalFixture(root) {
+export async function protectOriginalFixture(root, observe = () => {}) {
   if (process.platform === "win32") {
     // Recovered/crash callers may already hold an original whose private DACL
     // is established. Read-only validation requests no DELETE/write access.
     // An unprotected original still requires the separately held mutation path;
     // neither path resets an owner or enables a privilege.
-    try { await evidencePermissions(root, false); return; }
+    let verificationResult = "response_unavailable";
+    let protectionResult = "not_attempted";
+    try {
+      await evidencePermissions(root, false, result => { verificationResult = result; });
+      deliverPrivacyObservation(observe, privacyObservation(verificationResult, protectionResult));
+      return;
+    }
     catch (verification) {
-      try { await evidencePermissions(root, true); }
-      catch (protection) { throw new AggregateError([verification, protection], "Original fixture privacy is unresolved."); }
+      const first = privacyObservation(verificationResult, protectionResult);
+      privacyByError.set(verification, first);
+      try {
+        await evidencePermissions(root, true, result => { protectionResult = result; });
+        deliverPrivacyObservation(observe, privacyObservation(verificationResult, protectionResult));
+      } catch (protection) {
+        const observation = privacyObservation(verificationResult, protectionResult);
+        privacyByError.set(protection, observation);
+        const error = new AggregateError([verification, protection], "Original fixture privacy is unresolved.");
+        privacyByError.set(error, observation);
+        deliverPrivacyObservation(observe, observation);
+        throw error;
+      }
     }
   } else await evidencePermissions(root, true);
 }
@@ -45,6 +127,11 @@ export const FIXTURE_INITIALIZATION_STAGES = Object.freeze([
   "initialization_diagnostic_allocate", "initialization_diagnostic_privacy",
   "initialization_original_privacy", "initialization_held_acquire",
   "initialization_original_identity", "initialization_held_verify",
+]);
+export const FIXTURE_ASSERTION_STAGES = Object.freeze([
+  "injection_reader_presence", "injection_reader_read", "injection_reader_empty",
+  "injection_owner_read", "injection_owner_identity", "injection_owner_equality",
+  "injection_member_equality", "injection_managed_record", "injection_custody_retain",
 ]);
 
 // Preserve closed fixture bytes outside the recursive removal root. Do not
@@ -60,6 +147,7 @@ export function createFixtureEvidenceBoundary(root, { beforeInitializationStep }
   let initialization;
   let initializationStage;
   let originalRemoved = false;
+  let privacy = privacyObservation();
   const stateFailures = [];
   const inventoryName = "fixture-evidence-inventory.json";
   const identity = (info) => [info.dev, info.ino, info.size, info.mtimeMs, info.ctimeMs].join(":");
@@ -125,7 +213,7 @@ export function createFixtureEvidenceBoundary(root, { beforeInitializationStep }
     }
     await rootCustody.verify();
   };
-  return {
+  const boundary = {
     async initialize() {
       initialization ??= (async () => {
         const step = async (stage, action) => {
@@ -142,8 +230,8 @@ export function createFixtureEvidenceBoundary(root, { beforeInitializationStep }
         };
         diagnosticRoot = await step("initialization_diagnostic_allocate", () =>
           mkdtemp(path.join(path.dirname(root), `${path.basename(root)}-diagnostics-`)));
-        await step("initialization_diagnostic_privacy", () => protectOriginalFixture(diagnosticRoot));
-        await step("initialization_original_privacy", () => protectOriginalFixture(root));
+        await step("initialization_diagnostic_privacy", () => protectOriginalFixture(diagnosticRoot, value => { privacy = value; privacyByBoundary.set(boundary, value); }));
+        await step("initialization_original_privacy", () => protectOriginalFixture(root, value => { privacy = value; privacyByBoundary.set(boundary, value); }));
         rootCustody = await step("initialization_held_acquire", () => holdFixtureRoot(root, diagnosticRoot));
         await step("initialization_original_identity", async () => {
           const info = await lstat(root, { bigint: true });
@@ -246,7 +334,10 @@ export function createFixtureEvidenceBoundary(root, { beforeInitializationStep }
     takeStateFailures() { return stateFailures.splice(0); },
     get diagnosticRoot() { return diagnosticRoot; },
     get initializationStage() { return initializationStage; },
+    get privacyObservation() { return privacy; },
   };
+  privacyByBoundary.set(boundary, privacy);
+  return boundary;
 }
 
 // Private evidence stays local. Only the closed summary is public.
@@ -327,7 +418,7 @@ export async function closeFixture({ primary, primaryStage = "action", failures 
   let removalAttempted = false;
   let resetState = "not_attempted";
   let environment = "restored";
-  const stages = ["action", "fixture_initialization", ...FIXTURE_INITIALIZATION_STAGES, "crash_spawn", "crash_exit", "interrupted_read", "recovery_inspection", "recovery_startup", "injection_assertions", "post_compensation", "direct_child", "server_stop", "enrollment_observation", "snapshot", "stop", "finalization", "inspection", "absence", "preservation", "removal", "reset", "environment", "custody", "evidence_state", "original_identity", "original_readback", "copy_verification", "privacy", "held_release", "diagnostic", "private_diagnostic"];
+  const stages = ["action", "fixture_initialization", ...FIXTURE_INITIALIZATION_STAGES, "crash_spawn", "crash_exit", "interrupted_read", "recovery_inspection", "recovery_startup", "injection_assertions", ...FIXTURE_ASSERTION_STAGES, "post_compensation", "direct_child", "server_stop", "enrollment_observation", "snapshot", "stop", "finalization", "inspection", "absence", "preservation", "removal", "reset", "environment", "custody", "evidence_state", "original_identity", "original_readback", "copy_verification", "privacy", "held_release", "diagnostic", "private_diagnostic"];
   const stageName = (stage) => stages.includes(stage) ? stage : "action";
   const projection = () => Object.fromEntries(stages.map(stage => [stage,
     failures.some(entry => stageName(entry.stage) === stage) || (primary && stageName(primaryStage) === stage) ? "failed" : "clear"]));
@@ -382,7 +473,7 @@ export async function closeFixture({ primary, primaryStage = "action", failures 
     stop: failures.some((entry) => entry.stage === "stop") ? "failed" : "settled",
     finalization: failures.some((entry) => entry.stage === "finalization") ? "failed" : "settled",
     absence: result?.absent ? "proven" : "unresolved", reset: resetState, environment, ...state,
-    stages: projection() }); }
+    stages: projection(), privacyObservation: privacyByBoundary.get(evidence) ?? privacyObservation() }); }
   catch (error) { failures.push({ stage: "diagnostic", error }); }
   if (primary || failures.length) {
     try { await evidence.retainErrors([
@@ -393,6 +484,7 @@ export async function closeFixture({ primary, primaryStage = "action", failures 
     const aggregate = new AggregateError([...(primary ? [primary] : []), ...failures.map(entry => entry.error)],
       `Hard-crash fixture failed: ${JSON.stringify(projection())}`);
     aggregate.fixtureStages = projection();
+    aggregate.fixturePrivacyObservation = privacyByBoundary.get(evidence) ?? privacyObservation();
     throw aggregate;
   }
 }

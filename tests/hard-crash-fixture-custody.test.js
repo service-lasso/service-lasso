@@ -5,7 +5,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
-import { createFixtureCustody, closeFixture, createFixtureCleanupAdapter, createFixtureEvidenceBoundary, verifyOriginalFixturePrivacy, protectOriginalFixture } from "./hard-crash-fixture-custody.js";
+import { createFixtureCustody, closeFixture, createFixtureCleanupAdapter, createFixtureEvidenceBoundary, verifyOriginalFixturePrivacy, protectOriginalFixture, decodeFixturePrivacyResponse, classifyFixturePrivacyCompletion, fixturePrivacyFailureObservation, FIXTURE_ASSERTION_STAGES, FIXTURE_PRIVACY_RESULTS } from "./hard-crash-fixture-custody.js";
+import { fixturePrivacyScript } from "./fixture-privacy-custody.js";
 import { holdFixtureRoot } from "./fixture-root-custody.js";
 import { getProcessRegistryPath, readProcessOwnershipCustodyForTest, readProcessOwnershipRegistry } from "../dist/runtime/process/registry.js";
 import { settleHardCrashDirectChild, stopHardCrashDirectChild } from "./hard-crash-child-exit.js";
@@ -20,6 +21,148 @@ const privateAclReadback = async (directory) => {
       env: { ...process.env, SERVICE_LASSO_PRIVATE_PERMISSION_TARGET: directory } });
   return result.stdout;
 };
+
+test("fixture privacy response admits only the exact enum channel", () => {
+  const response = (outcome, operation) => JSON.stringify({ schema: "service-lasso.fixture-privacy-response.v1", outcome, operation });
+  assert.equal(decodeFixturePrivacyResponse(response("passed", null)), "passed");
+  for (const operation of FIXTURE_PRIVACY_RESULTS.slice(2, 16)) {
+    assert.equal(decodeFixturePrivacyResponse(response("failed", operation)), operation);
+  }
+  for (const value of [null, {}, [], "", "PRIVATE-NATIVE-ERROR", response("passed", "owner"),
+    response("failed", null), response("failed", "spawn_unavailable"), response("failed", "PRIVATE-PATH"),
+    response("failed", "owner").replace('"outcome":', '"pid":123,"outcome":'),
+    response("failed", "owner").replace('"outcome":', '"operation":"security","outcome":'),
+    `${response("failed", "owner")}\nPRIVATE`, `${response("passed", null)}\n`]) {
+    assert.equal(decodeFixturePrivacyResponse(value), undefined);
+  }
+});
+
+test("fixture privacy unavailable projection never inspects hostile errors or responses", () => {
+  let traps = 0;
+  const hostile = new Proxy({}, { get() { traps++; throw new Error("PRIVATE-GETTER"); },
+    ownKeys() { traps++; throw new Error("PRIVATE-KEYS"); }, getPrototypeOf() { traps++; throw new Error("PRIVATE-PROTOTYPE"); } });
+  assert.equal(decodeFixturePrivacyResponse(hostile), undefined);
+  assert.deepEqual(fixturePrivacyFailureObservation(hostile), {
+    schema: "service-lasso.fixture-privacy-observation.v1", verification: "response_unavailable", protection: "not_attempted",
+  });
+  assert.equal(traps, 0);
+});
+test("fixture privacy outer completion preserves native refusal and unavailable distinctions", () => {
+  const passed = '{"schema":"service-lasso.fixture-privacy-response.v1","outcome":"passed","operation":null}';
+  const refused = '{"schema":"service-lasso.fixture-privacy-response.v1","outcome":"failed","operation":"compiler"}';
+  assert.equal(classifyFixturePrivacyCompletion(passed, false, false, false), "passed");
+  assert.equal(classifyFixturePrivacyCompletion(passed, true, false, false), "response_unavailable");
+  assert.equal(classifyFixturePrivacyCompletion(refused, true, false, false), "compiler");
+  assert.equal(classifyFixturePrivacyCompletion(refused, false, false, false), "compiler");
+  assert.equal(classifyFixturePrivacyCompletion("", true, true, false), "spawn_unavailable");
+  assert.equal(classifyFixturePrivacyCompletion("", true, false, true), "timeout_unavailable");
+  assert.equal(classifyFixturePrivacyCompletion("", true, false, false), "response_unavailable");
+  assert.equal(classifyFixturePrivacyCompletion("PRIVATE-MALFORMED", false, false, false), "malformed_response");
+  const hostile = new Proxy({}, { get() { assert.fail("Cannot inspect arbitrary thrown/flag identity."); } });
+  assert.equal(classifyFixturePrivacyCompletion(hostile, hostile, hostile, hostile), "malformed_response");
+});
+
+// These actual native paths remain UNEXECUTED until NEW complete-input ROOT.
+// Every invocation has the original helper/options; test-owned compiler-source
+// corruption is an intentional real Add-Type refusal, not an enum mock.
+test("Windows privacy helper: real private empty-root, compiler/acquire/type/readback refusals", { skip: process.platform !== "win32" }, async () => {
+  const parent = await mkdtemp(path.join(tmpdir(), "hard-crash-native-observation-"));
+  const directory = path.join(parent, "owned");
+  const file = path.join(parent, "regular");
+  await mkdir(directory);
+  await writeFile(file, "PRIVATE-FILE");
+  const invoke = async (rootPath, script = fixturePrivacyScript) => {
+    let original;
+    let stdout;
+    let stderr;
+    try {
+      const result = await execFileAsync(path.join(process.env.SystemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
+        ["-NoProfile", "-NonInteractive", "-Command", script], {
+          windowsHide: true, timeout: 5_000, maxBuffer: 16 * 1024,
+          env: { ...process.env, SERVICE_LASSO_FIXTURE_EVIDENCE_ROOT: rootPath, SERVICE_LASSO_FIXTURE_EVIDENCE_PROTECT: "0" },
+        });
+      ({ stdout, stderr } = result);
+    } catch (error) {
+      original = error;
+      // These are this test's known execFile Error fields, not the public
+      // projector's classifier or arbitrary caller-thrown values.
+      ({ stdout, stderr } = error);
+      assert.notEqual(error.code, 0);
+    }
+    assert.equal(stderr, "");
+    assert.doesNotMatch(stdout, /PRIVATE|S-1-|AccessMask|ErrorRecord|System32|commandHash/);
+    return { original, category: decodeFixturePrivacyResponse(stdout) };
+  };
+  try {
+    let positive;
+    await protectOriginalFixture(directory, value => { positive = value; });
+    assert.equal(positive.protection === "passed" || positive.verification === "passed", true);
+    assert.deepEqual(await invoke(directory), { original: undefined, category: "passed" });
+    for (const [expected, target, script] of [
+      ["compiler", directory, fixturePrivacyScript.replace("public static class FixturePrivacy {", "public static class PRIVATE_INVALID_COMPILER { !!!")],
+      ["acquire", path.join(parent, "absent"), fixturePrivacyScript],
+      ["type", file, fixturePrivacyScript],
+      ["information", directory, fixturePrivacyScript.replace("$root=[System.IO.Path]::GetFullPath", "[FixturePrivacy]::Information([Microsoft.Win32.SafeHandles.SafeFileHandle]::new([IntPtr]::Zero,$false))\n$root=[System.IO.Path]::GetFullPath")],
+      ["security", directory, fixturePrivacyScript.replace("$root=[System.IO.Path]::GetFullPath", "[FixturePrivacy]::Security([Microsoft.Win32.SafeHandles.SafeFileHandle]::new([IntPtr]::Zero,$false))\n$root=[System.IO.Path]::GetFullPath")],
+      ["inventory", directory, fixturePrivacyScript.replace("  Acquire-Children $root\n  Verify-Names", "  Acquire-Children $root\n  [System.IO.File]::WriteAllText([System.IO.Path]::Combine($root,'PRIVATE-added'),'PRIVATE-added')\n  Verify-Names")],
+    ]) {
+      const failure = await invoke(target, script);
+      assert.ok(failure.original);
+      assert.equal(failure.category, expected);
+    }
+    assert.equal(await readFile(path.join(directory, "PRIVATE-added"), "utf8"), "PRIVATE-added");
+    const unprotected = path.join(parent, "unprotected");
+    await mkdir(unprotected);
+    const refusal = await invoke(unprotected);
+    assert.ok(refusal.original);
+    assert.equal(refusal.category, "readback");
+    // Hostile observers cannot turn verification success into protection or
+    // replace any privacy failure with the observer's exception.
+    const hostile = new Proxy({}, { get() { throw new Error("PRIVATE-GETTER"); } });
+    await protectOriginalFixture(directory, () => { throw hostile; });
+    let rejection;
+    try { await protectOriginalFixture(path.join(parent, "absent"), () => { throw hostile; }); }
+    catch (error) { rejection = error; }
+    assert.ok(rejection instanceof AggregateError);
+    assert.equal(rejection.errors.length, 2);
+    assert.equal(rejection.errors.includes(hostile), false);
+    assert.deepEqual(fixturePrivacyFailureObservation(rejection), {
+      schema: "service-lasso.fixture-privacy-observation.v1", verification: "acquire", protection: "acquire",
+    });
+    assert.equal(await readFile(file, "utf8"), "PRIVATE-FILE");
+  } finally { await rm(parent, { recursive: true, force: true }); }
+});
+
+for (const stage of [...FIXTURE_ASSERTION_STAGES, "injection_assertions", "PRIVATE-UNKNOWN-STAGE"]) {
+  test(`protected assertion stage projects exact reached boundary: ${stage}`, async () => {
+    const primary = new Error("PRIVATE-ORIGINAL-ASSERTION");
+    const closeFailure = new Error("PRIVATE-CLOSE");
+    let summary, retained;
+    const evidence = {
+      initialize: async () => {}, state: async () => ({ fixture: "unresolved", evidence: "unresolved" }),
+      takeStateFailures: () => [], release: async () => { throw closeFailure; },
+      retainErrors: async value => { retained = value; },
+      get privacyObservation() { assert.fail("Projection must not inspect foreign observation getters."); },
+    };
+    await assert.rejects(closeFixture({ primary, primaryStage: stage, evidence,
+      custody: createFixtureCustody(), adapter: { snapshot: async () => [], stop: async () => {}, finalize: async () => {} },
+      restore: async () => {}, reset: () => assert.fail("A primary assertion must not reset."),
+      report: value => { summary = value; },
+    }), error => {
+      assert.equal(error.errors[0], primary);
+      assert.ok(error.errors.includes(closeFailure));
+      const expected = FIXTURE_ASSERTION_STAGES.includes(stage) || stage === "injection_assertions" ? stage : "action";
+      assert.equal(error.fixtureStages[expected], "failed");
+      assert.equal(error.fixtureStages.held_release, "failed");
+      return true;
+    });
+    assert.equal(retained[0].error.message, primary.message);
+    assert.equal(retained.at(-1).error.message, closeFailure.message);
+    assert.deepEqual(Object.keys(summary.privacyObservation).sort(), ["protection", "schema", "verification"]);
+    assert.doesNotMatch(JSON.stringify(summary), /PRIVATE|pid|createdAt|executablePath|commandHash/);
+    for (const expected of FIXTURE_ASSERTION_STAGES) assert.ok(Object.hasOwn(summary.stages, expected));
+  });
+}
 
 // Exercise the same whole closeFixture path as the real matrix, including real
 // private fixture/journal retention and deletion. No subprocess is signalled.
@@ -255,6 +398,9 @@ test("actual diagnostic privacy rejection keeps closed substage without claiming
       restore: () => {}, reset: () => assert.fail("Rejected private prerequisite must not reset."), report: value => { summary = value; },
     }), error => error.fixtureStages.initialization_diagnostic_privacy === "failed" && error.fixtureStages.private_diagnostic === "failed");
     assert.equal(summary.stages.initialization_diagnostic_privacy, "failed");
+    if (process.platform === "win32") assert.deepEqual(summary.privacyObservation, {
+      schema: "service-lasso.fixture-privacy-observation.v1", verification: "redirect", protection: "redirect",
+    });
     assert.equal(summary.reset, "not_attempted");
     assert.equal(await readFile(path.join(directory, "journal.json"), "utf8"), "PRIVATE-ORIGINAL");
     assert.equal(await readFile(path.join(outside, "must-survive.json"), "utf8"), "PRIVATE-OUTSIDE");
@@ -282,7 +428,14 @@ test("public protector and initializer reject a ROOT-provisioned foreign owner",
   } else assert.ok(before.uid !== process.getuid(), "ROOT fixture must have a different prior uid.");
   const evidence = createFixtureEvidenceBoundary(foreign);
   try {
-    await assert.rejects(protectOriginalFixture(foreign));
+    await assert.rejects(protectOriginalFixture(foreign), error => {
+      if (process.platform === "win32") {
+        const observation = fixturePrivacyFailureObservation(error);
+        assert.ok(["owner", "acquire"].includes(observation.verification));
+        assert.ok(["owner", "acquire"].includes(observation.protection));
+      }
+      return true;
+    });
     await assert.rejects(evidence.initialize());
     const after = await lstat(foreign);
     assert.equal(after.uid, before.uid);
