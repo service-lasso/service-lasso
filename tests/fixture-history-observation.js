@@ -51,6 +51,7 @@ export function createHistoryObservation() {
   let originalAttempted = false, diagnosticAttempted = false;
   let original = null, originalVerificationTransport = null, originalProtectionTransport = null;
   let diagnosticVerification = "not_attempted", diagnosticTransport = null;
+  let diagnosticObserved = false;
   let local = { state: "not_attempted", stage: "not_attempted" };
   let independent = { state: "unavailable" };
   const cleanup = HISTORY_CLEANUP.map(stage => ({ stage, state: "not_attempted" }));
@@ -85,7 +86,8 @@ export function createHistoryObservation() {
     },
     diagnostic(result, value) {
       tick();
-      if (diagnosticVerification !== "not_attempted") { loss = true; return; }
+      if (diagnosticObserved) { loss = true; return; }
+      diagnosticObserved = true;
       diagnosticVerification = FIXTURE_PRIVACY_RESULTS.includes(result) && result !== "not_attempted" ? result : "response_unavailable";
       diagnosticTransport = transport(value, diagnosticVerification);
       if (!completedResult(diagnosticVerification) || diagnosticTransport?.state !== "complete") loss = true;
@@ -93,6 +95,7 @@ export function createHistoryObservation() {
     localBegin(stage) {
       if (!["privacy_verification", "serialization", "write"].includes(stage)) { local = { state: "unavailable", stage: "unknown" }; loss = true; return; }
       if (stage === "serialization" && diagnosticVerification !== "passed") loss = true;
+      if (stage === "privacy_verification" && !diagnosticObserved) diagnosticVerification = "response_unavailable";
       diagnosticAttempted = true; local = { state: "unavailable", stage };
     },
     localFailed() {
