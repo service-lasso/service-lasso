@@ -72,6 +72,10 @@ rotation flow, so that cross-repository path is not validated.
 
 ### `AC-7F` — Release 1.0 scope, repository authority, and explicit exclusions
 
+For the current GA delivery, #1613 records the owner's 2026-10-04 Windows/Linux scope decision in [CURRENT_GA_PLATFORM_SCOPE](../project/CURRENT_GA_PLATFORM_SCOPE.md). macOS qualification is Deferred / Not applicable to this GA, never PASS; historical/default three-platform obligations and macOS support source are retained. This applicability decision leaves every Windows/Linux original product, native, operator, template, publication and same-byte requirement intact. Existing qualification workflow/validator propagation is a blocking follow-up, not a completed gate.
+
+Issue #1613 documentation acceptance requires the release-governance validator to validate the linked current owner/date/issue/platform decision and reject missing or inconsistent applicability, removal of Windows/Linux proof, false macOS PASS, or weakening of exact-candidate/publication/authority/privacy requirements. A historical contract without a current scope decision retains Windows, Linux, and macOS published-package requirements. This documentation validator change does not alter qualification producers, artifact inventories or aggregates. The documentation site's GA record must link to the canonical scope source using a supported external GitHub source URL; do not duplicate the policy or relax broken-link enforcement. Positive and negative regression sources require a different entire-source review and NEW complete-input ROOT admission before local execution.
+
 Release 1.0 is the production-grade local encrypted-store product. Its required
 rows cover secure age/recovery bootstrap and custody, generated credentials,
 inventory/search/controlled reveal/rotate-without-reveal, versioned local
@@ -137,7 +141,7 @@ Before Release 1 GA, the exact immutable Core, Admin, and Broker identities
 must have a review-ready security packet covering the threat model, trust
 boundaries, cryptography and key lifecycle, IPC and identity enforcement,
 abuse cases, dependency/SBOM/provenance state, static/dynamic/fuzz evidence,
-three-platform released-artifact qualification, recovery and incident handling,
+released-artifact qualification on the required platforms (Windows and Linux for the current #1613 GA scope; macOS Deferred / Not applicable), recovery and incident handling,
 explicit non-claims, and repeatable reproduction instructions.
 
 Agents independently assess the governed technical gates and may report
