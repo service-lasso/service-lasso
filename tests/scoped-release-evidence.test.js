@@ -15,6 +15,7 @@ import { createBlockedTemplateEvidence, readTemplateEvidence, validateTemplateEv
 import { createReleaseArchive } from "../scripts/release-artifact-lib.mjs";
 import { ZipArchive } from "../dist/runtime/files/safe-zip.js";
 import { requireScopedTechnicalAuthority } from "../scripts/scoped-technical-authority-lib.mjs";
+import { verifyDevelopmentCandidateUpload } from "../scripts/verify-development-candidate-upload-scoped.mjs";
 import { readVerifiedDevelopmentCandidate } from "../scripts/verify-development-candidate-artifact-scoped.mjs";
 import { verifyPublishedPackageQualificationArtifacts } from "../scripts/verify-published-package-qualification-artifacts-scoped.mjs";
 import { readOriginalMetadataArtifact } from "../scripts/scoped-metadata-artifact-lib.mjs";
@@ -411,6 +412,11 @@ test("actual provider verifier to downloaded candidate caller binds original six
   await writeMembers(root, original.held);
   const accepted = await readVerifiedDevelopmentCandidate(root);
   assert.deepEqual(accepted.manifest, original.manifest);
+  const producerJob = routes.get(`${prefix}/actions/runs/20/attempts/2/jobs?per_page=100`).jobs[0];
+  producerJob.status = "in_progress"; producerJob.conclusion = null;
+  assert.deepEqual((await verifyDevelopmentCandidateUpload(root)).manifest, original.manifest);
+  await assert.rejects(readVerifiedDevelopmentCandidate(root), /Terminal job/);
+  producerJob.status = "completed"; producerJob.conclusion = "success";
   for (const [name, originalBytes] of original.held) assert.deepEqual(accepted.held.get(name), originalBytes);
   // An independently coherent replacement retains source/scope/names and every
   // original protected CLI fixture file, while changing only Core runtime rows.
@@ -419,6 +425,9 @@ test("actual provider verifier to downloaded candidate caller binds original six
   assert.doesNotThrow(() => verifyCandidate2Bytes(replacement.held, source));
   await writeMembers(root, replacement.held);
   await assert.rejects(readVerifiedDevelopmentCandidate(root), /differs from original provider/);
+  producerJob.status = "in_progress"; producerJob.conclusion = null;
+  await assert.rejects(verifyDevelopmentCandidateUpload(root), /differs from original provider/);
+  producerJob.status = "completed"; producerJob.conclusion = "success";
   await writeMembers(root, original.held);
   const oneByte = Buffer.from(original.held.get("candidate-manifest.json")); oneByte[0] ^= 1;
   await writeFile(path.join(root, "candidate-manifest.json"), oneByte);

@@ -1,6 +1,13 @@
-import { assertDevelopIdentity, assertPolicyEnvironment, digest, parseScopedJson, readSourceScope } from "./ga-platform-scope-lib.mjs";
+import { assertDevelopIdentity, assertPolicyEnvironment, parseScopedJson, readSourceScope } from "./ga-platform-scope-lib.mjs";
 import { boundedProviderBody, readAuthenticatedArtifact } from "./scoped-provider-readback-lib.mjs";
 import { validateRetainedArtifactMetadata } from "./published-package-qualification-lib.mjs";
+import { readOriginalMetadataArtifact } from "./scoped-metadata-artifact-lib.mjs";
+import { scopedArchiveNames } from "./scoped-release-evidence-lib.mjs";
+import { compareDownloadedCandidate } from "./verify-development-candidate-artifact-scoped.mjs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+export async function verifyDevelopmentCandidateUpload(root = "artifacts/development-candidate") {
 assertDevelopIdentity(); assertPolicyEnvironment(); await readSourceScope();
 const repo = "service-lasso/service-lasso", sha = process.env.CANDIDATE_SHA, token = process.env.GH_TOKEN;
 const runId = Number(process.env.GITHUB_RUN_ID), attempt = Number(process.env.GITHUB_RUN_ATTEMPT), id = Number(process.env.DEVELOPMENT_CANDIDATE_ARTIFACT_ID);
@@ -20,5 +27,11 @@ if (!Number.isSafeInteger(producer.id) || producer.id < 1 || producer.status !==
 validateRetainedArtifactMetadata(artifact, { repo, name, runId, workflowSha: sha });
 if (artifact.id !== id || artifact.digest !== `sha256:${expectedDigest}`) throw new Error("scoped candidate upload identity differs");
 const bytes = await readAuthenticatedArtifact(`https://api.github.com/repos/${repo}/actions/artifacts/${id}/zip`, repo, token);
-if (digest(bytes) !== expectedDigest) throw new Error("scoped candidate uploaded original bytes differ");
-process.stdout.write(`${JSON.stringify({ candidateSha: sha, runId, runAttempt: attempt, artifactId: id, artifactName: name, downloadDigestVerified: true })}\n`);
+const names = [...scopedArchiveNames(`develop-${sha.slice(0, 12)}`, false), "candidate-manifest.json", "SHA256SUMS.txt"];
+const original = readOriginalMetadataArtifact(bytes, names, artifact.digest);
+return compareDownloadedCandidate(root, original, sha);
+}
+if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) {
+  await verifyDevelopmentCandidateUpload();
+  process.stdout.write("Exact original uploaded candidate members and producer files verified.\n");
+}

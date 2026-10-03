@@ -34,6 +34,10 @@ return held;
 // Actual smoke caller: no detached checksum receipt or later filesystem reopen.
 export async function readVerifiedDevelopmentCandidate(root) {
   const original = await verifyDevelopmentCandidateArtifact();
+  return compareDownloadedCandidate(root, original, process.env.CANDIDATE_SHA);
+}
+
+export async function compareDownloadedCandidate(root, original, sha) {
   const entries = await readdir(root);
   assertNames(entries, [...original.keys()]);
   const held = new Map();
@@ -44,7 +48,7 @@ export async function readVerifiedDevelopmentCandidate(root) {
     if (bytes.length !== info.size || !bytes.equals(original.get(name))) throw new Error("downloaded candidate differs from original provider artifact body");
     held.set(name, bytes);
   }
-  const manifest = verifyCandidate2Bytes(held, { repository: "service-lasso/service-lasso", commit: process.env.CANDIDATE_SHA, ref: "refs/heads/develop" });
+  const manifest = verifyCandidate2Bytes(held, { repository: "service-lasso/service-lasso", commit: sha, ref: "refs/heads/develop" });
   return { held, manifest };
 }
 
