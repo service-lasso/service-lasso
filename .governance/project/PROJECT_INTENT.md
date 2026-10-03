@@ -335,3 +335,4 @@ UNEXECUTED pending different ENTIRE review and NEW complete-input ROOT.
 | #1562 native/operator/template delivery | SPEC-008 R6-R7 and original product requirements | blocked by retained current qualification defects; no blanket rerun authority |
 | CLI #30 Windows ZIP | SPEC-008 R4 / original CLI protected-native spec | UNMET; independently reviewed ZIP producer/consumer contract and direct Windows evidence required |
 | Actual protected publication/catalog pins | SPEC-008 R3/R7 / SPEC-007 AC-7G/7H | pending actual qualified immutable bytes/public readback and separate pins-only source review |
+`n#1632 source-only: AC-4BJ.9c.fixture-transport-v2/startup-path-v1 and AC-4BH.2 approved production native exclusion continuity. Preserve protected native/fixture criteria and separate accepted private history; no startup causal repair, execution or qualification until fresh entire review and NEW ROOT.
