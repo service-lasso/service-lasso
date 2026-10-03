@@ -224,6 +224,13 @@ SPEC-008 R2/R4/R5/R6/R7/appendix and T1–T5, ADR-001, and the fixed source-owne
 Core #1628 plus CLI #35/TUI #29/Template #23 form one cumulative documentation-only bundle. Held TUI #28/Template #22 producer implementation waits for fresh distinct ENTIRE cumulative amendment review and governed develop landing. Later producer units need fresh entire source review and NEW complete-input admission before execution. Existing failures/private evidence and owned Core #1626 remain preserved. No product/parser/compiler/test/npm/native/ACL execution, provider controls or gate weakening, publication/qualification/GA claim accompanies these documents.
 
 
+## #1629 fixture boundary adoption
+
+- [ ] Land independently reviewed ADR-002 and SPEC-002 FI-1..FI-7 before complete native adapter source authoring; keep implemented fail-closed retention pending admitted native proof.
+- [ ] Prepare complete source-owned launcher/supervisor/mediator/keeper, provenance/IPC/held-proof grammar, positive/partial/persistent-copy and concurrent native denial/fault sources under the separately assigned adapter unit; no execution before distinct entire review and NEW ROOT.
+- [ ] #1326 F7: actual owner-approved off-host private custodian/destination/access remains absent; local persistence/sealed FD cannot discharge it. Preserve all failures and production criteria.
+
+F1 cumulative correction selects ADR-002's trusted privileged supervisor and distinct W original-owner, M mediator, K keeper and R ordinary-runner principals. Original W ownership is preserved; live M/K have only authenticated finite held-object read channels, no named original mutation/reopen/owner-rights/attach/duplication authority. Existing current-actor helper guards require source-owned loader/client adaptation to authenticated actual prior W owner/object capsules, with separate M diagnostic and supervisor copy/control ownership; no caller/ENV override, whitelist, chown or DACL widening. Actor/object/owner/receipt negatives and live mutation denials supplement every original positive/copy/removal/reset/partial/ENV/history/native guard. Guardian settlement and exact W process/EOF closure remain continuous; prospective capabilities remain UNKNOWN/fail-closed. Fresh different ENTIRE cumulative review and develop landing precede native authorship. F7 actual off-host custodian remains absent.
 
 - [ ] #1622 F1: independently review cumulative one-time guarded message/reason acquisition and authored retryable native-getter/unreadable-message regressions; NEW ROOT before execution. Original failures remain retained.
 
