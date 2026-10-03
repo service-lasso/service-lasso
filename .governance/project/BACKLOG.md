@@ -732,6 +732,8 @@ SOURCE GO and a NEW complete-input ROOT admission. Existing PR owners retain
 
 | ISS-1608 | in_progress, source only | Parent1594/1562, complete command/native validation refusal observation | SPEC-006 AC-6G.command-validation-observation / SPEC-003 BR-008 | Different ENTIRE source review, NEW ROOT, natural native proof pending; retained Darwin predicate unknown. |
 | ISS-1610 | in_progress, source only | First evaluated native helper capture closure refusal | SPEC-003 BR-008 / SPEC-006 AC-6G.native-boundary-observation | UNEXECUTED; different ENTIRE review and NEW ROOT required; no cause or acceptance claim. |
+| ISS-1621 | in_progress, source only | U2/U3 first privacy refusal and actual recovered protected assertion | SPEC-002 AC-4BJ.9c.fixture-observation-v1 / AC-4BH.2 | Entire review and NEW ROOT pending; F7 private authority and U1 removal remain unresolved; original gates unchanged. |
+
 
 ## Durable two-OS release contract (#1619)
 

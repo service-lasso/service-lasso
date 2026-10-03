@@ -204,6 +204,7 @@ SOURCE GO and a NEW complete-input ROOT admission. Existing PR owners retain
 
 - [ ] #1608 adopt closed command-validation-observation.v1 spec first; preserve original validation/error/shortcircuit/private-v3/public-v2 and all incoming717 contracts. Author positive/every reason/privacy/unavailable/capture-failure tests without execution; obtain DIFFERENT ENTIRE review and NEW ROOT.
 - [ ] #1610 adopt finite helper capture closure observation; authored tests UNEXECUTED, preserve guard order/privacy/errors; different ENTIRE review and NEW ROOT before execution.
+- [ ] #1621 adopt finite fixture observation v1 before source; prepare complete U2/U3 native/compiler/outer refusal and protected assertion regressions. UNEXECUTED until different ENTIRE review and NEW ROOT; no guessed cause, U1 removal or private authority.
 
 ## Documentation publication remediation completed
 
