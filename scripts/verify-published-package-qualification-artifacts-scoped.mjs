@@ -18,9 +18,10 @@ import {
 import { selectScopedCurrentAttemptArtifacts as selectCurrentAttemptArtifacts } from "./published-package-qualification-reliability.mjs";
 import { strictJson } from "./consume-admin-trusted-unlock-receipt.mjs";
 import { parsePrebrowserFailure } from "./record-admin-trusted-unlock-prebrowser-failure.mjs";
-import { boundedProviderBody } from "./scoped-provider-readback-lib.mjs";
+import { boundedProviderBody, readAuthenticatedArtifact } from "./scoped-provider-readback-lib.mjs";
 import { parseScopedJson } from "./ga-platform-scope-lib.mjs";
 
+import { readOriginalMetadataArtifact } from "./scoped-metadata-artifact-lib.mjs";
 const PLATFORMS = Object.freeze(["win32", "linux"]);
 
 function env(name, pattern = /^.+$/u) {
@@ -139,6 +140,10 @@ for (const platform of PLATFORMS) {
   const expectedReceipt = "admin-trusted-unlock-receipt.json";
   const initialReceiptName = "initial-projection.json";
   const prebrowserName = "admin-trusted-unlock-prebrowser-failure.json";
+  const originalArchive = await readAuthenticatedArtifact(artifact.archive_download_url, repo, token);
+  const originalNames = entries.length === 2 && entries.some(entry => entry.name === prebrowserName) ? [initialReceiptName, prebrowserName] : [expectedFile, expectedReceipt, initialReceiptName];
+  const originalFiles = readOriginalMetadataArtifact(originalArchive, originalNames, artifact.digest);
+  for (const [name, bytes] of originalFiles) if (!bytes.equals(await readOnlyFile(path.join(artifactDirectory, name), `${platform} original retained metadata`))) throw new Error("downloaded retained metadata differs from original provider artifact body");
   if (entries.length === 2 && entries.every((entry) => entry.isFile() && !entry.isSymbolicLink()) && entries.some((entry) => entry.name === prebrowserName) && entries.some((entry) => entry.name === initialReceiptName)) {
     const initial = parseStrictJson(await readOnlyFile(path.join(artifactDirectory, initialReceiptName), `${platform} initial projection`), `${platform} initial projection`);
     if (!validInitialProjection(initial, platform, runId, runAttempt, workflowSha)) throw new Error(`${platform} initial projection custody is invalid.`);

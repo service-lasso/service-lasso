@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { ZipArchive } from "../dist/runtime/files/safe-zip.js";
+import { readOriginalMetadataArtifact } from "./scoped-metadata-artifact-lib.mjs";
 import { assertDevelopIdentity, assertPolicyEnvironment, digest, parseScopedJson, readSourceScope, REQUIRED_GA_PLATFORMS, sourceIdentity } from "./ga-platform-scope-lib.mjs";
 import { validateRetainedArtifactMetadata, validateTerminalJobMetadata } from "./published-package-qualification-lib.mjs";
 import { verifyPublicationQualification } from "./scoped-publication-lib.mjs";
@@ -55,10 +55,8 @@ for (const platform of REQUIRED_GA_PLATFORMS) {
   validateRetainedArtifactMetadata(artifact, { repo, name: artifact.name, runId, workflowSha: source.commit });
   const archive = await readAuthenticatedArtifact(artifact.archive_download_url, repo, token);
   if (artifact.digest !== `sha256:${digest(archive)}`) throw new Error("scoped artifact body digest differs");
-  const zip = new ZipArchive(archive), entries = zip.getEntries();
   const name = `mcp-product-${platform}.json`;
-  if (entries.length !== 1 || entries[0].isDirectory || entries[0].entryName !== name) throw new Error("scoped native retained artifact expands inventory");
-  const bytes = entries[0].getData(); held.set(name, bytes);
+  const bytes = readOriginalMetadataArtifact(archive, [name], artifact.digest).get(name); held.set(name, bytes);
   receipts.push({ platform, jobId: matches[0].id, runId, runAttempt: attempt, workflowSha: source.commit, name, sha256: digest(bytes), size: bytes.length });
 }
 verifyPublicationQualification(receipts, source, jobs, held, "mcp-packaged");

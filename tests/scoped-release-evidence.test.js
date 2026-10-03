@@ -13,6 +13,9 @@ import { verifyProtectedCliBytes } from "../scripts/operator-tool-cli-contract.m
 import { preflightScopedCoreTar } from "../scripts/scoped-core-archive-lib.mjs";
 import { createBlockedTemplateEvidence, readTemplateEvidence, validateTemplateEvidence } from "../scripts/scoped-template-evidence-lib.mjs";
 import { createReleaseArchive } from "../scripts/release-artifact-lib.mjs";
+import { ZipArchive } from "../dist/runtime/files/safe-zip.js";
+import { requireScopedTechnicalAuthority } from "../scripts/scoped-technical-authority-lib.mjs";
+import { readOriginalMetadataArtifact } from "../scripts/scoped-metadata-artifact-lib.mjs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { gunzipSync, gzipSync } from "node:zlib";
 import os from "node:os";
@@ -43,7 +46,7 @@ test("actual Template wrapper constructor retains both blocked roles and refuses
   }
 });
 
-test("actual publication aggregate consumes complete native body grammar and exact provider jobs", () => {
+function nativeQualificationFixture() {
   const held = new Map(), jobs = [], receipts = [];
   for (const [index, platform] of ["win32", "linux"].entries()) {
     const body = {
@@ -61,6 +64,10 @@ test("actual publication aggregate consumes complete native body grammar and exa
     receipts.push({ platform, jobId, runId: 42, runAttempt: 2, workflowSha: source.commit, name, sha256: digest(bytes), size: bytes.length });
     jobs.push({ id: jobId, name: `mcp-packaged (${platform})`, run_id: 42, run_attempt: 2, head_sha: source.commit, status: "completed", conclusion: "success", url: `https://api.github.com/repos/${source.repository}/actions/jobs/${jobId}`, run_url: `https://api.github.com/repos/${source.repository}/actions/runs/42`, html_url: `https://github.com/${source.repository}/actions/runs/42/job/${jobId}` });
   }
+  return { held, jobs, receipts };
+}
+test("actual publication aggregate consumes complete native body grammar and exact provider jobs", () => {
+  const { held, jobs, receipts } = nativeQualificationFixture();
   assert.doesNotThrow(() => verifyPublicationQualification(receipts, source, jobs, held, "mcp-packaged"));
   for (const mutate of [rows => rows[1].conclusion = "cancelled", rows => rows[1].run_attempt = 1, rows => rows[1].head_sha = "a".repeat(40), rows => rows.push(rows[0])]) {
     const changed = structuredClone(jobs); mutate(changed);
@@ -70,6 +77,45 @@ test("actual publication aggregate consumes complete native body grammar and exa
   assert.throws(() => verifyPublicationQualification(changed, source, jobs, held, "mcp-packaged"));
   const bytes = new Map(held); bytes.set(receipts[0].name, Buffer.from("substitution"));
   assert.throws(() => verifyPublicationQualification(receipts, source, jobs, bytes, "mcp-packaged"));
+});
+test("whole technical authority reader refuses legacy app/run/attempt and consumes original scoped aggregate bytes", async () => {
+  const { held, jobs, receipts } = nativeQualificationFixture();
+  const repo = source.repository, workflowPath = ".github/workflows/release-qualification-scoped.yml";
+  const terminal = { ...jobs[0], id: 99, name: "qualify-release", url: `https://api.github.com/repos/${repo}/actions/jobs/99`, html_url: `https://github.com/${repo}/actions/runs/42/job/99` };
+  const evidence = { schema: "service-lasso.release-qualification.v1", scope, source, run: { id: 42, attempt: 2, workflowSha: source.commit }, platforms: ["win32", "linux"], receipts, outcome: "success" };
+  const archive = new ZipArchive();
+  for (const [name, bytes] of held) archive.addFile(name, bytes);
+  archive.addFile("qualification.json", Buffer.from(JSON.stringify(evidence)));
+  const original = archive.toBuffer(), now = Date.now();
+  const run = { id: 42, workflow_id: 8, path: workflowPath, head_sha: source.commit, head_branch: "develop", event: "workflow_dispatch", run_attempt: 2, status: "completed", conclusion: "success" };
+  const artifact = { id: 7, name: "scoped-release-qualification-42-2", size_in_bytes: original.length, digest: `sha256:${digest(original)}`, expired: false, created_at: new Date(now - 1000).toISOString(), updated_at: new Date(now - 1000).toISOString(), expires_at: new Date(now - 1000 + 90 * 86400000).toISOString(), workflow_run: { id: 42, head_sha: source.commit }, archive_download_url: `https://api.github.com/repos/${repo}/actions/artifacts/7/zip` };
+  const metadata = {
+    [`/repos/${repo}/actions/workflows/release-qualification-scoped.yml`]: { id: 8, path: workflowPath, state: "active" },
+    [`/repos/${repo}/actions/workflows/release-qualification-scoped.yml/runs?head_sha=${source.commit}&per_page=100`]: { total_count: 1, workflow_runs: [run] },
+    [`/repos/${repo}/actions/runs/42`]: run,
+    [`/repos/${repo}/actions/runs/42/attempts/2/jobs?per_page=100`]: { total_count: 3, jobs: [...jobs, terminal] },
+    [`/repos/${repo}/actions/runs/42/artifacts?per_page=100`]: { total_count: 1, artifacts: [artifact] },
+    [`/repos/${repo}/commits/${source.commit}/check-runs?per_page=100`]: { total_count: 1, check_runs: [{ id: 99, name: "qualify-release", app: { id: 15368 }, head_sha: source.commit, status: "completed", conclusion: "success", html_url: terminal.html_url }] },
+  };
+  const read = rows => requireScopedTechnicalAuthority({ source, readMetadata: async route => { assert.ok(Object.hasOwn(rows, route)); return rows[route]; }, readArtifact: async url => { assert.equal(url, artifact.archive_download_url); return original; } });
+  assert.equal((await read(metadata)).terminalJobId, 99);
+  for (const mutate of [rows => { rows[`/repos/${repo}/actions/runs/42`].path = ".github/workflows/release-qualification.yml"; }, rows => { rows[`/repos/${repo}/actions/runs/42`].run_attempt = 1; }, rows => { rows[`/repos/${repo}/actions/runs/42`].conclusion = "failure"; }, rows => { rows[`/repos/${repo}/commits/${source.commit}/check-runs?per_page=100`].check_runs[0].app.id = 1; }, rows => { rows[`/repos/${repo}/actions/runs/42/artifacts?per_page=100`].artifacts[0].name = "scoped-release-qualification-42-1"; }]) {
+    const changed = structuredClone(metadata); mutate(changed); await assert.rejects(read(changed));
+  }
+  await assert.rejects(requireScopedTechnicalAuthority({ source, readMetadata: async route => metadata[route], readArtifact: async () => Buffer.from("public substitution") }), /body differs/);
+});
+test("original metadata ZIP inventory and allocation boundaries deny coherent header substitutions", () => {
+  const archive = new ZipArchive();
+  archive.addFile("mcp-product-win32.json", Buffer.from("original-win32"));
+  archive.addFile("mcp-product-linux.json", Buffer.from("original-linux"));
+  const bytes = archive.toBuffer(), names = ["mcp-product-win32.json", "mcp-product-linux.json"];
+  assert.equal(readOriginalMetadataArtifact(bytes, names, `sha256:${digest(bytes)}`).size, 2);
+  const end = bytes.length - 22, central = bytes.readUInt32LE(end + 16);
+  for (const mutate of [value => value.writeUInt16LE(3, end + 10), value => value.writeUInt32LE(256 * 1024 * 1024 + 1, central + 24), value => value.writeUInt16LE(1, central + 8), value => value.writeUInt32LE(end, central + 42)]) {
+    const changed = Buffer.from(bytes); mutate(changed);
+    assert.throws(() => readOriginalMetadataArtifact(changed, names, `sha256:${digest(changed)}`));
+  }
+  assert.throws(() => readOriginalMetadataArtifact(bytes, [...names, "caller-extra.json"], `sha256:${digest(bytes)}`));
 });
 const clone = value => structuredClone(value);
 const json = value => Buffer.from(`${JSON.stringify(value)}\n`);

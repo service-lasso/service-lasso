@@ -158,6 +158,10 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: node scripts/collect-scoped-mcp-qualification.mjs
 
+      - name: Require same-candidate scoped qualify-release app15368 authority
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/require-scoped-technical-authority.mjs
       - name: Publish package to npm
         if: steps.package_exists.outputs.exists != 'true'
         working-directory: artifacts/npm/${{ steps.publish_version.outputs.artifact_name }}

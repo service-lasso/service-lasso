@@ -4,7 +4,8 @@ import { assertDevelopIdentity, assertPolicyEnvironment, digest, parseScopedJson
 import { scopedReleaseAssetNames } from "./scoped-release-evidence-lib.mjs";
 import { publishFullRelease } from "./scoped-publication-lib.mjs";
 import { verifyRetainedOperatorTools } from "./operator-tool-packaging-lib.mjs";
-import { boundedProviderBody } from "./scoped-provider-readback-lib.mjs";
+import { boundedProviderBody, readAuthenticatedArtifact } from "./scoped-provider-readback-lib.mjs";
+import { requireScopedTechnicalAuthority } from "./scoped-technical-authority-lib.mjs";
 assertDevelopIdentity(); assertPolicyEnvironment(); await readSourceScope();
 const repo = "service-lasso/service-lasso", source = sourceIdentity(process.env.CANDIDATE_SHA);
 if (process.env.GITHUB_REPOSITORY !== repo || !process.env.GITHUB_TOKEN || !process.env.RUNNER_TEMP) throw new Error("scoped publisher fixed provider context missing");
@@ -53,6 +54,7 @@ const provider = {
   readMetadata,
   readPublicAsset: publicAsset,
   async requireProtectedReleaseEnvironment() {
+    await requireScopedTechnicalAuthority({ source, readMetadata, readArtifact: url => readAuthenticatedArtifact(url, repo, token) });
     const environment = await request(`/repos/${repo}/environments/release`);
     // Source-bound actual environment identity; reviewer configuration is not
     // an invented qualification requirement. The provider schedules this job.

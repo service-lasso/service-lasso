@@ -302,6 +302,12 @@ jobs:
       - name: Bind exact scoped policy
         run: node scripts/bind-scoped-workflow-source.mjs
 
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install and build exact original artifact reader dependencies
+        run: npm ci && npm run build
       - name: Download exact current-run artifacts
         shell: bash
         env:
