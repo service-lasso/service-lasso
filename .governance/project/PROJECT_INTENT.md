@@ -312,3 +312,12 @@ Source-only preparation: different ENTIRE independent review and NEW complete-in
 
 ## Issue #1610 helper capture closure observation
 SPEC-003 BR-008 / SPEC-006 AC-6G.native-boundary-observation: source-only diagnostic for the original capture incomplete guard. Emit only schema service-lasso.native-helper-closure-observation.v1, status captured/unavailable and reason exit_nonzero, signal_present, stdout_eof_missing, stderr_eof_missing or unavailable. Record the first actually evaluated true predicate in the unchanged exit/signal/stdout/stderr short circuit order. Acquisition or predicate exceptions report unavailable without reading, formatting or replacing the thrown value; observer exceptions and return values never affect the primary result. No private values, new native probes, public/private projections or acceptance changes. Author positive, each refusal, hostile getter/exception/sink and primary identity regressions UNEXECUTED. Different ENTIRE cumulative source review and NEW complete-input ROOT admission precede every executable check. Current Windows failure cause and Darwin witness_image remain unresolved.
+
+## Issue #1621 fixture observation preparation
+SPEC-002 AC-4BJ.9c.fixture-observation-v1 / AC-4BH.2: observe the first actually
+failed native privacy operation separately for verification/protection and the
+actual recovered hook reader/owner/member/managed assertion. Closed enums only
+are public; original private errors, assertions, injected Error, options,
+deadlines, permissions and production control/history remain. No causal repair,
+new private sink or U1 cleanup authority. Source and regression preparation are
+UNEXECUTED pending different ENTIRE review and NEW complete-input ROOT.
