@@ -1,6 +1,6 @@
 # ADR-001: source-owned Windows/Linux release evidence
 
-Date: 2026-10-04. Governing issue: #1619, parent #1613 / #1562.
+Date: 2026-10-04. Governing issue: #1628 correction of #1619, parent #1613 / #1562.
 Status: authored durable decision, awaiting distinct entire-source review and governed landing. Development, documentation only. Implementation and qualification remain pending.
 
 ## Decision and authority
@@ -17,7 +17,9 @@ Deleting a matrix row leaves incompatible fixed schemas, inventories, selectors 
 
 SPEC-008 fixes all public/retained schema versions and keys, target names, canonical inventory order, workflow selectors and migration denial tests. Producer identity binds policy before build; aggregate admits all and only required target jobs from one SHA/run/attempt/policy; publisher retains held verified bytes through private draft and immutable public readback. Core admission requires separately source-approved actual publication tuples including scope digest. Retained archive/npm tools and final published qualification prove those identical bytes. Empty approved catalogs remain empty during contract implementation.
 
-The CLI's actual inner Windows native archive remains TAR in the scoped protected-v2 contract. This is eligibility plumbing, not satisfaction of the literal CLI #30 Windows ZIP programme requirement. That obligation remains UNMET and blocking for Windows GA until an independently reviewed producer/consumer ZIP design and real Windows producer/consumer acceptance discharge it. Core's outer Windows ZIP is a separate obligation and cannot substitute. Windows ZIP must not disappear through Darwin exclusion or a renamed requirement. Source authority: CLI SPEC-CLI-PROTECTED-NATIVE-CANDIDATE issue30 continuation explicitly says Windows ZIP separately UNMET; preserved Core #1602 author closure records that distinction. A later CLI ZIP inventory change requires another closed schema version and reconciled consumer, counts, native proof and pins, rather than extras or silent TAR substitution.
+Issue #1628 explicitly corrects three agent-added contract errors after whole design review. TUI3 uses two archive-only checksum rows and all four public-file proofs; historical v2 is six files/four archive rows. Template has two actual source-owned CLI/Core consumer roles with all twelve TC compatibility surfaces and all eight CA admission aliases, closed failure unions and source-selected proof/catalog paths. Earlier twelve-repository assertions did not have a real register and are retired, not fulfilled with fictional rows.
+
+The original Windows ZIP requirement belongs to Core #1534 staged-service importer/producer, governed by docs/api/staged-service-transfer.md and SPEC-002 AC-4CH. Core outer release Windows ZIP remains separately mandatory. CLI #30 originally required native executable archives, not inner ZIP; its later continuation and this ADR had misplaced that requirement. The former CLI inner-ZIP GA blocker is explicitly retired. Reviewed Option A selects protected2/portable2 two matching-host native TARs with 6/7/8 counts. Actual CLI native/Core/operator/template proof remains required. Conditional ZIP3 is a possible separate new requirement, not this delivery obligation; no new TAR modes/member order or gratuitous receipt grammar follows. Retained historical failures/reviews/blueprints are not rewritten or upgraded.
 
 Existing Admin/Broker source-owned release policies retain their real independently pinned distribution inventories. Integration eligibility does not mutate historical published assets. Any producer change requires its own actual current-source inspection, qualified publication and separate catalog approval.
 

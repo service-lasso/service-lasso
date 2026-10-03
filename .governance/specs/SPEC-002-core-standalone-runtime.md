@@ -693,7 +693,7 @@ This clarification authorizes faithful input/assertion reconciliation, no protec
 skip, deadline or permission widening, native-custody substitute, or release claim.
 
 ## AC-4CG.2 complete immutable tool migration (#1602)
-SPEC-007 issue1602 defines the exact historical-catalog-only distribution compatibility path, explicitly different receipt kinds and strict current-producer public admission. Core retains all currentCLI10files/9checksums/8declared assets and validates native/provenance/context/acceptance same bytes without launch or extraction. Direct native/operator and Windows ZIP programme obligations stay unqualified; historical receipts cannot satisfy protected qualification. No new pins/admissions are fabricated.
+SPEC-007 issue1602 defines the exact historical-catalog-only distribution compatibility path, explicitly different receipt kinds and strict current-producer public admission. Core retains all currentCLI10files/9checksums/8declared assets and validates native/provenance/context/acceptance same bytes without launch or extraction. Direct native/operator and Core staged-service/outer Windows ZIP obligations stay unqualified; historical receipts cannot satisfy protected qualification. No new pins/admissions are fabricated.
 
 ## Issue #1602 entire-review F1/F2 repair contract
 
