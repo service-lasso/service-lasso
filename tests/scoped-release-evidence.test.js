@@ -37,7 +37,7 @@ test("actual Template wrapper constructor retains both blocked roles and refuses
   assert.equal(validateTemplateEvidence(failedPublication, templateSource).outcome, "failure");
   failedPublication.outcome = "blocked";
   assert.throws(() => validateTemplateEvidence(failedPublication, templateSource), /precedence/);
-  for (const mutate of [v => v.consumers.pop(), v => v.consumers.reverse(), v => v.outcome = "success", v => v.consumers[1].catalogIdentity = "fixture-self-enrollment", v => v.consumers[1].gates[0].outcome = "success", v => v.consumers[0].repository = "caller/invented"]) {
+  for (const mutate of [v => v.consumers.pop(), v => v.consumers.reverse(), v => v.outcome = "success", v => v.consumers[1].catalogIdentity = "fixture-self-enrollment", v => v.consumers[1].gates[0].outcome = "success", v => v.consumers[0].repository = "caller/invented", v => { v.candidate.templateCommit = "a".repeat(40); v.candidate.templateVersion = "1.0.0-dev"; v.candidate.releaseTag = `template-v1.0.0-dev-${"a".repeat(40)}`; }]) {
     const altered = structuredClone(value); mutate(altered);
     assert.throws(() => validateTemplateEvidence(altered, templateSource));
   }
