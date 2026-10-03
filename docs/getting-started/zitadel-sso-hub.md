@@ -15,18 +15,21 @@ prove production or GA readiness.
 
 ## Outcome
 
-```text
-Your local application
-    |  OIDC Authorization Code + PKCE
-    v
-ZITADEL over trusted local HTTPS
-    |                         ^
-    v                         | stable master key at launch only
-PostgreSQL              Secrets Broker
-    \                         /
-     \---- Service Lasso -----/
-            lifecycle, health, ports
+```mermaid
+%%{init: {"flowchart": {"nodeSpacing": 15, "rankSpacing": 30}}}%%
+flowchart TB
+  accTitle: Local ZITADEL SSO Hub architecture
+  accDescr: The local application uses OIDC with ZITADEL. Service Lasso manages ZITADEL, its PostgreSQL database and the Secrets Broker that supplies its stable master key at launch.
+  app["Your local<br/>application"] -->|OIDC<br/>Authorization Code<br/>+ PKCE| zitadel
+  subgraph lasso["Service Lasso: lifecycle, health and ports"]
+    broker["Secrets Broker"] -->|Stable master key<br/>at launch only| zitadel["ZITADEL<br/>Trusted local HTTPS"]
+    zitadel -->|Identity data| db[("PostgreSQL")]
+  end
 ```
+
+Arrows show application connections and launch-time secret delivery. The
+Service Lasso boundary groups the managed services; OIDC traffic goes directly
+from the application to ZITADEL.
 
 When you finish:
 
