@@ -19,7 +19,6 @@ This file tracks bootstrap/adoption/remediation work required before product imp
 - Resolution used for this update run: normalize those artifacts into the current bootstrap-update output rather than discard or ignore them.
 
 ## Open Items
-- #1612 documentation publication remediation: enable explicit manual develop publication after existing gates, add only develop to the Pages environment branch allowlist, and retain exact deployment/public readback in the issue (`SPEC-002 AC-4AJ.5`, `AC-4AJ.6`), including local tooling advisory remediation without lowering audit thresholds.
 - `#1587` VibeGov bootstrap update is in review. Current reporting now lives in `.governance/project/bootstrap/` and its current linked repair history bundle (original `history/2026-10-02T07-53-15Z/` remains partial history). Do not extend the legacy `BOOTSTRAP_*.md` or `bootstrap-runs/` layout for new runs.
 - GitHub Project `service-lasso Delivery` (#1) was read-only audited. API readback shows its default `View 1` table has `Title`, `Status`, `Labels`, `Repository`, `Project Priority`, `Priority`, `Order`, so it does not meet the required visible columns/order. Issue `#1588` tracks provider-side remediation; the user did not authorize provider-setting mutation in this run.
 - Project Priority currently includes an additional `P5` option alongside required `P0`–`P4`. Preserve existing board options and assignments. A project administrator must decide whether to retire or retain it, then document the decision; do not destructively replace field options during a bootstrap update.
@@ -205,3 +204,7 @@ SOURCE GO and a NEW complete-input ROOT admission. Existing PR owners retain
 
 - [ ] #1608 adopt closed command-validation-observation.v1 spec first; preserve original validation/error/shortcircuit/private-v3/public-v2 and all incoming717 contracts. Author positive/every reason/privacy/unavailable/capture-failure tests without execution; obtain DIFFERENT ENTIRE review and NEW ROOT.
 - [ ] #1610 adopt finite helper capture closure observation; authored tests UNEXECUTED, preserve guard order/privacy/errors; different ENTIRE review and NEW ROOT before execution.
+
+## Documentation publication remediation completed
+
+- #1612 / PR #1615: explicit owner-authorized develop documentation publication is verified at `7d6f1ce6c244543c65b0efac2218c6f8dc456bc0`, Docs Site run `37140638976`. Live source receipt, current contributor instructions, three pages and CSS/JS assets read back successfully. Tooling advisories are locally patched with upstream provenance and 14 direct regressions; audit gates remain unchanged. Native runtime-qualification failures are retained separately in the issue; this receipt makes no runtime release or GA claim.
