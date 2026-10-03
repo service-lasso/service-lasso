@@ -208,3 +208,5 @@ SOURCE GO and a NEW complete-input ROOT admission. Existing PR owners retain
 ## Documentation publication remediation completed
 
 - #1612 / PR #1615: explicit owner-authorized develop documentation publication is verified at `7d6f1ce6c244543c65b0efac2218c6f8dc456bc0`, Docs Site run `37140638976`. Live source receipt, current contributor instructions, three pages and CSS/JS assets read back successfully. Tooling advisories are locally patched with upstream provenance and 14 direct regressions; audit gates remain unchanged. Native runtime-qualification failures are retained separately in the issue; this receipt makes no runtime release or GA claim.
+
+- [ ] #1623 adopt closed owning-resource-observation.v1 contract before code; preserve primary/close/cleanup semantics, complete resource inventory, all readers and privacy. Source tests UNEXECUTED until different ENTIRE review and NEW ROOT.
