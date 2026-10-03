@@ -1,5 +1,12 @@
 # Project Intent
 
+
+## Current GA applicability (2026-10-04, #1613)
+
+The PR #1614 documentation acceptance repair binds the governance validator to the explicit linked owner/date/issue/platform decision, retains historical three-platform validation and every current Windows/Linux requirement, and fixes the site link through the canonical external source. SPEC-007 AC-7F defines the positive/negative acceptance contract before implementation. Production qualification propagation remains a separate coherent #1613 unit; no native or release proof is claimed by documentation validation.
+
+The owner's current GA delivery scope is Windows and Linux under [current GA platform scope](CURRENT_GA_PLATFORM_SCOPE.md). Older three-platform/macOS obligations below retain their historical/default meaning; macOS is Deferred / Not applicable for this GA, never PASS. All Windows/Linux product, native, operator, template, immutable-publication and same-byte evidence remains required. Existing executable three-platform gates are unchanged and require coherent separately reviewed propagation before two-platform readiness can be claimed. No current exact qualified candidate or deployment is established by this scope decision.
+
 Issue #1592 reconciles MCP source conformance with the existing awaited,
 deadline-bound verification of the selected Windows native launcher before
 spawn. Legal call formatting must not change admission. Native assets,

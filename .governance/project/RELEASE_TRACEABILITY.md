@@ -1,5 +1,10 @@
 # Release decision traceability
 
+
+## Current GA applicability (2026-10-04, #1613)
+
+The owner's current GA delivery scope is Windows and Linux under [current GA platform scope](CURRENT_GA_PLATFORM_SCOPE.md). Older three-platform/macOS obligations below retain their historical/default meaning; macOS is Deferred / Not applicable for this GA, never PASS. All Windows/Linux product, native, operator, template, immutable-publication and same-byte evidence remains required. Existing executable three-platform gates are unchanged and require coherent separately reviewed propagation before two-platform readiness can be claimed. No current exact qualified candidate or deployment is established by this scope decision.
+
 Governing issue: [#1409](https://github.com/service-lasso/service-lasso/issues/1409). Canonical rule: [gov-09](../rules/gov-09-release-authority.mdc). Release 1 criteria: [SPEC-007 AC-7F/7G/7H](../specs/SPEC-007-secrets-capability-ledger.md).
 
 | Requirement | Authoritative procedure or evidence | Decision boundary |
