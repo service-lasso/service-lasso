@@ -700,3 +700,46 @@ SPEC-007 issue1602 defines the exact historical-catalog-only distribution compat
 AC-4CG.2 / AC-7F / AC-7G distinguish observational producer-shaped byte consistency from protected eligibility. The actual requireProtected/assertProtectedOperatorTools gate must match independently source-owned approved exact tuple/inventory identities for BOTH tools, in addition to receipt kind and all retained-byte checks. The approved protected catalog is EMPTY until real qualified immutable publication and identical public-byte readback are supplied in a separately reviewed pins-only source change. No caller, environment, configuration, retained bundle, test fixture or generated future tuple can admit itself. Preserve the two exact historical catalogs for normal distribution only; historical or wholly coherent invented nonhistorical bundles must fail actual protected qualification. A separately named retained-byte validation entrypoint supports observational fixture contracts and confers no approved publication authority. Regression source includes full coherent substituted payload/provenance/context/acceptance/manifests/checksums/pins, normal byte consistency, actual gate denial, arbitrary valid nonhistorical identity, and historical/empty-authority denial.
 
 Core independently reads the exact fixed-repository git/ref/tags/<tag> and resolves only typed full-SHA commit/tag objects. Annotated tags require returned-object SHA equality, cycle detection and at most sixteen tag dereferences before the exact expected full source commit. Missing/malformed/wrong ref, invalid type/SHA, wrong annotated-object identity, cycles, excessive depth and wrong resolved commit fail closed even with correct release target_commitish. Lightweight and bounded annotated producer positives remain supported. Credentials apply only to fixed GitHub metadata reads with redirects denied; public release assets and all permitted redirects stay headerless. Existing immutable/draft/prerelease/full source/inventory/digest/TUIv2/CLI10-9-8/native/privacy/path/budget checks and all incoming #1603 observations are preserved. All source fixtures remain UNEXECUTED until a DIFFERENT fresh ENTIRE source GO and NEW complete-input ROOT admission. No publication/native/GA or programme completion follows.
+
+### AC-4BJ.9c.fixture-isolation-v1 (#1629; F1-F7)
+
+[ADR-002](../decisions/ADR-002-fixture-isolation.md) is the selected prospective
+operational contract: Linux distinct host UID/root-private persistent backing,
+private mount/supervisor and stable descriptor-relative unlinkat interval;
+Windows fresh SID/restricted token/protected processes/suspended Job assignment
+plus same-approved-held-object copy and ordinary disposition. This supersedes
+only the earlier absence of an architecture selection. Current implemented
+F1/F2 fail-closed retention remains mandatory until separately reviewed/admitted
+native isolation succeeds. W1 alone is unselected; no assertion is weakened.
+
+`FI-1` Isolation precedes fresh fixture creation and every sensitive write; no
+production permission change, retained-root repair, unknown owner reset or
+identity reuse. Trusted kernel/admin/SYSTEM assumptions and unsupported-host
+closed failure are explicit. `FI-2` Source-owned launcher/supervisor/matrix
+mediator/keeper have the exact paths, privileges, runtime/provenance and IPC
+contract in ADR-002. Live mediators are excluded from the finite workload group;
+no empty Job/cgroup claim includes a parked live parent. No broker/breakaway or
+unreviewed inherited capabilities. `FI-3` Close all admitted writers and accepted
+lifetime union, transfer guardian identity and positively settle delete-denying
+handles under continuous isolation, then approve held inventory before copy.
+`FI-4` Verify complete separate persistent copy before exact-object deletion;
+Linux unlinkat depends on stable exclusion, Windows ordinary disposition uses
+the same approved handles. Unknown additions/remainders survive; partial deletion
+fails and blocks reset. `FI-5` Complete removal/reset plus post-reset/ENV copy
+readback and positive native/pipe closure are required. Persistent originals and
+copies survive observer/supervisor failure; memfd is supplemental, never durable
+or off-host custody. Restore hooks/ENV and preserve all raw secondary errors.
+`FI-6` Exact source/tool/native/ENV proof, authenticated bounded IPC and held-root
+relative proof grammar require NEW complete-input admission and actual native
+positive/denial/fault evidence. `FI-7` F3/F4 registry/history, F5 prior physical
+privacy, F6 direct_child and F7 independent failed capture retain their original
+criteria. Actual owner-approved off-host private custody remains absent.
+
+All seven formal phases and two recovered rows, real startup-before-return
+failure, production regressions, owner/generation/allocation/residue/absence,
+unrelated-process survival and deadlines/retries remain protected. Prepare
+complete positive/partial/persistence and concurrent denial/fault sources with
+future native adapters. Distinct entire amendment review and develop landing
+precede adapter authoring; distinct entire adapter review and NEW ROOT admission
+precede every import/parser/compiler/install/test/native/ACL/provisioning action.
+This docs-only amendment is not observed host capability or implementation GO.

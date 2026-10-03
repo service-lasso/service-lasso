@@ -215,3 +215,9 @@ SOURCE GO and a NEW complete-input ROOT admission. Existing PR owners retain
 - [ ] #1613: implement coherent reader-first Core/CLI/TUI/template propagation in separately owned branches after satellite spec mapping, entire final-source review and NEW complete-input admission.
 - [ ] CLI #30: resolve separately UNMET Windows ZIP through reviewed producer/consumer delivery and direct Windows proof; Core ZIP/CLI TAR are not substitutes.
 - [ ] #1562: resolve retained Windows/Linux runtime/native/cleanup/input/private custody gaps, then actual immutable publication/public byte readback, separate approved catalog pins, same-byte Core/npm and terminal published qualification. Empty catalogs and original failures stay retained; Darwin deferred never PASS.
+
+## #1629 fixture boundary adoption
+
+- [ ] Land independently reviewed ADR-002 and SPEC-002 FI-1..FI-7 before complete native adapter source authoring; keep implemented fail-closed retention pending admitted native proof.
+- [ ] Prepare complete source-owned launcher/supervisor/mediator/keeper, provenance/IPC/held-proof grammar, positive/partial/persistent-copy and concurrent native denial/fault sources under the separately assigned adapter unit; no execution before distinct entire review and NEW ROOT.
+- [ ] #1326 F7: actual owner-approved off-host private custodian/destination/access remains absent; local persistence/sealed FD cannot discharge it. Preserve all failures and production criteria.

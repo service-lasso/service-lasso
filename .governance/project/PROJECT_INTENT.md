@@ -335,3 +335,7 @@ UNEXECUTED pending different ENTIRE review and NEW complete-input ROOT.
 | #1562 native/operator/template delivery | SPEC-008 R6-R7 and original product requirements | blocked by retained current qualification defects; no blanket rerun authority |
 | CLI #30 Windows ZIP | SPEC-008 R4 / original CLI protected-native spec | UNMET; independently reviewed ZIP producer/consumer contract and direct Windows evidence required |
 | Actual protected publication/catalog pins | SPEC-008 R3/R7 / SPEC-007 AC-7G/7H | pending actual qualified immutable bytes/public readback and separate pins-only source review |
+
+## Fixture isolation source contract (#1629)
+
+SPEC-002 AC-4BJ.9c.fixture-isolation-v1 FI-1..FI-7 and [ADR-002](../decisions/ADR-002-fixture-isolation.md) select Linux distinct-host-UID persistent-private-mount supervision and Windows W2 fresh-SID/restricted-token controlled Job plus W1 same-held-object disposition. This is source preparation only: distinct entire amendment review/landing precedes complete adapter authorship, and fresh entire adapter review/NEW ROOT/actual host proof precede execution. Original failures, production permissions, F1-F7, seven plus two protected rows and #1627 stay intact; F7 actual off-host custodian remains absent. #1626/#1628/U4/U5 stay separately owned. Whole delivery remains active.

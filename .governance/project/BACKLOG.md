@@ -748,3 +748,5 @@ SOURCE GO and a NEW complete-input ROOT admission. Existing PR owners retain
 | #1562 native/operator/template delivery | SPEC-008 R6-R7 and original product requirements | blocked by retained current qualification defects; no blanket rerun authority |
 | CLI #30 Windows ZIP | SPEC-008 R4 / original CLI protected-native spec | UNMET; independently reviewed ZIP producer/consumer contract and direct Windows evidence required |
 | Actual protected publication/catalog pins | SPEC-008 R3/R7 / SPEC-007 AC-7G/7H | pending actual qualified immutable bytes/public readback and separate pins-only source review |
+
+| ISS-1629 | in_progress, docs only | Parent #1326/#1562; selected durable fixture operational decision | SPEC-002 AC-4BJ.9c.fixture-isolation-v1 FI-1..FI-7 / ADR-002 | Entire amendment review and develop landing pending; then fresh complete adapter source unit. NEW ROOT and actual host proof before execution; F7 real off-host private custodian absent. All original gates remain unmet where failed. |
