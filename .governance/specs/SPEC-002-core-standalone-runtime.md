@@ -693,7 +693,7 @@ This clarification authorizes faithful input/assertion reconciliation, no protec
 skip, deadline or permission widening, native-custody substitute, or release claim.
 
 ## AC-4CG.2 complete immutable tool migration (#1602)
-SPEC-007 issue1602 defines the exact historical-catalog-only distribution compatibility path, explicitly different receipt kinds and strict current-producer public admission. Core retains all currentCLI10files/9checksums/8declared assets and validates native/provenance/context/acceptance same bytes without launch or extraction. Direct native/operator and Windows ZIP programme obligations stay unqualified; historical receipts cannot satisfy protected qualification. No new pins/admissions are fabricated.
+SPEC-007 issue1602 defines the exact historical-catalog-only distribution compatibility path, explicitly different receipt kinds and strict current-producer public admission. Core retains all currentCLI10files/9checksums/8declared assets and validates native/provenance/context/acceptance same bytes without launch or extraction. Direct native/operator and Core staged-service/outer Windows ZIP obligations stay unqualified; historical receipts cannot satisfy protected qualification. No new pins/admissions are fabricated.
 
 ## Issue #1602 entire-review F1/F2 repair contract
 
@@ -712,6 +712,48 @@ U3 public record exactly `{schema:"service-lasso.fixture-startup-path.v1",comple
 Each actual record monotonically persists ONLY approved native excludedMemberPids. Filter both current and retained groups and all shared snapshot lookup maps by union with prior production exclusions; compare immutable lifetimes only within allowed members. Explicit excluded PID lookup refuses control, never returns fake not_running for a live sentinel. Return approved exclusions for caller persistence. Cover ACK, termination, adopted refresh, managed monitor, adopted finalization, constructors, initial/stabilized/emergency enrollment, compensation containment and adopted stop. Preserve verifiedMembersOnly monotonicity, root/held-child acceptance and immutable conflict rejection before accepting history. Private fixture history remains independent monotonic ACCEPTED fingerprints: earlier accepted A survives later exclusion/omission/deletion/rejected new A, independent B survives conflict; no provisional/rejected members or recycled PID control authority. Four managed/adopted/live/root-exit native modes, sentinel survival, filtered targets, no taskkill/T, one terminator<=5000ms, stopped/null owner, seven history cases and request-context/operator fresh inspection remain protected. Supplemental helper regressions cannot replace original native modes.
 
 New decoder hostile/chunk/limit/order and actual bootstrap-unavailable/payload parse/compiler failure regressions, callback/Error neutrality and actual path projection are wired into existing natural entrypoints; every executable check remains UNEXECUTED pending different whole cumulative review and NEW complete-input ROOT. U1 isolation PR1630/F7 sink/U5 unknown EBUSY owner/U4 passing test66 remain separate; no cleanup, cause invention, deadline expansion or speculative convergence changes.
+### AC-4BJ.9c.fixture-isolation-v1 (#1629; F1-F7)
+
+[ADR-002](../decisions/ADR-002-fixture-isolation.md) is the selected prospective
+operational contract: Linux distinct host UID/root-private persistent backing,
+private mount/supervisor and stable descriptor-relative unlinkat interval;
+Windows fresh SID/restricted token/protected processes/suspended Job assignment
+plus same-approved-held-object copy and ordinary disposition. This supersedes
+only the earlier absence of an architecture selection. Current implemented
+F1/F2 fail-closed retention remains mandatory until separately reviewed/admitted
+native isolation succeeds. W1 alone is unselected; no assertion is weakened.
+
+`FI-1` Isolation precedes fresh fixture creation and every sensitive write; no
+production permission change, retained-root repair, unknown owner reset or
+identity reuse. Trusted kernel/admin/SYSTEM assumptions and unsupported-host
+closed failure are explicit. `FI-2` Source-owned launcher/supervisor/matrix
+mediator/keeper have the exact paths, privileges, runtime/provenance and IPC
+contract in ADR-002: trusted privileged supervisor, original workload owner W, distinct read-only mediator M and keeper K, and ordinary runner R. No live M/K original owner/reopen/write/chmod/WRITE_DAC/token/FD/attach authority is permitted. Live mediators are excluded from the finite workload group;
+no empty Job/cgroup claim includes a parked live parent. No broker/breakaway or
+unreviewed inherited capabilities. `FI-3` Close all admitted writers and accepted
+lifetime union, transfer guardian identity and positively settle delete-denying
+handles under continuous native isolation, then approve held inventory before copy. Positively wait every W process and original pipe EOF; M/K remain live only with authenticated finite read capabilities. Original owner W is never rewritten to evade equality.
+`FI-4` Verify complete separate persistent copy before exact-object deletion;
+Linux unlinkat depends on stable exclusion, Windows ordinary disposition uses
+the same approved handles. Unknown additions/remainders survive; partial deletion
+fails and blocks reset. `FI-5` Complete removal/reset plus post-reset/ENV copy
+readback and positive native/pipe closure are required. Persistent originals and
+copies survive observer/supervisor failure; memfd is supplemental, never durable
+or off-host custody. Restore hooks/ENV and preserve all raw secondary errors.
+`FI-6` Exact source/tool/native/ENV proof, authenticated bounded IPC and held-root
+relative proof grammar require NEW complete-input admission and actual native
+positive/denial/fault evidence. Existing current-actor original owner guards require source-owned loader/client adaptation with supervisor-authenticated prior ORIGINAL W owner/held-object capsules; no caller/ENV owner override or whitelist. Distinguish M-owned diagnostic roots from W originals and supervisor-owned copies/control roots. Wrong actor/owner/object/source/receipt and live reader mutation denials join all unchanged native positive/equality/copy/removal/reset/partial/ENV/history assertions. `FI-7` F3/F4 registry/history, F5 prior physical
+privacy, F6 direct_child and F7 independent failed capture retain their original
+criteria. Actual owner-approved off-host private custody remains absent.
+
+All seven formal phases and two recovered rows, real startup-before-return
+failure, production regressions, owner/generation/allocation/residue/absence,
+unrelated-process survival and deadlines/retries remain protected. Prepare
+complete positive/partial/persistence and concurrent denial/fault sources with
+future native adapters. Distinct entire amendment review and develop landing
+precede adapter authoring; distinct entire adapter review and NEW ROOT admission
+precede every import/parser/compiler/install/test/native/ACL/provisioning action.
+This docs-only amendment is not observed host capability or implementation GO.
 ### AC-4BH.4 Attempt-coherent Windows tree diagnostics (#1622)
 
 Development source preparation follows the independently reviewed U4 compatible-omission alternative. The public contract remains the existing fourteen base keys and reason-bound optional ancestry/partial-copy groups; no new public key or schema version is introduced. `windowsTreeInspectionLastRetry` is the last observed failure category, which may precede the terminal attempt. Native helper progress describes the latest actually entered native attempt, and never establishes target liveness or process-tree convergence.
