@@ -748,4 +748,5 @@ SOURCE GO and a NEW complete-input ROOT admission. Existing PR owners retain
 | #1562 native/operator/template delivery | SPEC-008 R6-R7 and original product requirements | blocked by retained current qualification defects; no blanket rerun authority |
 | CLI #30 Windows ZIP | SPEC-008 R4 / original CLI protected-native spec | UNMET; independently reviewed ZIP producer/consumer contract and direct Windows evidence required |
 | Actual protected publication/catalog pins | SPEC-008 R3/R7 / SPEC-007 AC-7G/7H | pending actual qualified immutable bytes/public readback and separate pins-only source review |
-`n| ISS-1632 | in_progress, source only | Finite bootstrap/payload/compiler/native and actual startup witnesses; complete production native exclusion continuity | SPEC-002 AC-4BJ.9c.fixture-transport-v2/startup-path-v1, AC-4BH.2 | Fresh entire review and NEW ROOT; original gates and U1/F7/U4/U5 dependencies preserved. |
+
+| ISS-1632 | in_progress, source only | Finite bootstrap/payload/compiler/native and actual startup witnesses; complete production native exclusion continuity | SPEC-002 AC-4BJ.9c.fixture-transport-v2/startup-path-v1, AC-4BH.2 | Fresh entire review and NEW ROOT; original gates and U1/F7/U4/U5 dependencies preserved. |

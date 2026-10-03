@@ -31,4 +31,5 @@ acceptance. Require a different fresh entire-source reviewer and NEW complete-in
 ROOT admission before any execution. Do not infer qualification from mocked inputs.
 
 For #1606 bind typed exact native identity migration, legacy rejection, real native and adversarial regressions, entire review and NEW ROOT; public-v2/MCP remain unchanged.
-`nFor #1632, bind finite role/nonce transport, actual startup observation and whole shared/supervisor native exclusion paths; preserve four native modes/seven history cases and original errors/deadlines. Source preparation is unexecuted until different entire review and NEW complete-input ROOT.
+
+For #1632, bind finite role/nonce transport, actual startup observation and whole shared/supervisor native exclusion paths; preserve four native modes/seven history cases and original errors/deadlines. Source preparation is unexecuted until different entire review and NEW complete-input ROOT.
