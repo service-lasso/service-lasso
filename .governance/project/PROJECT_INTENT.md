@@ -327,3 +327,5 @@ SPEC-003 BR-008 / SPEC-006 AC-6G.native-boundary-observation: source-only diagno
 | #1562 native/operator/template delivery | SPEC-008 R6-R7 and original product requirements | blocked by retained current qualification defects; no blanket rerun authority |
 | CLI #30 Windows ZIP | SPEC-008 R4 / original CLI protected-native spec | UNMET; independently reviewed ZIP producer/consumer contract and direct Windows evidence required |
 | Actual protected publication/catalog pins | SPEC-008 R3/R7 / SPEC-007 AC-7G/7H | pending actual qualified immutable bytes/public readback and separate pins-only source review |
+
+#1623 F1 source repair constrains actual boundary roles and command/awaited/transport transitions in one producer/relay grammar; prospective contradictory-family negatives and owning-flow positive readbacks remain UNEXECUTED until fresh entire review and NEW ROOT.

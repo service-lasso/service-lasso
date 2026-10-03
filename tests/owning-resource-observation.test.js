@@ -50,6 +50,9 @@ test("consumer creation and exceptional finally preserve exact resource correlat
     };
     await new AsyncFunction(...Object.keys(context),allocation+body)(...Object.values(context));
     const rows = decode(output);
+    let relayed = "";
+    relayOwningResourceObservations(output, value => { relayed += value; });
+    assert.deepEqual(decode(relayed), rows, `actual consumer owner relay: ${failing}`);
     const statuses = role => rows.filter(row=>row.role===role).map(row=>row.status);
     assert.deepEqual(rows.slice(0,8).map(row=>row.sequence),[1,2,3,4,5,6,7,8]);
     for (const role of new Set(rows.map(row=>row.role))) assert.equal(new Set(rows.filter(row=>row.role===role).map(row=>row.sequence)).size, role === "inspector_command" ? 3 : 1);
@@ -104,6 +107,7 @@ test("Inspector owner stays not-created before entrypoint failure and uses the s
     assert.equal(caught,unavailable ? primary : undefined);
     assert.deepEqual(decode(output).map(row=>row.status),unavailable ? ["not_created"] : ["not_created","creation_attempted","created","exit_observed","close_observed"]);
     assert.equal(output.includes("private"),false);
+    let relayed="";relayOwningResourceObservations(output,value=>{relayed+=value;});assert.deepEqual(decode(relayed),decode(output));
   }
 });
 
@@ -148,5 +152,109 @@ test("actual staging lock finally records release without changing callback/rele
     assert.equal(releases,fail === "acquire" ? 0 : 1);
     assert.deepEqual(decode(output).map(row=>row.status),fail === "acquire" ? ["not_created","creation_attempted","creation_rejected"] : ["not_created","creation_attempted","created","close_attempted",["release","both"].includes(fail) ? "close_rejected" : "close_resolved"]);
     assert.equal(output.includes("private"),false);
+  }
+});
+
+// AC-6G.owning-resource-observation F1: each forged row is canonical and
+// independently reaches a real family state. Rejection must not advance state.
+test("canonical relay rejects every role family's incompatible lifecycle and boundary", () => {
+  const encode = (role, statuses, boundary = "consumer") => statuses.map(status => prefix + JSON.stringify({
+    schema: "service-lasso.owning-resource-observation.v1", boundary, role, sequence: 1, status,
+  }) + "\n").join("");
+  const relay = input => { let output = ""; relayOwningResourceObservations(input, value => { output += value; }); return output; };
+  const created = ["not_created", "creation_attempted", "created"];
+  for (const role of [null, 1, [], { toString: "private" }, "toString", "__proto__"]) {
+    assert.equal(relay(encode(role, created)), "");
+    assert.throws(() => owningResourceObservations("consumer", () => {})(role), /Invalid resource observation role/);
+  }
+  for (const role of ["http_server", "http_client", "stdio_client"]) {
+    for (const contradiction of ["creation_rejected", "exit_observed", "close_observed", "unavailable", "close_resolved", "close_rejected"]) {
+      const valid = [...created, "close_attempted", "close_rejected", "close_attempted", "close_resolved"];
+      assert.equal(relay(encode(role, [...created, contradiction, ...valid.slice(3)])), encode(role, valid), `${role}/${contradiction}`);
+    }
+    for (const phase of ["close_attempted", "close_rejected", "close_resolved"]) {
+      const prior = [...created, "close_attempted", ...(phase === "close_attempted" ? [] : [phase])];
+      for (const contradiction of ["creation_rejected", "exit_observed", "close_observed", "unavailable"]) {
+        assert.equal(relay(encode(role, [...prior, contradiction])), encode(role, prior), `${role}/${phase}/${contradiction}`);
+      }
+    }
+  }
+  for (const role of ["http_transport", "stdio_transport"]) {
+    for (const contradiction of ["creation_rejected", "exit_observed", "close_observed", "close_attempted", "close_resolved", "close_rejected"]) {
+      assert.equal(relay(encode(role, [...created, contradiction, "unavailable"])), encode(role, [...created, "unavailable"]), `${role}/${contradiction}`);
+    }
+    for (const contradiction of ["exit_observed", "close_observed", "close_attempted", "unavailable"]) {
+      assert.equal(relay(encode(role, [...created, "unavailable", contradiction])), encode(role, [...created, "unavailable"]));
+    }
+  }
+  for (const contradiction of ["close_attempted", "close_resolved", "close_rejected"]) {
+    assert.equal(relay(encode("inspector_command", [...created, contradiction, "exit_observed", "close_observed"])), encode("inspector_command", [...created, "exit_observed", "close_observed"]));
+  }
+  for (const role of ["inspector_command", "http_server", "http_client", "stdio_client", "http_transport", "stdio_transport"]) {
+    const rejected = ["not_created", "creation_attempted", "creation_rejected"];
+    for (const contradiction of ["created", "exit_observed", "close_observed", "close_attempted", "unavailable"]) assert.equal(relay(encode(role, [...rejected, contradiction])), encode(role, rejected));
+  }
+  for (const role of ["candidate_command", "provenance_command", "install_command", "pack_command", "stage_lock", "consumer_command"]) {
+    assert.equal(relay(encode(role, [...created, "exit_observed", "close_observed"])), "", role);
+    assert.throws(() => owningResourceObservations("consumer", () => {})(role), /Invalid resource observation role/);
+  }
+  for (const role of ["inspector_command", "http_server", "http_client", "stdio_client", "http_transport", "stdio_transport"]) {
+    assert.equal(relay(encode(role, created, "verifier")), "");
+    assert.throws(() => owningResourceObservations("verifier", () => {})(role), /Invalid resource observation role/);
+  }
+});
+
+test("owning producer rejects incompatible statuses for all verifier and consumer role families", () => {
+  for (const [boundary, roles, invalid, terminal] of [
+    ["verifier", ["candidate_command", "provenance_command", "install_command", "pack_command", "consumer_command"], ["close_attempted", "close_resolved", "close_rejected"], ["exit_observed", "close_observed"]],
+    ["consumer", ["inspector_command"], ["close_attempted", "close_resolved", "close_rejected"], ["exit_observed", "close_observed"]],
+    ["verifier", ["stage_lock"], ["creation_rejected", "exit_observed", "close_observed", "unavailable"], ["close_attempted", "close_resolved"]],
+    ["consumer", ["http_server", "http_client", "stdio_client"], ["creation_rejected", "exit_observed", "close_observed", "unavailable"], ["close_attempted", "close_rejected", "close_attempted", "close_resolved"]],
+    ["consumer", ["http_transport", "stdio_transport"], ["creation_rejected", "exit_observed", "close_observed", "close_attempted", "close_resolved", "close_rejected"], ["unavailable"]],
+  ]) {
+    for (const role of roles) {
+      let output = "";
+      const owner = owningResourceObservations(boundary, value => { output += value; })(role);
+      owner.record("creation_attempted");owner.record("created");
+      for (const status of invalid) owner.record(status);
+      for (const status of terminal) owner.record(status);
+      assert.deepEqual(decode(output).map(row => row.status), ["not_created", "creation_attempted", "created", ...terminal], `${boundary}/${role}`);
+      if (boundary === "consumer") { let relayed = "";relayOwningResourceObservations(output, value => { relayed += value; });assert.equal(relayed, output); }
+    }
+  }
+});
+
+// Execute the original direct-command owner body with controlled child events
+// and clock callbacks. These prospective fixtures do not claim native custody.
+test("actual command owner preserves returned-child error, close without exit and late events after unavailable", async () => {
+  const source = await readFile(new URL("../scripts/mcp-product-acceptance-lib.mjs", import.meta.url), "utf8");
+  const body = source.slice(source.indexOf("export async function runCommand("), source.indexOf("function markRunCommandFailure("));
+  const { EventEmitter } = await import("node:events");
+  for (const outcome of ["sync_spawn_error", "returned_spawn_error", "returned_error_exit", "close_without_exit", "late_exit_close", "late_error_exit_close"]) {
+    const primary = new Error("private-command-error");
+    const child = new EventEmitter();child.stdout = new EventEmitter();child.stderr = new EventEmitter();child.kill = () => true;
+    child.exitCode = null;child.signalCode = null;
+    const timers = [];
+    const run = new Function("spawn", "setTimeout", "clearTimeout", "markRunCommandFailure", "repoRoot", "MAX_CAPTURE_BYTES", "Buffer", body.replace("export async function", "async function") + ";return runCommand;")(
+      () => { if (outcome === "sync_spawn_error") throw primary;return child; },
+      callback => { const timer = { callback, unref() {} };timers.push(timer);return timer; },
+      () => {}, error => error, "private-root", 1024, Buffer);
+    let output = "";
+    const resourceObservation = owningResourceObservations("consumer", value => { output += value; })("inspector_command");
+    const result = run("private-command", [], { resourceObservation }).then(value => ({ value }), error => ({ error }));
+    if (outcome.startsWith("late_")) { timers[0].callback();timers[1].callback(); }
+    if (["returned_spawn_error", "returned_error_exit", "late_error_exit_close"].includes(outcome)) child.emit("error", primary);
+    if (["returned_error_exit", "late_exit_close", "late_error_exit_close"].includes(outcome)) child.emit("exit", 3, null);
+    if (outcome !== "sync_spawn_error") child.emit("close", null, null);
+    const settled = await result;
+    assert.equal(Boolean(settled.error), true);
+    if (["sync_spawn_error", "returned_spawn_error", "returned_error_exit"].includes(outcome)) assert.equal(settled.error, primary);
+    const expected = outcome === "sync_spawn_error" ? ["not_created", "creation_attempted", "creation_rejected"]
+      : ["not_created", "creation_attempted", "created", ...(outcome.startsWith("late_") ? ["unavailable"] : []),
+        ...(["returned_spawn_error", "returned_error_exit", "late_error_exit_close"].includes(outcome) ? ["creation_rejected"] : []),
+        ...(["returned_error_exit", "late_exit_close", "late_error_exit_close"].includes(outcome) ? ["exit_observed"] : []), "close_observed"];
+    assert.deepEqual(decode(output).map(row => row.status), expected, outcome);
+    let relayed = "";relayOwningResourceObservations(output, value => { relayed += value; });assert.equal(relayed, output, outcome);
+    assert.equal(output.includes("private"), false);
   }
 });

@@ -324,10 +324,40 @@ export async function supportedMcpVersions() {
   };
 }
 
-const RESOURCE_ROLES = new Set(["candidate_command", "provenance_command", "install_command", "pack_command", "stage_lock", "consumer_command", "inspector_command", "http_server", "http_transport", "http_client", "stdio_transport", "stdio_client"]);
+const RESOURCE_FAMILIES = Object.freeze({
+  verifier: Object.freeze({ candidate_command: "command", provenance_command: "command", install_command: "command", pack_command: "command", stage_lock: "awaited", consumer_command: "command" }),
+  consumer: Object.freeze({ inspector_command: "command", http_server: "awaited", http_transport: "transport", http_client: "awaited", stdio_transport: "transport", stdio_client: "awaited" }),
+});
 const RESOURCE_STATUSES = new Set(["not_created", "creation_attempted", "created", "creation_rejected", "close_attempted", "close_resolved", "close_rejected", "exit_observed", "close_observed", "unavailable"]);
 const RESOURCE_SCHEMA = "service-lasso.owning-resource-observation.v1";
 const RESOURCE_PREFIX = "[owning-resource-observation] ";
+
+function resourceFamily(boundary, role) {
+  if (typeof boundary !== "string" || typeof role !== "string") return undefined;
+  const roles = RESOURCE_FAMILIES[boundary];
+  return roles && Object.hasOwn(roles, role) ? roles[role] : undefined;
+}
+
+// One grammar for owning emission and untrusted relay. Returned command children
+// retain independent once-only error/exit/unavailable observations until close,
+// including actual late events after a bounded wait reported unavailable.
+function nextResourceState(family, prior, status) {
+  if (!RESOURCE_STATUSES.has(status)) return undefined;
+  if (prior === undefined) return status === "not_created" ? { status } : undefined;
+  if (prior.status === "not_created") return status === "creation_attempted" ? { status } : undefined;
+  if (prior.status === "creation_attempted") {
+    return status === "created" || status === "creation_rejected" ? { status, returned: status === "created" } : undefined;
+  }
+  if (family === "command") {
+    if (!prior.returned || prior.status === "close_observed") return undefined;
+    const flag = { creation_rejected: "rejected", exit_observed: "exited", unavailable: "unavailable", close_observed: "closed" }[status];
+    return flag && !prior[flag] ? { ...prior, status, [flag]: true } : undefined;
+  }
+  if (family === "transport") return prior.status === "created" && status === "unavailable" ? { status } : undefined;
+  const allowed = prior.status === "created" || prior.status === "close_resolved" || prior.status === "close_rejected"
+    ? ["close_attempted"] : prior.status === "close_attempted" ? ["close_resolved", "close_rejected"] : [];
+  return allowed.includes(status) ? { status } : undefined;
+}
 
 export function ownedCommandStderr(error) {
   if (!error || typeof error !== "object" || types.isProxy(error)) return undefined;
@@ -343,11 +373,15 @@ export function owningResourceObservations(boundary, report = value => process.s
   if (boundary !== "verifier" && boundary !== "consumer") throw new Error("Invalid resource observation boundary.");
   let sequence = 0;
   return role => {
-    if (!RESOURCE_ROLES.has(role) || sequence === 32) throw new Error("Invalid resource observation role.");
+    const family = resourceFamily(boundary, role);
+    if (!family || sequence === 32) throw new Error("Invalid resource observation role.");
     const ordinal = ++sequence;
     let created = false;
+    let state;
     const record = status => {
-      if (!RESOURCE_STATUSES.has(status)) return;
+      const next = nextResourceState(family, state, status);
+      if (!next) return;
+      state = next;
       if (status === "created") created = true;
       try { report(`${RESOURCE_PREFIX}${JSON.stringify({ schema: RESOURCE_SCHEMA, boundary, role, sequence: ordinal, status })}\n`); } catch { /* Observation must preserve the original result. */ }
     };
@@ -381,22 +415,15 @@ export function relayOwningResourceObservations(serialized, report = value => pr
     let value;
     try { value = JSON.parse(line.slice(RESOURCE_PREFIX.length)); } catch { continue; }
     if (!value || Array.isArray(value) || Object.keys(value).join(",") !== "schema,boundary,role,sequence,status" ||
-      value.schema !== RESOURCE_SCHEMA || value.boundary !== "consumer" || !RESOURCE_ROLES.has(value.role) ||
+      value.schema !== RESOURCE_SCHEMA || value.boundary !== "consumer" || !resourceFamily(value.boundary, value.role) ||
       !RESOURCE_STATUSES.has(value.status) || !Number.isInteger(value.sequence) || value.sequence < 1 || value.sequence > 32) continue;
     if (line !== RESOURCE_PREFIX + JSON.stringify(value)) continue;
     if (roles.has(value.sequence) && roles.get(value.sequence) !== value.role) continue;
     const prior = states.get(value.sequence);
-    const allowed = prior === undefined ? ["not_created"]
-      : prior === "not_created" ? ["creation_attempted"]
-      : prior === "creation_attempted" ? ["created", "creation_rejected"]
-      : prior === "created" ? ["creation_rejected", "close_attempted", "exit_observed", "close_observed", "unavailable"]
-      : prior === "close_attempted" ? ["close_resolved", "close_rejected"]
-      : prior === "close_resolved" || prior === "close_rejected" ? ["close_attempted", "unavailable"]
-      : prior === "exit_observed" || prior === "creation_rejected" ? ["close_observed", "unavailable"]
-      : prior === "unavailable" && value.role.endsWith("_command") ? ["exit_observed", "close_observed"] : [];
-    if (!allowed.includes(value.status) || (prior === undefined && value.sequence !== roles.size + 1)) continue;
+    const next = nextResourceState(resourceFamily(value.boundary, value.role), prior, value.status);
+    if (!next || (prior === undefined && value.sequence !== roles.size + 1)) continue;
     roles.set(value.sequence, value.role);
-    states.set(value.sequence, value.status);
+    states.set(value.sequence, next);
     records++;
     try { report(`${RESOURCE_PREFIX}${JSON.stringify(value)}\n`); } catch { /* Preserve verifier behavior. */ }
   }
