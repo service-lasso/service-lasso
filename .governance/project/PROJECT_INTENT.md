@@ -313,6 +313,7 @@ Source-only preparation: different ENTIRE independent review and NEW complete-in
 ## Issue #1610 helper capture closure observation
 SPEC-003 BR-008 / SPEC-006 AC-6G.native-boundary-observation: source-only diagnostic for the original capture incomplete guard. Emit only schema service-lasso.native-helper-closure-observation.v1, status captured/unavailable and reason exit_nonzero, signal_present, stdout_eof_missing, stderr_eof_missing or unavailable. Record the first actually evaluated true predicate in the unchanged exit/signal/stdout/stderr short circuit order. Acquisition or predicate exceptions report unavailable without reading, formatting or replacing the thrown value; observer exceptions and return values never affect the primary result. No private values, new native probes, public/private projections or acceptance changes. Author positive, each refusal, hostile getter/exception/sink and primary identity regressions UNEXECUTED. Different ENTIRE cumulative source review and NEW complete-input ROOT admission precede every executable check. Current Windows failure cause and Darwin witness_image remain unresolved.
 
+Issue #1622 / SPEC-002 AC-4BH.4 binds Windows partial-copy receipts privately to their actual producing attempt and omits stale optional fields while retaining the last observed reason. Preserve the closed public schemas, original failures and all native controls. This is U4 source preparation; fresh whole review, NEW ROOT and protected actual Windows qualification remain required and unexecuted.
 ## Issue #1621 fixture observation preparation
 SPEC-002 AC-4BJ.9c.fixture-observation-v1 / AC-4BH.2: observe the first actually
 failed native privacy operation separately for verification/protection and the
@@ -335,3 +336,8 @@ UNEXECUTED pending different ENTIRE review and NEW complete-input ROOT.
 | #1562 native/operator/template delivery | SPEC-008 R6-R7 and original product requirements | blocked by retained current qualification defects; no blanket rerun authority |
 | CLI #30 Windows ZIP | SPEC-008 R4 / original CLI protected-native spec | UNMET; independently reviewed ZIP producer/consumer contract and direct Windows evidence required |
 | Actual protected publication/catalog pins | SPEC-008 R3/R7 / SPEC-007 AC-7G/7H | pending actual qualified immutable bytes/public readback and separate pins-only source review |
+
+
+#1622 F1 source repair preserves primary Error identity through hostile native-reason and message getters. Guarded one-time acquisition feeds retry classification/bookkeeping; independent ancestry/receipt guards preserve other observations. Retries, deadlines, native controls and public fourteen-field base remain unchanged; fresh entire review and NEW ROOT remain pending.
+
+#1622 / AC-4BH.4 lifecycle entrypoint mapping: The existing Lifecycle process tree pull-request workflow selects tests/windows-tree-attempt-correlation.test.js on both ubuntu-latest and windows-latest alongside every existing protected lifecycle test, with unchanged concurrency, native provenance steps and deadline. These eight producing-loop regressions are source-authored and unexecuted locally; natural exact-head CI supplies separate observed results. Different fresh ENTIRE cumulative review and NEW complete-input ROOT remain required before manual execution.

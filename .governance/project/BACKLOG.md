@@ -735,6 +735,8 @@ SOURCE GO and a NEW complete-input ROOT admission. Existing PR owners retain
 | ISS-1621 | in_progress, source only | U2/U3 first privacy refusal and actual recovered protected assertion | SPEC-002 AC-4BJ.9c.fixture-observation-v1 / AC-4BH.2 | Entire review and NEW ROOT pending; F7 private authority and U1 removal remain unresolved; original gates unchanged. |
 
 
+| `ISS-1622` | `in_progress` | Bind Windows tree partial-copy diagnostics to their producing attempt | `SPEC-002 AC-4BH.4` | U4 compatible optional omission; source-only preparation, entire independent review and NEW ROOT before any execution; real case66/native partial-copy/late-exit and unchanged closure/deadline gates remain UNEXECUTED. |
+
 ## Durable two-OS release contract (#1619)
 
 [ADR-001](../decisions/ADR-001-two-os-release-evidence.md) and active [SPEC-008](../specs/SPEC-008-two-os-release-evidence.md) make the reviewed whole-chain migration concrete under SPEC-007 AC-7F/7G/7H. R1/R2 bind immutable policy and closed schema versions/keys; R3/R4 define custody and exact inventories; R5 binds workflow inputs/selectors/terminal gates; R6 requires real boundary denial/compatibility and direct proof; R7 retains unresolved blockers. The [canonical policy](ga-platform-scope.json) exact-byte SHA-256 is `159d644c161cf532c94d3bfe17ed55e32bf94c5d2843928945c450f6d8140c12`. Its actual commit/blob will be pinned from landed source, never guessed or caller-selected.
@@ -748,3 +750,8 @@ SOURCE GO and a NEW complete-input ROOT admission. Existing PR owners retain
 | #1562 native/operator/template delivery | SPEC-008 R6-R7 and original product requirements | blocked by retained current qualification defects; no blanket rerun authority |
 | CLI #30 Windows ZIP | SPEC-008 R4 / original CLI protected-native spec | UNMET; independently reviewed ZIP producer/consumer contract and direct Windows evidence required |
 | Actual protected publication/catalog pins | SPEC-008 R3/R7 / SPEC-007 AC-7G/7H | pending actual qualified immutable bytes/public readback and separate pins-only source review |
+
+
+Issue #1622 F1: guarded one-time primary message/native reason acquisition and producing-loop hostile-getter regressions authored; awaiting fresh ENTIRE cumulative source review and NEW complete-input ROOT. Source-only, UNEXECUTED; no acceptance or convergence claim.
+
+#1622 / AC-4BH.4 lifecycle entrypoint mapping: The existing Lifecycle process tree pull-request workflow selects tests/windows-tree-attempt-correlation.test.js on both ubuntu-latest and windows-latest alongside every existing protected lifecycle test, with unchanged concurrency, native provenance steps and deadline. These eight producing-loop regressions are source-authored and unexecuted locally; natural exact-head CI supplies separate observed results. Different fresh ENTIRE cumulative review and NEW complete-input ROOT remain required before manual execution.
