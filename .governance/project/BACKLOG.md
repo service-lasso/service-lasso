@@ -3,7 +3,7 @@
 
 ## Current GA applicability (2026-10-04, #1613)
 
-PR #1614 / SPEC-007 AC-7F: repair both introduced documentation acceptance failures together: scope-aware release-governance validation with meaningful positive/negative regressions, and a supported canonical-source link from the site GA record. Source-only repair awaiting different entire review and NEW ROOT admission; production producer/aggregate/inventory propagation and inherited high tooling vulnerabilities remain separate unwaived blockers.
+PR #1614 / SPEC-007 AC-7F: repair both introduced documentation acceptance failures together: scope-aware release-governance validation with meaningful positive/negative regressions, and a supported canonical-source link from the site GA record. Source-only repair awaiting different entire review and NEW ROOT admission; production producer/aggregate/inventory propagation remains separate. Retain original high tooling failures as historical evidence; issue #1612 / PR #1615 owns the integrated tooling remediation, whose exact-current acceptance must be assessed separately.
 
 The owner's current GA delivery scope is Windows and Linux under [current GA platform scope](CURRENT_GA_PLATFORM_SCOPE.md). Older three-platform/macOS obligations below retain their historical/default meaning; macOS is Deferred / Not applicable for this GA, never PASS. All Windows/Linux product, native, operator, template, immutable-publication and same-byte evidence remains required. Existing executable three-platform gates are unchanged and require coherent separately reviewed propagation before two-platform readiness can be claimed. No current exact qualified candidate or deployment is established by this scope decision.
 
