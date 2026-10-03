@@ -39,7 +39,7 @@ Retained operator v3 and npm wrappers must compare complete manifests and origin
 
 Required native targets: CLI win32-x64 and linux-x64; TUI win32-amd64 and linux-amd64; Core platform labels win32/linux. Core original host/runtime architecture contracts still apply; scope authorizes no architecture substitution. Darwin CLI arm64 and TUI amd64/arm64 source and historical assets remain retained and deferred.
 
-All asset arrays/checksum lists sort by ascending ASCII filename; no locale sorting. Core full-release archives have fixed semantic order generic unbundled TAR, generic bundled TAR, unbundled Windows ZIP, unbundled Linux TAR, bundled Windows ZIP, bundled Linux TAR; corresponding SBOM rows follow that order. Published provider inventory is compared as the same exact set and emitted canonical sorted readback. Every list's count is checked before success.
+Asset arrays sort by ascending ASCII filename except the Core full-release archive and corresponding SBOM arrays, which use the fixed semantic order generic unbundled TAR, generic bundled TAR, unbundled Windows ZIP, unbundled Linux TAR, bundled Windows ZIP, bundled Linux TAR; SBOM rows follow their corresponding archive order. All checksum lists and published provider inventory readback sort by ascending ASCII filename, including Core full release; no locale sorting. Published provider inventory is compared as the same exact set regardless of the archive/SBOM semantic order. Every list's count is checked before success.
 
 | Route | Exact inventory / counts |
 | --- | --- |
