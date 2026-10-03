@@ -87,14 +87,14 @@ export async function runFixturePrivacy(root, protect, observe, launch = execFil
             !error && decoded?.response === "passed" ? "passed" :
             decoded?.observation.events.length === 0 ? "bootstrap_unavailable" : "response_unavailable";
           try { observe(result, decoded?.observation); } catch { /* Never replace the original error. */ }
-          if (error && decoded) transportByError.set(error, decoded.observation);
+          if (error && decoded && (typeof error === "object" || typeof error === "function")) transportByError.set(error, decoded.observation);
           if (error) { reject(error); return; }
           if (result !== "passed") { reject(new Error("Fixture privacy response rejected.")); return; }
           resolve();
         });
       child.once("error", () => { spawnFailed = true; });
       child.once("spawn", () => { spawned = true; });
-      child.stdout?.on("data", chunk => { try { decoder.feed(chunk); } catch { /* Neutral to execFile. */ } });
+      child.stdout?.on("data", chunk => { try { decoder.feed(chunk); } catch { decoder.invalidate(); } });
     } catch (error) {
       clearTimeout(timer);
       try { observe("launch_unavailable"); } catch { /* Preserve construction error identity. */ }

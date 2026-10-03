@@ -37,6 +37,7 @@ export function createFixturePrivacyDecoder(nonce, role) {
   const events = [];
   const fail = () => { malformed = true; pending = ""; final = ""; };
   return {
+    invalidate: fail,
     feed(chunk) {
       if (malformed) return;
       // Check before retaining/converting the incoming bytes.
