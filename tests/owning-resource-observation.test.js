@@ -12,17 +12,18 @@ test("consumer creation and exceptional finally preserve exact resource correlat
   const allocation = source.slice(source.indexOf('const allocateResource = owningResourceObservations("consumer");'), source.indexOf("const configuration = JSON.parse"));
   const body = source.slice(source.indexOf("let httpClient;"));
   const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
-  for (const failing of ["server_create", "transport_create", "client_create", "connect", "read", "inspector", "close", "server_stop", "stdio_transport_create", "stdio_client_create", "stdio_connect", "stdio_close", "none"]) {
+  for (const failing of ["server_create", "transport_create", "client_create", "connect", "read", "acceptance_and_close", "inspector", "close", "server_stop", "stdio_transport_create", "stdio_client_create", "stdio_connect", "stdio_close", "none"]) {
     let output = "";
     let clients = 0;
     const calls = [];
     const primary = Object.create(null);
     Object.defineProperty(primary, "message", { get() { assert.fail("raw error getter"); } });
-    class SafeAcceptanceFailure extends Error {}
+    class SafeAcceptanceFailure extends Error { constructor(diagnostic) { super("fixed"); this.diagnostic = diagnostic; } }
+    const acceptanceFailure = new SafeAcceptanceFailure({stage:"original_acceptance",errorCode:"original_failure"});
     class Client {
       constructor() { if (failing === "client_create" || failing === "stdio_client_create" && clients > 0) throw primary; this.stdio = clients++ > 0; }
       async connect() { if (failing === "connect" || failing === "stdio_connect" && this.stdio) throw primary; }
-      async listTools() { if (failing === "read") throw primary; return { tools: Array.from({length:this.stdio ? 15 : 27}, () => ({inputSchema:{additionalProperties:false},outputSchema:{additionalProperties:false}})) }; }
+      async listTools() { if (failing === "acceptance_and_close") throw acceptanceFailure; if (failing === "read") throw primary; return { tools: Array.from({length:this.stdio ? 15 : 27}, () => ({inputSchema:{additionalProperties:false},outputSchema:{additionalProperties:false}})) }; }
       async listResources() { return {resources:[{},{}]}; }
       async callTool({name,arguments:args}) {
         if (args?.additionalProperty) return {isError:true};
@@ -32,7 +33,7 @@ test("consumer creation and exceptional finally preserve exact resource correlat
         const replayed = this.executed === true; this.executed = true;
         return {structuredContent:{status:replayed ? "replayed" : "succeeded",idempotency:{replayed},correlationId:"test",result:{resultingState:[{running:true}]}}};
       }
-      async close() { calls.push(this.stdio ? "stdio_close" : "http_close"); if (failing === "close" && !this.stdio || failing === "stdio_close" && this.stdio) throw primary; }
+      async close() { calls.push(this.stdio ? "stdio_close" : "http_close"); if (["close", "acceptance_and_close"].includes(failing) && !this.stdio || failing === "stdio_close" && this.stdio) throw primary; }
     }
     class StreamableHTTPClientTransport { constructor() { if (failing === "transport_create") throw primary; this.protocolVersion="test"; } }
     class StdioClientTransport { constructor() { if (failing === "stdio_transport_create") throw primary; } }
@@ -50,7 +51,13 @@ test("consumer creation and exceptional finally preserve exact resource correlat
     await new AsyncFunction(...Object.keys(context),allocation+body)(...Object.values(context));
     const rows = decode(output);
     const statuses = role => rows.filter(row=>row.role===role).map(row=>row.status);
-    for (const role of new Set(rows.map(row=>row.role))) assert.equal(new Set(rows.filter(row=>row.role===role && role!=="inspector_command").map(row=>row.sequence)).size, role === "inspector_command" ? 0 : 1);
+    assert.deepEqual(rows.slice(0,8).map(row=>row.sequence),[1,2,3,4,5,6,7,8]);
+    for (const role of new Set(rows.map(row=>row.role))) assert.equal(new Set(rows.filter(row=>row.role===role).map(row=>row.sequence)).size, role === "inspector_command" ? 3 : 1);
+    if (failing === "acceptance_and_close") {
+      assert.equal(output.includes(JSON.stringify(acceptanceFailure.diagnostic)),true);
+      assert.deepEqual(calls,["http_close","server_stop"]);
+      assert.deepEqual(statuses("http_client").slice(-2),["close_attempted","close_rejected"]);
+    }
     assert.equal(output.includes("private"),false);
     assert.equal(context.process.exitCode,failing === "none" ? 0 : 1);
     if(failing === "server_create") { assert.deepEqual(statuses("http_server"),["not_created","creation_attempted","creation_rejected"]);assert.deepEqual(calls,[]); }
