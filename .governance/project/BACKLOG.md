@@ -1,5 +1,10 @@
 # Backlog
 
+
+## Current GA applicability (2026-10-04, #1613)
+
+The owner's current GA delivery scope is Windows and Linux under [current GA platform scope](CURRENT_GA_PLATFORM_SCOPE.md). Older three-platform/macOS obligations below retain their historical/default meaning; macOS is Deferred / Not applicable for this GA, never PASS. All Windows/Linux product, native, operator, template, immutable-publication and same-byte evidence remains required. Existing executable three-platform gates are unchanged and require coherent separately reviewed propagation before two-platform readiness can be claimed. No current exact qualified candidate or deployment is established by this scope decision.
+
 This backlog tracks active product delivery for the `service-lasso` core runtime.
 
 ## Current Active Spec
