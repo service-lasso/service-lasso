@@ -1,10 +1,11 @@
 import { assertDevelopIdentity, assertPolicyEnvironment, readSourceScope } from "./ga-platform-scope-lib.mjs";
 import { validatePublishedEvidence4 } from "./scoped-release-evidence-lib.mjs";
-assertDevelopIdentity(); assertPolicyEnvironment(); await readSourceScope();
+
 import { validInitialProjection } from "./public-first-custody-projection-lib.mjs";
 import { lstat, readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 import {
   RETENTION_DAYS,
   requirePattern,
@@ -16,7 +17,6 @@ import {
   validateTerminalJobMetadata,
 } from "./published-package-qualification-lib.mjs";
 import { selectScopedCurrentAttemptArtifacts as selectCurrentAttemptArtifacts } from "./published-package-qualification-reliability.mjs";
-import { strictJson } from "./consume-admin-trusted-unlock-receipt.mjs";
 import { parsePrebrowserFailure } from "./record-admin-trusted-unlock-prebrowser-failure.mjs";
 import { boundedProviderBody, readAuthenticatedArtifact } from "./scoped-provider-readback-lib.mjs";
 import { parseScopedJson } from "./ga-platform-scope-lib.mjs";
@@ -60,16 +60,16 @@ async function readOnlyFile(filePath, label) {
   if (!info?.isFile() || info.isSymbolicLink() || info.size <= 0) {
     throw new Error(`${label} is missing, empty, or not a regular file.`);
   }
-  return readFile(filePath, "utf8");
+  const bytes = await readFile(filePath);
+  if (bytes.length !== info.size) throw new Error(`${label} held byte count changed.`);
+  return bytes;
 }
 
-function parseStrictJson(source, label) {
-  if (!strictJson(source)) throw new Error(`${label} is malformed or has duplicate keys.`);
-  try {
-    return JSON.parse(source);
-  } catch {
-    throw new Error(`${label} is malformed or has duplicate keys.`);
-  }
+function decodeVerified(bytes) {
+  return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+}
+function parseStrictJson(bytes, label) {
+  return parseScopedJson(bytes, label);
 }
 
 function requireTerminalPrebrowserJob(jobs, platform, runId, runAttempt) {
@@ -88,6 +88,8 @@ function requireTerminalPrebrowserJob(jobs, platform, runId, runAttempt) {
   }
 }
 
+export async function verifyPublishedPackageQualificationArtifacts() {
+assertDevelopIdentity(); assertPolicyEnvironment(); await readSourceScope();
 const repo = env("GITHUB_REPOSITORY", /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u);
 const token = env("GITHUB_TOKEN");
 const runId = String(requirePositiveInteger(env("GITHUB_RUN_ID", /^[1-9][0-9]*$/u), "GITHUB_RUN_ID"));
@@ -143,11 +145,16 @@ for (const platform of PLATFORMS) {
   const originalArchive = await readAuthenticatedArtifact(artifact.archive_download_url, repo, token);
   const originalNames = entries.length === 2 && entries.some(entry => entry.name === prebrowserName) ? [initialReceiptName, prebrowserName] : [expectedFile, expectedReceipt, initialReceiptName];
   const originalFiles = readOriginalMetadataArtifact(originalArchive, originalNames, artifact.digest);
-  for (const [name, bytes] of originalFiles) if (!bytes.equals(await readOnlyFile(path.join(artifactDirectory, name), `${platform} original retained metadata`))) throw new Error("downloaded retained metadata differs from original provider artifact body");
+  const held = new Map();
+  for (const [name, bytes] of originalFiles) {
+    const downloaded = await readOnlyFile(path.join(artifactDirectory, name), `${platform} original retained metadata`);
+    if (!bytes.equals(downloaded)) throw new Error("downloaded retained metadata differs from original provider artifact body");
+    held.set(name, downloaded);
+  }
   if (entries.length === 2 && entries.every((entry) => entry.isFile() && !entry.isSymbolicLink()) && entries.some((entry) => entry.name === prebrowserName) && entries.some((entry) => entry.name === initialReceiptName)) {
-    const initial = parseStrictJson(await readOnlyFile(path.join(artifactDirectory, initialReceiptName), `${platform} initial projection`), `${platform} initial projection`);
+    const initial = parseStrictJson(held.get(initialReceiptName), `${platform} initial projection`);
     if (!validInitialProjection(initial, platform, runId, runAttempt, workflowSha)) throw new Error(`${platform} initial projection custody is invalid.`);
-    const prebrowser = parsePrebrowserFailure(await readOnlyFile(path.join(artifactDirectory, prebrowserName), `${platform} pre-browser failure`));
+    const prebrowser = parsePrebrowserFailure(decodeVerified(held.get(prebrowserName)));
     if (!prebrowser || prebrowser.platform !== platform || String(prebrowser.run.id) !== runId || String(prebrowser.run.attempt) !== runAttempt) throw new Error(`${platform} pre-browser failure custody is invalid.`);
     requireTerminalPrebrowserJob(jobs, platform, runId, runAttempt);
     throw new Error("Scoped qualification retains classified pre-browser failure; it is never success.");
@@ -156,16 +163,16 @@ for (const platform of PLATFORMS) {
     throw new Error(`Downloaded ${platform} artifact did not contain its exact metadata evidence and trusted-unlock receipt.`);
   }
   const wrapper = parseStrictJson(
-    await readOnlyFile(path.join(artifactDirectory, expectedFile), `${platform} retained evidence`),
+    held.get(expectedFile),
     `${platform} retained evidence`,
   );
   const evidence = wrapper.evidence;
   const retainedReceipt = parseStrictJson(
-    await readOnlyFile(path.join(artifactDirectory, expectedReceipt), `${platform} retained trusted-unlock receipt`),
+    held.get(expectedReceipt),
     `${platform} retained trusted-unlock receipt`,
   );
   const initial = parseStrictJson(
-    await readOnlyFile(path.join(artifactDirectory, initialReceiptName), `${platform} initial projection`),
+    held.get(initialReceiptName),
     `${platform} initial projection`,
   );
   if (!validInitialProjection(initial, platform, runId, runAttempt, workflowSha)) {
@@ -205,3 +212,8 @@ for (const platform of PLATFORMS) {
 }
 
 process.stdout.write("Exact two-platform artifact API readback and retained evidence verified.\n");
+
+}
+if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) {
+  await verifyPublishedPackageQualificationArtifacts();
+}

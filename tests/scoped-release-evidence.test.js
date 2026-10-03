@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { digest, parseScopedJson, readSourceScope, scopeIdentity, sourceIdentity } from "../scripts/ga-platform-scope-lib.mjs";
 import { createCandidate2Evidence, scopedArchiveNames, scopedReleaseAssetNames, validatePublishedEvidence4, verifyCandidate2Bytes, verifyFullReleaseBytes, wrapPublishedEvidence } from "../scripts/scoped-release-evidence-lib.mjs";
 import { ADMIN_HARNESS_REVISION, ADMIN_RELEASE, BROKER_RELEASE, retainAdminTrustedUnlockReceipt, validateRetainedEvidence } from "../scripts/published-package-qualification-lib.mjs";
-import { assertScopedPublicationCatalog, publishFullRelease, resolvePublicationTag, verifyImmutablePublicBytes, verifyPublicationQualification } from "../scripts/scoped-publication-lib.mjs";
+import { assertScopedPublicationCatalog, requireScopedPublisherCredential, publishFullRelease, resolvePublicationTag, verifyImmutablePublicBytes, verifyPublicationQualification } from "../scripts/scoped-publication-lib.mjs";
 import { MCP_PRODUCT_EVIDENCE_CONTRACT, MCP_PACKAGED_COVERAGE_KEYS } from "../scripts/mcp-product-acceptance-lib.mjs";
 import { stageOperatorTools, validateRetainedOperatorToolBytes, verifyRetainedOperatorTools } from "../scripts/operator-tool-packaging-lib.mjs";
 import { selectScopedCurrentAttemptArtifacts } from "../scripts/published-package-qualification-reliability.mjs";
@@ -15,6 +15,8 @@ import { createBlockedTemplateEvidence, readTemplateEvidence, validateTemplateEv
 import { createReleaseArchive } from "../scripts/release-artifact-lib.mjs";
 import { ZipArchive } from "../dist/runtime/files/safe-zip.js";
 import { requireScopedTechnicalAuthority } from "../scripts/scoped-technical-authority-lib.mjs";
+import { readVerifiedDevelopmentCandidate } from "../scripts/verify-development-candidate-artifact-scoped.mjs";
+import { verifyPublishedPackageQualificationArtifacts } from "../scripts/verify-published-package-qualification-artifacts-scoped.mjs";
 import { readOriginalMetadataArtifact } from "../scripts/scoped-metadata-artifact-lib.mjs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { gunzipSync, gzipSync } from "node:zlib";
@@ -166,10 +168,10 @@ function fullRelease() {
   const qualification = ["win32", "linux"].map((platform, index) => ({ platform, jobId: 101 + index, runId: 20, runAttempt: 2, workflowSha: source.commit, name: `${platform}.json`, sha256: digest(Buffer.from(platform)), size: platform.length }));
   return { held, evidence: { schema: "service-lasso.full-release-evidence.v1", scope, source, version, archives, checksumManifest: { name: "SHA256SUMS.txt", sha256: digest(checksum), size: checksum.length }, qualification } };
 }
-function publishedEvidence() {
-  const platform = "linux", initialProjection = { schema: "service-lasso.qualification-first-custody-projection.v2", privateVersion: "v3", platform, candidate: { head: source.commit, tree: "b".repeat(40) }, run: { id: "20", attempt: "2" }, privateInitialReceiptSha256: "c".repeat(64), privateJournalSha256: "d".repeat(64), localValidatorAttestation: { schema: "service-lasso.qualification-local-validator-attestation.v2", validated: true } };
-  const expected = { platform, initialProjection, runId: "20", runAttempt: "2", workflowSha: source.commit, coreReleaseId: "10", coreTag: version, coreRevision: source.commit, coreAsset: `service-lasso-${version}-linux.tar.gz`, coreSha256: "1".repeat(64), coreNpmVersion: version, coreNpmIntegrity: `sha512-${Buffer.from("fixture").toString("base64")}` };
-  const evidence = { schema: "service-lasso.published-package-qualification.v3", retainedContent: "metadata_only", outcome: "success", platform, firstCustody: initialProjection, run: { id: 20, attempt: 2, jobId: 102, workflowSha: source.commit }, core: { releaseId: "10", tag: version, revision: source.commit, asset: expected.coreAsset, sha256: expected.coreSha256, npm: { name: "@service-lasso/service-lasso", version, integrity: expected.coreNpmIntegrity, distTag: "latest" } }, adminHarnessRevision: ADMIN_HARNESS_REVISION, harnessRevision: source.commit, retentionDays: 90, mutationRetry: false, acquisitionRetry: false, startupRetry: false, firstFailure: null, failurePhase: null, failureCode: null, mutations: { brokerRestart: 1, providerMigrationApply: 1 }, negativeProof: Object.fromEntries(["missingProvenance", "missingChecksum", "emptyPayload", "emptyChecksum", "malformedChecksum", "duplicateChecksum", "unexpectedChecksum", "mismatchedPayload", "redirectedChecksum", "redirectedProvenance", "wrongHeadProvenance"].map(id => [id, "success"])), scenarios: Object.fromEntries(["preMutationGuards", "releaseRuntime", "npmConsumer", "productionAcquisition", "firstRun", "comprehensiveLifecycle", "adminBrowser", "runtimeDashboardServices", "brokerContinuity", "trustedLifecycle", "providerReadiness", "migrationDryRun", "migrationApply", "rollback", "persistence", "durableAudit", "noLeak", "stoppedLifecycle", "cleanupConvergence"].map(id => [id, "success"])) };
+function publishedEvidence(platform = "linux") {
+  const initialProjection = { schema: "service-lasso.qualification-first-custody-projection.v2", privateVersion: "v3", platform, candidate: { head: source.commit, tree: "b".repeat(40) }, run: { id: "20", attempt: "2" }, privateInitialReceiptSha256: "c".repeat(64), privateJournalSha256: "d".repeat(64), localValidatorAttestation: { schema: "service-lasso.qualification-local-validator-attestation.v2", validated: true } };
+  const expected = { platform, initialProjection, runId: "20", runAttempt: "2", workflowSha: source.commit, coreReleaseId: "10", coreTag: version, coreRevision: source.commit, coreAsset: `service-lasso-${version}-${platform}${platform === "win32" ? ".zip" : ".tar.gz"}`, coreSha256: "1".repeat(64), coreNpmVersion: version, coreNpmIntegrity: `sha512-${Buffer.from("fixture").toString("base64")}` };
+  const evidence = { schema: "service-lasso.published-package-qualification.v3", retainedContent: "metadata_only", outcome: "success", platform, firstCustody: initialProjection, run: { id: 20, attempt: 2, jobId: platform === "win32" ? 101 : 102, workflowSha: source.commit }, core: { releaseId: "10", tag: version, revision: source.commit, asset: expected.coreAsset, sha256: expected.coreSha256, npm: { name: "@service-lasso/service-lasso", version, integrity: expected.coreNpmIntegrity, distTag: "latest" } }, adminHarnessRevision: ADMIN_HARNESS_REVISION, harnessRevision: source.commit, retentionDays: 90, mutationRetry: false, acquisitionRetry: false, startupRetry: false, firstFailure: null, failurePhase: null, failureCode: null, mutations: { brokerRestart: 1, providerMigrationApply: 1 }, negativeProof: Object.fromEntries(["missingProvenance", "missingChecksum", "emptyPayload", "emptyChecksum", "malformedChecksum", "duplicateChecksum", "unexpectedChecksum", "mismatchedPayload", "redirectedChecksum", "redirectedProvenance", "wrongHeadProvenance"].map(id => [id, "success"])), scenarios: Object.fromEntries(["preMutationGuards", "releaseRuntime", "npmConsumer", "productionAcquisition", "firstRun", "comprehensiveLifecycle", "adminBrowser", "runtimeDashboardServices", "brokerContinuity", "trustedLifecycle", "providerReadiness", "migrationDryRun", "migrationApply", "rollback", "persistence", "durableAudit", "noLeak", "stoppedLifecycle", "cleanupConvergence"].map(id => [id, "success"])) };
   for (const [name, release] of [["admin", ADMIN_RELEASE], ["broker", BROKER_RELEASE]]) evidence[name] = { releaseId: release.id, tag: release.tag, revision: release.revision, asset: release.platforms[platform].asset, sha256: release.platforms[platform].sha256, checksumSource: "SHA256SUMS.txt" };
   evidence.adminTrustedUnlockReceipt = retainAdminTrustedUnlockReceipt(JSON.stringify({ schema: "service-lasso.admin-trusted-unlock-consumer.v1", outcome: "success", exitCode: 0, signal: null, trustedUnlock: { classification: "not_emitted" } }), { platform, coreRevision: source.commit, adminReleaseId: ADMIN_RELEASE.id, adminRevision: ADMIN_RELEASE.revision, adminHarnessRevision: ADMIN_HARNESS_REVISION });
   return { evidence, expected };
@@ -339,4 +341,160 @@ test("scoped protected CLI reader accepts exactly protected2/portable2 and denie
     changed.set("SHA256SUMS.txt", Buffer.from(altered.checksums.entries.map(name => `${digest(changed.get(name))}  ${name}\n`).join("")));
     assert.throws(() => verifyProtectedCliBytes(changed, manifest.version, manifest.source.commit), /tool\/SEA|forged identity/);
   }
+});
+
+// Actual callable entrypoints below use finite provider responses. These are
+// prospective custody/semantic regressions, never native/provider acceptance.
+function zipMembers(held) {
+  const archive = new ZipArchive();
+  for (const [name, bytes] of held) archive.addFile(name, bytes);
+  return archive.toBuffer();
+}
+function fixtureJob(id, name, conclusion = "success") {
+  return { id, name, run_id: 20, run_attempt: 2, head_sha: source.commit, status: "completed", conclusion,
+    url: `https://api.github.com/repos/${source.repository}/actions/jobs/${id}`,
+    run_url: `https://api.github.com/repos/${source.repository}/actions/runs/20`,
+    html_url: `https://github.com/${source.repository}/actions/runs/20/job/${id}` };
+}
+function fixtureArtifact(id, name, bytes) {
+  const created = Date.now() - 1000;
+  return { id, name, digest: `sha256:${digest(bytes)}`, size_in_bytes: bytes.length, expired: false,
+    created_at: new Date(created).toISOString(), updated_at: new Date(created).toISOString(),
+    expires_at: new Date(created + 90 * 86400000).toISOString(), workflow_run: { id: 20, head_sha: source.commit },
+    archive_download_url: `https://api.github.com/repos/${source.repository}/actions/artifacts/${id}/zip` };
+}
+function entrypointContext(t, env, routes) {
+  const previous = new Map(Object.keys(env).map(key => [key, process.env[key]]));
+  Object.assign(process.env, env);
+  t.after(() => { for (const [key, value] of previous) if (value === undefined) delete process.env[key]; else process.env[key] = value; });
+  t.mock.method(globalThis, "fetch", async url => {
+    const route = new URL(url).pathname + new URL(url).search;
+    assert.ok(routes.has(route), `unexpected provider route ${route}`);
+    const body = routes.get(route);
+    return new Response(Buffer.isBuffer(body) ? body : json(body));
+  });
+}
+function baseEntrypointEnv() {
+  return { GITHUB_REF: "refs/heads/develop", GITHUB_REPOSITORY: source.repository, GITHUB_SHA: source.commit,
+    CANDIDATE_SHA: source.commit, SCOPE_POLICY_SHA256: scope.policySha256, GITHUB_RUN_ID: "20", GITHUB_RUN_ATTEMPT: "2" };
+}
+async function writeMembers(root, held) {
+  await mkdir(root, { recursive: true });
+  for (const [name, bytes] of held) await writeFile(path.join(root, name), bytes);
+}
+
+test("actual provider verifier to downloaded candidate caller binds original six bodies before semantics", async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "candidate-original-bridge-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const protectedCli = createProtectedCliFixture();
+  const preservedToolRows = [...protectedCli.held].map(([name, bytes]) => [`operator-tools/cli/${name}`, bytes]);
+  function coreArchives(runtime) {
+    return new Map(scopedArchiveNames(`develop-${source.commit.slice(0, 12)}`, false).map(name => {
+      const rootName = name.replace(/\.zip$|\.tar\.gz$/u, "");
+      const rows = [[`${rootName}/dist/index.js`, Buffer.from(runtime)],
+        ...preservedToolRows.map(([name, bytes]) => [`${rootName}/${name}`, bytes])];
+      return [name, name.endsWith(".zip") ? zipMembers(new Map(rows)) : fixtureTar(rows)];
+    }));
+  }
+  const original = createCandidate2Evidence(source, scope, coreArchives("original Core runtime"));
+  const bytes = zipMembers(original.held), name = `core-development-candidate-${source.commit}`;
+  const artifact = fixtureArtifact(7, name, bytes), prefix = `/repos/${source.repository}`;
+  const routes = new Map([
+    [`${prefix}/actions/runs/20`, { head_sha: source.commit, run_attempt: 2, path: ".github/workflows/core-development-candidate-scoped.yml" }],
+    [`${prefix}/actions/artifacts/7`, artifact],
+    [`${prefix}/actions/runs/20/attempts/2/jobs?per_page=100`, { total_count: 1, jobs: [fixtureJob(101, "build-candidate")] }],
+    [`${prefix}/actions/artifacts/7/zip`, bytes],
+  ]);
+  entrypointContext(t, { ...baseEntrypointEnv(), GH_TOKEN: "finite-fixture", DEVELOPMENT_CANDIDATE_ARTIFACT_ID: "7",
+    DEVELOPMENT_CANDIDATE_ARTIFACT_NAME: name, DEVELOPMENT_CANDIDATE_ARTIFACT_DIGEST: artifact.digest,
+    DEVELOPMENT_CANDIDATE_DISPATCH_SHA: source.commit }, routes);
+  await writeMembers(root, original.held);
+  const accepted = await readVerifiedDevelopmentCandidate(root);
+  assert.deepEqual(accepted.manifest, original.manifest);
+  for (const [name, originalBytes] of original.held) assert.deepEqual(accepted.held.get(name), originalBytes);
+  // An independently coherent replacement retains source/scope/names and every
+  // original protected CLI fixture file, while changing only Core runtime rows.
+  // These protected-distribution fixture bytes are not production catalog admission.
+  const replacement = createCandidate2Evidence(source, scope, coreArchives("replacement Core runtime"));
+  assert.doesNotThrow(() => verifyCandidate2Bytes(replacement.held, source));
+  await writeMembers(root, replacement.held);
+  await assert.rejects(readVerifiedDevelopmentCandidate(root), /differs from original provider/);
+  await writeMembers(root, original.held);
+  const oneByte = Buffer.from(original.held.get("candidate-manifest.json")); oneByte[0] ^= 1;
+  await writeFile(path.join(root, "candidate-manifest.json"), oneByte);
+  await assert.rejects(readVerifiedDevelopmentCandidate(root), /differs from original provider/);
+  await writeMembers(root, original.held);
+  routes.set(`${prefix}/actions/artifacts/7/zip`, zipMembers(replacement.held));
+  await assert.rejects(readVerifiedDevelopmentCandidate(root), /original metadata artifact body/);
+  // Matching invalid original metadata reaches fatal semantic decoding; a
+  // different invalid byte cannot pass by sharing the replacement character.
+  const invalid = new Map(original.held); invalid.set("candidate-manifest.json", Buffer.from([0xff]));
+  const invalidZip = zipMembers(invalid); artifact.digest = `sha256:${digest(invalidZip)}`;
+  process.env.DEVELOPMENT_CANDIDATE_ARTIFACT_DIGEST = artifact.digest;
+  routes.set(`${prefix}/actions/artifacts/7/zip`, invalidZip);
+  await writeMembers(root, invalid);
+  await assert.rejects(readVerifiedDevelopmentCandidate(root), /encoded data|encoding|UTF-8/);
+  await writeFile(path.join(root, "candidate-manifest.json"), Buffer.from([0xfe]));
+  await assert.rejects(readVerifiedDevelopmentCandidate(root), /differs from original provider/);
+  const extra = new Map(original.held); extra.set("unknown.json", json({ extra: true }));
+  const extraZip = zipMembers(extra); routes.set(`${prefix}/actions/artifacts/7/zip`, extraZip);
+  artifact.digest = `sha256:${digest(extraZip)}`; process.env.DEVELOPMENT_CANDIDATE_ARTIFACT_DIGEST = artifact.digest;
+  await assert.rejects(readVerifiedDevelopmentCandidate(root), /declared inventory/);
+});
+
+test("actual published aggregate compares raw bodies then validates success or classified prebrowser failure", async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "published-original-bridge-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const prefix = `/repos/${source.repository}`, routes = new Map(), artifacts = [], jobs = [], members = [];
+  for (const [index, platform] of ["win32", "linux"].entries()) {
+    const { evidence, expected } = publishedEvidence(platform);
+    const held = new Map([[`published-package-qualification-${platform}.json`, json(wrapPublishedEvidence(evidence, scope))],
+      ["admin-trusted-unlock-receipt.json", json(evidence.adminTrustedUnlockReceipt)], ["initial-projection.json", json(expected.initialProjection)]]);
+    const bytes = zipMembers(held), artifact = fixtureArtifact(7 + index, `published-package-qualification-${platform}-20-2`, bytes);
+    artifacts.push(artifact); jobs.push(fixtureJob(evidence.run.jobId, `published-package-qualification (${platform})`));
+    routes.set(`${prefix}/actions/artifacts/${artifact.id}/zip`, bytes);
+    await writeMembers(path.join(root, artifact.name), held); members.push({ held, artifact, platform });
+  }
+  routes.set(`${prefix}/actions/runs/20/artifacts?per_page=100`, { total_count: 2, artifacts });
+  routes.set(`${prefix}/actions/runs/20/attempts/2/jobs?per_page=100`, { total_count: 2, jobs });
+  routes.set(`${prefix}/actions/runs/20`, { head_sha: source.commit, run_attempt: 2, path: ".github/workflows/published-package-qualification-scoped.yml" });
+  entrypointContext(t, { ...baseEntrypointEnv(), GITHUB_TOKEN: "finite-fixture", QUALIFICATION_CANDIDATE_SHA: source.commit,
+    QUALIFICATION_ARTIFACTS_ROOT: root, CORE_RELEASE_ID: "10", CORE_RELEASE_TAG: version, CORE_REVISION: source.commit,
+    CORE_NPM_VERSION: version, CORE_NPM_INTEGRITY: publishedEvidence().expected.coreNpmIntegrity,
+    CORE_WIN32_SHA256: "1".repeat(64), CORE_LINUX_SHA256: "1".repeat(64) }, routes);
+  await assert.doesNotReject(verifyPublishedPackageQualificationArtifacts());
+  const first = members[0], location = path.join(root, first.artifact.name, "initial-projection.json");
+  const changed = Buffer.from(first.held.get("initial-projection.json")); changed[0] ^= 1;
+  await writeFile(location, changed);
+  await assert.rejects(verifyPublishedPackageQualificationArtifacts(), /differs from original provider/);
+  // Same lossy decoded text must not conceal different invalid original bytes.
+  const invalidA = Buffer.from([0xff]), invalidB = Buffer.from([0xfe]);
+  assert.equal(invalidA.toString("utf8"), invalidB.toString("utf8"));
+  const invalid = new Map(first.held); invalid.set("initial-projection.json", invalidA);
+  const invalidZip = zipMembers(invalid); first.artifact.digest = `sha256:${digest(invalidZip)}`;
+  routes.set(`${prefix}/actions/artifacts/7/zip`, invalidZip);
+  await writeFile(location, invalidB);
+  await assert.rejects(verifyPublishedPackageQualificationArtifacts(), /differs from original provider/);
+  await writeFile(location, invalidA);
+  await assert.rejects(verifyPublishedPackageQualificationArtifacts(), /encoded data|encoding|UTF-8/);
+  const failed = new Map([["initial-projection.json", first.held.get("initial-projection.json")],
+    ["admin-trusted-unlock-prebrowser-failure.json", json({ schema: "service-lasso.admin-trusted-unlock-prebrowser-failure.v1", outcome: "failure", platform: "win32", stage: "isolated_install", run: { id: 20, attempt: 2 } })]]);
+  const failedZip = zipMembers(failed); first.artifact.digest = `sha256:${digest(failedZip)}`;
+  routes.set(`${prefix}/actions/artifacts/7/zip`, failedZip); jobs[0].conclusion = "failure";
+  await rm(path.join(root, first.artifact.name), { recursive: true });
+  await writeMembers(path.join(root, first.artifact.name), failed);
+  await assert.rejects(verifyPublishedPackageQualificationArtifacts(), /retains classified pre-browser failure; it is never success/);
+});
+
+test("final protected publisher requires only its environment credential and workflow has no fallback", async () => {
+  assert.throws(() => requireScopedPublisherCredential({ GITHUB_TOKEN: "workflow-token", GH_TOKEN: "other-token" }), /environment credential missing/);
+  assert.throws(() => requireScopedPublisherCredential({ DEVELOPMENT_CANDIDATE_TOKEN: "  " }), /environment credential missing/);
+  assert.equal(requireScopedPublisherCredential({ DEVELOPMENT_CANDIDATE_TOKEN: "environment-fixture", GITHUB_TOKEN: "workflow-token" }), "environment-fixture");
+  const workflow = await readFile(new URL("../.github/workflows/release-artifact-scoped.yml", import.meta.url), "utf8");
+  const step = workflow.split("      - name: Publish through private draft and immutable public body readback")[1].split("      - name:")[0];
+  assert.match(step, /DEVELOPMENT_CANDIDATE_TOKEN: \$\{\{ secrets\.DEVELOPMENT_CANDIDATE_TOKEN \}\}/);
+  assert.doesNotMatch(step, /github\.token|GITHUB_TOKEN|\|\|/);
+  const script = await readFile(new URL("../scripts/publish-scoped-release.mjs", import.meta.url), "utf8");
+  assert.match(script, /const token = requireScopedPublisherCredential\(\)/);
+  assert.doesNotMatch(script, /process\.env\.GITHUB_TOKEN/);
 });

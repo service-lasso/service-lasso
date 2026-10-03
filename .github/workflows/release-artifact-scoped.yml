@@ -233,7 +233,7 @@ jobs:
 
       - name: Publish through private draft and immutable public body readback
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          DEVELOPMENT_CANDIDATE_TOKEN: ${{ secrets.DEVELOPMENT_CANDIDATE_TOKEN }}
         run: node scripts/publish-scoped-release.mjs
 
       - name: Retain scoped release wrapper without adding a public asset

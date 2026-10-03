@@ -118,23 +118,19 @@ jobs:
       - name: Build exact candidate consumer reader dependencies
         run: npm run build
 
-      - name: Verify immutable uploaded candidate identity
-        env:
-          GH_TOKEN: ${{ github.token }}
-          DEVELOPMENT_CANDIDATE_ARTIFACT_ID: ${{ needs.build-candidate.outputs.artifact_id }}
-          DEVELOPMENT_CANDIDATE_ARTIFACT_NAME: ${{ needs.build-candidate.outputs.artifact_name }}
-          DEVELOPMENT_CANDIDATE_ARTIFACT_DIGEST: ${{ needs.build-candidate.outputs.artifact_digest }}
-          DEVELOPMENT_CANDIDATE_DISPATCH_SHA: ${{ needs.build-candidate.outputs.dispatch_sha }}
-        run: node scripts/verify-development-candidate-artifact-scoped.mjs
-
       - name: Download candidate artifact
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           artifact-ids: ${{ needs.build-candidate.outputs.artifact_id }}
           path: candidate
 
-      - name: Verify clean consumer startup and health
+      - name: Verify original provider members and clean consumer startup and health
         env:
+          GH_TOKEN: ${{ github.token }}
+          DEVELOPMENT_CANDIDATE_ARTIFACT_ID: ${{ needs.build-candidate.outputs.artifact_id }}
+          DEVELOPMENT_CANDIDATE_ARTIFACT_NAME: ${{ needs.build-candidate.outputs.artifact_name }}
+          DEVELOPMENT_CANDIDATE_ARTIFACT_DIGEST: ${{ needs.build-candidate.outputs.artifact_digest }}
+          DEVELOPMENT_CANDIDATE_DISPATCH_SHA: ${{ needs.build-candidate.outputs.dispatch_sha }}
           DEVELOPMENT_CANDIDATE_ROOT: candidate
           DEVELOPMENT_CANDIDATE_PLATFORM: ${{ matrix.platform }}
         run: node scripts/verify-development-candidate-scoped.mjs

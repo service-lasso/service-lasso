@@ -1,6 +1,6 @@
 # Core scoped release evidence
 
-Issue #1626 implements SPEC-008 R1–R7 and ADR-001 in Development. This is prospective source, UNEXECUTED until an entire independent final-source review and NEW complete-input admission. Source delivery does not establish native qualification, publication, catalog admission or GA readiness.
+Issue #1626 implements SPEC-008 R1â€“R7 and ADR-001 in Development. This is prospective source, UNEXECUTED until an entire independent final-source review and NEW complete-input admission. Source delivery does not establish native qualification, publication, catalog admission or GA readiness.
 
 ## Source and workflow boundary
 
@@ -45,3 +45,8 @@ Read-only provider observation on 2026-10-04 found Core release environment ID 2
 `tests/scoped-release-evidence.test.js` exercises the production candidate producer/reader, full held asset/SBOM/checksum validator, immutable public byte/tag/asset readback, current-attempt selector, empty-catalog prepublication denials, historical and scoped CLI reader compatibility, mixed versions, native tools/SEA/architecture substitutions, and npm original TAR byte reader. These are finite fixtures, not native or public qualification. All are UNEXECUTED in this author unit. Natural source CI and actual authorized native/public qualification remain separate evidence.
 
 The reviewed TUI checksum, Template consumer-role and CLI archive-origin amendments must land before final interface freeze. The former CLI inner Windows ZIP blocker is an agent-added origin error; the selected protected2 route uses existing matching-host native TARs. Core staged-service Windows ZIP and Core outer Windows ZIP remain mandatory. Original failures and private evidence remain preserved.
+
+
+PR1638 original-byte bridges: the published aggregate holds raw downloaded members, compares original provider ZIP bodies before fatal JSON decoding, and consumes those same verified buffers. Candidate smoke fetches original digest-bound ZIP in its own process, retains the exact six members and compares every held downloaded file before candidate validation or same-buffer archive extraction. No independent candidate checksum map establishes provider custody. Prospective actual-caller fixtures include both-platform aggregate success and classified failure, lossy UTF8 differences, original invalid UTF8, coherent Core runtime archive/manifest/sums replacement retaining original tool fixture bytes, and original digest/inventory substitution. They remain unexecuted before distinct entire-source review and NEW complete-input admission.
+
+The sole final release publisher receives DEVELOPMENT_CANDIDATE_TOKEN from the existing protected release environment; no github.token fallback is eligible. Actual provisioning and Administration-read/Actions-read/Checks-read/Contents-write capability remain unproved; provider preflight and exact environment ID20898438221 plus current same-candidate app15368 technical authority stay mandatory before each write. No credential grants, provider settings, publication or deployment were performed. PR1637 retains its separate npm interpretation defect.

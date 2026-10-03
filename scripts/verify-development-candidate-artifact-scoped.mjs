@@ -1,6 +1,13 @@
-import { assertDevelopIdentity, assertPolicyEnvironment, digest, parseScopedJson, readSourceScope } from "./ga-platform-scope-lib.mjs";
+import { assertDevelopIdentity, assertPolicyEnvironment, parseScopedJson, readSourceScope } from "./ga-platform-scope-lib.mjs";
 import { boundedProviderBody, readAuthenticatedArtifact } from "./scoped-provider-readback-lib.mjs";
 import { validateRetainedArtifactMetadata, validateTerminalJobMetadata } from "./published-package-qualification-lib.mjs";
+import { readOriginalMetadataArtifact } from "./scoped-metadata-artifact-lib.mjs";
+import { scopedArchiveNames, verifyCandidate2Bytes, assertNames } from "./scoped-release-evidence-lib.mjs";
+import path from "node:path";
+import { lstat, readFile, readdir } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+
+export async function verifyDevelopmentCandidateArtifact() {
 assertDevelopIdentity(); assertPolicyEnvironment(); await readSourceScope();
 const repo = "service-lasso/service-lasso", sha = process.env.CANDIDATE_SHA, token = process.env.GH_TOKEN;
 const runId = Number(process.env.GITHUB_RUN_ID), attempt = Number(process.env.GITHUB_RUN_ATTEMPT), id = Number(process.env.DEVELOPMENT_CANDIDATE_ARTIFACT_ID);
@@ -19,5 +26,29 @@ validateTerminalJobMetadata(producerJobs[0], { repo, name: "build-candidate", jo
 validateRetainedArtifactMetadata(artifact, { repo, name, runId, workflowSha: sha });
 if (artifact.id !== id || artifact.digest !== `sha256:${expectedDigest}`) throw new Error("scoped candidate upload identity differs");
 const bytes = await readAuthenticatedArtifact(`https://api.github.com/repos/${repo}/actions/artifacts/${id}/zip`, repo, token);
-if (digest(bytes) !== expectedDigest) throw new Error("scoped candidate uploaded original bytes differ");
-process.stdout.write(`${JSON.stringify({ candidateSha: sha, runId, runAttempt: attempt, artifactId: id, artifactName: name, downloadDigestVerified: true })}\n`);
+const names = [...scopedArchiveNames(`develop-${sha.slice(0, 12)}`, false), "candidate-manifest.json", "SHA256SUMS.txt"];
+const held = readOriginalMetadataArtifact(bytes, names, artifact.digest);
+return held;
+}
+
+// Actual smoke caller: no detached checksum receipt or later filesystem reopen.
+export async function readVerifiedDevelopmentCandidate(root) {
+  const original = await verifyDevelopmentCandidateArtifact();
+  const entries = await readdir(root);
+  assertNames(entries, [...original.keys()]);
+  const held = new Map();
+  for (const name of entries) {
+    const location = path.join(root, name), info = await lstat(location);
+    if (!info.isFile() || info.isSymbolicLink() || info.size < 1 || info.size > 256 * 1024 * 1024) throw new Error("Candidate artifact entries must be bounded regular files.");
+    const bytes = await readFile(location);
+    if (bytes.length !== info.size || !bytes.equals(original.get(name))) throw new Error("downloaded candidate differs from original provider artifact body");
+    held.set(name, bytes);
+  }
+  const manifest = verifyCandidate2Bytes(held, { repository: "service-lasso/service-lasso", commit: process.env.CANDIDATE_SHA, ref: "refs/heads/develop" });
+  return { held, manifest };
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) {
+await verifyDevelopmentCandidateArtifact();
+process.stdout.write("Exact original candidate provider ZIP and six-member inventory verified.\n");
+}

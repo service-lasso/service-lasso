@@ -129,3 +129,11 @@ export function verifyNpmPublication({ evidence, source, metadata, distTags, tar
   }
   return evidence;
 }
+
+// Only the protected environment publisher receives this separate credential.
+// Provider reads still prove permissions; a supplied token is not capability proof.
+export function requireScopedPublisherCredential(env = process.env) {
+  const token = env.DEVELOPMENT_CANDIDATE_TOKEN;
+  if (typeof token !== "string" || token.trim().length === 0) throw new Error("scoped publisher environment credential missing");
+  return token;
+}
