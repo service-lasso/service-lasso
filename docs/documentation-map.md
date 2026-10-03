@@ -15,6 +15,7 @@ This inventory records every Markdown page that existed when issue [#1258](https
 | `getting-started/beginner-todo-app.md` | Start here | guide | Listed: Beginner — Todo newcomer journey |
 | `getting-started/intermediate-make-todo-app-durable.md` | Start here | guide | Listed: PostgreSQL durability after Todo |
 | `getting-started/advanced-add-go-todo-api-service.md` | Start here | guide | Listed: Advanced — Go API between Todo UI and Postgres |
+| `getting-started/zitadel-sso-hub.md` | Start here | guide | Listed: app-owned local ZITADEL browser SSO hub and consumer integration |
 | `service-catalog.md` | Start here | reference | Listed: inventory discovery |
 | `reference-apps.md` | Use in your app | guide | Listed: reference-app choice; cross-linked from Start here |
 | `release-asset-policy.md` | Contribute and maintain | reference | Listed: release verification boundary |
@@ -68,6 +69,7 @@ This inventory records every Markdown page that existed when issue [#1258](https
 | `reference/operator-inbox.md` | Run and manage services | reference | Unlisted: API detail |
 | `reference/operator-mcp.md` | Technical reference | reference | Listed: MCP entry |
 | `reference/operator-notifications.md` | Run and manage services | reference | Unlisted: API detail |
+| `reference/operator-tool-packaging.md` | Contribute and maintain | reference | Unlisted: exact external operator-tool release gate |
 | `reference/process-ownership-registry.md` | Security and access | reference | Unlisted: persistence and ownership contract |
 | `reference/product-api-facade.md` | Technical reference | reference | Listed: HTTP API entry |
 | `reference/readiness-gate.md` | Technical reference | reference | Listed: CLI entry |
@@ -96,9 +98,11 @@ This inventory records every Markdown page that existed when issue [#1258](https
 | `reference/service-health-history.md` | Run and manage services | reference | Unlisted: health-history API |
 | `reference/SERVICE-JSON-COMPLETE-UNION-SCHEMA.md` | Technical reference | reference | Unlisted: schema detail |
 | `reference/service-json-reference.md` | Technical reference | reference | Listed: manifest entry |
+| `reference/service-producer-release-policy.md` | Technical reference | policy | Listed: released-service producer identity and approval gate |
 | `reference/service-lockfile.md` | Technical reference | reference | Unlisted: lockfile contract |
 | `reference/service-secret-access-policy.md` | Security and access | reference | Listed: secret-access entry |
 | `reference/service-start-trace-api.md` | Run and manage services | reference | Unlisted: tracing API |
+| `reference/source-safe-template-admission.md` | Technical reference | reference | Listed: source-admission contract |
 | `reference/servicelasso-localhost-sso-test-matrix.md` | Use in your app | evidence record | Unlisted: test matrix |
 | `reference/startup-broker-resolution.md` | Security and access | reference | Unlisted: startup-resolution contract |
 | `reference/startup-endpoint-allocation.md` | Technical reference | reference | Unlisted: allocation detail |

@@ -12,10 +12,49 @@ import {
   MCP_PRODUCT_EVIDENCE_CONTRACT,
   fetchBoundedDiagnosticJson,
   parsePackagedAcceptanceFailure,
+  projectPackagedWindowsTreeInspection,
   validateMcpProductEvidence,
 } from "../scripts/mcp-product-acceptance-lib.mjs";
 
 const execFileAsync = promisify(execFile);
+
+test("#1326 packaged projection retains only bounded initial-inspection evidence", () => {
+  const privateValue = "C:\\private\\workspace token=secret command --password";
+  assert.deepEqual(projectPackagedWindowsTreeInspection({
+    windowsTreeInspectionPhase: "native_snapshot",
+    windowsTreeInspectionAttempts: 53,
+    windowsTreeInspectionRetries: 52,
+    windowsTreeInspectionQueueMs: 6,
+    windowsTreeInspectionNativeMs: 2600,
+    windowsTreeInspectionLastRetry: "descendant_command_partial_copy",
+    pid: 4343,
+    command: privateValue,
+    path: privateValue,
+  }), {
+    windowsTreeInspectionPhase: "native_snapshot",
+    windowsTreeInspectionAttempts: 53,
+    windowsTreeInspectionRetries: 52,
+    windowsTreeInspectionQueueMs: 6,
+    windowsTreeInspectionNativeMs: 2600,
+    windowsTreeInspectionLastRetry: "descendant_command_partial_copy",
+  });
+  assert.equal(projectPackagedWindowsTreeInspection({ windowsTreeInspectionPhase: "private_phase" }), null);
+  assert.deepEqual(projectPackagedWindowsTreeInspection({
+    windowsTreeInspectionPhase: "queue_wait",
+    windowsTreeInspectionAttempts: 1001,
+    windowsTreeInspectionRetries: -1,
+    windowsTreeInspectionQueueMs: 600001,
+    windowsTreeInspectionNativeMs: 600001,
+    windowsTreeInspectionLastRetry: privateValue,
+  }), {
+    windowsTreeInspectionPhase: "queue_wait",
+    windowsTreeInspectionAttempts: null,
+    windowsTreeInspectionRetries: null,
+    windowsTreeInspectionQueueMs: null,
+    windowsTreeInspectionNativeMs: null,
+    windowsTreeInspectionLastRetry: null,
+  });
+});
 
 test("#864 guarded diagnostic acquisition is time- and size-bounded", async () => {
   const server = createServer((request, response) => {
@@ -59,7 +98,7 @@ test("#864 packaged failure diagnostics admit one strict bounded record and disc
     errorCode: "guarded_preflight_failed",
     result: { isError: true, status: null, errorCode: "invalid_request" },
     componentProbe: { stage: "component_probe", errorCode: null },
-    auditProbe: { stage: "audit_probe", reason: "confirmation_private_state_system_utilities_unavailable" },
+    auditProbe: { stage: "audit_probe", reason: "confirmation_private_state_protect_integrity_timeout" },
   };
   const hostile = "token=secret C:\\private\\workspace /opt/private command --password";
   assert.deepEqual(
@@ -78,6 +117,14 @@ test("#864 packaged failure diagnostics admit one strict bounded record and disc
   assert.equal(parsePackagedAcceptanceFailure(`[mcp-package-acceptance-error] ${JSON.stringify(safe)}\n[mcp-package-acceptance-error] ${JSON.stringify(safe)}`), null);
   assert.equal(JSON.stringify(safe).includes(hostile), false);
   assert.ok(JSON.stringify(safe).length < 512);
+  const helperTimeout = {
+    ...safe,
+    auditProbe: { stage: "audit_probe", reason: "confirmation_private_state_protect_helper_timeout" },
+  };
+  assert.deepEqual(
+    parsePackagedAcceptanceFailure(`[mcp-package-acceptance-error] ${JSON.stringify(helperTimeout)}`),
+    helperTimeout,
+  );
 
   const guarded = {
     stage: "guarded_replay",
@@ -93,6 +140,14 @@ test("#864 packaged failure diagnostics admit one strict bounded record and disc
         readinessAttribution: "not_applicable",
         healthcheckFailed: true,
         processStartFailurePhase: "launcher_file_hash",
+        windowsTreeInspection: {
+          windowsTreeInspectionPhase: "native_snapshot",
+          windowsTreeInspectionAttempts: 53,
+          windowsTreeInspectionRetries: 52,
+          windowsTreeInspectionQueueMs: 6,
+          windowsTreeInspectionNativeMs: 2600,
+          windowsTreeInspectionLastRetry: "descendant_command_partial_copy",
+        },
       },
     },
   };
@@ -103,6 +158,33 @@ test("#864 packaged failure diagnostics admit one strict bounded record and disc
   assert.equal(parsePackagedAcceptanceFailure(`[mcp-package-acceptance-error] ${JSON.stringify({
     ...guarded,
     guardedProbe: { ...guarded.guardedProbe, message: hostile },
+  })}`), null);
+  assert.equal(parsePackagedAcceptanceFailure(`[mcp-package-acceptance-error] ${JSON.stringify({
+    ...guarded,
+    guardedProbe: {
+      ...guarded.guardedProbe,
+      lifecycle: {
+        ...guarded.guardedProbe.lifecycle,
+        windowsTreeInspection: {
+          ...guarded.guardedProbe.lifecycle.windowsTreeInspection,
+          pid: 4343,
+          command: hostile,
+        },
+      },
+    },
+  })}`), null);
+  assert.equal(parsePackagedAcceptanceFailure(`[mcp-package-acceptance-error] ${JSON.stringify({
+    ...guarded,
+    guardedProbe: {
+      ...guarded.guardedProbe,
+      lifecycle: {
+        ...guarded.guardedProbe.lifecycle,
+        windowsTreeInspection: {
+          ...guarded.guardedProbe.lifecycle.windowsTreeInspection,
+          windowsTreeInspectionAttempts: 1001,
+        },
+      },
+    },
   })}`), null);
   assert.equal(parsePackagedAcceptanceFailure(`[mcp-package-acceptance-error] ${JSON.stringify({
     ...guarded,
@@ -147,7 +229,7 @@ test("#864 packaged failure diagnostics admit one strict bounded record and disc
     },
   })}`), null);
   assert.equal(JSON.stringify(guarded).includes(hostile), false);
-  assert.ok(JSON.stringify(guarded).length < 768);
+  assert.ok(JSON.stringify(guarded).length < 1024);
 });
 
 function evidence(candidateSha, platform) {
@@ -168,7 +250,7 @@ function evidence(candidateSha, platform) {
     packageArchiveSha256: "a".repeat(64),
     sdk: {
       packageName: "@modelcontextprotocol/sdk",
-      version: "1.30.0",
+      version: "1.30.1",
       protocolVersion: "2025-11-25",
       supportedProtocolVersions: ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05", "2024-10-07"],
     },
@@ -377,21 +459,25 @@ test("#864 retained evidence verifies downloaded content, exact SHA, three OSes,
     const releaseWorkflow = await readFile(".github/workflows/release-qualification.yml", "utf8");
     assert.match(releaseWorkflow, /qualify-mcp-product:[\s\S]*?npm run test:mcp:product/u);
     assert.match(releaseWorkflow, /qualify-mcp-packaged:[\s\S]*?platform: win32[\s\S]*?platform: linux[\s\S]*?platform: darwin/u);
-    assert.match(releaseWorkflow, /qualify-mcp-packaged:[\s\S]*?npm run verify:mcp:packaged/u);
+    assert.match(releaseWorkflow, /qualify-mcp-packaged:[\s\S]*?Build packaged MCP verifier[\s\S]*?npm run build[\s\S]*?SERVICE_LASSO_RELEASE_METADATA_TOKEN: \$\{\{ github\.token \}\}[\s\S]*?node scripts\/verify-mcp-packaged-bootstrap\.mjs/u);
+    assert.match(releaseWorkflow, /Verify attached-terminal TUI behavior \(Windows ConPTY\)[\s\S]*?if: matrix\.platform == 'win32'[\s\S]*?node scripts\/verify-operator-tui-conpty\.mjs/u);
     assert.match(releaseWorkflow, /MCP_PRODUCT_EVIDENCE_PATH: artifacts\/mcp-product-\$\{\{ matrix\.platform \}\}\.json[\s\S]*?path: artifacts\/mcp-product-\$\{\{ matrix\.platform \}\}\.json/u);
     assert.match(releaseWorkflow, /qualify-release:[\s\S]*?needs:[\s\S]*?- qualify-mcp-product[\s\S]*?- qualify-mcp-packaged/u);
 
     for (const workflowPath of [".github/workflows/publish-package.yml", ".github/workflows/release-artifact.yml"]) {
       const publicationWorkflow = await readFile(workflowPath, "utf8");
       assert.match(publicationWorkflow, /qualify-mcp-packaged:[\s\S]*?platform: win32[\s\S]*?platform: linux[\s\S]*?platform: darwin/u);
-      assert.match(publicationWorkflow, /qualify-mcp-packaged:[\s\S]*?npm run verify:mcp:packaged/u);
+      assert.match(publicationWorkflow, /qualify-mcp-packaged:[\s\S]*?Build packaged MCP verifier[\s\S]*?npm run build[\s\S]*?SERVICE_LASSO_RELEASE_METADATA_TOKEN: \$\{\{ github\.token \}\}[\s\S]*?node scripts\/verify-mcp-packaged-bootstrap\.mjs/u);
       assert.match(publicationWorkflow, /MCP_PRODUCT_EVIDENCE_PATH: artifacts\/mcp-product-\$\{\{ matrix\.platform \}\}\.json[\s\S]*?path: artifacts\/mcp-product-\$\{\{ matrix\.platform \}\}\.json/u);
       assert.match(publicationWorkflow, /needs:[\s\S]*?- qualify-mcp-packaged/u);
       assert.match(publicationWorkflow, /retention-days: 90/u);
       assert.match(publicationWorkflow, /node scripts\/verify-mcp-product-artifact\.mjs/u);
     }
 
+    const packagedBootstrap = await readFile("scripts/verify-mcp-packaged-bootstrap.mjs", "utf8");
+    assert.match(packagedBootstrap, /bootstrapReleaseMetadataToken\(\);[\s\S]*?await import\("\.\/verify-mcp-packaged\.mjs"\)/u);
     const packagedVerifier = await readFile("scripts/verify-mcp-packaged.mjs", "utf8");
+    assert.match(packagedVerifier, /takeBootstrappedReleaseMetadataToken\(\)/u);
     assert.match(packagedVerifier, /const tempRoot = await realpath\(await mkdtemp/u);
     assert.match(packagedVerifier, /PSModulePath: path\.join\(process\.env\.SystemRoot, "System32", "WindowsPowerShell", "v1\.0", "Modules"\)/u);
     assert.match(packagedVerifier, /verifyWindowsProcessInspectorProvenance[\s\S]*?verify-windows-process-inspector\.ps1/u);
@@ -508,49 +594,55 @@ test("#864 retained evidence verifies downloaded content, exact SHA, three OSes,
     assert.match(inspectorProvenanceVerifier, /Invoke-ProvenanceNegativeTests[\s\S]*?extra property[\s\S]*?reordered properties[\s\S]*?string schema[\s\S]*?non-integral schema[\s\S]*?string binary length[\s\S]*?non-integral binary length[\s\S]*?compiler path[\s\S]*?compiler option[\s\S]*?source digest[\s\S]*?binary digest[\s\S]*?normalization declaration[\s\S]*?boolean compiler path[\s\S]*?boolean compiler option[\s\S]*?boolean source digest[\s\S]*?boolean normalization declaration/u);
     assert.match(inspectorProvenanceVerifier, /first-bad last-good duplicate key[\s\S]*?UTF-8 BOM[\s\S]*?UTF-16 BOM/u);
     assert.doesNotMatch(inspectorProvenanceVerifier, /actualJson -cne expectedJson/u);
-    const managedLauncherNativeSource = await readFile(
+    const managedLauncherManagedSource = await readFile(
       "src/runtime/execution/windows-managed-launcher-native.cs",
       "utf8",
     );
     assert.match(
-      managedLauncherNativeSource,
+      managedLauncherManagedSource,
       /DllImport[\s\S]*?CreateJobObjectW[\s\S]*?SetInformationJobObject[\s\S]*?CreateProcessW[\s\S]*?AssignProcessToJobObject[\s\S]*?ResumeThread/u,
     );
-    assert.match(managedLauncherNativeSource, /0x00000004[\s\S]*?0x00002000/u);
-    assert.match(managedLauncherNativeSource, /ParseLaunchPayload[\s\S]*?ValidateStrictJsonSyntax[\s\S]*?DeserializeObject[\s\S]*?RequireExactKeys/u);
-    assert.match(managedLauncherNativeSource, /ParseJsonObject[\s\S]*?keys\.Add[\s\S]*?duplicate property/u);
-    assert.match(managedLauncherNativeSource, /ValidatePayload/u);
-    assert.match(managedLauncherNativeSource, /RequireString[\s\S]*?IndexOf\('\\0'\)[\s\S]*?RequireInt[\s\S]*?RequireBoolean/u);
-    assert.match(managedLauncherNativeSource, /FileShare\.Read[\s\S]*?SHA256\.Create/u);
-    assert.match(managedLauncherNativeSource, /GetFinalPathNameByHandleW[\s\S]*?requireExecutableBinding/u);
-    assert.match(managedLauncherNativeSource, /releaseToken[\s\S]*?filesBoundToken[\s\S]*?continueToken[\s\S]*?ackToken/u);
-    assert.match(managedLauncherNativeSource, /HMACSHA256[\s\S]*?RetireProgress[\s\S]*?ClearLaunchEnvironment/u);
-    assert.match(managedLauncherNativeSource, /AssertBootstrapEnvironmentSanitized[\s\S]*?ApplyTargetEnvironmentOverrides[\s\S]*?CreateProcessW[\s\S]*?ClearTargetEnvironmentOverrides/u);
-    assert.match(managedLauncherNativeSource, /targetAssignedToJob = true[\s\S]*?ContainManagedJobBeforeFileRelease[\s\S]*?boundFile\.Dispose/u);
-    assert.match(managedLauncherNativeSource, /ContainManagedJobBeforeFileRelease[\s\S]*?TerminateJobObject[\s\S]*?ActiveProcesses == 0/u);
-    assert.doesNotMatch(managedLauncherNativeSource, /Reflection\.Emit|Add-Type|Process\.Start|PowerShell/u);
+    assert.match(managedLauncherManagedSource, /0x00000004[\s\S]*?0x00002000/u);
+    assert.match(managedLauncherManagedSource, /ParseLaunchPayload[\s\S]*?ValidateStrictJsonSyntax[\s\S]*?DeserializeObject[\s\S]*?RequireExactKeys/u);
+    assert.match(managedLauncherManagedSource, /ParseJsonObject[\s\S]*?keys\.Add[\s\S]*?duplicate property/u);
+    assert.match(managedLauncherManagedSource, /ValidatePayload/u);
+    assert.match(managedLauncherManagedSource, /RequireString[\s\S]*?IndexOf\('\\0'\)[\s\S]*?RequireInt[\s\S]*?RequireBoolean/u);
+    assert.match(managedLauncherManagedSource, /FileShare\.Read[\s\S]*?SHA256\.Create/u);
+    assert.match(managedLauncherManagedSource, /GetFinalPathNameByHandleW[\s\S]*?requireExecutableBinding/u);
+    assert.match(managedLauncherManagedSource, /releaseToken[\s\S]*?filesBoundToken[\s\S]*?continueToken[\s\S]*?ackToken/u);
+    assert.match(managedLauncherManagedSource, /HMACSHA256[\s\S]*?RetireProgress[\s\S]*?ClearLaunchEnvironment/u);
+    assert.match(managedLauncherManagedSource, /AssertBootstrapEnvironmentSanitized[\s\S]*?ApplyTargetEnvironmentOverrides[\s\S]*?CreateProcessW[\s\S]*?ClearTargetEnvironmentOverrides/u);
+    assert.match(managedLauncherManagedSource, /targetAssignedToJob = true[\s\S]*?ContainManagedJobBeforeFileRelease[\s\S]*?boundFile\.Dispose/u);
+    assert.match(managedLauncherManagedSource, /ContainManagedJobBeforeFileRelease[\s\S]*?TerminateJobObject[\s\S]*?ActiveProcesses == 0/u);
+    assert.doesNotMatch(managedLauncherManagedSource, /Reflection\.Emit|Add-Type|Process\.Start|PowerShell/u);
+    const managedLauncher = await readFile("src/runtime/execution/windows-managed-launcher-managed.exe");
+    const managedLauncherProvenance = JSON.parse(
+      await readFile("src/runtime/execution/windows-managed-launcher-managed.provenance.json", "utf8"),
+    );
+    const managedLauncherNativeSource = await readFile("src/runtime/execution/windows-managed-launcher-native-bootstrap.c", "utf8");
     const managedLauncherNative = await readFile("src/runtime/execution/windows-managed-launcher-native.exe");
     const managedLauncherNativeProvenance = JSON.parse(
       await readFile("src/runtime/execution/windows-managed-launcher-native.provenance.json", "utf8"),
     );
     assert.equal(
-      managedLauncherNativeProvenance.source.sha256,
-      createHash("sha256").update(managedLauncherNativeSource).digest("hex"),
+      managedLauncherProvenance.source.sha256,
+      createHash("sha256").update(await readFile("src/runtime/execution/windows-managed-launcher-native.cs")).digest("hex"),
     );
     assert.equal(
-      managedLauncherNativeProvenance.binary.sha256,
-      createHash("sha256").update(managedLauncherNative).digest("hex"),
+      managedLauncherProvenance.binary.sha256,
+      createHash("sha256").update(managedLauncher).digest("hex"),
     );
+    assert.equal(managedLauncherProvenance.binary.byteLength, managedLauncher.byteLength);
+    assert.equal(managedLauncherNativeProvenance.source.sha256, createHash("sha256").update(managedLauncherNativeSource).digest("hex"));
+    assert.equal(managedLauncherNativeProvenance.managedLauncher.sha256, createHash("sha256").update(managedLauncher).digest("hex"));
+    assert.equal(managedLauncherNativeProvenance.binary.sha256, createHash("sha256").update(managedLauncherNative).digest("hex"));
     assert.equal(managedLauncherNativeProvenance.binary.byteLength, managedLauncherNative.byteLength);
     assert.equal(managedLauncherNativeProvenance.binary.peTimestamp, "zero");
-    assert.equal(managedLauncherNativeProvenance.binary.moduleVersionId, "zero");
-    assert.deepEqual(managedLauncherNativeProvenance.compiler.options, [
-      "/nologo",
-      "/target:exe",
-      "/platform:anycpu",
-      "/optimize+",
-      "/reference:System.Web.Extensions.dll",
-    ]);
+    assert.equal(managedLauncherNativeProvenance.binary.clrMetadata, "absent");
+    assert.match(managedLauncherNativeSource, /SanitizeLoaderEnvironment[\s\S]*?VerifyPackageDirectory[\s\S]*?CreateProcessW[\s\S]*?WaitForSingleObject/u);
+    assert.match(managedLauncherNativeSource, /VerifyPackageDirectory[\s\S]*?FILE_SHARE_READ \| FILE_SHARE_WRITE[\s\S]*?GetFinalPathNameByHandleW/u);
+    assert.match(managedLauncherNativeSource, /MANAGED_LAUNCHER_BYTE_LENGTH[\s\S]*?MANAGED_LAUNCHER_SHA256/u);
+    assert.doesNotMatch(managedLauncherNative.toString("ascii"), /BSJB/u);
     assert.deepEqual(
       await readFile("dist/runtime/execution/windows-managed-launcher-native.exe"),
       managedLauncherNative,
@@ -559,6 +651,8 @@ test("#864 retained evidence verifies downloaded content, exact SHA, three OSes,
       JSON.parse(await readFile("dist/runtime/execution/windows-managed-launcher-native.provenance.json", "utf8")),
       managedLauncherNativeProvenance,
     );
+    assert.deepEqual(await readFile("dist/runtime/execution/windows-managed-launcher-managed.exe"), managedLauncher);
+    assert.deepEqual(JSON.parse(await readFile("dist/runtime/execution/windows-managed-launcher-managed.provenance.json", "utf8")), managedLauncherProvenance);
     await assert.rejects(
       readFile("src/runtime/execution/windows-managed-launcher.ps1"),
       { code: "ENOENT" },
@@ -570,9 +664,16 @@ test("#864 retained evidence verifies downloaded content, exact SHA, three OSes,
     assert.match(packagedVerifier, /installedManagedLauncherNative[\s\S]*?reviewedManagedLauncherNativeProvenance/u);
     assert.match(packagedVerifier, /requirePathAbsent[\s\S]*?Retired installed PowerShell launcher/u);
     const supervisorSource = await readFile("src/runtime/execution/supervisor.ts", "utf8");
-    assert.match(supervisorSource, /windows-managed-launcher-native\.exe[\s\S]*?9fb89ec94c6f3d1930246ca95aa9f7f0d3bd85a1801e3e0b951920a6770ea5f6/u);
+    const runtimeBinding = supervisorSource.match(
+      /WINDOWS_MANAGED_LAUNCHER_BYTES\s*=\s*([0-9_]+);[\s\S]*?WINDOWS_MANAGED_LAUNCHER_SHA256\s*=\s*"([0-9a-f]{64})"/u,
+    );
+    assert.ok(runtimeBinding, "supervisor must bind the native launcher size and SHA-256 before spawning it");
+    assert.equal(Number(runtimeBinding[1].replaceAll("_", "")), managedLauncherNativeProvenance.binary.byteLength);
+    assert.equal(runtimeBinding[2], managedLauncherNativeProvenance.binary.sha256);
     assert.match(supervisorSource, /assertWindowsManagedLauncherIntegrity[\s\S]*?lstat[\s\S]*?realpath[\s\S]*?open[\s\S]*?handle\.stat[\s\S]*?handle\.readFile[\s\S]*?WINDOWS_MANAGED_LAUNCHER_SHA256/u);
-    assert.match(supervisorSource, /verifyWindowsManagedLauncherIntegrity[\s\S]*?withProcessControlDeadline[\s\S]*?createWindowsManagedLaunchState[\s\S]*?verifyWindowsManagedLauncherIntegrity\(windowsManagedLaunchState\.launcherExecutable\)[\s\S]*?managedProcessSpawner/u);
+    // Source conformance is supporting evidence; native rejection/ownership
+    // behavior is exercised in process-ownership.test.js, not proved by a regex.
+    assert.match(supervisorSource, /verifyWindowsManagedLauncherIntegrity[\s\S]*?withProcessControlDeadline[\s\S]*?createWindowsManagedLaunchState[\s\S]*?await\s+verifyWindowsManagedLauncherIntegrity\(\s*windowsManagedLaunchState\.launcherExecutable\s*,?\s*\);\s*child\s*=\s*managedProcessSpawner\(\s*windowsManagedLaunchState\.launcherExecutable\s*,/u);
     assert.match(supervisorSource, /isWindowsLoaderSensitiveEnvironmentName[\s\S]*?COR_[\s\S]*?CORECLR_[\s\S]*?COMPLUS_[\s\S]*?APPDOMAIN_MANAGER[\s\S]*?targetEnvironmentOverrides/u);
     assert.doesNotMatch(supervisorSource, /windows-managed-launcher\.ps1|WindowsPowerShell[\s\S]*?WINDOWS_MANAGED_LAUNCHER_PATH/u);
     const assetCopySource = await readFile("scripts/copy-runtime-assets.mjs", "utf8");
@@ -582,6 +683,8 @@ test("#864 retained evidence verifies downloaded content, exact SHA, three OSes,
     assert.match(assetCopySource, /runtime\/security\/windows-dpapi-helper\.provenance\.json/u);
     assert.match(assetCopySource, /runtime\/execution\/windows-managed-launcher-native\.exe/u);
     assert.match(assetCopySource, /runtime\/execution\/windows-managed-launcher-native\.provenance\.json/u);
+    assert.match(assetCopySource, /runtime\/execution\/windows-managed-launcher-managed\.exe/u);
+    assert.match(assetCopySource, /runtime\/execution\/windows-managed-launcher-managed\.provenance\.json/u);
     assert.match(assetCopySource, /retiredAssets[\s\S]*?runtime\/execution\/windows-managed-launcher\.ps1[\s\S]*?rm/u);
     const packageManifest = JSON.parse(await readFile("package.json", "utf8"));
     assert.match(packageManifest.scripts.build, /copy-runtime-assets\.mjs/u);

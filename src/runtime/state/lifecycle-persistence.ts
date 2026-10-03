@@ -21,6 +21,11 @@ export const STARTUP_TRANSACTION_SCHEMA_V1 = "service-lasso.startup-transaction.
 export const STARTUP_TRANSACTION_SCHEMA_V2 = "service-lasso.startup-transaction.v2";
 export const ENDPOINT_ALLOCATION_SCHEMA_V1 = "service-lasso.endpoint-allocation.v1";
 export const ENDPOINT_ALLOCATION_SCHEMA_V2 = "service-lasso.endpoint-allocation.v2";
+export const RECONCILIATION_CONTEXT_IDENTITY_SCHEMA_V1 = "service-lasso.reconciliation-context-identity.v1";
+export const RECONCILIATION_CONTEXT_CUSTODY_SCHEMA_V1 = "service-lasso.reconciliation-context-custody.v1";
+export const RECONCILIATION_CONTEXT_AUTHORITY_SCHEMA_V2 = "service-lasso.reconciliation-context-authority.v2";
+export const RECONCILIATION_CONTEXT_PUBLICATION_JOURNAL_SCHEMA_V1 = "service-lasso.reconciliation-context-publication-journal.v1";
+export const RECONCILIATION_CONTEXT_PUBLICATION_MARKER_SCHEMA_V1 = "service-lasso.reconciliation-context-publication-marker.v1";
 
 export const MAX_LIFECYCLE_DOCUMENT_BYTES = 256 * 1024;
 export const MAX_LIFECYCLE_LOCK_BYTES = 16 * 1024;
@@ -149,6 +154,52 @@ export const ENDPOINT_ALLOCATION_POLICY: LifecycleDocumentPolicy = {
   currentVersion: 2,
   legacyVersion: 1,
   relativePath: path.join("runtime", "endpoint-allocation.json"),
+};
+
+export const RECONCILIATION_CONTEXT_IDENTITY_POLICY: LifecycleDocumentPolicy = {
+  // This is Core runtime-instance custody, stored separately so it never
+  // changes the public instance-discovery document.
+  kind: "runtime-instance",
+  currentSchemaVersion: RECONCILIATION_CONTEXT_IDENTITY_SCHEMA_V1,
+  currentVersion: 1,
+  legacyVersion: 0,
+  relativePath: path.join(".service-lasso", "reconciliation-context-identity.json"),
+};
+
+export const RECONCILIATION_CONTEXT_CUSTODY_POLICY: LifecycleDocumentPolicy = {
+  kind: "runtime-instance",
+  currentSchemaVersion: RECONCILIATION_CONTEXT_CUSTODY_SCHEMA_V1,
+  currentVersion: 1,
+  legacyVersion: 0,
+  relativePath: path.join(".service-lasso", "reconciliation-context-custody.json"),
+};
+
+/**
+ * One closed record prevents a reader from observing custody without its
+ * authority (or the inverse) during server initialization.
+ */
+export const RECONCILIATION_CONTEXT_AUTHORITY_POLICY: LifecycleDocumentPolicy = {
+  kind: "runtime-instance",
+  currentSchemaVersion: RECONCILIATION_CONTEXT_AUTHORITY_SCHEMA_V2,
+  currentVersion: 2,
+  legacyVersion: 1,
+  relativePath: path.join(".service-lasso", "reconciliation-context-authority.json"),
+};
+
+export const RECONCILIATION_CONTEXT_PUBLICATION_JOURNAL_POLICY: LifecycleDocumentPolicy = {
+  kind: "runtime-instance",
+  currentSchemaVersion: RECONCILIATION_CONTEXT_PUBLICATION_JOURNAL_SCHEMA_V1,
+  currentVersion: 1,
+  legacyVersion: 0,
+  relativePath: path.join(".service-lasso", "reconciliation-context-publication-journal.json"),
+};
+
+export const RECONCILIATION_CONTEXT_PUBLICATION_MARKER_POLICY: LifecycleDocumentPolicy = {
+  kind: "runtime-instance",
+  currentSchemaVersion: RECONCILIATION_CONTEXT_PUBLICATION_MARKER_SCHEMA_V1,
+  currentVersion: 1,
+  legacyVersion: 0,
+  relativePath: path.join(".service-lasso", "reconciliation-context-publication-marker.json"),
 };
 
 const WORKSPACE_LIFECYCLE_POLICIES: readonly LifecycleDocumentPolicy[] = [
@@ -479,6 +530,7 @@ function parseBoundedJson(
   }
   let parsed: unknown;
   try {
+    assertNoDuplicateJsonObjectKeys(bytes.toString("utf8"));
     parsed = JSON.parse(bytes.toString("utf8")) as unknown;
   } catch {
     fail("corrupt", kind, safePath, "Lifecycle state document is not valid JSON.");
@@ -493,6 +545,87 @@ function parseBoundedJson(
     fail("corrupt", kind, safePath, message);
   }
   return parsed;
+}
+
+/** JSON.parse accepts duplicate object keys by retaining the last value. */
+function assertNoDuplicateJsonObjectKeys(text: string): void {
+  let index = 0;
+  const whitespace = /\s/u;
+  const skipWhitespace = (): void => {
+    while (index < text.length && whitespace.test(text[index]!)) index += 1;
+  };
+  const readString = (): string => {
+    const start = index;
+    if (text[index] !== '"') throw new Error("Invalid JSON string.");
+    index += 1;
+    while (index < text.length) {
+      const character = text[index]!;
+      if (character === "\\") {
+        index += 2;
+        continue;
+      }
+      index += 1;
+      if (character === '"') return JSON.parse(text.slice(start, index)) as string;
+    }
+    throw new Error("Unterminated JSON string.");
+  };
+  const readValue = (): void => {
+    skipWhitespace();
+    if (text[index] === "{") {
+      index += 1;
+      const keys = new Set<string>();
+      skipWhitespace();
+      if (text[index] === "}") {
+        index += 1;
+        return;
+      }
+      while (true) {
+        skipWhitespace();
+        const key = readString();
+        if (keys.has(key)) throw new Error("Lifecycle state document contains duplicate JSON keys.");
+        keys.add(key);
+        skipWhitespace();
+        if (text[index] !== ":") throw new Error("Invalid JSON object.");
+        index += 1;
+        readValue();
+        skipWhitespace();
+        if (text[index] === "}") {
+          index += 1;
+          return;
+        }
+        if (text[index] !== ",") throw new Error("Invalid JSON object.");
+        index += 1;
+      }
+    }
+    if (text[index] === "[") {
+      index += 1;
+      skipWhitespace();
+      if (text[index] === "]") {
+        index += 1;
+        return;
+      }
+      while (true) {
+        readValue();
+        skipWhitespace();
+        if (text[index] === "]") {
+          index += 1;
+          return;
+        }
+        if (text[index] !== ",") throw new Error("Invalid JSON array.");
+        index += 1;
+      }
+    }
+    if (text[index] === '"') {
+      readString();
+      return;
+    }
+    const primitiveStart = index;
+    while (index < text.length && !",]}".includes(text[index]!) && !whitespace.test(text[index]!)) index += 1;
+    if (primitiveStart === index) throw new Error("Invalid JSON value.");
+  };
+  readValue();
+  skipWhitespace();
+  if (index !== text.length) throw new Error("Invalid JSON document.");
 }
 
 const WINDOWS_REPLACE_RETRY_MS = 20;
@@ -1006,6 +1139,8 @@ export async function readLifecycleDocument<T>(
     parseCurrent: (value: unknown) => T | null;
     parseLegacy: (value: unknown) => T | null;
     serialize?: (document: T) => unknown;
+    /** Some authority records must never recover from a prior identity. */
+    allowCrashBackup?: boolean;
   },
 ): Promise<LifecycleReadResult<T>> {
   await resolveVerifiedStateDirectory(workspaceRoot, policy);
@@ -1096,6 +1231,19 @@ export async function readLifecycleDocument<T>(
   if (primary.classification === "missing") {
     return {
       inspection: inspectionFrom(policy, "missing", null, null, documentPath, false),
+      document: null,
+    };
+  }
+  if (parsers.allowCrashBackup === false) {
+    return {
+      inspection: inspectionFrom(
+        policy,
+        "corrupt",
+        primary.schemaVersion,
+        primary.numericVersion,
+        documentPath,
+        false,
+      ),
       document: null,
     };
   }

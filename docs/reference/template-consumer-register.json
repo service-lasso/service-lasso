@@ -1,0 +1,51 @@
+{
+  "schema": "service-lasso.template-consumer-register.v1",
+  "roles": [
+    {
+      "role": "cli-canonical-authoring",
+      "repository": "service-lasso/service-lasso-cli",
+      "catalogPath": "src/template-admissions.ts",
+      "proofProducerPath": "scripts/prove-template-authoring.mjs",
+      "proofVerifierPath": "scripts/verify-template-authoring-proof.mjs",
+      "gates": [
+        "TC01",
+        "TC02",
+        "TC03",
+        "TC04",
+        "TC05",
+        "TC06",
+        "TC07",
+        "TC08",
+        "TC09",
+        "TC10",
+        "TC11",
+        "TC12"
+      ],
+      "platforms": [
+        "win32",
+        "linux"
+      ]
+    },
+    {
+      "role": "core-source-admission",
+      "repository": "service-lasso/service-lasso",
+      "catalogPath": "src/runtime/service-source-admission/catalog.ts",
+      "proofProducerPath": "scripts/prove-source-admission.mjs",
+      "proofVerifierPath": "scripts/verify-source-admission-proof.mjs",
+      "gates": [
+        "CA01",
+        "CA02",
+        "CA03",
+        "CA04",
+        "CA05",
+        "CA06",
+        "CA07",
+        "CA08"
+      ],
+      "platforms": [
+        "win32",
+        "linux"
+      ]
+    }
+  ]
+}

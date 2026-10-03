@@ -1,0 +1,45 @@
+# Release decision traceability
+
+
+## Current GA applicability (2026-10-04, #1613)
+
+The owner's current GA delivery scope is Windows and Linux under [current GA platform scope](CURRENT_GA_PLATFORM_SCOPE.md). Older three-platform/macOS obligations below retain their historical/default meaning; macOS is Deferred / Not applicable for this GA, never PASS. All Windows/Linux product, native, operator, template, immutable-publication and same-byte evidence remains required. Existing executable three-platform gates are unchanged and require coherent separately reviewed propagation before two-platform readiness can be claimed. No current exact qualified candidate or deployment is established by this scope decision.
+
+Governing issue: [#1409](https://github.com/service-lasso/service-lasso/issues/1409). Canonical rule: [gov-09](../rules/gov-09-release-authority.mdc). Release 1 criteria: [SPEC-007 AC-7F/7G/7H](../specs/SPEC-007-secrets-capability-ledger.md).
+
+| Requirement | Authoritative procedure or evidence | Decision boundary |
+| --- | --- | --- |
+| Exact release identity and version | [version implementation](../../scripts/release-version-lib.mjs), [release artifact workflow](../../.github/workflows/release-artifact.yml), [npm publication workflow](../../.github/workflows/publish-package.yml) | Tag, release name, npm version and artifact version are identical; full SHA matches the tag target and npm `gitHead`. |
+| Required assets and checksums | [asset policy](../../docs/release-asset-policy.md), [asset check](../../scripts/check-release-assets.mjs), [release artifact workflow](../../.github/workflows/release-artifact.yml) | Immutable release assets, SHA-256 inventory and readback correspond to the candidate. |
+| Operator-tool release-metadata custody | [operator-tool staging](../../scripts/operator-tool-packaging-lib.mjs), [release staging entrypoints](../../scripts/release-artifact.mjs), [fixture coverage](../../tests/operator-tool-packaging.test.js) | A step-scoped token is consumed once before sequential normal/bundled staging, is absent from child environment state, is sent only as bearer auth to fixed GitHub metadata endpoints, and is absent from asset/redirect requests. This contract does not qualify a release. |
+| Terminal technical gates | [Release Qualification](../../.github/workflows/release-qualification.yml), [SPEC-007 AC-7F/7G/7H](../specs/SPEC-007-secrets-capability-ledger.md) | Agents report pass/fail on the exact SHA; no historical or surrogate substitution. |
+| Published package and three OS proof | [Published Package Three-OS Qualification](../../.github/workflows/published-package-qualification.yml), [published package verifier](../../scripts/verify-published-package-qualification-artifacts.mjs) | Published npm and GitHub identities and Windows, Linux and macOS runs match the same immutable candidate. |
+| Security packet and GA decision | [security review packet](../../docs/reference/release-1-security-review-packet.md), [GA decision record](../../docs/reference/release-1-ga-decision.md) | Owner alone accepts residual risk and declares GA; an independent review is mandatory only when explicitly named and mandated. |
+| Promotion, publication and deployment | [branch workflow](GIT_WORKFLOW.md), [publication workflow](../../.github/workflows/publish-package.yml) | Separate explicit owner instruction; technical readiness or GA alone is not execution authority. |
+
+For each proposed GA decision, record: release tag, full 40-character SHA,
+package version, qualification run IDs/outcomes and artifact/checksum links;
+each open investigation's classification (`blocking defect`, `accepted residual
+risk`, `deferred follow-up`, `not applicable`); owner, date, risk acceptance
+and explicit promotion/publication/deployment instructions if any. Historical
+decision documents retain the candidate and policy under which they were written;
+a later decision must not silently extend their evidence to new bytes.
+
+## Durable two-OS release contract (#1619)
+
+[ADR-001](../decisions/ADR-001-two-os-release-evidence.md) and active [SPEC-008](../specs/SPEC-008-two-os-release-evidence.md) make the reviewed whole-chain migration concrete under SPEC-007 AC-7F/7G/7H. R1/R2 bind immutable policy and closed schema versions/keys; R3/R4 define custody and exact inventories; R5 binds workflow inputs/selectors/terminal gates; R6 requires real boundary denial/compatibility and direct proof; R7 retains unresolved blockers. The [canonical policy](ga-platform-scope.json) exact-byte SHA-256 is `159d644c161cf532c94d3bfe17ed55e32bf94c5d2843928945c450f6d8140c12`. Its actual commit/blob will be pinned from landed source, never guessed or caller-selected.
+
+#1619 is documentation authored / awaiting independent entire review, not implemented qualification. The immutable requirements / owner-applicability baseline is d2df8e4bb9533da24acfece6beee4578b1d50357; the reviewed integration base for this durable contract is develop 9e50ac61c8265576d91ec8352449df22784f5de7. Policy requirementsRevision remains anchored to that immutable baseline. Future product author units must refresh their own current develop before authoring. Product author units must propagate Core candidate2/fullrelease1/npm1/technical qualification1/published qualification4/operator3, CLI protected2/portable2, TUI3 and template qualification-publication1 coherently. Empty protected tool/template catalogs remain empty until actual native proof, immutable publication/public same-byte readback and separate pins-only review. Issue #1628 corrects the misplaced CLI30 inner-ZIP blocker: scoped CLI protected2/portable2 uses native TAR, while Core #1534 staged-service Windows ZIP and Core outer release Windows ZIP remain mandatory. Existing EBUSY/runtime/native/input/private custody/credential/provider failures remain preserved. Darwin is Deferred / Not applicable, never PASS. No product execution or final GA follows this documentation.
+
+| Tracked unit | Spec binding | State / completion evidence |
+| --- | --- | --- |
+| #1619 durable decision | SPEC-008 R1-R7 / SPEC-007 AC-7F/7G/7H | in_review after pushed PR; distinct entire source review pending |
+| #1613 executable eligibility propagation | SPEC-008 R1-R6 | todo; Core/CLI/TUI/template source units, reader-first, reviewed exact current source and NEW input admission |
+| #1562 native/operator/template delivery | SPEC-008 R6-R7 and original product requirements | blocked by retained current qualification defects; no blanket rerun authority |
+| #1628 archive-origin correction | SPEC-008 R4 / Core SPEC-002 AC-4CH | CLI inner-ZIP blocker explicitly retired; Core #1534 staged-service ZIP and outer release ZIP remain mandatory, with actual producer/consumer proof pending |
+| Actual protected publication/catalog pins | SPEC-008 R3/R7 / SPEC-007 AC-7G/7H | pending actual qualified immutable bytes/public readback and separate pins-only source review |
+## #1628 reviewed release-contract errata — source amendment awaiting entire review
+
+SPEC-008 R2/R4/R5/R6/R7/appendix and T1–T5, ADR-001, and the fixed source-owned Template consumer register govern these explicit corrections: TUI3 exactly two archive-only checksums/four public proofs (historical v2 six/four); twelve TC compatibility surfaces across two actual CLI/Core roles with CA01–CA08 complete source-admission aliases; CLI protected2/portable2 native TAR, 6/7/8, with misplaced CLI inner-ZIP blocker retired and Core #1534 staged-service/outer-release Windows ZIP retained. Canonical policy a038 commit/blob/raw SHA remains unchanged. Missing current catalogs/proof implementations/provider controls/tuple and Windows/Linux native acceptance stay unresolved; source register selects prospective paths only. Independent complete CLI/Core admission architecture must reconcile canonical owner inventory with current Core SLTP path eligibility before CA success; this errata does not amend that API. Darwin deferred, never PASS.
+
+Core #1628 plus CLI #35/TUI #29/Template #23 form one cumulative documentation-only bundle. Held TUI #28/Template #22 producer implementation waits for fresh distinct ENTIRE cumulative amendment review and governed develop landing. Later producer units need fresh entire source review and NEW complete-input admission before execution. Existing failures/private evidence and owned Core #1626 remain preserved. No product/parser/compiler/test/npm/native/ACL execution, provider controls or gate weakening, publication/qualification/GA claim accompanies these documents.

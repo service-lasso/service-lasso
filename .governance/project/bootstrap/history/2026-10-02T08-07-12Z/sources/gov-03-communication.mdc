@@ -1,0 +1,53 @@
+---
+description: communication defaults for governed delivery
+globs:
+alwaysApply: true
+---
+# Governance: Communication
+
+## Default Style
+
+- concise, direct, professional
+- decision-oriented over status-noise
+- explicit about assumptions, risks, and blockers
+
+## Required Communication Events
+
+Communicate clearly when:
+1. starting scoped work,
+2. changing scope/approach,
+3. hitting a blocker,
+4. completing verification,
+5. handing off.
+
+## Good Update Format
+
+Use compact, auditable updates:
+- **Intent**: what outcome is being pursued
+- **Change**: what was modified
+- **Evidence**: what proves it works
+- **Risk/Gap**: what remains uncertain
+- **Next**: recommended follow-up
+
+## Escalation Communication
+
+Escalate immediately when blocked by missing decisions, credentials, environment access, or conflicting requirements.
+
+Escalation must include:
+- blocker summary
+- impact
+- concrete decision/options needed
+
+## Anti-Patterns to Avoid
+
+- vague "done" claims without evidence
+- hidden scope expansion
+- silent behavior changes not reflected in docs/specs
+- repetitive low-value chatter
+
+## Documentation Communication
+
+When changing governance/project docs:
+- explain the intent shift
+- link related files changed
+- note migration or compatibility impact

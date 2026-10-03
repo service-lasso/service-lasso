@@ -9,6 +9,29 @@ Attach a managed PostgreSQL service so application data survives stop and start.
 
 This page replaces the old “first useful service” PostgreSQL article. PostgreSQL is the durability step, not the first newcomer step.
 
+## Outcome
+
+**Stage 2:** replace the beginner file store with PostgreSQL. The app backend
+uses a PostgreSQL driver; the browser keeps talking to the app. Lasso manages
+the database, whose workspace data survives stop and start.
+
+```mermaid
+flowchart TB
+  accTitle: Stage 2: PostgreSQL durability
+  accDescr: The Todo app backend connects to managed PostgreSQL and durable database workspace data. Service Admin controls Lasso database supervision.
+  browser["Browser Todo UI"] -->|Signed-in requests| host["Todo host / app backend"]
+  host -->|PostgreSQL driver| db[("PostgreSQL")]
+  db -->|Persists todos| data[("Database workspace data")]
+  admin["Service Admin"] -->|Operator controls| lasso["Service Lasso"]
+  lasso -.-> db
+  classDef added fill:#e0f2fe,stroke:#0369a1,color:#0c4a6e
+  class db,data added
+```
+
+Blue nodes show what this stage adds. Solid arrows show application data or
+operator controls. The dashed link is Lasso's lifecycle, health and port
+management, not the path used for Todo queries.
+
 ## Platform note
 
 The pinned PostgreSQL macOS archive contains Intel (`x64`) binaries. The automated macOS journey uses an Intel runner; Apple Silicon execution has not been qualified.

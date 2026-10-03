@@ -3,12 +3,15 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
+import { createServer } from "node:net";
+import { observeHardCrashChildExit, settleHardCrashDirectChild, stopHardCrashDirectChild as stopExactChild } from "./hard-crash-child-exit.js";
+import { lifecycleFailureDiagnostic } from "./lifecycle-failure-diagnostics.js";
 import { readFile, readdir, rm } from "node:fs/promises";
 import { startApiServer } from "../dist/server/index.js";
 import { resolveRuntimeConfig } from "../dist/runtime/config.js";
 import { discoverServices } from "../dist/runtime/discovery/discoverServices.js";
 import { getLifecycleState, resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
-import { stopManagedProcess } from "../dist/runtime/execution/supervisor.js";
+import { stopManagedProcess, waitForManagedProcessFinalization, setManagedProcessEnrollmentHookForTests, hasManagedProcess } from "../dist/runtime/execution/supervisor.js";
 import {
   readRuntimeGenerationRegistry,
   readRuntimeInstanceRegistry,
@@ -22,8 +25,11 @@ import {
   classifyRegisteredProcess,
   findProcessOwnership,
   readProcessOwnershipRegistry,
+  readProcessOwnershipCustodyForTest,
 } from "../dist/runtime/process/registry.js";
-import { terminateOwnedProcessTree } from "../dist/runtime/process/tree.js";
+import { inspectProcess } from "../dist/runtime/process/identity.js";
+import { captureOwnedProcessTreeMembers } from "../dist/runtime/process/tree.js";
+import { createFixtureCustody, closeFixture, createFixtureCleanupAdapter, createFixtureEvidenceBoundary } from "./hard-crash-fixture-custody.js";
 import { inspectStartupRecovery } from "../dist/runtime/startup/recovery.js";
 import {
   STARTUP_TRANSACTION_PHASES,
@@ -53,24 +59,9 @@ function processIsAlive(pid) {
   }
 }
 
-async function stopExactChild(child) {
-  if (!child || child.exitCode !== null || child.signalCode !== null) return;
-  const closed = once(child, "exit");
-  child.kill("SIGTERM");
-  if (!(await Promise.race([closed.then(() => true), new Promise((resolve) => setTimeout(() => resolve(false), 5_000))]))) {
-    child.kill("SIGKILL");
-    await Promise.race([closed, new Promise((resolve) => setTimeout(resolve, 5_000))]);
-  }
-}
-
 async function waitForHardExit(child, timeoutMs = 120_000) {
-  const closed = once(child, "exit");
-  const outcome = await Promise.race([
-    closed.then(([code, signal]) => ({ kind: "exit", code, signal })),
-    new Promise((resolve) => setTimeout(() => resolve({ kind: "timeout" }), timeoutMs)),
-  ]);
+  const outcome = await observeHardCrashChildExit(child, timeoutMs);
   if (outcome.kind === "timeout") {
-    await stopExactChild(child);
     throw new Error(`Hard-crash fixture did not exit within ${timeoutMs}ms.`);
   }
   return outcome;
@@ -99,19 +90,6 @@ function collectBoundedOutput(stream, maxBytes = 64 * 1024) {
   };
 }
 
-async function cleanupPersistedServiceOwner(workspaceRoot, serviceId) {
-  await stopManagedProcess(serviceId).catch(() => undefined);
-  const ownership = await findProcessOwnership(workspaceRoot, "service", serviceId).catch(() => null);
-  if (!ownership?.pid || !ownership.identity) return;
-  if (ownership.lifecycleState === "stopped") return;
-  if (await classifyRegisteredProcess(ownership).catch(() => "unknown_owner") !== "owned") return;
-  await terminateOwnedProcessTree({
-    rootPid: ownership.pid,
-    rootIdentity: ownership.identity,
-    processGroup: ownership.processGroup,
-  }, 5_000).catch(() => undefined);
-}
-
 async function listStartupResidue(workspaceRoot) {
   const stateRoot = path.join(workspaceRoot, ".service-lasso");
   let entries;
@@ -130,33 +108,72 @@ async function listStartupResidue(workspaceRoot) {
   });
 }
 
+async function allocateFixtureApiPort() {
+  const server = createServer();
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  const closed = once(server, "close");
+  server.close();
+  await closed;
+  return address.port;
+}
+
 async function withMatrixEnvironment(phase, action) {
   const fixture = await makeTempServicesRoot(`service-lasso-hard-crash-${phase}-`);
-  const previous = {
-    hostRegistry: process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH,
-    instanceRegistry: process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH,
-    hooks: process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS,
-    secret: process.env.SERVICE_LASSO_HARD_CRASH_SECRET,
-  };
-  process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH = path.join(fixture.tempRoot, "host", "allocations.json");
-  process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH = path.join(fixture.tempRoot, "host", "instances.json");
-  process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
-  process.env.SERVICE_LASSO_HARD_CRASH_SECRET = "matrix-secret-must-not-appear";
+  const keys = ["SERVICE_LASSO_HOST_PORT_REGISTRY_PATH", "SERVICE_LASSO_INSTANCE_REGISTRY_PATH",
+    "SERVICE_LASSO_PORT_RANGE_START", "SERVICE_LASSO_PORT_RANGE_END",
+    "SERVICE_LASSO_ENABLE_TEST_HOOKS", "SERVICE_LASSO_HARD_CRASH_SECRET"];
+  const previous = new Map(keys.map((key) => [key, process.env[key]]));
+  fixture.custody = createFixtureCustody();
+  fixture.cleanupFailures = [];
+  fixture.custodyReaders = [];
+  fixture.recovery = "unknown";
+  fixture.actionStage = "fixture_initialization";
+  const evidence = createFixtureEvidenceBoundary(fixture.tempRoot);
+  let enrollmentHookArmed = false;
+  let primary;
   try {
-    await action(fixture);
-  } finally {
-    await cleanupPersistedServiceOwner(fixture.workspaceRoot, "matrix-service");
-    if (previous.hostRegistry === undefined) delete process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH;
-    else process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH = previous.hostRegistry;
-    if (previous.instanceRegistry === undefined) delete process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH;
-    else process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH = previous.instanceRegistry;
-    if (previous.hooks === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
-    else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = previous.hooks;
-    if (previous.secret === undefined) delete process.env.SERVICE_LASSO_HARD_CRASH_SECRET;
-    else process.env.SERVICE_LASSO_HARD_CRASH_SECRET = previous.secret;
-    resetLifecycleState();
-    await rm(fixture.tempRoot, { recursive: true, force: true });
-  }
+    await evidence.initialize();
+    fixture.actionStage = "action";
+    const apiPort = await allocateFixtureApiPort();
+    process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH = path.join(fixture.tempRoot, "host", "allocations.json");
+    process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH = path.join(fixture.tempRoot, "host", "instances.json");
+    process.env.SERVICE_LASSO_PORT_RANGE_START = String(apiPort);
+    process.env.SERVICE_LASSO_PORT_RANGE_END = String(apiPort);
+    process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
+    setManagedProcessEnrollmentHookForTests(null, (serviceId, read) => {
+      try {
+        if (serviceId === "matrix-service") fixture.custodyReaders.push(read);
+      } catch (error) { fixture.cleanupFailures.push({ stage: "enrollment_observation", error }); }
+    }, () => { fixture.cleanupFailures.push({ stage: "enrollment_observation", error: new Error("Fixture enrollment observation failed.") }); });
+    enrollmentHookArmed = true;
+    process.env.SERVICE_LASSO_HARD_CRASH_SECRET = "matrix-secret-must-not-appear";
+    await action(fixture, apiPort);
+  } catch (error) { primary = error; }
+  await closeFixture({ primary, failures: fixture.cleanupFailures, custody: fixture.custody,
+    primaryStage: fixture.actionStage,
+    recovery: fixture.recovery,
+    adapter: createFixtureCleanupAdapter(fixture, {
+      readRegistry: readProcessOwnershipCustodyForTest, classify: classifyRegisteredProcess,
+      capture: captureOwnedProcessTreeMembers, stop: stopManagedProcess,
+      finalize: waitForManagedProcessFinalization, inspect: inspectProcess,
+      readInterrupted: async (workspaceRoot) => JSON.parse(await readFile(
+        path.join(workspaceRoot, ".service-lasso", "hard-crash-fixture-custody.json"), "utf8")),
+    }),
+    restore: () => {
+      try { if (enrollmentHookArmed) setManagedProcessEnrollmentHookForTests(null); }
+      finally {
+        for (const [key, value] of previous) {
+          if (value === undefined) delete process.env[key]; else process.env[key] = value;
+        }
+      }
+    },
+    reset: () => resetLifecycleState(),
+    evidence,
+    report: (summary) => console.error(JSON.stringify(summary)),
+  });
 }
 
 test("AC-4BJ.9 hard-crash matrix metadata covers every formal startup phase", async () => {
@@ -177,35 +194,39 @@ for (const phase of STARTUP_TRANSACTION_PHASES) {
     skip: selectedPhase !== null && selectedPhase !== phase,
     timeout: 720_000,
   }, async () => {
-    await withMatrixEnvironment(phase, async (fixture) => {
+    await withMatrixEnvironment(phase, async (fixture, apiPort) => {
       await writeExecutableFixtureService(fixture.servicesRoot, "matrix-service", {
         autostart: true,
         env: { MATRIX_PRIVATE_VALUE: "matrix-secret-must-not-appear" },
       });
-      const unrelated = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
-        stdio: "ignore",
-        windowsHide: true,
-      });
-      await once(unrelated, "spawn");
-      const crash = spawn(
-        process.execPath,
-        [
-          path.resolve("tests", "fixtures", "startup-crash-runner.mjs"),
-          fixture.servicesRoot,
-          fixture.workspaceRoot,
-          phase,
-        ],
-        { env: { ...process.env }, stdio: ["ignore", "pipe", "pipe", "ipc"], windowsHide: true },
-      );
-      let failureDiagnostic = null;
-      crash.on("message", (message) => {
-        if (message?.kind === "startup-crash-failure") failureDiagnostic = message;
-      });
-      const stdout = collectBoundedOutput(crash.stdout);
-      const stderr = collectBoundedOutput(crash.stderr);
+      let unrelated;
+      let crash;
       let apiServer = null;
-
       try {
+        unrelated = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+          stdio: "ignore",
+          windowsHide: true,
+        });
+        unrelated.fixtureClose = once(unrelated, "close");
+        await once(unrelated, "spawn");
+        crash = spawn(
+          process.execPath,
+          [
+            path.resolve("tests", "fixtures", "startup-crash-runner.mjs"),
+            fixture.servicesRoot,
+            fixture.workspaceRoot,
+            phase,
+          ],
+          { env: { ...process.env }, stdio: ["ignore", "pipe", "pipe", "ipc"], windowsHide: true },
+        );
+        crash.fixtureClose = once(crash, "close");
+        let failureDiagnostic = null;
+        crash.on("message", (message) => {
+          if (message?.kind === "startup-crash-failure") failureDiagnostic = message;
+        });
+        const stdout = collectBoundedOutput(crash.stdout);
+        const stderr = collectBoundedOutput(crash.stderr);
+
         const exit = await waitForHardExit(crash);
         assert.equal(exit.code, 86, JSON.stringify({ expectedExit: 86, actualExit: exit.code, failureDiagnostic }));
         assert.equal(exit.signal, null);
@@ -213,6 +234,7 @@ for (const phase of STARTUP_TRANSACTION_PHASES) {
         assert.ok(stderr.bytes <= 64 * 1024);
         assert.doesNotMatch(`${stdout.value}\n${stderr.value}`, /matrix-secret-must-not-appear/);
 
+        fixture.custody.retain(JSON.parse(await readFile(path.join(fixture.workspaceRoot, ".service-lasso", "hard-crash-fixture-custody.json"), "utf8")));
         const interrupted = await readStartupTransactionJournal(fixture.workspaceRoot);
         const interruptedRaw = await readFile(getStartupTransactionJournalPath(fixture.workspaceRoot), "utf8");
         const interruptedAllocation = await readRuntimeEndpointAllocationPlan(fixture.workspaceRoot);
@@ -230,6 +252,9 @@ for (const phase of STARTUP_TRANSACTION_PHASES) {
         assert.equal(processIsAlive(unrelated.pid), true);
         assert.deepEqual(await listStartupResidue(fixture.workspaceRoot), []);
         assert.equal(Boolean(interruptedServiceOwner), serviceWasStartedBeforeCrash.has(phase));
+        if (interruptedAllocation) {
+          assert.equal(runtimeApiEndpointFromAllocation(interruptedAllocation).port, apiPort);
+        }
 
         const config = resolveRuntimeConfig({
           servicesRoot: fixture.servicesRoot,
@@ -260,6 +285,7 @@ for (const phase of STARTUP_TRANSACTION_PHASES) {
             expectedClassification === "resume" ? "transaction_evidence_agrees" : "transaction_resources_require_rollback",
           );
         }
+        fixture.recovery = expectedClassification;
         const resumedInterruptedTransaction = expectedClassification === "resume";
 
         apiServer = await startApiServer({
@@ -269,6 +295,7 @@ for (const phase of STARTUP_TRANSACTION_PHASES) {
           autostart: true,
         });
 
+        fixture.custody.retain(fixture.custodyReaders.flatMap((read) => read()));
         const recovered = await readStartupTransactionJournal(fixture.workspaceRoot);
         const recoveredRaw = await readFile(getStartupTransactionJournalPath(fixture.workspaceRoot), "utf8");
         const generations = await readRuntimeGenerationRegistry(fixture.workspaceRoot);
@@ -287,6 +314,7 @@ for (const phase of STARTUP_TRANSACTION_PHASES) {
         assert.equal(allocation.phase, "reserved");
         assert.equal(allocation.generationId, apiServer.generationId);
         assert.equal(allocation.allocationId, apiServer.endpointAllocationPlan.allocationId);
+        assert.equal(runtimeApiEndpointFromAllocation(allocation).port, apiPort);
         assert.equal(runtimeApiEndpointFromAllocation(allocation).selectors.url.replace(/\/$/, ""), apiServer.url);
         assert.equal(workspaceInstance.generationId, apiServer.generationId);
         assert.equal(workspaceInstance.pid, process.pid);
@@ -359,11 +387,135 @@ for (const phase of STARTUP_TRANSACTION_PHASES) {
         assert.equal(stoppedRegistry.entries.some((entry) => entry.lifecycleState !== "stopped"), false);
         assert.equal(processIsAlive(unrelated.pid), true);
         assert.deepEqual(await listStartupResidue(fixture.workspaceRoot), []);
+      } catch (error) {
+        try {
+          console.error(JSON.stringify({
+            kind: "startup-recovery-failure",
+            interruptedPhase: phase,
+            lifecycle: JSON.parse(lifecycleFailureDiagnostic({ error, state: getLifecycleState("matrix-service") })),
+          }));
+        } catch {
+          // Bounded observation must not replace the assertion or cleanup path.
+        }
+        throw error;
       } finally {
-        await apiServer?.stop().catch(() => undefined);
-        await stopExactChild(crash);
-        await stopExactChild(unrelated);
+        for (const [stage, cleanup] of [
+          ["stop", () => apiServer?.stop()],
+        ]) {
+          try { await cleanup(); }
+          catch (error) { fixture.cleanupFailures.push({ stage, error }); }
+        }
+        await settleHardCrashDirectChild(crash, fixture.cleanupFailures, stopExactChild);
+        await settleHardCrashDirectChild(unrelated, fixture.cleanupFailures, stopExactChild);
       }
+    });
+  });
+}
+
+// Additional regression rows do not replace/narrow any formal matrix row.
+// Both paths acquire custody during actual recovered enrollment/adoption and
+// throw at owned readiness, after that acquisition but before startup returns.
+for (const interruptedPhase of ["process_spawned", "generation_committed"]) {
+  test(`AC-4BJ.9c recovered ${interruptedPhase} custody survives startup compensation before return`, {
+    timeout: 720_000,
+  }, async () => {
+    const injected = new Error("PRIVATE-RECOVERED-STARTUP-FAILURE");
+    await assert.rejects(withMatrixEnvironment(`compensation-${interruptedPhase}`, async (fixture) => {
+      await writeExecutableFixtureService(fixture.servicesRoot, "matrix-service", { autostart: true });
+      fixture.actionStage = "crash_spawn";
+      const crash = spawn(process.execPath, [path.resolve("tests", "fixtures", "startup-crash-runner.mjs"),
+        fixture.servicesRoot, fixture.workspaceRoot, interruptedPhase], {
+        env: { ...process.env }, stdio: ["ignore", "pipe", "pipe", "ipc"], windowsHide: true,
+      });
+      crash.fixtureClose = once(crash, "close");
+      collectBoundedOutput(crash.stdout);
+      collectBoundedOutput(crash.stderr);
+      try {
+        fixture.actionStage = "crash_exit";
+        const exit = await waitForHardExit(crash);
+        assert.equal(exit.code, 86);
+        assert.equal(exit.signal, null);
+        fixture.actionStage = "interrupted_read";
+        fixture.custody.retain(JSON.parse(await readFile(path.join(fixture.workspaceRoot,
+          ".service-lasso", "hard-crash-fixture-custody.json"), "utf8")));
+        const interruptedOwner = await findProcessOwnership(fixture.workspaceRoot, "service", "matrix-service");
+        if (interruptedPhase === "generation_committed") {
+          // A replacement start is not adoption proof. This regression requires
+          // the real interrupted owner to remain owned before recovery.
+          assert.ok(interruptedOwner?.identity);
+          assert.equal(await classifyRegisteredProcess(interruptedOwner), "owned");
+        }
+        let observedBeforeReturn = false;
+        let returned = false;
+        let server;
+        try {
+          fixture.actionStage = "recovery_startup";
+          server = await startApiServer({ port: 0, servicesRoot: fixture.servicesRoot,
+            workspaceRoot: fixture.workspaceRoot, autostart: true,
+            startupTransactionTestHooks: {
+              afterPhase: async ({ phase }) => {
+                if (phase !== "owned_readiness_proven") return;
+                fixture.actionStage = "injection_reader_presence";
+                assert.equal(fixture.custodyReaders.length > 0, true);
+                fixture.actionStage = "injection_reader_read";
+                const members = fixture.custodyReaders.flatMap(read => read());
+                // An empty returned set is distinct from a reader throwing.
+                // Preserve the existing member assertion below; no new gate.
+                const emptyReaders = members.length === 0;
+                fixture.actionStage = "injection_owner_read";
+                const owner = await findProcessOwnership(fixture.workspaceRoot, "service", "matrix-service");
+                fixture.actionStage = "injection_owner_identity";
+                assert.ok(owner?.identity);
+                if (interruptedPhase === "generation_committed") {
+                  fixture.actionStage = "injection_owner_equality";
+                  assert.deepEqual(owner.identity, interruptedOwner.identity);
+                }
+                fixture.actionStage = emptyReaders ? "injection_reader_empty" : "injection_member_equality";
+                assert.ok(members.some(member => member.pid === owner.identity.pid &&
+                  member.createdAt === owner.identity.createdAt && member.commandHash === owner.identity.commandHash));
+                fixture.actionStage = "injection_managed_record";
+                assert.equal(hasManagedProcess("matrix-service"), true);
+                observedBeforeReturn = true;
+                fixture.actionStage = "injection_custody_retain";
+                fixture.custody.retain(members);
+                fixture.actionStage = "injection_assertions";
+                throw injected;
+              },
+            },
+          });
+          returned = true;
+        } catch (error) {
+          if (error !== injected) throw error;
+          assert.equal(error, injected);
+        } finally {
+          try { await server?.stop(); }
+          catch (error) { fixture.cleanupFailures.push({ stage: "server_stop", error }); }
+        }
+        fixture.actionStage = "post_compensation";
+        assert.equal(returned, false);
+        assert.equal(observedBeforeReturn, true);
+        if (interruptedPhase === "process_spawned") {
+          assert.equal(hasManagedProcess("matrix-service"), false);
+          for (const member of fixture.custodyReaders.flatMap(read => read())) {
+            assert.equal((await inspectProcess(member.pid)).status, "not_running");
+          }
+        }
+        await stopManagedProcess("matrix-service", 5_000);
+        await waitForManagedProcessFinalization("matrix-service", Date.now() + 5_000);
+        assert.equal(hasManagedProcess("matrix-service"), false);
+        const retained = fixture.custodyReaders.flatMap(read => read());
+        assert.ok(retained.length > 0);
+        for (const member of retained) assert.equal((await inspectProcess(member.pid)).status, "not_running");
+        fixture.custody.retain(retained);
+        throw injected;
+      } finally {
+        try { await stopExactChild(crash); }
+        catch (error) { fixture.cleanupFailures.push({ stage: "direct_child", error }); }
+      }
+    }), (error) => {
+      assert.ok(error instanceof AggregateError);
+      assert.ok(error.errors.includes(injected), `Recovered injection was not reached: ${JSON.stringify(error.fixtureStages)}`);
+      return true;
     });
   });
 }

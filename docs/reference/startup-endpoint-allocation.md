@@ -1,9 +1,10 @@
 # Startup endpoint allocation
 
 Service Lasso resolves the runtime API and every inbound service network
-endpoint as one startup-wide allocation before any listener binds. Manifests
-are proposals; `workspaceRoot/runtime/endpoint-allocation.json` is the resolved
-runtime state.
+endpoint as one startup-wide allocation. An automatic runtime API first holds
+its own listener so the plan can reserve that exact kernel-bound port; all
+other listeners bind after allocation. Manifests are proposals;
+`workspaceRoot/runtime/endpoint-allocation.json` is the resolved runtime state.
 
 ## Policies
 
@@ -99,11 +100,17 @@ APIs, logs, audit, and tests publish allocation and config digests only.
 Startup order is:
 
 1. discover manifests and rehydrate verified ownership;
-2. build and atomically reserve the complete endpoint plan;
-3. rematerialise resolved selectors for configured startup services;
-4. bind the runtime API;
-5. install/configure/start eligible services in dependency order;
-6. publish process ownership and runtime/service endpoint state.
+2. for an automatic runtime API requested as port `0`, bind and retain one
+   candidate before planning: choose an in-range candidate when an effective
+   endpoint or host range applies, and use OS-selected port `0` only when no
+   effective range applies;
+3. build and atomically reserve the complete endpoint plan using that held
+   candidate's actual port;
+4. rematerialise resolved selectors for configured startup services;
+5. attach the runtime API handler to the held candidate and prove selector
+   ownership;
+6. install/configure/start eligible services in dependency order;
+7. publish process ownership and runtime/service endpoint state.
 
 An external process can still win a race after the bind probe. The runtime
 handles API `EADDRINUSE` by releasing the failed plan, reinspecting the host,

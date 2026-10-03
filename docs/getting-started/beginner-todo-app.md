@@ -11,6 +11,28 @@ Build the smallest useful Service Lasso result: a signed-in Todo list that survi
 
 This guide is the primary newcomer path. The [Admin and Echo demo](../quick-start.md) remains a visual introduction to Service Admin; it is not a substitute for this Todo journey.
 
+## Outcome
+
+**Stage 1:** the Todo host keeps data in an app-owned file store. The browser
+sends signed-in requests to the host; Service Admin is the local operator view.
+
+```mermaid
+flowchart TB
+  accTitle: Stage 1: Todo app with a file store
+  accDescr: Signed-in browser requests reach the Todo host and app-owned file store. Service Admin controls Lasso, which manages supporting demo services.
+  browser["Browser Todo UI"] -->|Signed-in requests| host["Todo host / app backend"]
+  host -->|Create and list todos| store[("App-owned file store")]
+  browser -. Operator sign-in .-> admin["Service Admin"]
+  admin -->|Operator controls| lasso["Service Lasso"]
+  lasso -.-> services["Supporting demo services"]
+  classDef added fill:#e0f2fe,stroke:#0369a1,color:#0c4a6e
+  class host,store added
+```
+
+Blue nodes show what this stage adds. Solid arrows show requests or operator
+controls. Dashed arrows show operator access or lifecycle, health and port
+management; they do not carry Todo data.
+
 ## What you will do
 
 1. Start Service Lasso.

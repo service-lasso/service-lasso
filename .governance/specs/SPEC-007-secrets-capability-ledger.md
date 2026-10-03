@@ -72,6 +72,10 @@ rotation flow, so that cross-repository path is not validated.
 
 ### `AC-7F` — Release 1.0 scope, repository authority, and explicit exclusions
 
+For the current GA delivery, #1613 records the owner's 2026-10-04 Windows/Linux scope decision in [CURRENT_GA_PLATFORM_SCOPE](../project/CURRENT_GA_PLATFORM_SCOPE.md). macOS qualification is Deferred / Not applicable to this GA, never PASS; historical/default three-platform obligations and macOS support source are retained. This applicability decision leaves every Windows/Linux original product, native, operator, template, publication and same-byte requirement intact. Existing qualification workflow/validator propagation is a blocking follow-up, not a completed gate.
+
+Issue #1613 documentation acceptance requires the release-governance validator to validate the linked current owner/date/issue/platform decision and reject missing or inconsistent applicability, removal of Windows/Linux proof, false macOS PASS, or weakening of exact-candidate/publication/authority/privacy requirements. A historical contract without a current scope decision retains Windows, Linux, and macOS published-package requirements. This documentation validator change does not alter qualification producers, artifact inventories or aggregates. The documentation site's GA record must link to the canonical scope source using a supported external GitHub source URL; do not duplicate the policy or relax broken-link enforcement. Positive and negative regression sources require a different entire-source review and NEW complete-input ROOT admission before local execution.
+
 Release 1.0 is the production-grade local encrypted-store product. Its required
 rows cover secure age/recovery bootstrap and custody, generated credentials,
 inventory/search/controlled reveal/rotate-without-reveal, versioned local
@@ -122,22 +126,36 @@ provenance metadata, asset inventory readback, and independent repeatable build
 instructions. Publication is explicitly dispatched through an approval-gated
 release environment and never occurs from an ordinary integration push.
 
-### `AC-7H` — Independent Release 1 security review and promotion gate
+Qualification diagnostics are release evidence, not publication authority. For
+the `#1386` packaged-MCP consumer-acquisition child, any retained diagnostic is
+limited to the closed `SPEC-006 AC-6G` stage/code/subcode receipt and its normal
+cleanup precedence. It must never contain a command line, registry URL,
+package path, raw npm report, stdout, stderr, token, environment value, or a
+duration-derived cause claim. A closed receipt can identify an observed failure
+class for later investigation; it neither attributes the historical failure nor
+authorizes retry, publication, promotion, deployment, or GA.
 
-Before Release 1 promotion, the exact immutable Core, Admin, and Broker
-identities must have a review-ready security packet covering the threat model,
-trust boundaries, cryptography and key lifecycle, IPC and identity enforcement,
+### `AC-7H` — Release 1 security evidence and owner decision gate
+
+Before Release 1 GA, the exact immutable Core, Admin, and Broker identities
+must have a review-ready security packet covering the threat model, trust
+boundaries, cryptography and key lifecycle, IPC and identity enforcement,
 abuse cases, dependency/SBOM/provenance state, static/dynamic/fuzz evidence,
-three-platform released-artifact qualification, recovery and incident handling,
+released-artifact qualification on the required platforms (Windows and Linux for the current #1613 GA scope; macOS Deferred / Not applicable), recovery and incident handling,
 explicit non-claims, and repeatable reproduction instructions.
 
-The delivery owner may assemble evidence and resolve internal findings but must
-not self-certify the independent review. A named independent reviewer records
-scope, date, decision, residual findings, and approval against the exact packet
-revision. Until that sign-off exists, the decision is `GA blocked: external
-security approval outstanding`; no branch promotion, GA tag, or completion
-claim is permitted. A waiver records accepted risk but never converts a missing
-or failed technical gate into green evidence.
+Agents independently assess the governed technical gates and may report
+`Technically Ready for GA` for the exact candidate. The project owner/release
+owner alone accepts residual risk, declares GA, and authorizes promotion,
+publication, or deployment. The decision names the release tag, full commit
+SHA, npm package version, qualification evidence and dispositions of open
+investigations. An independent reviewer is optional unless the release owner
+explicitly makes that review mandatory and names the reviewer for the exact
+candidate. Deferred independent review is a follow-up, never a GA blocker.
+Neither owner risk acceptance nor reviewer evidence converts a missing or
+failed technical gate into green evidence. The decision model and linked
+procedures are canonical in `.governance/rules/gov-09-release-authority.mdc`
+and `.governance/project/RELEASE_TRACEABILITY.md`.
 
 ## Tests and Evidence
 
@@ -233,3 +251,62 @@ evidence is a row-specific real-process result.
   for published-package acquisition, startup, readiness sampling, and owned
   cleanup. Historical failed dispatches remain unwaived. Mutation retry stays
   forbidden. This is not a substitute for `AC-7H` independent review.
+
+
+### Issue #1439: audit-request qualification evidence
+
+Under AC-7E, qualification audits retain bounded bulk/quick endpoint, HTTP status and elapsed-time observations without request bodies, credentials or arbitrary URLs. Production audit retains omit-dev/low and tooling audit retains high severity. Original npm findings and failure status remain authoritative; no automatic retry, waiver or lock mutation is introduced. A local successful bulk request is distinct from a hosted failure and does not establish its upstream cause.
+
+### Issue #1494: tooling dependency hygiene
+
+Under AC-7E, Core retains the secret-free failed Docs Site observation from
+`36663989108` / job `109724626749` at develop
+`d724258656b582d2e11b12473d5a8499547823b4`: the high
+`brace-expansion <=1.1.20` advisory reached `minimatch@3.1.5` through its
+declared `^1.1.7` range. Core selects the compatible patched `1.1.21`
+resolution through a root override and records the exact candidate audit
+result. The separate moderate `fast-uri` advisory is tracked by #1493 and is
+not remediated by this issue. This work does not waive, retry, or alter the
+failed run, and it does not make a release or GA claim.
+
+### Issues #1493 and #1494: exact-head audit integration
+
+The independently reviewed source deltas start from develop
+`d724258656b582d2e11b12473d5a8499547823b4`; the integration candidate rebases
+them onto current develop and composes only the reviewed `fast-uri` `3.1.8`
+lockfile delta from PR #1497 head
+`668879645c2c3c73688459cbf625623e547c8e9b` and the compatible
+`brace-expansion` `1.1.21` root override and lockfile delta from PR #1498 head
+`88efa5dd9c18daa744cb1db9d0be2c0a77328918`. It must pass clean installation,
+zero production and tooling audits, ledger/build validation, and focused build
+checks at its own exact head. These local checks are surrogate evidence pending
+hosted exact-head CI; the historical Docs Site and Windows #1326 failures remain
+separate and unwaived. This integration does not release, deploy, publish, or
+make a GA claim.
+
+## Issue #1600 fixture/input acceptance clarification
+
+Preserve existing acceptance criteria and production checks. The complete source-only
+fixture scope, original failures, dependency owners and subsequent evidence gates
+are bound in [issue 1600 contract map](../project/QUALIFICATION_FIXTURE_INPUTS_1600.md).
+This clarification authorizes faithful input/assertion reconciliation, no protected
+skip, deadline or permission widening, native-custody substitute, or release claim.
+
+## Issue #1602: complete immutable operator-tool contract
+
+AC-7F/AC-7G and SPEC-002 AC-4CG require public upstream tool metadata to bind a full source commit and exact tag to draft:false, prerelease:true, immutable:true. A private publisher draft receipt is a separate phase and is never Core admission. TUI uses the producer's closed schema2 final-state manifest. CLI uses the closed development-candidate manifest (eight declared assets, nine checksum entries, ten published files): portable archive/record plus three native archives and three provenance sidecars, development-candidate.json and SHA256SUMS.txt. Core retains and verifies every native archive, provenance, embedded context and no-Node acceptance tuple against the same identity and bytes without extracting, launching, registering or supervising external tools. Complete finite inventory, canonical URLs, digest checks and credential isolation remain mandatory.
+
+Existing mutable TUI/CLI pins are historical distribution records, never eligible protected candidates. This source repair changes no pin or future digest. A separately reviewed pins-only followup requires actual qualified immutable publication and public same-byte readback. Current CLI producer native archives remain TAR on all three targets; the former CLI inner-ZIP assertion is explicitly retired by #1628; Core staged-service and outer Windows ZIP obligations remain. Direct full native/operator/three-OS qualification, complete programme acceptance and publication are distinct gates. Regression source is UNEXECUTED pending separate ENTIRE source GO and NEW ROOT complete-input admission; no source fixture establishes publication or qualification.
+
+### Issue #1602 historical migration boundary
+
+Normal distribution preserves only the two original source-owned exact historical tuples (repository, tag, full commit, platform/version and all pinned digests). Their public metadata must still be explicit immutable:false, draft:false and prerelease:true; every retained byte is reverified. No caller flag, changed tuple or generic mutable admission exists. The operator-tools v2 manifest records historical-mutable separately from protected-immutable. Historical bytes cannot satisfy protected operator-tool qualification: requireProtected verification rejects historical receipts. This avoids a Core/CLI bootstrap dependency cycle while real three-OS qualification and protected publication remain pending. The strict new path requires actual immutable public metadata, TUIv2 and the complete CLI10/9 contract. Native verification binds the reviewed current producer tool versions/SEA shape as well as provenance, executable/helper bytes, dispatch context and no-Node acceptance identity. Future producer changes require another reviewed contract change.
+
+## Issue #1602 entire-review F1/F2 repair contract
+
+AC-4CG.2 / AC-7F / AC-7G distinguish observational producer-shaped byte consistency from protected eligibility. The actual requireProtected/assertProtectedOperatorTools gate must match independently source-owned approved exact tuple/inventory identities for BOTH tools, in addition to receipt kind and all retained-byte checks. The approved protected catalog is EMPTY until real qualified immutable publication and identical public-byte readback are supplied in a separately reviewed pins-only source change. No caller, environment, configuration, retained bundle, test fixture or generated future tuple can admit itself. Preserve the two exact historical catalogs for normal distribution only; historical or wholly coherent invented nonhistorical bundles must fail actual protected qualification. A separately named retained-byte validation entrypoint supports observational fixture contracts and confers no approved publication authority. Regression source includes full coherent substituted payload/provenance/context/acceptance/manifests/checksums/pins, normal byte consistency, actual gate denial, arbitrary valid nonhistorical identity, and historical/empty-authority denial.
+
+Core independently reads the exact fixed-repository git/ref/tags/<tag> and resolves only typed full-SHA commit/tag objects. Annotated tags require returned-object SHA equality, cycle detection and at most sixteen tag dereferences before the exact expected full source commit. Missing/malformed/wrong ref, invalid type/SHA, wrong annotated-object identity, cycles, excessive depth and wrong resolved commit fail closed even with correct release target_commitish. Lightweight and bounded annotated producer positives remain supported. Credentials apply only to fixed GitHub metadata reads with redirects denied; public release assets and all permitted redirects stay headerless. Existing immutable/draft/prerelease/full source/inventory/digest/TUIv2/CLI10-9-8/native/privacy/path/budget checks and all incoming #1603 observations are preserved. All source fixtures remain UNEXECUTED until a DIFFERENT fresh ENTIRE source GO and NEW complete-input ROOT admission. No publication/native/GA or programme completion follows.
+
+### AC-7F/AC-7G/AC-7H — durable scoped evidence migration (#1619)
+The active [SPEC-008 R1-R7](SPEC-008-two-os-release-evidence.md) and [ADR-001](../decisions/ADR-001-two-os-release-evidence.md) govern the prospective Windows/Linux producer-to-published-qualification route. Exact source-owned policy, closed schema migrations, all-and-only native jobs, inventories, immutable publisher/public readback, empty-catalog denial, same-byte Core/npm and legacy dispatch remain one coherent contract. Issue #1628 selects CLI protected2/portable2 native TAR and explicitly retires the misplaced CLI inner-ZIP blocker; Core staged-service/outer Windows ZIP proof remains required. This source-only durable decision is awaiting distinct entire review; original executable gates, native/input/custody blockers, deadlines and failed evidence remain unchanged until reviewed implementation and admitted direct proof.

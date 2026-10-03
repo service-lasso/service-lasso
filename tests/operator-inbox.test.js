@@ -11,7 +11,7 @@ import {
   readOperatorInbox,
   upsertOperatorInboxItem,
 } from "../dist/runtime/operator/inbox.js";
-import { createApiServer } from "../dist/server/index.js";
+import { createApiServer, waitForApiServerInitialization } from "../dist/server/index.js";
 import { makeTempServicesRoot } from "./test-helpers.js";
 
 async function startOperatorInboxApiServer(options) {
@@ -19,6 +19,7 @@ async function startOperatorInboxApiServer(options) {
   const listening = once(server, "listening");
   server.listen(0, "127.0.0.1");
   await listening;
+  await waitForApiServerInitialization(server);
   const address = server.address();
   assert.equal(typeof address, "object");
   assert.notEqual(address, null);

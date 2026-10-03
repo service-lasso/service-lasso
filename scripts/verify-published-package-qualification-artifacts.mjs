@@ -1,3 +1,4 @@
+import { validInitialProjection } from "./public-first-custody-projection-lib.mjs";
 import { lstat, readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
@@ -12,6 +13,8 @@ import {
   validateTerminalJobMetadata,
 } from "./published-package-qualification-lib.mjs";
 import { selectCurrentAttemptArtifacts } from "./published-package-qualification-reliability.mjs";
+import { strictJson } from "./consume-admin-trusted-unlock-receipt.mjs";
+import { parsePrebrowserFailure } from "./record-admin-trusted-unlock-prebrowser-failure.mjs";
 
 const PLATFORMS = Object.freeze(["linux", "win32", "darwin"]);
 
@@ -52,6 +55,31 @@ async function readOnlyFile(filePath, label) {
     throw new Error(`${label} is missing, empty, or not a regular file.`);
   }
   return readFile(filePath, "utf8");
+}
+
+function parseStrictJson(source, label) {
+  if (!strictJson(source)) throw new Error(`${label} is malformed or has duplicate keys.`);
+  try {
+    return JSON.parse(source);
+  } catch {
+    throw new Error(`${label} is malformed or has duplicate keys.`);
+  }
+}
+
+function requireTerminalPrebrowserJob(jobs, platform, runId, runAttempt) {
+  const name = `published-package-qualification (${platform})`;
+  const matches = jobs.filter((job) => job?.name === name);
+  if (
+    matches.length !== 1 ||
+    !Number.isSafeInteger(matches[0]?.id) ||
+    matches[0].id <= 0 ||
+    String(matches[0]?.run_id) !== runId ||
+    String(matches[0]?.run_attempt) !== runAttempt ||
+    matches[0]?.status !== "completed" ||
+    matches[0]?.conclusion !== "failure"
+  ) {
+    throw new Error(`${platform} pre-browser failure must bind one matching terminal failed job.`);
+  }
 }
 
 const repo = env("GITHUB_REPOSITORY", /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u);
@@ -101,12 +129,35 @@ for (const platform of PLATFORMS) {
   const artifactDirectory = path.join(artifactsRoot, artifactName);
   const entries = await readdir(artifactDirectory, { withFileTypes: true });
   const expectedFile = `published-package-qualification-${platform}.json`;
-  if (entries.length !== 1 || !entries[0].isFile() || entries[0].isSymbolicLink() || entries[0].name !== expectedFile) {
-    throw new Error(`Downloaded ${platform} artifact did not contain exactly one metadata evidence file.`);
+  const expectedReceipt = "admin-trusted-unlock-receipt.json";
+  const initialReceiptName = "initial-projection.json";
+  const prebrowserName = "admin-trusted-unlock-prebrowser-failure.json";
+  if (entries.length === 2 && entries.every((entry) => entry.isFile() && !entry.isSymbolicLink()) && entries.some((entry) => entry.name === prebrowserName) && entries.some((entry) => entry.name === initialReceiptName)) {
+    const initial = parseStrictJson(await readOnlyFile(path.join(artifactDirectory, initialReceiptName), `${platform} initial projection`), `${platform} initial projection`);
+    if (!validInitialProjection(initial, platform, runId, runAttempt, workflowSha)) throw new Error(`${platform} initial projection custody is invalid.`);
+    const prebrowser = parsePrebrowserFailure(await readOnlyFile(path.join(artifactDirectory, prebrowserName), `${platform} pre-browser failure`));
+    if (!prebrowser || prebrowser.platform !== platform || String(prebrowser.run.id) !== runId || String(prebrowser.run.attempt) !== runAttempt) throw new Error(`${platform} pre-browser failure custody is invalid.`);
+    requireTerminalPrebrowserJob(jobs, platform, runId, runAttempt);
+    continue;
   }
-  const evidence = JSON.parse(
+  if (entries.length !== 3 || entries.some((entry) => !entry.isFile() || entry.isSymbolicLink()) || !entries.some((entry) => entry.name === expectedFile) || !entries.some((entry) => entry.name === expectedReceipt) || !entries.some((entry) => entry.name === initialReceiptName)) {
+    throw new Error(`Downloaded ${platform} artifact did not contain its exact metadata evidence and trusted-unlock receipt.`);
+  }
+  const evidence = parseStrictJson(
     await readOnlyFile(path.join(artifactDirectory, expectedFile), `${platform} retained evidence`),
+    `${platform} retained evidence`,
   );
+  const retainedReceipt = parseStrictJson(
+    await readOnlyFile(path.join(artifactDirectory, expectedReceipt), `${platform} retained trusted-unlock receipt`),
+    `${platform} retained trusted-unlock receipt`,
+  );
+  const initial = parseStrictJson(
+    await readOnlyFile(path.join(artifactDirectory, initialReceiptName), `${platform} initial projection`),
+    `${platform} initial projection`,
+  );
+  if (!validInitialProjection(initial, platform, runId, runAttempt, workflowSha)) {
+    throw new Error(`${platform} initial projection custody is invalid.`);
+  }
   const jobName = `published-package-qualification (${platform})`;
   const matchingJobs = jobs.filter(({ name }) => name === jobName);
   if (matchingJobs.length !== 1) throw new Error(`Terminal job API identity for ${platform} is not unique.`);
@@ -119,6 +170,7 @@ for (const platform of PLATFORMS) {
     workflowSha,
   });
   validateRetainedEvidence(evidence, {
+    initialProjection: initial,
     platform,
     runId,
     runAttempt,
@@ -131,6 +183,9 @@ for (const platform of PLATFORMS) {
     coreNpmVersion,
     coreNpmIntegrity,
   });
+  if (JSON.stringify(retainedReceipt) !== JSON.stringify(evidence.adminTrustedUnlockReceipt)) {
+    throw new Error(`${platform} retained trusted-unlock receipt does not match terminal evidence.`);
+  }
   if (evidence.retentionDays !== RETENTION_DAYS) {
     throw new Error(`${platform} retained evidence did not declare the 90-day policy.`);
   }
