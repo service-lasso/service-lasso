@@ -3,7 +3,7 @@ import { access, link, lstat, mkdir, open, readFile, rm, writeFile } from "node:
 import { createHash, randomBytes } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { readObserverDiagnostic, retainObserverChannels, retainObserverEvent } from "./admin-observer-diagnostics.mjs";
+import { observerExitWitness, readObserverDiagnostic, retainObserverEvent } from "./admin-observer-diagnostics.mjs";
 
 export const SCHEMA = "service-admin.trusted-unlock-receipt.v1";
 const REQUIRED_KEYS = new Set(["schema", "status", "present", "verified", "localRoot", "loading", "unavailable"]);
@@ -448,22 +448,6 @@ async function validateObserverTerminal(root, nonce, source, wantClose) {
   return terminal;
 }
 
-function observerExitWitness(observer, binding) {
-  return new Promise((resolve) => {
-    let settled = false;
-    observer.once("error", (error) => {
-      if (settled) return;
-      settled = true;
-      retainObserverEvent(binding, "config", "failed", error).then(() => resolve({ exitCode: null, signal: null, spawnError: true }));
-    });
-    observer.once("close", (exitCode, signal) => {
-      if (settled) return;
-      settled = true;
-      resolve({ exitCode, signal, spawnError: false });
-    });
-  });
-}
-
 async function recordAndValidateObserverExit(root, nonce, source, close, observer, observerExit) {
   const initial = await privateJson(root, "initial.json");
   if (!initial || initial.observer?.pid !== observer.pid) return false;
@@ -542,7 +526,8 @@ export async function consumeWithDurableObserver(command, args, options = {}) {
     }
     // Install this before any private-record polling. A quick observer exit must
     // still be tied to the OS child handle that created the private root.
-    const observerExitPromise = observerExitWitness(observer, binding);
+    const observerWitness = observerExitWitness(observer, binding);
+    const observerExitPromise = observerWitness.result;
     await Promise.allSettled(channels.map((handle) => handle.close()));
     // The provider deadline starts only after the observer has completed its
     // native identity and activation barrier.  Before that, wait solely for the
@@ -550,7 +535,8 @@ export async function consumeWithDurableObserver(command, args, options = {}) {
     // no wall-clock caller shortcut can turn setup latency into spawn failure.
     const terminal = await waitForPrivateObserver(root, ["close.json", "unresolved.json"], observerExitPromise);
     if (!terminal) {
-      await retainObserverChannels(binding, await observerExitPromise);
+      const observerExit = await observerExitPromise;
+      if (!observerExit.spawnError) await observerWitness.readback;
       observer.unref();
       return settle({ code: null, signal: null, executionFailure: "spawn_failed", trustedUnlock: { classification: "missing" }, streamFailure: null });
     }
@@ -569,7 +555,7 @@ export async function consumeWithDurableObserver(command, args, options = {}) {
     // global timeout or synthetic termination: timeout callers already settled
     // on durable UNRESOLVED custody and do not enter this path.
     const observerExit = await observerExitPromise;
-    await retainObserverChannels(binding, observerExit);
+    if (!observerExit.spawnError) await observerWitness.readback;
     stage = "consumer_terminal";
     await retainObserverEvent(binding, stage, "entered");
     if (!(await recordAndValidateObserverExit(root, nonce, source, close, observer, observerExit))) {

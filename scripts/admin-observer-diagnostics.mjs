@@ -55,7 +55,7 @@ export async function retainObserverEvent(binding, stage, event, error) {
   } catch { return false; }
 }
 
-export async function retainObserverChannels(binding, terminal) {
+async function retainObserverChannels(binding, terminal) {
   if (!validBinding(binding)) return false;
   try {
     const channels = [];
@@ -77,6 +77,43 @@ export async function retainObserverChannels(binding, terminal) {
   } catch { return false; }
 }
 
+export function observerExitWitness(observer, binding) {
+  // Error settles the existing failure result, never the separate close witness.
+  // Install eventual readback immediately: every later return/throw leaves it
+  // attached to this exact child's genuine close event, without a deadline.
+  let settleResult, settleClose;
+  let settled = false, spawnError = false;
+  const result = new Promise((resolve) => { settleResult = resolve; });
+  const closed = new Promise((resolve) => { settleClose = resolve; });
+  observer.once("error", (error) => {
+    spawnError = true;
+    if (settled) return;
+    settled = true;
+    retainObserverEvent(binding, "config", "failed", error).then(() =>
+      settleResult({ exitCode: null, signal: null, spawnError: true }));
+  });
+  observer.once("close", (exitCode, signal) => {
+    const terminal = { exitCode, signal, spawnError };
+    settleClose(terminal);
+    if (!settled) { settled = true; settleResult(terminal); }
+  });
+  const readback = closed.then((terminal) => retainObserverChannels(binding, terminal));
+  return { result, closed, readback };
+}
+
+export async function readObserverEventBytes(handle) {
+  // Read at most the cap plus one sentinel byte from the held file. A stale
+  // lstat must not permit an unbounded read of a replaced or growing leaf.
+  const bytes = Buffer.alloc(2049);
+  let length = 0;
+  while (length < bytes.length) {
+    const read = await handle.read(bytes, length, bytes.length - length, length);
+    if (read.bytesRead === 0) break;
+    length += read.bytesRead;
+  }
+  return length > 2048 ? null : bytes.subarray(0, length);
+}
+
 export function projectObserverEvent(value, binding) {
   if (!validBinding(binding) || !value || typeof value !== "object" || Array.isArray(value)) return null;
   try {
@@ -95,24 +132,37 @@ export async function readObserverDiagnostic(binding) {
   if (!validBinding(binding)) return { stage: "unavailable", event: "unavailable" };
   // A failure wins over later teardown progress. Missing records never imply
   // successful completion of a preceding phase or an OS spawn failure.
-  let latest = null;
+  let latest = null, firstFailure = null, damaged = false;
   for (const stage of OBSERVER_STAGES) {
     for (const event of EVENTS) {
+      const file = path.join(binding.root, `observer-${stage}-${event}.json`);
+      let metadata;
+      try { metadata = await lstat(file); }
+      catch (error) {
+        if (error?.code !== "ENOENT") damaged = true;
+        continue; // Only an absent leaf is normal missing future progress.
+      }
+      let handle;
       try {
-        const file = path.join(binding.root, `observer-${stage}-${event}.json`);
-        const metadata = await lstat(file);
-        if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.size > 2048) continue;
-        const text = await readFile(file, "utf8");
+        if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.size > 2048) { damaged = true; continue; }
+        handle = await open(file, "r");
+        const held = await handle.stat();
+        if (!held.isFile() || held.size > 2048 || held.dev !== metadata.dev || held.ino !== metadata.ino) { damaged = true; continue; }
+        const bytes = await readObserverEventBytes(handle);
+        if (!bytes) { damaged = true; continue; }
+        const text = bytes.toString("utf8");
         const value = JSON.parse(text);
         // Our exclusive writer emits this exact canonical encoding. Reject
         // duplicate keys or textual additions before projecting lossy JSON.
-        if (text !== `${JSON.stringify(value)}\n`) continue;
+        if (text !== `${JSON.stringify(value)}\n`) { damaged = true; continue; }
         const projected = projectObserverEvent(value, binding);
-        if (!projected || projected.stage !== stage || projected.event !== event) continue;
-        if (event === "failed") return projected;
-        latest = projected;
-      } catch { /* Absence/corruption is unavailable, never positive proof. */ }
+        if (!projected || projected.stage !== stage || projected.event !== event) { damaged = true; continue; }
+        if (event === "failed") firstFailure ??= projected;
+        else latest = projected;
+      } catch { damaged = true; }
+      finally { if (handle) await handle.close().catch(() => {}); }
     }
   }
-  return latest ?? { stage: "unavailable", event: "unavailable" };
+  return damaged ? { stage: "unavailable", event: "unavailable" }
+    : firstFailure ?? latest ?? { stage: "unavailable", event: "unavailable" };
 }
