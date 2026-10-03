@@ -13,10 +13,12 @@ import { pathToFileURL } from "node:url";
 import { createHash } from "node:crypto";
 import { assertScope } from "./ga-platform-scope-lib.mjs";
 import { setTimeout as delay } from "node:timers/promises";
+import { getNpmCommand } from "./npm-command-lib.mjs";
 import {
   createTemporaryOutputRoot,
   ensureBuildOutput,
   runCommand,
+  runNpmCommand,
   writeArtifactSBOM,
 } from "./release-artifact-lib.mjs";
 import {
@@ -30,31 +32,26 @@ import {
   verifyRetainedOperatorTools,
 } from "./operator-tool-packaging-lib.mjs";
 
-const NPM_COMMAND = process.platform === "win32" ? "npm.cmd" : "npm";
+
 export const NPMJS_REGISTRY = "https://registry.npmjs.org";
 const PACKAGE_STAGE_LOCK_TIMEOUT_MS = 120_000;
 const PACKAGE_STAGE_LOCK_STALE_MS = 600_000;
 
-function escapeWindowsCmdArg(value) {
-  if (/^[A-Za-z0-9_./:=@-]+$/.test(value)) {
-    return value;
-  }
-
-  return `"${value.replace(/"/g, '""')}"`;
-}
-
-function runNpmCommand(args, options = {}) {
-  if (process.platform !== "win32") {
-    return runCommand(NPM_COMMAND, args, options);
-  }
-
-  const comspec = process.env.ComSpec ?? "cmd.exe";
-  const commandLine = [NPM_COMMAND, ...args].map(escapeWindowsCmdArg).join(" ");
-
-  return runCommand(comspec, ["/d", "/s", "/c", commandLine], options);
-}
-
 export const PUBLISH_FILES = ["LICENSE", "README.md", "dist"];
+
+// Emit data from the same descriptor, never archive bytes in command source.
+// The probe is launched by the generating Node image in verifyPublishedPackage.
+export function publishedConsumerNpmInstallSource() {
+  const descriptor = getNpmCommand(["install"]);
+  return [
+    `const npmCommand = ${JSON.stringify(descriptor)};`,
+    ...(process.platform === "win32" ? [
+      `if (process.execPath !== ${JSON.stringify(process.execPath)}) throw new Error("consumer Node distribution changed");`,
+    ] : []),
+    'const install = spawn(npmCommand.command, [...npmCommand.args, cliArchive], { cwd: toolRootPath, stdio: "inherit", shell: false, windowsVerbatimArguments: false });',
+    'await new Promise((resolve, reject) => { install.on("error", reject); install.on("close", (code) => code === 0 ? resolve() : reject(new Error(`operator CLI install exited ${code}`))); });',
+  ];
+}
 
 export function getPublishedPackageArtifactName(version) {
   return `service-lasso-package-${version}`;
@@ -118,12 +115,15 @@ async function acquirePackageStageLock(outputRoot) {
   );
 }
 
-export async function withPackageStageLock(outputRoot, callback) {
-  const release = await acquirePackageStageLock(outputRoot);
+export async function withPackageStageLock(outputRoot, callback, resourceObservation) {
+  const release = resourceObservation
+    ? await resourceObservation.create(() => acquirePackageStageLock(outputRoot))
+    : await acquirePackageStageLock(outputRoot);
   try {
     return await callback();
   } finally {
-    await release();
+    if (resourceObservation) await resourceObservation.close(() => release());
+    else await release();
   }
 }
 
@@ -300,6 +300,8 @@ export async function stagePublishedPackage({
   // This test-only observer brackets the complete locked staging transaction.
   // It cannot alter staging or verification behavior.
   testOnlyStageObserver,
+  resourceObservation,
+  stageLockObservation,
 } = {}) {
   const metadataToken = releaseMetadataToken ?? consumeReleaseMetadataToken();
   return await withPackageStageLock(outputRoot, async () => {
@@ -342,6 +344,7 @@ export async function stagePublishedPackage({
 
       const packResult = await runNpmCommand(["pack"], {
         cwd: artifactRoot,
+        resourceObservation,
       });
 
       const packageArchiveName = packResult.stdout
@@ -366,7 +369,7 @@ export async function stagePublishedPackage({
     } finally {
       await testOnlyStageObserver?.({ phase: "leaving" });
     }
-  });
+  }, stageLockObservation);
 }
 
 export async function verifyPublishedPackage({
@@ -522,9 +525,7 @@ export async function verifyPublishedPackage({
         "const portable = retainedCli.assets.find(asset => asset.name === retainedCli.asset.name);",
         "if (!portable || portable.relativePath !== `operator-tools/service-lassoctl/${portable.name}`) throw new Error(\"retained portable CLI identity is invalid\");",
         "await copyFile(`${packagedRoot}/${portable.relativePath}`, cliArchive);",
-        "const npmCommand = process.platform === \"win32\" ? { command: process.env.ComSpec ?? \"cmd.exe\", args: [\"/d\", \"/s\", \"/c\", `npm.cmd install ${cliArchive}`] } : { command: \"npm\", args: [\"install\", cliArchive] };",
-        "const install = spawn(npmCommand.command, npmCommand.args, { cwd: toolRootPath, stdio: \"inherit\" });",
-        "await new Promise((resolve, reject) => { install.on(\"error\", reject); install.on(\"close\", (code) => code === 0 ? resolve() : reject(new Error(`operator CLI install exited ${code}`))); });",
+        ...publishedConsumerNpmInstallSource(),
         "const cliPath = fileURLToPath(new URL(\"./operator-cli/node_modules/@service-lasso/cli/dist/index.js\", import.meta.url));",
         "const success = await runCli([cliPath, \"--core-url\", api.url, \"instance\", \"status\", \"--json\"]);",
         "if (success.code !== 0 || JSON.parse(success.stdout).api?.version !== expectedVersion) throw new Error(`operator CLI JSON status failed: ${success.stderr}`);",

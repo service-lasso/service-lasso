@@ -1,3 +1,4 @@
+import { ownedCommandStderr, relayOwningResourceObservations } from "../scripts/mcp-product-acceptance-lib.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
@@ -131,7 +132,7 @@ test("real verifier finalization preserves primary failure and makes success fol
         inspector: { version: "2.4.0" }, packagedRuntime: {}, canonical: {}, coverage: {}, assertions: {},
       };
       const context = {
-        path, createHash, packagedVerificationDiagnostic, dependencyAcquisitionReceipt,
+        path, createHash, ownedCommandStderr, relayOwningResourceObservations, packObservation: undefined, stageLockObservation: undefined, installObservation: undefined, consumerObservation: undefined, packagedVerificationDiagnostic, dependencyAcquisitionReceipt,
         runCommandFailureKind: () => "unknown", ownPackagedAcceptanceDiagnostic, ownedTempCleanupObservation,
         operatorToolFailureDiagnostic: () => undefined, releaseMetadataToken: undefined,
         tempRoot: "private-owned-root", consumerRoot, servicesRoot: "private-services",
