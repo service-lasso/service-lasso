@@ -26,7 +26,7 @@
     "package:verify": "npm run build && node scripts/publish-package-verify.mjs",
     "verify:package-consumer": "npm run build && node scripts/verify-package-consumer.mjs",
     "verify:operator-tui-pty": "npm run build && node scripts/verify-operator-tui-pty.mjs",
-    "test:mcp:product": "npm run build && node --test --test-concurrency=1 tests/operator-mcp.test.js tests/operator-mcp-identity.test.js tests/operator-mcp-stdio.test.js tests/operator-mcp-read-surface.test.js tests/operator-mcp-guarded-actions.test.js tests/operator-mcp-operations.test.js tests/operator-mcp-product-acceptance.test.js tests/mcp-product-artifact.test.js tests/packaged-verification-diagnostics.test.js tests/owned-temp-cleanup.test.js",
+    "test:mcp:product": "npm run build && node --test --test-concurrency=1 tests/operator-mcp.test.js tests/operator-mcp-identity.test.js tests/operator-mcp-stdio.test.js tests/operator-mcp-read-surface.test.js tests/operator-mcp-guarded-actions.test.js tests/operator-mcp-operations.test.js tests/operator-mcp-product-acceptance.test.js tests/mcp-product-artifact.test.js tests/packaged-verification-diagnostics.test.js tests/owned-temp-cleanup.test.js tests/owning-resource-observation.test.js",
     "verify:mcp:packaged": "npm run build && node scripts/verify-mcp-packaged.mjs",
     "verify:baseline-start": "npm run build && node scripts/baseline-start-smoke.mjs",
     "verify:real-app-e2e": "npm run build && node scripts/verify-real-app-e2e.mjs",
