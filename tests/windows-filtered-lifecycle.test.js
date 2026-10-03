@@ -12,6 +12,7 @@ import { terminateOwnedProcessTree } from "../dist/runtime/process/tree.js";
 import { startApiServer } from "../dist/server/index.js";
 import { startManagedProcess, adoptManagedProcess, stopManagedProcess,
   setManagedWindowsTreeInspectorForTests, setManagedProcessTreeTerminatorForTests,
+  setManagedProcessTreeMonitorForTests,
   waitForManagedProcessFinalization,
   setManagedProcessEnrollmentHookForTests, retainManagedProcessCustodyForTest, hasManagedProcess,
 } from "../dist/runtime/execution/supervisor.js";
@@ -627,6 +628,86 @@ for (const mode of ["managed", "adopted", "managed-mixed-conflict", "adopted-mix
       });
       throw new AggregateError([...(primary ? [primary] : []), ...cleanupFailures.map(entry => entry.error)],
         `Windows fixture custody failed: ${JSON.stringify({ action: primary ? "failed" : "clear", cleanup: cleanupFailures.map(entry => entry.stage) })}`);
+    }
+  });
+}
+
+// AC-4BH.2: exercise the ordinary managed caller directly, independently of
+// the protected HTTP/operator cases. Real native acquisition/control remain
+// required; suppress only the background refresh to isolate this stop episode.
+for (const emptyEnrollment of [false, true]) {
+  test(`Windows requested ordinary managed stop shares a fresh snapshot and original deadline (empty retained members=${emptyEnrollment})`, {
+    skip: process.platform !== "win32",
+  }, async () => {
+    const previous = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+    process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
+    const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-managed-fresh-episode-");
+    const serviceId = "managed-fresh-episode";
+    let snapshots = 0;
+    let controls = 0;
+    let stopping = false;
+    let stopSnapshot;
+    let stopOptions;
+    let stopStarted;
+    let stopFinished;
+    let stopReturned;
+    try {
+      await writeExecutableFixtureService(servicesRoot, serviceId);
+      setManagedProcessTreeMonitorForTests(async () => {});
+      setManagedWindowsTreeInspectorForTests(async (root, options) => {
+        const actual = await inspectWindowsProcessTree(root, options);
+        snapshots++;
+        assert.notEqual(actual.verifiedMembersOnly, true);
+        if (stopping) {
+          stopSnapshot = actual;
+          stopOptions = options;
+          assert.equal(actual.rootStatus, "owned");
+          assert.equal(options.deadlineMs >= stopStarted + 5_000, true);
+          assert.equal(options.deadlineMs <= stopReturned + 5_000, true);
+          assert.equal(options.signal.aborted, false);
+        }
+        return emptyEnrollment && !stopping ? { ...actual, members: [] } : actual;
+      });
+      setManagedProcessTreeTerminatorForTests(async (target, timeoutMs, dependencies) => {
+        controls++;
+        assert.ok(stopSnapshot, "Native shared snapshot must precede control.");
+        assert.equal(target.rootExitObserved, false);
+        assert.notEqual(target.verifiedMembersOnly, true);
+        assert.equal(dependencies.deadlineMs, stopOptions.deadlineMs);
+        assert.equal(dependencies.signal, stopOptions.signal);
+        assert.equal(timeoutMs > 0 && timeoutMs <= 5_000, true);
+        assert.deepEqual(target.knownMembers, stopSnapshot.members);
+        const root = stopSnapshot.members.find(member => member.pid === target.rootPid);
+        assert.ok(root);
+        assert.deepEqual(await dependencies.inspectProcess(target.rootPid), { status: "running", identity: root });
+        return await terminateOwnedProcessTree(target, timeoutMs, dependencies);
+      });
+      const [service] = await discoverServices(servicesRoot);
+      const handle = await startManagedProcess({ service, executionPlan: createDirectExecutionPlan(service.manifest), workspaceRoot });
+      assert.equal((await inspectProcess(handle.pid)).status, "running");
+      const beforeStop = snapshots;
+      stopping = true;
+      stopStarted = Date.now();
+      const stopped = stopManagedProcess(serviceId, 5_000, { newWindowsInspectionEpisode: true });
+      stopReturned = Date.now();
+      await stopped;
+      stopFinished = Date.now();
+      assert.equal(snapshots, beforeStop + 1);
+      assert.equal(controls, 1);
+      assert.equal(stopFinished - stopStarted <= 5_000, true);
+      assert.equal(hasManagedProcess(serviceId), false);
+      const ownership = await findProcessOwnership(workspaceRoot, "service", serviceId);
+      assert.equal(ownership.lifecycleState, "stopped");
+      assert.equal(ownership.pid, null);
+    } finally {
+      setManagedProcessTreeTerminatorForTests(null);
+      setManagedWindowsTreeInspectorForTests(null);
+      setManagedProcessTreeMonitorForTests(null);
+      await stopManagedProcess(serviceId, 5_000).catch(() => null);
+      await waitForManagedProcessFinalization(serviceId, Date.now() + 5_000).catch(() => null);
+      if (previous === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+      else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = previous;
+      await rm(tempRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     }
   });
 }

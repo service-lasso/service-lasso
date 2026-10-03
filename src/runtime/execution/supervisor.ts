@@ -1960,6 +1960,7 @@ async function terminateManagedProcessTree(
   rootExitObserved = false,
   retryAfterSharedFailure = false,
   deadlineMs = record.stopDeadlineMs ?? processControlDeadline(timeoutMs),
+  options: { newWindowsInspectionEpisode?: boolean } = {},
 ): Promise<ProcessTreeTerminationResult> {
   let retryAvailable = retryAfterSharedFailure;
   while (true) {
@@ -1992,10 +1993,14 @@ async function terminateManagedProcessTree(
           >[2] = { deadlineMs, signal };
           if (
             process.platform === "win32" &&
-            (rootExitObserved || record.verifiedMembersOnly) &&
             record.rootIdentity &&
-            record.knownTreeMembers.length > 0
+            (options.newWindowsInspectionEpisode ||
+              ((rootExitObserved || record.verifiedMembersOnly) &&
+                record.knownTreeMembers.length > 0))
           ) {
+            // Explicit operator/request-context stops need a fresh shared
+            // receipt even for a live unfiltered record. Snapshot acquisition
+            // and control share this caller's original deadline and signal.
             const snapshot = await inspectKnownWindowsTreeMembers(
               record.rootIdentity,
               record.knownTreeMembers,
@@ -3226,6 +3231,7 @@ export async function stopManagedProcess(
     false,
     false,
     deadlineMs,
+    options,
   );
   const result = await withProcessControlDeadline(
     async () => await record.exitPromise,
