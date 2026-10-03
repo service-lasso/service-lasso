@@ -380,7 +380,7 @@ export function relayOwningResourceObservations(serialized, report = value => pr
     if (!line.startsWith(RESOURCE_PREFIX) || line.length > 512 || records === 256) continue;
     let value;
     try { value = JSON.parse(line.slice(RESOURCE_PREFIX.length)); } catch { continue; }
-    if (!value || Array.isArray(value) || Object.keys(value).sort().join(",") !== "boundary,role,schema,sequence,status" ||
+    if (!value || Array.isArray(value) || Object.keys(value).join(",") !== "schema,boundary,role,sequence,status" ||
       value.schema !== RESOURCE_SCHEMA || value.boundary !== "consumer" || !RESOURCE_ROLES.has(value.role) ||
       !RESOURCE_STATUSES.has(value.status) || !Number.isInteger(value.sequence) || value.sequence < 1 || value.sequence > 32) continue;
     if (line !== RESOURCE_PREFIX + JSON.stringify(value)) continue;
