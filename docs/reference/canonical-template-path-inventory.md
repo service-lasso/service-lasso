@@ -78,7 +78,7 @@ Informational design input only: template3a91decdb788f7052352fcacef80a2bcadc380a
 | tests/template-contract.test.mjs | 0644 | 27990 | cbabc6e1c8ecebc7735380f3591eebc8655bf6932e6d50b2d82e7642cb8a2365 |
 | verify/service-harness.json | 0644 | 486 | edc461ec592c909f15923c6363ba2a71e7da0db7369732088469852d80b691e9 |
 | template-contract.json | 0644 | 16896 | CF8D003B545C9BF7316FD161C2DFA935CCC7674D01CC7A3893CB559A75DFC876, exact raw policy |
-| template-provenance.json | 0644 | <=479 | Generated exact six-field canonical provenance under admitted tuple/origin |
+| template-provenance.json | 0644 | `<=479` | Generated exact six-field canonical provenance under admitted tuple/origin |
 
 ## Current integration authority (2026-10-04)
 

@@ -20,6 +20,7 @@ import {
   extractZipSafely,
 } from "../dist/runtime/files/safe-zip.js";
 import { SUPPORTED_RELEASE_PLATFORMS } from "./release-asset-policy.mjs";
+import { getNpmCommand } from "./npm-command-lib.mjs";
 import {
   getReleaseVersion,
   readRootPackageJson,
@@ -363,10 +364,17 @@ async function acquireBundledServices({
 
 export function runCommand(command, args, options = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
+    const { resourceObservation, ...spawnOptions } = options;
+    const observeResource = status => { try { resourceObservation?.record(status); } catch { /* Preserve original command result. */ } };
+    observeResource("creation_attempted");
+    let child;
+    try { child = spawn(command, args, {
       stdio: ["ignore", "pipe", "pipe"],
-      ...options,
-    });
+      ...spawnOptions,
+      shell: false,
+      windowsVerbatimArguments: false,
+    }); } catch (error) { observeResource("creation_rejected"); reject(error); return; }
+    observeResource("created");
 
     let stdout = "";
     let stderr = "";
@@ -379,8 +387,10 @@ export function runCommand(command, args, options = {}) {
       stderr += chunk.toString();
     });
 
-    child.on("error", reject);
+    child.on("error", error => { observeResource("creation_rejected"); reject(error); });
+    child.on("exit", () => observeResource("exit_observed"));
     child.on("close", (code) => {
+      observeResource("close_observed");
       if (code === 0) {
         resolve({ stdout, stderr });
         return;
@@ -395,25 +405,9 @@ export function runCommand(command, args, options = {}) {
   });
 }
 
-function escapeWindowsCmdArg(value) {
-  if (/^[A-Za-z0-9_./:=@-]+$/.test(value)) {
-    return value;
-  }
-
-  return `"${value.replace(/"/g, '""')}"`;
-}
-
 export function runNpmCommand(args, options = {}) {
-  const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
-
-  if (process.platform !== "win32") {
-    return runCommand(npmCommand, args, options);
-  }
-
-  const comspec = process.env.ComSpec ?? "cmd.exe";
-  const commandLine = [npmCommand, ...args].map(escapeWindowsCmdArg).join(" ");
-
-  return runCommand(comspec, ["/d", "/s", "/c", commandLine], options);
+  const descriptor = getNpmCommand(args);
+  return runCommand(descriptor.command, descriptor.args, options);
 }
 
 export async function createReleaseArchive(
