@@ -1,3 +1,4 @@
+import { observeFixtureStartupPath } from "../startup/fixture-path-observation.js";
 import type { DiscoveredService } from "../../contracts/service.js";
 import { LifecycleStateError } from "../../server/errors.js";
 import { hasManagedProcess } from "../execution/supervisor.js";
@@ -74,7 +75,9 @@ async function prepareServicePrerequisites(
     state = result.state;
   }
 
-  if (listSetupStepIds(service).length > 0) {
+  const setupRequired = listSetupStepIds(service).length > 0;
+  observeFixtureStartupPath("setup", setupRequired ? "required" : "ready", service.manifest.id);
+  if (setupRequired) {
     const result = await runServiceSetup(service, registry, {
       transactionHooks: options.setupTransactionHooks,
       lifecycleOptions: serviceActionOptions(service.manifest.id, options),
@@ -133,7 +136,12 @@ export async function prepareAndStartService(
   registry: ServiceRegistry,
   options: PreparedStartOptions = {},
 ): Promise<PreparedStartResult> {
-  return await withServiceStartSerialization(service.serviceRoot, () => prepareAndStartServiceSerialized(service, registry, options));
+  try {
+    return await withServiceStartSerialization(service.serviceRoot, () => prepareAndStartServiceSerialized(service, registry, options));
+  } catch (error) {
+    observeFixtureStartupPath("outcome", "failed", service.manifest.id);
+    throw error;
+  }
 }
 
 async function prepareAndStartServiceSerialized(
@@ -155,6 +163,9 @@ async function prepareAndStartServiceSerialized(
   const initialState = getLifecycleState(serviceId);
 
   if (initialState.running || hasManagedProcess(serviceId)) {
+    observeFixtureStartupPath("selection", "already_running", serviceId);
+    observeFixtureStartupPath("action", "skip", serviceId);
+    observeFixtureStartupPath("outcome", "skipped", serviceId);
     return { result: null, skippedReason: "already_running", state: initialState };
   }
   if (options.allowedMutationServiceIds && !options.allowedMutationServiceIds.has(serviceId)) {
@@ -164,6 +175,9 @@ async function prepareAndStartServiceSerialized(
   }
 
   if (isDisabledProviderWithoutCurrentPlatformArtifact(service)) {
+    observeFixtureStartupPath("selection", "disabled", serviceId);
+    observeFixtureStartupPath("action", "skip", serviceId);
+    observeFixtureStartupPath("outcome", "skipped", serviceId);
     return { result: null, skippedReason: "provider_platform_unsupported", state: initialState };
   }
 
@@ -181,10 +195,14 @@ async function prepareAndStartServiceSerialized(
   let state = await prepareServicePrerequisites(service, registry, options);
 
   if (isProviderRole(service.manifest)) {
+    observeFixtureStartupPath("action", "skip", serviceId);
+    observeFixtureStartupPath("outcome", "skipped", serviceId);
     return { result: null, skippedReason: "provider_role", state };
   }
 
   if (!hasStartableCommand(service, state)) {
+    observeFixtureStartupPath("action", "skip", serviceId);
+    observeFixtureStartupPath("outcome", "skipped", serviceId);
     return { result: null, skippedReason: "not_startable", state };
   }
 
@@ -198,7 +216,9 @@ async function prepareAndStartServiceSerialized(
       collectRuntimeGlobalEnv(registry.list()),
     );
   }
+  observeFixtureStartupPath("action", "start", serviceId);
   const result = await startService(service, registry, actionOptions);
+  observeFixtureStartupPath("outcome", result.ok && result.state.running ? "started" : "failed", serviceId);
   await writeServiceState(service, result.state);
   state = result.state;
 

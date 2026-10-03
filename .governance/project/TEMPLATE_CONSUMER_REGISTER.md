@@ -1,0 +1,16 @@
+# Source-owned Template consumer register
+
+Issue #1628; normative SPEC-008 T1–T5. The canonical machine-readable topology is `docs/reference/template-consumer-register.json`; this document explains those same exact rows. Exactly two roles in the following order. The committed topology selects implementation ownership and exact path allowlists. It contains no publication/admission entry and proves no current qualification. Additional roles or changed paths require a separate reviewed source amendment; callers/workflows cannot choose them.
+
+| Role | Owning repository | Exact admission source allowlist | Qualification producer | Qualification verifier |
+| --- | --- | --- | --- | --- |
+| cli-canonical-authoring | service-lasso/service-lasso-cli | `src/template-admissions.ts` | `scripts/prove-template-authoring.mjs` | `scripts/verify-template-authoring-proof.mjs` |
+| core-source-admission | service-lasso/service-lasso | `src/runtime/service-source-admission/catalog.ts` | `scripts/prove-source-admission.mjs` | `scripts/verify-source-admission-proof.mjs` |
+
+CLI `src/template.ts` currently contains the source-owned empty `TEMPLATE_ADMISSIONS` array and a blocked informational gate. The register does not approve its current reduced loader or fabricate a pin. Its separately reviewed actual admission entry must bind immutable Template publication before qualification.
+
+Both selected new admission files and BOTH repositories' producer/verifier files are prospective selected implementation paths, currently absent. They are requirements for later issue-owned reviewed source, not claims of implemented files. Core's check-upgrade helper is not this catalog. Until the actual checked-in committed path and independently admitted entry exist and their real pinned commit/blob/raw SHA can be verified, catalogSource/catalogIdentity remain null in blocked evidence and success is impossible. The actual pins-only admission PR must approve these exact paths and complete tuple bindings; fixture files and wrapper input cannot do so.
+
+The producer/verifier units must implement SPEC-008's closed row/gate/failure grammar and use original retained closed native proof bodies via R3 refs, with all actual host/job/byte checks. Missing source admission proof-body contracts must be specified and independently reviewed with their implementation before execution. No invented private schema or current success is implied here. Template producer/verifier supplies candidate proof; Template is not a third adoption role. Its selected aggregate paths are `scripts/produce-qualification-publication.mjs` and `scripts/verify-qualification-publication.mjs`, also prospective and currently absent; workflow `qualification-publication-scoped.yml` is source-selected/no-input.
+
+The machine-readable normative topology is docs/reference/template-consumer-register.json, exact keys schema,roles; role rows exactly role,repository,catalogPath,proofProducerPath,proofVerifierPath,gates,platforms. It is topology only, with no admitted tuple. The separate complete CLI/Core admission architecture must reconcile the actual owner inventory with Core SLTP path eligibility before CA success: current lowercase alphanumeric-leading path grammar cannot represent the complete canonical owner inventory. This errata does not widen that API or declare it accepted.

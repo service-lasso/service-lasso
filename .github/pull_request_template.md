@@ -31,3 +31,7 @@ acceptance. Require a different fresh entire-source reviewer and NEW complete-in
 ROOT admission before any execution. Do not infer qualification from mocked inputs.
 
 For #1606 bind typed exact native identity migration, legacy rejection, real native and adversarial regressions, entire review and NEW ROOT; public-v2/MCP remain unchanged.
+
+For #1632, bind finite role/nonce transport, actual startup observation and whole shared/supervisor native exclusion paths; preserve four native modes/seven history cases and original errors/deadlines. Source preparation is unexecuted until different entire review and NEW complete-input ROOT.
+
+#1632 PR1635 managed fresh-inspection F1 correction (06f successor): AC-4BH.2 requires stopManagedProcess to preserve the requested newWindowsInspectionEpisode through managed termination, including ordinary live unfiltered records and empty retained membership. Acquire the actual shared Windows snapshot before control under the original caller deadline/signal; retain immutable lifetime conflict rejection, approved exclusions, monotonic verified restriction, private accepted history, shared termination/retry and original native actions. Protected request-context/operator cases153/154 remain unchanged; add direct ordinary requested-path coverage. Preserve case144 repair, eight native modes and seven unresolved history156..162 failures without invented cause. SOURCE ONLY and UNEXECUTED until a DIFFERENT fresh ENTIRE cumulative SOURCE GO and NEW complete-input ROOT; no imports/parser/compiler/build/tests/native/dispatch/merge.
