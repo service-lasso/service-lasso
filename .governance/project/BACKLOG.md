@@ -732,3 +732,5 @@ SOURCE GO and a NEW complete-input ROOT admission. Existing PR owners retain
 
 | ISS-1608 | in_progress, source only | Parent1594/1562, complete command/native validation refusal observation | SPEC-006 AC-6G.command-validation-observation / SPEC-003 BR-008 | Different ENTIRE source review, NEW ROOT, natural native proof pending; retained Darwin predicate unknown. |
 | ISS-1610 | in_progress, source only | First evaluated native helper capture closure refusal | SPEC-003 BR-008 / SPEC-006 AC-6G.native-boundary-observation | UNEXECUTED; different ENTIRE review and NEW ROOT required; no cause or acceptance claim. |
+
+| `ISS-1622` | `in_progress` | Bind Windows tree partial-copy diagnostics to their producing attempt | `SPEC-002 AC-4BH.4` | U4 compatible optional omission; source-only preparation, entire independent review and NEW ROOT before any execution; real case66/native partial-copy/late-exit and unchanged closure/deadline gates remain UNEXECUTED. |
