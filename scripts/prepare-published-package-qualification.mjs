@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { getNpmCommand } from "./npm-command-lib.mjs";
 import { validInitialProjection } from "./public-first-custody-projection-lib.mjs";
 import { strictJson } from "./consume-admin-trusted-unlock-receipt.mjs";
 import { createWriteStream } from "node:fs";
@@ -136,14 +137,9 @@ async function downloadReleaseAsset(asset, target, token, label) {
   );
 }
 
-function quoteWindows(value) {
-  if (/^[A-Za-z0-9_./:=@\\-]+$/u.test(value)) return value;
-  return `"${value.replaceAll('"', '""')}"`;
-}
-
 function runCommand(command, args, options = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"], ...options });
+    const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"], ...options, shell: false, windowsVerbatimArguments: false });
     let stdout = "";
     let stderr = "";
     child.stdout?.on("data", (chunk) => { stdout += chunk.toString(); });
@@ -157,9 +153,8 @@ function runCommand(command, args, options = {}) {
 }
 
 function runNpm(args, options = {}) {
-  if (process.platform !== "win32") return runCommand("npm", args, options);
-  const commandLine = ["npm.cmd", ...args].map(quoteWindows).join(" ");
-  return runCommand(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", commandLine], options);
+  const descriptor = getNpmCommand(args);
+  return runCommand(descriptor.command, descriptor.args, options);
 }
 
 /**
