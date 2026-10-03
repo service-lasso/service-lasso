@@ -8,6 +8,16 @@ This dated scope decision governs current GA applicability wherever older Core i
 
 ## Required evidence and unchanged boundaries
 
+The documentation validator binds this current decision to these explicit fields. They describe applicability, not an executable qualification result.
+
+| Decision field | Value |
+| --- | --- |
+| Authority | release owner |
+| Decision date | 2026-10-04 |
+| Governing issue | #1613 |
+| Required qualification platforms | Windows, Linux |
+| macOS applicability | Deferred / Not applicable to this GA; never PASS |
+
 Windows and Linux must still prove every original Core, CLI, TUI, template, native and real operator requirement, including all five compiled TUI actions, keyboard, cancellation, error and runtime behavior; CLI workflows and template integration; production acquisition/import/cleanup/lifecycle ownership and deadlines; safe private evidence admission; and exactly matching checksum-bound published CLI/TUI/Core bytes. Windows ZIP and Linux TAR real-producer and consumer evidence remain required. Secure publication, immutable candidate identities, signatures/provenance/SBOMs, zero-known-vulnerability checks, asset inventory, protected provider controls, published npm identity and published-package native qualification remain required. No missing or failed Windows/Linux gate becomes a pass through this scope decision.
 
 The current Windows/Linux failed and unresolved qualification results remain blocking defects. Preserve all retained natural failures and audit their exact-current identities separately. Private input/tool/native observer/foreign-owner fixture gaps remain blockers wherever needed for Windows/Linux. macOS-only protected helper/service access and BSD/macOS producer evidence are deferred for this GA; a shared dependency still needed by Linux or Windows cannot be waived as macOS-only.
@@ -16,7 +26,7 @@ The owner authorizes proceeding with GA delivery and governed PR merging. This i
 
 ## Propagation and executable readiness
 
-This documentation PR establishes applicability, not executable two-platform acceptance. Existing three-platform workflows and validators remain unchanged and must not be bypassed or called green when macOS is missing. Follow-up work under #1613 must bind the two-platform scope explicitly to the exact candidate and propagate it coherently through producers, aggregates, artifact inventory, retention/readback schemas, validators and their independently reviewed acceptance evidence. Removing one matrix entry alone is insufficient. Until that reviewed implementation and fresh complete-input admission are established, the two-platform GA path is **blocked**, not technically ready.
+This documentation PR establishes applicability, not executable two-platform acceptance. The documentation governance validator checks this explicit owner decision and retained requirements; it does not qualify a candidate. Existing three-platform qualification workflows and validators remain unchanged and must not be bypassed or called green when macOS is missing. Follow-up work under #1613 must bind the two-platform scope explicitly to the exact candidate and propagate it coherently through producers, aggregates, artifact inventory, retention/readback schemas, validators and their independently reviewed acceptance evidence. Removing one matrix entry alone is insufficient. Until that reviewed implementation and fresh complete-input admission are established, the two-platform GA path is **blocked**, not technically ready.
 
 | Boundary | Current contract requiring reconciliation | Required follow-up |
 | --- | --- | --- |
