@@ -228,3 +228,5 @@ Core #1628 plus CLI #35/TUI #29/Template #23 form one cumulative documentation-o
 - [ ] #1622 F1: independently review cumulative one-time guarded message/reason acquisition and authored retryable native-getter/unreadable-message regressions; NEW ROOT before execution. Original failures remain retained.
 
 #1622 / AC-4BH.4 lifecycle entrypoint mapping: The existing Lifecycle process tree pull-request workflow selects tests/windows-tree-attempt-correlation.test.js on both ubuntu-latest and windows-latest alongside every existing protected lifecycle test, with unchanged concurrency, native provenance steps and deadline. These eight producing-loop regressions are source-authored and unexecuted locally; natural exact-head CI supplies separate observed results. Different fresh ENTIRE cumulative review and NEW complete-input ROOT remain required before manual execution.
+
+- [ ] #1639 AC-4BY.2 observer diagnostic remediation: private original error/channels plus finite owned-event phases; source review/NEW admission before execution. Strict Git workflow and PR template remain applicable. Unknown/native acceptance stays unqualified.

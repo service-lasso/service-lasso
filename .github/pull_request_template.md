@@ -31,3 +31,5 @@ acceptance. Require a different fresh entire-source reviewer and NEW complete-in
 ROOT admission before any execution. Do not infer qualification from mocked inputs.
 
 For #1606 bind typed exact native identity migration, legacy rejection, real native and adversarial regressions, entire review and NEW ROOT; public-v2/MCP remain unchanged.
+
+For #1639 bind private observer stage diagnostics and original-channel retention; preserve every native/positive/public-receipt gate. Source-only freeze requires distinct ENTIRE review and NEW complete-input admission before execution.

@@ -760,3 +760,6 @@ Core #1628 plus CLI #35/TUI #29/Template #23 form one cumulative documentation-o
 Issue #1622 F1: guarded one-time primary message/native reason acquisition and producing-loop hostile-getter regressions authored; awaiting fresh ENTIRE cumulative source review and NEW complete-input ROOT. Source-only, UNEXECUTED; no acceptance or convergence claim.
 
 #1622 / AC-4BH.4 lifecycle entrypoint mapping: The existing Lifecycle process tree pull-request workflow selects tests/windows-tree-attempt-correlation.test.js on both ubuntu-latest and windows-latest alongside every existing protected lifecycle test, with unchanged concurrency, native provenance steps and deadline. These eight producing-loop regressions are source-authored and unexecuted locally; natural exact-head CI supplies separate observed results. Different fresh ENTIRE cumulative review and NEW complete-input ROOT remain required before manual execution.
+
+
+| In progress | [#1639](https://github.com/service-lasso/service-lasso/issues/1639) | SPEC-002 AC-4BY.2; private observer original-failure retention and closed source-bound owned-event phases. | Source-only; entire independent review and NEW complete-input admission before execution; positive/native gates unchanged. |
