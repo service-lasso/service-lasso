@@ -748,3 +748,6 @@ SOURCE GO and a NEW complete-input ROOT admission. Existing PR owners retain
 | #1562 native/operator/template delivery | SPEC-008 R6-R7 and original product requirements | blocked by retained current qualification defects; no blanket rerun authority |
 | CLI #30 Windows ZIP | SPEC-008 R4 / original CLI protected-native spec | UNMET; independently reviewed ZIP producer/consumer contract and direct Windows evidence required |
 | Actual protected publication/catalog pins | SPEC-008 R3/R7 / SPEC-007 AC-7G/7H | pending actual qualified immutable bytes/public readback and separate pins-only source review |
+
+
+Issue #1622 F1: guarded one-time primary message/native reason acquisition and producing-loop hostile-getter regressions authored; awaiting fresh ENTIRE cumulative source review and NEW complete-input ROOT. Source-only, UNEXECUTED; no acceptance or convergence claim.

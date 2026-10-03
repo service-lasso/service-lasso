@@ -328,3 +328,6 @@ Issue #1622 / SPEC-002 AC-4BH.4 binds Windows partial-copy receipts privately to
 | #1562 native/operator/template delivery | SPEC-008 R6-R7 and original product requirements | blocked by retained current qualification defects; no blanket rerun authority |
 | CLI #30 Windows ZIP | SPEC-008 R4 / original CLI protected-native spec | UNMET; independently reviewed ZIP producer/consumer contract and direct Windows evidence required |
 | Actual protected publication/catalog pins | SPEC-008 R3/R7 / SPEC-007 AC-7G/7H | pending actual qualified immutable bytes/public readback and separate pins-only source review |
+
+
+#1622 F1 source repair preserves primary Error identity through hostile native-reason and message getters. Guarded one-time acquisition feeds retry classification/bookkeeping; independent ancestry/receipt guards preserve other observations. Retries, deadlines, native controls and public fourteen-field base remain unchanged; fresh entire review and NEW ROOT remain pending.

@@ -172,6 +172,57 @@ test("AC-4BH.4 later original error survives diagnostic attachment and hostile g
   }
 });
 
+test("AC-4BH.4 retryable hostile native reason preserves retries and the terminal original error", async () => {
+  const original = new Error("Native Windows process-tree inspection failed.");
+  let reads = 0;
+  Object.defineProperty(original, "windowsNativeInspectionFailure", {
+    get() { reads += 1; throw new Error("private-observer-error"); },
+  });
+  let calls = 0;
+  await assert.rejects(inspectWindowsProcessTree(root, {
+    deadlineMs: Date.now() + 400,
+    runCommand: async (_command, _args, options) => {
+      calls += 1;
+      closed(options);
+      throw original;
+    },
+  }), error => {
+    assert.equal(error, original);
+    const metadata = assertConsumersOmit(error, "helper_failed");
+    assert.ok(calls >= 2);
+    assert.equal(reads, calls);
+    assert.equal(metadata.windowsTreeInspectionAttempts, calls);
+    assert.equal(metadata.windowsTreeInspectionRetries, calls - 1);
+    assert.equal(metadata.windowsTreeInspectionNativeHelperStdioClosed, true);
+    return true;
+  });
+});
+
+test("AC-4BH.4 unreadable primary message fails closed with original identity and last reason", async () => {
+  const original = new Error("private-original-error");
+  let reads = 0;
+  Object.defineProperty(original, "message", {
+    get() { reads += 1; throw new Error("private-message-observer-error"); },
+  });
+  let calls = 0;
+  await assert.rejects(inspectWindowsProcessTree(root, {
+    deadlineMs: Date.now() + 1000,
+    runCommand: async (_command, _args, options) => {
+      calls += 1;
+      if (calls === 1) { closed(options); return { exitCode: 138, stdout: receipt }; }
+      throw original;
+    },
+  }), error => {
+    assert.equal(error, original);
+    const metadata = assertConsumersOmit(error, "descendant_command_partial_copy");
+    assert.equal(metadata.windowsTreeInspectionAttempts, 2);
+    assert.equal(metadata.windowsTreeInspectionRetries, 1);
+    assert.equal(reads, 1);
+    return true;
+  });
+  assert.equal(calls, 2);
+});
+
 test("AC-4BH.4 projector never fills omitted receipt or exports private correlation tags", () => {
   const input = { windowsTreeInspectionPhase: "native_snapshot", windowsTreeInspectionLastRetry: "root_command_partial_copy",
     lastRetryAttempt: "private-tag", lastCommandPartialCopyAttempt: "private-tag", lastNativeProgressAttempt: "private-tag" };
