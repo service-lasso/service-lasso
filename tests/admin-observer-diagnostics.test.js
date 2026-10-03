@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { access, mkdtemp, open, readFile, rm, writeFile } from "node:fs/promises";
 import { EventEmitter } from "node:events";
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import os from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
@@ -240,6 +242,40 @@ test("AC-4BY.2 R2 real invalid initial and timeout returns retain eventual obser
       await assert.rejects(access(path.join(observerRoot, "consumer-terminal.json")), { code: "ENOENT" });
     } finally { await rm(root, { recursive: true, force: true, maxRetries: 4, retryDelay: 100 }); }
   }
+});
+
+test("AC-4BY.2 R2 timeout CLI retains its real observer handle until eventual private readback", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "observer-cli-timeout-"));
+  try {
+    const observerRoot = path.join(root, "observer"), provider = path.join(root, "provider.mjs"), receipt = path.join(root, "consumer.json");
+    await writeFile(provider, "setTimeout(() => process.exit(7), 180);\n");
+    const consumer = fileURLToPath(new URL("../scripts/consume-admin-trusted-unlock-receipt.mjs", import.meta.url));
+    const child = spawn(process.execPath, [consumer, "--receipt", receipt, "--", process.execPath, provider], {
+      cwd: root, stdio: "ignore", windowsHide: true,
+      env: { ...process.env,
+        SERVICE_LASSO_ADMIN_RECEIPT_OBSERVER_ROOT: observerRoot,
+        SERVICE_LASSO_TEST_SOURCE_HEAD: source.head, SERVICE_LASSO_TEST_SOURCE_TREE: source.tree,
+        SERVICE_LASSO_WORKSPACE_ROOT: path.join(root, "workspace"),
+        SERVICE_LASSO_INSTANCE_REGISTRY_PATH: path.join(root, "instances.json"),
+        SERVICE_LASSO_HOST_PORT_REGISTRY_PATH: path.join(root, "ports.json"),
+        SERVICE_LASSO_ADMIN_RECEIPT_TIMEOUT_MS: "20",
+      },
+    });
+    const terminal = await new Promise((resolve, reject) => {
+      child.once("error", reject);
+      child.once("close", (code, signal) => resolve({ code, signal }));
+    });
+    assert.deepEqual(terminal, { code: 1, signal: null });
+    const result = JSON.parse(await readFile(receipt, "utf8"));
+    assert.equal(result.executionFailure, "execution_timeout");
+    assert.deepEqual(result.trustedUnlock, { classification: "missing" });
+    // No polling after CLI exit: its natural terminal boundary must already
+    // include readback, rather than abandoning a detached live continuation.
+    const channels = JSON.parse(await readFile(path.join(observerRoot, "observer-channels-close.json"), "utf8"));
+    assert.equal(channels.observation, "observer_closed_readback");
+    assert.equal(channels.terminal.spawnError, false);
+    await assert.rejects(access(path.join(observerRoot, "consumer-terminal.json")), { code: "ENOENT" });
+  } finally { await rm(root, { recursive: true, force: true, maxRetries: 4, retryDelay: 100 }); }
 });
 
 test("AC-4BY.2 actual observer config rejection retains private original channels without claiming OS spawn failure", async () => {
