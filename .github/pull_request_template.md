@@ -33,3 +33,5 @@ ROOT admission before any execution. Do not infer qualification from mocked inpu
 For #1606 bind typed exact native identity migration, legacy rejection, real native and adversarial regressions, entire review and NEW ROOT; public-v2/MCP remain unchanged.
 
 For #1639 bind private observer stage diagnostics and original-channel retention; preserve every native/positive/public-receipt gate. Source-only freeze requires distinct ENTIRE review and NEW complete-input admission before execution.
+
+For #1639 R1-R3 distinguish result settlement from genuine close, retain eventual readback across every post-spawn return, and reject any existing invalid diagnostic leaf with a held-handle actual-byte bound. Regressions stay unexecuted pending different ENTIRE review and NEW ROOT.
