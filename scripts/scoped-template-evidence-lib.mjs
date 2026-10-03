@@ -37,13 +37,17 @@ function union(gates) {
   }
   return [...byJob.values()].sort((a, b) => REQUIRED_GA_PLATFORMS.indexOf(a.platform) - REQUIRED_GA_PLATFORMS.indexOf(b.platform) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 }
-function candidate(value) {
+function candidate(value, source) {
   closed(value, candidateKeys, "template candidate");
   for (const key of candidateKeys) {
     const field = value[key];
     if (field === null) continue;
     if (key === "templateCommit" ? !hex(field, 40) : key.endsWith("Sha256") || key === "contractDigest" ? !hex(field, 64) : typeof field !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$/u.test(field)) throw new Error("template candidate field invalid");
   }
+  if (value.templateCommit !== null && value.templateCommit !== source.commit) throw new Error("template candidate source differs");
+  if (value.templateVersion !== null && (value.templateVersion.length > 64 || !/^\d+\.\d+\.\d+(?:-[a-z0-9.]+)?$/u.test(value.templateVersion))) throw new Error("template candidate owner version differs");
+  if (value.releaseTag !== null && !/^template-v\d+\.\d+\.\d+(?:-[a-z0-9.]+)?-[a-f0-9]{40}$/u.test(value.releaseTag)) throw new Error("template candidate owner tag differs");
+  if (value.releaseTag !== null && value.templateVersion !== null && value.templateCommit !== null && value.releaseTag !== `template-v${value.templateVersion}-${value.templateCommit}`) throw new Error("template candidate owner tag/source tuple differs");
 }
 function publication(value, tuple) {
   if (value === null) return;
@@ -72,7 +76,7 @@ export function validateTemplateEvidence(value, source, held = new Map()) {
   if (value.schema !== "service-lasso.template-qualification-publication.v1") throw new Error("template wrapper version differs");
   assertScope(value.scope); assertSource(value.source, source); assertRun(value.run); outcome(value.outcome);
   if (source.repository !== "service-lasso/service-template" || source.ref !== "refs/heads/develop" || value.run.workflowSha !== source.commit) throw new Error("template wrapper source differs");
-  candidate(value.candidate); publication(value.publication, value.candidate);
+  candidate(value.candidate, source); publication(value.publication, value.candidate);
   if (!Array.isArray(value.consumers) || value.consumers.length !== 2) throw new Error("template fixed roles missing");
   value.consumers.forEach((row, index) => {
     const role = roles[index]; closed(row, rowKeys, "template consumer"); outcome(row.outcome);
