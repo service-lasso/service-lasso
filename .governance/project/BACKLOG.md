@@ -732,6 +732,8 @@ SOURCE GO and a NEW complete-input ROOT admission. Existing PR owners retain
 
 | ISS-1608 | in_progress, source only | Parent1594/1562, complete command/native validation refusal observation | SPEC-006 AC-6G.command-validation-observation / SPEC-003 BR-008 | Different ENTIRE source review, NEW ROOT, natural native proof pending; retained Darwin predicate unknown. |
 | ISS-1610 | in_progress, source only | First evaluated native helper capture closure refusal | SPEC-003 BR-008 / SPEC-006 AC-6G.native-boundary-observation | UNEXECUTED; different ENTIRE review and NEW ROOT required; no cause or acceptance claim. |
+| ISS-1621 | in_progress, source only | U2/U3 first privacy refusal and actual recovered protected assertion | SPEC-002 AC-4BJ.9c.fixture-observation-v1 / AC-4BH.2 | Entire review and NEW ROOT pending; F7 private authority and U1 removal remain unresolved; original gates unchanged. |
+
 
 | `ISS-1622` | `in_progress` | Bind Windows tree partial-copy diagnostics to their producing attempt | `SPEC-002 AC-4BH.4` | U4 compatible optional omission; source-only preparation, entire independent review and NEW ROOT before any execution; real case66/native partial-copy/late-exit and unchanged closure/deadline gates remain UNEXECUTED. |
 
@@ -751,3 +753,5 @@ SOURCE GO and a NEW complete-input ROOT admission. Existing PR owners retain
 
 
 Issue #1622 F1: guarded one-time primary message/native reason acquisition and producing-loop hostile-getter regressions authored; awaiting fresh ENTIRE cumulative source review and NEW complete-input ROOT. Source-only, UNEXECUTED; no acceptance or convergence claim.
+
+#1622 / AC-4BH.4 lifecycle entrypoint mapping: The existing Lifecycle process tree pull-request workflow selects tests/windows-tree-attempt-correlation.test.js on both ubuntu-latest and windows-latest alongside every existing protected lifecycle test, with unchanged concurrency, native provenance steps and deadline. These eight producing-loop regressions are source-authored and unexecuted locally; natural exact-head CI supplies separate observed results. Different fresh ENTIRE cumulative review and NEW complete-input ROOT remain required before manual execution.

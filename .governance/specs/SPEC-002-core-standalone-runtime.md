@@ -640,6 +640,50 @@ This bounded source-only successor addresses F1-F7 together under AC-4BH.2 and A
 All seven formal/recovered matrix assertions, actual native keeper identity, ENV restoration, privacy/copies and production controls remain protected. The existing removal/reset expectations remain failed gates under fail-closed retention; they are not silently rewritten to passes. Source preparation is neither SOURCE GO nor runtime acceptance. Fresh entire source review and NEW complete-input ROOT admission must precede any source execution, import, syntax/compiler check, dependency installation, test, native ACL or lifecycle action. Original/historical failures remain failed and unattributed.
 F5 supported-bound source refinement before implementation: POSIX applies 0700 only through the held approved O_NOFOLLOW directory FileHandle after prior uid/ancestor proof. Windows prepares a bounded native privacy helper which acquires no-reparse root/ancestor handles and all original descendant handles, validates prior owners from GetSecurityInfo on those handles before any mutation, then sets DACL only with SetSecurityInfo on the exact held handles, never owner/SACL mutation. Mutating handles request MAXIMUM_ALLOWED to use the documented nonpropagation behavior; this is not an owner or privilege grant. Unknown/unopenable originals reject before mutation. Exact hierarchy/name and held ACL readbacks must reject substitution or additions; failed protection is retained. Every new native API, compiler/CLR/DLL, helper child, existing guardian and inherited ENV input requires new complete admission. Supported behavior is source-prepared and unexecuted. Microsoft Learn SetSecurityInfo documents handle binding and suppression of propagation for MAXIMUM_ALLOWED handles; no directory-sharing namespace exclusion is inferred. F1/F2 remain fail-closed removal.
 
+### AC-4BJ.9c.fixture-observation-v1 (#1621; U2/U3)
+
+Source preparation only. Public privacy observation is exactly
+`{schema:"service-lasso.fixture-privacy-observation.v1", verification, protection}`.
+Each attempt is one of `not_attempted`, `passed`, `compiler`, `prepare`,
+`acquire`, `information`, `type`, `redirect`, `security`, `owner`, `inventory`,
+`identity`, `descriptor`, `protect`, `readback`, `release`, `spawn_unavailable`,
+`timeout_unavailable`, `response_unavailable`, `malformed_response`.
+Only the source-owned native/wrapper operation selected immediately BEFORE its
+call/guard can record the FIRST failure, once; disposal failures cannot overwrite
+it. Verification and protection are separate attempts. Compilation precedes C#
+and is observed by PowerShell. A timed-out/no-response attempt has unavailable
+cause; it cannot infer a native predicate. A valid completed helper response and
+successful exit are both required for `passed`.
+
+The existing bounded captured helper transport carries only the enum response.
+The wrapper suppresses unsolicited compiler/native error streams, retains its
+original ErrorRecords in child memory and records close failure without masking
+the first failure; nonzero exit remains a failure. Exact original JS/execFile
+errors remain unchanged. Native/compiler raw cause is unavailable across this
+channel; no reconstruction or accessible complete native custody claim is made.
+No path, SID, DACL, API status, PID, argv, token, private error text or
+arbitrary exception property enters the public observation. Unknown/malformed
+response projects unavailable; projection never inspects arbitrary thrown
+objects/getters. Accessible private retention remains dependent on F7's actual
+custodian/sink authority; this enum confers none. Existing options, 5-second
+deadline, 16KiB capture bound, rights, ownership and no-reparse guards stay fixed.
+
+The fixture's closed stage contract adds `injection_reader_presence`,
+`injection_reader_read`, `injection_reader_empty`, `injection_owner_read`,
+`injection_owner_identity`, `injection_owner_equality`,
+`injection_member_equality`, `injection_managed_record`,
+`injection_custody_retain`. The owned_readiness_proven hook selects each directly
+before the actual existing read/assertion/retain. An empty returned reader is
+distinct from a read that throws, without inserting/replacing an assertion.
+The intentional injected Error and every original assertion remain unchanged;
+no history/observer/control/adoption compensation behavior changes. Stage
+projection accepts only these finite source strings, treating all others as
+`action`; hostile inputs cannot reveal arbitrary error/identity properties.
+Both recovered phases and all seven formal matrix rows remain protected.
+Whole source review plus NEW complete-input ROOT precedes every executable
+check; native/compiler/denial/privacy and original-error/close-error regressions
+must be qualified later. U1 removal/reset rejection is outside this unit.
+
 ## Issue #1600 fixture/input acceptance clarification
 
 Preserve existing acceptance criteria and production checks. The complete source-only
@@ -669,3 +713,5 @@ Preserve original exceptions, fail-closed refusal, native helper bytes/provenanc
 
 
 Primary-error preservation includes retryable errors with throwing native-reason observers and unreadable Error.message. Acquire the primary message and native reason once behind independent guards; classifier/bookkeeping reuse acquired values. Unreadable messages remain nonretryable and rethrow the original value; unreadable native reasons retain ordinary message-based retries and fallback categories. Ancestry/receipt/attachment observation failures cannot replace the original Error. Producing-loop retry and primary-message regressions remain UNEXECUTED.
+
+#1622 / AC-4BH.4 lifecycle entrypoint mapping: The existing Lifecycle process tree pull-request workflow selects tests/windows-tree-attempt-correlation.test.js on both ubuntu-latest and windows-latest alongside every existing protected lifecycle test, with unchanged concurrency, native provenance steps and deadline. These eight producing-loop regressions are source-authored and unexecuted locally; natural exact-head CI supplies separate observed results. Different fresh ENTIRE cumulative review and NEW complete-input ROOT remain required before manual execution.

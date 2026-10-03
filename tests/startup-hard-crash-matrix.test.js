@@ -455,17 +455,30 @@ for (const interruptedPhase of ["process_spawned", "generation_committed"]) {
             startupTransactionTestHooks: {
               afterPhase: async ({ phase }) => {
                 if (phase !== "owned_readiness_proven") return;
-                fixture.actionStage = "injection_assertions";
+                fixture.actionStage = "injection_reader_presence";
                 assert.equal(fixture.custodyReaders.length > 0, true);
+                fixture.actionStage = "injection_reader_read";
                 const members = fixture.custodyReaders.flatMap(read => read());
+                // An empty returned set is distinct from a reader throwing.
+                // Preserve the existing member assertion below; no new gate.
+                const emptyReaders = members.length === 0;
+                fixture.actionStage = "injection_owner_read";
                 const owner = await findProcessOwnership(fixture.workspaceRoot, "service", "matrix-service");
+                fixture.actionStage = "injection_owner_identity";
                 assert.ok(owner?.identity);
-                if (interruptedPhase === "generation_committed") assert.deepEqual(owner.identity, interruptedOwner.identity);
+                if (interruptedPhase === "generation_committed") {
+                  fixture.actionStage = "injection_owner_equality";
+                  assert.deepEqual(owner.identity, interruptedOwner.identity);
+                }
+                fixture.actionStage = emptyReaders ? "injection_reader_empty" : "injection_member_equality";
                 assert.ok(members.some(member => member.pid === owner.identity.pid &&
                   member.createdAt === owner.identity.createdAt && member.commandHash === owner.identity.commandHash));
+                fixture.actionStage = "injection_managed_record";
                 assert.equal(hasManagedProcess("matrix-service"), true);
                 observedBeforeReturn = true;
+                fixture.actionStage = "injection_custody_retain";
                 fixture.custody.retain(members);
+                fixture.actionStage = "injection_assertions";
                 throw injected;
               },
             },
