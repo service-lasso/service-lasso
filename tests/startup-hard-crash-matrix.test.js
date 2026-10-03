@@ -37,6 +37,63 @@ import {
   readStartupTransactionJournal,
 } from "../dist/runtime/startup/transaction.js";
 import { makeTempServicesRoot, writeExecutableFixtureService } from "./test-helpers.js";
+import { registerFixturePrivacyTransportTests } from "./fixture-privacy-transport-regressions.js";
+import { observeFixtureStartupPath, withFixtureStartupPathForTests } from "../dist/runtime/startup/fixture-path-observation.js";
+registerFixturePrivacyTransportTests();
+
+test("startup path collector is invocation-local, finite, private and failure-neutral", async () => {
+  const previous = process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+  process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = "1";
+  let left;
+  let right;
+  try {
+    await Promise.all([
+      withFixtureStartupPathForTests({ serviceId: "PRIVATE-LEFT", observe: record => { left = record; } }, async () => {
+        observeFixtureStartupPath("selection", "selected", "PRIVATE-LEFT");
+        await Promise.resolve();
+        observeFixtureStartupPath("enrollment", "managed", "PRIVATE-LEFT");
+        observeFixtureStartupPath("enrollment", "adopted", "PRIVATE-RIGHT");
+      }),
+      withFixtureStartupPathForTests({ serviceId: "PRIVATE-RIGHT", observe: record => { right = record; } }, async () => {
+        observeFixtureStartupPath("adoption", "selected", "PRIVATE-RIGHT");
+        await Promise.resolve();
+        observeFixtureStartupPath("enrollment", "adopted", "PRIVATE-RIGHT");
+      }),
+    ]);
+    assert.deepEqual(left.events.map(({ boundary, result }) => [boundary, result]), [["selection", "selected"], ["enrollment", "managed"]]);
+    assert.deepEqual(right.events.map(({ boundary, result }) => [boundary, result]), [["adoption", "selected"], ["enrollment", "adopted"]]);
+    assert.doesNotMatch(JSON.stringify([left, right]), /PRIVATE|serviceId|pid|generationId|error/);
+    let overflow;
+    await withFixtureStartupPathForTests({ serviceId: "matrix-service", observe: record => { overflow = record; } }, async () => {
+      for (let index = 0; index < 100; index++) observeFixtureStartupPath("action", "skip", "matrix-service");
+    });
+    assert.equal(overflow.complete, false); assert.equal(overflow.events.length, 32);
+    assert.deepEqual(overflow.events.at(-1), { sequence: 32, boundary: "observation", result: "overflow" });
+    const original = new Proxy({}, { get() { throw new Error("PRIVATE-ERROR-GETTER"); } });
+    let failure;
+    let calls = 0;
+    let rejected;
+    try { await withFixtureStartupPathForTests({ serviceId: "matrix-service", observe: record => {
+      failure = record; if (calls++ === 0) throw original;
+    } }, async () => {
+      observeFixtureStartupPath("enrollment", "managed", "matrix-service");
+      observeFixtureStartupPath("readiness", "reached");
+      throw original;
+    }); } catch (error) { rejected = error; }
+    assert.equal(rejected, original);
+    assert.equal(failure.complete, false);
+    assert.deepEqual(failure.events.at(-1), { sequence: 2, boundary: "observation", result: "failed" });
+    delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+    let observed = false;
+    assert.equal(await withFixtureStartupPathForTests({ serviceId: "matrix-service", observe: () => { observed = true; } }, async () => {
+      observeFixtureStartupPath("enrollment", "managed", "matrix-service"); return "unchanged";
+    }), "unchanged");
+    assert.equal(observed, false);
+  } finally {
+    if (previous === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS;
+    else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = previous;
+  }
+});
 
 const selectedPhase = process.env.SERVICE_LASSO_HARD_CRASH_PHASE?.trim() || null;
 const expectedInspection = new Map([
@@ -129,6 +186,8 @@ async function withMatrixEnvironment(phase, action) {
   fixture.custody = createFixtureCustody();
   fixture.cleanupFailures = [];
   fixture.custodyReaders = [];
+  fixture.startupPath = undefined;
+  fixture.startupPathHook = { serviceId: "matrix-service", observe: record => { fixture.startupPath = record; } };
   fixture.recovery = "unknown";
   fixture.actionStage = "fixture_initialization";
   const evidence = createFixtureEvidenceBoundary(fixture.tempRoot);
@@ -172,7 +231,7 @@ async function withMatrixEnvironment(phase, action) {
     },
     reset: () => resetLifecycleState(),
     evidence,
-    report: (summary) => console.error(JSON.stringify(summary)),
+    report: (summary) => console.error(JSON.stringify({ ...summary, startupPathObservation: fixture.startupPath })),
   });
 }
 
@@ -289,6 +348,7 @@ for (const phase of STARTUP_TRANSACTION_PHASES) {
         const resumedInterruptedTransaction = expectedClassification === "resume";
 
         apiServer = await startApiServer({
+          fixtureStartupPathForTests: fixture.startupPathHook,
           port: 0,
           servicesRoot: fixture.servicesRoot,
           workspaceRoot: fixture.workspaceRoot,
@@ -450,7 +510,7 @@ for (const interruptedPhase of ["process_spawned", "generation_committed"]) {
         let server;
         try {
           fixture.actionStage = "recovery_startup";
-          server = await startApiServer({ port: 0, servicesRoot: fixture.servicesRoot,
+          server = await startApiServer({ fixtureStartupPathForTests: fixture.startupPathHook, port: 0, servicesRoot: fixture.servicesRoot,
             workspaceRoot: fixture.workspaceRoot, autostart: true,
             startupTransactionTestHooks: {
               afterPhase: async ({ phase }) => {

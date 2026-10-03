@@ -5,8 +5,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
+import { randomBytes } from "node:crypto";
 import { createFixtureCustody, closeFixture, createFixtureCleanupAdapter, createFixtureEvidenceBoundary, verifyOriginalFixturePrivacy, protectOriginalFixture, decodeFixturePrivacyResponse, classifyFixturePrivacyCompletion, fixturePrivacyFailureObservation, FIXTURE_ASSERTION_STAGES, FIXTURE_PRIVACY_RESULTS } from "./hard-crash-fixture-custody.js";
 import { fixturePrivacyScript } from "./fixture-privacy-custody.js";
+import { fixturePrivacyBootstrap, createFixturePrivacyDecoder } from "./fixture-privacy-transport.js";
+import { registerFixturePrivacyTransportTests } from "./fixture-privacy-transport-regressions.js";
+registerFixturePrivacyTransportTests();
 import { holdFixtureRoot } from "./fixture-root-custody.js";
 import { getProcessRegistryPath, readProcessOwnershipCustodyForTest, readProcessOwnershipRegistry } from "../dist/runtime/process/registry.js";
 import { settleHardCrashDirectChild, stopHardCrashDirectChild } from "./hard-crash-child-exit.js";
@@ -72,14 +76,16 @@ test("Windows privacy helper: real private empty-root, compiler/acquire/type/rea
   await mkdir(directory);
   await writeFile(file, "PRIVATE-FILE");
   const invoke = async (rootPath, script = fixturePrivacyScript) => {
+    const nonce = randomBytes(16).toString("hex");
     let original;
     let stdout;
     let stderr;
     try {
       const result = await execFileAsync(path.join(process.env.SystemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
-        ["-NoProfile", "-NonInteractive", "-Command", script], {
+        ["-NoProfile", "-NonInteractive", "-Command", fixturePrivacyBootstrap], {
           windowsHide: true, timeout: 5_000, maxBuffer: 16 * 1024,
-          env: { ...process.env, SERVICE_LASSO_FIXTURE_EVIDENCE_ROOT: rootPath, SERVICE_LASSO_FIXTURE_EVIDENCE_PROTECT: "0" },
+          env: { ...process.env, SERVICE_LASSO_FIXTURE_EVIDENCE_ROOT: rootPath, SERVICE_LASSO_FIXTURE_EVIDENCE_PROTECT: "0",
+            SERVICE_LASSO_FIXTURE_PRIVACY_NONCE: nonce, SERVICE_LASSO_FIXTURE_PRIVACY_ROLE: "v", SERVICE_LASSO_FIXTURE_PRIVACY_PAYLOAD: script },
         });
       ({ stdout, stderr } = result);
     } catch (error) {
@@ -91,7 +97,9 @@ test("Windows privacy helper: real private empty-root, compiler/acquire/type/rea
     }
     assert.equal(stderr, "");
     assert.doesNotMatch(stdout, /PRIVATE|S-1-|AccessMask|ErrorRecord|System32|commandHash/);
-    return { original, category: decodeFixturePrivacyResponse(stdout) };
+    const decoder = createFixturePrivacyDecoder(nonce, "v");
+    decoder.feed(stdout);
+    return { original, category: decoder.finish(decodeFixturePrivacyResponse).response };
   };
   try {
     let positive;
@@ -102,8 +110,8 @@ test("Windows privacy helper: real private empty-root, compiler/acquire/type/rea
       ["compiler", directory, fixturePrivacyScript.replace("public static class FixturePrivacy {", "public static class PRIVATE_INVALID_COMPILER { !!!")],
       ["acquire", path.join(parent, "absent"), fixturePrivacyScript],
       ["type", file, fixturePrivacyScript],
-      ["information", directory, fixturePrivacyScript.replace("$root=[System.IO.Path]::GetFullPath", "[FixturePrivacy]::Information([Microsoft.Win32.SafeHandles.SafeFileHandle]::new([IntPtr]::Zero,$false))\n$root=[System.IO.Path]::GetFullPath")],
-      ["security", directory, fixturePrivacyScript.replace("$root=[System.IO.Path]::GetFullPath", "[FixturePrivacy]::Security([Microsoft.Win32.SafeHandles.SafeFileHandle]::new([IntPtr]::Zero,$false))\n$root=[System.IO.Path]::GetFullPath")],
+      ["information", directory, fixturePrivacyScript.replace("$root=[System.IO.Path]::GetFullPath", "Emit-FixtureFrame 'native_enter_information'\n[FixturePrivacy]::Information([Microsoft.Win32.SafeHandles.SafeFileHandle]::new([IntPtr]::Zero,$false))\n$root=[System.IO.Path]::GetFullPath")],
+      ["security", directory, fixturePrivacyScript.replace("$root=[System.IO.Path]::GetFullPath", "Emit-FixtureFrame 'native_enter_security'\n[FixturePrivacy]::Security([Microsoft.Win32.SafeHandles.SafeFileHandle]::new([IntPtr]::Zero,$false))\n$root=[System.IO.Path]::GetFullPath")],
       ["inventory", directory, fixturePrivacyScript.replace("  Acquire-Children $root\n  Verify-Names", "  Acquire-Children $root\n  [System.IO.File]::WriteAllText([System.IO.Path]::Combine($root,'PRIVATE-added'),'PRIVATE-added')\n  Verify-Names")],
     ]) {
       const failure = await invoke(target, script);
