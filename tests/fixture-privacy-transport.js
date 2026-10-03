@@ -17,8 +17,8 @@ Emit-FixtureFrame 'parse_enter'
 try { $payload=[ScriptBlock]::Create($env:SERVICE_LASSO_FIXTURE_PRIVACY_PAYLOAD) }
 catch { $privateParseError=$_; Emit-FixtureFrame 'parse_failed'; exit 1 }
 Emit-FixtureFrame 'parse_ok'
-// Restore the original payload's script scope: its source-owned failure and
-// disposal functions use $script: state. Invoke only the parsed in-memory block.
+# Restore the original payload's script scope: its source-owned failure and
+# disposal functions use $script: state. Invoke only the parsed in-memory block.
 try { . $payload }
 catch { $privateInvocationError=$_; exit 1 }
 `;
