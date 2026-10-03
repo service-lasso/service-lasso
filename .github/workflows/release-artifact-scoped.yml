@@ -1,0 +1,262 @@
+name: Release Artifact Scoped
+
+on:
+  workflow_dispatch:
+
+env:
+  CANDIDATE_SHA: ${{ github.sha }}
+
+jobs:
+  qualify-mcp-packaged:
+    if: ${{ github.ref == 'refs/heads/develop' }}
+    name: mcp-packaged (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    permissions:
+      actions: read
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: win32
+          - os: ubuntu-latest
+            platform: linux
+    steps:
+      - name: Check out exact publication candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+
+      - name: Bind source-owned scoped policy before acquisition
+        run: node scripts/bind-scoped-workflow-source.mjs
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Build external operator package verifier
+        run: npm run build
+
+      - name: Verify packaged external operator tools
+        env:
+          SERVICE_LASSO_RELEASE_METADATA_TOKEN: ${{ github.token }}
+        run: node scripts/publish-package-verify-scoped.mjs
+
+      - name: Verify attached-terminal TUI behavior (Windows ConPTY)
+        if: matrix.platform == 'win32'
+        env:
+          SERVICE_LASSO_RELEASE_METADATA_TOKEN: ${{ github.token }}
+        run: node scripts/verify-operator-tui-conpty-scoped.mjs
+
+      - name: Verify attached-terminal TUI behavior (Unix PTY)
+        if: matrix.platform != 'win32'
+        env:
+          SERVICE_LASSO_RELEASE_METADATA_TOKEN: ${{ github.token }}
+        run: node scripts/verify-operator-tui-pty-scoped.mjs
+
+      - name: Compute candidate package version
+        shell: pwsh
+        run: |
+          $shortSha = $env:CANDIDATE_SHA.Substring(0, 7)
+          $dateUtc = [DateTime]::UtcNow.ToString('yyyy.M.d')
+          "SERVICE_LASSO_RELEASE_VERSION=$dateUtc-$shortSha" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Build packaged MCP verifier
+        run: npm run build
+
+      - name: Verify fresh-consumer packaged MCP before publication
+        env:
+          MCP_PRODUCT_EVIDENCE_PATH: artifacts/mcp-product-${{ matrix.platform }}.json
+          SERVICE_LASSO_RELEASE_METADATA_TOKEN: ${{ github.token }}
+        run: node scripts/verify-mcp-packaged-bootstrap-scoped.mjs
+
+      - name: Upload exact-SHA publication MCP evidence
+        id: release_publish_mcp_artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-publish-mcp-product-${{ matrix.platform }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/mcp-product-${{ matrix.platform }}.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Download and validate publication MCP evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MCP_PRODUCT_PLATFORM: ${{ matrix.platform }}
+          MCP_PRODUCT_ARTIFACT_ID: ${{ steps.release_publish_mcp_artifact.outputs.artifact-id }}
+          MCP_PRODUCT_ARTIFACT_NAME: release-publish-mcp-product-${{ matrix.platform }}-${{ github.run_id }}-${{ github.run_attempt }}
+          MCP_PRODUCT_ARTIFACT_DIGEST: ${{ steps.release_publish_mcp_artifact.outputs.artifact-digest }}
+        run: node scripts/verify-mcp-product-artifact.mjs
+
+  release-artifact:
+    if: ${{ github.ref == 'refs/heads/develop' }}
+    needs:
+      - qualify-mcp-packaged
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      attestations: write
+      actions: read
+      contents: write
+      id-token: write
+
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Bind source-owned scoped policy before acquisition
+        run: node scripts/bind-scoped-workflow-source.mjs
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Reject production dependency vulnerabilities
+        run: npm run audit:production
+
+      - name: Compute release version
+        id: release_version
+        run: |
+          SHORT_SHA="${GITHUB_SHA::7}"
+          DATE_UTC="$(date -u +%Y.%-m.%-d)"
+          VERSION="${DATE_UTC}-${SHORT_SHA}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=service-lasso-$VERSION" >> "$GITHUB_OUTPUT"
+          echo "bundled_artifact_name=service-lasso-bundled-$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Run tests
+        env:
+          SERVICE_LASSO_RELEASE_METADATA_TOKEN: ${{ github.token }}
+        run: npm test
+
+      - name: Verify bounded release artifact
+        env:
+          SERVICE_LASSO_RELEASE_VERSION: ${{ steps.release_version.outputs.version }}
+          SERVICE_LASSO_RELEASE_METADATA_TOKEN: ${{ github.token }}
+        run: npm run build && node scripts/release-verify-scoped.mjs
+
+      - name: Validate staged release asset policy
+        run: |
+          TAG_NAME="${{ steps.release_version.outputs.version }}"
+          mapfile -t ASSET_NAMES < <(node scripts/check-release-assets-scoped.mjs --expected "$TAG_NAME")
+          (
+            cd artifacts
+            sha256sum "${ASSET_NAMES[@]:0:12}" | LC_ALL=C sort -k2 > SHA256SUMS.txt
+          )
+          for asset_name in "${ASSET_NAMES[@]}"; do
+            test -f "artifacts/${asset_name}"
+          done
+          node scripts/check-release-assets-scoped.mjs "$TAG_NAME" "${ASSET_NAMES[@]}"
+
+      - name: Attest exact release assets
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            artifacts/*.tar.gz
+            artifacts/*.zip
+            artifacts/*.cdx.json
+            artifacts/SHA256SUMS.txt
+
+      - name: Verify signed provenance before publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG_NAME="${{ steps.release_version.outputs.version }}"
+          mapfile -t ASSET_NAMES < <(node scripts/check-release-assets-scoped.mjs --expected "$TAG_NAME")
+          for asset_name in "${ASSET_NAMES[@]}"; do
+            gh attestation verify "artifacts/${asset_name}" \
+              --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release-artifact-scoped.yml" \
+              --source-digest "$GITHUB_SHA" \
+              --source-ref "$GITHUB_REF" >/dev/null
+          done
+
+      - name: Upload staged artifact folder
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.release_version.outputs.artifact_name }}
+          path: artifacts/${{ steps.release_version.outputs.artifact_name }}
+
+      - name: Upload packaged archive
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.release_version.outputs.artifact_name }}-archive
+          path: artifacts/${{ steps.release_version.outputs.artifact_name }}.tar.gz
+
+      - name: Upload bundled artifact folder
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.release_version.outputs.bundled_artifact_name }}
+          path: artifacts/${{ steps.release_version.outputs.bundled_artifact_name }}
+
+      - name: Upload bundled archive
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.release_version.outputs.bundled_artifact_name }}-archive
+          path: artifacts/${{ steps.release_version.outputs.bundled_artifact_name }}.tar.gz
+
+      - name: Upload per-OS release archives
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.release_version.outputs.version }}-per-os-release-archives
+          path: |
+            artifacts/${{ steps.release_version.outputs.artifact_name }}-win32.zip
+            artifacts/${{ steps.release_version.outputs.artifact_name }}-linux.tar.gz
+            artifacts/${{ steps.release_version.outputs.bundled_artifact_name }}-win32.zip
+            artifacts/${{ steps.release_version.outputs.bundled_artifact_name }}-linux.tar.gz
+            artifacts/*.cdx.json
+            artifacts/SHA256SUMS.txt
+
+      - name: Collect actual current-attempt native qualification
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/collect-scoped-mcp-qualification.mjs
+
+      - name: Bind complete held release bytes and qualification
+        env:
+          SERVICE_LASSO_RELEASE_VERSION: ${{ steps.release_version.outputs.version }}
+        run: node scripts/record-scoped-release-evidence.mjs
+
+      - name: Publish through private draft and immutable public body readback
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/publish-scoped-release.mjs
+
+      - name: Retain scoped release wrapper without adding a public asset
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: scoped-full-release-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/scoped-qualification
+          if-no-files-found: error
+          retention-days: 90
+
+  require-scoped-route:
+    if: ${{ always() && github.ref == 'refs/heads/develop' }}
+    needs:
+      - qualify-mcp-packaged
+      - release-artifact
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Require every scoped route dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+          test '${{ needs.qualify-mcp-packaged.result }}' = 'success'
+          test '${{ needs.release-artifact.result }}' = 'success'
