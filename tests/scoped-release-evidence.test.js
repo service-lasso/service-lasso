@@ -387,6 +387,11 @@ async function writeMembers(root, held) {
 test("actual provider verifier to downloaded candidate caller binds original six bodies before semantics", async t => {
   const root = await mkdtemp(path.join(os.tmpdir(), "candidate-original-bridge-"));
   t.after(() => rm(root, { recursive: true, force: true }));
+  const consumerSource = await readFile(new URL("../scripts/verify-development-candidate-scoped.mjs", import.meta.url), "utf8");
+  const bridgeOffset = consumerSource.indexOf("await readVerifiedDevelopmentCandidate(root)");
+  const scrubOffset = consumerSource.indexOf("delete process.env.GH_TOKEN");
+  const extractionOffset = consumerSource.indexOf("await extractScopedCoreArchive(");
+  assert.ok(bridgeOffset >= 0 && scrubOffset > bridgeOffset && extractionOffset > scrubOffset);
   const protectedCli = createProtectedCliFixture();
   const preservedToolRows = [...protectedCli.held].map(([name, bytes]) => [`operator-tools/cli/${name}`, bytes]);
   function coreArchives(runtime) {

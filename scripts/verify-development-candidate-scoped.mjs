@@ -19,6 +19,8 @@ if (platform !== process.platform || process.arch !== "x64") throw new Error("Sc
 // Provider identity, original ZIP members and downloaded buffers are bound in
 // this process before semantic parsing. Extraction below uses the same held body.
 const { held, manifest } = await readVerifiedDevelopmentCandidate(root);
+// The provider credential must not reach native extraction or the candidate Core.
+delete process.env.GH_TOKEN;
 const archive = manifest.archives.find((entry) => entry.platform === platform && entry.artifact === "unbundled");
 if (!archive) throw new Error("Candidate lacks the requested unbundled platform archive.");
 const artifactName = archive.name.replace(platform === "win32" ? /-win32\.zip$/u : new RegExp(`-${platform}\\.tar\\.gz$`, "u"), "");
