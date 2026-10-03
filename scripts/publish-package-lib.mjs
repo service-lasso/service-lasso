@@ -11,6 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { createHash } from "node:crypto";
+import { assertScope } from "./ga-platform-scope-lib.mjs";
 import { setTimeout as delay } from "node:timers/promises";
 import {
   createTemporaryOutputRoot,
@@ -291,6 +292,7 @@ export async function stagePublishedPackage({
   outputRoot = path.join(repoRoot, "artifacts", "npm"),
   version,
   releaseMetadataToken,
+  scope,
   // Tests may provide a deterministic release-response fixture. It substitutes
   // acquisition bytes only; stageOperatorTools still validates the release
   // identity, inventory, manifests, and retained digests.
@@ -319,6 +321,7 @@ export async function stagePublishedPackage({
         artifactRoot,
         releaseMetadataToken: metadataToken,
         ...testOnlyOperatorToolFixture,
+        ...(scope ? { scope } : {}),
       });
       await verifyRetainedOperatorTools({ artifactRoot });
 
@@ -372,6 +375,7 @@ export async function verifyPublishedPackage({
   packageArchivePath,
   version,
   bootPort = 18191,
+  scope,
 } = {}) {
   const resolvedVersion = version ?? (await getReleaseVersion(repoRoot));
   const artifactName = getPublishedPackageArtifactName(resolvedVersion);
@@ -391,6 +395,11 @@ export async function verifyPublishedPackage({
   await stat(path.join(stagedRoot, "cli.js"));
   await stat(path.join(stagedRoot, "index.d.ts"));
   await stat(path.join(stagedRoot, "operator-tools", "manifest.json"));
+  if (scope) {
+    assertScope(scope);
+    const retained = await verifyRetainedOperatorTools({ artifactRoot: stagedRoot, requireProtected: true });
+    if (retained.manifest.schemaVersion !== "service-lasso.operator-tools.v3" || JSON.stringify(retained.manifest.scope) !== JSON.stringify(scope)) throw new Error("scoped staged npm operator identity differs");
+  }
   const sbom = JSON.parse(
     await readFile(path.join(stagedRoot, "sbom.cdx.json"), "utf8"),
   );
@@ -455,6 +464,11 @@ export async function verifyPublishedPackage({
 
     const installedToolsRoot = path.join(consumerRoot, "node_modules", "@service-lasso", "service-lasso", "operator-tools");
     await verifyRetainedOperatorTools({ artifactRoot: path.join(consumerRoot, "node_modules", "@service-lasso", "service-lasso") });
+    if (scope) {
+      const installedRoot = path.join(consumerRoot, "node_modules", "@service-lasso", "service-lasso");
+      const retained = await verifyRetainedOperatorTools({ artifactRoot: installedRoot, requireProtected: true });
+      if (retained.manifest.schemaVersion !== "service-lasso.operator-tools.v3" || !(await readFile(path.join(stagedRoot, "operator-tools", "manifest.json"))).equals(await readFile(path.join(installedRoot, "operator-tools", "manifest.json")))) throw new Error("scoped installed npm original operator manifest differs");
+    }
     const installedTools = JSON.parse(await readFile(path.join(installedToolsRoot, "manifest.json"), "utf8"));
     if (!Array.isArray(installedTools.tools) || installedTools.tools.length !== 2 || installedTools.tools.some((tool) => tool.status !== "available")) {
       throw new Error("consumer-installed package does not retain both available operator tools");

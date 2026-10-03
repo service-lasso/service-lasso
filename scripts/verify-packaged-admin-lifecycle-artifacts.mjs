@@ -1,3 +1,4 @@
+import { assertScope, REQUIRED_GA_PLATFORMS } from "./ga-platform-scope-lib.mjs";
 import { validInitialProjection } from "./public-first-custody-projection-lib.mjs";
 import { lstat, readdir, readFile } from "node:fs/promises";
 import path from "node:path";
@@ -118,7 +119,9 @@ function validateEvidence(source, platform, runId, runAttempt, candidateSha, eve
   if (evidence.outcome === "success" && !hasObservedConsumerReceipt(receipt)) throw new Error(`${platform} unobserved or failed consumer cannot qualify as success.`);
   return receipt;
 }
-export async function verifyArtifacts({ root, runId, runAttempt, candidateSha, eventSha, terminalJobs = null }) {
+async function verifyArtifactSet({ root, runId, runAttempt, candidateSha, eventSha, terminalJobs = null }, scope) {
+  if (scope) assertScope(scope);
+  const platforms = scope ? REQUIRED_GA_PLATFORMS : ["linux", "win32", "darwin"];
   const expected = new Set(platforms.map((platform) => `packaged-admin-lifecycle-${platform}-${runId}-${runAttempt}`));
   const directories = await readdir(root, { withFileTypes: true });
   if (directories.length !== expected.size || directories.some((entry) => !entry.isDirectory() || !expected.has(entry.name))) throw new Error("Downloaded artifacts are not the exact current attempt.");
@@ -132,6 +135,7 @@ export async function verifyArtifacts({ root, runId, runAttempt, candidateSha, e
       if (!prebrowser || prebrowser.platform !== platform || String(prebrowser.run.id) !== runId || String(prebrowser.run.attempt) !== runAttempt) throw new Error(`${platform} pre-browser failure custody validation failed.`);
       if (!terminalJobs) throw new Error(`${platform} pre-browser failure terminal job is unobserved.`);
       requireTerminalPrebrowserFailure(terminalJobs, platform, runId, runAttempt);
+      if (scope) throw new Error("Scoped Admin prebrowser evidence retains failure and cannot qualify");
       continue;
     }
     if (files.length !== 3 || files.some((entry) => !entry.isFile() || entry.isSymbolicLink()) || !files.some((entry) => entry.name === evidenceName) || !files.some((entry) => entry.name === receiptName) || !files.some((entry) => entry.name === initialReceiptName)) throw new Error(`${platform} artifact inventory is invalid.`);
@@ -139,9 +143,12 @@ export async function verifyArtifacts({ root, runId, runAttempt, candidateSha, e
     const evidenceSource = await regular(path.join(directory, evidenceName), `${platform} evidence`);
     const receipt = parseConsumerReceipt(await regular(path.join(directory, receiptName), `${platform} receipt`));
     const retained = validateEvidence(evidenceSource, platform, runId, runAttempt, candidateSha, eventSha);
+    if (scope && (JSON.parse(evidenceSource).outcome !== "success" || !hasObservedConsumerReceipt(retained))) throw new Error("Scoped Admin evidence is not success");
     if (!receipt || !isRetainableConsumerReceipt(receipt) || !sameValue(retained, receipt)) throw new Error(`${platform} retained receipt custody validation failed.`);
   }
 }
+export function verifyArtifacts(input) { return verifyArtifactSet(input); }
+export function verifyScopedArtifacts(input, scope) { assertScope(scope); return verifyArtifactSet(input, scope); }
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) {
   const runId = required("GITHUB_RUN_ID", /^[1-9][0-9]*$/u), runAttempt = required("GITHUB_RUN_ATTEMPT", /^[1-9][0-9]*$/u);
   const root = required("PACKAGED_ARTIFACTS_ROOT");
