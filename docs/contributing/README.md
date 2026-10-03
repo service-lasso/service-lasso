@@ -81,3 +81,22 @@ Report vulnerabilities privately through GitHub Security Advisories. See [SECURI
 The [documentation map](../documentation-map.md) is the inventory and routing record. Give each page one primary navigation home, cross-link related material instead of duplicating it, and accurately label guides, references, plans, and evidence. Preserve an existing document ID and URL unless a compatibility path is verified.
 
 See [CI runner operations](../operations/self-hosted-wsl-runner.md) and [release verification](../release-asset-policy.md). Plans and historical release records are intentionally grouped under the collapsed **Plans and evidence** navigation section.
+
+## Publishing this documentation
+
+The Docs Site workflow validates documentation on pull requests and ordinary
+`develop` pushes. A successful build alone does not publish the site.
+
+For owner-authorized documentation publication, run **Docs Site** on `develop`
+and select **publish** (or `gh workflow run docs-site.yml --ref develop -f publish=true`).
+The default is validation only. Publishing runs the tooling audit, Secrets
+capability ledger validation, and documentation build before deploying through
+the `github-pages` environment. Its branch policy must admit `develop`.
+Only the canonical development and release branches can publish manually;
+release-branch pushes retain automatic publication. Documentation publication
+does not promote or release the runtime.
+
+Verify both the completed **Deploy docs** job and the live
+[Service Lasso documentation](https://service-lasso.github.io/service-lasso/),
+including a documentation page and its generated assets. Retain the run URL and
+source commit in the governing issue (SPEC-002 AC-4AJ.5).
