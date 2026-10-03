@@ -717,11 +717,11 @@ production permission change, retained-root repair, unknown owner reset or
 identity reuse. Trusted kernel/admin/SYSTEM assumptions and unsupported-host
 closed failure are explicit. `FI-2` Source-owned launcher/supervisor/matrix
 mediator/keeper have the exact paths, privileges, runtime/provenance and IPC
-contract in ADR-002. Live mediators are excluded from the finite workload group;
+contract in ADR-002: trusted privileged supervisor, original workload owner W, distinct read-only mediator M and keeper K, and ordinary runner R. No live M/K original owner/reopen/write/chmod/WRITE_DAC/token/FD/attach authority is permitted. Live mediators are excluded from the finite workload group;
 no empty Job/cgroup claim includes a parked live parent. No broker/breakaway or
 unreviewed inherited capabilities. `FI-3` Close all admitted writers and accepted
 lifetime union, transfer guardian identity and positively settle delete-denying
-handles under continuous isolation, then approve held inventory before copy.
+handles under continuous native isolation, then approve held inventory before copy. Positively wait every W process and original pipe EOF; M/K remain live only with authenticated finite read capabilities. Original owner W is never rewritten to evade equality.
 `FI-4` Verify complete separate persistent copy before exact-object deletion;
 Linux unlinkat depends on stable exclusion, Windows ordinary disposition uses
 the same approved handles. Unknown additions/remainders survive; partial deletion
@@ -731,7 +731,7 @@ copies survive observer/supervisor failure; memfd is supplemental, never durable
 or off-host custody. Restore hooks/ENV and preserve all raw secondary errors.
 `FI-6` Exact source/tool/native/ENV proof, authenticated bounded IPC and held-root
 relative proof grammar require NEW complete-input admission and actual native
-positive/denial/fault evidence. `FI-7` F3/F4 registry/history, F5 prior physical
+positive/denial/fault evidence. Existing current-actor original owner guards require source-owned loader/client adaptation with supervisor-authenticated prior ORIGINAL W owner/held-object capsules; no caller/ENV owner override or whitelist. Distinguish M-owned diagnostic roots from W originals and supervisor-owned copies/control roots. Wrong actor/owner/object/source/receipt and live reader mutation denials join all unchanged native positive/equality/copy/removal/reset/partial/ENV/history assertions. `FI-7` F3/F4 registry/history, F5 prior physical
 privacy, F6 direct_child and F7 independent failed capture retain their original
 criteria. Actual owner-approved off-host private custody remains absent.
 
