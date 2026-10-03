@@ -39,3 +39,8 @@ These are tooling-only patches; audit thresholds remain unchanged. Direct
 regressions live in tests/docs-tooling-security.test.js (SPEC-002 AC-4AJ.6).
 Remove the local copies only after upstream remediation and fresh compatibility,
 regression, audit and docs-build evidence.
+
+The vendored cache policy also splits Vary and Connection headers on literal commas
+and trims each token, avoiding upstream polynomial whitespace backtracking.
+Semantic header checks and an externally bounded long-whitespace probe cover this
+CodeQL review finding.

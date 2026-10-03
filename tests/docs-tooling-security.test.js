@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -66,4 +67,31 @@ test("all lockfile copies use the patched workspaces rather than vulnerable regi
       assert.equal(entry.resolved, `packages/${name}-safe`, path);
     }
   }
+});
+
+
+test("cache header tokenization preserves Vary/hop semantics and bounds long whitespace processing", () => {
+  const initial = { ...req, headers: { ...req.headers, accept: "text/html", "accept-language": "en" } };
+  const policy = new Policy(initial, { status: 200, headers: {
+    "cache-control": "public, max-age=600", vary: " accept , accept-language ",
+    connection: " x-hop , x-other ", "x-hop": "discard", "x-other": "discard", "x-retain": "keep"
+  } });
+  assert.equal(policy.satisfiesWithoutRevalidation(initial), true);
+  assert.equal(policy.satisfiesWithoutRevalidation({ ...initial, headers: { ...initial.headers, accept: "application/json" } }), false);
+  const headers = policy.responseHeaders();
+  assert.equal(headers["x-hop"], undefined);
+  assert.equal(headers["x-other"], undefined);
+  assert.equal(headers["x-retain"], "keep");
+  // An external process bound catches synchronous regex backtracking hangs.
+  const probe = `
+    const Policy = require('http-cache-semantics');
+    const req = { url: 'https://example.test', headers: { host: 'example.test' } };
+    const long = 'x' + ' '.repeat(100000) + 'y, z';
+    const policy = new Policy(req, { status: 200, headers: {
+      'cache-control': 'public, max-age=600', connection: long, vary: long
+    } });
+    policy.responseHeaders();
+    policy.satisfiesWithoutRevalidation(req);
+  `;
+  execFileSync(process.execPath, ["-e", probe], { timeout: 5000, stdio: "pipe" });
 });
