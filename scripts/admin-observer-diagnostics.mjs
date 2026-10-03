@@ -81,6 +81,8 @@ export function observerExitWitness(observer, binding) {
   // Error settles the existing failure result, never the separate close witness.
   // Install eventual readback immediately: every later return/throw leaves it
   // attached to this exact child's genuine close event, without a deadline.
+  // An unref'ed detached observer may outlive its consumer host. No persisted
+  // closed readback is promised after host exit; raw channels remain private.
   let settleResult, settleClose;
   let settled = false, spawnError = false;
   const result = new Promise((resolve) => { settleResult = resolve; });

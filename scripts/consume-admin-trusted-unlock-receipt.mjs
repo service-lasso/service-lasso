@@ -537,15 +537,15 @@ export async function consumeWithDurableObserver(command, args, options = {}) {
     if (!terminal) {
       const observerExit = await observerExitPromise;
       if (!observerExit.spawnError) await observerWitness.readback;
-      // Keep the actual child handle referenced until genuine close/readback;
-      // error-result settlement alone must not retire eventual custody.
+      observer.unref();
       return settle({ code: null, signal: null, executionFailure: "spawn_failed", trustedUnlock: { classification: "missing" }, streamFailure: null });
     }
     if (terminal.endsWith("unresolved.json")) {
       stage = "close";
       const unresolved = await validateObserverTerminal(root, nonce, source, false);
-      // Return the original timeout/invalid result now, while the referenced
-      // child retains the already-installed eventual close continuation.
+      // Eventual readback remains attached while this consumer host lives.
+      // Preserve detached timeout ownership: host exit cannot promise readback.
+      observer.unref();
       return settle(unresolved ? { code: null, signal: null, executionFailure: "execution_timeout", trustedUnlock: { classification: "missing" }, streamFailure: null }
         : { code: null, signal: null, executionFailure: "spawn_failed", trustedUnlock: { classification: "invalid" }, streamFailure: null });
     }
