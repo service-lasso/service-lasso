@@ -15,11 +15,27 @@ This article is a worked architecture + authoring guide. It shows the shape you 
 
 ## Outcome
 
-```text
-Browser Todo UI
-    -> Go Todo API  (managed service, HTTP JSON)
-        -> PostgreSQL  (managed service from the intermediate guide)
+**Stage 3:** add a Go API between the Todo UI and the same PostgreSQL service.
+The browser uses HTTP JSON; only the API holds the database connection.
+Lasso now manages both the API and the database.
+
+```mermaid
+flowchart TB
+  accTitle: Stage 3: Go Todo API
+  accDescr: The Todo UI sends HTTP JSON to a managed Go API, which connects to PostgreSQL. Lasso supervises both services through Service Admin.
+  browser["Browser Todo UI"] -->|HTTP JSON: create and list| api["Go Todo API"]
+  api -->|PostgreSQL driver| db[("PostgreSQL")]
+  db -->|Persists todos| data[("Database workspace data")]
+  admin["Service Admin"] -->|Operator controls| lasso["Service Lasso"]
+  lasso -.-> api
+  lasso -.-> db
+  classDef added fill:#e0f2fe,stroke:#0369a1,color:#0c4a6e
+  class api added
 ```
+
+Blue nodes show what this stage adds. Solid arrows show application data or
+operator controls. Dashed arrows show lifecycle, health and port supervision;
+Todo requests go through the API, not through Lasso.
 
 Success checks:
 
