@@ -40,11 +40,13 @@ test("Windows rejected initial tree persists native exclusions through emergency
   let snapshots = 0;
   let controls = 0;
   let reader;
+  let custodyObservationFailed = false;
   try {
     await new Promise((resolve, reject) => { sentinel.once("spawn", resolve); sentinel.once("error", reject); });
     const sentinelInspection = await inspectProcess(sentinel.pid);
     assert.equal(sentinelInspection.status, "running");
-    setManagedProcessEnrollmentHookForTests(null, (id, read) => { if (id === serviceId) reader = read; });
+    setManagedProcessEnrollmentHookForTests(null, (id, read) => { if (id === serviceId) reader = read; },
+      () => { custodyObservationFailed = true; });
     setManagedWindowsTreeInspectorForTests(async (root, options) => {
       const actual = await inspectWindowsProcessTree(root, options);
       snapshots++;
@@ -73,6 +75,7 @@ test("Windows rejected initial tree persists native exclusions through emergency
     assert.equal(hasManagedProcess(serviceId), false);
     const ownership = await findProcessOwnership(workspaceRoot, "service", serviceId);
     assert.equal(ownership.lifecycleState, "stopped"); assert.equal(ownership.pid, null);
+    assert.equal(custodyObservationFailed, false, "Emergency containment custody observation failed.");
   } finally {
     setManagedProcessEnrollmentHookForTests(null);
     setManagedProcessTreeTerminatorForTests(null);
@@ -83,6 +86,9 @@ test("Windows rejected initial tree persists native exclusions through emergency
     await closed;
     if (previous === undefined) delete process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS; else process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS = previous;
     resetLifecycleState();
+    // Check the bounded recorder after teardown and ENV restoration. A failure
+    // remains a test failure and retains the original fixture for investigation.
+    assert.equal(custodyObservationFailed, false, "Emergency containment custody observation failed; fixture retained.");
     await rm(tempRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
