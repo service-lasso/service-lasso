@@ -8,6 +8,31 @@ const child = { ...root, pid: 4345, commandHash: "b".repeat(64) };
 const old = { ...root, pid: 4343, createdAt: "2026-07-18T01:02:02.456Z" };
 const missing = { ...root, pid: 4346 };
 
+for (const verified of [false, true]) {
+  test(`prior production exclusions filter unfiltered current receipts and every lookup (verified=${verified})`, async () => {
+    const deadlineMs = Date.now() + 5_000;
+    const signal = new AbortController().signal;
+    let fallback = 0;
+    const snapshot = await inspectKnownWindowsTreeMembers(root, [old, child, root], deadlineMs, signal, verified, {
+      excludedMemberPids: new Set([old.pid]),
+      inspectTree: async () => ({ rootStatus: "owned", members: [{ ...old, commandHash: "c".repeat(64) }, child, root],
+        verifiedMembersOnly: verified, excludedMemberPids: [child.pid] }),
+      inspectIdentity: async () => { fallback++; return { status: "running", identity: old }; },
+    });
+    assert.deepEqual(snapshot.members, [root]);
+    assert.deepEqual([...snapshot.excludedMemberPids].sort(), [old.pid, child.pid].sort());
+    for (const pid of [old.pid, child.pid]) await assert.rejects(snapshot.inspectProcess(pid), /control excludes/);
+    assert.equal(fallback, 0);
+    const refreshed = await inspectKnownWindowsTreeMembers(root, snapshot.members, deadlineMs, signal, snapshot.verifiedMembersOnly, {
+      excludedMemberPids: snapshot.excludedMemberPids,
+      inspectTree: async () => ({ rootStatus: "exited", members: [old, child, root] }),
+    });
+    assert.deepEqual(refreshed.members, [root]);
+    assert.equal(refreshed.verifiedMembersOnly, verified);
+    await assert.rejects(refreshed.inspectProcess(old.pid), /control excludes/);
+  });
+}
+
 test("filtered stop snapshot removes excluded old members, retains omitted owned evidence and checks identity afresh", async () => {
   const deadlineMs = Date.now() + 500;
   const signal = new AbortController().signal;

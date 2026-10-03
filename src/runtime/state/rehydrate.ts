@@ -1,3 +1,4 @@
+import { observeFixtureStartupPath } from "../startup/fixture-path-observation.js";
 import type { DiscoveredService } from "../../contracts/service.js";
 import { adoptManagedProcess, hasManagedProcess } from "../execution/supervisor.js";
 import { getLifecycleState, setLifecycleState } from "../lifecycle/store.js";
@@ -1037,6 +1038,7 @@ export async function rehydrateLifecycleState(
       (!options.adoptServiceIds || options.adoptServiceIds.has(serviceId)) &&
       !options.excludeAdoptServiceIds?.has(serviceId) &&
       !hasManagedProcess(serviceId);
+    observeFixtureStartupPath("adoption", options.excludeAdoptServiceIds?.has(serviceId) ? "excluded" : mayAdopt ? "selected" : "not_selected", serviceId);
     const registryOwner = mayAdopt && options.workspaceRoot
       ? await findProcessOwnership(options.workspaceRoot, "service", serviceId)
       : null;
