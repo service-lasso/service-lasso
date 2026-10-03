@@ -693,7 +693,7 @@ This clarification authorizes faithful input/assertion reconciliation, no protec
 skip, deadline or permission widening, native-custody substitute, or release claim.
 
 ## AC-4CG.2 complete immutable tool migration (#1602)
-SPEC-007 issue1602 defines the exact historical-catalog-only distribution compatibility path, explicitly different receipt kinds and strict current-producer public admission. Core retains all currentCLI10files/9checksums/8declared assets and validates native/provenance/context/acceptance same bytes without launch or extraction. Direct native/operator and Windows ZIP programme obligations stay unqualified; historical receipts cannot satisfy protected qualification. No new pins/admissions are fabricated.
+SPEC-007 issue1602 defines the exact historical-catalog-only distribution compatibility path, explicitly different receipt kinds and strict current-producer public admission. Core retains all currentCLI10files/9checksums/8declared assets and validates native/provenance/context/acceptance same bytes without launch or extraction. Direct native/operator and Core staged-service/outer Windows ZIP obligations stay unqualified; historical receipts cannot satisfy protected qualification. No new pins/admissions are fabricated.
 
 ## Issue #1602 entire-review F1/F2 repair contract
 
@@ -704,3 +704,68 @@ Core independently reads the exact fixed-repository git/ref/tags/<tag> and resol
 ## Complete source-admission amendment #1633
 
 - `AC-4CF.1b`: The complete normative source contract and selected ADR are docs/reference/source-safe-template-admission.md and docs/reference/ADR-source-admission-journal-v1.md. CA01..CA08 cover all75 actual owner files, seven/eight/six-field tuple/provenance, versioned exact catalog-path eligibility SLTP-CATALOG-PATH-1 preserving SLTP-ZIP-1 framing/digests/modes, trusted actor/full nested API/expiry/replay precedence, authorized initial native storage/persistent key identity, finite retained-resource caps, dedicated v1 atomic accepted journal/capsule/confirmation/key mapping and fixed-ID no-loss durable Audit outbox, native held exclusive direct-child full readback/crash recovery and actual released CLI/fresh Core Windows/Linux remote create-to-running journey with separately authorized lifecycle. Darwin is deferred under unchanged canonical policy, not a required success for this scoped gate. This scoped platform clarification supersedes the three-OS wording of AC-4CF.1 for CA08; original broader retained platform evidence is historical, not PASS. Before-response503 and after202 durable unknown are distinct. Publication of four original assets precedes independent pins and real qualification; missing tuple/pin/provider/key/native capabilities fail closed. #1633/#37 are durable docs only and need fresh whole review/develop landing before product authorship; historical NO-GO is retained.
+
+### AC-4BJ.9c.fixture-isolation-v1 (#1629; F1-F7)
+
+[ADR-002](../decisions/ADR-002-fixture-isolation.md) is the selected prospective
+operational contract: Linux distinct host UID/root-private persistent backing,
+private mount/supervisor and stable descriptor-relative unlinkat interval;
+Windows fresh SID/restricted token/protected processes/suspended Job assignment
+plus same-approved-held-object copy and ordinary disposition. This supersedes
+only the earlier absence of an architecture selection. Current implemented
+F1/F2 fail-closed retention remains mandatory until separately reviewed/admitted
+native isolation succeeds. W1 alone is unselected; no assertion is weakened.
+
+`FI-1` Isolation precedes fresh fixture creation and every sensitive write; no
+production permission change, retained-root repair, unknown owner reset or
+identity reuse. Trusted kernel/admin/SYSTEM assumptions and unsupported-host
+closed failure are explicit. `FI-2` Source-owned launcher/supervisor/matrix
+mediator/keeper have the exact paths, privileges, runtime/provenance and IPC
+contract in ADR-002: trusted privileged supervisor, original workload owner W, distinct read-only mediator M and keeper K, and ordinary runner R. No live M/K original owner/reopen/write/chmod/WRITE_DAC/token/FD/attach authority is permitted. Live mediators are excluded from the finite workload group;
+no empty Job/cgroup claim includes a parked live parent. No broker/breakaway or
+unreviewed inherited capabilities. `FI-3` Close all admitted writers and accepted
+lifetime union, transfer guardian identity and positively settle delete-denying
+handles under continuous native isolation, then approve held inventory before copy. Positively wait every W process and original pipe EOF; M/K remain live only with authenticated finite read capabilities. Original owner W is never rewritten to evade equality.
+`FI-4` Verify complete separate persistent copy before exact-object deletion;
+Linux unlinkat depends on stable exclusion, Windows ordinary disposition uses
+the same approved handles. Unknown additions/remainders survive; partial deletion
+fails and blocks reset. `FI-5` Complete removal/reset plus post-reset/ENV copy
+readback and positive native/pipe closure are required. Persistent originals and
+copies survive observer/supervisor failure; memfd is supplemental, never durable
+or off-host custody. Restore hooks/ENV and preserve all raw secondary errors.
+`FI-6` Exact source/tool/native/ENV proof, authenticated bounded IPC and held-root
+relative proof grammar require NEW complete-input admission and actual native
+positive/denial/fault evidence. Existing current-actor original owner guards require source-owned loader/client adaptation with supervisor-authenticated prior ORIGINAL W owner/held-object capsules; no caller/ENV owner override or whitelist. Distinguish M-owned diagnostic roots from W originals and supervisor-owned copies/control roots. Wrong actor/owner/object/source/receipt and live reader mutation denials join all unchanged native positive/equality/copy/removal/reset/partial/ENV/history assertions. `FI-7` F3/F4 registry/history, F5 prior physical
+privacy, F6 direct_child and F7 independent failed capture retain their original
+criteria. Actual owner-approved off-host private custody remains absent.
+
+All seven formal phases and two recovered rows, real startup-before-return
+failure, production regressions, owner/generation/allocation/residue/absence,
+unrelated-process survival and deadlines/retries remain protected. Prepare
+complete positive/partial/persistence and concurrent denial/fault sources with
+future native adapters. Distinct entire amendment review and develop landing
+precede adapter authoring; distinct entire adapter review and NEW ROOT admission
+precede every import/parser/compiler/install/test/native/ACL/provisioning action.
+This docs-only amendment is not observed host capability or implementation GO.
+### AC-4BH.4 Attempt-coherent Windows tree diagnostics (#1622)
+
+Development source preparation follows the independently reviewed U4 compatible-omission alternative. The public contract remains the existing fourteen base keys and reason-bound optional ancestry/partial-copy groups; no new public key or schema version is introduced. `windowsTreeInspectionLastRetry` is the last observed failure category, which may precede the terminal attempt. Native helper progress describes the latest actually entered native attempt, and never establishes target liveness or process-tree convergence.
+
+Privately tag actual loop attempt ordinals at native progress creation, last reason production and canonical partial-copy receipt acquisition. Emit the two optional command-query fields together only when all three producing tags equal the current entered attempt. A later entered attempt with no receipt, malformed receipt or different reason, and a terminal queued attempt without its own helper omit both fields. Preserve the earlier last reason when no newer category is observed. Omission means a compatible current-attempt receipt is unavailable; it does not mean no earlier partial copy occurred. Never manufacture an ordinal from public capped counters or infer sameness from a reason/value match. Attempt tags never cross the public projection boundary.
+
+The shared runtime projector remains authoritative for enrollment, rehydration and lifecycle trace/error readers. The lifecycle diagnostic script reprojects the same optional groups without filling omitted fields. The packaged MCP reader deliberately retains its existing six-field subset and already drops both receipt and progress fields; its schema/version and validator remain unchanged. No consumer may fill an omitted receipt from the retained last reason. Existing legacy metadata can be projected but cannot retroactively prove attempt correlation. A reason-bound group alone supplies no kernel-cause or historical acceptance evidence.
+
+Preserve original exceptions, fail-closed refusal, native helper bytes/provenance, serialized queue, absolute 15000ms default/explicit caller deadlines, retries and 250ms delay cap, exact direct-child exit/stdio closure and all ownership/identity/ancestry checks. No 259-liveness, partial-copy-exit, rights expansion or descendant omission. Prospective checks must exercise the real JS producing loop with multiple attempts and its runtime/lifecycle/packaged projections: earlier receipt followed by stalled helper; queued terminal without current helper; current receipt and its own observed closure; malformed later receipt; later nonpartial reason; original error identity and hostile privacy inputs. Injected runCommand observations are surrogate evidence only. Protected real Windows case66, root/descendant identity and native partial-copy/late-exit/exit-EOF gates remain required after fresh entire source review and NEW complete-input ROOT; all execution is UNEXECUTED during this source unit.
+
+
+Primary-error preservation includes retryable errors with throwing native-reason observers and unreadable Error.message. Acquire the primary message and native reason once behind independent guards; classifier/bookkeeping reuse acquired values. Unreadable messages remain nonretryable and rethrow the original value; unreadable native reasons retain ordinary message-based retries and fallback categories. Ancestry/receipt/attachment observation failures cannot replace the original Error. Producing-loop retry and primary-message regressions remain UNEXECUTED.
+
+#1622 / AC-4BH.4 lifecycle entrypoint mapping: The existing Lifecycle process tree pull-request workflow selects tests/windows-tree-attempt-correlation.test.js on both ubuntu-latest and windows-latest alongside every existing protected lifecycle test, with unchanged concurrency, native provenance steps and deadline. These eight producing-loop regressions are source-authored and unexecuted locally; natural exact-head CI supplies separate observed results. Different fresh ENTIRE cumulative review and NEW complete-input ROOT remain required before manual execution.
+
+## Current integration authority (2026-10-04)
+
+Core PR1631 and CLI PR36 are landed dependencies, integrated through current develop Core33e19ea24aaaff62e5dbfbb8d57001576fb2fb16 and CLIcf95d4577b5d9e4bb37c02807e738b512dec8be9. The landed four-repository errata/register takes precedence over historical CLI inner-ZIP blocker wording: CLI protected/portable authoring uses native TAR; Core #1534 staged-service and outer-release Windows ZIP remains required. Original TUI five actions and same published tool bytes in Core/npm remain required. Historical pending/review text above records earlier checkpoints, not current ownership or a reopened dependency.
+
+Complete inventory means every file in the independently admitted owner tuple, with its exact path, mode, bytes or explicitly typed difference, policy self-member and generated provenance. Template PR25 owns the new prospective source tuple (reviewed source d3f9c86fc55f3bb4a31f0d127c2b3d5bad291885; 83 inventory members plus policy =84 source files) and its publication/source binding; generated provenance is derived separately. This contract grants it no admission and never makes84 a permanent inventory count. Historical 73+policy+provenance=75 tables and their size/quota arithmetic are informational bindings to the old frozen tuple only, never a 75-file cap or a grant for a newer tuple. All normative full75/all75/expected75 references above mean the complete inventory of the separately admitted tuple; no current or future file may be truncated to fit that historical example. Current owner quotas must be independently validated and all retained-copy/frame/parser/native limits met before enablement; an incompatible newer tuple fails closed pending an explicit reviewed limit amendment, never silently drops members or inherits old hashes/quotas. Native v3 HMAC/one-use session, full held readback, TC01..TC12/CA01..CA08, upload/stage/preflight/confirm/commit/poll and journal/key/fixed-ID exact-payload durable Audit no-loss outbox remain complete and unchanged. Missing immutable publication, catalog/provider/native capabilities and direct Windows/Linux released journey remain unmet.
+
+This integration is source-only documentation. Different fresh ENTIRE final-source review is required for both complete integrated contracts before governed landing. Product source authorship, imports/parsers/build/npm/tests/native execution, new API decisions, publication and deployment are outside this integration unit.
