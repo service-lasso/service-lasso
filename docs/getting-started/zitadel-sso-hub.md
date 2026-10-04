@@ -206,12 +206,12 @@ stopped, update **only** its manifest version/artifact tag to `2026.10.4-6f47534
 retain environment, dependencies, endpoints and data, then refresh Admin and
 install the new archive. Provider-backed launch and checksums remain the same.
 
-The acquired archive includes `configure-sso.mjs` at its root. Use the actual
-acquired artifact directory shown by Admin; do not start a second app process.
+The acquired archive includes `configure-sso.mjs` at its root. Read that actual
+directory from the install receipt; do not start a second app process.
 Replace the client ID with the public ID you just registered:
 
 ```powershell
-$todoArtifact = '<acquired Todo artifact directory from Admin>'
+$todoArtifact = (Get-Content workspace/canonical-services-root/todo/.state/install.json -Raw | ConvertFrom-Json).artifact.extractedPath
 node "$todoArtifact/configure-sso.mjs" workspace/canonical-services-root/todo enable https://localhost:18084 '<Todo client ID>'
 ```
 

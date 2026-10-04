@@ -16,14 +16,17 @@ try {
   const load = relative => import(pathToFileURL(path.join(path.resolve(coreDirectory), 'dist', relative)).href);
   const { discoverServices } = await load('runtime/discovery/discoverServices.js');
   const { createServiceRegistry } = await load('runtime/manager/DependencyGraph.js');
-  const { setLifecycleState } = await load('runtime/lifecycle/store.js');
+  const { getLifecycleState, setLifecycleState } = await load('runtime/lifecycle/store.js');
   const { loadSecretsBrokerRuntimeContext } = await load('runtime/broker/runtime.js');
   const { issueScopedBrokerIdentity, BROKER_IDENTITY_LEASE_ENV } = await load('runtime/broker/identity.js');
   const registry = createServiceRegistry(await discoverServices(path.resolve(servicesRoot)));
   const response = await fetch(new URL('/api/services', api), { signal: AbortSignal.timeout(5000) });
   if (!response.ok) throw Error('Core inventory unavailable.');
   const payload = await response.json();
-  for (const service of payload.services) if (service.id === '@secretsbroker') setLifecycleState(service.id, service.lifecycle);
+  for (const service of payload.services) if (service.id === '@secretsbroker') {
+    // Public lifecycle DTOs omit private restart traces. Preserve store defaults.
+    setLifecycleState(service.id, { ...getLifecycleState(service.id), installed: service.lifecycle.installed, configured: service.lifecycle.configured, installArtifacts: service.lifecycle.installArtifacts });
+  }
   const context = await loadSecretsBrokerRuntimeContext(path.resolve(workspaceRoot), registry);
   if (!context || !(await context.probe()).ready) throw Error('Bootstrap and start the real Broker first.');
   const service = registry.getById('zitadel'), refs = ['identity.ZITADEL_MASTERKEY', 'identity.ZITADEL_BOOTSTRAP_PASSWORD'];
