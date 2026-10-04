@@ -75,7 +75,7 @@ Local verification checks native archive structure. Real SQL verification uses <
 Stop Todo in Admin, preserving data. From Core:
 
 ```powershell
-node dist/cli.js services import service-lasso/lasso-todo-api --tag REPLACE_API_CANDIDATE_TAG --services-root workspace/canonical-services-root --workspace-root workspace/demo-instance
+node dist/cli.js services import service-lasso/lasso-todo-api --tag 2026.10.4-bdcc2f2 --services-root workspace/canonical-services-root --workspace-root workspace/demo-instance
 node ../lasso-todo/scripts/configure-stage.mjs workspace/canonical-services-root/todo api
 ```
 
