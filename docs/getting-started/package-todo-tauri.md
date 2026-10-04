@@ -17,7 +17,9 @@ Tauri adds the native window and installation package.
 the native app, portable Node runtime, Core, Admin assets and service manifests.
 Service Lasso acquires the released service executables on first installation.
 
-<div className="tutorial-architecture">
+<div className="tutorial-architecture" aria-label="Your desktop app">
+
+<p style={{textAlign: 'center'}}><strong>Your desktop app</strong></p>
 
 ```mermaid
 %%{init: {"flowchart": {"nodeSpacing": 24, "rankSpacing": 28, "padding": 18, "subGraphTitleMargin": {"top": 10, "bottom": 20}}, "themeVariables": {"fontFamily": "system-ui, sans-serif"}}}%%
