@@ -1,3 +1,7 @@
+import { assertDevelopIdentity, assertPolicyEnvironment, readSourceScope, REQUIRED_GA_PLATFORMS } from "./ga-platform-scope-lib.mjs";
+assertDevelopIdentity(); assertPolicyEnvironment();
+const scope = await readSourceScope();
+if (!REQUIRED_GA_PLATFORMS.includes(process.platform) || process.arch !== "x64") throw new Error("Scoped native qualification platform is outside policy");
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -23,12 +27,12 @@ const pythonProbe = path.join(tempRoot, "tui-pty-probe.py");
 let apiServer;
 
 try {
-  const staged = await stageReleaseArtifact({ repoRoot, outputRoot });
+  const staged = await stageReleaseArtifact({ repoRoot, outputRoot, scope });
   const coreArchive = staged.platformArchives.find((archive) => archive.platform === process.platform);
   if (!coreArchive) throw new Error(`missing ${process.platform} Core release archive`);
   extractedCoreArchive = await extractPlatformReleaseArchive({ archivePath: coreArchive.archivePath, artifactName: staged.artifactName, platform: process.platform });
   const extractedCoreRoot = extractedCoreArchive.extractedRoot;
-  const verifiedOperatorTools = await verifyRetainedOperatorTools({ artifactRoot: extractedCoreRoot });
+  const verifiedOperatorTools = await verifyRetainedOperatorTools({ artifactRoot: extractedCoreRoot, requireProtected: true });
   const operatorTools = verifiedOperatorTools.manifest;
   const tui = operatorTools.tools.find((tool) => tool.command === "service-lasso-tui" && tool.status === "available");
   const asset = tui?.assets?.find((candidate) => candidate.platform === platform);
