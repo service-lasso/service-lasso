@@ -142,10 +142,11 @@ struct builder {
   node->original_native=w->primitive+start;
   node->original_native_length=(uint32_t)(w->primitive_used-start);return F7_OK;
  }
- int primitive(napi_value value,napi_valuetype type,f7_error_node *node){
+ int primitive(napi_value value,napi_valuetype type,f7_error_node *node,uint8_t *progress){
   uint8_t *record;int result;node->kind=F7_GRAPH_PRIMITIVE;
   node->name.state=node->message.state=node->stack.state=F7_TEXT_ABSENT;
   if(type==napi_string){result=text(value,&node->message);if(result)return result;}
+  *progress|=4;
   if(type==napi_undefined||type==napi_null||type==napi_string){
    result=bytes(1,&record);if(result)return result;
    record[0]=type==napi_undefined?1:type==napi_null?2:3;node->original_native_length=1;
@@ -173,9 +174,10 @@ struct builder {
   napi_value value=w->originals[index];f7_error_node *item=w->nodes+index;
   napi_valuetype type;int result=api(napi_typeof(env,value,&type));if(result)return result;
   if(type!=napi_object){
+   if(type!=napi_undefined&&type!=napi_null&&type!=napi_boolean&&type!=napi_number&&
+      type!=napi_string&&type!=napi_bigint)return F7_INCOMPLETE;
    w->node_progress[index]=1|2|8|16|32;
-   result=primitive(value,type,item);
-   if(item->message.state!=F7_TEXT_STRING||item->message.units)w->node_progress[index]|=4;
+   result=primitive(value,type,item,w->node_progress+index);
    if(item->original_native_length)w->node_progress[index]|=64;
    if(!result)w->node_progress[index]|=128;return result;
   }
