@@ -10,7 +10,7 @@ import { runCommand as runMcpCommand } from "../scripts/mcp-product-acceptance-l
 import { classifyQualificationFailure, preserveFirstFailure, QUALIFICATION_FAILURE_CODES, QUALIFICATION_PHASES } from "../scripts/published-package-qualification-reliability.mjs";
 
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
-const verifierSource = async () => (await readFile(new URL("../scripts/verify-mcp-packaged.mjs", import.meta.url), "utf8")).replaceAll("\r\n", "\n");
+const verifierSource = async (name = "verify-mcp-packaged.mjs") => (await readFile(new URL(`../scripts/${name}`, import.meta.url), "utf8")).replaceAll("\r\n", "\n");
 const preparationSource = async () => (await readFile(new URL("../scripts/prepare-published-package-qualification.mjs", import.meta.url), "utf8")).replaceAll("\r\n", "\n");
 function between(source, start, end) {
   const first = source.indexOf(start);
@@ -26,21 +26,23 @@ async function originalPreparation(spawnImpl = spawn) {
 // AC-7G.windows-npm-argv / AC-6G: source witnesses support the protected
 // diagnostics/published/native gates; they do not qualify published payloads.
 test("verifier selects fixed Windows authority before reading ambient overrides and preserves non-Windows selection", async () => {
-  const selection = between(await verifierSource(), "const npmEntrypoint =", "async function exactCandidateSha(");
-  const select = new AsyncFunction("process", "path", "getNpmCommand", "stat", `${selection}; return npmEntrypoint;`);
-  const expected = "C:\\Node Root\\node_modules\\npm\\bin\\npm-cli.js";
-  const env = new Proxy({}, { get() { throw new Error("Windows ambient authority read"); } });
-  let descriptorCalls = 0;
-  assert.equal(await select({ platform: "win32", env }, path.win32, args => {
-    descriptorCalls += 1; assert.deepEqual(args, []); return { command: "C:\\Node Root\\node.exe", args: [expected] };
-  }, async value => assert.equal(value, expected)), expected);
-  assert.equal(descriptorCalls, 1);
-  for (const platform of ["linux", "darwin"]) {
-    for (const [configured, npmPath, expectedPath] of [["  /explicit npm  ", "/secondary", "/explicit npm"], ["  ", " /secondary ", "/secondary"], [undefined, undefined, "/node/lib/node_modules/npm/bin/npm-cli.js"]]) {
-      assert.equal(await select({ platform, execPath: "/node/bin/node", env: { SERVICE_LASSO_NPM_ENTRYPOINT: configured, npm_execpath: npmPath } }, path.posix, () => { throw new Error("non-Windows descriptor used"); }, async () => {}), expectedPath);
+  for (const name of ["verify-mcp-packaged.mjs", "verify-mcp-packaged-scoped.mjs"]) {
+    const selection = between(await verifierSource(name), "const npmEntrypoint =", "async function exactCandidateSha(");
+    const select = new AsyncFunction("process", "path", "getNpmCommand", "stat", `${selection}; return npmEntrypoint;`);
+    const expected = "C:\\Node Root\\node_modules\\npm\\bin\\npm-cli.js";
+    const env = new Proxy({}, { get() { throw new Error("Windows ambient authority read"); } });
+    let descriptorCalls = 0;
+    assert.equal(await select({ platform: "win32", env }, path.win32, args => {
+      descriptorCalls += 1; assert.deepEqual(args, []); return { command: "C:\\Node Root\\node.exe", args: [expected] };
+    }, async value => assert.equal(value, expected)), expected);
+    assert.equal(descriptorCalls, 1);
+    for (const platform of ["linux", "darwin"]) {
+      for (const [configured, npmPath, expectedPath] of [["  /explicit npm  ", "/secondary", "/explicit npm"], ["  ", " /secondary ", "/secondary"], [undefined, undefined, "/node/lib/node_modules/npm/bin/npm-cli.js"]]) {
+        assert.equal(await select({ platform, execPath: "/node/bin/node", env: { SERVICE_LASSO_NPM_ENTRYPOINT: configured, npm_execpath: npmPath } }, path.posix, () => { throw new Error("non-Windows descriptor used"); }, async () => {}), expectedPath);
+      }
     }
+    await assert.rejects(select({ platform: "win32", env }, path.win32, () => ({ args: [expected] }), async () => { throw new Error("missing"); }), /could not resolve the governed npm entrypoint/);
   }
-  await assert.rejects(select({ platform: "win32", env }, path.win32, () => ({ args: [expected] }), async () => { throw new Error("missing"); }), /could not resolve the governed npm entrypoint/);
 });
 
 test("both original receiving runners preserve special argument data", async () => {
@@ -112,13 +114,14 @@ test("actual normal npm installs exact fixture bytes through both deferred launc
     const packageRoot = path.join(root, "package source");
     const prepRoot = path.join(root, "prepared consumer");
     const mcpRoot = path.join(root, "MCP consumer");
+    const scopedMcpRoot = path.join(root, "scoped MCP consumer");
     const poisonRoot = path.join(root, "poison executables");
-    await Promise.all([packageRoot, prepRoot, mcpRoot, poisonRoot].map(dir => mkdir(dir)));
+    await Promise.all([packageRoot, prepRoot, mcpRoot, scopedMcpRoot, poisonRoot].map(dir => mkdir(dir)));
     const marker = path.join(root, "unrelated-marker");
     const payload = "exact deferred fixture bytes % ! ^ & 雪\n";
     await writeFile(path.join(packageRoot, "package.json"), JSON.stringify({ name: "deferred-npm-fixture", version: "1.0.0", files: ["payload.txt"] }));
     await writeFile(path.join(packageRoot, "payload.txt"), payload);
-    await Promise.all([prepRoot, mcpRoot].map(dir => writeFile(path.join(dir, "package.json"), JSON.stringify({ private: true }))));
+    await Promise.all([prepRoot, mcpRoot, scopedMcpRoot].map(dir => writeFile(path.join(dir, "package.json"), JSON.stringify({ private: true }))));
     const poison = path.join(poisonRoot, "poison.mjs");
     await writeFile(poison, `import {writeFileSync} from 'node:fs';writeFileSync(${JSON.stringify(marker)},'unexpected');`);
     await writeFile(path.join(poisonRoot, "npm.cmd"), `@echo unexpected>"${marker}"\r\n@exit /b 97\r\n`);
@@ -129,20 +132,22 @@ test("actual normal npm installs exact fixture bytes through both deferred launc
     await prep.runNpm(["install", archive, "--ignore-scripts", "--no-audit", "--no-fund"], { cwd: prepRoot, env });
     // Run the exact verifier selection and install statement in a child-only
     // environment. No top-level verifier/preparer or publication authority is fabricated.
-    const verifier = await verifierSource();
-    const selection = between(verifier, "const npmEntrypoint =", "async function exactCandidateSha(");
-    const install = between(verifier, "  await runCommand(process.execPath, [npmEntrypoint,", '  verificationStage = "installed_package_binding";');
-    const driver = path.join(root, "original verifier npm seam.mjs");
-    await writeFile(driver, [
-      'import path from "node:path"; import {stat} from "node:fs/promises";',
-      `import {getNpmCommand} from ${JSON.stringify(new URL("../scripts/npm-command-lib.mjs", import.meta.url).href)};`,
-      `import {runCommand} from ${JSON.stringify(new URL("../scripts/mcp-product-acceptance-lib.mjs", import.meta.url).href)};`,
-      selection,
-      `const staged={packageArchivePath:${JSON.stringify(archive)}}; const consumerRoot=${JSON.stringify(mcpRoot)}; const pinnedSdkVersion="1.0.0"; const installObservation=undefined;`,
-      install,
-    ].join("\n"));
-    await prep.runCommand(process.execPath, [driver], { cwd: root, env });
-    for (const consumer of [prepRoot, mcpRoot]) {
+    for (const [name, consumerRoot] of [["verify-mcp-packaged.mjs", mcpRoot], ["verify-mcp-packaged-scoped.mjs", scopedMcpRoot]]) {
+      const verifier = await verifierSource(name);
+      const selection = between(verifier, "const npmEntrypoint =", "async function exactCandidateSha(");
+      const install = between(verifier, "  await runCommand(process.execPath, [npmEntrypoint,", '  verificationStage = "installed_package_binding";');
+      const driver = path.join(root, `${name} npm seam.mjs`);
+      await writeFile(driver, [
+        'import path from "node:path"; import {stat} from "node:fs/promises";',
+        `import {getNpmCommand} from ${JSON.stringify(new URL("../scripts/npm-command-lib.mjs", import.meta.url).href)};`,
+        `import {runCommand} from ${JSON.stringify(new URL("../scripts/mcp-product-acceptance-lib.mjs", import.meta.url).href)};`,
+        selection,
+        `const staged={packageArchivePath:${JSON.stringify(archive)}}; const consumerRoot=${JSON.stringify(consumerRoot)}; const pinnedSdkVersion="1.0.0"; const installObservation=undefined;`,
+        install,
+      ].join("\n"));
+      await prep.runCommand(process.execPath, [driver], { cwd: root, env });
+    }
+    for (const consumer of [prepRoot, mcpRoot, scopedMcpRoot]) {
       const installed = path.join(consumer, "node_modules", "deferred-npm-fixture");
       assert.equal(await readFile(path.join(installed, "payload.txt"), "utf8"), payload);
       assert.equal(JSON.parse(await readFile(path.join(installed, "package.json"), "utf8")).version, "1.0.0");
