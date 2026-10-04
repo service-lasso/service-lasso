@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { stagePublishedPackage } from "./publish-package-lib.mjs";
+import { getNpmCommand } from "./npm-command-lib.mjs";
 import { takeBootstrappedReleaseMetadataToken, operatorToolFailureDiagnostic } from "./operator-tool-packaging-lib.mjs";
 import {
   MCP_PRODUCT_EVIDENCE_CONTRACT,
@@ -30,10 +31,10 @@ let provenanceOrdinal = 0;
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const platform = process.platform;
 const releaseMetadataToken = takeBootstrappedReleaseMetadataToken();
-const configuredNpmEntrypoint = process.env.SERVICE_LASSO_NPM_ENTRYPOINT?.trim() || process.env.npm_execpath?.trim();
-const npmEntrypoint = configuredNpmEntrypoint || (process.platform === "win32"
-  ? path.join(path.dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js")
-  : path.resolve(path.dirname(process.execPath), "..", "lib", "node_modules", "npm", "bin", "npm-cli.js"));
+const npmEntrypoint = process.platform === "win32"
+  ? getNpmCommand([]).args[0]
+  : (process.env.SERVICE_LASSO_NPM_ENTRYPOINT?.trim() || process.env.npm_execpath?.trim()
+    || path.resolve(path.dirname(process.execPath), "..", "lib", "node_modules", "npm", "bin", "npm-cli.js"));
 try { await stat(npmEntrypoint); } catch { throw new Error("Packaged MCP acceptance could not resolve the governed npm entrypoint."); }
 
 async function exactCandidateSha() {

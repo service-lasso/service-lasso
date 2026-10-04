@@ -19,7 +19,8 @@ const privacyByError = new WeakMap();
 const privacyByBoundary = new WeakMap();
 const transportByError = new WeakMap();
 const transportByBoundary = new WeakMap();
-export function fixturePrivacyTransportFailureObservation(error) { return transportByError.get(error); }
+const weakKey = value => value !== null && (typeof value === "object" || typeof value === "function");
+export function fixturePrivacyTransportFailureObservation(error) { return weakKey(error) ? transportByError.get(error) : undefined; }
 const privacyObservation = (verification = "not_attempted", protection = "not_attempted") =>
   Object.freeze({ schema: "service-lasso.fixture-privacy-observation.v1", verification, protection });
 
@@ -36,7 +37,7 @@ export function decodeFixturePrivacyResponse(stdout) {
   return undefined;
 }
 export function fixturePrivacyFailureObservation(error) {
-  return privacyByError.get(error) ?? privacyObservation("response_unavailable", "not_attempted");
+  return (weakKey(error) ? privacyByError.get(error) : undefined) ?? privacyObservation("response_unavailable", "not_attempted");
 }
 export function classifyFixturePrivacyCompletion(stdout, failed, spawnFailed, timeoutReached) {
   const response = decodeFixturePrivacyResponse(stdout);
@@ -49,8 +50,8 @@ export function classifyFixturePrivacyCompletion(stdout, failed, spawnFailed, ti
   }
   return failed === false && response === "passed" ? "passed" : "malformed_response";
 }
-const deliverPrivacyObservation = (observe, value) => {
-  try { observe(value); } catch { /* Observation never changes privacy authority. */ }
+const deliverPrivacyObservation = (observe, value, transport) => {
+  try { observe(value, transport); } catch { /* Observation never changes privacy authority. */ }
 };
 
 // The timer observes the same existing timeout; it adds no retry/deadline or
@@ -87,9 +88,17 @@ export async function runFixturePrivacy(root, protect, observe, launch = execFil
             !error && decoded?.response === "passed" ? "passed" :
             decoded?.observation.events.length === 0 ? "bootstrap_unavailable" : "response_unavailable";
           try { observe(result, decoded?.observation); } catch { /* Never replace the original error. */ }
-          if (error && decoded && (typeof error === "object" || typeof error === "function")) transportByError.set(error, decoded.observation);
+          if (weakKey(error)) {
+            if (decoded) transportByError.set(error, decoded.observation);
+            privacyByError.set(error, privacyObservation(protect ? "not_attempted" : result, protect ? result : "not_attempted"));
+          }
           if (error) { reject(error); return; }
-          if (result !== "passed") { reject(new Error("Fixture privacy response rejected.")); return; }
+          if (result !== "passed") {
+            const rejected = new Error("Fixture privacy response rejected.");
+            privacyByError.set(rejected, privacyObservation(protect ? "not_attempted" : result, protect ? result : "not_attempted"));
+            if (decoded) transportByError.set(rejected, decoded.observation);
+            reject(rejected); return;
+          }
           resolve();
         });
       child.once("error", () => { spawnFailed = true; });
@@ -98,6 +107,7 @@ export async function runFixturePrivacy(root, protect, observe, launch = execFil
     } catch (error) {
       clearTimeout(timer);
       try { observe("launch_unavailable"); } catch { /* Preserve construction error identity. */ }
+      if (weakKey(error)) privacyByError.set(error, privacyObservation(protect ? "not_attempted" : "launch_unavailable", protect ? "launch_unavailable" : "not_attempted"));
       reject(error);
     }
   });
@@ -114,38 +124,43 @@ async function evidencePermissions(root, protect, observe = () => {}) {
   }
 }
 
-export async function protectOriginalFixture(root, observe = () => {}) {
-  if (process.platform === "win32") {
+export async function protectOriginalFixture(root, observe = () => {}, permissions = evidencePermissions) {
+  if (process.platform === "win32" || permissions !== evidencePermissions) {
     // Recovered/crash callers may already hold an original whose private DACL
     // is established. Read-only validation requests no DELETE/write access.
     // An unprotected original still requires the separately held mutation path;
     // neither path resets an owner or enables a privilege.
     let verificationResult = "response_unavailable";
     let protectionResult = "not_attempted";
+    let verificationTransport = null, protectionTransport = null;
+    const deliver = value => deliverPrivacyObservation(observe, value,
+      Object.freeze({ verification: verificationTransport, protection: protectionTransport }));
     try {
-      await evidencePermissions(root, false, result => { verificationResult = result; });
-      deliverPrivacyObservation(observe, privacyObservation(verificationResult, protectionResult));
+      await permissions(root, false, (result, transport) => { verificationResult = result; verificationTransport = transport ?? null; });
+      deliver(privacyObservation(verificationResult, protectionResult));
       return;
     }
     catch (verification) {
       const first = privacyObservation(verificationResult, protectionResult);
-      privacyByError.set(verification, first);
+      if (weakKey(verification)) privacyByError.set(verification, first);
       try {
-        await evidencePermissions(root, true, result => { protectionResult = result; });
-        deliverPrivacyObservation(observe, privacyObservation(verificationResult, protectionResult));
+        await permissions(root, true, (result, transport) => { protectionResult = result; protectionTransport = transport ?? null; });
+        deliver(privacyObservation(verificationResult, protectionResult));
       } catch (protection) {
         const observation = privacyObservation(verificationResult, protectionResult);
-        privacyByError.set(protection, observation);
+        if (weakKey(protection)) privacyByError.set(protection, observation);
         const error = new AggregateError([verification, protection], "Original fixture privacy is unresolved.");
-        transportByError.set(error, Object.freeze({ verification: transportByError.get(verification), protection: transportByError.get(protection) }));
+        transportByError.set(error, Object.freeze({ verification: verificationTransport, protection: protectionTransport }));
         privacyByError.set(error, observation);
-        deliverPrivacyObservation(observe, observation);
+        deliver(observation);
         throw error;
       }
     }
   } else await evidencePermissions(root, true);
 }
-export async function verifyOriginalFixturePrivacy(root) { await evidencePermissions(root, false); }
+export async function verifyOriginalFixturePrivacy(root, observe = () => {}, permissions = evidencePermissions) {
+  await permissions(root, false, (result, transport) => deliverPrivacyObservation(observe, result, transport));
+}
 
 export const FIXTURE_INITIALIZATION_STAGES = Object.freeze([
   "initialization_diagnostic_allocate", "initialization_diagnostic_privacy",
