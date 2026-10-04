@@ -13,6 +13,7 @@ import {
   symlink,
   writeFile,
 } from "node:fs/promises";
+import https from "node:https";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -595,15 +596,31 @@ test("real Admin browser runner reaches first-run readiness with its dynamically
     assert.equal(readyReceipt.ownerCorrelation.state, "observed");
     assert.equal(Object.hasOwn(ready.liveReceipt, "readyPath"), false);
 
+    const brokerSources = JSON.parse(await readFile(path.join(supportRoot, "broker-sources.json"), "utf8"));
+    const providerAddress = brokerSources.sources.find(({ sourceId }) => sourceId === "vault-browser").address;
+    const providerCA = await readFile(path.join(supportRoot, "vault-test-ca.pem"));
+    const requestProvider = (requestPath = "/v1/secret/data/browser/provider-control", token = "browser-vault-token-sentinel-2026-08-14") => new Promise((resolve, reject) => {
+      const request = https.request(new URL(requestPath, providerAddress), {
+        method: "GET", ca: providerCA, rejectUnauthorized: true,
+        headers: { "x-vault-token": token },
+      }, (response) => {
+        response.resume();
+        response.once("end", () => resolve({ status: response.statusCode }));
+        response.once("error", reject);
+      });
+      request.setTimeout(5_000, () => request.destroy(new Error("Provider regression request timed out.")));
+      request.once("error", reject);
+      request.end();
+    });
+    const recoveryPath = path.join(evidenceRoot, "live-provider-control-recovery-receipt.json");
+    const assertNoRecovery = () => assert.rejects(access(recoveryPath), { code: "ENOENT" });
+    assert.equal((await requestProvider(undefined, "invalid-token")).status, 403);
     const beforeObservation = await fetch(
       `${ready.controlUrl}/fail-next-provider-request`,
       { method: "POST" },
     );
     assert.equal(beforeObservation.status, 409);
-    const initialProviderRequest = await fetch(
-      `${ready.controlUrl}/v1/secret/data/browser/provider-control`,
-      { headers: { "x-vault-token": "browser-vault-token-sentinel-2026-08-14" } },
-    );
+    const initialProviderRequest = await requestProvider();
     assert.equal(initialProviderRequest.status, 404);
     for (const nonce of [undefined, `${providerControlNonce.slice(0, -1)}0`]) {
       const forbidden = await fetch(`${ready.controlUrl}/fail-next-provider-request`, {
@@ -621,20 +638,24 @@ test("real Admin browser runner reaches first-run readiness with its dynamically
       },
     });
     assert.equal(armed.status, 200);
-    const controlledFailure = await fetch(
-      `${ready.controlUrl}/v1/secret/data/browser/provider-control`,
-      { headers: { "x-vault-token": "browser-vault-token-sentinel-2026-08-14" } },
-    );
+    const armedBytes = await readFile(path.join(evidenceRoot, "live-provider-control-receipt.json"));
+    assert.equal((await requestProvider(undefined, "invalid-token")).status, 403);
+    const controlledFailure = await requestProvider();
     assert.equal(controlledFailure.status, 503);
-    const subsequentNormalRequest = await fetch(
-      `${ready.controlUrl}/v1/secret/data/browser/provider-control`,
-      { headers: { "x-vault-token": "browser-vault-token-sentinel-2026-08-14" } },
-    );
+    const consumedBytes = await readFile(path.join(evidenceRoot, "live-provider-control-consumed-receipt.json"));
+    await assertNoRecovery();
+    assert.equal((await fetch(`${ready.controlUrl}/fail-next-provider-request`, { method: "POST", headers: { "x-service-lasso-provider-control-nonce": providerControlNonce } })).status, 409);
+    assert.equal((await requestProvider("/v1/secret/data/browser/other")).status, 404);
+    await assertNoRecovery();
+    const subsequentNormalRequest = await requestProvider();
     // The fixture restores the provider's ordinary behavior. For this missing
     // key it is the same natural 404 seen before arming, rather than a second
     // synthetic provider fault.
     assert.equal(subsequentNormalRequest.status, initialProviderRequest.status);
     assert.notEqual(subsequentNormalRequest.status, 503);
+    await assertNoRecovery();
+    assert.equal((await fetch(`${ready.controlUrl}/fail-next-provider-request`, { method: "POST", headers: { "x-service-lasso-provider-control-nonce": "0".repeat(64) } })).status, 409);
+    await assertNoRecovery();
     const stale = await fetch(`${ready.controlUrl}/fail-next-provider-request`, {
       method: "POST",
       headers: {
@@ -671,8 +692,36 @@ test("real Admin browser runner reaches first-run readiness with its dynamically
     assert.equal(recovery.controlNonce, providerControlNonce);
     assert.equal(recovery.baselineStatus, initialProviderRequest.status);
     assert.equal(recovery.recoveryStatus, subsequentNormalRequest.status);
-    assert.equal(recovery.rearmRejected, true);
+    assert.equal(recovery.rearm, "rejected");
     assert.equal(recovery.secondConsume, false);
+    const commonKeys = ["schema", "private", "nonce", "platform", "source", "adminSource", "controlNonce", "phase", "causalSink", "state"];
+    const privateArmed = JSON.parse(armedBytes.toString("utf8"));
+    for (const receipt of [privateArmed, privateConsumed, recovery]) {
+      assert.equal(receipt.schema, "service-lasso.real-admin-browser-provider-control.v1");
+      assert.equal(receipt.private, true);
+      assert.equal(receipt.platform, process.platform);
+      assert.equal(receipt.phase, "authenticated_provider_request");
+      assert.equal(receipt.nonce, ready.liveReceipt.nonce);
+      assert.deepEqual(receipt.source, { head: sourceHead, tree: sourceTree });
+      assert.deepEqual(receipt.adminSource, { head: sourceHead, tree: sourceTree });
+      assert.equal(receipt.controlNonce, providerControlNonce);
+      assert.equal(JSON.stringify(receipt).includes("browser-vault-token-sentinel"), false);
+    }
+    assert.deepEqual(Object.keys(privateArmed).sort(), [...commonKeys].sort());
+    assert.deepEqual(Object.keys(privateConsumed).sort(), [...commonKeys].sort());
+    assert.deepEqual(Object.keys(recovery).sort(), [...commonKeys, "originalRequest", "baselineStatus", "recoveryStatus", "rearm", "secondConsume"].sort());
+    assert.equal(privateArmed.state, "observed_before_controlled_fault");
+    assert.equal(privateArmed.causalSink, "authenticated_vault_provider_request");
+    assert.equal(privateConsumed.causalSink, "next_authenticated_vault_provider_request");
+    assert.equal(recovery.causalSink, privateConsumed.causalSink);
+    assert.equal(recovery.state, "controlled_fault_recovered");
+    assert.deepEqual(recovery.originalRequest, { method: "GET", path: "/v1/secret/data/browser/provider-control", authClass: "vault_token" });
+    const recoveryBytes = await readFile(recoveryPath);
+    assert.equal((await requestProvider()).status, 404);
+    assert.equal((await fetch(`${ready.controlUrl}/provider-fault-receipt`)).status, 200);
+    assert.deepEqual(await readFile(path.join(evidenceRoot, "live-provider-control-receipt.json")), armedBytes);
+    assert.deepEqual(await readFile(path.join(evidenceRoot, "live-provider-control-consumed-receipt.json")), consumedBytes);
+    assert.deepEqual(await readFile(recoveryPath), recoveryBytes);
 
     const sampleConfigState = JSON.parse(
       await readFile(

@@ -481,45 +481,76 @@ let providerFaultState = "not_armed";
 let providerControlReceipt = null;
 let providerBaseline = null;
 let providerRecoveryStatus = null;
+let providerConsumedRequest = null;
+let providerConsumeCount = 0;
+let providerConsumedResponseFinished = false;
+let providerControlWrite = null;
+let providerRecoveryWrite = null;
 let providerRearmRejected = false;
 let providerRecoveryRecorded = false;
 
 async function persistProviderControlReceipt(phase) {
-  if (providerControlReceipt) return providerControlReceipt;
+  if (providerControlWrite) return providerControlWrite;
   providerControlReceipt = {
     schema: "service-lasso.real-admin-browser-provider-control.v1",
     private: true,
     nonce: receiptNonce,
     source: { head: sourceHead, tree: sourceTree },
     adminSource,
+    platform: process.platform,
     controlNonce: providerControlNonce,
     phase,
     causalSink: "authenticated_vault_provider_request",
     state: "observed_before_controlled_fault",
   };
-  await createPrivateReceipt(providerReceiptPath, providerControlReceipt);
-  return providerControlReceipt;
+  providerControlWrite = createPrivateReceipt(providerReceiptPath, providerControlReceipt)
+    .then(() => providerControlReceipt);
+  return providerControlWrite;
+}
+
+function sameProviderRequest(left, right) {
+  return !!left && !!right && left.method === right.method
+    && left.path === right.path && left.authClass === right.authClass;
+}
+
+function observeOrdinaryProviderResponse(request, response, requestUrl, status) {
+  // This is called only after the original successful token check. Retain no
+  // token, arbitrary headers, query or request body in the private receipt.
+  const identity = { method: request.method, path: requestUrl.pathname, authClass: "vault_token" };
+  const observedState = providerFaultState;
+  const consumedBeforeResponse = providerConsumedResponseFinished;
+  response.once("finish", () => {
+    if (identity.method !== "GET" || identity.path !== "/v1/secret/data/browser/provider-control" || status !== 404) return;
+    if (observedState === "not_armed" && providerFaultState === "not_armed") {
+      providerBaseline ??= { request: identity, status };
+    } else if (observedState === "observed" && consumedBeforeResponse
+      && providerFaultState === "observed"
+      && sameProviderRequest(providerBaseline?.request, identity)
+      && sameProviderRequest(providerConsumedRequest, identity)
+      && providerConsumeCount === 1 && providerConsumedResponseFinished) {
+      providerRecoveryStatus = status;
+    }
+  });
 }
 
 async function persistProviderRecoveryReceipt() {
-  if (providerRecoveryRecorded || providerFaultState !== "observed" || !providerBaseline || providerRecoveryStatus === null || !providerRearmRejected) return null;
+  if (providerRecoveryWrite) return providerRecoveryWrite;
+  if (providerRecoveryRecorded || !providerConsumedResponseFinished || providerFaultState !== "observed" || !providerBaseline
+    || providerRecoveryStatus === null || !providerRearmRejected || providerConsumeCount !== 1
+    || !sameProviderRequest(providerBaseline.request, providerConsumedRequest)) return null;
   const receipt = {
-    schema: "service-lasso.real-admin-browser-provider-recovery.v1",
-    private: true,
-    nonce: receiptNonce,
-    controlNonce: providerControlNonce,
-    source: { head: sourceHead, tree: sourceTree },
-    adminSource,
-    publicCorrelation: { providerReceipt: "service-lasso.real-admin-browser-provider-control.v1", nonce: receiptNonce },
-    request: providerBaseline.request,
+    ...providerControlReceipt,
+    causalSink: "next_authenticated_vault_provider_request",
+    state: "controlled_fault_recovered",
+    originalRequest: providerBaseline.request,
     baselineStatus: providerBaseline.status,
     recoveryStatus: providerRecoveryStatus,
-    rearmRejected: true,
-    secondConsume: false,
+    rearm: "rejected",
+    secondConsume: providerConsumeCount !== 1,
   };
-  await createPrivateReceipt(providerRecoveryReceiptPath, receipt);
-  providerRecoveryRecorded = true;
-  return receipt;
+  providerRecoveryWrite = createPrivateReceipt(providerRecoveryReceiptPath, receipt)
+    .then(() => { providerRecoveryRecorded = true; return receipt; });
+  return providerRecoveryWrite;
 }
 
 function safeFailureCode(error) {
@@ -699,12 +730,19 @@ try {
         return;
       }
       if (providerFaultState !== "not_armed") {
-        if (request.headers["x-service-lasso-provider-control-nonce"] === providerControlNonce) {
+        const rejectedAfterRecovery = providerFaultState === "observed"
+          && providerRecoveryStatus !== null
+          && request.headers["x-service-lasso-provider-control-nonce"] === providerControlNonce;
+        const completed = new Promise((resolve) => {
+          response.once("finish", () => resolve(true));
+          response.once("close", () => resolve(false));
+        });
+        response.writeHead(409, { "Content-Type": "application/json" });
+        response.end(JSON.stringify({ outcome: "provider_fault_unavailable" }));
+        if (await completed && rejectedAfterRecovery) {
           providerRearmRejected = true;
           await persistProviderRecoveryReceipt();
         }
-        response.writeHead(409, { "Content-Type": "application/json" });
-        response.end(JSON.stringify({ outcome: "provider_fault_unavailable" }));
         return;
       }
       if (!providerControlReceipt) {
@@ -870,6 +908,9 @@ try {
     await persistProviderControlReceipt("authenticated_provider_request");
     if (providerFaultState === "armed") {
       providerFaultState = "observed";
+      providerConsumedRequest = { method: request.method, path: requestUrl.pathname, authClass: "vault_token" };
+      providerConsumeCount += 1;
+      response.once("finish", () => { providerConsumedResponseFinished = true; });
       response.writeHead(503, { "Content-Type": "application/json" });
       await createPrivateReceipt(
         providerConsumedReceiptPath,
@@ -885,9 +926,7 @@ try {
       return;
     }
     if (!requestUrl.pathname.startsWith("/v1/secret/data/browser/")) {
-      const identity = { method: request.method, path: requestUrl.pathname };
-      if (request.method === "GET" && providerFaultState === "not_armed") providerBaseline = { request: identity, status: 404 };
-      if (request.method === "GET" && providerFaultState === "observed" && providerBaseline && providerBaseline.request.method === identity.method && providerBaseline.request.path === identity.path) providerRecoveryStatus = 404;
+      observeOrdinaryProviderResponse(request, response, requestUrl, 404);
       response.writeHead(404, { "Content-Type": "application/json" });
       response.end(JSON.stringify({ errors: ["not found"] }));
       return;
@@ -900,9 +939,7 @@ try {
     const stored = vaultValues.get(requestUrl.pathname);
     if (request.method === "GET") {
       if (!stored) {
-        const identity = { method: request.method, path: requestUrl.pathname };
-        if (providerFaultState === "not_armed") providerBaseline = { request: identity, status: 404 };
-        if (providerFaultState === "observed" && providerBaseline && providerBaseline.request.method === identity.method && providerBaseline.request.path === identity.path) providerRecoveryStatus = 404;
+        observeOrdinaryProviderResponse(request, response, requestUrl, 404);
         response.writeHead(404, { "Content-Type": "application/json" });
         response.end(JSON.stringify({ errors: ["not found"] }));
         return;
