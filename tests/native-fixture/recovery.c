@@ -38,7 +38,8 @@ int f7_recovery_validate_persistent(struct f7_recovery_inventory *in,int64_t *st
  uint8_t signature[crypto_sign_BYTES],observer_pin[32],recipient_pin[32];struct f7_index_input index;
  if(!in||!status||!in->objects||!in->count||in->count>F7_OBJECT_MAX||
     !in->parsed_journal||!in->index_bytes||!in->canonical_scratch||!in->hash_scratch||
-    !in->hash_capacity||!in->decoded_objects||in->decoded_capacity<in->count||
+    !in->hash_capacity||!in->signature_workspace||!in->signature_workspace_capacity||
+    !in->decoded_objects||in->decoded_capacity<in->count||
     !in->index.length||in->index.length>in->index_capacity||in->signature.length!=sizeof(signature))return F7_INVALID;
  *status=0;
  /* Original identities remain caller-independent custody prerequisites.
@@ -52,7 +53,8 @@ int f7_recovery_validate_persistent(struct f7_recovery_inventory *in,int64_t *st
  crypto_hash_sha256(observer_pin,in->observer_public,32);crypto_hash_sha256(recipient_pin,in->recipient_public,32);
  if(index.count!=in->count||memcmp(index.invocation,in->invocation,16)||memcmp(index.attempt,in->attempt,32)||
     sodium_memcmp(index.observer_key,observer_pin,32)||sodium_memcmp(index.receiver_key,recipient_pin,32))return F7_AUTH_FAILURE;
- result=f7_verify_index(in->index_bytes,(size_t)in->index.length,signature,in->observer_public);
+ result=f7_verify_index(in->index_bytes,(size_t)in->index.length,signature,in->observer_public,
+  in->signature_workspace,in->signature_workspace_capacity);
  if(result)return result;
  result=read_object(&in->journal,in->hash_scratch,in->hash_capacity,NULL,0,status);if(result)return result;
  struct f7_attempt_journal *journal=in->parsed_journal;

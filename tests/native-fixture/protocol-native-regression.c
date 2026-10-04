@@ -123,4 +123,14 @@ static void error_graphs(void){
  payload[length]=0;assert(f7_error_graph_validate(payload,length+1,2)==F7_INVALID);
  payload[9]=1;assert(f7_error_graph_validate(payload,length,2)==F7_INVALID);
 }
-int main(void){framing();budgets();states();index_records();error_records();unknown_creation();segment_records();error_graphs();return 0;}
+static void signature_buffers(void){
+ uint8_t original[2]={'{','}'},index[128],receipt[128];size_t in=0,rn=0;
+ assert(f7_signature_message(F7_INDEX_DOMAIN,original,2,index,sizeof(index),&in)==F7_OK);
+ assert(f7_signature_message(F7_RECEIPT_DOMAIN,original,2,receipt,sizeof(receipt),&rn)==F7_OK);
+ assert(in!=rn||memcmp(index,receipt,in));
+ assert(f7_signature_message(F7_INDEX_DOMAIN,original,2,index,1,&in)==F7_BUDGET_ABSENT);
+ assert(f7_signature_message(F7_INDEX_DOMAIN,index,2,index,sizeof(index),&in)==F7_INVALID);
+ assert(f7_signature_message((enum f7_signature_domain)0,original,2,index,sizeof(index),&in)==F7_INVALID);
+ assert(original[0]=='{'&&original[1]=='}');
+}
+int main(void){framing();budgets();states();index_records();error_records();unknown_creation();segment_records();error_graphs();signature_buffers();return 0;}

@@ -109,3 +109,11 @@ ROOT authority, authenticated successors, or universal I/O settlement bounds.
 Linux private witnesses preserve actual fstat/fcntl/poll failures and poll retry
 statuses. POLLNVAL is recorded as its actual two-byte poll flag, without an
 invented read failure or errno. All new paths remain UNEXECUTED.
+
+Transport ciphertext and domain-separated signature construction now consume
+explicit source-owned workspaces; hidden malloc/free is removed from these
+paths. Missing capacity and overlapping plaintext/key/signature buffers fail
+closed, and recovery supplies its own retained signature workspace. Source
+regressions cover closed domains, insufficient capacity and overlap rejection;
+they remain UNEXECUTED. These memory inputs still need full actual native row
+reservation/provenance and authenticated ROOT owning-entry integration.

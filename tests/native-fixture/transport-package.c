@@ -2,7 +2,7 @@
 #include "segment-record.h"
 #include <string.h>
 static int object_ready(const struct f7_crypto_object *o,const struct f7_package *p){
- return o&&o->write&&o->journal&&o->journal->member&&o->journal==p->encrypted_manifest->journal&&
+ return o&&o->write&&o->workspace&&o->workspace_capacity&&o->journal&&o->journal->member&&o->journal==p->encrypted_manifest->journal&&
   !o->started&&!o->write->length&&!o->write->failed&&!o->write->finalized&&
   !o->journal->failed&&!memcmp(o->journal->invocation,p->invocation,16)&&
   !memcmp(o->journal->attempt,p->attempt,32);

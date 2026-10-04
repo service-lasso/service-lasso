@@ -16,6 +16,7 @@ struct f7_recovery_inventory {
  struct f7_attempt_journal *parsed_journal;
  uint8_t *index_bytes,*canonical_scratch,*hash_scratch;
  size_t index_capacity,canonical_capacity,hash_capacity;
+ uint8_t *signature_workspace;size_t signature_workspace_capacity;
  struct f7_index_object *decoded_objects;size_t decoded_capacity;
 };
 /* Pure retained-object integrity validation, never recovery authority or
