@@ -223,7 +223,7 @@ $temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) ("service-lasso-native-boo
     }
     if ($owner.process) { try { $owner.process.Dispose() } catch { $releaseFailed = $true; $owner.errors.Add(@{ phase = 'process-release'; exception = $_.Exception.ToString() }) } }
     if ($releaseFailed) { Retain-ActiveOriginalOwner }
-    $completed = $owner.exitObserved -and $owner.copies.stdout.terminal -and $owner.copies.stderr.terminal
+    $completed = $owner.exitObserved -and $owner.copies.stdout.observation.state -eq 'ACTUAL_COPY_COMPLETED' -and $owner.copies.stderr.observation.state -eq 'ACTUAL_COPY_COMPLETED'
     Write-OriginalToolRecord 'result' @{ recipe = $recipe; tool = $file; arguments = $arguments; startAttempted = $owner.startAttempted; startReturned = $owner.startReturned; started = $owner.started; completed = $completed; exitObserved = $owner.exitObserved; exitCode = $owner.exitCode; stdoutCopy = $owner.copies.stdout.observation; stderrCopy = $owner.copies.stderr.observation; exceptions = @($owner.errors); classification = $(if ($completed -and $owner.errors.Count -eq 0 -and $owner.exitCode -eq 0) { 'completed_success' } else { 'original_observed_failure' }) }
     $null = $script:NativeToolOwners.Remove($key)
     if (-not $completed -or $owner.errors.Count -or $owner.exitCode -ne 0) { throw "The original tool/copy outcomes failed; retained without retry." }
