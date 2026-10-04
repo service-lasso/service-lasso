@@ -5,13 +5,14 @@ cmake_minimum_required(VERSION 3.25)
 # before this project() can invoke any tool. Actual tool inputs remain ABSENT.
 foreach(required_input CMAKE_C_COMPILER CMAKE_CXX_COMPILER
     F7_ADMITTED_SODIUM_INCLUDE F7_ADMITTED_SODIUM_LIBRARY
+    F7_ADMITTED_NODE_INCLUDE
     F7_ADMITTED_PLATFORM_LIBRARIES)
   if(NOT DEFINED ${required_input} OR "${${required_input}}" STREQUAL "")
     message(FATAL_ERROR "Missing separately admitted native build input")
   endif()
 endforeach()
 foreach(path_input CMAKE_C_COMPILER CMAKE_CXX_COMPILER
-    F7_ADMITTED_SODIUM_INCLUDE F7_ADMITTED_SODIUM_LIBRARY)
+    F7_ADMITTED_SODIUM_INCLUDE F7_ADMITTED_SODIUM_LIBRARY F7_ADMITTED_NODE_INCLUDE)
   if(NOT IS_ABSOLUTE "${${path_input}}")
     message(FATAL_ERROR "Native build input must be exact and absolute")
   endif()
@@ -34,11 +35,12 @@ add_library(f7_u1_native STATIC
   async-spool.c witness.c witness-reader.c observer.c observer-finalize.c
   observer-linux.c observer-windows.cpp child-witness.c
   child-witness-linux.c child-witness-windows.cpp
-  error-channel.c error-graph.c error-peer-linux.c canonical-index.c canonical-index-reader.c
+  error-channel.c error-graph.c original-error-node.cpp original-error-node-regression.cpp
+  error-peer-linux.c canonical-index.c canonical-index-reader.c
   segment-record.c plaintext-manifest.c manifest-reader.c attempt-journal.c
   transport-crypto.c transport-package.c recovery.c recovery-linux.c
   recovery-windows.cpp public-projection.c)
-target_include_directories(f7_u1_native PRIVATE "${F7_ADMITTED_SODIUM_INCLUDE}")
+target_include_directories(f7_u1_native PRIVATE "${F7_ADMITTED_SODIUM_INCLUDE}" "${F7_ADMITTED_NODE_INCLUDE}")
 target_link_libraries(f7_u1_native PUBLIC "${F7_ADMITTED_SODIUM_LIBRARY}"
   ${F7_ADMITTED_PLATFORM_LIBRARIES})
 # Unexecuted protocol regression only; this is not the full original native
