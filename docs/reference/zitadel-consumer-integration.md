@@ -12,7 +12,7 @@ the database, domain, issuer, client registrations, redirect URIs, and secret
 lifecycle.
 
 For a worked local HTTPS setup with application sign-in verification, start
-with [Zitadel SSO Hub](../getting-started/zitadel-sso-hub.md). This page remains
+with [Advanced — Add Zitadel SSO to Todo](../getting-started/zitadel-sso-hub.md). This page remains
 the reference contract for ownership and the minimal fixture.
 
 Do not add ZITADEL to the core baseline just because an app needs SSO. Commit it

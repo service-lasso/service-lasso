@@ -421,3 +421,24 @@ Original CLI proof outer18 keys/closure10 keys remain; launch becomes exact11 ke
 Core operations1..23/retained-version MAC replay-before-expiry/native-lock ACCEPT/original six-field DECLARED/held stage stream and full ZIP/JSON/catalog/provenance/modes/differences/native materialization/discovery/two-generation journal/capsule/fixed-ID exact-payload durable Audit no-loss outbox remain unchanged. Full CA01..CA08/TC01..TC12/positive-negative-crash/raw provider ZIP/source/operator journey remain required. Missing profiles/keys/images/providers/catalog/immutable pins/F7 are activation gaps, never fake grants or success. Native1640 D1/D4/D8 separate NO-GO remains unwaived. Original Windows/Linux released route/TUI/same published bytes/protected publication/lifecycle acceptance and Darwin deferred remain distinct/unmet.
 
 Whole-blueprint literal angle/brace expressions receive code-span markup only to resolve the actual natural b47 docs111314171608 MDX21:680 error; exact normative literal bytes/values are preserved. Image parser guard/packages/workflow remain unchanged. Source-only byte/integrity/markup analysis is not a docs build, implementation SOURCE GO, native admission or acceptance.
+
+
+### Issue #1650: reviewed deferred Windows npm routes
+
+Development source preparation for SPEC-007 AC-7G.windows-npm-argv and SPEC-006 AC-6G, linked #1636/#1562 after PR #1637 landed at fdaf1b12687cdce8878cca85d398029fd6535557. The approved whole two-surface blueprint closes only the earlier verifier/preparer deferrals in source: Windows verifier selects getNpmCommand's fixed process.execPath sibling npm-cli.js before any ambient SERVICE_LASSO_NPM_ENTRYPOINT/npm_execpath evaluation; non-Windows configured/layout routing remains exact. Keep the explicit outer AsyncFunction npmEntrypoint diagnostic fixture seam.
+
+Published preparation routes getNpmCommand through its original local Promise runner, with shell:false/windowsVerbatimArguments:false after options. Preserve original synchronous/asynchronous Error identity, output through close, nonzero message, cwd/env/stdio/windowsHide/signal/timeout/killSignal, exact integrity-bound tarball and first failure/one pre-mutation retry. Source harness imports never replace or rebuild published Core bytes. MCP300000ms, original native15s/product/published gates, eight cleanup attempts/delays/privacy and all protected assertions remain unchanged.
+
+Prepare receiving argv, Windows-legal root/hostile child-only environment, real exact npm fixture install through both original launch seams, options/errors/close/nonzero, non-Windows routing and first-failure/no-third-attempt regressions. SOURCE UNEXECUTED: different fresh ENTIRE cumulative source review and NEW complete-input ROOT admission precede imports/parser/compiler/build/tests/npm/native. No provider dispatch/settings/merge or release authority. Backlog status: in_progress source authoring; review/qualification remains open. Existing primary retained state and other worktree ownership remain preserved.
+
+## Getting Started service learning (#1658)
+
+The newcomer journey teaches adding and operating managed services. Todo runs as a service from the first lesson; PostgreSQL and Go API are subsequent managed additions. User correction #1666 requires a proper GitHub-template-derived `lasso-todo` service repository with its own manifest, packaging, verification and CI; Core-owned ad-hoc runtime copying is superseded. Go API follows the same service authoring contract. Template provenance, packaged consumer evidence and progressive managed architecture must be verified. Runtime/GA qualification remains separate.
+
+
+## Tutorial architecture presentation (#1670)
+
+Show purpose first and implementation second: App (lasso-todo), Database (lasso-postgres), API (lasso-todo-api). Keep the managed boundary and progressive additions; move detailed responsibilities, support services and data paths into adjacent tables.
+
+#1667: Consume the corrected foreground lasso-postgres release under SPEC-002 AC-4AJ.7/.8 and producer SPEC-PG-MANAGED. Remove the tutorial adapter prerequisite, preserve prior data/failures, bind exact tag/checksum native Core evidence and explicit docs publication.
+Core #1673 extends the fourth tutorial into managed Todo sign-in with app-owned Zitadel, under AC-4AJ.9. Preserve shared list identity and earlier stages; package/consumer publication precedes exact live documentation verification.
