@@ -1,5 +1,43 @@
 #include "recovery.h"
 #include <string.h>
+int f7_recovery_storage_validate(const struct f7_recovery_inventory *v,
+ const void *state,size_t state_bytes){
+ if(!v||!v->parsed_journal||!v->parsed_journal->member||
+    v->count>F7_OUTER_OBJECT_MAX||v->decoded_capacity>F7_OUTER_OBJECT_MAX||
+    v->parsed_journal->capacity>F7_OUTER_OBJECT_MAX)return F7_INVALID;
+ struct span {uintptr_t address;size_t length;};
+ struct span spans[]={
+  {(uintptr_t)v,sizeof(*v)},{(uintptr_t)v->objects,v->count*sizeof(*v->objects)},
+  {(uintptr_t)v->parsed_journal,sizeof(*v->parsed_journal)},
+  {(uintptr_t)v->parsed_journal->member,sizeof(*v->parsed_journal->member)},
+  {(uintptr_t)v->parsed_journal->entries,v->parsed_journal->capacity*sizeof(*v->parsed_journal->entries)},
+  {(uintptr_t)v->index_bytes,v->index_capacity},{(uintptr_t)v->canonical_scratch,v->canonical_capacity},
+  {(uintptr_t)v->hash_scratch,v->hash_capacity},{(uintptr_t)v->signature_workspace,v->signature_workspace_capacity},
+  {(uintptr_t)v->decoded_objects,v->decoded_capacity*sizeof(*v->decoded_objects)},
+  {(uintptr_t)state,state_bytes}
+ };
+ for(size_t i=0;i<sizeof(spans)/sizeof(spans[0]);i++){
+  if(i==10&&!state&&!state_bytes)continue;
+  if(!spans[i].address||!spans[i].length)return F7_BUDGET_ABSENT;
+  if(spans[i].length>UINTPTR_MAX-spans[i].address)return F7_INVALID;
+  for(size_t j=0;j<i;j++)if(!(spans[i].address+spans[i].length<=spans[j].address||
+   spans[j].address+spans[j].length<=spans[i].address))return F7_CONFLICT;
+ }
+ return F7_OK;
+}
+int f7_recovery_job_input_geometry(struct f7_recovery_job **out,
+ const struct f7_recovery_inventory *v,const struct f7_recovery_job_memory *m,int64_t *native){
+ if(!out||!v||!m||!native)return F7_INVALID;
+ struct span {uintptr_t address;size_t length;};
+ struct span spans[]={{(uintptr_t)out,sizeof(*out)},{(uintptr_t)m,sizeof(*m)},
+  {(uintptr_t)native,sizeof(*native)},{(uintptr_t)m->state,m->state_bytes}};
+ for(size_t i=0;i<4;i++){
+  int result=f7_recovery_storage_validate(v,(const void *)spans[i].address,spans[i].length);if(result)return result;
+  for(size_t j=0;j<i;j++)if(!(spans[i].address+spans[i].length<=spans[j].address||
+   spans[j].address+spans[j].length<=spans[i].address))return F7_CONFLICT;
+ }
+ return F7_OK;
+}
 static int read_object(const struct f7_retained_object *o,uint8_t *buffer,size_t capacity,
  uint8_t *body,size_t body_capacity,int64_t *status){
  struct f7_identity identity;uint64_t size,offset=0;uint8_t digest[32];
@@ -41,6 +79,7 @@ int f7_recovery_validate_persistent(struct f7_recovery_inventory *in,int64_t *st
     !in->hash_capacity||!in->signature_workspace||!in->signature_workspace_capacity||
     !in->decoded_objects||in->decoded_capacity<in->count||
     !in->index.length||in->index.length>in->index_capacity||in->signature.length!=sizeof(signature))return F7_INVALID;
+ int shaped=f7_recovery_storage_validate(in,status,sizeof(*status));if(shaped)return shaped;
  *status=0;
  /* Original identities remain caller-independent custody prerequisites.
     Reading equal bytes from a newly adopted copy is not SAME validation. */

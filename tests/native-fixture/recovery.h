@@ -1,6 +1,7 @@
 #ifndef SERVICE_LASSO_F7_RECOVERY_H
 #define SERVICE_LASSO_F7_RECOVERY_H
 #include "canonical-index.h"
+#include "error-producer-queue.h"
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -25,13 +26,22 @@ struct f7_recovery_inventory {
    Missing original ROOT creator/endpoint admission still prevents handoff. */
 int f7_recovery_validate_persistent(struct f7_recovery_inventory *inventory,
  int64_t *native_status);
+int f7_recovery_storage_validate(const struct f7_recovery_inventory *inventory,
+ const void *owning_job_state,size_t state_bytes);
 struct f7_recovery_job;
-struct f7_recovery_job_status {int finished,result;int64_t native_status;};
+struct f7_recovery_job_memory {void *state;size_t state_bytes,stack_bytes,guard_bytes;};
+struct f7_recovery_job_status {
+ int finished,result,worker_created,construction_failed;int64_t native_status;
+ struct f7_producer_native_fact construction_fact;
+};
 /* Read/hash work runs independently of admission/control. Caller retains the
    immutable inventory and ALL buffers/capabilities until actual job exit.
    Stack reservation is explicit and supplied by the actual row admission. */
+size_t f7_recovery_job_state_bytes(void);
+int f7_recovery_job_input_geometry(struct f7_recovery_job **out,
+ const struct f7_recovery_inventory *inventory,const struct f7_recovery_job_memory *memory,int64_t *native_status);
 int f7_recovery_job_start(struct f7_recovery_job **out,
- struct f7_recovery_inventory *inventory,size_t reserved_stack_bytes,int64_t *native_status);
+ struct f7_recovery_inventory *inventory,const struct f7_recovery_job_memory *original_memory,int64_t *native_status);
 int f7_recovery_job_poll(struct f7_recovery_job *job,struct f7_recovery_job_status *out);
 /* Nonblocking settlement preserves actual wait/join/close failures. On failure
    the job and caller-owned inventory remain retained; no timeout frees them. */
