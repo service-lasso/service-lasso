@@ -225,3 +225,5 @@ O error-channel source continues validating later original frames after a known
 serialization fallback while retaining attempt incompleteness. Malformed data
 still rejects. Original ROOT actor/source/peer/entry proof, W adapter integration,
 full resource/row/provenance and entire native regression source remain pending.
+
+Unexecuted producer native regression source now accepts only the original fixture owner's already-prepared queue, original serialized graph, independent original bindings, and bytes actually read from its held native endpoint. It compares the complete received frame and original payload, checks rejected types cannot change accepted submission counts, and checks exact retained queued/in-flight bytes after an actual native failure. No surrogate receiver, fixture creation, actor grant, runtime acceptance or whole-unit completion is supplied. Original full row/owner/callsite integration remains pending.
