@@ -6,7 +6,10 @@ Status: complete canonical contract independently reviewed and landed through #1
 
 ## Current owned U1 source progress — incomplete
 
-Sole writer `feature/1647-f7-u1-native-capture` / draft #1686 owns actual native
+Complete implementation #1687 (parents #1562/#1326) is separate from bounded
+canonical #1647 completed through #1651. SAME sole writer retains
+`feature/1647-f7-u1-native-capture` / draft #1686 under conductor receiving
+exception, no rename/reuse/owner change. This writer owns actual native
 framing/state/budget, held spool/witness, Linux and Windows drain, canonical
 index/segment encoder and exact index decoder, reserve-before-crypto journal,
 crypto/signing, finite projection, partial native regression and provenance/

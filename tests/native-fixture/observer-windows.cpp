@@ -30,6 +30,7 @@ static DWORD WINAPI drain(LPVOID value){
   }
   if(!success&&status==ERROR_BROKEN_PIPE){
    c->natural_eof[i]=1;
+   if(i==F7_PRIVATE_ERRORS&&f7_error_channel_eof(c->error_channel))d->result=F7_INCOMPLETE;
    if(record(d,F7_NATURAL_EOF,d->capacity,0,c->observed[i],NULL,status,1))d->result=F7_INCOMPLETE;
    break;
   }
@@ -40,6 +41,8 @@ static DWORD WINAPI drain(LPVOID value){
    record(d,F7_UNAVAILABLE,d->capacity,0,c->observed[i],NULL,ERROR_NO_DATA,1);break;
   }
   uint64_t accepted=0,persisted=0;int64_t native_status=0;int budget;
+  if(i==F7_PRIVATE_ERRORS&&f7_error_channel_feed(c->error_channel,d->buffer,got,
+      c->reservation->input.frame_count,c->reservation->input.original[F7_PRIVATE_ERRORS]))d->result=F7_INCOMPLETE;
   EnterCriticalSection(d->witness_lock);
   int queue=f7_budget_queue(c->reservation,(enum f7_stream)i,got);
   budget=f7_budget_take(c->reservation,(enum f7_stream)i,got,&accepted);
@@ -60,7 +63,8 @@ static DWORD WINAPI drain(LPVOID value){
 extern "C" int f7_capture_windows(struct f7_capture *c,uint64_t deadline){
  drain_context contexts[F7_STREAM_COUNT]={};HANDLE threads[F7_STREAM_COUNT]={};
  CRITICAL_SECTION lock;unsigned i;int result=F7_OK;
- if(!c||!c->reservation||!c->witness||!deadline)return F7_INVALID;
+ if(!c||!c->reservation||!c->witness||!deadline||
+   (c->created[F7_PRIVATE_ERRORS]&&!c->error_channel))return F7_INVALID;
  InitializeCriticalSection(&lock);
  /* Allocate all independent queues before any drain starts. This function
     does not launch a downstream actor or claim admission by handle number. */

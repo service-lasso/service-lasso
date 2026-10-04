@@ -1,9 +1,15 @@
 # U1 native F7 source checkpoint — incomplete
 
-Development source preparation, #1647 / parent #1562 / SPEC-010 F7-01..F7-03,
+Development source preparation, implementation #1687 / parents #1562/#1326 /
+SPEC-010 F7-01..F7-03,
 F7-07..F7-09. Base develop d65aa4c7cfce1923e63e469e7912e942b9f745c7.
 This checkpoint is actual partial native source, **not COMPLETE U1**, SOURCE GO,
 an observer binary, a native result or any admission/activation/acceptance claim.
+Canonical #1647 is complete only for its independently reviewed contract landed
+through #1651. SAME source writer retains existing branch
+`feature/1647-f7-u1-native-capture` / draft #1686 under the conductor's explicit
+receiving exception; no rename/reuse/owner change. Full actual U1 acceptance is
+owned by #1687 and remains INCOMPLETE.
 
 Implemented source bytes: closed binary error framing and sequence checks;
 monotonic state transitions with retained failure; checked independent stream,
@@ -19,6 +25,9 @@ closed exact original ciphertext-index decoding with canonical roster digest
 recomputation, duplicate/order/extra/trailing/length/capacity rejection;
 held persistent reserve-before-crypto attempt journal with flush/independent
 same-object byte readback and strict hash-chain/replay/partial-record parsing;
+actual Linux/Windows private-error stream integration of bounded incremental
+frame/role/lifetime/nonce/sequence/ordinal/payload quota/terminal validation,
+while retaining untouched original raw bytes independently;
 finite public strings with no arbitrary payload parameter.
 Native framing/state/budget negative regression source is present but UNEXECUTED;
 it is partial and does not replace complete original production-path regressions.

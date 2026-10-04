@@ -13,7 +13,8 @@ static uint64_t milliseconds(void){struct timespec ts;if(clock_gettime(CLOCK_MON
 int f7_capture_linux(struct f7_capture *c,uint64_t deadline){
  struct pollfd p[F7_STREAM_COUNT];uint8_t *buffers[F7_STREAM_COUNT]={0};
  unsigned i;int active=0,result=F7_OK;
- if(!c||!c->reservation||!c->witness||!deadline)return F7_INVALID;
+ if(!c||!c->reservation||!c->witness||!deadline||
+   (c->created[F7_PRIVATE_ERRORS]&&!c->error_channel))return F7_INVALID;
  /* Reserve every drain buffer before any read or downstream permission. */
  for(i=0;i<F7_STREAM_COUNT;i++){
   struct stat st;p[i].fd=-1;p[i].events=POLLIN;p[i].revents=0;
@@ -46,9 +47,12 @@ int f7_capture_linux(struct f7_capture *c,uint64_t deadline){
    if(n<0){c->terminal_status[i]=errno;result=F7_INCOMPLETE;
     f7_witness_emit(c->witness,i,F7_READ_ERROR,want,0,c->observed[i],NULL,errno,1);p[i].fd=-1;active--;continue;}
    if(n==0){c->natural_eof[i]=1;
+    if(i==F7_PRIVATE_ERRORS&&f7_error_channel_eof(c->error_channel))result=F7_INCOMPLETE;
     if(f7_witness_emit(c->witness,i,F7_NATURAL_EOF,want,0,c->observed[i],NULL,0,1))result=F7_INCOMPLETE;
     p[i].fd=-1;active--;continue;}
    uint64_t accepted=0,persisted=0;int64_t native_status=0;
+   if(i==F7_PRIVATE_ERRORS&&f7_error_channel_feed(c->error_channel,buffers[i],(size_t)n,
+      c->reservation->input.frame_count,c->reservation->input.original[F7_PRIVATE_ERRORS]))result=F7_INCOMPLETE;
    if(f7_budget_queue(c->reservation,i,(uint64_t)n)||
       f7_witness_emit(c->witness,i,F7_READ,want,(uint64_t)n,c->observed[i],buffers[i],0,0))result=F7_INCOMPLETE;
    if((uint64_t)n>UINT64_MAX-c->observed[i]){result=F7_OVERFLOWED;goto end;}

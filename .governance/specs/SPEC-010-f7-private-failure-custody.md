@@ -6,6 +6,14 @@ This spec incorporates the ENTIRE selected architecture below. Proposal-phase st
 
 ## Normative requirement map
 
+Implementation owner map: focused #1687 / parents #1562/#1326 owns COMPLETE
+connected U1 native O/crypto/SAME recovery/caller/provenance/full native source
+regressions in draft #1686. Canonical #1647/#1651 completion remains bounded to
+the whole source contract. SAME writer keeps existing
+`feature/1647-f7-u1-native-capture` under explicit conductor receiving exception;
+no rename, branch reuse or owner change. U1 source remains INCOMPLETE and supplies
+no actual resource/actor/key/grant/row/admission or execution authority.
+
 | ID | Required contract and acceptance |
 | --- | --- |
 | F7-01 | O admission and persistent private channels precede EVERY downstream initialization; raw capture, natural original EOF and all primary/secondary error witnesses remain exact. |

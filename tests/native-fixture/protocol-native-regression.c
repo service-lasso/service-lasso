@@ -4,6 +4,7 @@
 #include "budget-reservation.h"
 #include "public-projection.h"
 #include "canonical-index.h"
+#include "error-channel.h"
 #include <assert.h>
 #include <string.h>
 #include <stdint.h>
@@ -62,4 +63,18 @@ static void index_records(void){
  assert(f7_decode_index(original,n,&decoded,decoded_objects,1,scratch,sizeof(scratch))==F7_OVERFLOWED);
  objects[1].key[15]=1;assert(f7_canonical_index(&input,original,sizeof(original),&n)==F7_INVALID);
 }
-int main(void){framing();budgets();states();index_records();return 0;}
+static void error_records(void){
+ struct f7_error_channel channel={0},partial={0};struct f7_frame frame={0};
+ uint8_t record[F7_FRAME_HEADER_SIZE+7]={0};
+ channel.role=F7_W;frame.role=F7_W;frame.sequence=1;frame.ordinal=1;
+ frame.payload_type=F7_ERROR_GRAPH;frame.payload_length=7;
+ assert(f7_frame_encode(record,&frame)==F7_OK);
+ partial=channel;
+ assert(f7_error_channel_feed(&channel,record,31,2,32)==F7_OK);
+ assert(f7_error_channel_feed(&channel,record+31,sizeof(record)-31,2,32)==F7_OK);
+ assert(f7_error_channel_eof(&channel)==F7_OK&&channel.frames==1);
+ assert(f7_error_channel_feed(&channel,record,sizeof(record),2,32)==F7_INCOMPLETE);
+ assert(f7_error_channel_feed(&partial,record,F7_FRAME_HEADER_SIZE,2,32)==F7_OK);
+ assert(f7_error_channel_eof(&partial)==F7_INCOMPLETE);
+}
+int main(void){framing();budgets();states();index_records();error_records();return 0;}
