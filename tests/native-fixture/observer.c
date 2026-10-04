@@ -56,7 +56,7 @@ int f7_capture_prepare(struct f7_capture *c){
    c->incomplete=1;return F7_NATIVE_FAILURE;}
  }
  uint64_t queue=c->reservation->input.witness_queue_bytes;
- if(queue<264||queue>SIZE_MAX||c->reservation->input.emergency_queue_bytes<264||
+ if(queue<F7_WITNESS_QUEUE_MIN||queue>SIZE_MAX||c->reservation->input.emergency_queue_bytes<F7_WITNESS_QUEUE_MIN||
     c->reservation->input.emergency_queue_bytes>SIZE_MAX){c->incomplete=1;return F7_BUDGET_ABSENT;}
  size_t chunk=(size_t)(queue-8>F7_WITNESS_BYTES+32+F7_FRAME_MAX?
    F7_WITNESS_BYTES+32+F7_FRAME_MAX:queue-8);

@@ -41,7 +41,10 @@ int f7_witness_validate(struct f7_witness_expectation *expected,
  if(inline_payload){
   if(original_slice||original_length)return F7_INVALID;
   value.inline_bytes=record+F7_WITNESS_BYTES+32;value.inline_length=(size_t)value.returned;
-  if((value.event==F7_CHILD_EXIT||value.event==F7_CHILD_WAIT_PENDING)&&value.returned!=64)return F7_INVALID;
+  if(value.event==F7_CHILD_EXIT||value.event==F7_CHILD_WAIT_PENDING){
+   if(value.returned<F7_CHILD_FACT_HEADER||number(value.inline_bytes+64)>F7_CHILD_NATIVE_MAX||
+      value.returned!=F7_CHILD_FACT_HEADER+number(value.inline_bytes+64))return F7_INVALID;
+  }
   if(value.event==F7_POLL_INVALID&&value.returned!=2)return F7_INVALID;
   crypto_hash_sha256(digest,value.inline_bytes,value.inline_length);
  }else{

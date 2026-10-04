@@ -14,8 +14,8 @@ int f7_budget_derive(struct f7_reservation *out,const struct f7_budget_input *in
   if(!nonzero(in->row_input_sha256,32)||!nonzero(in->derivation_sha256,32)||
      !in->witness_bytes||!in->manifest_bytes||!in->inventory_entries||
      !in->emergency_bytes||!in->frame_count||!in->transfer_milliseconds||
-     in->witness_queue_bytes<264||in->witness_queue_bytes>SIZE_MAX||
-     in->emergency_queue_bytes<264||in->emergency_queue_bytes>SIZE_MAX)return F7_BUDGET_ABSENT;
+     in->witness_queue_bytes<F7_WITNESS_QUEUE_MIN||in->witness_queue_bytes>SIZE_MAX||
+     in->emergency_queue_bytes<F7_WITNESS_QUEUE_MIN||in->emergency_queue_bytes>SIZE_MAX)return F7_BUDGET_ABSENT;
   for(i=0;i<F7_STREAM_COUNT;i++){
     uint64_t segments;
     if(!in->original[i]||!in->queue_bytes[i]||in->queue_bytes[i]>SIZE_MAX||

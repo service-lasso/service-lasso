@@ -12,6 +12,7 @@ struct f7_child_exit {
  int64_t wait_result,exit_status,exit_kind,native_error;
  enum f7_child_disposition disposition;
  uint64_t native_calls;
+ uint8_t native_record[F7_CHILD_NATIVE_MAX];size_t native_record_length;
 };
 /* Observe ONLY the original retained native child lifetime. Neither a caller
    PID nor JS close/transport EOF can replace this held process/pidfd wait. */

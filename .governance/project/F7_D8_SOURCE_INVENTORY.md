@@ -139,3 +139,13 @@ initialization. This module issues no roles and cannot establish child birth or
 lifetime from a PID; original admitted ROOT peer binding/callsite is still absent.
 The existing FIFO observer path has not been relabeled as credential-authenticated;
 its owning integration and full original native regression source remain pending.
+
+Linux original child wait facts now retain the entire native siginfo byte record
+immediately after waitid, including pending, unusual-kind and failure cases.
+Earlier returned pid/status/kind are preserved before disposition checks rather
+than discarded. Private child witnesses carry a closed 72-byte header plus the
+exact native record; native record length is explicit and bounded by 256 bytes.
+The witness reader enforces the complete child length, and both persistence
+queues require the full 528-byte worst-case framed/queued record reservation.
+Native ABI/header provenance and actual row reservations remain unadmitted;
+these original facts never prove pipe EOF or authenticated child/ROOT admission.
