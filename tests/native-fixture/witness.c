@@ -13,6 +13,9 @@ int f7_witness_emit(struct f7_witness_sink *sink,enum f7_stream stream,
  sink->ordinal[stream]==UINT64_MAX||returned>requested||returned>SIZE_MAX||
  (!slice&&returned))return F7_INVALID;
  if(sink->pending)return F7_INCOMPLETE;
+ uintptr_t record_start=(uintptr_t)sink->record_buffer,slice_start=(uintptr_t)slice;
+ if(sink->record_capacity>UINTPTR_MAX-record_start||returned>UINTPTR_MAX-slice_start||
+    (returned&&!(record_start+sink->record_capacity<=slice_start||slice_start+returned<=record_start)))return F7_INVALID;
  if(returned>F7_FRAME_MAX||f7_checked_add(F7_WITNESS_BYTES+sizeof(digest),inline_payload?returned:0,&reserved))return F7_INVALID;
  frame=sink->record_buffer;
  memset(frame,0,F7_WITNESS_BYTES);memcpy(frame,"SLF7WIT1",8);
