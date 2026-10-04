@@ -72,6 +72,9 @@ These also run inside Service Lasso and support the application path above.
 - Finish the first three lessons and retain their inventory, workspace and data.
   Commands run from your Core checkout and use `workspace/canonical-services-root`
   and `workspace/demo-instance`.
+- Use the current `develop` checkout containing `examples/todo-sso/`. Preserve
+  local source changes before updating, then run `npm ci` and `npm run build`.
+  The provisioning helper loads this checkout's compiled Broker modules.
 - Use PostgreSQL `2026.10.4-1af7982` from the [database lesson](intermediate-make-todo-app-durable.md).
   Upgrade an older adapter-backed install using its retained-data instructions first.
 - Back up manifests and databases. Stop Todo, the API and PostgreSQL through
