@@ -151,3 +151,7 @@ Keep the service folder and its data. Do not rerun the add command to restart it
 
 [Add PostgreSQL to this same managed app](intermediate-make-todo-app-durable.md),
 then [add a Go Todo API service](advanced-add-go-todo-api-service.md).
+
+See the [independent example review](../development/documented-examples-verification.md)
+for the Windows evidence and known baseline recycle/shutdown limitations. The
+service-specific checks above passed; whole-demo shutdown is not qualified.
