@@ -434,3 +434,8 @@ Prepare receiving argv, Windows-legal root/hostile child-only environment, real 
 ## Getting Started service learning (#1658)
 
 The newcomer journey teaches adding and operating managed services. Todo runs as a service from the first lesson; PostgreSQL and Go API are subsequent managed additions. User correction #1666 requires a proper GitHub-template-derived `lasso-todo` service repository with its own manifest, packaging, verification and CI; Core-owned ad-hoc runtime copying is superseded. Go API follows the same service authoring contract. Template provenance, packaged consumer evidence and progressive managed architecture must be verified. Runtime/GA qualification remains separate.
+
+
+## Tutorial architecture presentation (#1670)
+
+Show purpose first and implementation second: App (lasso-todo), Database (lasso-postgres), API (lasso-todo-api). Keep the managed boundary and progressive additions; move detailed responsibilities, support services and data paths into adjacent tables.
