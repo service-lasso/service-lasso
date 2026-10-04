@@ -29,8 +29,9 @@ Use these templates when you want the fastest path to a real app shape:
 ## What They Prove
 
 Follow [Start a reference host](service-authoring/start-reference-host.md) for the
-shared roots, Admin and Echo workflow. The reviewed Electron/Tauri sources do not
-establish native-shell compilation acceptance. Executable-wrapper packages retain
+shared roots, Admin and Echo workflow. For the verified Windows Tauri path,
+follow [Package Todo as a desktop app](getting-started/package-todo-tauri.md).
+The earlier Electron review remains source-only. Executable-wrapper packages retain
 a colocated payload; source, bootstrap-download and bundled outputs each need
 their own verification. The exact reviewed identities are recorded in the
 [authoring migration decisions](components/authoring-migration-decisions.json).

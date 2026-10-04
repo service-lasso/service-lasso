@@ -97,6 +97,9 @@ Use the native build implementation described in the template's
 The older placeholder Tauri configuration cannot compile an executable. The
 checked-in `Cargo.lock` and npm lock bind the build dependencies.
 
+This tutorial's verified template implementation landed on `develop` at
+[`59a8039`](https://github.com/service-lasso/service-lasso-app-tauri/commit/59a8039d5aa57bc60728f3e6e5fda461d6d7a825).
+
 ## 2. Add the released Todo stack to your inventory
 
 ```powershell
