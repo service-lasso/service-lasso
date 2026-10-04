@@ -874,3 +874,7 @@ Prepare this coherent two-finding source correction only. Existing R1..R7/TC01..
 | `ISS-1683` | `in_progress` | Repair coherent Core dependency identity and supported docs graph | `SPEC-002 AC-4DI.1–3` | Map immutable #1677/#1678 contributions into a dedicated current-develop repair PR. Preserve natural failures and strict acceptance; source-only until fresh independent entire review and NEW complete ROOT admission. Existing bot PR landing remains the parent coordinator's decision. |
 
 - #1679 / AC-4AJ.10: Todo Tauri Windows executable tutorial; prerequisite service-lasso-app-tauri#24 / NATIVE-1–6. In progress.
+
+## Published governance reference repair (#1690; parent #1562)
+
+Development source-only repair bound to SPEC-002 AC-4DOC.1690 and existing SPEC-010 F7-01..F7-09 authority: replace the two owning protocol links with canonical develop repository references, retaining every protocol/actor/resource/private-custody and unqualified boundary. Strict broken-link gate and disabled image parser remain unchanged. Original Docs37229127609 and MCP37229127658 documentation failures stay failed; no build/tests/import/native/CI rerun/publication or GA claim. Different fresh ENTIRE review and NEW complete-input ROOT precede build; parent owns landing after1681 and before1676/1624/1688. Darwin is Deferred / Not applicable, never PASS. Status: in_progress source preparation.
