@@ -126,3 +126,12 @@ regressions in this checkout. Freeze complete cumulative U1, then obtain a
 DIFFERENT entire source review and NEW complete exact ROOT before execution.
 Retain this checkpoint and every prior original failure; never count this PR
 as the complete package selected by the canonical inventory.
+
+The retained-object integrity validator now has Linux and Windows native worker
+source with explicit stack reservations and nonblocking result polling. Actual
+thread exit must precede release; failed wait/join/handle-close leaves the job
+and all original input capabilities/buffers retained. These jobs do not create
+ROOT authority, authenticated successors, or universal I/O settlement bounds.
+Linux private witnesses preserve actual fstat/fcntl/poll failures and poll retry
+statuses. POLLNVAL is recorded as its actual two-byte poll flag, without an
+invented read failure or errno. All new paths remain UNEXECUTED.

@@ -100,3 +100,12 @@ U1 next source authorship starts only after this canonical whole contract is ind
 ## Required direct acceptance catalog (unexecuted)
 
 All original F1-F7 and nine rows remain mandatory. F7 adds pre-O admission failure rejection; initialization/privacy/provision/guardian/serialization primary+secondary/cyclic failures; genuine child exit-before-drain/EOF missing/writer leak; queue/disk/collector death; role/replay/sequence/capability failure; ONCE ciphertext/index/signature persistence, O/T death and SAME authenticated successor; randomized re-encryption conflict; exact branchless seed push, unknown outcome reconciliation, extra refs/workflows, bootstrap drift/deletion, role grants/redirect/ID mismatches; original protocol/pack truncation/trailer/delta source/result/opcode/external-base/cycle/quota failures; wrong tree ordering/binary OID/commit LF/date/extra-header/REST-only readback rejection; C wrong-key/decrypt/disk/access/ALL persisted readback including after O/S death; omitted/forged native witness and receipt replay. Private failures remain retained; a receipt means failed_attempt_preserved and never runtime PASS, D1 approval, cleanup or release. G native own persisted capture and C own plaintext persistence are separate requirements.
+
+The retained-object integrity validator now has Linux and Windows native worker
+source with explicit stack reservations and nonblocking result polling. Actual
+thread exit must precede release; failed wait/join/handle-close leaves the job
+and all original input capabilities/buffers retained. These jobs do not create
+ROOT authority, authenticated successors, or universal I/O settlement bounds.
+Linux private witnesses preserve actual fstat/fcntl/poll failures and poll retry
+statuses. POLLNVAL is recorded as its actual two-byte poll flag, without an
+invented read failure or errno. All new paths remain UNEXECUTED.

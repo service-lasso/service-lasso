@@ -36,7 +36,8 @@ add_library(f7_u1_native STATIC
   child-witness-linux.c child-witness-windows.cpp
   error-channel.c error-graph.c canonical-index.c canonical-index-reader.c
   segment-record.c plaintext-manifest.c manifest-reader.c attempt-journal.c
-  transport-crypto.c transport-package.c recovery.c public-projection.c)
+  transport-crypto.c transport-package.c recovery.c recovery-linux.c
+  recovery-windows.cpp public-projection.c)
 target_include_directories(f7_u1_native PRIVATE "${F7_ADMITTED_SODIUM_INCLUDE}")
 target_link_libraries(f7_u1_native PUBLIC "${F7_ADMITTED_SODIUM_LIBRARY}"
   ${F7_ADMITTED_PLATFORM_LIBRARIES})

@@ -20,12 +20,21 @@ int f7_capture_linux(struct f7_capture *c,uint64_t deadline){
  for(i=0;i<F7_STREAM_COUNT;i++){
   struct stat st;p[i].fd=-1;p[i].events=POLLIN;p[i].revents=0;
   if(c->created[i]!=F7_CREATED)continue;
-  if(!c->raw[i]||fstat(c->pipe[i],&st)<0||!S_ISFIFO(st.st_mode)||
-   (fcntl(c->pipe[i],F_GETFL)&O_ACCMODE)!=O_RDONLY||
+  if(!c->raw[i]||
    c->reservation->input.queue_bytes[i]>SIZE_MAX){result=F7_INVALID;goto end;}
+  if(fstat(c->pipe[i],&st)<0){int actual_error=errno;c->terminal_status[i]=actual_error;
+   f7_witness_emit(c->witness,i,F7_PIPE_QUERY_ERROR,0,0,c->observed[i],NULL,actual_error,1);
+   result=F7_NATIVE_FAILURE;goto end;}
+  if(!S_ISFIFO(st.st_mode)){result=F7_INVALID;goto end;}
   if(!c->drain_buffer[i]||!c->drain_capacity[i]||!c->raw_async[i]){result=F7_BUDGET_ABSENT;goto end;}
   int flags=fcntl(c->pipe[i],F_GETFL);
-  if(fcntl(c->pipe[i],F_SETFL,flags|O_NONBLOCK)<0){result=F7_NATIVE_FAILURE;goto end;}
+  if(flags<0){int actual_error=errno;c->terminal_status[i]=actual_error;
+   f7_witness_emit(c->witness,i,F7_PIPE_FLAGS_ERROR,0,0,c->observed[i],NULL,actual_error,1);
+   result=F7_NATIVE_FAILURE;goto end;}
+  if((flags&O_ACCMODE)!=O_RDONLY){result=F7_INVALID;goto end;}
+  if(fcntl(c->pipe[i],F_SETFL,flags|O_NONBLOCK)<0){int actual_error=errno;c->terminal_status[i]=actual_error;
+   f7_witness_emit(c->witness,i,F7_PIPE_FLAGS_ERROR,0,0,c->observed[i],NULL,actual_error,1);
+   result=F7_NATIVE_FAILURE;goto end;}
   p[i].fd=c->pipe[i];active++;
  }
  if(c->child_created==F7_CREATED){
@@ -38,12 +47,22 @@ int f7_capture_linux(struct f7_capture *c,uint64_t deadline){
   uint64_t now=milliseconds();if(now==UINT64_MAX||now>=deadline){result=F7_INCOMPLETE;break;}
   uint64_t remaining=deadline-now;int wait=(int)(remaining>1000?1000:remaining);
   int ready=poll(p,F7_STREAM_COUNT,wait);
-  if(ready<0&&errno==EINTR)continue;
-  if(ready<0){result=F7_NATIVE_FAILURE;break;}
+  if(ready<0&&errno==EINTR){int actual_error=errno;
+   if(f7_witness_emit(c->witness,F7_CONTROL,F7_POLL_RETRY,F7_STREAM_COUNT,0,
+      c->observed[F7_CONTROL],NULL,actual_error,0))result=F7_INCOMPLETE;
+   continue;
+  }
+  if(ready<0){int actual_error=errno;result=F7_NATIVE_FAILURE;
+   f7_witness_emit(c->witness,F7_CONTROL,F7_POLL_ERROR,F7_STREAM_COUNT,0,
+      c->observed[F7_CONTROL],NULL,actual_error,1);break;}
   for(i=0;i<F7_STREAM_COUNT;i++){
    if(p[i].fd<0||!p[i].revents)continue;
-   if(p[i].revents&POLLNVAL){c->terminal_status[i]=EBADF;result=F7_INCOMPLETE;
-    f7_witness_emit(c->witness,i,F7_READ_ERROR,0,0,c->observed[i],NULL,EBADF,1);p[i].fd=-1;active--;continue;}
+   /* POLLNVAL is an observed poll flag, not a failed read or errno EBADF. */
+   if(p[i].revents&POLLNVAL){result=F7_INCOMPLETE;
+    uint16_t flags=(uint16_t)p[i].revents;
+    uint8_t original_flags[2]={(uint8_t)(flags>>8),(uint8_t)flags};
+    f7_witness_emit(c->witness,i,F7_POLL_INVALID,2,2,c->observed[i],original_flags,0,1);
+    p[i].fd=-1;active--;continue;}
    /* One bounded read per ready stream gives independent streams a turn.
       POLLHUP is never EOF: only actual native read returning zero is. */
    size_t want=c->drain_capacity[i];

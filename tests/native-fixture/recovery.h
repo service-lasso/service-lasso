@@ -24,6 +24,17 @@ struct f7_recovery_inventory {
    Missing original ROOT creator/endpoint admission still prevents handoff. */
 int f7_recovery_validate_persistent(struct f7_recovery_inventory *inventory,
  int64_t *native_status);
+struct f7_recovery_job;
+struct f7_recovery_job_status {int finished,result;int64_t native_status;};
+/* Read/hash work runs independently of admission/control. Caller retains the
+   immutable inventory and ALL buffers/capabilities until actual job exit.
+   Stack reservation is explicit and supplied by the actual row admission. */
+int f7_recovery_job_start(struct f7_recovery_job **out,
+ struct f7_recovery_inventory *inventory,size_t reserved_stack_bytes,int64_t *native_status);
+int f7_recovery_job_poll(struct f7_recovery_job *job,struct f7_recovery_job_status *out);
+/* Nonblocking settlement preserves actual wait/join/close failures. On failure
+   the job and caller-owned inventory remain retained; no timeout frees them. */
+int f7_recovery_job_release_exited(struct f7_recovery_job *job,int64_t *native_status);
 #ifdef __cplusplus
 }
 #endif
