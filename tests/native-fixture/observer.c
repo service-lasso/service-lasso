@@ -45,7 +45,7 @@ int f7_capture_validate(const struct f7_capture *c){
  c->witness->member->handle==F7_INVALID_HANDLE||
  c->witness->emergency_member->handle==F7_INVALID_HANDLE||
  !present(c->witness->invocation,16)||!present(c->witness->attempt,32)||!present(c->witness->lifetime,16)||
- c->witness->role<F7_O||c->witness->role>F7_R||
+ c->witness->role!=F7_O||
  (!c->prepared&&(c->witness->failed||c->reservation->exhausted||c->incomplete||c->child_exit_observed))||
  (c->child_created!=F7_CREATED&&c->child_created!=F7_NOT_CREATED))return F7_INVALID;
  if(c->created[F7_PRIVATE_ERRORS]!=F7_CREATED)return F7_INVALID;
@@ -69,10 +69,9 @@ int f7_capture_validate(const struct f7_capture *c){
   if(!c->error_channel||(!c->prepared&&(c->error_channel->failed||c->error_channel->frames))||
     !c->error_channel->payload||!c->error_channel->payload_capacity||
     c->error_channel->payload_capacity>F7_FRAME_MAX||!c->error_channel->graph_node_limit||
-    c->error_channel->role!=c->witness->role||
+    c->error_channel->role!=F7_W||!present(c->error_channel->lifetime,16)||
     memcmp(c->error_channel->invocation,c->witness->invocation,16)||
-    memcmp(c->error_channel->attempt,c->witness->attempt,32)||
-    memcmp(c->error_channel->lifetime,c->witness->lifetime,16))return F7_AUTH_FAILURE;
+    memcmp(c->error_channel->attempt,c->witness->attempt,32))return F7_AUTH_FAILURE;
  }
  return F7_OK;
 }
