@@ -331,3 +331,79 @@ html[data-theme="dark"] {
     grid-template-columns: 1fr;
   }
 }
+
+/* Tutorial architecture: purpose first, implementation second. */
+.tutorial-architecture {
+  --architecture-surface: #f5f8fc;
+  --architecture-border: #cbd5e1;
+  --architecture-node: #ffffff;
+  --architecture-text: #263449;
+  --architecture-accent: #e2f8f3;
+  --architecture-accent-border: #089981;
+  margin: 1.5rem 0;
+  padding: 1.5rem 1rem;
+  border: 1px solid var(--architecture-border);
+  border-radius: 20px;
+  background: var(--architecture-node);
+}
+
+[data-theme="dark"] .tutorial-architecture {
+  --architecture-surface: #1c2736;
+  --architecture-border: #42546b;
+  --architecture-node: #243247;
+  --architecture-text: #e7edf5;
+  --architecture-accent: #123f3b;
+  --architecture-accent-border: #59d9bb;
+}
+
+.tutorial-architecture .docusaurus-mermaid-container {
+  margin: 0;
+  text-align: center;
+}
+
+.tutorial-architecture svg {
+  font-family: system-ui, sans-serif !important;
+}
+
+.tutorial-architecture .cluster rect {
+  fill: var(--architecture-surface) !important;
+  stroke: var(--architecture-border) !important;
+  stroke-dasharray: 5 4;
+  rx: 16px;
+  ry: 16px;
+}
+
+.tutorial-architecture .node rect,
+.tutorial-architecture .node path,
+.tutorial-architecture .node polygon {
+  fill: var(--architecture-node) !important;
+  stroke: var(--architecture-border) !important;
+  filter: drop-shadow(0 2px 2px rgb(0 0 0 / 8%));
+}
+
+.tutorial-architecture .node.added rect,
+.tutorial-architecture .node.added path,
+.tutorial-architecture .node.added polygon {
+  fill: var(--architecture-accent) !important;
+  stroke: var(--architecture-accent-border) !important;
+}
+
+.tutorial-architecture .nodeLabel,
+.tutorial-architecture .cluster-label span,
+.tutorial-architecture .nodeLabel p {
+  color: var(--architecture-text) !important;
+}
+
+.tutorial-architecture .nodeLabel b {
+  font-size: 19px;
+  font-weight: 650;
+}
+
+.tutorial-architecture .nodeLabel small {
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.tutorial-architecture .cluster-label {
+  font-weight: 650;
+}

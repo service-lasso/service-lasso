@@ -11,31 +11,51 @@ health, database storage and restart recovery.
 
 ## Outcome
 
-**Stage 2: Add managed PostgreSQL.** The Todo app runs inside Service Lasso from
-the first lesson. Every application process shown inside the boundary is managed
-by Lasso; the browser connects to the Todo service's allocated web endpoint.
+**Stage 2: Add the Database.** The same App now saves todos in the Database.
+
+<div className="tutorial-architecture">
 
 ```mermaid
-%%{init: {"flowchart": {"nodeSpacing": 12, "rankSpacing": 40}}}%%
+%%{init: {"flowchart": {"nodeSpacing": 24, "rankSpacing": 28, "padding": 18}, "themeVariables": {"fontFamily": "system-ui, sans-serif"}}}%%
 flowchart TB
-  accTitle: Stage 2: Add managed PostgreSQL
-  accDescr: Service Lasso manages the Todo app from stage one alongside baseline apps. Stage two adds PostgreSQL. Stage three adds a Go API between the Todo service and database. JSON storage belongs to the Todo service and is not a separate service.
-  browser["Browser Todo UI"]
+  accTitle: Stage 2: Add the Database
+  accDescr: The same App now saves todos in the Database. All application services run inside the Service Lasso boundary. Existing management and runtime services are listed in the adjacent table.
+  browser(["Browser"])
   subgraph lasso["Service Lasso"]
-    baseline["Baseline apps<br/>Service Admin<br/>Secrets Broker<br/>Echo / Node provider"]
-    todo["lasso-todo<br/>Todo service<br/>UI + backend"]
-    db[("PostgreSQL service<br/>Persisted Todo data")]
+    todo("<b>App</b><br/><small>(lasso-todo)</small>")
+    db[("<b>Database</b><br/><small>(lasso-postgres)</small>")]
   end
-  browser -->|HTTP| todo
-  todo -->|SQL| db
-  classDef added fill:#e0f2fe,stroke:#0369a1,color:#0c4a6e
+  browser --> todo
+  todo --> db
+  classDef service stroke-width:1.5px
+  classDef added stroke-width:2.5px
+  class todo,db service
   class db added
 ```
 
-Blue highlights what this lesson adds. Solid arrows show application traffic.
-Service Admin operates the services in the boundary; Lasso installs, starts,
-stops, allocates ports and monitors their health. The JSON file in stage 1 is
-Todo service data, not another service. Other runtime support packages are omitted.
+</div>
+
+The highlighted service is new in this lesson. Everything inside the boundary is managed by Service Lasso.
+
+| Purpose | Service | Responsibility / data path |
+| --- | --- | --- |
+| App | `lasso-todo` (`todo`) | Serve the UI; migrate the original JSON todos and read/write SQL. |
+| Database | `lasso-postgres` (`postgres`) | Persist todos in `${SERVICE_ROOT}/data/database`; the App connects to its allocated SQL endpoint. |
+
+<details>
+<summary>Existing platform services</summary>
+
+These services also run inside Service Lasso. They support the application path shown above.
+
+| Purpose | Service | Responsibility |
+| --- | --- | --- |
+| Management | `lasso-serviceadmin` (`@serviceadmin`) | Install, configure, start and stop services; show health and endpoints. |
+| Secrets | `lasso-secretsbroker` (`@secretsbroker`) | Provide the platform's managed secret delivery. |
+| Example | `echo-service` | The starter service already included in the demo. |
+| Runtime | `lasso-node` (`@node`) | Run the App's packaged JavaScript. |
+
+</details>
+
 
 ## 1. Import PostgreSQL into the same inventory
 

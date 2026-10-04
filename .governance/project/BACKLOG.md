@@ -828,3 +828,5 @@ Published preparation routes getNpmCommand through its original local Promise ru
 
 Prepare receiving argv, Windows-legal root/hostile child-only environment, real exact npm fixture install through both original launch seams, options/errors/close/nonzero, non-Windows routing and first-failure/no-third-attempt regressions. SOURCE UNEXECUTED: different fresh ENTIRE cumulative source review and NEW complete-input ROOT admission precede imports/parser/compiler/build/tests/npm/native. No provider dispatch/settings/merge or release authority. Backlog status: in_progress source authoring; review/qualification remains open. Existing primary retained state and other worktree ownership remain preserved.
 #1666: SPEC-002 AC-4AJ.7/.8 template-derived lasso-todo and lasso-todo-api tutorial adoption. Service PRs #2 merged; development releases published. Independent released-consumer verification and Core docs publication in progress. Separate PostgreSQL default-launch defect #1667 remains Backlog.
+
+#1670: SPEC-002 AC-4AJ.7/.8 diagram presentation correction; docs-only Development, SVG light/dark/mobile and explicit live publication verification.
