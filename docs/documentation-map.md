@@ -16,6 +16,7 @@ This inventory records every Markdown page that existed when issue [#1258](https
 | `getting-started/intermediate-make-todo-app-durable.md` | Start here | guide | Listed: PostgreSQL durability after Todo |
 | `getting-started/advanced-add-go-todo-api-service.md` | Start here | guide | Listed: Advanced — Go API between Todo UI and Postgres |
 | `getting-started/zitadel-sso-hub.md` | Start here | guide | Listed: Advanced — Add Zitadel SSO to Todo; fourth managed-service lesson |
+| `getting-started/package-todo-tauri.md` | Start here | guide | Listed: Advanced — Package Todo as a desktop app; fifth architecture lesson |
 | `service-catalog.md` | Start here | reference | Listed: inventory discovery |
 | `reference-apps.md` | Use in your app | guide | Listed: reference-app choice; cross-linked from Start here |
 | `release-asset-policy.md` | Contribute and maintain | reference | Listed: release verification boundary |
