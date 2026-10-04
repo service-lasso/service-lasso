@@ -153,4 +153,18 @@ static void witness_records(void){
  assert(expected.sequence==1&&view.returned==3&&!view.inline_bytes);
  assert(f7_witness_validate(&expected,record,sizeof(record),raw,3,&view)==F7_INVALID);
 }
-int main(void){framing();budgets();states();index_records();error_records();unknown_creation();segment_records();error_graphs();signature_buffers();witness_records();return 0;}
+static void child_records(void){
+ uint8_t bytes[F7_CHILD_FACT_HEADER+3]={0};struct f7_child_exit child;
+ f7_u64be(bytes+56,F7_CHILD_INPUT_REJECTED);
+ assert(f7_child_exit_decode(bytes,F7_CHILD_FACT_HEADER,&child)==F7_OK);
+ f7_u64be(bytes+32,1);assert(f7_child_exit_decode(bytes,F7_CHILD_FACT_HEADER,&child)==F7_INVALID);
+ f7_u64be(bytes+32,0);f7_u64be(bytes+56,F7_CHILD_PENDING);f7_u64be(bytes+48,1);
+ f7_u64be(bytes+64,3);bytes[F7_CHILD_FACT_HEADER]=255;
+ assert(f7_child_exit_decode(bytes,sizeof(bytes),&child)==F7_OK);
+ assert(child.native_record_length==3&&child.native_record[0]==255&&!child.observed);
+ assert(f7_child_exit_decode(bytes,sizeof(bytes)-1,&child)==F7_INVALID);
+ f7_u64be(bytes+40,1);assert(f7_child_exit_decode(bytes,sizeof(bytes),&child)==F7_INVALID);
+ f7_u64be(bytes+40,0);f7_u64be(bytes+48,8);
+ assert(f7_child_exit_decode(bytes,sizeof(bytes),&child)==F7_INVALID);
+}
+int main(void){framing();budgets();states();index_records();error_records();unknown_creation();segment_records();error_graphs();signature_buffers();witness_records();child_records();return 0;}

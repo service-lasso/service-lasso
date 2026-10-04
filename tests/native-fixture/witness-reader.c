@@ -1,4 +1,5 @@
 #include "witness.h"
+#include "child-witness.h"
 #include <string.h>
 static uint64_t number(const uint8_t *p){
  uint64_t n=0;for(unsigned i=0;i<8;i++)n=(n<<8)|p[i];return n;
@@ -44,6 +45,11 @@ int f7_witness_validate(struct f7_witness_expectation *expected,
   if(value.event==F7_CHILD_EXIT||value.event==F7_CHILD_WAIT_PENDING){
    if(value.returned<F7_CHILD_FACT_HEADER||number(value.inline_bytes+64)>F7_CHILD_NATIVE_MAX||
       value.returned!=F7_CHILD_FACT_HEADER+number(value.inline_bytes+64))return F7_INVALID;
+   struct f7_child_exit child;
+   if(f7_child_exit_decode(value.inline_bytes,value.inline_length,&child)||
+      (value.event==F7_CHILD_EXIT&&!child.observed)||
+      (value.event==F7_CHILD_WAIT_PENDING&&child.disposition!=F7_CHILD_PENDING)||
+      value.native_status!=child.native_error)return F7_INVALID;
   }
   if(value.event==F7_POLL_INVALID&&value.returned!=2)return F7_INVALID;
   crypto_hash_sha256(digest,value.inline_bytes,value.inline_length);

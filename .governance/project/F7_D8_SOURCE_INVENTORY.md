@@ -149,3 +149,12 @@ The witness reader enforces the complete child length, and both persistence
 queues require the full 528-byte worst-case framed/queued record reservation.
 Native ABI/header provenance and actual row reservations remain unadmitted;
 these original facts never prove pipe EOF or authenticated child/ROOT admission.
+
+Private child fact decoding now enforces the exact header/native-byte length,
+closed disposition, original observed/not-observed consistency and native-call
+bitmap. An input rejection cannot fabricate a native call/error/exit record.
+Child exit/pending witness events must match their decoded private facts and
+native status before the witness reader advances. Original raw ABI bytes are
+retained unchanged; this decoder cannot authenticate a process or infer EOF.
+Adversarial source regression cases cover truncated native records, inconsistent
+observation, invented native calls and byte preservation, all UNEXECUTED.

@@ -19,6 +19,10 @@ struct f7_child_exit {
 int f7_child_exit_linux(f7_handle original_pidfd,struct f7_child_exit *out);
 int f7_child_exit_windows(f7_handle original_process,struct f7_child_exit *out);
 int f7_child_exit_record(struct f7_witness_sink *sink,const struct f7_child_exit *exit);
+/* Decode retained private facts without establishing an original process,
+   native call or birth/exit authority. Exact native bytes remain opaque until
+   the independent owner binds their admitted native ABI/source provenance. */
+int f7_child_exit_decode(const uint8_t *bytes,size_t length,struct f7_child_exit *out);
 #ifdef __cplusplus
 }
 #endif
