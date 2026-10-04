@@ -8,7 +8,7 @@ Add your first application service to Service Lasso. You will register a small
 Todo web app, start it through Lasso, inspect its health and endpoint in Admin,
 and prove that its data survives a managed stop/start.
 
-**Success:** `todo-app` appears in Admin, is healthy, accepts a new todo and keeps
+**Success:** `todo` appears in Admin, is healthy, accepts a new todo and keeps
 it after refresh and a service restart.
 
 ## Outcome
@@ -25,7 +25,7 @@ flowchart TB
   browser["Browser Todo UI"]
   subgraph lasso["Service Lasso"]
     baseline["Baseline apps<br/>Service Admin<br/>Secrets Broker<br/>Echo / Node provider"]
-    todo["Todo app service<br/>UI + backend<br/>JSON file storage"]
+    todo["lasso-todo<br/>Todo service<br/>UI + backend<br/>JSON file storage"]
   end
   browser -->|HTTP| todo
   classDef added fill:#e0f2fe,stroke:#0369a1,color:#0c4a6e
@@ -39,119 +39,70 @@ Todo service data, not another service. Other runtime support packages are omitt
 
 ## 1. Start Lasso and sign in to Admin
 
-You need Node.js 22+, npm, Git and internet access for the first service download.
+Use Node.js 22+, npm, Git and internet access. In a new learning workspace:
 
-```sh
-git clone --branch develop https://github.com/service-lasso/service-lasso.git
+```powershell
+git clone --branch develop --single-branch https://github.com/service-lasso/service-lasso.git
 cd service-lasso
 npm ci
 npm run demo
 ```
 
-Open [Service Admin](http://127.0.0.1:17700/). Complete first-run setup, save the
-local credential and recovery material privately, acknowledge that you saved
-them, and sign in. Confirm the baseline services are visible and healthy.
-If baseline setup completed but services remain stopped, use **Start** in Admin.
-To restart this demo, stop it, wait for its process to exit, then run
-`npm run demo` again; do not rebuild over a running managed launcher.
+Open [Service Admin](http://127.0.0.1:17700/). Complete first-run setup, privately save and acknowledge the credential/recovery material, then sign in. Confirm the baseline services. Keep this terminal running; use another terminal for the commands below. Admin login authorizes management; Todo has no user login and binds to loopback. [ZITADEL](zitadel-sso-hub.md) addresses a later authentication stage.
 
-Admin login authorizes service management. The local Todo example has no user
-login; it binds to loopback only. User authentication is a later lesson with
-[ZITADEL SSO Hub](zitadel-sso-hub.md). Signing in to Admin does not sign users
-into another application.
+## 2. Inspect a proper template-derived service
 
-## 2. Add the Todo service to the inventory
+The application belongs in [service-lasso/lasso-todo](https://github.com/service-lasso/lasso-todo), created through GitHub's template flow from [service-template](https://github.com/service-lasso/service-template). It owns its manifest, runtime, packaging, verification and release workflow.
 
-Stop your demo with `Ctrl+C` (or `npm run demo:stop`) and wait for its process
-to exit. From the checkout root:
+From the Core checkout in your second terminal:
 
-```sh
-node examples/getting-started-todo/add.mjs
+```powershell
+git clone --branch develop --single-branch https://github.com/service-lasso/lasso-todo.git ../lasso-todo
+gh api repos/service-lasso/lasso-todo --jq '.template_repository.full_name'
+npm --prefix ../lasso-todo ci
+npm --prefix ../lasso-todo test
+npm --prefix ../lasso-todo run package
+npm --prefix ../lasso-todo run verify
 ```
 
-The demo runs its inventory from `workspace/canonical-services-root/`; the
-checked-in `services/` folder is its baseline seed source. Add your new service
-to the running inventory, not the seed folder.
+The query must print <code>service-lasso/service-template</code>. <code>gh</code> is GitHub CLI; install/sign in if needed. The service's <code>template-origin.json</code> records its exact development baseline.
 
-This copies the checked-in example into `workspace/canonical-services-root/todo-app/` without overwriting
-an existing service. It contains:
+To author your own service, follow the [template bootstrap guide](../components/service-template/bootstrap-new-service-repo.md) and use this Todo repository as the reference implementation. Retain GitHub template provenance, use an issue branch from <code>develop</code>, and adapt the package/test/verify contract.
 
-```text
-workspace/canonical-services-root/todo-app/
-  service.json
-  package.json
-  package-lock.json
-  runtime/
-    server.mjs
-    index.html
-    database.mjs
-  data/todos.json       # created when you save the first todo
-```
-
-The Node server serves the UI, `GET /todos`, `POST /todos` and `GET /healthz`.
-It reads and writes its own JSON file. No database service is needed yet.
-
-Open `workspace/canonical-services-root/todo-app/service.json` and identify the pieces Lasso uses:
-
-| Manifest field | What you are learning |
+| File in lasso-todo | What you learn |
 | --- | --- |
-| `id: todo-app` | Identity in the service inventory and Admin |
-| `depend_on: [@node]`, `execservice: @node` | Use Lasso's managed Node provider to run the app |
-| `args` | Launch this service's `runtime/server.mjs` |
-| `endpoints` | Declare a loopback web listener; prefer port 18552, allow allocation to choose another |
-| `env.TODO_PORT` | Supply the allocated web port to the process |
-| `env.TODO_DATA_FILE` | Keep data in this service's `data/` folder |
-| `healthchecks` | Check the running app's `/healthz` endpoint |
+| service.json | Identity, provider dependency, archive, endpoint and health |
+| runtime/server.mjs and runtime/index.html | Actual UI/API and JSON persistence |
+| scripts/package.ps1 / .sh | Package runtime and locked SQL driver dependencies |
+| scripts/test.ps1 / .sh | Input, create/list and persistence checks |
+| scripts/verify.ps1 / .sh | Execute a freshly extracted package |
+| .github/workflows/release.yml | Platform archives, released manifest and checksums |
 
-See the [manifest source](https://github.com/service-lasso/service-lasso/blob/develop/examples/getting-started-todo/service.json)
-and [endpoint contract](../reference/endpoints-contract.md). The beginner app uses
-only Node built-ins; the checked-in npm dependencies are used by the next lesson.
+Your local package proves the authoring step. Next consume a published development candidate; a local build and released import are separate.
 
-## 3. Discover and start it through Lasso
+## 3. Import the released manifest and start through Lasso
 
-```sh
-npm run demo
+```powershell
+node dist/cli.js services import service-lasso/lasso-todo --tag 2026.10.4-b6d089f --services-root workspace/canonical-services-root --workspace-root workspace/demo-instance --dry-run --json
+node dist/cli.js services import service-lasso/lasso-todo --tag 2026.10.4-b6d089f --services-root workspace/canonical-services-root --workspace-root workspace/demo-instance
 ```
 
-Restarting Lasso discovers the new manifest. Enabled services may autostart.
-In Admin, open **Services → Todo App**:
+Import writes the released manifest to <code>workspace/canonical-services-root/todo/service.json</code>. This is the demo's running inventory; checked-in <code>services/</code> supplies baseline seed manifests. Import refuses to overwrite an existing service. Keep data and inspect conflicts; force is not a routine restart step.
 
-1. Confirm `todo-app` and its Node dependency appear.
-2. Use **Install** and **Configure** if those actions are offered, then **Start**
-   if it is stopped; wait for the HTTP health check to pass.
-3. Under **Runtime**, inspect its managed process.
-4. Under **Network**, open the resolved UI URL. Do not assume the preferred port
-   was available; use the allocation Admin shows.
-5. Under **Logs**, find the `Todo app ready` message.
+Refresh the Admin page to read the updated inventory. **Reload runtime** stops and restarts services; it is not needed for discovery. Open **Todo**, use **Install** and **Configure** if offered, then **Start** and wait for healthy. Lasso acquires the pinned, checksum-verified archive and uses managed <code>@node</code> to run the server from the acquired artifact. Open its actual Network URL; 18552 is a preference, not a promise.
 
-Do not run `server.mjs` in a second terminal. Lasso owns the app's process.
+Inspect dependencies, acquired release/checksum, process, logs, health and Network views. The app exposes <code>GET /</code>, <code>GET /todos</code>, <code>POST /todos</code> and <code>GET /healthz</code>. Its JSON data stays in the service's <code>data/todos.json</code>, outside the acquired archive.
 
-## 4. Verify data and managed lifecycle
+## 4. Verify data and service lifecycle
 
-1. Open the Todo UI from its Admin Network URL.
-2. Add a todo with a unique title.
-3. Refresh the page and confirm it remains.
-4. In Admin, **Stop** only `todo-app`, confirming the action if prompted.
-5. Confirm the Todo URL is unavailable while the service is stopped.
-6. In Admin, **Start** `todo-app`, wait for healthy, and reopen its resolved URL.
-7. Confirm the same todo remains. Inspect `workspace/canonical-services-root/todo-app/data/todos.json`
-   if you want to see the storage you just created.
+1. Add a todo with a unique title in the browser and refresh.
+2. Stop only **Todo** in Admin, confirming when prompted.
+3. Confirm its allocated URL is unavailable.
+4. Start Todo through Admin, wait for healthy and reopen its resolved URL.
+5. Confirm the same todo remains; inspect <code>workspace/canonical-services-root/todo/data/todos.json</code>.
 
-**Pass:** Lasso starts/stops the app and its data survives restart.
-**Fail:** inspect the service logs, allocated port and data directory. If the UI
-works while Admin reports this service stopped, you may be testing a manually
-started process; stop that process and repeat using Lasso.
+**Pass:** the acquired service runs inside Lasso and data survives managed stop/start. A manually launched second copy is not this verification.
 
-## Stop and keep your work
+Stop Todo through Admin when finished and preserve inventory/data. Whole-demo shutdown/recycle remains unqualified [#1665](https://github.com/service-lasso/service-lasso/issues/1665); service-specific checks do not establish that broader gate. See the [independent review](../development/documented-examples-verification.md).
 
-Stop `todo-app` through Admin. Stop this demo with `Ctrl+C` or `npm run demo:stop`.
-Keep the service folder and its data. Do not rerun the add command to restart it.
-
-## Next
-
-[Add PostgreSQL to this same managed app](intermediate-make-todo-app-durable.md),
-then [add a Go Todo API service](advanced-add-go-todo-api-service.md).
-
-See the [independent example review](../development/documented-examples-verification.md)
-for the Windows evidence and known baseline recycle/shutdown limitations. The
-service-specific checks above passed; whole-demo shutdown is not qualified.
+Next: [add PostgreSQL](intermediate-make-todo-app-durable.md), then [add the template-derived Go API](advanced-add-go-todo-api-service.md).
