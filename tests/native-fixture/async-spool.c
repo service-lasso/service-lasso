@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "async-spool.h"
+#include "error-producer-endpoint.h"
 #include <string.h>
 #ifndef _WIN32
 #include <pthread.h>
@@ -12,6 +13,7 @@ struct f7_async_spool {
  uint64_t submitted,persisted,high_water;
  uint64_t in_flight,in_flight_persisted;
  int closed,failed,finished,joined,lock_ready,condition_ready,worker_created,worker_entered,released;int64_t native_status;
+ struct f7_producer_native_fact construction_fact;
 #ifdef _WIN32
  CRITICAL_SECTION lock;CONDITION_VARIABLE condition;HANDLE thread;
 #else
@@ -116,24 +118,38 @@ int f7_async_create(struct f7_async_spool **out,struct f7_member *member,
  q->member=member;q->capacity=memory->ring_bytes;q->maximum_chunk=chunk;
  q->ring=memory->ring;q->write_buffer=memory->write_buffer;q->worker_created=2;
 #ifdef _WIN32
- if(!InitializeCriticalSectionEx(&q->lock,0,0)){q->native_status=GetLastError();goto failed;}
+ BOOL initialized=InitializeCriticalSectionEx(&q->lock,0,0);q->native_status=initialized?0:GetLastError();
+ f7_error_endpoint_call(&q->construction_fact,13,0,initialized,q->native_status);
+ if(!initialized)goto failed;
  q->lock_ready=1;InitializeConditionVariable(&q->condition);q->condition_ready=1;
  q->thread=CreateThread(NULL,memory->stack_bytes,writer,q,STACK_SIZE_PARAM_IS_A_RESERVATION,NULL);
- if(!q->thread){q->native_status=GetLastError();goto failed;}
+ q->native_status=q->thread?0:GetLastError();
+ f7_error_endpoint_call(&q->construction_fact,14,memory->stack_bytes,q->thread?1:0,q->native_status);
+ if(!q->thread)goto failed;
 #else
  if(!memory->guard_bytes){q->failed=q->finished=1;return F7_BUDGET_ABSENT;}
- result=pthread_mutex_init(&q->lock,NULL);if(result){q->native_status=result;goto failed;}
+ result=pthread_mutex_init(&q->lock,NULL);f7_error_endpoint_call(&q->construction_fact,15,0,result,result);
+ if(result){q->native_status=result;goto failed;}
  q->lock_ready=1;pthread_condattr_t condattr;
- result=pthread_condattr_init(&condattr);if(result){q->native_status=result;goto failed;}
+ result=pthread_condattr_init(&condattr);f7_error_endpoint_call(&q->construction_fact,23,0,result,result);
+ if(result){q->native_status=result;goto failed;}
  result=pthread_condattr_setclock(&condattr,CLOCK_MONOTONIC);
- if(!result){result=pthread_cond_init(&q->condition,&condattr);if(!result)q->condition_ready=1;}
+ f7_error_endpoint_call(&q->construction_fact,24,CLOCK_MONOTONIC,result,result);
+ if(!result){result=pthread_cond_init(&q->condition,&condattr);f7_error_endpoint_call(&q->construction_fact,16,0,result,result);
+  if(!result)q->condition_ready=1;}
  int cond_disposed=pthread_condattr_destroy(&condattr);
+ f7_error_endpoint_call(&q->construction_fact,25,0,cond_disposed,cond_disposed);
  if(result||cond_disposed){q->native_status=result?result:cond_disposed;goto failed;}
- pthread_attr_t attr;result=pthread_attr_init(&attr);if(result){q->native_status=result;goto failed;}
+ pthread_attr_t attr;result=pthread_attr_init(&attr);f7_error_endpoint_call(&q->construction_fact,17,0,result,result);
+ if(result){q->native_status=result;goto failed;}
  result=pthread_attr_setstacksize(&attr,memory->stack_bytes);
- if(!result)result=pthread_attr_setguardsize(&attr,memory->guard_bytes);
- if(!result){result=pthread_create(&q->thread,&attr,writer,q);if(!result)q->worker_created=1;}
+ f7_error_endpoint_call(&q->construction_fact,18,memory->stack_bytes,result,result);
+ if(!result){result=pthread_attr_setguardsize(&attr,memory->guard_bytes);
+  f7_error_endpoint_call(&q->construction_fact,19,memory->guard_bytes,result,result);}
+ if(!result){result=pthread_create(&q->thread,&attr,writer,q);f7_error_endpoint_call(&q->construction_fact,20,0,result,result);
+  if(!result)q->worker_created=1;}
  int disposed=pthread_attr_destroy(&attr);
+ f7_error_endpoint_call(&q->construction_fact,21,0,disposed,disposed);
  if(result){q->native_status=result;goto failed;}
  if(disposed){lock(q);q->native_status=disposed;q->failed=1;q->closed=1;wake(q);unlock(q);return F7_NATIVE_FAILURE;}
 #endif
@@ -159,11 +175,11 @@ int f7_async_close_input(struct f7_async_spool *q){
  q->closed=1;wake(q);unlock(q);return F7_OK;
 }
 int f7_async_snapshot(struct f7_async_spool *q,struct f7_async_status *out){
- if(!q||!out)return F7_INVALID; if(!q->lock_ready){memset(out,0,sizeof(*out));out->failed=q->failed;out->finished=q->finished;out->native_status=q->native_status;out->worker_created=q->worker_created;return F7_OK;} if(try_lock(q))return F7_OVERFLOWED;
+ if(!q||!out)return F7_INVALID; if(!q->lock_ready){memset(out,0,sizeof(*out));out->failed=q->failed;out->finished=q->finished;out->native_status=q->native_status;out->worker_created=q->worker_created;out->construction_fact=q->construction_fact;return F7_OK;} if(try_lock(q))return F7_OVERFLOWED;
  out->submitted=q->submitted;out->persisted=q->persisted;out->queued=q->used;
  out->high_water=q->high_water;out->native_status=q->native_status;
  out->in_flight=q->in_flight;out->in_flight_persisted=q->in_flight_persisted;
- out->failed=q->failed;out->finished=q->finished;out->joined=q->joined;out->worker_created=q->worker_created;out->worker_entered=q->worker_entered;unlock(q);return F7_OK;
+ out->failed=q->failed;out->finished=q->finished;out->joined=q->joined;out->worker_created=q->worker_created;out->worker_entered=q->worker_entered;out->construction_fact=q->construction_fact;unlock(q);return F7_OK;
 }
 int f7_async_wait(struct f7_async_spool *q,uint64_t deadline){
  if(!q||!deadline)return F7_INVALID;if(try_lock(q))return F7_OVERFLOWED;

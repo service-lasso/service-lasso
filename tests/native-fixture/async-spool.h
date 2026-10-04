@@ -1,6 +1,7 @@
 #ifndef SERVICE_LASSO_F7_ASYNC_SPOOL_H
 #define SERVICE_LASSO_F7_ASYNC_SPOOL_H
 #include "capture-spool.h"
+#include "error-producer-queue.h"
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -14,6 +15,7 @@ struct f7_async_status {
  uint64_t in_flight,in_flight_persisted;
  int64_t native_status;
  int failed,finished,joined,worker_created,worker_entered;
+ struct f7_producer_native_fact construction_fact;
 };
 /* Construct all queues BEFORE granting downstream READY. Each queue has a
    separate writer; a blocked file cannot hold any drain/control queue lock.
