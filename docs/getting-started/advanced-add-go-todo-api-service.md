@@ -15,34 +15,43 @@ This article is a worked architecture + authoring guide. It shows the shape you 
 
 ## Outcome
 
-**Stage 3:** add a Go API between the Todo UI and the same PostgreSQL service.
-The browser uses HTTP JSON; only the API holds the database connection.
-Lasso now manages both the API and the database.
+**Stage 3:** add a Go Todo API to the services Lasso manages. The Todo host still serves the UI, but create/list requests now go to the Go API. The API owns the PostgreSQL connection.
 
 ```mermaid
+%%{init: {"flowchart": {"nodeSpacing": 12, "rankSpacing": 40}}}%%
 flowchart TB
-  accTitle: Stage 3: Go Todo API
-  accDescr: The Todo UI sends HTTP JSON to a managed Go API, which connects to PostgreSQL. Lasso supervises both services through Service Admin.
-  browser["Browser Todo UI"] -->|HTTP JSON: create and list| api["Go Todo API"]
-  api -->|PostgreSQL driver| db[("PostgreSQL")]
-  db -->|Persists todos| data[("Database workspace data")]
-  admin["Service Admin"] -->|Operator controls| lasso["Service Lasso"]
-  lasso -.-> api
-  lasso -.-> db
+  accTitle: Stage 3: Todo application and managed services
+  accDescr: The Todo application owns its host and storage. Service Lasso manages Service Admin, Secrets Broker and Echo, with PostgreSQL added in stage 2 and a Go Todo API added in stage 3. Local JSON and database files are storage, not services.
+  browser["Browser Todo UI"]
+  subgraph app["Your Todo app"]
+    host["Todo host"]
+    subgraph lasso["Service Lasso"]
+      baseline["Baseline apps<br/>Service Admin<br/>Secrets Broker<br/>Echo (demo)"]
+      api["Go Todo API"]
+      db[("PostgreSQL")]
+    end
+    data[("Database files")]
+  end
+  browser -->|Load UI| host
+  browser -->|HTTP JSON| api
+  api -->|SQL| db
+  db -->|Read / write| data
+  host -. Runtime integration .-> baseline
   classDef added fill:#e0f2fe,stroke:#0369a1,color:#0c4a6e
   class api added
 ```
 
-Blue nodes show what this stage adds. Solid arrows show application data or
-operator controls. Dashed arrows show lifecycle, health and port supervision;
-Todo requests go through the API, not through Lasso.
+The outer boundary shows what your application owns. The inner boundary shows
+services Lasso installs, starts, stops and monitors. Service Admin provides the
+operator UI; Secrets Broker supplies secrets; Echo is the baseline demo service.
+Other runtime support packages are omitted. Blue marks this stage's additions.
+Solid arrows carry application traffic or storage access; the dashed arrow shows
+the host's Lasso integration, separate from Todo requests.
 
-Success checks:
-
-- Service Admin shows the Go API service **healthy**
-- `GET /healthz` on the API returns ok
-- Todo UI create/list goes through the API, not straight to Postgres
-- Refresh still shows todos (API + DB path)
+This is the cumulative Todo architecture across the three articles. The
+standalone `examples/postgres-app` exercise uses its own smaller inventory
+with PostgreSQL; it does not install this whole baseline stack. In stage 3,
+the Go API is a service you author and add to your app's inventory.
 
 ## Why a Go API in the middle
 

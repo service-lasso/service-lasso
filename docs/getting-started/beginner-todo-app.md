@@ -13,25 +13,39 @@ This guide is the primary newcomer path. The [Admin and Echo demo](../quick-star
 
 ## Outcome
 
-**Stage 1:** the Todo host keeps data in an app-owned file store. The browser
-sends signed-in requests to the host; Service Admin is the local operator view.
+**Stage 1:** add the Todo host and a local JSON file. The file is read and written by the host; it is not a service. Lasso manages the baseline apps inside its boundary.
 
 ```mermaid
+%%{init: {"flowchart": {"nodeSpacing": 12, "rankSpacing": 40}}}%%
 flowchart TB
-  accTitle: Stage 1: Todo app with a file store
-  accDescr: Signed-in browser requests reach the Todo host and app-owned file store. Service Admin controls Lasso, which manages supporting demo services.
-  browser["Browser Todo UI"] -->|Signed-in requests| host["Todo host / app backend"]
-  host -->|Create and list todos| store[("App-owned file store")]
-  browser -. Operator sign-in .-> admin["Service Admin"]
-  admin -->|Operator controls| lasso["Service Lasso"]
-  lasso -.-> services["Supporting demo services"]
+  accTitle: Stage 1: Todo application and managed services
+  accDescr: The Todo application owns its host and storage. Service Lasso manages Service Admin, Secrets Broker and Echo, with PostgreSQL added in stage 2 and a Go Todo API added in stage 3. Local JSON and database files are storage, not services.
+  browser["Browser Todo UI"]
+  subgraph app["Your Todo app"]
+    host["Todo host"]
+    file[("Local JSON file")]
+    subgraph lasso["Service Lasso"]
+      baseline["Baseline apps<br/>Service Admin<br/>Secrets Broker<br/>Echo (demo)"]
+    end
+  end
+  browser -->|Todo requests| host
+  host -->|Read / write| file
+  host -. Runtime integration .-> baseline
   classDef added fill:#e0f2fe,stroke:#0369a1,color:#0c4a6e
-  class host,store added
+  class host,file added
 ```
 
-Blue nodes show what this stage adds. Solid arrows show requests or operator
-controls. Dashed arrows show operator access or lifecycle, health and port
-management; they do not carry Todo data.
+The outer boundary shows what your application owns. The inner boundary shows
+services Lasso installs, starts, stops and monitors. Service Admin provides the
+operator UI; Secrets Broker supplies secrets; Echo is the baseline demo service.
+Other runtime support packages are omitted. Blue marks this stage's additions.
+Solid arrows carry application traffic or storage access; the dashed arrow shows
+the host's Lasso integration, separate from Todo requests.
+
+This is the cumulative Todo architecture across the three articles. The
+standalone `examples/postgres-app` exercise in the next article uses its own smaller inventory
+with PostgreSQL; it does not install this whole baseline stack. In stage 3,
+the Go API is a service you author and add to your app's inventory.
 
 ## What you will do
 

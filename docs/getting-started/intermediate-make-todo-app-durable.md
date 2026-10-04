@@ -11,26 +11,41 @@ This page replaces the old “first useful service” PostgreSQL article. Postgr
 
 ## Outcome
 
-**Stage 2:** replace the beginner file store with PostgreSQL. The app backend
-uses a PostgreSQL driver; the browser keeps talking to the app. Lasso manages
-the database, whose workspace data survives stop and start.
+**Stage 2:** add PostgreSQL to the services Lasso manages. The Todo host replaces its local JSON file with database storage; its UI stays the same.
 
 ```mermaid
+%%{init: {"flowchart": {"nodeSpacing": 12, "rankSpacing": 40}}}%%
 flowchart TB
-  accTitle: Stage 2: PostgreSQL durability
-  accDescr: The Todo app backend connects to managed PostgreSQL and durable database workspace data. Service Admin controls Lasso database supervision.
-  browser["Browser Todo UI"] -->|Signed-in requests| host["Todo host / app backend"]
-  host -->|PostgreSQL driver| db[("PostgreSQL")]
-  db -->|Persists todos| data[("Database workspace data")]
-  admin["Service Admin"] -->|Operator controls| lasso["Service Lasso"]
-  lasso -.-> db
+  accTitle: Stage 2: Todo application and managed services
+  accDescr: The Todo application owns its host and storage. Service Lasso manages Service Admin, Secrets Broker and Echo, with PostgreSQL added in stage 2 and a Go Todo API added in stage 3. Local JSON and database files are storage, not services.
+  browser["Browser Todo UI"]
+  subgraph app["Your Todo app"]
+    host["Todo host"]
+    subgraph lasso["Service Lasso"]
+      baseline["Baseline apps<br/>Service Admin<br/>Secrets Broker<br/>Echo (demo)"]
+      db[("PostgreSQL")]
+    end
+    data[("Database files")]
+  end
+  browser -->|Todo requests| host
+  host -->|SQL| db
+  db -->|Read / write| data
+  host -. Runtime integration .-> baseline
   classDef added fill:#e0f2fe,stroke:#0369a1,color:#0c4a6e
   class db,data added
 ```
 
-Blue nodes show what this stage adds. Solid arrows show application data or
-operator controls. The dashed link is Lasso's lifecycle, health and port
-management, not the path used for Todo queries.
+The outer boundary shows what your application owns. The inner boundary shows
+services Lasso installs, starts, stops and monitors. Service Admin provides the
+operator UI; Secrets Broker supplies secrets; Echo is the baseline demo service.
+Other runtime support packages are omitted. Blue marks this stage's additions.
+Solid arrows carry application traffic or storage access; the dashed arrow shows
+the host's Lasso integration, separate from Todo requests.
+
+This is the cumulative Todo architecture across the three articles. The
+standalone `examples/postgres-app` exercise uses its own smaller inventory
+with PostgreSQL; it does not install this whole baseline stack. In stage 3,
+the Go API is a service you author and add to your app's inventory.
 
 ## Platform note
 
