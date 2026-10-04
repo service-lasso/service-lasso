@@ -10,7 +10,7 @@ $taskPointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($taskPasswo
 try {
   $taskPayload = @{ bootstrapPassword = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($taskPointer) } | ConvertTo-Json -Compress
   $taskStart = [Diagnostics.ProcessStartInfo]::new()
-  $taskStart.FileName = (Get-Command node -CommandType Application).Source
+  $taskStart.FileName = (Get-Command node -CommandType Application | Select-Object -First 1).Source
   $taskStart.UseShellExecute = $false
   $taskStart.CreateNoWindow = $true
   $taskStart.RedirectStandardInput = $true
