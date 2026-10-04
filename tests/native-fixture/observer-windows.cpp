@@ -178,7 +178,12 @@ extern "C" int f7_capture_windows(struct f7_capture *c,uint64_t deadline){
  }
  for(;;){
   int live=0;
-  for(i=0;i<F7_STREAM_COUNT;i++)if(threads[i]&&WaitForSingleObject(threads[i],0)==WAIT_TIMEOUT)live++;
+  for(i=0;i<F7_STREAM_COUNT;i++)if(threads[i]){
+   DWORD waited=WaitForSingleObject(threads[i],0);
+   if(waited==WAIT_TIMEOUT)live++;
+   else if(waited!=WAIT_OBJECT_0){if(waited==WAIT_FAILED)owner->reap_status[i]=GetLastError();
+    result=F7_NATIVE_FAILURE;goto settle;}
+  }
   if(!live)break;
   uint64_t now=GetTickCount64();
   if(now>=deadline){result=F7_INCOMPLETE;goto settle;}

@@ -11,8 +11,8 @@ int f7_capture_validate(const struct f7_capture *c){
  c->witness->member->handle==F7_INVALID_HANDLE||
  c->witness->emergency_member->handle==F7_INVALID_HANDLE||
  !present(c->witness->invocation,16)||!present(c->witness->attempt,32)||!present(c->witness->lifetime,16)||
- c->witness->role<F7_O||c->witness->role>F7_R||c->witness->failed||
- c->reservation->exhausted||c->incomplete||(!c->prepared&&c->child_exit_observed)||
+ c->witness->role<F7_O||c->witness->role>F7_R||
+ (!c->prepared&&(c->witness->failed||c->reservation->exhausted||c->incomplete||c->child_exit_observed))||
  (c->child_created!=F7_CREATED&&c->child_created!=F7_NOT_CREATED))return F7_INVALID;
  if(c->created[F7_PRIVATE_ERRORS]!=F7_CREATED)return F7_INVALID;
  if(f7_identity_equal(&c->witness->member->identity,&c->witness->emergency_member->identity))return F7_CONFLICT;
@@ -32,7 +32,7 @@ int f7_capture_validate(const struct f7_capture *c){
   }else if(c->raw[i]||c->pipe[i]!=F7_INVALID_HANDLE)return F7_INVALID;
  }
  if(c->created[F7_PRIVATE_ERRORS]==F7_CREATED){
-  if(!c->error_channel||c->error_channel->failed||(!c->prepared&&c->error_channel->frames)||
+  if(!c->error_channel||(!c->prepared&&(c->error_channel->failed||c->error_channel->frames))||
     !c->error_channel->payload||!c->error_channel->payload_capacity||
     c->error_channel->payload_capacity>F7_FRAME_MAX||!c->error_channel->graph_node_limit||
     c->error_channel->role!=c->witness->role||
