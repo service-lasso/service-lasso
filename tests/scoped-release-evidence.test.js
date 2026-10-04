@@ -58,7 +58,7 @@ function nativeQualificationFixture() {
       contractVersion: MCP_PRODUCT_EVIDENCE_CONTRACT, issue: 864, spec: "SPEC-006 AC-6G", repository: source.repository,
       workflowRunId: "42", workflowRunAttempt: "2", eventName: "workflow_dispatch", candidateSha: source.commit,
       platform, architecture: "x64", nodeVersion: "v22.23.2", packageVersion: "2026.10.4-1234567", packageArchiveSha256: "a".repeat(64),
-      sdk: { packageName: "@modelcontextprotocol/sdk", version: "1.30.1", protocolVersion: "2025-11-25", supportedProtocolVersions: ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05", "2024-10-07"] },
+      sdk: { packageName: "@modelcontextprotocol/sdk", version: "1.31.0", protocolVersion: "2025-11-25", supportedProtocolVersions: ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05", "2024-10-07"] },
       inspector: { packageName: "@modelcontextprotocol/inspector", version: "2.4.0", result: "passed", strictSchema: "passed" },
       packagedRuntime: { sourceCheckoutRequired: false, sourceCheckoutAccess: "denied-by-node-permission-model", moduleResolution: "fresh-consumer-node-modules", workingDirectory: "fresh-consumer", streamableHttp: "passed", stdio: "passed", operatingModes: ["read-only", "guarded"], identityInspectionPolicy: platform === "win32" ? "native-win32-product-default" : "product-default" },
       canonical: { discovery: "passed", representativeReads: "passed", guardedLifecycle: "passed", exactlyOnce: true, terminalState: "running" },
