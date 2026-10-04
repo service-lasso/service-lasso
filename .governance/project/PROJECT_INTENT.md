@@ -442,3 +442,5 @@ Show purpose first and implementation second: App (lasso-todo), Database (lasso-
 
 #1667: Consume the corrected foreground lasso-postgres release under SPEC-002 AC-4AJ.7/.8 and producer SPEC-PG-MANAGED. Remove the tutorial adapter prerequisite, preserve prior data/failures, bind exact tag/checksum native Core evidence and explicit docs publication.
 Core #1673 extends the fourth tutorial into managed Todo sign-in with app-owned Zitadel, under AC-4AJ.9. Preserve shared list identity and earlier stages; package/consumer publication precedes exact live documentation verification.
+
+Core #1679 adds the next Todo desktop packaging lesson using the Tauri template under AC-4AJ.10; native compilation and packaged runtime execution precede executable claims. Existing data and credentials stay outside build resources.

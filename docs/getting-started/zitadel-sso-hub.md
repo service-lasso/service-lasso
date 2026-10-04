@@ -272,3 +272,6 @@ This intentionally restores the anonymous local lesson. Preserve Identity's
 database/master key, Broker custody and certificates if you stop its services.
 See the [execution record](../development/documented-examples-verification.md)
 and [consumer contracts](../reference/zitadel-consumer-integration.md).
+
+Next: [Package Todo as a Tauri desktop app](package-todo-tauri.md), keeping its
+managed App, API and Database inside Service Lasso.
