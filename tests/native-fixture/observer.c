@@ -1,6 +1,7 @@
 #include "observer.h"
 #include <string.h>
 #include <stdlib.h>
+static int present(const uint8_t *bytes,size_t length){uint8_t found=0;for(size_t i=0;i<length;i++)found|=bytes[i];return found!=0;}
 int f7_capture_validate(const struct f7_capture *c){
  unsigned i;
  if(!c||!c->reservation||!c->witness||c->witness->reservation!=c->reservation||
@@ -8,10 +9,13 @@ int f7_capture_validate(const struct f7_capture *c){
  (!c->prepared&&(c->witness->member->failed||c->witness->member->finalized||
  c->witness->emergency_member->failed||c->witness->emergency_member->finalized))||
  c->witness->member->handle==F7_INVALID_HANDLE||
+ c->witness->emergency_member->handle==F7_INVALID_HANDLE||
+ !present(c->witness->invocation,16)||!present(c->witness->attempt,32)||!present(c->witness->lifetime,16)||
  c->witness->role<F7_O||c->witness->role>F7_R||c->witness->failed||
  c->reservation->exhausted||c->incomplete||c->child_exit_observed||
  (c->child_created!=F7_CREATED&&c->child_created!=F7_NOT_CREATED))return F7_INVALID;
  if(c->created[F7_PRIVATE_ERRORS]!=F7_CREATED)return F7_INVALID;
+ if(f7_identity_equal(&c->witness->member->identity,&c->witness->emergency_member->identity))return F7_CONFLICT;
  if((c->child_created==F7_CREATED&&c->original_child==F7_INVALID_HANDLE)||
    (c->child_created==F7_NOT_CREATED&&c->original_child!=F7_INVALID_HANDLE))return F7_INVALID;
  for(i=0;i<F7_STREAM_COUNT;i++){
@@ -19,10 +23,18 @@ int f7_capture_validate(const struct f7_capture *c){
   if(c->natural_eof[i]||c->observed[i]||c->terminal_status[i])return F7_CONFLICT;
   if(c->created[i]==F7_CREATED){
    if(!c->raw[i]||(!c->prepared&&(c->raw[i]->length||c->raw[i]->finalized||c->raw[i]->failed)))return F7_CONFLICT;
+   if(c->pipe[i]==F7_INVALID_HANDLE||!present(c->witness->pipe_key[i],16)||
+      f7_identity_equal(&c->raw[i]->identity,&c->witness->member->identity)||
+      f7_identity_equal(&c->raw[i]->identity,&c->witness->emergency_member->identity))return F7_CONFLICT;
+   for(unsigned j=0;j<i;j++)if(c->created[j]==F7_CREATED&&
+      (f7_identity_equal(&c->raw[i]->identity,&c->raw[j]->identity)||
+       !memcmp(c->witness->pipe_key[i],c->witness->pipe_key[j],16)))return F7_CONFLICT;
   }else if(c->raw[i]||c->pipe[i]!=F7_INVALID_HANDLE)return F7_INVALID;
  }
  if(c->created[F7_PRIVATE_ERRORS]==F7_CREATED){
   if(!c->error_channel||c->error_channel->failed||c->error_channel->frames||
+    !c->error_channel->payload||!c->error_channel->payload_capacity||
+    c->error_channel->payload_capacity>F7_FRAME_MAX||!c->error_channel->graph_node_limit||
     c->error_channel->role!=c->witness->role||
     memcmp(c->error_channel->invocation,c->witness->invocation,16)||
     memcmp(c->error_channel->attempt,c->witness->attempt,32)||

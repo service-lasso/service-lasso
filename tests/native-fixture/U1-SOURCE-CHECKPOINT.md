@@ -52,6 +52,15 @@ itself recursively. Verified failed persistent prefixes remain marked failed;
 joined failed queues retain their original in-flight and queued bytes.
 This still needs complete manifest decoding/admission/native proof validation
 and original caller integration; it is not a whole U1 entry or recovery path.
+Closed native graph records now preserve UTF16 units, cyclic/repeated graph
+references, ordered aggregate/secondary references and unmodified native record
+bytes. Completed original private-error graph payloads are validated in capture;
+serialization fallback makes capture incomplete. Concrete original-W native
+producer/caller and in-isolate identity remain missing and mandatory.
+The newly specified original ROOT interface in admission-contract.md remains a
+SOURCE PROPOSAL requiring original creator/source-owner reconciliation before
+positive entry code. Its producer/catalog/actual authority are ABSENT; no
+default capsule, path or signed-looking receipt creates admission.
 Native framing/state/budget negative regression source is present but UNEXECUTED;
 it is partial and does not replace complete original production-path regressions.
 

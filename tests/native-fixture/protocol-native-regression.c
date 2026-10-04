@@ -7,6 +7,7 @@
 #include "error-channel.h"
 #include "observer.h"
 #include "segment-record.h"
+#include "error-graph.h"
 #include <assert.h>
 #include <string.h>
 #include <stdint.h>
@@ -69,9 +70,10 @@ static void index_records(void){
 }
 static void error_records(void){
  struct f7_error_channel channel={0},partial={0};struct f7_frame frame={0};
+ uint8_t payload[F7_FRAME_MAX];channel.payload=payload;channel.payload_capacity=sizeof(payload);channel.graph_node_limit=32;
  uint8_t record[F7_FRAME_HEADER_SIZE+7]={0};
  channel.role=F7_W;frame.role=F7_W;frame.sequence=1;frame.ordinal=1;
- frame.payload_type=F7_ERROR_GRAPH;frame.payload_length=7;
+ frame.payload_type=F7_RAW_NATIVE_ERROR;frame.payload_length=7;
  assert(f7_frame_encode(record,&frame)==F7_OK);
  partial=channel;
  assert(f7_error_channel_feed(&channel,record,31,2,32)==F7_OK);
@@ -105,4 +107,20 @@ static void segment_records(void){
  assert(f7_segment_record_decode(&out,&raw,record,F7_SEGMENT_HEADER_BYTES,in.invocation,in.attempt,in.member)==F7_OK);
  assert(f7_segment_record_decode(&out,&raw,record,sizeof(record),in.invocation,in.attempt,in.member)==F7_INVALID);
 }
-int main(void){framing();budgets();states();index_records();error_records();unknown_creation();segment_records();return 0;}
+static void error_graphs(void){
+ struct f7_error_node nodes[2]={{0},{0}};uint32_t aggregate[3]={2,2,1},secondary[1]={2};
+ uint16_t units[3]={0x0041,0xd800,0};uint8_t payload[512];size_t length;
+ nodes[0].kind=F7_GRAPH_AGGREGATE;nodes[0].cause_kind=F7_CAUSE_REFERENCE;nodes[0].cause=2;
+ nodes[0].aggregate=aggregate;nodes[0].aggregate_count=3;nodes[0].name.units=units;nodes[0].name.count=3;
+ nodes[1].kind=F7_GRAPH_ERROR;nodes[1].cause_kind=F7_CAUSE_REFERENCE;nodes[1].cause=1;
+ struct f7_error_graph graph={nodes,2,1,secondary,1};
+ assert(f7_error_graph_encode(&graph,payload,sizeof(payload),&length)==F7_OK);
+ assert(f7_error_graph_validate(payload,length,2)==F7_OK);
+ assert(f7_error_graph_validate(payload,length,1)==F7_INVALID);
+ /* First aggregate edge begins after the 24-byte header, one secondary ID,
+    and its 32-byte node record. Zero cannot alias an original object. */
+ payload[63]=0;assert(f7_error_graph_validate(payload,length,2)==F7_INVALID);payload[63]=2;
+ payload[length]=0;assert(f7_error_graph_validate(payload,length+1,2)==F7_INVALID);
+ payload[9]=1;assert(f7_error_graph_validate(payload,length,2)==F7_INVALID);
+}
+int main(void){framing();budgets();states();index_records();error_records();unknown_creation();segment_records();error_graphs();return 0;}

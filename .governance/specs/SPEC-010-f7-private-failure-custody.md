@@ -14,6 +14,12 @@ the whole source contract. SAME writer keeps existing
 no rename, branch reuse or owner change. U1 source remains INCOMPLETE and supplies
 no actual resource/actor/key/grant/row/admission or execution authority.
 
+The missing concrete pre-O original ROOT interface is now a SOURCE PROPOSAL in
+[admission-contract.md](../../tests/native-fixture/admission-contract.md), mapped
+to F7-01/F7-02/F7-07/F7-09 in the ONE D8 inventory. Original ROOT creator/caller
+and provisioned catalogs remain ABSENT. Reconciliation with that source owner
+precedes positive constructor code; no receipt/path/default can self-admit ROOT.
+
 | ID | Required contract and acceptance |
 | --- | --- |
 | F7-01 | O admission and persistent private channels precede EVERY downstream initialization; raw capture, natural original EOF and all primary/secondary error witnesses remain exact. |

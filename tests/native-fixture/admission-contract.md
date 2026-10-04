@@ -1,0 +1,91 @@
+# U1 private original ROOT interface — source proposal, no admission
+
+Implementation #1687 / SPEC-010 F7-01,F7-02,F7-07,F7-09. This defines the
+previously missing concrete U1 entry boundary before implementing its positive
+entry code. The ONE [D8 inventory](../../.governance/project/F7_D8_SOURCE_INVENTORY.md)
+owns this interface. It grants no actor, key, profile, privilege or lifecycle
+authority. Actual original ROOT producer/caller, provisioned source/actor
+catalog, receipts, O/recovery/T identities, endpoints and reservations remain
+ABSENT. Neither a path, a signed-looking private record, a digest, a boolean
+nor a native handle number can issue original ROOT admission.
+
+The proposed source-private entry is `f7_observer_begin(original_root_capsule,
+observer_reservations, out_owner)`. `original_root_capsule` is opaque to U1
+consumers and never constructed by JS, JSON, an ENV value, command-line path,
+receipt decoder or an observer self-signature. Its sole creator is the
+independently admitted original ROOT producer. That creator and its concrete
+call site are currently ABSENT; there is no substitute default implementation
+that returns an admitted capsule. A missing creator/catalog/capsule prevents
+READY and returns finite `capture_unavailable` only. This cannot claim capture
+of a preceding original failure.
+
+The capsule conveys original already-held native objects and full underlying
+records, through the independently admitted ROOT-to-O private endpoint. The
+wire uses the existing closed version/invocation/attempt/lifetime/sequence/
+ordinal/correlation header. Initialization is role-bound to O; recovery and T
+use their separately admitted role endpoints. Native ancillary capability
+count, order and logical keys are exact. Linux receives held descriptors through
+SCM_RIGHTS on the dedicated local channel with SO_PASSCRED and checks the actual
+per-message credentials against the original held sender lifetime. Windows
+uses the original explicit inherited handle list and held process/token/birth
+binding; no ambient inheritable handle or arbitrary DuplicateHandle target is
+accepted. These endpoint choices do not admit an actor by themselves.
+
+Every startup object has an opaque logical key, closed purpose, original native
+object identity, prior owner/protection, source admission and producing lifetime
+binding. Objects include held nonredirected ancestors/private persistent root,
+exclusive raw/ordinary-witness/emergency/journal/index/ciphertext write objects,
+independently opened same-object read-only companions, original stdout/stderr/
+private-error/control read ends, original writer-copy catalog and process
+lifetimes, and actual private signer/recipient inputs. A source-owned creator
+must perform exclusive component-relative creation under the held protected
+root and retain RO companions before named creation authority ends. It must not
+adopt a caller-supplied retained spool or widen its owner/protection.
+
+The original underlying admission records bind complete candidate HEAD/tree/
+base, ALL raw Git/source and physical source representations, compiler/linker/
+SDK/runtime/crypto/native dependency identities, actual loaded input objects,
+ALL literal inherited ENV, native actor birth/image/owner/parent/privilege/
+lifetime, endpoints, ancestors/filesystem/owner/protection, complete selected
+row inputs and arithmetic derivations, and actual durable/memory/control/
+emergency/time reservations. U1 verifies record bytes/digests and every relevant
+held kernel binding. Independent original ROOT source/actor admission remains
+an external prerequisite; successful digest comparison does not establish it.
+
+READY is emitted only after the complete capsule/native bindings and all
+reservations pass, private error output exists, all drain/control buffers and
+independent persistence queues are allocated, and all O drain/control/writer
+lifetimes are installed before ANY downstream initialization. A private
+initialization error cannot bootstrap its own observer authority. Failure
+retains original native status/bytes privately where already admitted capture
+exists and prevents downstream action; no fallback actor or public message is
+created. U1 never launches, resets, deletes or changes original S/W/M/K/R state.
+
+The owner retains every member, queue, drain context and original capability
+until actual producer/writer settlement. Timeout retains live state. A joined
+failed writer retains queued/in-flight originals and its known persisted prefix;
+the manifest records incomplete capture and explicit unavailable remainder.
+Transport must never relabel a successful encrypted copy as original EOF.
+
+Recovery entry is separate: `f7_recovery_issue_same(original_recovery_capsule,
+retained_original_inventory, original_successor_endpoint)`. It requires the
+independently admitted original recovery custodian and separately admitted T
+successor with authenticated native lifetime/role/source binding. It validates
+the original held ancestors/object/owner/protection, original admission records,
+retained journal, canonical index/signature and ALL persistent bytes. It issues
+only SAME read-only objects, with no path adoption, write/signing/original raw
+authority, re-encryption, re-signing, expiry or retained evidence deletion.
+
+This interface proposal does not implement U4 `client-addon.c`, native
+launcher/supervisor, original-W entry, D1 reset or original fixture adaptation.
+Those remain the D8 U4 ownership boundary and D1-D7 NO-GO. U1 error serializers
+may be called from a future admitted original-W adapter only after O READY;
+they preserve that W's original objects and do not instantiate a replacement W.
+
+Before a positive constructor/caller is coded, this proposal must be reconciled
+with the original ROOT producer's concrete source boundary and source owner.
+Full U1 source GO requires the connected owning production boundary, complete
+source validators/records/recovery and original native regression source. Actual
+activation remains prohibited until DIFFERENT ENTIRE source review and NEW
+complete exact ROOT admission. U2/U3/U4/U5 and all original errors/fixtures,
+D1 same-isolate/all-W-exit-before-delete NO-GO remain separate.

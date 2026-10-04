@@ -30,6 +30,13 @@ production-path regression coverage remain missing. Actual nine-row inputs,
 actors/resources/keys/grants/spool/binaries/loaded inputs remain ABSENT. No
 component-only source GO or U1 completion follows. Existing #1640/#1643 writers
 and their checkouts remain untouched; U2/U3/U4/U5 statuses are unchanged.
+The previously missing concrete U1 original ROOT receipt/held-endpoint caller
+boundary is now specified as a SOURCE PROPOSAL in
+[admission contract](../../tests/native-fixture/admission-contract.md), before
+positive entry code. The original ROOT creator/call site and actual provisioned
+catalog remain ABSENT; there is no self-issuing receipt/path/default capsule.
+This proposal must be reconciled with the original producer/source owner before
+positive constructor implementation and cannot confer source GO or activation.
 
 ## Source ownership map
 
