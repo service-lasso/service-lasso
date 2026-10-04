@@ -25,6 +25,9 @@ struct f7_capture {
  size_t drain_capacity[F7_STREAM_COUNT];
  int prepared;
  void *native_drains;
+ void *native_drain_storage;size_t native_drain_storage_bytes;
+ size_t native_drain_stack[F7_STREAM_COUNT];
+ int64_t native_prepare_status;
  int raw_lost[F7_STREAM_COUNT];
  int64_t terminal_status[F7_STREAM_COUNT];
  int incomplete;
@@ -42,6 +45,7 @@ int f7_capture_settle(struct f7_capture *capture,uint64_t absolute_monotonic_ms)
    the owner must retain capture and every referenced member until it succeeds. */
 int f7_capture_windows_reap(struct f7_capture *capture);
 int f7_capture_windows_prepare(struct f7_capture *capture);
+size_t f7_capture_windows_drain_state_bytes(void);
 int f7_capture_windows_abort_prepared(struct f7_capture *capture);
 struct f7_capture_readbacks {
  f7_handle raw[F7_STREAM_COUNT],witness,emergency;

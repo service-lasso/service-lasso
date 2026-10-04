@@ -1,6 +1,6 @@
 #include "observer.h"
 #ifdef _WIN32
-#include <stdlib.h>
+#include <string.h>
 #include <limits.h>
 struct drain_context {
  struct f7_capture *capture;
@@ -16,20 +16,27 @@ struct drain_owner {
  HANDLE threads[F7_STREAM_COUNT];
  DWORD cancel_status[F7_STREAM_COUNT];
  volatile LONG abort;
- int started,prepared;
+ int started,prepared,lock_ready;
+ DWORD create_status[F7_STREAM_COUNT],resume_status[F7_STREAM_COUNT],reap_status[F7_STREAM_COUNT];
  CRITICAL_SECTION lock;
 };
+extern "C" size_t f7_capture_windows_drain_state_bytes(void){return sizeof(drain_owner);}
 extern "C" int f7_capture_windows_reap(struct f7_capture *c){
  if(!c||!c->native_drains)return F7_INVALID;
  drain_owner *owner=(drain_owner *)c->native_drains;
  /* No capture fields are read while any drain can still mutate them. */
- for(unsigned i=0;i<F7_STREAM_COUNT;i++)if(owner->threads[i]&&
-   WaitForSingleObject(owner->threads[i],0)!=WAIT_OBJECT_0)return F7_INCOMPLETE;
+ for(unsigned i=0;i<F7_STREAM_COUNT;i++)if(owner->threads[i]){
+  DWORD waited=WaitForSingleObject(owner->threads[i],0);
+  if(waited!=WAIT_OBJECT_0){if(waited==WAIT_FAILED){owner->reap_status[i]=GetLastError();return F7_NATIVE_FAILURE;}return F7_INCOMPLETE;}
+ }
  for(unsigned i=0;i<F7_STREAM_COUNT;i++)if(owner->threads[i]){
   if(owner->contexts[i].result)c->incomplete=1;
-  CloseHandle(owner->threads[i]);
+  if(!CloseHandle(owner->threads[i])){owner->reap_status[i]=GetLastError();return F7_NATIVE_FAILURE;}
+  owner->threads[i]=NULL;
  }
- DeleteCriticalSection(&owner->lock);free(owner);c->native_drains=NULL;
+ if(owner->lock_ready){DeleteCriticalSection(&owner->lock);owner->lock_ready=0;}
+ /* Original source storage and original native facts remain owner-held. */
+ c->native_drains=NULL;
  return F7_OK;
 }
 static int record(drain_context *d,enum f7_event event,uint64_t requested,
@@ -88,15 +95,19 @@ extern "C" int f7_capture_windows_abort_prepared(struct f7_capture *c){
  if(owner->started)return F7_CONFLICT;
  InterlockedExchange(&owner->abort,1);owner->started=1;
  for(unsigned i=0;i<F7_STREAM_COUNT;i++)if(owner->threads[i]){
-  if(ResumeThread(owner->threads[i])==MAXDWORD)return F7_INCOMPLETE;
+  if(ResumeThread(owner->threads[i])==MAXDWORD){owner->resume_status[i]=GetLastError();return F7_INCOMPLETE;}
  }
  return F7_OK;
 }
 extern "C" int f7_capture_windows_prepare(struct f7_capture *c){
  if(!c||c->native_drains)return F7_CONFLICT;
- drain_owner *owner=(drain_owner *)calloc(1,sizeof(*owner));
- if(!owner)return F7_NATIVE_FAILURE;
- c->native_drains=owner;InitializeCriticalSection(&owner->lock);
+ if(!c->native_drain_storage||c->native_drain_storage_bytes<sizeof(drain_owner)||
+    (uintptr_t)c->native_drain_storage%alignof(drain_owner))return F7_BUDGET_ABSENT;
+ for(unsigned i=0;i<F7_STREAM_COUNT;i++)if(c->created[i]==F7_CREATED&&!c->native_drain_stack[i])return F7_BUDGET_ABSENT;
+ drain_owner *owner=(drain_owner *)c->native_drain_storage;memset(owner,0,sizeof(*owner));
+ c->native_drains=owner;
+ if(!InitializeCriticalSectionEx(&owner->lock,0,0)){c->native_prepare_status=GetLastError();return F7_NATIVE_FAILURE;}
+ owner->lock_ready=1;
  for(unsigned i=0;i<F7_STREAM_COUNT;i++){
   if(c->created[i]!=F7_CREATED)continue;
   if(!c->raw[i]||GetFileType(c->pipe[i])!=FILE_TYPE_PIPE||
@@ -108,8 +119,10 @@ extern "C" int f7_capture_windows_prepare(struct f7_capture *c){
   d->capacity=(DWORD)c->drain_capacity[i];d->buffer=c->drain_buffer[i];
  }
  for(unsigned i=0;i<F7_STREAM_COUNT;i++)if(c->created[i]==F7_CREATED){
-  owner->threads[i]=CreateThread(NULL,0,drain,owner->contexts+i,CREATE_SUSPENDED,NULL);
-  if(!owner->threads[i]){f7_capture_windows_abort_prepared(c);return F7_NATIVE_FAILURE;}
+  owner->threads[i]=CreateThread(NULL,c->native_drain_stack[i],drain,owner->contexts+i,
+    CREATE_SUSPENDED|STACK_SIZE_PARAM_IS_A_RESERVATION,NULL);
+  if(!owner->threads[i]){owner->create_status[i]=GetLastError();c->native_prepare_status=owner->create_status[i];
+   f7_capture_windows_abort_prepared(c);return F7_NATIVE_FAILURE;}
  }
  owner->prepared=1;return F7_OK;
 }
@@ -139,7 +152,7 @@ extern "C" int f7_capture_windows(struct f7_capture *c,uint64_t deadline){
  }
  owner->started=1;
  for(i=0;i<F7_STREAM_COUNT;i++)if(threads[i]){
-  if(ResumeThread(threads[i])==MAXDWORD){result=F7_NATIVE_FAILURE;goto settle;}
+  if(ResumeThread(threads[i])==MAXDWORD){owner->resume_status[i]=GetLastError();result=F7_NATIVE_FAILURE;goto settle;}
  }
  for(;;){
   int live=0;
