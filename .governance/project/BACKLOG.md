@@ -832,3 +832,4 @@ Prepare receiving argv, Windows-legal root/hostile child-only environment, real 
 #1670: SPEC-002 AC-4AJ.7/.8 diagram presentation correction; docs-only Development, SVG light/dark/mobile and explicit live publication verification.
 
 #1667: Consume the corrected foreground lasso-postgres release under SPEC-002 AC-4AJ.7/.8 and producer SPEC-PG-MANAGED. Remove the tutorial adapter prerequisite, preserve prior data/failures, bind exact tag/checksum native Core evidence and explicit docs publication.
+#1673 — AC-4AJ.9: managed Todo Zitadel sign-in tutorial; producer Todo #5, direct local identity/browser and exact publication evidence.

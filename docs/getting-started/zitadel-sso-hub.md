@@ -1,274 +1,274 @@
 ---
-title: Zitadel SSO Hub
-sidebar_label: Zitadel SSO Hub
+title: Advanced — Add Zitadel SSO to the Todo App
+sidebar_label: Advanced — Add Zitadel SSO to Todo
 ---
 
-# Zitadel SSO Hub
+# Advanced — Add Zitadel SSO to the Todo App
 
-Run a browser-usable local [ZITADEL](https://zitadel.com/) identity provider as
-an **app-owned** Service Lasso stack, then connect one local application to it
-with OpenID Connect (OIDC).
-
-This guide builds a local SSO hub for development and integration testing. It
-does not add ZITADEL to the Service Lasso baseline, create a hosted tenant, or
-prove production or GA readiness.
+Continue the [Go API lesson](advanced-add-go-todo-api-service.md). Keep the App,
+API and Database in the same Service Lasso inventory. Add Zitadel as another
+managed service, then use it to sign in to **your Todo app**. Service Admin's
+operator login and Todo's user login are separate.
 
 ## Outcome
 
+**Stage 4: Add identity.** Sign in before reading or adding todos. The API and
+database retain the original shared list; this lesson does not split data by user.
+
+<div className="tutorial-architecture">
+
 ```mermaid
-%%{init: {"flowchart": {"nodeSpacing": 15, "rankSpacing": 30}}}%%
+%%{init: {"flowchart": {"nodeSpacing": 24, "rankSpacing": 28, "padding": 18, "subGraphTitleMargin": {"top": 10, "bottom": 20}}, "themeVariables": {"fontFamily": "system-ui, sans-serif"}}}%%
 flowchart TB
-  accTitle: Local ZITADEL SSO Hub architecture
-  accDescr: The local application uses OIDC with ZITADEL. Service Lasso manages ZITADEL, its PostgreSQL database and the Secrets Broker that supplies its stable master key at launch.
-  app["Your local<br/>application"] -->|OIDC<br/>Authorization Code<br/>+ PKCE| zitadel
-  subgraph lasso["Service Lasso: lifecycle, health and ports"]
-    broker["Secrets Broker"] -->|Stable master key<br/>at launch only| zitadel["ZITADEL<br/>Trusted local HTTPS"]
-    zitadel -->|Identity data| db[("PostgreSQL")]
+  accTitle: Stage 4: Add identity to Todo
+  accDescr: Browser reaches the App. The App uses Identity for sign-in and the API for todos. Identity and API use separate databases within the same Database service. All four services are managed inside Service Lasso.
+  browser(["Browser"])
+  subgraph lasso["Service Lasso"]
+    todo("<b>App</b><br/><small>(lasso-todo)</small>")
+    identity("<b>Identity</b><br/><small>(lasso-zitadel)</small>")
+    api("<b>API</b><br/><small>(lasso-todo-api)</small>")
+    db[("<b>Database</b><br/><small>(lasso-postgres)</small>")]
+    todo --> identity
+    todo --> api
+    identity --> db
+    api --> db
   end
+  browser --> todo
+  classDef service stroke-width:1.5px
+  classDef added stroke-width:2.5px
+  class todo,api,db,identity service
+  class identity added
 ```
 
-Arrows show application connections and launch-time secret delivery. The
-Service Lasso boundary groups the managed services; OIDC traffic goes directly
-from the application to ZITADEL.
+</div>
 
-When you finish:
+Identity is the new highlighted service. During sign-in the browser follows
+the App's redirect to Identity and returns to the App's registered callback.
 
-- `https://localhost:18084/ui/console/` opens without a certificate warning;
-- ZITADEL's readiness endpoint and OIDC discovery document respond over trusted
-  HTTPS;
-- a local application redirects to ZITADEL, returns to its registered callback,
-  and validates an ID token from the local issuer.
+| Purpose | Service | Responsibility / data path |
+| --- | --- | --- |
+| App | `lasso-todo` (`todo`) | Sign-in callback, server-side session, shared Todo UI and protected `/todos` proxy. |
+| API | `lasso-todo-api` (`todo-api`) | Existing private loopback API; reads/writes the original Todo database. |
+| Database | `lasso-postgres` (`postgres`) | Retain Todo data plus a separate `zitadel_todo` identity database under `${SERVICE_ROOT}/runtime/data`. |
+| Identity | `lasso-zitadel` (`zitadel`) | User accounts, login, signed identity tokens and logout over trusted local HTTPS. |
+
+<details>
+<summary>Supporting services</summary>
+
+These also run inside Service Lasso and support the application path above.
+
+| Purpose | Service | Responsibility |
+| --- | --- | --- |
+| Management | `lasso-serviceadmin` (`@serviceadmin`) | Install/configure services, inspect endpoints and control lifecycle. |
+| Secrets | `lasso-secretsbroker` (`@secretsbroker`) | Supply the stable identity master key and bootstrap password at launch. |
+| Certificates | `lasso-localcert` (`@todo-certs`) | Generate the private local CA and server certificate under its `data/` directory. |
+| Runtime | `lasso-node` (`@node`) | Run the App and Database launcher. |
+| Example | `echo-service` | Existing baseline starter service. |
+
+</details>
 
 ## Before you begin
 
-- Start with an **app-owned** `services/` inventory. Do not put ZITADEL in the
-  checked-in Service Lasso baseline.
-- Use a dedicated workspace, for example `workspace/zitadel-sso/`, rather than
-  a shared demo workspace.
-- Have Node.js and a built Service Lasso checkout or published runtime
-  available.
-- Decide the app's local callback URL before creating its ZITADEL application,
-  for example `http://localhost:3000/auth/callback`.
+- Finish the first three lessons and retain their inventory, workspace and data.
+  Commands run from your Core checkout and use `workspace/canonical-services-root`
+  and `workspace/demo-instance`.
+- Use the current `develop` checkout containing `examples/todo-sso/`. Preserve
+  local source changes before updating, then run `npm ci` and `npm run build`.
+  The provisioning helper loads this checkout's compiled Broker modules.
+- Use PostgreSQL `2026.10.4-1af7982` from the [database lesson](intermediate-make-todo-app-durable.md).
+  Upgrade an older adapter-backed install using its retained-data instructions first.
+- Back up manifests and databases. Stop Todo, the API and PostgreSQL through
+  Admin before changing manifests.
+- Identity requests local port `18084`. Check the **allocated** endpoint before
+  registering the issuer; a requested port is not an allocation guarantee.
 
-The existing [ZITADEL consumer integration](../reference/zitadel-consumer-integration.md)
-defines the ownership boundary and includes the minimal HTTP fixture. This guide
-extends it into a browser-usable local HTTPS topology.
+This is a local Windows learning flow. Linux/macOS native identity consumption
+and production deployment are separate qualification work.
 
-## 1. Create the app-owned service inventory
+## 1. Add the identity and certificate services
 
-Your app owns this inventory and commits the non-secret manifest configuration:
+Import complete release manifests:
 
-```text
-my-app/
-  services/
-    @secretsbroker/service.json
-    @localcert/service.json
-    postgres/service.json
-    zitadel/service.json
-  workspace/zitadel-sso/
+```powershell
+node dist/cli.js services import service-lasso/lasso-localcert --tag 2026.9.25-588398b --services-root workspace/todo-sso-imports --workspace-root workspace/demo-instance
+node dist/cli.js services import service-lasso/lasso-zitadel --tag 2026.9.25-93d4c84 --services-root workspace/canonical-services-root --workspace-root workspace/demo-instance
+node examples/todo-sso/configure-identity.mjs workspace/canonical-services-root workspace/todo-sso-imports
 ```
 
-Use the PostgreSQL and ZITADEL shape from
-`fixtures/zitadel-consumer-app/services/` as the starting contract. The fixture
-uses HTTP deliberately so it can stay small and testable; do not copy it
-unchanged when a browser will use the hub.
+The helper pins the imports, enables Identity, requests a separate database and
+trusted HTTPS, and declares Broker secret references. It changes manifests only,
+preserving PostgreSQL's data path and existing database requests. Use it for a
+**new** identity instance, never to reset an initialized tenant or repair an
+unknown database.
 
-For a trusted browser topology, add `@localcert` and make ZITADEL depend on it
-as well as PostgreSQL:
+Certificates are imported into a staging inventory and copied as `@todo-certs`.
+Your baseline `@localcert`, its domains, CA and certificates stay intact. The
+new service exports dedicated Todo certificate names, avoiding a global-path
+collision with baseline routing.
+
+The certificate package's sample generates client certificates. The helper
+switches to server certificates for `localhost` and `127.0.0.1`, removes the
+unused Java trust-store dependency, and leaves trust installation manual. It
+also replaces Identity's disabled TLS launch mode and uses one importer-compatible
+healthcheck. This is an example of adapting released services for an app-owned inventory.
+
+Refresh Admin. Install/configure Certificates and Identity, and refresh
+PostgreSQL's configuration. Keep the App and API stopped for now.
+
+## 2. Generate and trust the local certificate
+
+In Certificates' setup view run **generate-pfx**, then **generate-key-cert**.
+Preserve the CA, key and certificate under
+`workspace/canonical-services-root/@todo-certs/data/`. Do not commit them or run
+the unrelated renewal step.
+
+Inspect the CA fingerprint and deliberately trust `rootCA.pem` in your own
+**Current User** browser/OS trust store. This is a local operator decision; the
+helper does not install trust. Never bypass a certificate warning.
+
+Stop the owned Core/demo process after stopping its services. In the terminal
+that starts your tutorial runtime:
+
+```powershell
+$env:NODE_EXTRA_CA_CERTS = (Resolve-Path workspace/canonical-services-root/@todo-certs/data/rootCA.pem).Path
+npm run demo
+```
+
+Keep the same inventory and workspace. The managed App inherits this CA so its
+OIDC requests verify Identity's HTTPS certificate. Preserve the instance and
+Broker custody; restarting is not re-onboarding. Whole-demo shutdown/recycle
+remains tracked separately in [#1665](https://github.com/service-lasso/service-lasso/issues/1665);
+check actual owned listeners before restarting.
+
+## 3. Provision identity secrets before first start
+
+Keep the actual Broker started and ready after first-run setup. In PowerShell 7,
+run the local operator helper; it prompts privately for the initial password:
+
+```powershell
+pwsh -NoProfile -File examples/todo-sso/provision-identity.ps1 -ServicesRoot workspace/canonical-services-root -WorkspaceRoot workspace/demo-instance -ApiOrigin http://127.0.0.1:17883
+```
+
+`17883` is the default demo Core API port, not Admin's `17700`; use your actual
+Core endpoint if changed. The helper loads that workspace's protected Broker
+context, uses the declared signed create-only IPC grants and prints metadata
+only. It generates the master key in memory and preserves existing references
+on rerun. Save the prompted password in your private password manager. Use
+12–69 characters including upper/lowercase, a number and a symbol.
+
+It creates these references in namespace `services/zitadel`:
+
+| Reference | Required value |
+| --- | --- |
+| `identity.ZITADEL_MASTERKEY` | 24 random bytes encoded as **exactly 32 printable ASCII characters**, retained for the identity database's lifetime. |
+| `identity.ZITADEL_BOOTSTRAP_PASSWORD` | A strong private initial administrator password meeting Zitadel's password policy. |
+
+Do not put values in a manifest, shell history, issue, screenshot or log. The
+Broker's generic 32-random-byte generator encodes to 43 base64url characters;
+that result is **not** a 32-byte Zitadel master key. Do not replace the stable
+master key after initialization. See [key custody](../reference/vault-key-bootstrap.md)
+and [secret access assignments](../components/service-admin/security-secret-access-assignments.md).
+
+The helper uses `ZITADEL_FIRSTINSTANCE_ORG_HUMAN_*` for the initial administrator.
+For its **Todo Tutorial** organization the tested login name is
+`todo-admin@todo-tutorial.localhost`; `todo-admin@localhost.test` is the contact
+email, not that login name. These settings apply only to a new instance. Sign
+in with the private bootstrap password, then manage users in Identity; changing
+these settings does not reset an existing administrator.
+
+## 4. Start Identity and register Todo
+
+Start PostgreSQL, then Identity through Admin. Confirm both are healthy and
+identity uses `zitadel_todo`, separate from the Todo tables. Open the allocated
+Identity console, normally `https://localhost:18084/ui/console/`, without a
+certificate warning.
+
+Check `https://localhost:18084/.well-known/openid-configuration`: its `issuer`
+must match the actual HTTPS origin exactly. Identity is not the Core/Admin URL.
+
+Sign in as the initial administrator. Create a local **Todo Tutorial** project
+and application **Todo**:
+
+1. Choose **Web**, Authorization Code, authentication method **None / PKCE**.
+   This is a public client; no client secret belongs in the browser or manifest.
+2. Read Todo's allocated port in Admin. For `18552`, register exactly
+   `http://127.0.0.1:18552/auth/callback` and post-logout `http://127.0.0.1:18552/`.
+3. Enable development mode for this local HTTP registration. Use `127.0.0.1`
+   consistently; `localhost` is a different callback origin.
+4. Save the client ID and create a verified local test user with a private
+   password. Use the **login name shown in that user's details**, which may
+   include an organization suffix, rather than assuming its email is a login
+   name. Use that user for the app rather than the identity administrator.
+
+This follows [Zitadel's code + PKCE flow](https://zitadel.com/docs/guides/integrate/login/oidc/login-users).
+
+## 5. Upgrade and configure the managed Todo consumer
+
+The earlier pinned Todo release has no sign-in implementation. With Todo
+stopped, update **only** its manifest version/artifact tag to `2026.10.4-6f47534`,
+retain environment, dependencies, endpoints and data, then refresh Admin and
+install the new archive. Provider-backed launch and checksums remain the same.
+
+The acquired archive includes `configure-sso.mjs` at its root. Read that actual
+directory from the install receipt; do not start a second app process.
+Replace the client ID with the public ID you just registered:
+
+```powershell
+$todoArtifact = (Get-Content workspace/canonical-services-root/todo/.state/install.json -Raw | ConvertFrom-Json).artifact.extractedPath
+node "$todoArtifact/configure-sso.mjs" workspace/canonical-services-root/todo enable https://localhost:18084 '<Todo client ID>'
+```
+
+The helper adds `zitadel` to the existing dependencies and these non-secret
+settings, preserving API mode and data:
 
 ```json
 {
-  "id": "zitadel",
-  "depend_on": ["postgres", "@localcert"],
-  "ports": { "http": 18084 },
-  "env": {
-    "ZITADEL_PORT": "${HTTP_PORT}",
-    "ZITADEL_EXTERNALPORT": "${HTTP_PORT}",
-    "ZITADEL_EXTERNALDOMAIN": "localhost",
-    "ZITADEL_EXTERNALSECURE": "true",
-    "ZITADEL_TLS_ENABLED": "true",
-    "ZITADEL_TLS_CERTPATH": "${CERT_FILE}",
-    "ZITADEL_TLS_KEYPATH": "${CERT_KEY}",
-    "ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_REQUIRED": "false",
-    "ZITADEL_DATABASE_POSTGRES_DSN": "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/zitadel_local?sslmode=disable",
-    "ZITADEL_MASTERKEY": "${identity.ZITADEL_MASTERKEY}"
-  },
-  "globalenv": {
-    "ZITADEL_ISSUER": "https://localhost:${HTTP_PORT}/",
-    "ZITADEL_HEALTH_URL": "https://localhost:${HTTP_PORT}/debug/ready"
-  }
+  "TODO_OIDC_ISSUER": "https://localhost:18084",
+  "TODO_OIDC_CLIENT_ID": "<Todo client ID>",
+  "TODO_ORIGIN": "http://127.0.0.1:${endpoint.web.port}"
 }
 ```
 
-Keep the complete artifact, platform command, broker, URL, and health-check
-sections from the released ZITADEL manifest. Pin a reviewed
-`service-lasso/lasso-zitadel` release rather than using a floating channel. The
-working Windows example used `2026.9.25-93d4c84` for ZITADEL and
-`2026.9.25-588398b` for `@localcert`; re-verify any replacement release before
-adopting it.
+Refresh discovery. Start the API, then Todo through Admin. Failed discovery,
+untrusted HTTPS or incomplete configuration must stop startup; there is no
+anonymous fallback.
 
-PostgreSQL is also app-owned. Give the ZITADEL instance a dedicated local
-database and data directory. Do not aim a test hub at a shared development or
-production database.
+Todo handles code + S256 PKCE server-side, verifies state/nonce and signed
+ID-token claims, and retains a bounded opaque session. Browser JavaScript gets
+the display name and session CSRF token, not identity/access tokens. Its cookie
+is HttpOnly/SameSite for this explicitly local HTTP origin. Remote deployment
+needs HTTPS, Secure cookies and API authorization; do not expose the private
+Go API or Database as a way around app login.
 
-## 2. Create and trust the local certificate
+## 6. Prove sign-in works in Todo
 
-`@localcert` generates a CA and a server certificate for `localhost` and
-`127.0.0.1`. It exports the certificate and key paths consumed by ZITADEL as
-`${CERT_FILE}` and `${CERT_KEY}`.
+1. In a fresh browser session, open Todo. It shows **Sign in with Zitadel**;
+   `/todos` returns 401 before login.
+2. Sign in as the test user. The browser reaches Identity's login and returns
+   to the exact callback. Todo shows the signed-in name.
+3. Confirm the original todos remain, add a todo, then refresh and confirm the
+   same IDs/data remain in the original database.
+4. Sign out. The local session is cleared before Identity logout. Todo returns
+   to signed-out state; the old cookie no longer authorizes `/todos`.
+5. Cancel a login or try an unsolicited/tampered callback. Todo shows sign-in
+   failure without creating an authenticated session.
+6. Stop/start Todo through Admin and sign in again. Sessions are deliberately
+   lost on restart while rows/IDs remain. An identity outage must not admit a
+   new anonymous session.
 
-Start the runtime once without `NODE_EXTRA_CA_CERTS`, then install, configure,
-and run the local certificate setup:
+**Pass:** managed Identity and Todo complete actual browser login, protected
+reads/writes, logout and data-preserving restart. Identity health, protocol
+fixtures and documentation builds alone do not prove this.
 
-```powershell
-$runtime = '<path-to-service-lasso>\\dist\\cli.js'
-node $runtime serve `
-  --noautostart `
-  --services-root .\services `
-  --workspace-root .\workspace\zitadel-sso `
-  --port 18085
-```
+## Disable sign-in without deleting data
 
-Keep the runtime open while you run these requests in a second terminal:
-
-```powershell
-$api = 'http://127.0.0.1:18085/api/services/%40localcert'
-Invoke-RestMethod -Method Post -Uri "$api/install" -ContentType 'application/json' -Body '{}'
-Invoke-RestMethod -Method Post -Uri "$api/config" -ContentType 'application/json' -Body '{}'
-Invoke-RestMethod -Method Post -Uri "$api/setup/run" -ContentType 'application/json' -Body '{}'
-```
-
-Trust the generated `services/@localcert/data/rootCA.pem` in the **Current
-User** Trusted Root Certification Authorities store. This is an interactive,
-machine-local trust decision. Do not bypass browser certificate errors.
-
-Restart the Service Lasso process with the same CA so its Node.js health checks
-also verify ZITADEL's HTTPS endpoint:
+Stop Todo, run the acquired helper with `disable`, refresh discovery and start:
 
 ```powershell
-$env:NODE_EXTRA_CA_CERTS = (Resolve-Path .\services\@localcert\data\rootCA.pem).Path
-node <path-to-service-lasso>\dist\cli.js serve `
-  --noautostart `
-  --services-root .\services `
-  --workspace-root .\workspace\zitadel-sso `
-  --port 18085
+node "$todoArtifact/configure-sso.mjs" workspace/canonical-services-root/todo disable
 ```
 
-Keep that terminal open. `--noautostart` means you choose precisely which
-services start; it does not start Service Admin or unrelated inventory entries.
-
-## 3. Provision the stable ZITADEL master key
-
-Before the first ZITADEL start, use the Service Lasso Secrets Broker flow to
-write one stable, exactly 32-byte `identity.ZITADEL_MASTERKEY` in namespace
-`services/zitadel`.
-
-The key is a secret, not a configuration sample. Never put it in `service.json`,
-an environment file committed to the app, command history, test output, issue,
-or support bundle. Changing it after ZITADEL has initialized can make encrypted
-state unreadable. See [Vault setup and key custody](../reference/vault-key-bootstrap.md)
-for the protected local-secret boundary.
-
-Plan the initial local ZITADEL administrator in the app's bootstrap procedure.
-Do not document credentials or private bootstrap material in the inventory.
-
-## 4. Start the hub and prove it is ready
-
-In a second terminal, start the dependency chain in order:
-
-```powershell
-$api = 'http://127.0.0.1:18085/api/services'
-Invoke-RestMethod -Method Post -Uri "$api/%40secretsbroker/start" -ContentType 'application/json' -Body '{}'
-Invoke-RestMethod -Method Post -Uri "$api/postgres/start" -ContentType 'application/json' -Body '{}'
-Invoke-RestMethod -Method Post -Uri "$api/zitadel/start" -ContentType 'application/json' -Body '{}'
-```
-
-Check the Service Lasso view first:
-
-```powershell
-$services = Invoke-RestMethod 'http://127.0.0.1:18085/api/services'
-$services.services |
-  Where-Object id -in '@secretsbroker', 'postgres', 'zitadel' |
-  Select-Object id, @{Name='running'; Expression={$_.lifecycle.running}}, @{Name='healthy'; Expression={$_.health.healthy}}
-```
-
-Then verify ZITADEL directly:
-
-```powershell
-curl.exe --cacert .\services\@localcert\data\rootCA.pem https://localhost:18084/debug/ready
-curl.exe --cacert .\services\@localcert\data\rootCA.pem https://localhost:18084/.well-known/openid-configuration
-```
-
-**Pass:** all three managed services report running and healthy; readiness
-returns `ok`; discovery returns an issuer of exactly `https://localhost:18084`.
-Open `https://localhost:18084/ui/console/` only after these checks pass.
-
-## 5. Register the consuming application
-
-In the local ZITADEL console:
-
-1. Create or select the local project for the app.
-2. Create one application registration for the app.
-3. Choose the application shape:
-   - browser-only SPA: **User Agent** with Authorization Code + PKCE;
-   - server-side web app: **Web** with Authorization Code + PKCE;
-   - non-interactive service: an appropriate machine-to-machine flow.
-4. Register the app's exact callback and post-logout URLs. For local HTTP
-   callbacks, enable development mode only for that local registration.
-5. Save the client ID in the app's local configuration. Keep confidential
-   client material in the app's secret store, never in browser code.
-
-ZITADEL recommends Authorization Code with PKCE for browser, native, and web
-applications. The callback URI sent by the app must exactly match the
-registration. See ZITADEL's [OIDC and PKCE guide](https://zitadel.com/docs/guides/integrate/login/oidc/login-users)
-and [application settings guide](https://zitadel.com/docs/guides/manage/console/applications-overview).
-
-## 6. Configure and verify the application
-
-Use the issuer and discovery document instead of hard-coding token endpoints:
-
-```dotenv
-# App-owned .env.local; do not commit credentials.
-ZITADEL_ISSUER=https://localhost:18084
-ZITADEL_DISCOVERY_URL=https://localhost:18084/.well-known/openid-configuration
-ZITADEL_CLIENT_ID=<local-zitadel-client-id>
-ZITADEL_REDIRECT_URI=http://localhost:3000/auth/callback
-ZITADEL_POST_LOGOUT_REDIRECT_URI=http://localhost:3000/
-```
-
-Verify the consumer, not just the identity service:
-
-1. Start the app with this local configuration.
-2. Choose sign in and confirm the browser reaches the local ZITADEL login form
-   without a certificate warning.
-3. Sign in with a local test user.
-4. Confirm the browser returns to the registered callback and the app validates
-   an ID token whose issuer is `https://localhost:18084`.
-5. Exercise a protected route and, if the app uses roles, an unauthorized-role
-   case.
-6. Sign out and confirm the post-logout redirect.
-
-Do not infer app SSO acceptance from a green ZITADEL readiness response. The
-consumer's redirect, callback, token validation, and authorization checks are
-the direct proof.
-
-## Stop and keep the local state
-
-Stop the managed services and runtime without deleting the database, Broker
-state, certificate authority, or workspace:
-
-```powershell
-Invoke-RestMethod -Method Post `
-  -Uri 'http://127.0.0.1:18085/api/runtime/actions/shutdown' `
-  -ContentType 'application/json' `
-  -Body '{"confirm":true}'
-```
-
-## What this does not prove
-
-This guide proves a local, app-owned integration topology. It does not create
-or validate a hosted tenant, real Scheduling Assistant users and roles,
-production redirect URLs, public certificate management, production database
-operations, or a GA release decision.
-
-For the underlying contract, see [ZITADEL Consumer Integration](../reference/zitadel-consumer-integration.md).
+This intentionally restores the anonymous local lesson. Preserve Identity's
+database/master key, Broker custody and certificates if you stop its services.
+See the [execution record](../development/documented-examples-verification.md)
+and [consumer contracts](../reference/zitadel-consumer-integration.md).
