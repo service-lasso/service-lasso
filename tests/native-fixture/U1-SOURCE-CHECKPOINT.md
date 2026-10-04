@@ -34,6 +34,24 @@ explicit unknown/created/not-created decisions rejecting missing defaults,
 private error channel required before capture, source-bound nonce/role/lifetime
 cross-checks, and actual Linux interrupted/would-block read-result witnesses;
 finite public strings with no arbitrary payload parameter.
+Independent preallocated asynchronous raw/ordinary-witness/emergency-witness
+writer queues now keep native drain threads out of persistent writes; deadline
+retains live heap-owned Windows drain state. Production capture finalization
+waits for actual producer/writer settlement and independently reads held
+read-only companions before marking persisted member readback. Actual granted
+Windows read rights are queried from the held handle; Linux RW descriptors
+cannot pass as read-only companions. A connected packaging routine validates
+the preassigned complete segmentation, encodes fixed native segment headers,
+encrypts each original persistent member segment once, merges the exact sorted
+ciphertext roster, persists/reads the index and separately signs it once under
+the same attempt journal. Native canonical manifest construction now follows
+actual persisted segment encryption/readback and records exact plaintext and
+ciphertext hashes, underlying native member identities, prerequisites,
+reservations, capture facts and explicit unavailable members without listing
+itself recursively. Verified failed persistent prefixes remain marked failed;
+joined failed queues retain their original in-flight and queued bytes.
+This still needs complete manifest decoding/admission/native proof validation
+and original caller integration; it is not a whole U1 entry or recovery path.
 Native framing/state/budget negative regression source is present but UNEXECUTED;
 it is partial and does not replace complete original production-path regressions.
 
@@ -43,12 +61,12 @@ These components have no authorized entry path yet. Missing complete U1 work:
   O admission before EVERY downstream initialization.
 - Full owner/protection/ancestor/pipe/child birth/image/parent and writer-copy
   catalog proof, per-read native object identity and child exit/wait witnesses.
-- Reserved asynchronous spool/witness writes independent of native drain. The
-  present Linux loop performs synchronous writes and can stall at disk writes;
-  its deadline does not prove a bound on a blocked write. Windows joins cancelled
-  native drain threads before releasing borrowed capture memory; that settlement
-  is presently an unbounded wait. No universal bound or control-settlement proof.
-- Complete native plaintext-manifest encoder and closed record decoders;
+- Complete pre-READY admission/caller ownership of the asynchronous queues,
+  native drain threads and retained heap contexts; queue failure and blocked
+  native writer settlement must remain retained. Independent queues and bounded
+  drain return do not prove a universal native I/O or lifetime bound. Windows
+  thread construction still belongs in the complete pre-READY owner entry.
+- Complete native plaintext-manifest record/decoder and underlying-proof coverage;
   complete journal admission/final freeze, recovery custodian and authenticated
   SAME read-only successor handoff. Crypto uses a persistent reservation before
   encryption/signing, but source-owned admission/creation, complete journal

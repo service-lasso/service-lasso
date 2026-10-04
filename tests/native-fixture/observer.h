@@ -19,6 +19,12 @@ struct f7_capture {
  enum f7_creation_decision created[F7_STREAM_COUNT];
  int natural_eof[F7_STREAM_COUNT];
  uint64_t observed[F7_STREAM_COUNT];
+ struct f7_async_spool *raw_async[F7_STREAM_COUNT];
+ uint8_t *drain_buffer[F7_STREAM_COUNT];
+ size_t drain_capacity[F7_STREAM_COUNT];
+ int prepared;
+ void *native_drains;
+ int raw_lost[F7_STREAM_COUNT];
  int64_t terminal_status[F7_STREAM_COUNT];
  int incomplete;
 };
@@ -27,6 +33,22 @@ struct f7_capture {
 int f7_capture_linux(struct f7_capture *capture,uint64_t absolute_monotonic_ms);
 int f7_capture_windows(struct f7_capture *capture,uint64_t absolute_tick_ms);
 int f7_capture_validate(const struct f7_capture *capture);
+/* Prepare is called and successfully acknowledged BEFORE downstream launch.
+   Capture refuses unprepared contexts; it never silently allocates on launch. */
+int f7_capture_prepare(struct f7_capture *capture);
+int f7_capture_settle(struct f7_capture *capture,uint64_t absolute_monotonic_ms);
+/* Windows drain contexts are retained on deadline. Reap refuses live threads;
+   the owner must retain capture and every referenced member until it succeeds. */
+int f7_capture_windows_reap(struct f7_capture *capture);
+struct f7_capture_readbacks {
+ f7_handle raw[F7_STREAM_COUNT],witness,emergency;
+};
+/* Finishes only after native producer and persistence worker exit. Independent
+   read handles must be original pre-admitted companions, never duplicated RW
+   descriptors or caller paths. Failure retains all surviving objects/queues. */
+int f7_capture_finalize(struct f7_capture *capture,
+ const struct f7_capture_readbacks *reads,uint64_t absolute_monotonic_ms,
+ int64_t *native_status);
 #ifdef __cplusplus
 }
 #endif

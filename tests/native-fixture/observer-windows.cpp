@@ -10,6 +10,25 @@ struct drain_context {
  DWORD capacity;
  int result;
 };
+struct drain_owner {
+ drain_context contexts[F7_STREAM_COUNT];
+ HANDLE threads[F7_STREAM_COUNT];
+ DWORD cancel_status[F7_STREAM_COUNT];
+ CRITICAL_SECTION lock;
+};
+extern "C" int f7_capture_windows_reap(struct f7_capture *c){
+ if(!c||!c->native_drains)return F7_INVALID;
+ drain_owner *owner=(drain_owner *)c->native_drains;
+ /* No capture fields are read while any drain can still mutate them. */
+ for(unsigned i=0;i<F7_STREAM_COUNT;i++)if(owner->threads[i]&&
+   WaitForSingleObject(owner->threads[i],0)!=WAIT_OBJECT_0)return F7_INCOMPLETE;
+ for(unsigned i=0;i<F7_STREAM_COUNT;i++)if(owner->threads[i]){
+  if(owner->contexts[i].result)c->incomplete=1;
+  CloseHandle(owner->threads[i]);
+ }
+ DeleteCriticalSection(&owner->lock);free(owner);c->native_drains=NULL;
+ return F7_OK;
+}
 static int record(drain_context *d,enum f7_event event,uint64_t requested,
  uint64_t returned,uint64_t offset,const uint8_t *slice,int64_t status,int emergency){
  int r;EnterCriticalSection(d->witness_lock);
@@ -37,10 +56,10 @@ static DWORD WINAPI drain(LPVOID value){
   if(!got){
    /* Successful zero-byte completion is recorded but does not assert pipe
       writer closure; required native broken-pipe terminal remains absent. */
-   d->result=F7_INCOMPLETE;c->terminal_status[i]=ERROR_NO_DATA;
-   record(d,F7_UNAVAILABLE,d->capacity,0,c->observed[i],NULL,ERROR_NO_DATA,1);break;
+   d->result=F7_INCOMPLETE;c->terminal_status[i]=0;
+   record(d,F7_UNAVAILABLE,d->capacity,0,c->observed[i],NULL,0,1);break;
   }
-  uint64_t accepted=0,persisted=0;int64_t native_status=0;int budget;
+  uint64_t accepted=0;int budget;
   if(i==F7_PRIVATE_ERRORS&&f7_error_channel_feed(c->error_channel,d->buffer,got,
       c->reservation->input.frame_count,c->reservation->input.original[F7_PRIVATE_ERRORS]))d->result=F7_INCOMPLETE;
   EnterCriticalSection(d->witness_lock);
@@ -50,22 +69,25 @@ static DWORD WINAPI drain(LPVOID value){
   if(queue||record(d,F7_READ,d->capacity,got,c->observed[i],d->buffer,0,0))d->result=F7_INCOMPLETE;
   if(got>UINT64_MAX-c->observed[i]){d->result=F7_OVERFLOWED;break;}
   c->observed[i]+=got;
-  if(accepted&&!c->raw[i]->failed&&
-   f7_member_append(c->raw[i],d->buffer,(size_t)accepted,&persisted,&native_status)){
-   d->result=F7_INCOMPLETE;c->terminal_status[i]=native_status;
-   record(d,F7_WRITE_ERROR,accepted,persisted,c->raw[i]->length-persisted,d->buffer,native_status,1);
+  if(accepted&&!c->raw_lost[i]&&f7_async_submit(c->raw_async[i],d->buffer,(size_t)accepted)){
+   d->result=F7_INCOMPLETE;c->raw_lost[i]=1;
+   record(d,F7_OVERFLOW,accepted,0,c->observed[i]-got,NULL,0,1);
   }
   if(budget){d->result=F7_INCOMPLETE;
-   record(d,F7_OVERFLOW,got,accepted,c->raw[i]->length,d->buffer,0,1);}
+   record(d,F7_OVERFLOW,got,accepted,c->observed[i]-got,d->buffer,0,1);}
  }
  return 0;
 }
 extern "C" int f7_capture_windows(struct f7_capture *c,uint64_t deadline){
- drain_context contexts[F7_STREAM_COUNT]={};HANDLE threads[F7_STREAM_COUNT]={};
- CRITICAL_SECTION lock;unsigned i;int result=F7_OK;
+ unsigned i;int result=F7_OK;
  if(!deadline)return F7_INVALID;
  int validation=f7_capture_validate(c);if(validation)return validation;
- InitializeCriticalSection(&lock);
+ if(!c->prepared)return F7_BUDGET_ABSENT;
+ if(c->native_drains)return F7_CONFLICT;
+ drain_owner *owner=(drain_owner *)calloc(1,sizeof(*owner));
+ if(!owner)return F7_NATIVE_FAILURE;
+ c->native_drains=owner;InitializeCriticalSection(&owner->lock);
+ drain_context *contexts=owner->contexts;HANDLE *threads=owner->threads;
  /* Allocate all independent queues before any drain starts. This function
     does not launch a downstream actor or claim admission by handle number. */
  for(i=0;i<F7_STREAM_COUNT;i++){
@@ -73,10 +95,9 @@ extern "C" int f7_capture_windows(struct f7_capture *c,uint64_t deadline){
   if(!c->raw[i]||GetFileType(c->pipe[i])!=FILE_TYPE_PIPE||
     !c->reservation->input.queue_bytes[i]||c->reservation->input.queue_bytes[i]>SIZE_MAX){
     result=F7_INVALID;goto close;}
-  contexts[i].capture=c;contexts[i].witness_lock=&lock;contexts[i].stream=i;
-  contexts[i].capacity=(DWORD)(c->reservation->input.queue_bytes[i]>65536?65536:c->reservation->input.queue_bytes[i]);
-  contexts[i].buffer=(uint8_t *)malloc(contexts[i].capacity);
-  if(!contexts[i].buffer){result=F7_NATIVE_FAILURE;goto close;}
+  contexts[i].capture=c;contexts[i].witness_lock=&owner->lock;contexts[i].stream=i;
+  contexts[i].capacity=(DWORD)c->drain_capacity[i];contexts[i].buffer=c->drain_buffer[i];
+  if(!contexts[i].buffer||!contexts[i].capacity||!c->raw_async[i]){result=F7_BUDGET_ABSENT;goto close;}
  }
  if(c->child_created==F7_CREATED){
   struct f7_child_exit exit;int observation=f7_child_exit_windows(c->original_child,&exit);
@@ -101,16 +122,26 @@ extern "C" int f7_capture_windows(struct f7_capture *c,uint64_t deadline){
 settle:
  for(i=0;i<F7_STREAM_COUNT;i++)if(threads[i]&&WaitForSingleObject(threads[i],0)==WAIT_TIMEOUT){
   result=F7_INCOMPLETE;
-  if(!CancelSynchronousIo(threads[i])&&GetLastError()!=ERROR_NOT_FOUND)c->terminal_status[i]=GetLastError();
+  if(!CancelSynchronousIo(threads[i]))owner->cancel_status[i]=GetLastError();
  }
- /* Always settle actual thread lifetime before releasing capture memory.
-    INFINITE is a source limitation, never a universal deadline guarantee.
-    Complete U1 needs the separately reserved asynchronous persistence path. */
+ /* A cancelled synchronous native read is not universally guaranteed to
+    return. Deadline therefore retains the complete heap owner and original
+    capture; no stack context, lock, buffer, or member is released live. */
  for(i=0;i<F7_STREAM_COUNT;i++)if(threads[i]){
-  if(WaitForSingleObject(threads[i],INFINITE)!=WAIT_OBJECT_0)result=F7_INCOMPLETE;
-  if(contexts[i].result)result=F7_INCOMPLETE;CloseHandle(threads[i]);
+  uint64_t now=GetTickCount64();DWORD remaining=now>=deadline?0:
+   (DWORD)((deadline-now)>MAXDWORD-1?MAXDWORD-1:deadline-now);
+  if(WaitForSingleObject(threads[i],remaining)!=WAIT_OBJECT_0){
+   /* Do not touch fields owned by another still-running drain. */
+   return F7_INCOMPLETE;
+  }
+  if(contexts[i].result)result=F7_INCOMPLETE;
  }
 close:
+ for(i=0;i<F7_STREAM_COUNT;i++)if(owner->cancel_status[i]){
+  result=F7_INCOMPLETE;
+  f7_witness_emit(c->witness,(enum f7_stream)i,F7_UNAVAILABLE,0,0,
+   c->observed[i],NULL,owner->cancel_status[i],1);
+ }
  if(c->child_created==F7_CREATED&&!c->child_exit_observed){
   struct f7_child_exit exit;
   if(f7_child_exit_windows(c->original_child,&exit)!=F7_OK)result=F7_INCOMPLETE;
@@ -118,13 +149,12 @@ close:
   if(f7_child_exit_record(c->witness,&exit))result=F7_INCOMPLETE;
  }
  for(i=0;i<F7_STREAM_COUNT;i++){
-  free(contexts[i].buffer);
   if(c->created[i]==F7_CREATED&&!c->natural_eof[i]){
    result=F7_INCOMPLETE;
    f7_witness_emit(c->witness,(enum f7_stream)i,F7_UNAVAILABLE,0,0,c->observed[i],NULL,c->terminal_status[i],1);
   }
  }
- DeleteCriticalSection(&lock);
+ if(f7_capture_windows_reap(c))return F7_INCOMPLETE;
  if(result||c->witness->failed||c->reservation->exhausted)c->incomplete=1;
  return c->incomplete?F7_INCOMPLETE:F7_OK;
 }

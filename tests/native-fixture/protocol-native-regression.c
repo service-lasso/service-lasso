@@ -6,6 +6,7 @@
 #include "canonical-index.h"
 #include "error-channel.h"
 #include "observer.h"
+#include "segment-record.h"
 #include <assert.h>
 #include <string.h>
 #include <stdint.h>
@@ -29,6 +30,8 @@ static void budgets(void){
  for(i=0;i<F7_STREAM_COUNT;i++){in.original[i]=1024;in.queue_bytes[i]=64;}
  in.witness_bytes=1024;in.manifest_bytes=1024;in.inventory_entries=5;
  in.emergency_bytes=1024;in.frame_count=16;in.transfer_milliseconds=1000;
+ in.witness_queue_bytes=1024;
+ in.emergency_queue_bytes=1024;
  in.row_input_sha256[0]=1;in.derivation_sha256[0]=2;
  assert(f7_budget_derive(&r,&in)==F7_OK);
  assert(f7_budget_take(&r,F7_STDOUT,1000,&accepted)==F7_OK&&accepted==1000);
@@ -83,4 +86,23 @@ static void unknown_creation(void){
  /* Zero/default/missing fields cannot mint not-created/EOF or capture success. */
  assert(f7_capture_validate(&capture)==F7_INVALID);
 }
-int main(void){framing();budgets();states();index_records();error_records();unknown_creation();return 0;}
+static void segment_records(void){
+ struct f7_segment_input in={0},out;const uint8_t *raw;
+ uint8_t record[F7_SEGMENT_HEADER_BYTES+1]={0};
+ in.invocation[0]=1;in.attempt[0]=2;in.member[0]=3;
+ in.full_size=F7_SEGMENT_MAX+1;in.count=2;in.ordinal=1;
+ in.offset=F7_SEGMENT_MAX;in.length=1;record[F7_SEGMENT_HEADER_BYTES]=0xff;
+ assert(f7_segment_encode(record,&in)==F7_OK);
+ assert(f7_segment_record_decode(&out,&raw,record,sizeof(record),in.invocation,in.attempt,in.member)==F7_OK);
+ assert(raw[0]==0xff&&out.offset==F7_SEGMENT_MAX);
+ assert(f7_segment_record_decode(&out,&raw,record,sizeof(record)-1,in.invocation,in.attempt,in.member)==F7_INVALID);
+ uint8_t wrong_attempt[32]={9};
+ assert(f7_segment_record_decode(&out,&raw,record,sizeof(record),in.invocation,wrong_attempt,in.member)==F7_AUTH_FAILURE);
+ record[152]=1;assert(f7_segment_decode(&out,record)==F7_INVALID);record[152]=0;
+ f7_u64be(record+104,F7_SEGMENT_MAX-1);assert(f7_segment_decode(&out,record)==F7_INVALID);
+ in.full_size=0;in.count=1;in.ordinal=0;in.offset=0;in.length=0;
+ assert(f7_segment_encode(record,&in)==F7_OK);
+ assert(f7_segment_record_decode(&out,&raw,record,F7_SEGMENT_HEADER_BYTES,in.invocation,in.attempt,in.member)==F7_OK);
+ assert(f7_segment_record_decode(&out,&raw,record,sizeof(record),in.invocation,in.attempt,in.member)==F7_INVALID);
+}
+int main(void){framing();budgets();states();index_records();error_records();unknown_creation();segment_records();return 0;}

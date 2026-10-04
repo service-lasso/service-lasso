@@ -9,6 +9,7 @@ struct f7_budget_input {
   uint64_t original[F7_STREAM_COUNT], witness_bytes, manifest_bytes;
   uint64_t inventory_entries, emergency_bytes, queue_bytes[F7_STREAM_COUNT];
   uint64_t frame_count, transfer_milliseconds;
+  uint64_t witness_queue_bytes, emergency_queue_bytes;
   uint8_t row_input_sha256[32], derivation_sha256[32];
 };
 struct f7_reservation {

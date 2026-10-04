@@ -84,11 +84,13 @@ int f7_member_append(struct f7_member *m,const uint8_t *bytes,size_t count,
  while(done<count){
 #ifdef _WIN32
    DWORD wrote=0,want=(DWORD)((count-done)>MAXDWORD?MAXDWORD:count-done);
-   if(!WriteFile(m->handle,bytes+done,want,&wrote,NULL)||!wrote){*status=GetLastError();m->failed=1;break;}
+   BOOL success=WriteFile(m->handle,bytes+done,want,&wrote,NULL);
+   DWORD actual_error=success?0:GetLastError();
+   if(!success||!wrote){*status=actual_error;m->failed=1;break;}
 #else
    ssize_t wrote=write(m->handle,bytes+done,count-done);
    if(wrote<0&&errno==EINTR)continue;
-   if(wrote<=0){*status=wrote<0?errno:EIO;m->failed=1;break;}
+   if(wrote<=0){*status=wrote<0?errno:0;m->failed=1;break;}
 #endif
    crypto_hash_sha256_update(&m->hash,bytes+done,(unsigned long long)wrote);
    done+=(size_t)wrote;m->length+=(uint64_t)wrote;
@@ -107,7 +109,8 @@ int f7_member_flush(struct f7_member *m,int64_t *status){
  return m->failed?F7_INCOMPLETE:F7_OK;
 }
 int f7_member_finish(struct f7_member *m,int64_t *status){
- int result=f7_member_flush(m,status);if(!m||!status||m->finalized)return F7_INVALID;
+ if(!m||!status||m->finalized)return F7_INVALID;
+ int result=f7_member_flush(m,status);
  crypto_hash_sha256_final(&m->hash,m->digest);m->finalized=1;return result;
 }
 int f7_member_read_at(const struct f7_member *m,uint64_t offset,uint8_t *out,size_t count,int64_t *status){
@@ -119,13 +122,15 @@ int f7_member_read_at(const struct f7_member *m,uint64_t offset,uint8_t *out,siz
    /* independent read capability is synchronous; serialize per-capability
       position rather than depending on OVERLAPPED semantics of inherited fd. */
    LARGE_INTEGER position;DWORD got=0;position.QuadPart=(LONGLONG)(offset+done);
-   if(!SetFilePointerEx(m->handle,position,NULL,FILE_BEGIN)||
-      !ReadFile(m->handle,out+done,(DWORD)((count-done)>MAXDWORD?MAXDWORD:count-done),&got,NULL)||!got){
+   if(!SetFilePointerEx(m->handle,position,NULL,FILE_BEGIN)){
       *status=GetLastError();return F7_NATIVE_FAILURE;}
+   BOOL success=ReadFile(m->handle,out+done,(DWORD)((count-done)>MAXDWORD?MAXDWORD:count-done),&got,NULL);
+   DWORD actual_error=success?0:GetLastError();
+   if(!success||!got){*status=actual_error;return F7_NATIVE_FAILURE;}
 #else
    ssize_t got=pread(m->handle,out+done,count-done,(off_t)(offset+done));
    if(got<0&&errno==EINTR)continue;
-   if(got<=0){*status=got<0?errno:EIO;return F7_NATIVE_FAILURE;}
+   if(got<=0){*status=got<0?errno:0;return F7_NATIVE_FAILURE;}
 #endif
    done+=(size_t)got;
  }return F7_OK;
@@ -133,7 +138,9 @@ int f7_member_read_at(const struct f7_member *m,uint64_t offset,uint8_t *out,siz
 int f7_member_readback(struct f7_member *m,f7_handle read_handle,int64_t *status){
  struct f7_identity id;struct f7_member reader;uint8_t buffer[65536],digest[32];
  crypto_hash_sha256_state hash;uint64_t offset=0;
- if(!m||!status||!m->finalized||m->failed)return F7_INCOMPLETE;
+ if(m)m->readback_complete=0;
+ if(!m||!status||!m->finalized)return F7_INCOMPLETE;
+ int rights=f7_handle_readonly(read_handle,status);if(rights)return rights;
  if(f7_identity_read(read_handle,&id,0)||!f7_identity_equal(&m->identity,&id))return F7_IDENTITY_MISMATCH;
 #ifdef _WIN32
  LARGE_INTEGER size;if(!GetFileSizeEx(read_handle,&size)||size.QuadPart<0||(uint64_t)size.QuadPart!=m->length)return F7_CONFLICT;
@@ -146,8 +153,11 @@ int f7_member_readback(struct f7_member *m,f7_handle read_handle,int64_t *status
    if(f7_member_read_at(&reader,offset,buffer,n,status))return F7_NATIVE_FAILURE;
    crypto_hash_sha256_update(&hash,buffer,n);offset+=n;}
  crypto_hash_sha256_final(&hash,digest);
- if(sodium_memcmp(digest,m->digest,32)||f7_identity_read(read_handle,&id,0)||
+ uint64_t final_size;
+ if(f7_handle_size(read_handle,&final_size,status)||final_size!=m->length||
+   sodium_memcmp(digest,m->digest,32)||f7_identity_read(read_handle,&id,0)||
    !f7_identity_equal(&m->identity,&id))return F7_CONFLICT;
+ m->readback_complete=1;
  return F7_OK;
 }
 int f7_member_read_capability(const struct f7_member *m,f7_handle *out){

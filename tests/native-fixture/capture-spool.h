@@ -23,13 +23,14 @@ struct f7_member {
   crypto_hash_sha256_state hash;
   uint64_t length;
   uint8_t digest[32];
-  int finalized, failed;
+  int finalized, failed, readback_complete;
 };
 /* Admitted held native objects, never named/path opening. identity is captured
    from the actual handle, not accepted from a caller JSON receipt. */
 int f7_identity_read(f7_handle handle,struct f7_identity *out,int directory);
 int f7_identity_equal(const struct f7_identity *a,const struct f7_identity *b);
 int f7_handle_size(f7_handle handle,uint64_t *length,int64_t *native_status);
+int f7_handle_readonly(f7_handle handle,int64_t *native_status);
 int f7_member_adopt(struct f7_member *m,f7_handle exclusive_empty_file);
 int f7_member_append(struct f7_member *m,const uint8_t *bytes,size_t count,
  uint64_t *persisted,int64_t *native_status);

@@ -18,7 +18,13 @@ row-derivation source. Internal `protocol.c`, `observer.h`,
 `protocol-native-regression.c` implement the existing U1 boundary; they grant
 no new actor or public authority. Complete actual limitations/missing callers
 are retained in [U1 source checkpoint](../../tests/native-fixture/U1-SOURCE-CHECKPOINT.md).
-Async persistence/control settlement, authenticated pre-O entry/creation,
+Current added source includes `async-spool.c/.h`, `observer-finalize.c`,
+`read-capability.c`, `segment-record.c/.h`, `plaintext-manifest.c/.h`
+and `transport-package.c/.h`:
+independent preallocated persistence queues, emergency witness member, retained
+native drain settlement, complete held-member readback and connected once-only
+segment/manifest/index/signature packaging. These are source progress without execution.
+Complete pre-READY ownership/control settlement, authenticated pre-O entry/creation,
 complete manifests/records/errors/caller integration/SAME recovery and full
 production-path regression coverage remain missing. Actual nine-row inputs,
 actors/resources/keys/grants/spool/binaries/loaded inputs remain ABSENT. No

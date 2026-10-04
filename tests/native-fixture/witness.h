@@ -2,6 +2,7 @@
 #define SERVICE_LASSO_F7_WITNESS_H
 #include "capture-spool.h"
 #include "budget-reservation.h"
+#include "async-spool.h"
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -9,7 +10,10 @@ extern "C" {
 #define F7_WITNESS_BYTES 160u
 struct f7_witness_sink {
  struct f7_member *member;
+ struct f7_member *emergency_member;
  struct f7_reservation *reservation;
+ struct f7_async_spool *async;
+ struct f7_async_spool *emergency_async;
  uint8_t invocation[16],attempt[32],lifetime[16],pipe_key[F7_STREAM_COUNT][16];
  uint16_t role;
  uint64_t sequence,ordinal[F7_STREAM_COUNT];

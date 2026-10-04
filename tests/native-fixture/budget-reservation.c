@@ -13,7 +13,9 @@ int f7_budget_derive(struct f7_reservation *out,const struct f7_budget_input *in
   memset(out,0,sizeof(*out));
   if(!nonzero(in->row_input_sha256,32)||!nonzero(in->derivation_sha256,32)||
      !in->witness_bytes||!in->manifest_bytes||!in->inventory_entries||
-     !in->emergency_bytes||!in->frame_count||!in->transfer_milliseconds)return F7_BUDGET_ABSENT;
+     !in->emergency_bytes||!in->frame_count||!in->transfer_milliseconds||
+     in->witness_queue_bytes<248||in->witness_queue_bytes>SIZE_MAX||
+     in->emergency_queue_bytes<248||in->emergency_queue_bytes>SIZE_MAX)return F7_BUDGET_ABSENT;
   for(i=0;i<F7_STREAM_COUNT;i++){
     uint64_t segments;
     if(!in->original[i]||!in->queue_bytes[i]||in->queue_bytes[i]>SIZE_MAX||
@@ -26,12 +28,16 @@ int f7_budget_derive(struct f7_reservation *out,const struct f7_budget_input *in
      64KiB envelope per segment; sealed-box overhead is 48 bytes. */
   if(f7_checked_add(objects,in->witness_bytes/F7_SEGMENT_MAX+
        (in->witness_bytes%F7_SEGMENT_MAX!=0),&objects)||
+     f7_checked_add(objects,in->emergency_bytes/F7_SEGMENT_MAX+
+       (in->emergency_bytes%F7_SEGMENT_MAX!=0),&objects)||
      f7_checked_add(objects,1,&objects)||objects>F7_OBJECT_MAX)return F7_OVERFLOWED;
   if(in->manifest_bytes>F7_SEGMENT_MAX||in->witness_bytes>F7_JSON_INTEGER_MAX||
+     in->emergency_bytes>F7_JSON_INTEGER_MAX||
      in->frame_count>F7_JSON_INTEGER_MAX||in->inventory_entries>F7_JSON_INTEGER_MAX||
      in->transfer_milliseconds>F7_JSON_INTEGER_MAX)return F7_INVALID;
   if(f7_checked_mul(objects,F7_FRAME_MAX+48+8,&overhead)||
      f7_checked_add(raw,in->witness_bytes,&encrypted)||
+     f7_checked_add(encrypted,in->emergency_bytes,&encrypted)||
      f7_checked_add(encrypted,in->manifest_bytes,&encrypted)||
      f7_checked_add(encrypted,overhead,&encrypted)||
      f7_checked_add(encrypted,raw,&local)||
