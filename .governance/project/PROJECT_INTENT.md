@@ -442,3 +442,5 @@ Show purpose first and implementation second: App (lasso-todo), Database (lasso-
 
 #1667: Consume the corrected foreground lasso-postgres release under SPEC-002 AC-4AJ.7/.8 and producer SPEC-PG-MANAGED. Remove the tutorial adapter prerequisite, preserve prior data/failures, bind exact tag/checksum native Core evidence and explicit docs publication.
 Core #1673 extends the fourth tutorial into managed Todo sign-in with app-owned Zitadel, under AC-4AJ.9. Preserve shared list identity and earlier stages; package/consumer publication precedes exact live documentation verification.
+
+Issue #1683 preserves dependency compatibility under SPEC-002 AC-4DI: SDK 1.31.0 public/evidence/demo identity agrees with the pinned runtime, strict wrong-version rejection remains, and Docusaurus 3.10.2 retains pinned ELK 0.1.9/Mermaid 11 under current Node/browser policy. Compatible bot contributions from #1677/#1678 remain mapped. No renderer migration, security/gate relaxation, owner-branch mutation or release action is included; fresh entire review and NEW input admission precede execution.

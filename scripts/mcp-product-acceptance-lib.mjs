@@ -715,7 +715,7 @@ export function validateMcpProductEvidence(evidence, options = {}) {
     !/^[0-9a-f]{64}$/u.test(evidence.packageArchiveSha256) ||
     !hasExactKeys(evidence.sdk, ["packageName", "version", "protocolVersion", "supportedProtocolVersions"]) ||
     evidence.sdk.packageName !== "@modelcontextprotocol/sdk" ||
-    evidence.sdk.version !== "1.30.1" ||
+    evidence.sdk.version !== "1.31.0" ||
     evidence.sdk.protocolVersion !== "2025-11-25" ||
     JSON.stringify(evidence.sdk.supportedProtocolVersions) !== JSON.stringify([
       "2025-11-25",

@@ -834,3 +834,5 @@ Prepare receiving argv, Windows-legal root/hostile child-only environment, real 
 
 #1667: Consume the corrected foreground lasso-postgres release under SPEC-002 AC-4AJ.7/.8 and producer SPEC-PG-MANAGED. Remove the tutorial adapter prerequisite, preserve prior data/failures, bind exact tag/checksum native Core evidence and explicit docs publication.
 #1673 — AC-4AJ.9: managed Todo Zitadel sign-in tutorial; producer Todo #5, direct local identity/browser and exact publication evidence.
+
+| `ISS-1683` | `in_progress` | Repair coherent Core dependency identity and supported docs graph | `SPEC-002 AC-4DI.1–3` | Map immutable #1677/#1678 contributions into a dedicated current-develop repair PR. Preserve natural failures and strict acceptance; source-only until fresh independent entire review and NEW complete ROOT admission. Existing bot PR landing remains the parent coordinator's decision. |
