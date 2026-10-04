@@ -52,3 +52,6 @@ additional temporary prefix exception is the exact tuple: PR 1586, base
 `service-lasso/service-lasso`. It expires on landing and never authorizes new
 codex branches, another PR, a fork, another head or base, or actor bypass.
 Direction and current-develop ancestry validation still apply.
+
+## F7 canonical preparation and staged native authorship (#1647)
+SPEC-010 and ONE F7_D8_SOURCE_INVENTORY govern the selected whole custody route. Fresh issue-scoped current-develop source authors own coherent U1/O persistence/recovery, U2/G/P, U3/T/C packages sequentially; each commit is pushed immediately and every final candidate freezes complete base/head/raw/physical/input custody for a DIFFERENT entire reviewer. Whole canonical review/landing precedes product authoring; exact implementation review and NEW complete ROOT precede executable checks. U4 positive fixture lifecycle is separately blocked by complete D1 revocation/reset architecture NO-GO; F7 source preparation can proceed independently. Resource identity/key/grant/provider/private access and retention activation require recorded real authority; no branch/PR creation grants them. Retain pending issue worktree/branch for review without normalization/cleanup; original primary retained state stays untouched.
