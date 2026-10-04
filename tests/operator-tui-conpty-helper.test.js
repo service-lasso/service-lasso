@@ -231,17 +231,33 @@ test("terminal probes bind retained-tool verification to its owning module", asy
   }
 });
 
-test("Release Qualification runs the Windows ConPTY probe without publication", async () => {
-  const workflow = await readFile(path.join(repoRoot, ".github", "workflows", "release-qualification.yml"), "utf8");
+for (const { workflowName, probeName, platforms } of [
+  { workflowName: "release-qualification.yml", probeName: "verify-operator-tui-conpty.mjs", platforms: ["win32", "linux", "darwin"] },
+  { workflowName: "release-qualification-scoped.yml", probeName: "verify-operator-tui-conpty-scoped.mjs", platforms: ["win32", "linux"] },
+]) {
+test(`${workflowName} runs the pinned Windows ConPTY probe without publication`, async () => {
+  const workflow = await readFile(path.join(repoRoot, ".github", "workflows", workflowName), "utf8");
   const requirements = await readFile(path.join(repoRoot, "scripts", "requirements-conpty.txt"), "utf8");
   assert.match(requirements, /^pywinpty==3\.0\.5 ; python_version == "3\.12" and platform_system == "Windows" and platform_machine == "AMD64" --hash=sha256:d62946adf14b15b54c0b8d785f93fe18b04da23f4ad59e2e8c4612646e9abd23$/mu);
-  assert.match(workflow, /actions\/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1/u);
+  assert.equal(requirements.trim(), 'pywinpty==3.0.5 ; python_version == "3.12" and platform_system == "Windows" and platform_machine == "AMD64" --hash=sha256:d62946adf14b15b54c0b8d785f93fe18b04da23f4ad59e2e8c4612646e9abd23');
+  assert.equal(workflow.match(/uses: actions\/setup-python@/gu)?.length, 1);
+  assert.match(workflow, /name: Set up hash-pinned Windows ConPTY host\n        if: matrix\.platform == 'win32'\n        uses: actions\/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7\.0\.0\n        with:\n          python-version: "3\.12"\n          architecture: "x64"/u);
   assert.match(workflow, /python-version: "3\.12"\n          architecture: "x64"/u);
   assert.match(workflow, /python -m pip install --require-hashes --only-binary=:all: --no-deps -r scripts\/requirements-conpty\.txt/u);
+  assert.equal(workflow.match(/name: Install hash-pinned Windows ConPTY host/gu)?.length, 1);
+  assert.match(workflow, /name: Install hash-pinned Windows ConPTY host\n        if: matrix\.platform == 'win32'\n        run: "python -m pip install --require-hashes --only-binary=:all: --no-deps -r scripts\/requirements-conpty\.txt"/u);
   assert.match(workflow, /name: Verify attached-terminal TUI behavior \(Windows ConPTY\)\n        if: matrix\.platform == 'win32'/u);
-  assert.match(workflow, /run: node scripts\/verify-operator-tui-conpty\.mjs/u);
+  assert.equal(workflow.match(/name: Verify attached-terminal TUI behavior \(Windows ConPTY\)/gu)?.length, 1);
+  assert.ok(workflow.includes(`name: Verify attached-terminal TUI behavior (Windows ConPTY)\n        if: matrix.platform == 'win32'\n        env:\n          SERVICE_LASSO_RELEASE_METADATA_TOKEN: \${{ github.token }}\n        run: node scripts/${probeName}\n`));
+  const packagedJob = workflow.split("\n  qualify-mcp-packaged:\n")[1]?.split("\n  qualify-release:\n")[0];
+  assert.ok(packagedJob, "actual packaged qualification job must exist");
+  assert.deepEqual([...packagedJob.matchAll(/^            platform: (\w+)$/gmu)].map((match) => match[1]), platforms);
+  assert.equal(packagedJob.match(/uses: actions\/setup-python@/gu)?.length, 1);
+  assert.ok(packagedJob.includes(`run: node scripts/${probeName}\n`));
   assert.equal(workflow.includes("Create immutable GitHub release"), false);
+  assert.doesNotMatch(workflow, /\bnpm publish\b|\bgh release create\b/u);
 });
+}
 
 test("Windows ConPTY probe holds a controlled unavailable endpoint and continues cleanup after a stop failure", async () => {
   const source = await readFile(path.join(repoRoot, "scripts", "verify-operator-tui-conpty.mjs"), "utf8");
