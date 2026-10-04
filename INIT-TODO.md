@@ -339,6 +339,8 @@ The scoped verifier must also carry the landed Windows npm descriptor selection 
 Meaningful prospective fixtures exercise actual scoped allocation/candidate/provenance/staging/install/consumer/catch/finally bodies, original shared resource grammar and forged/private/unknown/contradictory stderr negatives, unreached resources and error/cleanup precedence. They are UNEXECUTED; different fresh ENTIRE cumulative source review and NEW complete-input ROOT admission precede any import/parser/compiler/build/npm/test/native invocation. EMPTY catalogs, provider original ZIP/private Admin/held-buffer custody, native1640 NO-GO, F7 unknown causes, full Windows/Linux released journeys/TUI five actions/Core ZIP and owner GA gates remain unchanged. Parent owns tracking/landing.
 #1666: SPEC-002 AC-4AJ.7/.8 template-derived lasso-todo and lasso-todo-api tutorial adoption. Service PRs #2 merged; development releases published. Independent released-consumer verification and Core docs publication in progress. Separate PostgreSQL default-launch defect #1667 remains Backlog.
 
+- [ ] #1683 remediation (`SPEC-002 AC-4DI.1–3`): prepare the coherent SDK identity and Docusaurus-compatible dependency candidate, retain compatible bot contributions and failed natural evidence, then obtain fresh entire independent review and NEW complete ROOT before execution. Draft repair PR does not close original bot PRs, qualify release or authorize publication/promotion/deployment.
+
 
 ## PR1638 F1/F2 entire-review correction (2026-10-05)
 
