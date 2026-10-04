@@ -1,9 +1,11 @@
 #define UNICODE
 #define _UNICODE
+#define _WIN32_WINNT 0x0601
 #include <windows.h>
 #include <bcrypt.h>
 #include <stdio.h>
 #include <wchar.h>
+#include <stdlib.h>
 
 #pragma comment(lib, "bcrypt.lib")
 
@@ -28,6 +30,103 @@ enum {
   BOOTSTRAP_FAILURE_CREATE = 125,
   BOOTSTRAP_FAILURE_WAIT = 126
 };
+
+/* Opt-in ConPTY custody only. Generic service and DIRECTORY_SYNC callers do
+ * not supply this interface and retain their existing launch semantics. */
+typedef struct {
+  HANDLE pipe;
+  HANDLE job;
+  HANDLE owner;
+  wchar_t token[65];
+  volatile LONG cancelled;
+  volatile LONG failed;
+  volatile LONG stopping;
+} ConptyControl;
+
+static int ReadControlLine(HANDLE pipe, char* line, DWORD capacity) {
+  DWORD count = 0, read = 0;
+  while (count + 1 < capacity) {
+    if (!ReadFile(pipe, line + count, 1, &read, NULL) || read != 1) return 0;
+    if (line[count] == '\n') { line[count] = '\0'; return 1; }
+    if ((unsigned char)line[count] < 32 || (unsigned char)line[count] > 126) return 0;
+    count++;
+  }
+  return 0;
+}
+
+static int WriteControlLine(ConptyControl* control, const char* kind, DWORD pid, DWORD code) {
+  char token[65], line[256]; DWORD written = 0;
+  for (DWORD i = 0; i < 64; i++) token[i] = (char)control->token[i];
+  token[64] = '\0';
+  int length = _snprintf_s(line, sizeof(line), _TRUNCATE, "%s:%s:%lu:%lu:0\n", kind, token, (unsigned long)pid, (unsigned long)code);
+  return length > 0 && WriteFile(control->pipe, line, (DWORD)length, &written, NULL) && written == (DWORD)length;
+}
+
+static int ReadControlCommand(ConptyControl* control, const char* kind) {
+  char line[256], expected[256], token[65];
+  for (DWORD i = 0; i < 64; i++) token[i] = (char)control->token[i];
+  token[64] = '\0';
+  if (_snprintf_s(expected, sizeof(expected), _TRUNCATE, "%s:%s\0", kind, token) < 0) return 0;
+  return ReadControlLine(control->pipe, line, sizeof(line)) && strcmp(line, expected) == 0;
+}
+
+static DWORD WINAPI ConptyCancelReader(LPVOID parameter) {
+  ConptyControl* control = (ConptyControl*)parameter;
+  if (!ReadControlCommand(control, "cancel")) {
+    if (InterlockedCompareExchange(&control->stopping, 0, 0)) return 0;
+    InterlockedExchange(&control->failed, 1);
+  } else {
+    InterlockedExchange(&control->cancelled, 1);
+  }
+  /* A lost private channel is failure and containment, never launch success. */
+  if (!TerminateJobObject(control->job, BOOTSTRAP_FAILURE_WAIT)) InterlockedExchange(&control->failed, 1);
+  return 0;
+}
+
+static int OpenConptyControl(ConptyControl* control) {
+  wchar_t pipeName[256], ownerText[32], *end = NULL;
+  DWORD pipeLength = GetEnvironmentVariableW(L"SERVICE_LASSO_CONPTY_CONTROL_PIPE", pipeName, _countof(pipeName));
+  DWORD tokenLength = GetEnvironmentVariableW(L"SERVICE_LASSO_CONPTY_CONTROL_TOKEN", control->token, _countof(control->token));
+  DWORD ownerLength = GetEnvironmentVariableW(L"SERVICE_LASSO_CONPTY_CONTROL_OWNER", ownerText, _countof(ownerText));
+  if (pipeLength == 0 && tokenLength == 0 && ownerLength == 0) return 0;
+  /* Never expose control coordinates or token to managed/target descendants. */
+  if (!SetEnvironmentVariableW(L"SERVICE_LASSO_CONPTY_CONTROL_PIPE", NULL) ||
+      !SetEnvironmentVariableW(L"SERVICE_LASSO_CONPTY_CONTROL_TOKEN", NULL) ||
+      !SetEnvironmentVariableW(L"SERVICE_LASSO_CONPTY_CONTROL_OWNER", NULL)) return -1;
+  if (pipeLength == 0 || pipeLength >= _countof(pipeName) || tokenLength != 64 || ownerLength == 0 || ownerLength >= _countof(ownerText)) return -1;
+  const wchar_t* prefix = L"\\\\.\\pipe\\service-lasso-conpty-";
+  size_t prefixLength = wcslen(prefix);
+  if (wcsncmp(pipeName, prefix, prefixLength) != 0 || wcslen(pipeName) != prefixLength + 64) return -1;
+  for (DWORD i = 0; i < 64; i++) {
+    wchar_t t = control->token[i], p = pipeName[prefixLength + i];
+    if (!((t >= L'0' && t <= L'9') || (t >= L'a' && t <= L'f')) || !((p >= L'0' && p <= L'9') || (p >= L'a' && p <= L'f'))) return -1;
+  }
+  unsigned long ownerPid = wcstoul(ownerText, &end, 10);
+  if (ownerPid == 0 || end == ownerText || *end != L'\0') return -1;
+  control->pipe = CreateFileW(pipeName, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+  if (control->pipe == INVALID_HANDLE_VALUE) return -1;
+  ULONG actualOwner = 0;
+  if (!GetNamedPipeServerProcessId(control->pipe, &actualOwner) || actualOwner != ownerPid) return -1;
+  control->owner = OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, FALSE, actualOwner);
+  if (control->owner == NULL || WaitForSingleObject(control->owner, 0) != WAIT_TIMEOUT) return -1;
+  control->job = CreateJobObjectW(NULL, NULL);
+  if (control->job == NULL) return -1;
+  JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits;
+  ZeroMemory(&limits, sizeof(limits));
+  limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+  if (!SetInformationJobObject(control->job, JobObjectExtendedLimitInformation, &limits, sizeof(limits))) return -1;
+  return 1;
+}
+
+static int DrainConptyJob(ConptyControl* control) {
+  if (!TerminateJobObject(control->job, BOOTSTRAP_FAILURE_WAIT)) return 0;
+  for (;;) {
+    JOBOBJECT_BASIC_ACCOUNTING_INFORMATION accounting;
+    if (!QueryInformationJobObject(control->job, JobObjectBasicAccountingInformation, &accounting, sizeof(accounting), NULL)) return 0;
+    if (accounting.ActiveProcesses == 0) return 1;
+    Sleep(1); /* observation only; never a new caller success deadline */
+  }
+}
 
 static int IsLoaderSensitiveName(const wchar_t* name) {
   return _wcsnicmp(name, L"COR_", 4) == 0 ||
@@ -186,19 +285,53 @@ int wmain(void) {
   STARTUPINFOW startupInfo;
   PROCESS_INFORMATION processInformation;
   DWORD exitCode = BOOTSTRAP_FAILURE_UNKNOWN;
+  ConptyControl control;
+  HANDLE controlThread = NULL;
+  int conptyMode;
+  ZeroMemory(&control, sizeof(control));
+  control.pipe = INVALID_HANDLE_VALUE;
   if (!SanitizeLoaderEnvironment()) return BOOTSTRAP_FAILURE_UNKNOWN;
   if (!GetSelfDirectory(directory, (DWORD)(sizeof(directory) / sizeof(directory[0])))) return BOOTSTRAP_FAILURE_BINDING;
   if (!VerifyPackageDirectory(directory, finalDirectory, (DWORD)_countof(finalDirectory), heldDirectories, &heldDirectoryCount)) return BOOTSTRAP_FAILURE_BINDING;
   if (_snwprintf_s(managedPath, _countof(managedPath), _TRUNCATE, L"%s\\%s", finalDirectory, MANAGED_LAUNCHER_NAME) < 0) { ReleasePackageDirectories(heldDirectories, heldDirectoryCount); return BOOTSTRAP_FAILURE_BINDING; }
   if (!VerifyManagedLauncher(managedPath, &heldHandle)) { ReleasePackageDirectories(heldDirectories, heldDirectoryCount); return BOOTSTRAP_FAILURE_BINDING; }
+  conptyMode = OpenConptyControl(&control);
+  if (conptyMode < 0) { exitCode = BOOTSTRAP_FAILURE_BINDING; goto release; }
   if (_snwprintf_s(commandLine, _countof(commandLine), _TRUNCATE, L"\"%s\"", managedPath) < 0) { CloseHandle(heldHandle); ReleasePackageDirectories(heldDirectories, heldDirectoryCount); return BOOTSTRAP_FAILURE_CREATE; }
   ZeroMemory(&startupInfo, sizeof(startupInfo));
   ZeroMemory(&processInformation, sizeof(processInformation));
   startupInfo.cb = sizeof(startupInfo);
-  if (!CreateProcessW(managedPath, commandLine, NULL, NULL, FALSE, 0, NULL, NULL, &startupInfo, &processInformation)) { CloseHandle(heldHandle); ReleasePackageDirectories(heldDirectories, heldDirectoryCount); return BOOTSTRAP_FAILURE_CREATE; }
+  if (!CreateProcessW(managedPath, commandLine, NULL, NULL, FALSE, conptyMode ? CREATE_SUSPENDED : 0, NULL, NULL, &startupInfo, &processInformation)) { exitCode = BOOTSTRAP_FAILURE_CREATE; goto release; }
+  if (conptyMode) {
+    if (!AssignProcessToJobObject(control.job, processInformation.hProcess)) {
+      TerminateProcess(processInformation.hProcess, BOOTSTRAP_FAILURE_CREATE);
+      WaitForSingleObject(processInformation.hProcess, INFINITE);
+      exitCode = BOOTSTRAP_FAILURE_CREATE; goto contained;
+    }
+    if (!WriteControlLine(&control, "registered", GetCurrentProcessId(), 0) || !ReadControlCommand(&control, "resume")) { exitCode = BOOTSTRAP_FAILURE_CREATE; goto contained; }
+    controlThread = CreateThread(NULL, 0, ConptyCancelReader, &control, 0, NULL);
+    if (controlThread == NULL || ResumeThread(processInformation.hThread) == (DWORD)-1) { exitCode = BOOTSTRAP_FAILURE_CREATE; goto contained; }
+  }
   CloseHandle(processInformation.hThread);
+  processInformation.hThread = NULL;
   if (WaitForSingleObject(processInformation.hProcess, INFINITE) != WAIT_OBJECT_0 || !GetExitCodeProcess(processInformation.hProcess, &exitCode)) exitCode = BOOTSTRAP_FAILURE_WAIT;
+contained:
+  if (conptyMode) {
+    if (controlThread != NULL) { InterlockedExchange(&control.stopping, 1); CancelSynchronousIo(controlThread); WaitForSingleObject(controlThread, INFINITE); CloseHandle(controlThread); controlThread = NULL; }
+    if (!DrainConptyJob(&control) || WaitForSingleObject(processInformation.hProcess, INFINITE) != WAIT_OBJECT_0) {
+      /* No receipt: JavaScript retains inputs and does not enter caller cleanup. */
+      exitCode = BOOTSTRAP_FAILURE_WAIT;
+    } else {
+      if (control.cancelled || control.failed) exitCode = BOOTSTRAP_FAILURE_WAIT;
+      if (!WriteControlLine(&control, "terminal", GetCurrentProcessId(), exitCode)) exitCode = BOOTSTRAP_FAILURE_WAIT;
+    }
+  }
+  if (processInformation.hThread != NULL) CloseHandle(processInformation.hThread);
   CloseHandle(processInformation.hProcess);
+release:
+  if (control.job != NULL) CloseHandle(control.job);
+  if (control.owner != NULL) CloseHandle(control.owner);
+  if (control.pipe != INVALID_HANDLE_VALUE) CloseHandle(control.pipe);
   CloseHandle(heldHandle);
   ReleasePackageDirectories(heldDirectories, heldDirectoryCount);
   return (int)exitCode;

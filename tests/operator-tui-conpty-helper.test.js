@@ -15,6 +15,11 @@ import { conptyHelperEnvironment, runConptyHelper } from "../scripts/operator-tu
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
+// Explicit seam receipt, never actual native containment evidence.
+function fixtureContainment(child, terminal = Promise.resolve({ code: 0, activeProcesses: 0 })) {
+  return async () => ({ environment: {}, bindChild() {}, requestCancellation() { child.kill(); }, terminal, cleanup: async () => {} });
+}
+
 test("Windows ConPTY helper uses a bounded host with a sanitized child environment", async () => {
   const source = await readFile(path.join(repoRoot, "scripts", "verify-operator-tui-conpty.py"), "utf8");
   assert.match(source, /Backend\.ConPTY/u);
@@ -102,6 +107,7 @@ test("ConPTY helper waits for the owned containment host to close after timeout"
     envSource: { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot ?? "C:\\Windows" },
     timeoutMs: 25,
     platform: "win32",
+    containmentFactory: fixtureContainment(child),
     managedLauncherPath: launcher,
     spawnProcess: (command, args, options) => {
       assert.equal(command, launcher);
@@ -159,6 +165,7 @@ for (const mode of ["unavailable", "connected"]) {
         executable: "fixture.exe", mode, apiUrl: "http://127.0.0.1:41999", apiToken: "synthetic-attempt-token-value",
         envSource: { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot ?? "C:\\Windows" },
         timeoutMs: closure.timedOut ? 25 : 35_000, platform: "win32",
+        containmentFactory: fixtureContainment(child),
         spawnProcess: (_command, _args, options) => {
           gatePath = options.env.SERVICE_LASSO_MANAGED_LAUNCH_GATE;
           spawned(); return child;
@@ -186,12 +193,37 @@ for (const mode of ["unavailable", "connected"]) {
       helperPath: path.join(repoRoot, "scripts", "verify-operator-tui-conpty.py"),
       executable: "fixture.exe", mode, apiUrl: "http://127.0.0.1:41999", apiToken: "synthetic-attempt-token-value",
       envSource: { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot ?? "C:\\Windows" }, platform: "win32",
+      containmentFactory: fixtureContainment(null),
       spawnProcess: (_command, _args, options) => {
         gatePath = options.env.SERVICE_LASSO_MANAGED_LAUNCH_GATE;
         throw new Error("synthetic private synchronous spawn error");
       },
     }), (error) => error.message === "Windows ConPTY TUI probe did not complete its bounded assertions.");
     assert.ok(gatePath);
+    await assert.rejects(stat(path.dirname(gatePath)), { code: "ENOENT" });
+  });
+  test(`ConPTY ${mode} bootstrap close retains inputs until independent terminal containment receipt`, async () => {
+    const child = new EventEmitter(); child.stdout = new PassThrough(); child.stderr = new PassThrough(); child.kill = () => true;
+    let spawned, gatePath, terminalObserved;
+    const didSpawn = new Promise((resolve) => { spawned = resolve; });
+    const terminal = new Promise((resolve) => { terminalObserved = resolve; });
+    let settled = false;
+    const result = runConptyHelper({
+      command: process.execPath, helperPath: path.join(repoRoot, "scripts", "verify-operator-tui-conpty.py"),
+      executable: "fixture.exe", mode, apiUrl: "http://127.0.0.1:41999", apiToken: "synthetic-attempt-token-value",
+      envSource: { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot ?? "C:\\Windows" }, platform: "win32",
+      containmentFactory: fixtureContainment(child, terminal),
+      spawnProcess: (_command, _args, options) => { gatePath = options.env.SERVICE_LASSO_MANAGED_LAUNCH_GATE; spawned(); return child; },
+    });
+    const rejected = assert.rejects(result, (error) => error.message === "Windows ConPTY TUI probe did not complete its bounded assertions.").then(() => { settled = true; });
+    await didSpawn;
+    child.stdout.write(`${JSON.stringify(success)}\n`);
+    child.emit("close", 1, null);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(settled, false);
+    assert.ok((await stat(path.dirname(gatePath))).isDirectory());
+    terminalObserved({ code: 126, activeProcesses: 0 });
+    await rejected;
     await assert.rejects(stat(path.dirname(gatePath)), { code: "ENOENT" });
   });
   test(`ConPTY ${mode} actual helper code0 returns closed success after cleanup`, async () => {
