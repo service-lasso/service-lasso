@@ -153,3 +153,15 @@ This structural/byte validator does not prove an OS call or admit custody.
 Source regressions are present and UNEXECUTED; production original-witness
 semantics, authenticated expectations and complete native fixture coverage
 remain incomplete and cannot be replaced by these structural vectors.
+
+Linux original private-channel source now performs nonblocking native recvmsg
+on a held AF_UNIX SOCK_SEQPACKET socket with already enabled SO_PASSCRED. It
+retains actual query/receive facts, original body/control bytes, kernel peer
+credentials and per-message credentials; truncation, absent/duplicate/mismatched
+credentials and unexpected ancillary data fail closed. Unknown received handles
+remain private retained custody, never adopted or silently cleaned up here.
+Aligned nonoverlapping bounded buffers must be reserved before original producer
+initialization. This module issues no roles and cannot establish child birth or
+lifetime from a PID; original admitted ROOT peer binding/callsite is still absent.
+The existing FIFO observer path has not been relabeled as credential-authenticated;
+its owning integration and full original native regression source remain pending.
