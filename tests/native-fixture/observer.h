@@ -1,6 +1,9 @@
 #ifndef SERVICE_LASSO_F7_OBSERVER_H
 #define SERVICE_LASSO_F7_OBSERVER_H
 #include "witness.h"
+#ifdef __cplusplus
+extern "C" {
+#endif
 struct f7_capture {
  struct f7_member *raw[F7_STREAM_COUNT];
  struct f7_witness_sink *witness;
@@ -15,4 +18,7 @@ struct f7_capture {
    deletion, projection, callbacks, or transport pressure enters this loop. */
 int f7_capture_linux(struct f7_capture *capture,uint64_t absolute_monotonic_ms);
 int f7_capture_windows(struct f7_capture *capture,uint64_t absolute_tick_ms);
+#ifdef __cplusplus
+}
+#endif
 #endif

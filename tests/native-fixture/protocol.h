@@ -2,6 +2,9 @@
 #define SERVICE_LASSO_F7_PROTOCOL_H
 #include <stdint.h>
 #include <stddef.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /* Private binary framing. Raw pipe members never contain these headers. */
 #define F7_VERSION 1u
@@ -22,6 +25,8 @@ enum f7_state { F7_OBSERVER_ADMITTED=1, F7_ORIGINAL_CAPTURE=2,
 enum f7_event { F7_READ=1, F7_NATURAL_EOF=2, F7_READ_ERROR=3,
   F7_WRITE_ERROR=4, F7_OVERFLOW=5, F7_CHILD_EXIT=6, F7_WRITER_CLOSED=7,
   F7_FLUSH=8, F7_REOPEN_READBACK=9, F7_UNAVAILABLE=10 };
+enum f7_payload_type { F7_ERROR_GRAPH=1,F7_SERIALIZATION_FALLBACK=2,
+ F7_RAW_NATIVE_ERROR=3,F7_CONTROL_RECORD=4 };
 enum f7_result { F7_OK=0, F7_INVALID=1, F7_OVERFLOWED=2,
   F7_NATIVE_FAILURE=3, F7_IDENTITY_MISMATCH=4, F7_BUDGET_ABSENT=5,
   F7_INCOMPLETE=6, F7_AUTH_FAILURE=7, F7_CONFLICT=8 };
@@ -40,4 +45,7 @@ int f7_sequence_accept(uint64_t *last, const struct f7_frame *f,
 int f7_state_advance(enum f7_state *state, enum f7_state next);
 void f7_u64be(uint8_t out[8], uint64_t n);
 uint64_t f7_read_u64be(const uint8_t in[8]);
+#ifdef __cplusplus
+}
+#endif
 #endif

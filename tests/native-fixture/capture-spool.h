@@ -10,6 +10,9 @@ typedef HANDLE f7_handle;
 typedef int f7_handle;
 #define F7_INVALID_HANDLE (-1)
 #endif
+#ifdef __cplusplus
+extern "C" {
+#endif
 struct f7_identity {
   uint8_t object[24], owner[68], protection_sha256[32];
   uint32_t owner_length;
@@ -37,4 +40,7 @@ int f7_member_read_at(const struct f7_member *m,uint64_t offset,uint8_t *out,
 /* Read-only duplicated native object handles; callers still authenticate the
    destination lifetime on the dedicated inherited role endpoint. */
 int f7_member_read_capability(const struct f7_member *m,f7_handle *out);
+#ifdef __cplusplus
+}
+#endif
 #endif

@@ -10,20 +10,27 @@ monotonic state transitions with retained failure; checked independent stream,
 queue, witness, emergency and durable segment arithmetic; captured-prefix
 accounting; held native file identity/write/flush/complete independent readback;
 private native read/EOF/error witness framing; Linux poll/read concurrent drain
-that distinguishes HUP from actual zero-byte native EOF; libsodium sealed-box
+that distinguishes HUP from actual zero-byte native EOF; Windows independently
+threaded original anonymous-pipe drain with native broken-pipe terminal status;
+libsodium sealed-box
 encryption and domain-separated Ed25519 index signing/readback operations;
+closed native canonical ciphertext-index and segment-metadata encoding;
 finite public strings with no arbitrary payload parameter.
+Native framing/state/budget negative regression source is present but UNEXECUTED;
+it is partial and does not replace complete original production-path regressions.
 
 These components have no authorized entry path yet. Missing complete U1 work:
 
 - Linux/Windows exclusive held spool creation and independently authenticated
-  O admission before EVERY downstream initialization; Windows concurrent drain.
+  O admission before EVERY downstream initialization.
 - Full owner/protection/ancestor/pipe/child birth/image/parent and writer-copy
   catalog proof, per-read native object identity and child exit/wait witnesses.
 - Reserved asynchronous spool/witness writes independent of native drain. The
   present Linux loop performs synchronous writes and can stall at disk writes;
-  its deadline does not prove a bound on a blocked write. No universal bound.
-- Complete native canonical index/segment/manifest encoders/closed decoders;
+  its deadline does not prove a bound on a blocked write. Windows joins cancelled
+  native drain threads before releasing borrowed capture memory; that settlement
+  is presently an unbounded wait. No universal bound or control-settlement proof.
+- Complete native plaintext-manifest encoder and closed record decoders;
   persisted once-only attempt journal, recovery custodian and authenticated
   SAME read-only successor handoff. Crypto `started` is process-local only and
   is insufficient for once-after-death custody; no recovery claim follows.

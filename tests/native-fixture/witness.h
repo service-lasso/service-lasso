@@ -2,6 +2,9 @@
 #define SERVICE_LASSO_F7_WITNESS_H
 #include "capture-spool.h"
 #include "budget-reservation.h"
+#ifdef __cplusplus
+extern "C" {
+#endif
 /* Private fixed-format native read facts, not public diagnostic text. */
 #define F7_WITNESS_BYTES 160u
 struct f7_witness_sink {
@@ -14,4 +17,7 @@ struct f7_witness_sink {
 int f7_witness_emit(struct f7_witness_sink *sink,enum f7_stream stream,
  enum f7_event event,uint64_t requested,uint64_t returned,uint64_t offset,
  const uint8_t *slice,int64_t status,int emergency);
+#ifdef __cplusplus
+}
+#endif
 #endif

@@ -1,6 +1,9 @@
 #ifndef SERVICE_LASSO_F7_BUDGET_H
 #define SERVICE_LASSO_F7_BUDGET_H
 #include "protocol.h"
+#ifdef __cplusplus
+extern "C" {
+#endif
 /* All values come from the NEW exact admission, never environment/defaults. */
 struct f7_budget_input {
   uint64_t original[F7_STREAM_COUNT], witness_bytes, manifest_bytes;
@@ -22,4 +25,7 @@ int f7_budget_witness(struct f7_reservation *r,uint64_t n,int emergency);
 int f7_budget_queue(struct f7_reservation *r,enum f7_stream stream,uint64_t n);
 int f7_checked_add(uint64_t a,uint64_t b,uint64_t *out);
 int f7_checked_mul(uint64_t a,uint64_t b,uint64_t *out);
+#ifdef __cplusplus
+}
+#endif
 #endif
