@@ -97,6 +97,7 @@ $digestValues = @([regex]::Matches($digestDeclaration.Groups[1].Value, '0x([a-fA
 if ($managedBytes.Length -ne 39936 -or $sourceText -notmatch 'MANAGED_LAUNCHER_BYTE_LENGTH\s+39936LL' -or $digestValues.Count -ne 32 -or ($digestValues -join '') -cne $managedSha256) {
   throw "Native bootstrap source did not pin the managed launcher identity."
 }
+$script:NativeToolOwners = [Collections.Generic.Dictionary[string,object]]::new([StringComparer]::Ordinal)
 $temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) ("service-lasso-native-bootstrap-" + [Guid]::NewGuid().ToString("N"))
   # Retain every original attempt, including failed initialization/compiler output.
   $null = New-Item -ItemType Directory -Path $temporaryRoot -ErrorAction Stop
@@ -138,26 +139,94 @@ $temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) ("service-lasso-native-boo
     $start.Environment.Clear()
     foreach ($entry in $environment.GetEnumerator()) { $start.Environment.Add($entry.Key, $entry.Value) }
     foreach ($argument in $arguments) { $start.ArgumentList.Add($argument) }
-    $stdout = [IO.File]::Open((Join-Path $temporaryRoot "$label.stdout.raw"), [IO.FileMode]::CreateNew)
-    $stderr = [IO.File]::Open((Join-Path $temporaryRoot "$label.stderr.raw"), [IO.FileMode]::CreateNew)
-    $process = [Diagnostics.Process]::new(); $process.StartInfo = $start
-    $completed = $false; $exitCode = $null; $classification = "exception"
-    try {
-      if (-not $process.Start()) { throw "The selected tool did not start." }
-      $outCopy = $process.StandardOutput.BaseStream.CopyToAsync($stdout)
-      $errCopy = $process.StandardError.BaseStream.CopyToAsync($stderr)
-      $process.WaitForExit()
-      $outCopy.GetAwaiter().GetResult(); $errCopy.GetAwaiter().GetResult()
-      $completed = $true; $exitCode = $process.ExitCode
-      $classification = if ($exitCode -eq 0) { "completed_success" } else { "completed_failure" }
-      if ($process.ExitCode -ne 0) { throw "The selected tool returned a failed original result." }
-    } finally {
-      $stdout.Dispose(); $stderr.Dispose(); $process.Dispose()
-      $result = [ordered]@{ recipe = $recipe; tool = $file; arguments = $arguments; completed = $completed; exitCode = $exitCode; classification = $classification }
-      $resultBytes = [Text.UTF8Encoding]::new($false).GetBytes(($result | ConvertTo-Json -Depth 4))
-      $resultFile = [IO.File]::Open((Join-Path $temporaryRoot "$label.result.json"), [IO.FileMode]::CreateNew)
-      try { $resultFile.Write($resultBytes, 0, $resultBytes.Length) } finally { $resultFile.Dispose() }
+    $key = "$temporaryRoot|$label"
+    if ($script:NativeToolOwners.ContainsKey($key)) { throw "An original tool owner already exists; no retry." }
+    $owner = @{ process = $null; stdoutRaw = $null; stderrRaw = $null; startAttempted = $false; startReturned = $false; started = $null; attached = $false; exitObserved = $false; exitCode = $null; settled = $false; gate = [Threading.ManualResetEventSlim]::new($false); errors = [Collections.Generic.List[object]]::new(); copies = @{ stdout = @{ source = $null; task = $null; terminal = $false; observation = $null }; stderr = @{ source = $null; task = $null; terminal = $false; observation = $null } } }
+    $script:NativeToolOwners.Add($key, $owner)
+    function Write-OriginalToolRecord([string]$suffix, $record) {
+      $bytes = [Text.UTF8Encoding]::new($false).GetBytes(($record | ConvertTo-Json -Depth 12))
+      $stream = [IO.File]::Open((Join-Path $temporaryRoot "$label.$suffix.json"), [IO.FileMode]::CreateNew)
+      try { $stream.Write($bytes, 0, $bytes.Length) } finally { $stream.Dispose() }
     }
+    function Observe-OriginalCopy([string]$name) {
+      $copy = $owner.copies.$name
+      if ($null -eq $copy.task) { return }
+      $state = 'ACTUAL_COPY_COMPLETED'; $failure = $null
+      try { $copy.task.GetAwaiter().GetResult(); $copy.terminal = $true }
+      catch {
+        $failure = $_.Exception.ToString()
+        $copy.terminal = $copy.task.IsCompleted
+        $state = if ($copy.task.IsFaulted) { 'ACTUAL_COPY_FAULTED' } elseif ($copy.task.IsCanceled) { 'ACTUAL_COPY_CANCELED' } else { 'COPY_OBSERVATION_UNRESOLVED' }
+        $owner.errors.Add(@{ phase = "$name-copy-observation"; exception = $failure })
+      }
+      $faults = @()
+      if ($copy.task.IsFaulted -and $copy.task.Exception) { $faults = @($copy.task.Exception.Flatten().InnerExceptions | ForEach-Object { $_.ToString() }) }
+      $copy.observation = @{ state = $state; terminalObserved = $copy.terminal; taskStatus = [string]$copy.task.Status; exception = $failure; allFaults = $faults }
+    }
+    function Retain-ActiveOriginalOwner {
+      # The registry and this non-returning live invocation strongly own every
+      # original resource. A custody file alone is never a live handoff/terminal.
+      foreach ($name in @('stdout', 'stderr')) { if ($owner.copies.$name.task -and -not $owner.copies.$name.terminal) { Observe-OriginalCopy $name } }
+      try { Write-OriginalToolRecord 'ACTIVE-CUSTODY' @{ state = 'ACTIVE_INVOCATION_RETAINS_UNRESOLVED_ORIGINAL_RESOURCES'; ownerKey = $key; invocationPid = $PID; recipe = $recipe; startAttempted = $owner.startAttempted; startReturned = $owner.startReturned; started = $owner.started; attached = $owner.attached; exitObserved = $owner.exitObserved; exitCode = $owner.exitCode; stdoutCopy = $owner.copies.stdout.observation; stderrCopy = $owner.copies.stderr.observation; errors = @($owner.errors); returned = $false; resourcesReleased = $false } }
+      catch { $owner.errors.Add(@{ phase = 'custody-record'; exception = $_.Exception.ToString() }) }
+      while ($true) { try { $owner.gate.Wait() } catch { $owner.errors.Add(@{ phase = 'custody-wait'; exception = $_.Exception.ToString() }) } }
+    }
+    try {
+      $owner.stdoutRaw = [IO.File]::Open((Join-Path $temporaryRoot "$label.stdout.raw"), [IO.FileMode]::CreateNew)
+      $owner.stderrRaw = [IO.File]::Open((Join-Path $temporaryRoot "$label.stderr.raw"), [IO.FileMode]::CreateNew)
+      $owner.process = [Diagnostics.Process]::new(); $owner.process.StartInfo = $start
+      try {
+        $owner.startAttempted = $true; $owner.started = $owner.process.Start(); $owner.startReturned = $true
+        $owner.attached = $owner.started
+        if (-not $owner.started) { $owner.errors.Add(@{ phase = 'start'; exception = 'Original Start returned false' }) }
+      } catch {
+        $owner.errors.Add(@{ phase = 'start'; exception = $_.Exception.ToString() })
+        try { $null = $owner.process.Id; $owner.attached = $true } catch { $owner.errors.Add(@{ phase = 'original-attachment-unobserved'; exception = $_.Exception.ToString() }) }
+      }
+      if ($owner.attached) {
+        # Independent setup and observation: one fault never skips the other.
+        foreach ($name in @('stdout', 'stderr')) {
+          try {
+            if ($name -eq 'stdout') { $source = $owner.process.StandardOutput.BaseStream; $destination = $owner.stdoutRaw }
+            else { $source = $owner.process.StandardError.BaseStream; $destination = $owner.stderrRaw }
+            $owner.copies.$name.source = $source
+            $owner.copies.$name.task = $source.CopyToAsync($destination)
+          } catch { $owner.errors.Add(@{ phase = "$name-copy-start"; exception = $_.Exception.ToString() }) }
+        }
+        try { $owner.process.WaitForExit(); $owner.exitCode = $owner.process.ExitCode; $owner.exitObserved = $true }
+        catch { $owner.errors.Add(@{ phase = 'natural-exit'; exception = $_.Exception.ToString() }) }
+        Observe-OriginalCopy 'stdout'
+        Observe-OriginalCopy 'stderr'
+        if (-not $owner.exitObserved) {
+          try { if ($owner.process.HasExited) { $owner.exitCode = $owner.process.ExitCode; $owner.exitObserved = $true } }
+          catch { $owner.errors.Add(@{ phase = 'available-original-exit'; exception = $_.Exception.ToString() }) }
+        }
+        if (-not $owner.exitObserved -or -not $owner.copies.stdout.terminal -or -not $owner.copies.stderr.terminal) { Retain-ActiveOriginalOwner }
+      } elseif ($owner.startAttempted -and -not $owner.startReturned) { Retain-ActiveOriginalOwner }
+      # Either each issued task and original exit is observed, or actual Start
+      # false/pre-start failure issued neither a process nor any copy.
+      $owner.settled = $true
+    } catch {
+      $owner.errors.Add(@{ phase = 'initiating-boundary'; exception = $_.Exception.ToString() })
+      if ($owner.startAttempted -and -not $owner.settled) { Retain-ActiveOriginalOwner }
+      $owner.settled = $true # pre-start only: no original process/copy issued
+    }
+    $releaseFailed = $false
+    foreach ($name in @('stdout', 'stderr')) {
+      if ($owner.copies.$name.source) { try { $owner.copies.$name.source.Dispose() } catch { $releaseFailed = $true; $owner.errors.Add(@{ phase = "$name-source-release"; exception = $_.Exception.ToString() }) } }
+    }
+    foreach ($name in @('stdoutRaw', 'stderrRaw')) {
+      if ($owner.$name) {
+        try { $owner.$name.Flush($true) } catch { $owner.errors.Add(@{ phase = "$name-flush"; exception = $_.Exception.ToString() }) }
+        try { $owner.$name.Dispose() } catch { $releaseFailed = $true; $owner.errors.Add(@{ phase = "$name-release"; exception = $_.Exception.ToString() }) }
+      }
+    }
+    if ($owner.process) { try { $owner.process.Dispose() } catch { $releaseFailed = $true; $owner.errors.Add(@{ phase = 'process-release'; exception = $_.Exception.ToString() }) } }
+    if ($releaseFailed) { Retain-ActiveOriginalOwner }
+    $completed = $owner.exitObserved -and $owner.copies.stdout.terminal -and $owner.copies.stderr.terminal
+    Write-OriginalToolRecord 'result' @{ recipe = $recipe; tool = $file; arguments = $arguments; startAttempted = $owner.startAttempted; startReturned = $owner.startReturned; started = $owner.started; completed = $completed; exitObserved = $owner.exitObserved; exitCode = $owner.exitCode; stdoutCopy = $owner.copies.stdout.observation; stderrCopy = $owner.copies.stderr.observation; exceptions = @($owner.errors); classification = $(if ($completed -and $owner.errors.Count -eq 0 -and $owner.exitCode -eq 0) { 'completed_success' } else { 'original_observed_failure' }) }
+    $null = $script:NativeToolOwners.Remove($key)
+    if (-not $completed -or $owner.errors.Count -or $owner.exitCode -ne 0) { throw "The original tool/copy outcomes failed; retained without retry." }
   }
   Invoke-RetainedNativeTool (Join-Path $env:SystemRoot "System32/cmd.exe") @('/d', '/u', '/s', '/c', ('"' + $initializePath + '"')) $childEnvironment "initialize"
   $initialized = [Collections.Generic.Dictionary[string,string]]::new([StringComparer]::OrdinalIgnoreCase)
