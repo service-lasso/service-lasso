@@ -23,7 +23,7 @@ flowchart TB
   accDescr: Service Lasso manages the Todo app from stage one alongside baseline apps. Stage two adds PostgreSQL. Stage three adds a Go API between the Todo service and database. JSON storage belongs to the Todo service and is not a separate service.
   browser["Browser Todo UI"]
   subgraph lasso["Service Lasso"]
-    baseline["Baseline apps<br/>Service Admin<br/>Secrets Broker<br/>Echo · Node provider"]
+    baseline["Baseline apps<br/>Service Admin<br/>Secrets Broker<br/>Echo / Node provider"]
     todo["Todo app service<br/>UI + API proxy"]
     api["Go Todo API service"]
     db[("PostgreSQL service<br/>Persisted Todo data")]

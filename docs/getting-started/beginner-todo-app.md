@@ -1,8 +1,8 @@
 ---
-title: Beginner â€” Add a Todo app service
+title: Beginner — Add a Todo app service
 ---
 
-# Beginner â€” Add a Todo app service
+# Beginner — Add a Todo app service
 
 Add your first application service to Service Lasso. You will register a small
 Todo web app, start it through Lasso, inspect its health and endpoint in Admin,
@@ -24,7 +24,7 @@ flowchart TB
   accDescr: Service Lasso manages the Todo app from stage one alongside baseline apps. Stage two adds PostgreSQL. Stage three adds a Go API between the Todo service and database. JSON storage belongs to the Todo service and is not a separate service.
   browser["Browser Todo UI"]
   subgraph lasso["Service Lasso"]
-    baseline["Baseline apps<br/>Service Admin<br/>Secrets Broker<br/>Echo Â· Node provider"]
+    baseline["Baseline apps<br/>Service Admin<br/>Secrets Broker<br/>Echo / Node provider"]
     todo["Todo app service<br/>UI + backend<br/>JSON file storage"]
   end
   browser -->|HTTP| todo
@@ -51,8 +51,9 @@ npm run demo
 Open [Service Admin](http://127.0.0.1:17700/). Complete first-run setup, save the
 local credential and recovery material privately, acknowledge that you saved
 them, and sign in. Confirm the baseline services are visible and healthy.
-If baseline setup completed but services remain stopped, run `npm run demo:recycle`
-from another terminal in this checkout.
+If baseline setup completed but services remain stopped, use **Start** in Admin.
+To restart this demo, stop it, wait for its process to exit, then run
+`npm run demo` again; do not rebuild over a running managed launcher.
 
 Admin login authorizes service management. The local Todo example has no user
 login; it binds to loopback only. User authentication is a later lesson with
@@ -61,7 +62,8 @@ into another application.
 
 ## 2. Add the Todo service to the inventory
 
-Stop your demo with `Ctrl+C` (or `npm run demo:stop`). From the checkout root:
+Stop your demo with `Ctrl+C` (or `npm run demo:stop`) and wait for its process
+to exit. From the checkout root:
 
 ```sh
 node examples/getting-started-todo/add.mjs
@@ -112,10 +114,11 @@ npm run demo
 ```
 
 Restarting Lasso discovers the new manifest. Enabled services may autostart.
-In Admin, open **Services â†’ Todo App**:
+In Admin, open **Services → Todo App**:
 
 1. Confirm `todo-app` and its Node dependency appear.
-2. Use **Start** if it is stopped; wait for the HTTP health check to pass.
+2. Use **Install** and **Configure** if those actions are offered, then **Start**
+   if it is stopped; wait for the HTTP health check to pass.
 3. Under **Runtime**, inspect its managed process.
 4. Under **Network**, open the resolved UI URL. Do not assume the preferred port
    was available; use the allocation Admin shows.
