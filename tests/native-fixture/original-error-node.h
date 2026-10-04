@@ -27,6 +27,7 @@ struct f7_original_error_workspace {
  napi_env original_env;
  napi_ref *held;size_t held_capacity,held_count;
  int retained_incomplete;
+ uint8_t *node_progress;size_t progress_capacity;
 };
 struct f7_original_error_result {
  napi_value original_primary,serialization_exception;

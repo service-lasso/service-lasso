@@ -89,6 +89,7 @@ struct builder {
   }
   if(w->node_count==w->node_capacity)return F7_OVERFLOWED;
   size_t i=w->node_count++;w->originals[i]=value;memset(w->nodes+i,0,sizeof(*w->nodes));
+  w->node_progress[i]=0;
   *id=(uint32_t)i+1;return F7_OK;
  }
  int text(napi_value value,f7_error_text *out_text){
@@ -125,6 +126,7 @@ struct builder {
   size_t start=w->primitive_used;uint8_t *header;
   result=bytes(16,&header);if(result)return result;
   memcpy(header,"SLF7PRP1",8);u32(header+8,count);u32(header+12,prototype_kind);
+  node->original_native=w->primitive+start;node->original_native_length=16;
   for(uint32_t i=0;i<count;i++){
    napi_value key,value;f7_error_text name={};uint32_t id;
    result=api(napi_get_element(env,keys,i,&key));if(result)return result;
@@ -135,6 +137,7 @@ struct builder {
    uint8_t *entry;result=bytes(8+(size_t)name.count*2,&entry);if(result)return result;
    u32(entry,name.count);u32(entry+4,id);
    for(uint32_t j=0;j<name.count;j++){entry[8+2*(size_t)j]=(uint8_t)(name.units[j]>>8);entry[9+2*(size_t)j]=(uint8_t)name.units[j];}
+   node->original_native_length=(uint32_t)(w->primitive_used-start);
   }
   node->original_native=w->primitive+start;
   node->original_native_length=(uint32_t)(w->primitive_used-start);return F7_OK;
@@ -169,7 +172,13 @@ struct builder {
  int node(size_t index){
   napi_value value=w->originals[index];f7_error_node *item=w->nodes+index;
   napi_valuetype type;int result=api(napi_typeof(env,value,&type));if(result)return result;
-  if(type!=napi_object)return primitive(value,type,item);
+  if(type!=napi_object){
+   w->node_progress[index]=1|2|8|16|32;
+   result=primitive(value,type,item);
+   if(item->message.state!=F7_TEXT_STRING||item->message.units)w->node_progress[index]|=4;
+   if(item->original_native_length)w->node_progress[index]|=64;
+   if(!result)w->node_progress[index]|=128;return result;
+  }
   bool error=false,aggregate=false;
   result=api(napi_is_error(env,value,&error));if(result)return result;
   if(!error){
@@ -183,14 +192,21 @@ struct builder {
     prototype_kind=array?3:1;
    }else if(array)return F7_INCOMPLETE;
    item->kind=array?F7_GRAPH_ARRAY:F7_GRAPH_OBJECT;
+   w->node_progress[index]=1|2|4|8|16|32;
    item->name.state=item->message.state=item->stack.state=F7_TEXT_ABSENT;
-   return own_properties(value,item,prototype_kind);
+   result=own_properties(value,item,prototype_kind);
+   if(item->original_native_length)w->node_progress[index]|=64;
+   if(!result)w->node_progress[index]|=128;return result;
   }
   result=api(napi_instanceof(env,value,w->aggregate_constructor,&aggregate));if(result)return result;
   item->kind=aggregate?F7_GRAPH_AGGREGATE:F7_GRAPH_ERROR;
+  w->node_progress[index]=1;
   result=field(value,"name",&item->name);if(result)return result;
+  w->node_progress[index]|=2;
   result=field(value,"message",&item->message);if(result)return result;
+  w->node_progress[index]|=4;
   result=field(value,"stack",&item->stack);if(result)return result;
+  w->node_progress[index]|=8;
   bool present=false;result=api(napi_has_named_property(env,value,"cause",&present));if(result)return result;
   if(present){
    napi_value cause;result=named(value,"cause",&cause);if(result)return result;
@@ -199,6 +215,7 @@ struct builder {
    else if(cause_type==napi_null)item->cause_kind=F7_CAUSE_NULL;
    else{item->cause_kind=F7_CAUSE_REFERENCE;result=reference(cause,&item->cause);if(result)return result;}
   }
+  w->node_progress[index]|=16;
   if(aggregate){
    napi_value errors;bool array=false;uint32_t count=0;
    result=named(value,"errors",&errors);if(result)return result;
@@ -208,6 +225,7 @@ struct builder {
    napi_value original_length;result=named(errors,"length",&original_length);if(result)return result;
    if(count>w->reference_capacity-w->reference_used)return F7_OVERFLOWED;
    uint32_t *references=w->references+w->reference_used;w->reference_used+=count;
+   memset(references,0,(size_t)count*sizeof(*references));
    item->aggregate=references;item->aggregate_count=count;
    for(uint32_t i=0;i<count;i++){
     napi_value original;bool exists=false;
@@ -217,7 +235,10 @@ struct builder {
     result=reference(original,references+i);if(result)return result;
    }
   }
-  return own_properties(value,item,0);
+  w->node_progress[index]|=32;
+  result=own_properties(value,item,0);
+  if(item->original_native_length)w->node_progress[index]|=64;
+  if(!result)w->node_progress[index]|=128;return result;
  }
 };
 static void preserve_exception(napi_env env,f7_original_error_workspace *w,f7_original_error_result *out){
@@ -253,7 +274,8 @@ static int geometry(f7_original_error_workspace *w,uint8_t *payload,size_t capac
   {(uintptr_t)w->primitive,w->primitive_capacity},
   {(uintptr_t)w->bigint_words,w->bigint_word_capacity*sizeof(*w->bigint_words)},
   {(uintptr_t)w->reads,w->read_capacity*sizeof(*w->reads)},
-  {(uintptr_t)w->held,w->held_capacity*sizeof(*w->held)}
+  {(uintptr_t)w->held,w->held_capacity*sizeof(*w->held)},
+  {(uintptr_t)w->node_progress,w->progress_capacity}
  };
  for(size_t i=0;i<sizeof(spans)/sizeof(spans[0]);i++){
   if(spans[i].length>UINTPTR_MAX-spans[i].address)return F7_INVALID;
@@ -274,6 +296,7 @@ extern "C" int f7_original_error_encode(napi_env env,napi_value primary,napi_val
  if(!env||!primary||!w||!payload||!capacity||capacity>F7_FRAME_MAX||
     !w->originals||!w->nodes||!w->node_capacity||w->node_capacity>(F7_FRAME_MAX-24)/32||
     w->original_env!=env||!w->held||!w->held_capacity||w->held_capacity>F7_OBJECT_MAX||w->held_count>w->held_capacity||
+    !w->node_progress||w->progress_capacity<w->node_capacity||w->progress_capacity>F7_OBJECT_MAX||
     !w->text||!w->text_capacity||w->text_capacity>F7_FRAME_MAX||
     !w->text_getter||!w->text_getter_capacity||w->text_getter_capacity>F7_FRAME_MAX+1u||
     !w->references||!w->reference_capacity||w->reference_capacity>F7_FRAME_MAX/4||
@@ -288,6 +311,7 @@ extern "C" int f7_original_error_encode(napi_env env,napi_value primary,napi_val
  if(w->retained_incomplete)return F7_CONFLICT;
  memset(out,0,sizeof(*out));out->original_primary=primary;
  w->node_count=1;w->originals[0]=primary;memset(w->nodes,0,sizeof(*w->nodes));
+ w->node_progress[0]=0;
  w->text_used=w->reference_used=w->primitive_used=w->read_used=0;builder build={env,w,out};int result=F7_OK;
  result=build.hold(primary);if(result){w->retained_incomplete=1;preserve_exception(env,w,out);return result;}
  if(expected){
@@ -298,6 +322,7 @@ extern "C" int f7_original_error_encode(napi_env env,napi_value primary,napi_val
   if(!same){w->retained_incomplete=1;return F7_AUTH_FAILURE;}
  }
  uint32_t *original_secondary=w->references;w->reference_used=secondary_count;
+ memset(original_secondary,0,secondary_count*sizeof(*original_secondary));
  for(size_t i=0;i<secondary_count;i++){
   result=build.reference(secondary[i],original_secondary+i);if(result){w->retained_incomplete=1;preserve_exception(env,w,out);return result;}
  }
