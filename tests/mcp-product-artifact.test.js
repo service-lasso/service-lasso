@@ -250,7 +250,7 @@ function evidence(candidateSha, platform) {
     packageArchiveSha256: "a".repeat(64),
     sdk: {
       packageName: "@modelcontextprotocol/sdk",
-      version: "1.30.1",
+      version: "1.31.0",
       protocolVersion: "2025-11-25",
       supportedProtocolVersions: ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05", "2024-10-07"],
     },
@@ -292,6 +292,7 @@ test("#864 retained evidence rejects incomplete, inflated, unexpected, or malfor
     (value) => { value.credentials = "not-allowed"; },
     (value) => { value.sdk.unexpected = "passed"; },
     (value) => { value.sdk.version = "1.29.0"; },
+    (value) => { value.sdk.version = "1.30.1"; },
     (value) => { value.inspector.version = "2.3.0"; },
     (value) => { value.packageArchiveSha256 = "not-a-digest"; },
     (value) => { value.canonical.discovery = "failed"; },
