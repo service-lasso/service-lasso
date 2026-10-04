@@ -13,6 +13,20 @@ struct builder {
   if(status==napi_ok)return F7_OK;
   out->native_status=status;return F7_NATIVE_FAILURE;
  }
+ int hold(napi_value value){
+  napi_valuetype type;int result=api(napi_typeof(env,value,&type));if(result)return result;
+  if(type!=napi_object&&type!=napi_function&&type!=napi_symbol)return F7_OK;
+  for(size_t i=0;i<w->held_count;i++){
+   napi_value original=NULL;result=api(napi_get_reference_value(env,w->held[i],&original));if(result)return result;
+   if(!original)return F7_INCOMPLETE;
+   bool same=false;result=api(napi_strict_equals(env,value,original,&same));if(result)return result;
+   if(same)return F7_OK;
+  }
+  if(w->held_count==w->held_capacity)return F7_OVERFLOWED;
+  napi_ref reference=NULL;result=api(napi_create_reference(env,value,1,&reference));if(result)return result;
+  if(!reference)return F7_INCOMPLETE;
+  w->held[w->held_count++]=reference;return F7_OK;
+ }
  int remembered(napi_value owner,uint32_t kind,uint32_t index,napi_value *value,int *found){
   *found=0;
   for(size_t i=0;i<w->read_used;i++){
@@ -66,6 +80,7 @@ struct builder {
  int reference(napi_value value,uint32_t *id){
   if(!value)return F7_INVALID;
   napi_valuetype type;int typed=api(napi_typeof(env,value,&type));if(typed)return typed;
+  int held=hold(value);if(held)return held;
   /* Strict equality is original object identity; it must not collapse +0/-0
      or other distinct native scalar representations into one scalar node. */
   for(size_t i=0;i<w->node_count&&(type==napi_object||type==napi_symbol||type==napi_function);i++){
@@ -205,12 +220,24 @@ struct builder {
   return own_properties(value,item,0);
  }
 };
-static void preserve_exception(napi_env env,f7_original_error_result *out){
+static void preserve_exception(napi_env env,f7_original_error_workspace *w,f7_original_error_result *out){
  bool pending=false;out->exception_query_status=napi_is_exception_pending(env,&pending);
  if(out->exception_query_status!=napi_ok||!pending)return;
  out->exception_query_status=napi_get_and_clear_last_exception(env,&out->serialization_exception);
- if(out->exception_query_status==napi_ok&&out->serialization_exception)
+ if(out->exception_query_status==napi_ok&&out->serialization_exception){
+  /* The original primary API failure remains intact. Retention API failure
+     and any actual new exception are independent original secondary facts. */
+  f7_original_error_result keeper_result={};builder keep={env,w,&keeper_result};
+  int held=keep.hold(out->serialization_exception);
+  out->exception_keeper_result=held;out->exception_keeper_status=keeper_result.native_status;
+  if(held!=F7_OK){
+   bool secondary_pending=false;
+   out->keeper_exception_query_status=napi_is_exception_pending(env,&secondary_pending);
+   if(out->keeper_exception_query_status==napi_ok&&secondary_pending)
+    out->keeper_exception_query_status=napi_get_and_clear_last_exception(env,&out->keeper_exception);
+  }
   out->exception_restore_status=napi_throw(env,out->serialization_exception);
+ }
 }
 static int geometry(f7_original_error_workspace *w,uint8_t *payload,size_t capacity,
  const napi_value *secondary,size_t secondary_count,f7_original_error_result *out){
@@ -225,7 +252,8 @@ static int geometry(f7_original_error_workspace *w,uint8_t *payload,size_t capac
   {(uintptr_t)w->references,w->reference_capacity*sizeof(*w->references)},
   {(uintptr_t)w->primitive,w->primitive_capacity},
   {(uintptr_t)w->bigint_words,w->bigint_word_capacity*sizeof(*w->bigint_words)},
-  {(uintptr_t)w->reads,w->read_capacity*sizeof(*w->reads)}
+  {(uintptr_t)w->reads,w->read_capacity*sizeof(*w->reads)},
+  {(uintptr_t)w->held,w->held_capacity*sizeof(*w->held)}
  };
  for(size_t i=0;i<sizeof(spans)/sizeof(spans[0]);i++){
   if(spans[i].length>UINTPTR_MAX-spans[i].address)return F7_INVALID;
@@ -245,6 +273,7 @@ extern "C" int f7_original_error_encode(napi_env env,napi_value primary,napi_val
  if(!out)return F7_INVALID;
  if(!env||!primary||!w||!payload||!capacity||capacity>F7_FRAME_MAX||
     !w->originals||!w->nodes||!w->node_capacity||w->node_capacity>(F7_FRAME_MAX-24)/32||
+    w->original_env!=env||!w->held||!w->held_capacity||w->held_capacity>F7_OBJECT_MAX||w->held_count>w->held_capacity||
     !w->text||!w->text_capacity||w->text_capacity>F7_FRAME_MAX||
     !w->text_getter||!w->text_getter_capacity||w->text_getter_capacity>F7_FRAME_MAX+1u||
     !w->references||!w->reference_capacity||w->reference_capacity>F7_FRAME_MAX/4||
@@ -259,18 +288,20 @@ extern "C" int f7_original_error_encode(napi_env env,napi_value primary,napi_val
  memset(out,0,sizeof(*out));out->original_primary=primary;
  w->node_count=1;w->originals[0]=primary;memset(w->nodes,0,sizeof(*w->nodes));
  w->text_used=w->reference_used=w->primitive_used=w->read_used=0;builder build={env,w,out};int result=F7_OK;
+ result=build.hold(primary);if(result){preserve_exception(env,w,out);return result;}
  if(expected){
+  result=build.hold(expected);if(result){preserve_exception(env,w,out);return result;}
   bool same=false;result=build.api(napi_strict_equals(env,primary,expected,&same));
   out->identity_checked=1;out->identity_equal=(int)same;
-  if(result){preserve_exception(env,out);return result;}
+  if(result){preserve_exception(env,w,out);return result;}
   if(!same)return F7_AUTH_FAILURE;
  }
  uint32_t *original_secondary=w->references;w->reference_used=secondary_count;
  for(size_t i=0;i<secondary_count;i++){
-  result=build.reference(secondary[i],original_secondary+i);if(result){preserve_exception(env,out);return result;}
+  result=build.reference(secondary[i],original_secondary+i);if(result){preserve_exception(env,w,out);return result;}
  }
  for(size_t i=0;i<w->node_count;i++){
-  result=build.node(i);if(result){preserve_exception(env,out);return result;}
+  result=build.node(i);if(result){preserve_exception(env,w,out);return result;}
  }
  f7_error_graph graph={w->nodes,(uint32_t)w->node_count,1,original_secondary,(uint32_t)secondary_count};
  return f7_error_graph_encode(&graph,payload,capacity,&out->length);

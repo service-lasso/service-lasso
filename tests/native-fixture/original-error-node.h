@@ -24,10 +24,15 @@ struct f7_original_error_workspace {
  napi_value aggregate_constructor;
  napi_value original_object_prototype,original_array_prototype;
  struct f7_original_property_read *reads;size_t read_capacity,read_used;
+ napi_env original_env;
+ napi_ref *held;size_t held_capacity,held_count;
 };
 struct f7_original_error_result {
  napi_value original_primary,serialization_exception;
+ napi_value keeper_exception;
  napi_status native_status,exception_query_status,exception_restore_status;
+ napi_status exception_keeper_status,keeper_exception_query_status;
+ int exception_keeper_result;
  int identity_checked,identity_equal;size_t length;
 };
 /* PRIVATE original-W producer source. The owning admitted adapter supplies the

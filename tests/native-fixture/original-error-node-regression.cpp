@@ -1,12 +1,13 @@
 #include "original-error-node-regression.h"
 #include <string.h>
 namespace {
-struct throw_context {napi_value original;unsigned calls;};
 static napi_value original_throw(napi_env env,napi_callback_info info){
  void *value=NULL;size_t argc=0;
  if(napi_get_cb_info(env,info,&argc,NULL,NULL,&value)!=napi_ok||!value)return NULL;
- auto *context=(throw_context *)value;context->calls++;
- napi_throw(env,context->original);return NULL;
+ auto *context=(f7_original_error_regression_context *)value;context->calls++;
+ napi_value original=NULL;context->query_status=napi_get_reference_value(env,context->original,&original);
+ if(context->query_status!=napi_ok||!original)return NULL;
+ context->throw_status=napi_throw(env,original);return NULL;
 }
 static uint32_t number(const uint8_t *p){return ((uint32_t)p[0]<<24)|((uint32_t)p[1]<<16)|((uint32_t)p[2]<<8)|p[3];}
 static int same(napi_env env,napi_value first,napi_value second,napi_status *status){
@@ -15,8 +16,9 @@ static int same(napi_env env,napi_value first,napi_value second,napi_status *sta
 }
 }
 extern "C" int f7_original_error_native_regression(napi_env env,
- f7_original_error_workspace *w,uint8_t *payload,size_t capacity,napi_status *status){
- if(!env||!w||!payload||!status)return F7_INVALID;*status=napi_ok;
+ f7_original_error_workspace *w,f7_original_error_regression_context *context,
+ uint8_t *payload,size_t capacity,napi_status *status){
+ if(!env||!w||!context||context->original||!payload||!status)return F7_INVALID;*status=napi_ok;
 #define CALL(operation) do{*status=(operation);if(*status!=napi_ok)return F7_NATIVE_FAILURE;}while(0)
  char16_t original_units[]={u'x',0xd800,0};napi_value message,first,second,aggregate,array,plain;
  CALL(napi_create_string_utf16(env,original_units,3,&message));
@@ -57,15 +59,23 @@ extern "C" int f7_original_error_native_regression(napi_env env,
  if(!negative||!positive)return F7_CONFLICT;
  /* Identity mismatch must precede a getter that throws the ORIGINAL second
     Error. This tests the actual production serializer against native objects. */
- throw_context throwing={second,0};napi_property_descriptor descriptor={};
- descriptor.utf8name="stack";descriptor.getter=original_throw;descriptor.data=&throwing;
+ context->calls=0;
+ for(size_t i=0;i<w->held_count;i++){
+  napi_value original=NULL;CALL(napi_get_reference_value(env,w->held[i],&original));
+  if(same(env,original,second,status)){context->original=w->held[i];break;}
+  if(*status!=napi_ok)return F7_NATIVE_FAILURE;
+ }
+ if(!context->original)return F7_CONFLICT;
+ napi_property_descriptor descriptor={};
+ descriptor.utf8name="stack";descriptor.getter=original_throw;descriptor.data=context;
  descriptor.attributes=napi_configurable;
  CALL(napi_define_properties(env,first,1,&descriptor));
  encoded=f7_original_error_encode(env,first,second,NULL,0,w,payload,capacity,&result);
- if(encoded!=F7_AUTH_FAILURE||throwing.calls||!result.identity_checked||result.identity_equal||
+ if(encoded!=F7_AUTH_FAILURE||context->calls||!result.identity_checked||result.identity_equal||
     !same(env,result.original_primary,first,status))return F7_CONFLICT;
  encoded=f7_original_error_encode(env,first,first,NULL,0,w,payload,capacity,&result);
- if(encoded!=F7_NATIVE_FAILURE||throwing.calls!=1||result.native_status!=napi_pending_exception||
+ if(encoded!=F7_NATIVE_FAILURE||context->calls!=1||context->query_status!=napi_ok||context->throw_status!=napi_ok||
+    result.exception_keeper_result!=F7_OK||result.native_status!=napi_pending_exception||
     result.exception_query_status!=napi_ok||result.exception_restore_status!=napi_ok)return F7_CONFLICT;
  bool pending=false;CALL(napi_is_exception_pending(env,&pending));if(!pending)return F7_CONFLICT;
  napi_value caught;CALL(napi_get_and_clear_last_exception(env,&caught));

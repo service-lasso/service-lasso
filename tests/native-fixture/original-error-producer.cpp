@@ -16,13 +16,17 @@ extern "C" int f7_original_error_produce(napi_env env,napi_value primary,napi_va
  }
  /* No Node-API call occurs between preserving the actual serialization
     exception and this native emergency enqueue; pending exception survives. */
- uint8_t fallback[64];memcpy(fallback,"SLF7SFB1",8);f7_u64be(fallback+8,(uint64_t)result);
+ uint8_t fallback[96];memcpy(fallback,"SLF7SFB2",8);f7_u64be(fallback+8,(uint64_t)result);
  f7_u64be(fallback+16,(uint64_t)out->original.native_status);
  f7_u64be(fallback+24,(uint64_t)out->original.exception_query_status);
  f7_u64be(fallback+32,(uint64_t)out->original.exception_restore_status);
  f7_u64be(fallback+40,(uint64_t)out->original.identity_checked);
  f7_u64be(fallback+48,(uint64_t)out->original.identity_equal);
  f7_u64be(fallback+56,workspace?workspace->node_count:0);
+ f7_u64be(fallback+64,(uint64_t)out->original.exception_keeper_status);
+ f7_u64be(fallback+72,(uint64_t)out->original.keeper_exception_query_status);
+ f7_u64be(fallback+80,(uint64_t)out->original.exception_keeper_result);
+ f7_u64be(fallback+88,workspace?workspace->held_count:0);
  out->submission_result=f7_error_queue_submit(queue,F7_SERIALIZATION_FALLBACK,fallback,sizeof(fallback),1,&out->ticket);
  /* Original producer failure is never overwritten by enqueue status. Every
     original/pending object and partially captured arena remains caller-owned. */
