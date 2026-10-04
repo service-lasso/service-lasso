@@ -73,11 +73,11 @@
     "verify:release-governance": "node scripts/validate-release-governance.mjs && node --test tests/release-governance.test.js"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.30.1",
+    "@modelcontextprotocol/sdk": "1.31.0",
     "fflate": "0.8.3",
     "jose": "6.2.12",
     "tar": "7.5.22",
-    "unicode-case-folding": "1.1.1",
+    "unicode-case-folding": "1.1.2",
     "zod": "4.6.5"
   },
   "devDependencies": {
@@ -86,10 +86,10 @@
     "@docusaurus/theme-mermaid": "3.10.2",
     "@mdx-js/react": "^3.1.1",
     "@mermaid-js/layout-elk": "0.1.9",
-    "@modelcontextprotocol/inspector": "2.8.0",
+    "@modelcontextprotocol/inspector": "2.9.0",
     "@playwright/test": "1.63.0",
-    "@types/node": "^26.6.2",
-    "pnpm": "10.34.5",
+    "@types/node": "^26.6.3",
+    "pnpm": "12.8.2",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "selfsigned": "5.5.0",

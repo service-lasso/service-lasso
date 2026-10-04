@@ -870,4 +870,6 @@ SPEC-008 R6/R7 require both actual scoped and legacy generated PTY owners to est
 Prepare this coherent two-finding source correction only. Existing R1..R7/TC01..TC12/CA01..CA08, complete incoming integration, protected preparer bodies, all original failures/private custody, empty catalogs, native1640 NO-GO/F7 absence and actual Windows/Linux released/published/operator gates remain unchanged. New authored cases remain UNEXECUTED until a DIFFERENT fresh ENTIRE corrected-source GO and NEW complete-input ROOT admission. Parent owns issue tracking/landing. No parser/import/compiler/build/Node/npm/test/native invocation, main, provider controls/dispatch/rerun, release or cleanup.
 #1673 — AC-4AJ.9: managed Todo Zitadel sign-in tutorial; producer Todo #5, direct local identity/browser and exact publication evidence.
 
+| `ISS-1683` | `in_progress` | Repair coherent Core dependency identity and supported docs graph | `SPEC-002 AC-4DI.1–3` | Map immutable #1677/#1678 contributions into a dedicated current-develop repair PR. Preserve natural failures and strict acceptance; source-only until fresh independent entire review and NEW complete ROOT admission. Existing bot PR landing remains the parent coordinator's decision. |
+
 - #1679 / AC-4AJ.10: Todo Tauri Windows executable tutorial; prerequisite service-lasso-app-tauri#24 / NATIVE-1–6. In progress.
