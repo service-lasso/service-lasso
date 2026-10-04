@@ -18,6 +18,10 @@ struct f7_witness_sink {
  uint16_t role;
  uint64_t sequence,ordinal[F7_STREAM_COUNT];
  int failed;
+ /* Original owner reserves this disjoint mutable record workspace before
+    READY. A failed submission retains its exact bytes and forbids overwrite. */
+ uint8_t *record_buffer;size_t record_capacity,retained_record_bytes;
+ int pending;
 };
 int f7_witness_emit(struct f7_witness_sink *sink,enum f7_stream stream,
  enum f7_event event,uint64_t requested,uint64_t returned,uint64_t offset,

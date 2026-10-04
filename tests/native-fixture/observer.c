@@ -8,6 +8,7 @@ static int storage_geometry(const struct f7_capture *c){
  spans[count].address=(uintptr_t)(pointer);spans[count++].length=(bytes);} while(0)
  ADD_SPAN(c,sizeof(*c));ADD_SPAN(c->reservation,sizeof(*c->reservation));
  ADD_SPAN(c->witness,sizeof(*c->witness));ADD_SPAN(c->witness->member,sizeof(*c->witness->member));
+ ADD_SPAN(c->witness->record_buffer,c->witness->record_capacity);
  ADD_SPAN(c->witness->emergency_member,sizeof(*c->witness->emergency_member));
  if(c->error_channel){ADD_SPAN(c->error_channel,sizeof(*c->error_channel));
   ADD_SPAN(c->error_channel->payload,c->error_channel->payload_capacity);}
@@ -36,7 +37,9 @@ static int storage_geometry(const struct f7_capture *c){
 int f7_capture_validate(const struct f7_capture *c){
  unsigned i;
  if(!c||!c->reservation||!c->witness||c->witness->reservation!=c->reservation||
- !c->witness->member||!c->witness->emergency_member||
+ !c->witness->member||!c->witness->emergency_member||!c->witness->record_buffer||
+ c->witness->record_capacity<F7_WITNESS_BYTES+32+F7_FRAME_MAX||
+ (!c->prepared&&(c->witness->pending||c->witness->retained_record_bytes))||
  (!c->prepared&&(c->witness->member->failed||c->witness->member->finalized||
  c->witness->emergency_member->failed||c->witness->emergency_member->finalized))||
  c->witness->member->handle==F7_INVALID_HANDLE||
