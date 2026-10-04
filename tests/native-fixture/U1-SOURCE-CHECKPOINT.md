@@ -28,6 +28,11 @@ same-object byte readback and strict hash-chain/replay/partial-record parsing;
 actual Linux/Windows private-error stream integration of bounded incremental
 frame/role/lifetime/nonce/sequence/ordinal/payload quota/terminal validation,
 while retaining untouched original raw bytes independently;
+original retained pidfd/Windows process-handle native exit observations and
+inline private native-fact witness bytes, separate from original pipe EOF;
+explicit unknown/created/not-created decisions rejecting missing defaults,
+private error channel required before capture, source-bound nonce/role/lifetime
+cross-checks, and actual Linux interrupted/would-block read-result witnesses;
 finite public strings with no arbitrary payload parameter.
 Native framing/state/budget negative regression source is present but UNEXECUTED;
 it is partial and does not replace complete original production-path regressions.

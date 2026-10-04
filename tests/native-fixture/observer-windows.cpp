@@ -63,13 +63,13 @@ static DWORD WINAPI drain(LPVOID value){
 extern "C" int f7_capture_windows(struct f7_capture *c,uint64_t deadline){
  drain_context contexts[F7_STREAM_COUNT]={};HANDLE threads[F7_STREAM_COUNT]={};
  CRITICAL_SECTION lock;unsigned i;int result=F7_OK;
- if(!c||!c->reservation||!c->witness||!deadline||
-   (c->created[F7_PRIVATE_ERRORS]&&!c->error_channel))return F7_INVALID;
+ if(!deadline)return F7_INVALID;
+ int validation=f7_capture_validate(c);if(validation)return validation;
  InitializeCriticalSection(&lock);
  /* Allocate all independent queues before any drain starts. This function
     does not launch a downstream actor or claim admission by handle number. */
  for(i=0;i<F7_STREAM_COUNT;i++){
-  if(!c->created[i])continue;
+  if(c->created[i]!=F7_CREATED)continue;
   if(!c->raw[i]||GetFileType(c->pipe[i])!=FILE_TYPE_PIPE||
     !c->reservation->input.queue_bytes[i]||c->reservation->input.queue_bytes[i]>SIZE_MAX){
     result=F7_INVALID;goto close;}
@@ -78,8 +78,14 @@ extern "C" int f7_capture_windows(struct f7_capture *c,uint64_t deadline){
   contexts[i].buffer=(uint8_t *)malloc(contexts[i].capacity);
   if(!contexts[i].buffer){result=F7_NATIVE_FAILURE;goto close;}
  }
+ if(c->child_created==F7_CREATED){
+  struct f7_child_exit exit;int observation=f7_child_exit_windows(c->original_child,&exit);
+  if(f7_child_exit_record(c->witness,&exit))result=F7_INCOMPLETE;
+  if(observation==F7_OK)c->child_exit_observed=1;
+  else if(observation!=F7_INCOMPLETE)result=F7_INCOMPLETE;
+ }
  for(i=0;i<F7_STREAM_COUNT;i++){
-  if(!c->created[i])continue;
+  if(c->created[i]!=F7_CREATED)continue;
   threads[i]=CreateThread(NULL,0,drain,&contexts[i],0,NULL);
   if(!threads[i]){result=F7_NATIVE_FAILURE;goto settle;}
  }
@@ -105,9 +111,15 @@ settle:
   if(contexts[i].result)result=F7_INCOMPLETE;CloseHandle(threads[i]);
  }
 close:
+ if(c->child_created==F7_CREATED&&!c->child_exit_observed){
+  struct f7_child_exit exit;
+  if(f7_child_exit_windows(c->original_child,&exit)!=F7_OK)result=F7_INCOMPLETE;
+  else c->child_exit_observed=1;
+  if(f7_child_exit_record(c->witness,&exit))result=F7_INCOMPLETE;
+ }
  for(i=0;i<F7_STREAM_COUNT;i++){
   free(contexts[i].buffer);
-  if(c->created[i]&&!c->natural_eof[i]){
+  if(c->created[i]==F7_CREATED&&!c->natural_eof[i]){
    result=F7_INCOMPLETE;
    f7_witness_emit(c->witness,(enum f7_stream)i,F7_UNAVAILABLE,0,0,c->observed[i],NULL,c->terminal_status[i],1);
   }

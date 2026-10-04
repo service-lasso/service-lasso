@@ -13,12 +13,12 @@ static uint64_t milliseconds(void){struct timespec ts;if(clock_gettime(CLOCK_MON
 int f7_capture_linux(struct f7_capture *c,uint64_t deadline){
  struct pollfd p[F7_STREAM_COUNT];uint8_t *buffers[F7_STREAM_COUNT]={0};
  unsigned i;int active=0,result=F7_OK;
- if(!c||!c->reservation||!c->witness||!deadline||
-   (c->created[F7_PRIVATE_ERRORS]&&!c->error_channel))return F7_INVALID;
+ if(!deadline)return F7_INVALID;
+ int validation=f7_capture_validate(c);if(validation)return validation;
  /* Reserve every drain buffer before any read or downstream permission. */
  for(i=0;i<F7_STREAM_COUNT;i++){
   struct stat st;p[i].fd=-1;p[i].events=POLLIN;p[i].revents=0;
-  if(!c->created[i])continue;
+  if(c->created[i]!=F7_CREATED)continue;
   if(!c->raw[i]||fstat(c->pipe[i],&st)<0||!S_ISFIFO(st.st_mode)||
    (fcntl(c->pipe[i],F_GETFL)&O_ACCMODE)!=O_RDONLY||
    c->reservation->input.queue_bytes[i]>SIZE_MAX){result=F7_INVALID;goto end;}
@@ -27,6 +27,12 @@ int f7_capture_linux(struct f7_capture *c,uint64_t deadline){
   int flags=fcntl(c->pipe[i],F_GETFL);
   if(fcntl(c->pipe[i],F_SETFL,flags|O_NONBLOCK)<0){result=F7_NATIVE_FAILURE;goto end;}
   p[i].fd=c->pipe[i];active++;
+ }
+ if(c->child_created==F7_CREATED){
+  struct f7_child_exit exit;int observation=f7_child_exit_linux(c->original_child,&exit);
+  if(f7_child_exit_record(c->witness,&exit))result=F7_INCOMPLETE;
+  if(observation==F7_OK)c->child_exit_observed=1;
+  else if(observation!=F7_INCOMPLETE)result=F7_INCOMPLETE;
  }
  while(active){
   uint64_t now=milliseconds();if(now==UINT64_MAX||now>=deadline){result=F7_INCOMPLETE;break;}
@@ -43,7 +49,11 @@ int f7_capture_linux(struct f7_capture *c,uint64_t deadline){
    size_t want=(size_t)c->reservation->input.queue_bytes[i];
    if(want>65536)want=65536;
    ssize_t n=read(p[i].fd,buffers[i],want);
-   if(n<0&&(errno==EAGAIN||errno==EINTR))continue;
+   if(n<0&&(errno==EAGAIN||errno==EINTR)){
+    int actual_error=errno;
+    if(f7_witness_emit(c->witness,i,F7_READ_RETRY,want,0,c->observed[i],NULL,actual_error,0))result=F7_INCOMPLETE;
+    continue;
+   }
    if(n<0){c->terminal_status[i]=errno;result=F7_INCOMPLETE;
     f7_witness_emit(c->witness,i,F7_READ_ERROR,want,0,c->observed[i],NULL,errno,1);p[i].fd=-1;active--;continue;}
    if(n==0){c->natural_eof[i]=1;
@@ -69,9 +79,15 @@ int f7_capture_linux(struct f7_capture *c,uint64_t deadline){
   }
  }
 end:
+ if(c->child_created==F7_CREATED&&!c->child_exit_observed){
+  struct f7_child_exit exit;
+  if(f7_child_exit_linux(c->original_child,&exit)!=F7_OK)result=F7_INCOMPLETE;
+  else c->child_exit_observed=1;
+  if(f7_child_exit_record(c->witness,&exit))result=F7_INCOMPLETE;
+ }
  for(i=0;i<F7_STREAM_COUNT;i++){
   free(buffers[i]);
-  if(c->created[i]&&!c->natural_eof[i]){result=F7_INCOMPLETE;
+  if(c->created[i]==F7_CREATED&&!c->natural_eof[i]){result=F7_INCOMPLETE;
     f7_witness_emit(c->witness,i,F7_UNAVAILABLE,0,0,c->observed[i],NULL,c->terminal_status[i],1);}
  }
  if(result||c->witness->failed||c->reservation->exhausted)c->incomplete=1;

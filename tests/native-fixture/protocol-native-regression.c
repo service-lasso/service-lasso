@@ -5,6 +5,7 @@
 #include "public-projection.h"
 #include "canonical-index.h"
 #include "error-channel.h"
+#include "observer.h"
 #include <assert.h>
 #include <string.h>
 #include <stdint.h>
@@ -77,4 +78,9 @@ static void error_records(void){
  assert(f7_error_channel_feed(&partial,record,F7_FRAME_HEADER_SIZE,2,32)==F7_OK);
  assert(f7_error_channel_eof(&partial)==F7_INCOMPLETE);
 }
-int main(void){framing();budgets();states();index_records();error_records();return 0;}
+static void unknown_creation(void){
+ struct f7_capture capture={0};
+ /* Zero/default/missing fields cannot mint not-created/EOF or capture success. */
+ assert(f7_capture_validate(&capture)==F7_INVALID);
+}
+int main(void){framing();budgets();states();index_records();error_records();unknown_creation();return 0;}

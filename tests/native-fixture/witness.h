@@ -11,6 +11,7 @@ struct f7_witness_sink {
  struct f7_member *member;
  struct f7_reservation *reservation;
  uint8_t invocation[16],attempt[32],lifetime[16],pipe_key[F7_STREAM_COUNT][16];
+ uint16_t role;
  uint64_t sequence,ordinal[F7_STREAM_COUNT];
  int failed;
 };
