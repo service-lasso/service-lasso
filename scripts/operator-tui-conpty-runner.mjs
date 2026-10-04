@@ -148,6 +148,7 @@ export async function runConptyHelper({ command = "python", helperPath, executab
     let settled = false;
     let child;
     let timedOut = false;
+    let childFailed = false;
     const finish = (result) => {
       if (settled) return;
       settled = true;
@@ -162,8 +163,10 @@ export async function runConptyHelper({ command = "python", helperPath, executab
       child = spawnProcess(launch.command, launch.args, { cwd: undefined, env: launch.env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
       child.stdout?.on("data", (chunk) => { stdout = appendBounded(stdout, chunk); });
       child.stderr?.resume();
-      child.once("error", () => finish({ kind: "failed" }));
-      child.once("close", (code, signal) => finish({ kind: !timedOut && code === 0 && !signal ? "success" : "nonzero" }));
+      // A failed kill can emit error while the owned child remains alive.
+      // Retain failure but keep inputs and settlement bound to actual close.
+      child.on("error", () => { childFailed = true; });
+      child.once("close", (code, signal) => finish({ kind: !childFailed && !timedOut && code === 0 && !signal ? "success" : "nonzero" }));
     } catch {
       finish({ kind: "failed" });
     }

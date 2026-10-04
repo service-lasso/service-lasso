@@ -137,6 +137,10 @@ for (const mode of ["unavailable", "connected"]) {
     { name: "signal", code: null, signal: "SIGTERM", timedOut: false },
     { name: "timeout then code0", code: 0, signal: null, timedOut: true },
     { name: "timeout then exit1", code: 1, signal: null, timedOut: true },
+    { name: "failed-kill error then code0", code: 0, signal: null, timedOut: true, childError: "kill" },
+    { name: "failed-kill error then exit1", code: 1, signal: null, timedOut: true, childError: "kill" },
+    { name: "async spawn-error then code0", code: 0, signal: null, timedOut: false, childError: "spawn" },
+    { name: "async spawn-error then exit1", code: 1, signal: null, timedOut: false, childError: "spawn" },
   ]) {
     test(`ConPTY ${mode} success output rejects ${closure.name} only after owned close and cleanup`, async () => {
       const child = new EventEmitter();
@@ -144,7 +148,10 @@ for (const mode of ["unavailable", "connected"]) {
       let spawned, killed, gatePath;
       const didSpawn = new Promise((resolve) => { spawned = resolve; });
       const didKill = new Promise((resolve) => { killed = resolve; });
-      child.kill = () => { killed(); return true; };
+      child.kill = () => {
+        if (closure.childError === "kill") child.emit("error", new Error("synthetic private failed-kill details"));
+        killed(); return closure.childError !== "kill";
+      };
       let settled = false;
       const result = runConptyHelper({
         command: process.execPath,
@@ -160,6 +167,7 @@ for (const mode of ["unavailable", "connected"]) {
       const rejected = assert.rejects(result, (error) => error.message === "Windows ConPTY TUI probe did not complete its bounded assertions.").then(() => { settled = true; });
       await didSpawn;
       child.stdout.write(`${JSON.stringify(success)}\n`);
+      if (closure.childError === "spawn") child.emit("error", new Error("synthetic private asynchronous spawn error"));
       child.emit("exit", closure.code, closure.signal);
       if (closure.timedOut) await didKill;
       await new Promise((resolve) => setImmediate(resolve));
@@ -171,6 +179,21 @@ for (const mode of ["unavailable", "connected"]) {
       await assert.rejects(stat(path.dirname(gatePath)), { code: "ENOENT" });
     });
   }
+  test(`ConPTY ${mode} synchronous spawn throw rejects safely and cleans inputs without a returned child`, async () => {
+    let gatePath;
+    await assert.rejects(runConptyHelper({
+      command: process.execPath,
+      helperPath: path.join(repoRoot, "scripts", "verify-operator-tui-conpty.py"),
+      executable: "fixture.exe", mode, apiUrl: "http://127.0.0.1:41999", apiToken: "synthetic-attempt-token-value",
+      envSource: { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot ?? "C:\\Windows" }, platform: "win32",
+      spawnProcess: (_command, _args, options) => {
+        gatePath = options.env.SERVICE_LASSO_MANAGED_LAUNCH_GATE;
+        throw new Error("synthetic private synchronous spawn error");
+      },
+    }), (error) => error.message === "Windows ConPTY TUI probe did not complete its bounded assertions.");
+    assert.ok(gatePath);
+    await assert.rejects(stat(path.dirname(gatePath)), { code: "ENOENT" });
+  });
   test(`ConPTY ${mode} actual helper code0 returns closed success after cleanup`, async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "conpty-code0-"));
     const helper = path.join(root, "success.mjs");
