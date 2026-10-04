@@ -66,6 +66,11 @@ owns `@todo-certs`; the baseline certificate manifest and CA remain untouched.
 Provisioning uses declared create-only signed Broker IPC and preserves existing
 master-key/password references. The initial incorrect bootstrap-variable attempt
 remains failure evidence; `FIRSTINSTANCE_ORG_HUMAN_*` is the checked contract.
+Fresh initialization in a separate retained identity database passed browser
+login with the Broker-backed bootstrap password and no forced password change.
+The initial login name is `todo-admin@todo-tutorial.localhost`; the guide
+distinguishes it from the contact email. Re-running the public provisioning
+helper reported both references existing and unchanged.
 
 Independent Windows execution acquired the actual released Todo archive through
 literal Core CLI import/install and verified SHA256

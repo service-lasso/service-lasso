@@ -166,10 +166,12 @@ that result is **not** a 32-byte Zitadel master key. Do not replace the stable
 master key after initialization. See [key custody](../reference/vault-key-bootstrap.md)
 and [secret access assignments](../components/service-admin/security-secret-access-assignments.md).
 
-The helper uses `ZITADEL_FIRSTINSTANCE_ORG_HUMAN_*` for initial administrator
-`todo-admin` / `todo-admin@localhost.test`. These settings apply only to a new
-instance. Sign in with the private bootstrap password, then manage users in
-Identity; changing these settings does not reset an existing administrator.
+The helper uses `ZITADEL_FIRSTINSTANCE_ORG_HUMAN_*` for the initial administrator.
+For its **Todo Tutorial** organization the tested login name is
+`todo-admin@todo-tutorial.localhost`; `todo-admin@localhost.test` is the contact
+email, not that login name. These settings apply only to a new instance. Sign
+in with the private bootstrap password, then manage users in Identity; changing
+these settings does not reset an existing administrator.
 
 ## 4. Start Identity and register Todo
 
@@ -191,7 +193,9 @@ and application **Todo**:
 3. Enable development mode for this local HTTP registration. Use `127.0.0.1`
    consistently; `localhost` is a different callback origin.
 4. Save the client ID and create a verified local test user with a private
-   password. Use that user for the app rather than the identity administrator.
+   password. Use the **login name shown in that user's details**, which may
+   include an organization suffix, rather than assuming its email is a login
+   name. Use that user for the app rather than the identity administrator.
 
 This follows [Zitadel's code + PKCE flow](https://zitadel.com/docs/guides/integrate/login/oidc/login-users).
 
