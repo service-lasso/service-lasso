@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { assertScope, closed } from "./ga-platform-scope-lib.mjs";
+import { boundedProviderBody } from "./scoped-provider-readback-lib.mjs";
 import { lstat, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
 import path from "node:path";
@@ -69,7 +71,7 @@ export const CURRENT_CLI_RELEASE = {
   supportedPlatforms: ["win32", "linux", "darwin"],
 };
 
-export function assertExactToolRelease(release) {
+export function assertExactToolRelease(release, { retained = false } = {}) {
   if (release?.repository !== "service-lasso/service-lasso-tui" || !/^candidate-[0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}-[a-f0-9]{7}$/u.test(release.tag) || !/^[a-f0-9]{40}$/u.test(release.targetCommit) || !release.tag.endsWith(`-${release.targetCommit.slice(0, 7)}`)) throw new Error("operator tool release identity is incomplete");
   if (release.checksumManifest?.name !== "SHA256SUMS.txt" || !/^[a-f0-9]{64}$/u.test(release.checksumManifest.sha256) || release.candidateManifest?.name !== "candidate-manifest.json" || !/^[a-f0-9]{64}$/u.test(release.candidateManifest.sha256)) throw new Error("operator tool checksum manifest is invalid");
   const names = new Set();
@@ -77,7 +79,14 @@ export function assertExactToolRelease(release) {
     if (!/^(win32|linux|darwin)-(amd64|arm64)$/u.test(asset.platform) || !/^[A-Za-z0-9._-]+\.(zip|tar\.gz)$/u.test(asset.name) || !/^[a-f0-9]{64}$/u.test(asset.sha256) || names.has(asset.name)) throw new Error("operator tool asset inventory is invalid");
     names.add(asset.name);
   }
-  if (names.size !== 4 || !["win32-amd64", "linux-amd64", "darwin-amd64", "darwin-arm64"].every((platform) => release.assets.some((asset) => asset.platform === platform))) throw new Error("operator tool asset inventory is incomplete");
+  if (release.scope) assertScope(release.scope);
+  if (release.scope) for (const asset of release.assets) {
+    closed(asset, ["platform", "name", "sha256", "executable", ...(retained ? ["relativePath"] : [])], "scoped TUI source/retained asset");
+    if (asset.executable !== (asset.platform === "win32-amd64" ? "service-lasso-tui.exe" : "service-lasso-tui")) throw new Error("scoped TUI source executable differs");
+  }
+  if (release.scope && JSON.stringify(release.assets.map(asset => asset.name)) !== JSON.stringify(release.assets.map(asset => asset.name).sort())) throw new Error("scoped TUI asset ASCII order differs");
+  const targets = release.scope ? ["win32-amd64", "linux-amd64"] : ["win32-amd64", "linux-amd64", "darwin-amd64", "darwin-arm64"];
+  if (names.size !== targets.length || !targets.every((platform) => release.assets.some((asset) => asset.platform === platform))) throw new Error("operator tool asset inventory is incomplete");
 }
 
 export function assertExactCliRelease(release) {
@@ -129,7 +138,7 @@ function isHistoricalRelease(release, cli = false) {
 function assertProtectedCliRelease(release) {
   assertExactCliRelease(release);
   if (!/^\d+\.\d+\.\d+-dev\.[a-f0-9]{7}$/u.test(release.version) || release.version.split("dev.")[1] !== release.targetCommit.slice(0, 7) || release.tag !== `cli-v${release.version}-candidate-${release.targetCommit.slice(0, 7)}` || release.developmentManifest?.name !== "development-candidate.json" || !/^[a-f0-9]{64}$/u.test(release.developmentManifest.sha256)) throw new Error("CLI protected release identity is invalid; historical portable pins are ineligible");
-  const expected = expectedAssets(release.version);
+  if (release.scope) assertScope(release.scope); const expected = expectedAssets(release.version, release.scope ? 2 : 1);
   if (!Array.isArray(release.assets) || release.assets.length !== expected.length || new Set(release.assets.map(asset => asset?.name)).size !== expected.length) throw new Error("CLI protected release inventory is incomplete");
   for (const wanted of expected) {
     const asset = release.assets.find(item => item?.name === wanted.name);
@@ -143,14 +152,17 @@ function cliPublishedAssets(release) { return [...release.assets, release.develo
 // Publication authority is owned by reviewed source, never by retained bytes,
 // callers, ENV or fixtures. Populate only in a separately reviewed pins-only
 // change after real qualified immutable publication and same-public-byte proof.
+export const SCOPED_TOOL_RELEASES = Object.freeze({ cli: null, tui: null });
 const APPROVED_PROTECTED_IDENTITIES = Object.freeze({
   "service-lassoctl": Object.freeze([]),
   "service-lasso-tui": Object.freeze([]),
 });
-function protectedCatalogIdentity(tool) {
+function protectedCatalogIdentity(tool, scope) {
   const cli = tool.command === "service-lassoctl";
+  const scopedPin = scope ? SCOPED_TOOL_RELEASES[cli ? "cli" : "tui"] : undefined;
+  if (scope && (!scopedPin || scopedPin.repository !== tool.repository || scopedPin.tag !== tool.tag || scopedPin.targetCommit !== tool.targetCommit || !scopedPin.publication)) throw new Error("scoped publication source pins absent or tuple differs");
   return JSON.stringify({ catalog: catalogIdentity(tool, cli),
-    developmentManifest: cli ? { name: tool.developmentManifest?.name, sha256: tool.developmentManifest?.sha256 } : undefined,
+    scope, publication: scopedPin?.publication, candidateSchema: scope ? (cli ? 2 : 3) : (cli ? 1 : 2), developmentManifest: cli ? { name: tool.developmentManifest?.name, sha256: tool.developmentManifest?.sha256 } : undefined,
     inventory: cli ? tool.assets?.map(asset => ({ name: asset?.name, kind: asset?.kind, target: asset?.target, sha256: asset?.sha256, size: asset?.size })) : undefined });
 }
 
@@ -161,10 +173,11 @@ async function readGitHubToolMetadata(fetchImpl, release, route, token) {
       (![ `/releases/tags/${release.tag}`, `/git/ref/tags/${release.tag}` ].includes(route) && !/^\/git\/tags\/[a-f0-9]{40}$/u.test(route))) throw new Error("operator tool metadata route is invalid");
   const response = await fetchImpl(`https://api.github.com/repos/${release.repository}${route}`, {
     redirect: "error",
+    ...(release.scope ? { signal: AbortSignal.timeout(15_000) } : {}),
     headers: token ? { authorization: `Bearer ${token}`, accept: "application/vnd.github+json" } : { accept: "application/vnd.github+json" },
   });
   if (!response.ok) throw releaseMetadataFailure(response.status);
-  return parseStrictJson(Buffer.from(await response.arrayBuffer()), "operator tool release metadata");
+  return parseStrictJson(release.scope ? await boundedProviderBody(response, 4 * 1024 * 1024) : Buffer.from(await response.arrayBuffer()), "operator tool release metadata");
 }
 
 async function assertGitHubToolTag(fetchImpl, release, token) {
@@ -187,14 +200,14 @@ async function assertGitHubToolTag(fetchImpl, release, token) {
   throw new Error("operator tool tag identity unresolved");
 }
 
-async function downloadExact(fetchImpl, url, expected) {
+async function downloadExact(fetchImpl, url, expected, scope) {
   const initial = new URL(url);
   if (initial.protocol !== "https:" || initial.hostname !== "github.com" || !/^\/service-lasso\/[A-Za-z0-9._-]+\/releases\/download\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/u.test(initial.pathname)) throw new Error("operator tool download URL is not an exact GitHub release asset URL");
   for (let attempt = 0; attempt < ASSET_DOWNLOAD_ATTEMPTS; attempt += 1) {
     let current = new URL(initial);
     let response;
     for (let redirects = 0; redirects < 4; redirects++) {
-      response = await fetchImpl(current, { redirect: "manual" });
+      response = await fetchImpl(current, { redirect: "manual", ...(scope ? { signal: AbortSignal.timeout(15_000) } : {}) });
       if (response.status < 300 || response.status >= 400) break;
       const location = response.headers.get("location");
       if (!location) throw new Error("operator tool redirect is missing a location");
@@ -203,7 +216,7 @@ async function downloadExact(fetchImpl, url, expected) {
       current = next;
     }
     if (response.ok) {
-      const bytes = Buffer.from(await response.arrayBuffer());
+      const bytes = scope ? await boundedProviderBody(response) : Buffer.from(await response.arrayBuffer());
       if (!bytes.length || digest(bytes) !== expected) throw new Error("operator tool checksum mismatch");
       return bytes;
     }
@@ -231,17 +244,19 @@ function assertTuiCandidateManifest(bytes, release) {
     if (listed.size !== release.assets.length || release.assets.some(asset => listed.get(asset.name)?.platform !== asset.platform || listed.get(asset.name)?.sha256 !== asset.sha256)) throw new Error("historical TUI candidate inventory does not match the catalog");
     return;
   }
-  assertClosedObject(candidate, ["assets", "checksumManifest", "corePackagingIssue", "kind", "release", "schemaVersion", "source", "version"], "TUI candidate manifest");
+  assertClosedObject(candidate, ["assets", "checksumManifest", "corePackagingIssue", "kind", "release", "schemaVersion", "source", "version", ...(release.scope ? ["scope"] : [])], "TUI candidate manifest");
   assertClosedObject(candidate.source, ["commit", "ref", "repository"], "TUI source");
   assertClosedObject(candidate.release, ["draft", "immutable", "prerelease", "tag"], "TUI release");
   assertClosedObject(candidate.checksumManifest, ["name", "sha256"], "TUI checksum manifest");
-  if (candidate.schemaVersion !== 2 || candidate.kind !== "develop-prerelease-candidate" || candidate.corePackagingIssue !== "service-lasso/service-lasso#1461" || candidate.version !== release.tag.slice("candidate-".length) || candidate.source?.ref !== "refs/heads/develop" || candidate.source?.repository !== release.repository || candidate.source?.commit !== release.targetCommit || candidate.release?.tag !== release.tag || candidate.release?.prerelease !== true || candidate.release?.draft !== false || candidate.release?.immutable !== true || candidate.checksumManifest?.name !== release.checksumManifest.name || candidate.checksumManifest?.sha256 !== release.checksumManifest.sha256 || !Array.isArray(candidate.assets) || candidate.assets.length !== release.assets.length) throw new Error("TUI candidate manifest does not match the pinned release identity");
+  if (release.scope) { assertScope(release.scope); assertScope(candidate.scope); }
+  if (candidate.schemaVersion !== (release.scope ? 3 : 2) || candidate.kind !== "develop-prerelease-candidate" || candidate.corePackagingIssue !== "service-lasso/service-lasso#1461" || candidate.version !== release.tag.slice("candidate-".length) || candidate.source?.ref !== "refs/heads/develop" || candidate.source?.repository !== release.repository || candidate.source?.commit !== release.targetCommit || candidate.release?.tag !== release.tag || candidate.release?.prerelease !== true || candidate.release?.draft !== false || candidate.release?.immutable !== true || candidate.checksumManifest?.name !== release.checksumManifest.name || candidate.checksumManifest?.sha256 !== release.checksumManifest.sha256 || !Array.isArray(candidate.assets) || candidate.assets.length !== release.assets.length) throw new Error("TUI candidate manifest does not match the pinned release identity");
   for (const asset of candidate.assets) {
     assertClosedObject(asset, ["executable", "name", "platform", "sha256"], "TUI asset");
     const extension = asset.platform === "win32-amd64" ? "zip" : "tar.gz";
     if (asset.name !== `service-lasso-tui-${candidate.version}-${asset.platform}.${extension}` || asset.executable !== (asset.platform === "win32-amd64" ? "service-lasso-tui.exe" : "service-lasso-tui")) throw new Error("TUI candidate manifest platform identity is invalid");
   }
   const candidateAssets = new Map(candidate.assets.map((asset) => [asset?.name, asset]));
+  if (release.scope && JSON.stringify(candidate.assets.map(asset => asset.name)) !== JSON.stringify(release.assets.map(asset => asset.name))) throw new Error("TUI3 candidate asset ASCII order differs");
   if (candidateAssets.size !== candidate.assets.length || release.assets.some((asset) => candidateAssets.get(asset.name)?.platform !== asset.platform || candidateAssets.get(asset.name)?.sha256 !== asset.sha256)) throw new Error("TUI candidate manifest asset inventory does not match the pinned release");
 }
 
@@ -250,7 +265,12 @@ function assertCliCandidateManifest(bytes, release) {
   if (candidate.schemaVersion !== 1 || candidate.candidateTag !== release.tag || candidate.version !== release.version || candidate.source?.repository !== release.repository || candidate.source?.commit !== release.targetCommit || candidate.package?.command !== "service-lassoctl" || candidate.package?.node !== ">=22.12.0" || !Array.isArray(candidate.platforms) || candidate.platforms.length !== release.supportedPlatforms.length || !release.supportedPlatforms.every((platform) => candidate.platforms.includes(platform)) || !Array.isArray(candidate.assets) || candidate.assets.length !== 1 || candidate.assets[0]?.name !== release.asset.name || candidate.assets[0]?.sha256 !== release.asset.sha256) throw new Error("CLI candidate manifest does not match the pinned release identity");
 }
 
-function assertChecksumManifest(bytes, assets) {
+function assertChecksumManifest(bytes, assets, scope) {
+  if (scope) {
+    assertScope(scope);
+    const canonical = [...assets].sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0).map(asset => `${asset.sha256}  ${asset.name}\n`).join("");
+    if (!bytes.equals(Buffer.from(canonical))) throw new Error("scoped TUI checksum byte/order inventory differs");
+  }
   const entries = new Map();
   for (const line of bytes.toString("utf8").split(/\r?\n/u).filter(Boolean)) {
     const match = line.match(/^([a-f0-9]{64})\s+\*?([A-Za-z0-9._-]+)$/u);
@@ -275,11 +295,25 @@ async function assertGitHubRelease(fetchImpl, release, expectedAssets, releaseMe
     actual.set(asset.name, asset);
   }
   if (expectedAssets.some((asset) => actual.get(asset.name)?.digest !== `sha256:${asset.sha256}`)) throw new Error("operator tool release metadata asset inventory does not match the pinned manifest");
+  if (release.scope) {
+    assertScope(release.scope);
+    const pin = release.publication;
+    closed(pin, ["repository", "releaseId", "tag", "targetCommit", "draft", "prerelease", "immutable", "assets"], "scoped tool publication pin");
+    if (pin.repository !== release.repository || pin.releaseId !== metadata.id || !Number.isSafeInteger(pin.releaseId) || pin.releaseId < 1 || pin.tag !== release.tag || pin.targetCommit !== release.targetCommit || pin.draft !== false || pin.prerelease !== true || pin.immutable !== true || !Array.isArray(pin.assets) || pin.assets.length !== expectedAssets.length) throw new Error("scoped source publication identity differs");
+    const ids = new Set();
+    for (const row of pin.assets) {
+      closed(row, ["id", "name", "url", "size", "sha256"], "scoped publication asset pin");
+      const observed = actual.get(row.name);
+      if (!observed || !Number.isSafeInteger(row.id) || row.id < 1 || ids.has(row.id) || row.id !== observed.id || row.url !== observed.url || row.url !== `https://api.github.com/repos/${release.repository}/releases/assets/${row.id}` || row.size !== observed.size || !Number.isSafeInteger(row.size) || row.size < 1 || row.sha256 !== observed.digest.slice(7) || observed.browser_download_url !== browserAssetUrl(release, row.name)) throw new Error("scoped publication asset pins differ");
+      ids.add(row.id);
+    }
+  }
   await assertGitHubToolTag(fetchImpl, release, token);
   return actual;
 }
 
-export async function stageOperatorTools({ artifactRoot, fetchImpl = fetch, release = CURRENT_TUI_RELEASE, cliRelease = CURRENT_CLI_RELEASE, releaseMetadataToken } = {}) {
+export async function stageOperatorTools({ artifactRoot, fetchImpl = fetch, release = CURRENT_TUI_RELEASE, cliRelease = CURRENT_CLI_RELEASE, releaseMetadataToken, scope } = {}) {
+  if (scope) { assertScope(scope); if (!SCOPED_TOOL_RELEASES.cli || !SCOPED_TOOL_RELEASES.tui) throw new Error("source-approved scoped tool catalogs remain empty until actual publication pins-only admission"); release = { ...SCOPED_TOOL_RELEASES.tui, scope }; cliRelease = { ...SCOPED_TOOL_RELEASES.cli, scope }; }
 	await mkdir(path.join(artifactRoot, "operator-tools"), { recursive: true });
   const assets = [];
   let tuiTool = { command: "service-lasso-tui", status: "unavailable", reason: "No current reviewed checksum-bound TUI release is pinned." };
@@ -288,14 +322,14 @@ export async function stageOperatorTools({ artifactRoot, fetchImpl = fetch, rele
     const releaseAssets = await assertGitHubRelease(fetchImpl, release, [...release.assets, release.checksumManifest, release.candidateManifest], releaseMetadataToken);
     const root = path.join(artifactRoot, "operator-tools", "service-lasso-tui");
     await mkdir(root, { recursive: true });
-    const checksum = await downloadExact(fetchImpl, browserAssetUrl(release, release.checksumManifest.name), release.checksumManifest.sha256);
-    assertChecksumManifest(checksum, release.assets);
+    const checksum = await downloadExact(fetchImpl, browserAssetUrl(release, release.checksumManifest.name), release.checksumManifest.sha256, scope);
+    assertChecksumManifest(checksum, release.assets, scope);
     await writeFile(path.join(root, release.checksumManifest.name), checksum);
-    const candidateManifest = await downloadExact(fetchImpl, browserAssetUrl(release, release.candidateManifest.name), release.candidateManifest.sha256);
+    const candidateManifest = await downloadExact(fetchImpl, browserAssetUrl(release, release.candidateManifest.name), release.candidateManifest.sha256, scope);
     assertTuiCandidateManifest(candidateManifest, release);
     await writeFile(path.join(root, release.candidateManifest.name), candidateManifest);
     for (const asset of release.assets) {
-      const bytes = await downloadExact(fetchImpl, browserAssetUrl(release, asset.name), asset.sha256);
+      const bytes = await downloadExact(fetchImpl, browserAssetUrl(release, asset.name), asset.sha256, scope);
       const relativePath = path.posix.join("operator-tools", "service-lasso-tui", asset.name);
       await writeFile(path.join(artifactRoot, relativePath), bytes);
       assets.push({ ...asset, relativePath });
@@ -309,7 +343,7 @@ export async function stageOperatorTools({ artifactRoot, fetchImpl = fetch, rele
       const inventory = [cliRelease.asset, cliRelease.candidateManifest, cliRelease.checksumManifest];
       await assertGitHubRelease(fetchImpl, cliRelease, inventory, releaseMetadataToken);
       const held = new Map();
-      for (const asset of inventory) held.set(asset.name, await downloadExact(fetchImpl, browserAssetUrl(cliRelease, asset.name), asset.sha256));
+      for (const asset of inventory) held.set(asset.name, await downloadExact(fetchImpl, browserAssetUrl(cliRelease, asset.name), asset.sha256, scope));
       assertChecksumManifest(held.get("SHA256SUMS.txt"), [cliRelease.asset, cliRelease.candidateManifest]);
       assertCliCandidateManifest(held.get("candidate.json"), cliRelease);
       const root = path.join(artifactRoot, "operator-tools", "service-lassoctl");
@@ -323,7 +357,7 @@ export async function stageOperatorTools({ artifactRoot, fetchImpl = fetch, rele
       const inventory = cliPublishedAssets(cliRelease);
       await assertGitHubRelease(fetchImpl, cliRelease, inventory, releaseMetadataToken);
       const held = new Map();
-      for (const asset of inventory) held.set(asset.name, await downloadExact(fetchImpl, browserAssetUrl(cliRelease, asset.name), asset.sha256));
+      for (const asset of inventory) held.set(asset.name, await downloadExact(fetchImpl, browserAssetUrl(cliRelease, asset.name), asset.sha256, scope));
       const protectedManifest = verifyProtectedCliBytes(held, cliRelease.version, cliRelease.targetCommit);
       if (protectedManifest.assets.some(asset => cliRelease.assets.find(pin => pin.name === asset.name)?.size !== asset.size || cliRelease.assets.find(pin => pin.name === asset.name)?.sha256 !== asset.sha256)) throw new Error("CLI protected manifest differs from pinned inventory");
       await mkdir(cliRoot, { recursive: true });
@@ -333,12 +367,14 @@ export async function stageOperatorTools({ artifactRoot, fetchImpl = fetch, rele
     }
   }
   const manifest = {
-    schemaVersion: "service-lasso.operator-tools.v2",
+    schemaVersion: scope ? "service-lasso.operator-tools.v3" : "service-lasso.operator-tools.v2",
+    ...(scope ? { scope } : {}),
     tools: [
       cliTool,
       tuiTool,
     ],
   };
+  if (scope) assertProtectedOperatorTools(manifest);
   await writeFile(path.join(artifactRoot, "operator-tools", "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
   return manifest;
 }
@@ -365,8 +401,9 @@ async function readRetainedBytes(artifactRoot, relativePath) {
 }
 
 export function assertProtectedOperatorTools(manifest) {
+  if (manifest?.schemaVersion === "service-lasso.operator-tools.v3") { closed(manifest, ["schemaVersion", "scope", "tools"], "operator3"); assertScope(manifest.scope);  }
   if (!Array.isArray(manifest?.tools) || manifest.tools.length !== 2 || new Set(manifest.tools.map(tool => tool.command)).size !== 2 || !manifest.tools.every(tool => ["service-lassoctl", "service-lasso-tui"].includes(tool.command) && tool.status === "available" && tool.receiptKind === "protected-immutable")) throw new Error("protected operator-tool qualification requires actual immutable candidate pins; historical distribution is ineligible");
-  if (!manifest.tools.every(tool => !isHistoricalRelease(tool, tool.command === "service-lassoctl") && APPROVED_PROTECTED_IDENTITIES[tool.command].includes(protectedCatalogIdentity(tool)))) throw new Error("protected operator-tool qualification requires source-approved immutable publication catalog identities; catalog is empty until real qualification and public same-byte admission");
+  if (!manifest.tools.every(tool => !isHistoricalRelease(tool, tool.command === "service-lassoctl") && APPROVED_PROTECTED_IDENTITIES[tool.command].includes(protectedCatalogIdentity(tool, manifest.scope)))) throw new Error("protected operator-tool qualification requires source-approved immutable publication catalog identities; catalog is empty until real qualification and public same-byte admission");
 }
 
 export async function verifyRetainedOperatorTools({ artifactRoot, requireProtected = false } = {}) {
@@ -380,18 +417,31 @@ export async function verifyRetainedOperatorTools({ artifactRoot, requireProtect
 export async function validateRetainedOperatorToolBytes({ artifactRoot } = {}) {
   const manifestBytes = await readRetainedBytes(artifactRoot, "operator-tools/manifest.json");
   const manifest = parseCandidateManifest(manifestBytes, "operator tools");
-  if (manifest.schemaVersion !== "service-lasso.operator-tools.v2" || !Array.isArray(manifest.tools) || manifest.tools.length !== 2) throw new Error("operator tools manifest is invalid");
+  if (manifest.schemaVersion === "service-lasso.operator-tools.v3") { closed(manifest, ["schemaVersion", "scope", "tools"], "operator3"); assertScope(manifest.scope); }
+  if (!["service-lasso.operator-tools.v2", "service-lasso.operator-tools.v3"].includes(manifest.schemaVersion) || !Array.isArray(manifest.tools) || manifest.tools.length !== 2) throw new Error("operator tools manifest is invalid");
   const tools = new Map(manifest.tools.map((tool) => [tool?.command, tool]));
   if (tools.size !== 2 || tools.get("service-lassoctl")?.status !== "available" || tools.get("service-lasso-tui")?.status !== "available") throw new Error("operator tools manifest availability is invalid");
   const tui = tools.get("service-lasso-tui");
   const cli = tools.get("service-lassoctl");
+  if (manifest.scope) {
+    closed(cli, ["command", "status", "receiptKind", "mode", "repository", "tag", "targetCommit", "version", "asset", "checksumManifest", "candidateManifest", "developmentManifest", "supportedPlatforms", "assets"], "operator3 CLI");
+    closed(tui, ["command", "status", "receiptKind", "mode", "repository", "tag", "targetCommit", "checksumManifest", "candidateManifest", "assets"], "operator3 TUI");
+    closed(cli.asset, ["name", "sha256", "size"], "operator3 portable asset");
+    if (cli.receiptKind !== "protected-immutable" || tui.receiptKind !== "protected-immutable" || isHistoricalRelease(cli, true) || isHistoricalRelease(tui)) throw new Error("operator3 historical downgrade");
+    for (const ref of [cli.checksumManifest, cli.candidateManifest, cli.developmentManifest, tui.checksumManifest, tui.candidateManifest]) closed(ref, ["name", "sha256", "relativePath"], "operator3 retained manifest reference");
+    for (const asset of cli.assets) closed(asset, ["name", "kind", "target", "sha256", "size", "relativePath"], "operator3 CLI asset");
+    for (const asset of tui.assets) {
+      closed(asset, ["platform", "name", "sha256", "relativePath", "executable"], "operator3 TUI retained asset");
+      if (asset.executable !== (asset.platform === "win32-amd64" ? "service-lasso-tui.exe" : "service-lasso-tui")) throw new Error("operator3 TUI executable identity differs");
+    }
+  }
   for (const [tool, isCli] of [[tui, false], [cli, true]]) {
     const historical = isHistoricalRelease(tool, isCli);
     if (tool.receiptKind !== (historical ? "historical-mutable" : "protected-immutable")) throw new Error("operator tool retained receipt kind does not match catalog authority");
   }
-  assertExactToolRelease({ repository: tui.repository, tag: tui.tag, targetCommit: tui.targetCommit, checksumManifest: tui.checksumManifest, candidateManifest: tui.candidateManifest, assets: tui.assets });
+  assertExactToolRelease({ repository: tui.repository, tag: tui.tag, targetCommit: tui.targetCommit, checksumManifest: tui.checksumManifest, candidateManifest: tui.candidateManifest, assets: tui.assets, ...(manifest.scope ? { scope: manifest.scope } : {}) }, { retained: true });
   const historicalCli = isHistoricalRelease(cli, true);
-  if (historicalCli) assertExactCliRelease(cli); else assertProtectedCliRelease(cli);
+  if (historicalCli) assertExactCliRelease(cli); else assertProtectedCliRelease({ ...cli, ...(manifest.scope ? { scope: manifest.scope } : {}) });
   if (cli.candidateManifest.relativePath !== "operator-tools/service-lassoctl/candidate.json") throw new Error("CLI portable record path is noncanonical");
   for (const [, directory, inventory] of [[tui, "service-lasso-tui", [...tui.assets, tui.checksumManifest, tui.candidateManifest]], [cli, "service-lassoctl", historicalCli ? [...cli.assets, cli.candidateManifest, cli.checksumManifest] : cliPublishedAssets(cli)]]) {
     const directoryStat = await lstat(path.join(artifactRoot, "operator-tools", directory));
@@ -402,8 +452,8 @@ export async function validateRetainedOperatorToolBytes({ artifactRoot } = {}) {
   }
   const tuiSums = await readRetainedBytes(artifactRoot, tui.checksumManifest.relativePath);
   const tuiCandidate = await readRetainedBytes(artifactRoot, tui.candidateManifest.relativePath);
-  assertChecksumManifest(tuiSums, tui.assets);
-  assertTuiCandidateManifest(tuiCandidate, tui);
+  assertChecksumManifest(tuiSums, tui.assets, manifest.scope);
+  assertTuiCandidateManifest(tuiCandidate, { ...tui, ...(manifest.scope ? { scope: manifest.scope } : {}) });
   const cliHeld = new Map();
   for (const asset of historicalCli ? [...cli.assets, cli.candidateManifest, cli.checksumManifest] : cliPublishedAssets(cli)) {
     if (asset.relativePath !== path.posix.join("operator-tools", "service-lassoctl", asset.name)) throw new Error("CLI retained path is noncanonical");
@@ -416,6 +466,7 @@ export async function validateRetainedOperatorToolBytes({ artifactRoot } = {}) {
     assertCliCandidateManifest(cliHeld.get("candidate.json"), { ...cli, asset: cli.assets[0] });
   } else {
     const candidate = verifyProtectedCliBytes(cliHeld, cli.version, cli.targetCommit);
+    if (manifest.scope && candidate.schemaVersion !== 2) throw new Error("operator3 CLI schema downgrade");
     if (candidate.assets.some(asset => cli.assets.find(pin => pin.name === asset.name)?.size !== asset.size || cli.assets.find(pin => pin.name === asset.name)?.sha256 !== asset.sha256)) throw new Error("CLI retained protected inventory differs from manifest");
   }
   for (const asset of [...tui.assets, tui.checksumManifest, tui.candidateManifest]) {

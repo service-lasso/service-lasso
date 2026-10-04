@@ -25,13 +25,7 @@ The demo command builds the runtime, uses the checked-in `services/` manifests, 
 
 Open **[http://127.0.0.1:17700/](http://127.0.0.1:17700/)**.
 
-A fresh workspace may show first-run setup. Complete the setup and save the credentials and recovery information it provides. Regular services wait until setup is complete. If setup has finished but those services remain stopped, run this from a second terminal in the same folder:
-
-```sh
-npm run demo:recycle
-```
-
-This restarts the demo and completes its first-run autostart checks. For setup details, see [vault bootstrap](reference/vault-key-bootstrap.md).
+A fresh workspace may show first-run setup. Complete the setup and save the credentials and recovery information it provides. Regular services wait until setup is complete. If setup has finished but a service remains stopped, use its Install/Configure/Start actions in Admin when offered. The [independent example review](development/documented-examples-verification.md) records a current Windows recycle/shutdown defect; recycle is not a qualified recovery step. For setup details, see [vault bootstrap](reference/vault-key-bootstrap.md).
 
 ## 3. Try a service
 

@@ -56,24 +56,29 @@ async function importFixtureStagers(root) {
   const publishModulePath = path.join(root, "publish-package-lib.mjs");
   const operatorModuleUrl = pathToFileURL(operatorModulePath).href;
   const releaseModuleUrl = pathToFileURL(releaseModulePath).href;
+  const npmCommandModuleUrl = pathToFileURL(path.join(scriptsRoot, "npm-command-lib.mjs")).href;
   const originalOperatorRecords = operatorSource.slice(
     operatorSource.indexOf("export const CURRENT_TUI_RELEASE ="),
     operatorSource.indexOf("export function assertExactToolRelease"),
   );
   assert.ok(originalOperatorRecords.startsWith("export const CURRENT_TUI_RELEASE"));
-  await writeFile(operatorModulePath, operatorSource.replace(originalOperatorRecords, fixtureOperatorToolModule()).replace("./operator-tool-cli-contract.mjs", pathToFileURL(path.join(scriptsRoot, "operator-tool-cli-contract.mjs")).href));
+  await writeFile(operatorModulePath, operatorSource.replace(originalOperatorRecords, fixtureOperatorToolModule()).replace("./ga-platform-scope-lib.mjs", pathToFileURL(path.join(scriptsRoot, "ga-platform-scope-lib.mjs")).href).replace("./scoped-provider-readback-lib.mjs", pathToFileURL(path.join(scriptsRoot, "scoped-provider-readback-lib.mjs")).href).replace("./operator-tool-cli-contract.mjs", pathToFileURL(path.join(scriptsRoot, "operator-tool-cli-contract.mjs")).href));
 
   const releaseSource = await readFile(path.join(scriptsRoot, "release-artifact-lib.mjs"), "utf8");
   await writeFile(releaseModulePath, releaseSource
+    .replace("./ga-platform-scope-lib.mjs", pathToFileURL(path.join(scriptsRoot, "ga-platform-scope-lib.mjs")).href)
     .replace("../dist/runtime/files/safe-zip.js", pathToFileURL(path.join(path.resolve(), "dist", "runtime", "files", "safe-zip.js")).href)
     .replace("./release-asset-policy.mjs", pathToFileURL(path.join(scriptsRoot, "release-asset-policy.mjs")).href)
     .replace("./release-version-lib.mjs", pathToFileURL(path.join(scriptsRoot, "release-version-lib.mjs")).href)
+    .replace("./npm-command-lib.mjs", npmCommandModuleUrl)
     .replace("./operator-tool-packaging-lib.mjs", operatorModuleUrl));
 
   const publishSource = await readFile(path.join(scriptsRoot, "publish-package-lib.mjs"), "utf8");
   await writeFile(publishModulePath, publishSource
+    .replace("./ga-platform-scope-lib.mjs", pathToFileURL(path.join(scriptsRoot, "ga-platform-scope-lib.mjs")).href)
     .replace("./release-artifact-lib.mjs", releaseModuleUrl)
     .replace("./release-version-lib.mjs", pathToFileURL(path.join(scriptsRoot, "release-version-lib.mjs")).href)
+    .replace("./npm-command-lib.mjs", npmCommandModuleUrl)
     .replace("./operator-tool-packaging-lib.mjs", operatorModuleUrl));
 
   return {

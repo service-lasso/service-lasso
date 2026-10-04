@@ -138,7 +138,7 @@ unattributed. This source protocol grants no execution or provider/release actio
 ## Selected architecture amendment (#1629)
 
 The earlier option table is historical candidate analysis. The conductor has now
-selected [ADR-002](../../.governance/decisions/ADR-002-fixture-isolation.md) and
+selected ADR-002 (`.governance/decisions/ADR-002-fixture-isolation.md`; see the [canonical repository source](https://github.com/service-lasso/service-lasso/blob/develop/.governance/decisions/ADR-002-fixture-isolation.md)) and
 SPEC-002 AC-4BJ.9c.fixture-isolation-v1 FI-1..FI-7 for prospective source work:
 Linux distinct host UID/private persistent backing/mount/supervisor; Windows W2
 fresh SID/restricted token/process protection/controlled Job plus W1 same-held
