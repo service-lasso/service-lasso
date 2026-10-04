@@ -6,7 +6,7 @@ import { createConptyNativeContainment } from "../scripts/conpty-native-containm
 // Executes the actual closed consumer; transport/event scheduling is controlled
 // and never supplies a native Job-zero or operator acceptance claim.
 for (const mode of ["unavailable", "connected"]) {
-  for (const scenario of ["orderly", "delayed extra", "duplicate", "error", "lost", "second peer"]) {
+  for (const scenario of ["orderly", "delayed extra", "duplicate", "error", "lost", "second peer", "close without EOF"]) {
     test(`private ConPTY ${mode} terminal finalization: ${scenario}`, async () => {
       let accept;
       const server = new EventEmitter();
@@ -31,6 +31,7 @@ for (const mode of ["unavailable", "connected"]) {
       if (scenario === "duplicate") peer.emit("data", Buffer.from(`terminal:${token}:1337:0:0\n`));
       if (scenario === "error") peer.emit("error", new Error("private fixture channel failure"));
       if (scenario === "second peer") { const other = new EventEmitter(); other.destroy = () => {}; accept(other); }
+      if (scenario !== "close without EOF") peer.emit("end");
       peer.emit("close", scenario === "error");
       await new Promise((resolve) => setImmediate(resolve));
       assert.equal(settled, false, "control close alone is not original child/stream close");

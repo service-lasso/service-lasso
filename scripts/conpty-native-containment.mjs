@@ -13,8 +13,9 @@ export async function createConptyNativeContainment({ serverFactory = createServ
   const server = serverFactory((peer) => {
     if (socket || invalid) { peer.destroy(); invalid = true; return; }
     socket = peer;
-    let buffered = "";
+    let buffered = "", peerEnded = false;
     peer.on("error", () => { invalid = true; });
+    peer.on("end", () => { peerEnded = true; });
     peer.on("data", (chunk) => {
       if (invalid || terminalSeen || buffered.length + chunk.length > 256 || [...chunk].some((byte) => byte !== 10 && (byte < 32 || byte > 126))) { invalid = true; return; }
       buffered += chunk.toString("ascii");
@@ -36,7 +37,7 @@ export async function createConptyNativeContainment({ serverFactory = createServ
       }
     });
     peer.on("close", (hadError) => {
-      if (hadError || !terminalSeen || buffered.length) invalid = true;
+      if (hadError || !peerEnded || !terminalSeen || buffered.length) invalid = true;
       resolveChannelClose();
     });
   });
