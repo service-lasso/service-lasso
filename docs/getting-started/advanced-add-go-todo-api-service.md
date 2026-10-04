@@ -121,4 +121,4 @@ Inspect dependencies, acquired release/checksum, processes, logs and Network vie
 
 Both application services own their GitHub template provenance, source, manifests, platform packages, tests, verification and explicit candidate publication. Consumer manifests pin real development prereleases. Source builds, acquired bytes, runtime evidence, docs publication and GA are separate claims. Follow [validate and release](../service-authoring/05-validate-release.md) when authoring your own service.
 
-Stop services through Admin and keep data. Whole-demo shutdown/recycle remains unqualified [#1665](https://github.com/service-lasso/service-lasso/issues/1665). Next: [ZITADEL SSO Hub](zitadel-sso-hub.md), [wire consumers](../service-authoring/04-wire-consumers.md), or [package your app](../package-your-app.md).
+Stop services through Admin and keep data. Whole-demo shutdown/recycle remains unqualified [#1665](https://github.com/service-lasso/service-lasso/issues/1665). Next: [Advanced — Add Zitadel SSO to Todo](zitadel-sso-hub.md), [wire consumers](../service-authoring/04-wire-consumers.md), or [package your app](../package-your-app.md).
