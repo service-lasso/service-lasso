@@ -355,3 +355,14 @@ SPEC-008 R1/R5 require physical canonical policy bytes to remain exactly445 LF b
 SPEC-008 R6/R7 require both actual scoped and legacy generated PTY owners to establish cleanup status before any startup/connected/help action can fail. Preserve the primary exception, exact forked-child kill/wait and PTY descriptor close, original20-second startup/5-second help/q deadlines, unavailable and connected-positive assertions, help/navigation and clean q-exit. Meaningful prospective cases execute the actual generated run_case body against owned failing startup/help children and independently observe exact kill/reap/descriptor close and retained original error; fixture behavior is not native TUI acceptance.
 
 Prepare this coherent two-finding source correction only. Existing R1..R7/TC01..TC12/CA01..CA08, complete incoming integration, protected preparer bodies, all original failures/private custody, empty catalogs, native1640 NO-GO/F7 absence and actual Windows/Linux released/published/operator gates remain unchanged. New authored cases remain UNEXECUTED until a DIFFERENT fresh ENTIRE corrected-source GO and NEW complete-input ROOT admission. Parent owns issue tracking/landing. No parser/import/compiler/build/Node/npm/test/native invocation, main, provider controls/dispatch/rerun, release or cleanup.
+
+#1687 U1 original-error producer continuation: implement native Node-API source
+that reads original-W Error/cause/AggregateError objects in their actual isolate,
+checks injected identity before field access, retains original primary/secondary
+handles and produces the private native graph/channel bytes using explicit
+prepared workspace and queue inputs. Original ROOT creator/callsite, actual W
+adapter and all Node headers/import libraries/runtime source admission remain
+ABSENT. A separate native producer/regression source does not authorize U4
+lifecycle or create a positive capsule. Exact proposed ingress/owner/endpoint/
+queue/readiness/recovery boundaries belong in producer-contract.md for distinct
+architecture review; all product/native execution remains prohibited.

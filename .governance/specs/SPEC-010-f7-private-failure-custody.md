@@ -215,3 +215,14 @@ These are required closed source records for U1-U3, using the canonical encoding
 | retained_unresolved | Freeze ordinary launch/delete/reset/public success; preserve prefixes/originals/ciphertext/known errors; O/S only already admitted exact-held child settlement, T/G exact existing-object reconciliation and authenticated SAME successor, C retained persistence/readback; no fresh path authority, re-encryption or source/product rerun |
 
 P bootstrap is separate: authorized empty-repository provisioning -> exact exclusive seed push -> P positive exit/EOF -> G ALL original provider readback/control/ref verification -> signed bootstrap admission and P grant revocation. Unknown outcome remains retained reconciliation; T cannot initialize or prepare evidence objects before independently accepted current bootstrap. All channels reject wrong role/state/nonce/sequence/correlation/length/extra ancillary capability. Exact settlement refers solely to pre-admitted held lifetimes; F7 supplies no new S/W lifecycle mechanism. Index/manifest/receipt/G capture byte ceilings and native queue allocations must be derived from the actual admitted roster and nine-row reservation contract; actual numeric row budgets remain ABSENT and activation rejects that absence.
+
+#1687 U1 original-error producer continuation: implement native Node-API source
+that reads original-W Error/cause/AggregateError objects in their actual isolate,
+checks injected identity before field access, retains original primary/secondary
+handles and produces the private native graph/channel bytes using explicit
+prepared workspace and queue inputs. Original ROOT creator/callsite, actual W
+adapter and all Node headers/import libraries/runtime source admission remain
+ABSENT. A separate native producer/regression source does not authorize U4
+lifecycle or create a positive capsule. Exact proposed ingress/owner/endpoint/
+queue/readiness/recovery boundaries belong in producer-contract.md for distinct
+architecture review; all product/native execution remains prohibited.

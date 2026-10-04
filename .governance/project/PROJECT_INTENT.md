@@ -488,3 +488,14 @@ Core #1673 extends the fourth tutorial into managed Todo sign-in with app-owned 
 Issue #1683 preserves dependency compatibility under SPEC-002 AC-4DI: SDK 1.31.0 public/evidence/demo identity agrees with the pinned runtime, strict wrong-version rejection remains, and Docusaurus 3.10.2 retains pinned ELK 0.1.9/Mermaid 11 under current Node/browser policy. Compatible bot contributions from #1677/#1678 remain mapped. No renderer migration, security/gate relaxation, owner-branch mutation or release action is included; fresh entire review and NEW input admission precede execution.
 
 Core #1679 adds the next Todo desktop packaging lesson using the Tauri template under AC-4AJ.10; native compilation and packaged runtime execution precede executable claims. Existing data and credentials stay outside build resources.
+
+#1687 U1 original-error producer continuation: implement native Node-API source
+that reads original-W Error/cause/AggregateError objects in their actual isolate,
+checks injected identity before field access, retains original primary/secondary
+handles and produces the private native graph/channel bytes using explicit
+prepared workspace and queue inputs. Original ROOT creator/callsite, actual W
+adapter and all Node headers/import libraries/runtime source admission remain
+ABSENT. A separate native producer/regression source does not authorize U4
+lifecycle or create a positive capsule. Exact proposed ingress/owner/endpoint/
+queue/readiness/recovery boundaries belong in producer-contract.md for distinct
+architecture review; all product/native execution remains prohibited.

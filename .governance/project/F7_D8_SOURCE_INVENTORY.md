@@ -164,3 +164,14 @@ original timespec bytes and immediately captured errno in a private inline
 witness before the drain marks the attempt incomplete. Invalid/overflowed time
 values retain their original bytes with status zero, without a fabricated errno.
 No clock failure is turned into EOF, termination, cleanup or a universal bound.
+
+#1687 U1 original-error producer continuation: implement native Node-API source
+that reads original-W Error/cause/AggregateError objects in their actual isolate,
+checks injected identity before field access, retains original primary/secondary
+handles and produces the private native graph/channel bytes using explicit
+prepared workspace and queue inputs. Original ROOT creator/callsite, actual W
+adapter and all Node headers/import libraries/runtime source admission remain
+ABSENT. A separate native producer/regression source does not authorize U4
+lifecycle or create a positive capsule. Exact proposed ingress/owner/endpoint/
+queue/readiness/recovery boundaries belong in producer-contract.md for distinct
+architecture review; all product/native execution remains prohibited.

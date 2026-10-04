@@ -875,3 +875,14 @@ Prepare this coherent two-finding source correction only. Existing R1..R7/TC01..
 | `ISS-1683` | `in_progress` | Repair coherent Core dependency identity and supported docs graph | `SPEC-002 AC-4DI.1–3` | Map immutable #1677/#1678 contributions into a dedicated current-develop repair PR. Preserve natural failures and strict acceptance; source-only until fresh independent entire review and NEW complete ROOT admission. Existing bot PR landing remains the parent coordinator's decision. |
 
 - #1679 / AC-4AJ.10: Todo Tauri Windows executable tutorial; prerequisite service-lasso-app-tauri#24 / NATIVE-1–6. In progress.
+
+#1687 U1 original-error producer continuation: implement native Node-API source
+that reads original-W Error/cause/AggregateError objects in their actual isolate,
+checks injected identity before field access, retains original primary/secondary
+handles and produces the private native graph/channel bytes using explicit
+prepared workspace and queue inputs. Original ROOT creator/callsite, actual W
+adapter and all Node headers/import libraries/runtime source admission remain
+ABSENT. A separate native producer/regression source does not authorize U4
+lifecycle or create a positive capsule. Exact proposed ingress/owner/endpoint/
+queue/readiness/recovery boundaries belong in producer-contract.md for distinct
+architecture review; all product/native execution remains prohibited.
