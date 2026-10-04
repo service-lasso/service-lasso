@@ -46,6 +46,48 @@ archive against real PostgreSQL. Full managed/Admin integration above was
 executed on Windows with the explicit PostgreSQL adapter. It does not qualify
 macOS PostgreSQL, whole-demo shutdown, upstream template admission or GA.
 
+## Todo identity stage (#1673)
+
+The [fourth tutorial](../getting-started/zitadel-sso-hub.md) now adds Zitadel
+sign-in to the managed Todo app, rather than leaving the consuming application
+unspecified. Published Todo [`2026.10.4-6f47534`](https://github.com/service-lasso/lasso-todo/releases/tag/2026.10.4-6f47534)
+targets `6f4753485dfa93a8a23e6f3d9751416d770042e3`; all three platform source and
+extracted-archive checks plus publication passed in
+[run 37213848505](https://github.com/service-lasso/lasso-todo/actions/runs/37213848505).
+
+Signed HTTPS protocol fixtures directly exercise code + PKCE, nonce/state,
+signature/issuer/audience/expiry rejection, outage refusal, callback replay,
+CSRF/host denial, capacity, logout, restart invalidation and retained shared data.
+Those fixtures are separate from actual Zitadel/browser execution.
+
+The local identity setup pins Zitadel `2026.9.25-93d4c84`, Certificates
+`2026.9.25-588398b` and corrected PostgreSQL `2026.10.4-1af7982`. The application
+owns `@todo-certs`; the baseline certificate manifest and CA remain untouched.
+Provisioning uses declared create-only signed Broker IPC and preserves existing
+master-key/password references. The initial incorrect bootstrap-variable attempt
+remains failure evidence; `FIRSTINSTANCE_ORG_HUMAN_*` is the checked contract.
+Fresh initialization in a separate retained identity database passed browser
+login with the Broker-backed bootstrap password and no forced password change.
+The initial login name is `todo-admin@todo-tutorial.localhost`; the guide
+distinguishes it from the contact email. Re-running the public provisioning
+helper reported both references existing and unchanged.
+
+Independent Windows execution acquired the actual released Todo archive through
+literal Core CLI import/install and verified SHA256
+`a8297a6f16e13cc283ef80ccc0a5187e1c276fdbb176d21f0e6faa3d32b8d5e6`.
+A fresh owned Core loaded that exact artifact; an earlier in-memory held-artifact
+attempt was retained and excluded from released acceptance. Actual Zitadel test
+user login, protected Go API proxy reads/writes/reload, native confirmed Todo
+restart, re-login and logout passed. PostgreSQL retained all four original JSON
+IDs/titles, and the released Go API list matched the SQL rows.
+
+Node verified the local CA chain. Browser verification used an isolated profile
+with the exact leaf SPKI pinned; it did not install OS trust or establish a
+machine-wide trust claim. Public `/healthz` stayed available; anonymous `/todos`
+was denied, and restart invalidated sessions while retaining data. Local sessions
+authorize the shared list, not per-user rows or direct remote API access. No
+Linux/macOS native identity, production deployment or GA claim follows.
+
 ## Corrected PostgreSQL producer release
 
 [`lasso-postgres 2026.10.4-1af7982`](https://github.com/service-lasso/lasso-postgres/releases/tag/2026.10.4-1af7982)
