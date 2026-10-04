@@ -40,6 +40,8 @@ int f7_capture_settle(struct f7_capture *capture,uint64_t absolute_monotonic_ms)
 /* Windows drain contexts are retained on deadline. Reap refuses live threads;
    the owner must retain capture and every referenced member until it succeeds. */
 int f7_capture_windows_reap(struct f7_capture *capture);
+int f7_capture_windows_prepare(struct f7_capture *capture);
+int f7_capture_windows_abort_prepared(struct f7_capture *capture);
 struct f7_capture_readbacks {
  f7_handle raw[F7_STREAM_COUNT],witness,emergency;
 };

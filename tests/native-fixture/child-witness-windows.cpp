@@ -5,16 +5,18 @@ extern "C" int f7_child_exit_windows(f7_handle process,struct f7_child_exit *out
  DWORD status,code;
  if(!out)return F7_INVALID;
  memset(out,0,sizeof(*out));
- if(!process||process==INVALID_HANDLE_VALUE){out->native_error=ERROR_INVALID_HANDLE;return F7_INVALID;}
- status=WaitForSingleObject(process,0);
+ if(!process||process==INVALID_HANDLE_VALUE){out->disposition=F7_CHILD_INPUT_REJECTED;return F7_INVALID;}
+ out->native_calls=1;status=WaitForSingleObject(process,0);
  out->wait_result=status;
- if(status==WAIT_TIMEOUT)return F7_INCOMPLETE;
- if(status!=WAIT_OBJECT_0){out->native_error=GetLastError();return F7_NATIVE_FAILURE;}
+ if(status==WAIT_TIMEOUT){out->disposition=F7_CHILD_PENDING;return F7_INCOMPLETE;}
+ if(status!=WAIT_OBJECT_0){out->native_error=status==WAIT_FAILED?GetLastError():0;out->disposition=F7_CHILD_NATIVE_FAILURE;return F7_NATIVE_FAILURE;}
  /* A signaled held process is actual termination. STILL_ACTIVE as an exit
     CODE is not used as a lifetime test; it can be an actual process exit code. */
- if(!GetExitCodeProcess(process,&code)){out->native_error=GetLastError();return F7_NATIVE_FAILURE;}
+ out->native_calls|=2;
+ if(!GetExitCodeProcess(process,&code)){out->native_error=GetLastError();out->disposition=F7_CHILD_NATIVE_FAILURE;return F7_NATIVE_FAILURE;}
+ out->exit_status=code;out->exit_kind=1;out->native_calls|=4;
  out->native_pid=GetProcessId(process);
- if(!out->native_pid){out->native_error=GetLastError();return F7_NATIVE_FAILURE;}
- out->observed=1;out->exit_status=code;out->exit_kind=1;return F7_OK;
+ if(!out->native_pid){out->native_error=GetLastError();out->disposition=F7_CHILD_NATIVE_FAILURE;return F7_NATIVE_FAILURE;}
+ out->observed=1;out->disposition=F7_CHILD_OBSERVED;return F7_OK;
 }
 #endif

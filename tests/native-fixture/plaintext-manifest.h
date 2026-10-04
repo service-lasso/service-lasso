@@ -1,6 +1,9 @@
 #ifndef SERVICE_LASSO_F7_PLAINTEXT_MANIFEST_H
 #define SERVICE_LASSO_F7_PLAINTEXT_MANIFEST_H
 #include "observer.h"
+#ifdef __cplusplus
+extern "C" {
+#endif
 /* These are private record classifications, never actors or public resources.
    Underlying admission/identity/error bytes are payload members, not replaced
    by these digest bindings. Actual source-owned admission remains mandatory. */
@@ -39,4 +42,7 @@ struct f7_manifest_input {
 };
 int f7_canonical_manifest(const struct f7_manifest_input *input,uint8_t *out,
  size_t capacity,size_t *length);
+#ifdef __cplusplus
+}
+#endif
 #endif

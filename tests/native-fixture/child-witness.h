@@ -4,10 +4,14 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+enum f7_child_disposition {F7_CHILD_UNKNOWN=0,F7_CHILD_INPUT_REJECTED=1,F7_CHILD_PENDING=2,
+ F7_CHILD_OBSERVED=3,F7_CHILD_NATIVE_FAILURE=4,F7_CHILD_UNAVAILABLE=5};
 struct f7_child_exit {
  int observed;
  uint64_t native_pid;
  int64_t wait_result,exit_status,exit_kind,native_error;
+ enum f7_child_disposition disposition;
+ uint64_t native_calls;
 };
 /* Observe ONLY the original retained native child lifetime. Neither a caller
    PID nor JS close/transport EOF can replace this held process/pidfd wait. */

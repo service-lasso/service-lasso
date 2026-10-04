@@ -56,7 +56,7 @@ int f7_capture_prepare(struct f7_capture *c){
    c->incomplete=1;return F7_NATIVE_FAILURE;}
  }
  uint64_t queue=c->reservation->input.witness_queue_bytes;
- if(queue<248||queue>SIZE_MAX||c->reservation->input.emergency_queue_bytes<248||
+ if(queue<264||queue>SIZE_MAX||c->reservation->input.emergency_queue_bytes<264||
     c->reservation->input.emergency_queue_bytes>SIZE_MAX){c->incomplete=1;return F7_BUDGET_ABSENT;}
  size_t chunk=(size_t)(queue-8>F7_WITNESS_BYTES+32+F7_FRAME_MAX?
    F7_WITNESS_BYTES+32+F7_FRAME_MAX:queue-8);
@@ -67,6 +67,9 @@ int f7_capture_prepare(struct f7_capture *c){
    F7_WITNESS_BYTES+32+F7_FRAME_MAX:queue-8);
  if(f7_async_create(&c->witness->emergency_async,c->witness->emergency_member,(size_t)queue,chunk)){
   c->incomplete=1;return F7_NATIVE_FAILURE;}
+#ifdef _WIN32
+ if(f7_capture_windows_prepare(c)){c->incomplete=1;return F7_NATIVE_FAILURE;}
+#endif
  c->prepared=1;return F7_OK;
 }
 int f7_capture_settle(struct f7_capture *c,uint64_t deadline){
@@ -75,7 +78,10 @@ int f7_capture_settle(struct f7_capture *c,uint64_t deadline){
 #ifdef _WIN32
  /* Drain producers may still be alive after a native read deadline. Never
     close their persistence inputs or race their witness sequence fields. */
- if(c->native_drains&&f7_capture_windows_reap(c))return F7_INCOMPLETE;
+ if(c->native_drains){
+  f7_capture_windows_abort_prepared(c);
+  if(f7_capture_windows_reap(c))return F7_INCOMPLETE;
+ }
 #endif
  for(i=0;i<F7_STREAM_COUNT;i++)if(c->raw_async[i]){
   if(f7_async_close_input(c->raw_async[i])||f7_async_wait(c->raw_async[i],deadline))result=F7_INCOMPLETE;

@@ -61,6 +61,21 @@ The newly specified original ROOT interface in admission-contract.md remains a
 SOURCE PROPOSAL requiring original creator/source-owner reconciliation before
 positive entry code. Its producer/catalog/actual authority are ABSENT; no
 default capsule, path or signed-looking receipt creates admission.
+The connected packaging path now independently persists/rereads the local
+plaintext manifest and durably freezes the attempt journal after index/signature
+persistence. The journal closes its complete reserved/persisted object roster
+with a final inventory commitment and refuses later reserve/sign/encrypt work.
+Retained-object recovery integrity validation checks canonical index/signature,
+admitted key fingerprints, final journal and ALL exact held ciphertext bytes/
+identity/protection/size/hash; it deliberately issues no successor capability.
+Closed manifest decoding returns data claims only, never native/admitted
+objects or readback capabilities. Native build source wires the independent
+library/protocol regression with explicit absolute dependency inputs and no
+execution/install/discovery fallback. Actual tools/dependencies remain ABSENT.
+Windows suspended drain lifetimes are now prepared with the independent queues;
+only a reconciled owning entry can establish running drains before READY.
+Native child facts distinguish not-called input rejection from actual wait/
+exit/PID queries and preserve earlier native exit data on a later query failure.
 Native framing/state/budget negative regression source is present but UNEXECUTED;
 it is partial and does not replace complete original production-path regressions.
 
@@ -75,7 +90,7 @@ These components have no authorized entry path yet. Missing complete U1 work:
   native writer settlement must remain retained. Independent queues and bounded
   drain return do not prove a universal native I/O or lifetime bound. Windows
   thread construction still belongs in the complete pre-READY owner entry.
-- Complete native plaintext-manifest record/decoder and underlying-proof coverage;
+- Complete original native plaintext-manifest underlying-proof/witness coverage;
   complete journal admission/final freeze, recovery custodian and authenticated
   SAME read-only successor handoff. Crypto uses a persistent reservation before
   encryption/signing, but source-owned admission/creation, complete journal

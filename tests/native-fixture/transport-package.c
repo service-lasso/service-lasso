@@ -2,7 +2,7 @@
 #include "segment-record.h"
 #include <string.h>
 static int object_ready(const struct f7_crypto_object *o,const struct f7_package *p){
- return o&&o->write&&o->journal&&o->journal==p->encrypted_manifest->journal&&
+ return o&&o->write&&o->journal&&o->journal->member&&o->journal==p->encrypted_manifest->journal&&
   !o->started&&!o->write->length&&!o->write->failed&&!o->write->finalized&&
   !o->journal->failed&&!memcmp(o->journal->invocation,p->invocation,16)&&
   !memcmp(o->journal->attempt,p->attempt,32);
@@ -37,7 +37,7 @@ int f7_package_once(struct f7_package *p,int64_t *status){
     !p->manifest||p->manifest_length||!p->manifest_capacity||p->manifest_capacity>F7_SEGMENT_MAX||
     !p->manifest_input||!p->manifest_input->capture||!p->manifest_segments||
     p->manifest_segment_capacity<p->segment_count||
-    !p->encrypted_manifest||!p->signature||!p->index||p->index->length||
+    !p->encrypted_manifest||!p->signature||!p->plaintext_manifest||!p->index||p->index->length||
     p->index->failed||p->index->finalized||!p->roster||
     p->roster_capacity<p->segment_count+1||!p->plaintext||
     p->plaintext_capacity<F7_SEGMENT_MAX+F7_SEGMENT_HEADER_BYTES||!p->canonical)return F7_INVALID;
@@ -57,6 +57,7 @@ int f7_package_once(struct f7_package *p,int64_t *status){
     sodium_memcmp(signer,p->pins.signer,32))return F7_AUTH_FAILURE;
  if(empty_native(p->encrypted_manifest->write,p->encrypted_manifest->independent_read,status)||
     empty_native(p->signature->write,p->signature->independent_read,status)||
+    empty_native(p->plaintext_manifest,p->plaintext_manifest_read,status)||
     empty_native(p->index,p->index_read,status))return F7_INCOMPLETE;
  /* Validate the entire preassigned segmentation before the first randomized
     operation. No omission, duplicate segment, arbitrary offset or surplus
@@ -66,13 +67,17 @@ int f7_package_once(struct f7_package *p,int64_t *status){
      p->members[i].original!=p->manifest_input->members[i].persisted)return F7_CONFLICT;
   if(member_ready(p->members+i,status))return F7_INCOMPLETE;
   if(i&&memcmp(p->members[i-1].key,p->members[i].key,16)>=0)return F7_CONFLICT;
+  for(j=0;j<i;j++)if(f7_identity_equal(&p->members[i].original->identity,
+     &p->members[j].original->identity))return F7_CONFLICT;
   uint64_t length=p->members[i].original->length;
   uint64_t count=length/F7_SEGMENT_MAX+(length%F7_SEGMENT_MAX!=0);
   /* Empty original members still get one length-zero segment commitment. */
   if(!count)count=1;
   uint64_t found=0;
   for(j=0;j<p->segment_count;j++)if(p->segments[j].member==i){
-   if(p->segments[j].ordinal!=found||!p->segments[j].object)return F7_CONFLICT;
+   if(p->segments[j].ordinal>=count||!p->segments[j].object)return F7_CONFLICT;
+   for(size_t previous=0;previous<j;previous++)if(p->segments[previous].member==i&&
+      p->segments[previous].ordinal==p->segments[j].ordinal)return F7_CONFLICT;
    found++;
   }
   if(found!=count)return F7_CONFLICT;
@@ -87,13 +92,24 @@ int f7_package_once(struct f7_package *p,int64_t *status){
   if(empty_native(s->object->write,s->object->independent_read,status))return F7_INCOMPLETE;
   if(f7_identity_equal(&s->object->write->identity,&p->encrypted_manifest->write->identity)||
      f7_identity_equal(&s->object->write->identity,&p->signature->write->identity)||
+     f7_identity_equal(&s->object->write->identity,&p->plaintext_manifest->identity)||
      f7_identity_equal(&s->object->write->identity,&p->index->identity))return F7_CONFLICT;
+  if(f7_identity_equal(&s->object->write->identity,&s->object->journal->member->identity))return F7_CONFLICT;
+  for(j=0;j<p->member_count;j++)if(f7_identity_equal(&s->object->write->identity,
+     &p->members[j].original->identity))return F7_CONFLICT;
   for(j=0;j<i;j++)if(f7_identity_equal(&s->object->write->identity,
      &p->segments[j].object->write->identity))return F7_CONFLICT;
  }
  if(f7_identity_equal(&p->encrypted_manifest->write->identity,&p->signature->write->identity)||
     f7_identity_equal(&p->encrypted_manifest->write->identity,&p->index->identity)||
     f7_identity_equal(&p->signature->write->identity,&p->index->identity))return F7_CONFLICT;
+ struct f7_member *outer[4]={p->encrypted_manifest->write,p->signature->write,p->index,p->plaintext_manifest};
+ for(i=0;i<4;i++){
+  for(j=0;j<i;j++)if(f7_identity_equal(&outer[i]->identity,&outer[j]->identity))return F7_CONFLICT;
+  if(f7_identity_equal(&outer[i]->identity,&p->encrypted_manifest->journal->member->identity))return F7_CONFLICT;
+  for(j=0;j<p->member_count;j++)if(f7_identity_equal(&outer[i]->identity,
+     &p->members[j].original->identity))return F7_CONFLICT;
+ }
  p->started=1;
  for(i=0;i<p->segment_count;i++){
   const struct f7_segment_object *s=p->segments+i;
@@ -132,6 +148,9 @@ int f7_package_once(struct f7_package *p,int64_t *status){
  p->manifest_input->segment_count=p->segment_count;
  int result=f7_canonical_manifest(p->manifest_input,p->manifest,p->manifest_capacity,&p->manifest_length);
  if(result)return result;
+ result=f7_member_append(p->plaintext_manifest,p->manifest,p->manifest_length,&persisted,status);
+ if(result||f7_member_finish(p->plaintext_manifest,status)||
+    f7_member_readback(p->plaintext_manifest,p->plaintext_manifest_read,status))return F7_INCOMPLETE;
  result=f7_encrypt_object_once(p->encrypted_manifest,p->manifest,p->manifest_length,&p->pins,status);
  if(result)return result;
  /* Merge the separately allocated manifest key into an already sorted exact
@@ -147,7 +166,7 @@ int f7_package_once(struct f7_package *p,int64_t *status){
  memcpy(index.invocation,p->invocation,16);memcpy(index.attempt,p->attempt,32);
  crypto_hash_sha256(index.observer_key,p->pins.signer,32);
  crypto_hash_sha256(index.receiver_key,p->pins.recipient,32);
- crypto_hash_sha256(index.plaintext_manifest_sha256,p->manifest,p->manifest_length);
+ memcpy(index.plaintext_manifest_sha256,p->plaintext_manifest->digest,32);
  index.objects=p->roster;index.count=j;
  result=f7_canonical_index(&index,p->canonical,p->canonical_capacity,&canonical_length);
  if(result)return result;
@@ -158,6 +177,8 @@ int f7_package_once(struct f7_package *p,int64_t *status){
  result=f7_journal_persisted(p->encrypted_manifest->journal,p->index_key,p->index,status);
  if(result)return result;
  result=f7_sign_index_once(p->signature,p->canonical,canonical_length,&p->pins,status);
+ if(result)return result;
+ result=f7_journal_freeze(p->encrypted_manifest->journal,p->index_key,p->signature->key,status);
  if(result)return result;
  p->complete=1;return F7_OK;
 }

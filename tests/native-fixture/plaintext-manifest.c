@@ -67,18 +67,25 @@ int f7_canonical_manifest(const struct f7_manifest_input *in,uint8_t *out,size_t
   uint64_t n=member->length-s->offset;if(n>F7_SEGMENT_MAX)n=F7_SEGMENT_MAX;
   if(s->length!=n||s->plaintext_length!=n+F7_SEGMENT_HEADER_BYTES||
      s->ciphertext_length!=s->plaintext_length+crypto_box_SEALBYTES)return F7_CONFLICT;
+  for(size_t j=0;j<i;j++)if(!memcmp(s->member,in->segments[j].member,16)&&
+     s->ordinal==in->segments[j].ordinal)return F7_CONFLICT;
  }
  /* Exactly one segment per ordinal of every present underlying record. */
  for(size_t m=0;m<in->member_count;m++){
   uint64_t wanted=in->members[m].persisted->length/F7_SEGMENT_MAX+
    (in->members[m].persisted->length%F7_SEGMENT_MAX!=0);if(!wanted)wanted=1;
-  uint64_t ordinal=0;
+  uint64_t found=0;
   for(size_t i=0;i<in->segment_count;i++)if(!memcmp(in->segments[i].member,in->members[m].key,16)){
-   if(in->segments[i].ordinal!=ordinal++)return F7_CONFLICT;
+   found++;
   }
-  if(ordinal!=wanted)return F7_CONFLICT;
+  if(found!=wanted)return F7_CONFLICT;
  }
  const struct f7_capture *c=in->capture;const struct f7_reservation *r=c->reservation;
+ struct f7_reservation arithmetic;
+ if(f7_budget_derive(&arithmetic,&r->input)||
+    (in->unavailable_count&&!c->incomplete)||
+    (c->child_created==F7_NOT_CREATED&&c->child_exit_observed)||
+    (!c->incomplete&&c->child_created==F7_CREATED&&!c->child_exit_observed))return F7_INCOMPLETE;
  if(!c->prepared||c->native_drains||
     (c->child_created!=F7_CREATED&&c->child_created!=F7_NOT_CREATED))return F7_INCOMPLETE;
  struct f7_async_spool *witness_queues[2]={c->witness->async,c->witness->emergency_async};
@@ -95,6 +102,7 @@ int f7_canonical_manifest(const struct f7_manifest_input *in,uint8_t *out,size_t
   if(c->created[i]==F7_CREATED&&(!c->raw[i]||!c->raw[i]->readback_complete))return F7_INCOMPLETE;
   if(!c->incomplete&&c->created[i]==F7_CREATED&&(!c->natural_eof[i]||c->raw_lost[i]))return F7_INCOMPLETE;
  }
+ for(size_t i=0;i<in->member_count;i++)if(in->members[i].persisted->failed&&!c->incomplete)return F7_INCOMPLETE;
  text(&o,"{\"admission_sha256\":");hex(&o,in->admission_sha256,32);
  text(&o,",\"attempt\":");hex(&o,c->witness->attempt,32);
  text(&o,",\"attempt_ordinal\":");integer(&o,in->attempt_ordinal);

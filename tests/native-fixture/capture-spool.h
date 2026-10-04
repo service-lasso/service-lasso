@@ -28,6 +28,8 @@ struct f7_member {
 /* Admitted held native objects, never named/path opening. identity is captured
    from the actual handle, not accepted from a caller JSON receipt. */
 int f7_identity_read(f7_handle handle,struct f7_identity *out,int directory);
+int f7_identity_read_status(f7_handle handle,struct f7_identity *out,int directory,
+ int64_t *native_status);
 int f7_identity_equal(const struct f7_identity *a,const struct f7_identity *b);
 int f7_handle_size(f7_handle handle,uint64_t *length,int64_t *native_status);
 int f7_handle_readonly(f7_handle handle,int64_t *native_status);

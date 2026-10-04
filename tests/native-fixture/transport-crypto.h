@@ -2,6 +2,9 @@
 #define SERVICE_LASSO_F7_CRYPTO_H
 #include "capture-spool.h"
 #include "attempt-journal.h"
+#ifdef __cplusplus
+extern "C" {
+#endif
 struct f7_crypto_object {
  struct f7_member *write;
  f7_handle independent_read;
@@ -26,4 +29,7 @@ int f7_verify_index(const uint8_t *canonical,size_t length,const uint8_t signatu
 enum f7_signature_domain { F7_INDEX_DOMAIN=1,F7_RECEIPT_DOMAIN=2 };
 int f7_signature_message(enum f7_signature_domain domain,const uint8_t *canonical,
  size_t length,uint8_t **out,size_t *out_length);
+#ifdef __cplusplus
+}
+#endif
 #endif

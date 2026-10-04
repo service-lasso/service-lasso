@@ -24,6 +24,11 @@ and `transport-package.c/.h`:
 independent preallocated persistence queues, emergency witness member, retained
 native drain settlement, complete held-member readback and connected once-only
 segment/manifest/index/signature packaging. These are source progress without execution.
+Additional independent source now includes `manifest-reader.c/.h`, `recovery.c/.h`,
+explicit final journal freeze, and `CMakeLists.txt`/platform build contracts.
+Recovery validation proves integrity of original expected held objects only;
+it does not issue or authenticate successor authority. Build/source decoder
+success would not establish original ROOT or native witness trust.
 Complete pre-READY ownership/control settlement, authenticated pre-O entry/creation,
 complete manifests/records/errors/caller integration/SAME recovery and full
 production-path regression coverage remain missing. Actual nine-row inputs,

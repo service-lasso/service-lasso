@@ -20,7 +20,10 @@ int f7_capture_finalize(struct f7_capture *c,
  if(!c||!reads||!native_status||!deadline||!c->prepared)return F7_INVALID;
  *native_status=0;
 #ifdef _WIN32
- if(c->native_drains&&f7_capture_windows_reap(c))return F7_INCOMPLETE;
+ if(c->native_drains){
+  f7_capture_windows_abort_prepared(c);
+  if(f7_capture_windows_reap(c)){c->incomplete=1;return F7_INCOMPLETE;}
+ }
 #endif
  /* Capture has returned; ROOT owner keeps this heap context, original handles
     and source-bound independent read companions alive through this operation. */

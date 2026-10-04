@@ -2,6 +2,9 @@
 #define SERVICE_LASSO_F7_TRANSPORT_PACKAGE_H
 #include "canonical-index.h"
 #include "plaintext-manifest.h"
+#ifdef __cplusplus
+extern "C" {
+#endif
 /* Private source-owned reservations, not a public or caller path API. Every
    object key/member/read companion is issued by exact ROOT admission. */
 struct f7_payload_member {
@@ -22,6 +25,7 @@ struct f7_package {
  struct f7_manifest_input *manifest_input;
  struct f7_manifest_segment *manifest_segments;size_t manifest_segment_capacity;
  struct f7_crypto_object *encrypted_manifest,*signature;
+ struct f7_member *plaintext_manifest;f7_handle plaintext_manifest_read;
  struct f7_member *index;f7_handle index_read;
  uint8_t index_key[16];
  struct f7_index_object *roster;size_t roster_capacity;
@@ -33,4 +37,7 @@ struct f7_package {
 /* One attempt only. Partial encryption stays journal-reserved and retained;
    neither failure nor restart silently regenerates ciphertext or signatures. */
 int f7_package_once(struct f7_package *package,int64_t *native_status);
+#ifdef __cplusplus
+}
+#endif
 #endif

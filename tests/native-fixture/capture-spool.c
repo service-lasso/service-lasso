@@ -11,7 +11,7 @@
 #include <fcntl.h>
 #endif
 int f7_identity_equal(const struct f7_identity *a,const struct f7_identity *b){
- return a&&b&&a->owner_length==b->owner_length&&
+ return a&&b&&a->owner_length<=sizeof(a->owner)&&b->owner_length<=sizeof(b->owner)&&a->owner_length==b->owner_length&&
  !memcmp(a->object,b->object,sizeof(a->object))&&
  !memcmp(a->owner,b->owner,a->owner_length)&&
  !memcmp(a->protection_sha256,b->protection_sha256,32);
@@ -20,29 +20,38 @@ int f7_handle_size(f7_handle handle,uint64_t *length,int64_t *status){
  if(!length||!status)return F7_INVALID;*status=0;
 #ifdef _WIN32
  LARGE_INTEGER size;
- if(!GetFileSizeEx(handle,&size)||size.QuadPart<0){*status=GetLastError();return F7_NATIVE_FAILURE;}
+ if(!GetFileSizeEx(handle,&size)){*status=GetLastError();return F7_NATIVE_FAILURE;}
+ if(size.QuadPart<0)return F7_INVALID;
  *length=(uint64_t)size.QuadPart;
 #else
  struct stat st;
- if(fstat(handle,&st)<0||st.st_size<0){*status=errno;return F7_NATIVE_FAILURE;}
+ if(fstat(handle,&st)<0){*status=errno;return F7_NATIVE_FAILURE;}
+ if(st.st_size<0)return F7_INVALID;
  *length=(uint64_t)st.st_size;
 #endif
  return F7_OK;
 }
 int f7_identity_read(f7_handle h,struct f7_identity *out,int directory){
- if(!out)return F7_INVALID;memset(out,0,sizeof(*out));
+ int64_t native_status;return f7_identity_read_status(h,out,directory,&native_status);
+}
+int f7_identity_read_status(f7_handle h,struct f7_identity *out,int directory,int64_t *native_status){
+ if(!out||!native_status)return F7_INVALID;memset(out,0,sizeof(*out));*native_status=0;
 #ifdef _WIN32
  FILE_ID_INFO id;FILE_STANDARD_INFO st;FILE_ATTRIBUTE_TAG_INFO tag;
  PSID owner=NULL;PACL dacl=NULL;PSECURITY_DESCRIPTOR sd=NULL;
  SECURITY_DESCRIPTOR_CONTROL control;DWORD revision,n;
  if(!GetFileInformationByHandleEx(h,FileIdInfo,&id,sizeof(id))||
  !GetFileInformationByHandleEx(h,FileStandardInfo,&st,sizeof(st))||
- !GetFileInformationByHandleEx(h,FileAttributeTagInfo,&tag,sizeof(tag))||
- (tag.FileAttributes&FILE_ATTRIBUTE_REPARSE_POINT)||st.DeletePending||
- (directory!=!!st.Directory)||(!directory&&st.NumberOfLinks!=1))return F7_NATIVE_FAILURE;
- if(GetSecurityInfo(h,SE_FILE_OBJECT,OWNER_SECURITY_INFORMATION|DACL_SECURITY_INFORMATION,
- &owner,NULL,&dacl,NULL,&sd)!=ERROR_SUCCESS)return F7_NATIVE_FAILURE;
- if(!owner||!IsValidSid(owner)||!dacl||!GetSecurityDescriptorControl(sd,&control,&revision)||
+ !GetFileInformationByHandleEx(h,FileAttributeTagInfo,&tag,sizeof(tag))){
+  *native_status=GetLastError();return F7_NATIVE_FAILURE;}
+ if((tag.FileAttributes&FILE_ATTRIBUTE_REPARSE_POINT)||st.DeletePending||
+ (directory!=!!st.Directory)||(!directory&&st.NumberOfLinks!=1))return F7_IDENTITY_MISMATCH;
+ DWORD security=GetSecurityInfo(h,SE_FILE_OBJECT,OWNER_SECURITY_INFORMATION|DACL_SECURITY_INFORMATION,
+ &owner,NULL,&dacl,NULL,&sd);
+ if(security!=ERROR_SUCCESS){*native_status=security;return F7_NATIVE_FAILURE;}
+ if(!GetSecurityDescriptorControl(sd,&control,&revision)){
+  *native_status=GetLastError();LocalFree(sd);return F7_NATIVE_FAILURE;}
+ if(!owner||!IsValidSid(owner)||!dacl||
  !(control&SE_DACL_PROTECTED)){LocalFree(sd);return F7_IDENTITY_MISMATCH;}
  n=GetLengthSid(owner);if(n>sizeof(out->owner)){LocalFree(sd);return F7_INVALID;}
  f7_u64be(out->object,id.VolumeSerialNumber);memcpy(out->object+8,id.FileId.Identifier,16);
@@ -54,8 +63,8 @@ int f7_identity_read(f7_handle h,struct f7_identity *out,int directory){
  crypto_hash_sha256_final(&hash,out->protection_sha256);LocalFree(sd);
 #else
  struct stat st;uint8_t protection[24];int flags=fcntl(h,F_GETFL);
- if(flags<0||fstat(h,&st)<0||
-   (directory?!S_ISDIR(st.st_mode):!S_ISREG(st.st_mode))||
+ if(flags<0||fstat(h,&st)<0){*native_status=errno;return F7_NATIVE_FAILURE;}
+ if((directory?!S_ISDIR(st.st_mode):!S_ISREG(st.st_mode))||
    (!directory&&st.st_nlink!=1)||(st.st_mode&0077))return F7_IDENTITY_MISMATCH;
  f7_u64be(out->object,(uint64_t)st.st_dev);f7_u64be(out->object+8,(uint64_t)st.st_ino);
  f7_u64be(out->owner,(uint64_t)st.st_uid);out->owner_length=8;
@@ -98,14 +107,15 @@ int f7_member_append(struct f7_member *m,const uint8_t *bytes,size_t count,
  *persisted=done;return m->failed?F7_NATIVE_FAILURE:F7_OK;
 }
 int f7_member_flush(struct f7_member *m,int64_t *status){
- struct f7_identity current;
+ struct f7_identity current;int64_t identity_status;
  if(!m||!status||m->finalized)return F7_INVALID;*status=0;
 #ifdef _WIN32
  if(!FlushFileBuffers(m->handle)){*status=GetLastError();m->failed=1;}
 #else
  if(fsync(m->handle)<0){*status=errno;m->failed=1;}
 #endif
- if(f7_identity_read(m->handle,&current,0)||!f7_identity_equal(&current,&m->identity))m->failed=1;
+ if(f7_identity_read_status(m->handle,&current,0,&identity_status)||!f7_identity_equal(&current,&m->identity)){
+  if(!*status)*status=identity_status;m->failed=1;}
  return m->failed?F7_INCOMPLETE:F7_OK;
 }
 int f7_member_finish(struct f7_member *m,int64_t *status){
@@ -141,7 +151,7 @@ int f7_member_readback(struct f7_member *m,f7_handle read_handle,int64_t *status
  if(m)m->readback_complete=0;
  if(!m||!status||!m->finalized)return F7_INCOMPLETE;
  int rights=f7_handle_readonly(read_handle,status);if(rights)return rights;
- if(f7_identity_read(read_handle,&id,0)||!f7_identity_equal(&m->identity,&id))return F7_IDENTITY_MISMATCH;
+ if(f7_identity_read_status(read_handle,&id,0,status)||!f7_identity_equal(&m->identity,&id))return F7_IDENTITY_MISMATCH;
 #ifdef _WIN32
  LARGE_INTEGER size;if(!GetFileSizeEx(read_handle,&size)||size.QuadPart<0||(uint64_t)size.QuadPart!=m->length)return F7_CONFLICT;
 #else
@@ -155,7 +165,7 @@ int f7_member_readback(struct f7_member *m,f7_handle read_handle,int64_t *status
  crypto_hash_sha256_final(&hash,digest);
  uint64_t final_size;
  if(f7_handle_size(read_handle,&final_size,status)||final_size!=m->length||
-   sodium_memcmp(digest,m->digest,32)||f7_identity_read(read_handle,&id,0)||
+   sodium_memcmp(digest,m->digest,32)||f7_identity_read_status(read_handle,&id,0,status)||
    !f7_identity_equal(&m->identity,&id))return F7_CONFLICT;
  m->readback_complete=1;
  return F7_OK;
