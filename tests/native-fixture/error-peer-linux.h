@@ -6,6 +6,7 @@ extern "C" {
 #endif
 struct f7_linux_error_peer {
  f7_handle socket;
+ f7_handle original_object_reference;uint8_t original_object[24];
  int64_t original_pid;uint64_t original_uid,original_gid;
  int64_t original_connected_pid;uint64_t original_connected_uid,original_connected_gid;
 };
@@ -15,6 +16,8 @@ struct f7_linux_receive_fact {
  int64_t connected_pid;uint64_t connected_uid,connected_gid;
  uint64_t message_flags,control_length;
  int credentials_count;int64_t actual_pid;uint64_t actual_uid,actual_gid;
+ uint8_t actual_object[24],reference_object[24];int descriptor_flags;
+ int64_t object_query_return,reference_query_return,flags_query_return;
 };
 /* PRIVATE native source only. The original independently admitted ROOT owner
    supplies the held socket, original endpoint creator and original per-message
