@@ -128,7 +128,7 @@ test("real verifier finalization preserves primary failure and makes success fol
       const installedRoot = path.join(consumerRoot, "node_modules", "@service-lasso", "service-lasso");
       const evidencePath = "private-evidence-path";
       const acceptance = {
-        sdk: { protocolVersion: "2025-11-25", version: "1.30.1" },
+        sdk: { protocolVersion: "2025-11-25", version: "1.31.0" },
         inspector: { version: "2.4.0" }, packagedRuntime: {}, canonical: {}, coverage: {}, assertions: {},
       };
       const context = {
@@ -138,7 +138,7 @@ test("real verifier finalization preserves primary failure and makes success fol
         tempRoot: "private-owned-root", consumerRoot, servicesRoot: "private-services",
         httpWorkspaceRoot: "private-http", stdioWorkspaceRoot: "private-stdio",
         repoRoot: "private-source", packageOutputRoot: "private-output", version: "0.1.0",
-        candidateSha: "a".repeat(40), platform: "win32", pinnedSdkVersion: "1.30.1",
+        candidateSha: "a".repeat(40), platform: "win32", pinnedSdkVersion: "1.31.0",
         npmEntrypoint: "private-npm", evidencePath, MCP_PRODUCT_EVIDENCE_CONTRACT: "test-contract",
         mkdir: async () => {}, writeCanonicalService: async () => "fixture",
         stagePublishedPackage: async () => { if (primaryFails) throw new Error("private-token"); return { packageArchivePath: "private-archive" }; },
