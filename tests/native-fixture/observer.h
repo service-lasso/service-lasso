@@ -20,6 +20,7 @@ struct f7_capture {
  int natural_eof[F7_STREAM_COUNT];
  uint64_t observed[F7_STREAM_COUNT];
  struct f7_async_spool *raw_async[F7_STREAM_COUNT];
+ struct f7_async_memory raw_memory[F7_STREAM_COUNT],witness_memory,emergency_memory;
  uint8_t *drain_buffer[F7_STREAM_COUNT];
  size_t drain_capacity[F7_STREAM_COUNT];
  int prepared;

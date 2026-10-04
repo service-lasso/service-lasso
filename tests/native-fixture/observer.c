@@ -50,9 +50,9 @@ int f7_capture_prepare(struct f7_capture *c){
  for(i=0;i<F7_STREAM_COUNT;i++)if(c->created[i]==F7_CREATED){
   uint64_t queue=c->reservation->input.queue_bytes[i];
   if(queue<=8||queue>SIZE_MAX){c->incomplete=1;return F7_BUDGET_ABSENT;}
-  c->drain_capacity[i]=(size_t)(queue-8>F7_FRAME_MAX?F7_FRAME_MAX:queue-8);
-  c->drain_buffer[i]=malloc(c->drain_capacity[i]);
-  if(!c->drain_buffer[i]||f7_async_create(&c->raw_async[i],c->raw[i],(size_t)queue,c->drain_capacity[i])){
+  size_t required=(size_t)(queue-8>F7_FRAME_MAX?F7_FRAME_MAX:queue-8);
+  if(!c->drain_buffer[i]||c->drain_capacity[i]!=required||c->raw_memory[i].ring_bytes!=queue||
+     f7_async_create(&c->raw_async[i],c->raw[i],&c->raw_memory[i],required)){
    c->incomplete=1;return F7_NATIVE_FAILURE;}
  }
  uint64_t queue=c->reservation->input.witness_queue_bytes;
@@ -60,12 +60,12 @@ int f7_capture_prepare(struct f7_capture *c){
     c->reservation->input.emergency_queue_bytes>SIZE_MAX){c->incomplete=1;return F7_BUDGET_ABSENT;}
  size_t chunk=(size_t)(queue-8>F7_WITNESS_BYTES+32+F7_FRAME_MAX?
    F7_WITNESS_BYTES+32+F7_FRAME_MAX:queue-8);
- if(f7_async_create(&c->witness->async,c->witness->member,(size_t)queue,chunk)){
+ if(c->witness_memory.ring_bytes!=queue||f7_async_create(&c->witness->async,c->witness->member,&c->witness_memory,chunk)){
   c->incomplete=1;return F7_NATIVE_FAILURE;}
  queue=c->reservation->input.emergency_queue_bytes;
  chunk=(size_t)(queue-8>F7_WITNESS_BYTES+32+F7_FRAME_MAX?
    F7_WITNESS_BYTES+32+F7_FRAME_MAX:queue-8);
- if(f7_async_create(&c->witness->emergency_async,c->witness->emergency_member,(size_t)queue,chunk)){
+ if(c->emergency_memory.ring_bytes!=queue||f7_async_create(&c->witness->emergency_async,c->witness->emergency_member,&c->emergency_memory,chunk)){
   c->incomplete=1;return F7_NATIVE_FAILURE;}
 #ifdef _WIN32
  if(f7_capture_windows_prepare(c)){c->incomplete=1;return F7_NATIVE_FAILURE;}
