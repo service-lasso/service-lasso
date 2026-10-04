@@ -1,5 +1,7 @@
 ## Summary
 
+For #1626 PR1638 scoped npm argv correction, bind SPEC-008 R3/R5/R6 and preserve original caller options/Error/output/close/retry/first-failure plus protected installed-consumer gates. Source regressions remain UNEXECUTED until a different fresh ENTIRE cumulative review and NEW complete-input ROOT admission. Record CodeQL19 conversation as parent-owned pending disposition; source correction grants no dismissal, resolution, bypass, native acceptance or GA claim.
+
 - describe the governed change
 - link the active spec and any issue/task IDs
 
@@ -72,3 +74,13 @@ Development source preparation for SPEC-007 AC-7G.windows-npm-argv and SPEC-006 
 Published preparation routes getNpmCommand through its original local Promise runner, with shell:false/windowsVerbatimArguments:false after options. Preserve original synchronous/asynchronous Error identity, output through close, nonzero message, cwd/env/stdio/windowsHide/signal/timeout/killSignal, exact integrity-bound tarball and first failure/one pre-mutation retry. Source harness imports never replace or rebuild published Core bytes. MCP300000ms, original native15s/product/published gates, eight cleanup attempts/delays/privacy and all protected assertions remain unchanged.
 
 Prepare receiving argv, Windows-legal root/hostile child-only environment, real exact npm fixture install through both original launch seams, options/errors/close/nonzero, non-Windows routing and first-failure/no-third-attempt regressions. SOURCE UNEXECUTED: different fresh ENTIRE cumulative source review and NEW complete-input ROOT admission precede imports/parser/compiler/build/tests/npm/native. No provider dispatch/settings/merge or release authority. Backlog status: in_progress source authoring; review/qualification remains open. Existing primary retained state and other worktree ownership remain preserved.
+
+## PR1638 entire develop integration and scoped owning observations (2026-10-04)
+
+Development SOURCE ONLY, same issue1626 retained author unit. Normal integration uses exact develop c3632a87a83b9377b67752a0059e83f673403b8b after history1646, Core1653/CLI41 F4 and legacy1652 landing. Preserve all original R1-R7/F1/F2/F3/R5 source, protected retry/consumer/provider segments, private failures and complete incoming contracts. Historical6750 SOURCE GO does not transfer.
+
+SPEC-006 AC-6G.owning-resource-observation and SPEC-008 R2/R5/R7 require the ACTUAL scoped packaged MCP route to retain the original shared owning grammar: candidate command, four provenance commands, nested pack command, stage lock, installation and consumer command; strict closed consumer stderr relay on success and failure. Unreached allocations remain not_created; exit and close remain distinct, awaited lock release/finally precedence and original Error ownership remain. Use ownedCommandStderr for an own data stderr string; no external getter vulnerability is established. Finite private-safe stderr observations never extend any closed public success/native proof schema or invent resource custody.
+
+The scoped verifier must also carry the landed Windows npm descriptor selection from issue1650: fixed actual process.execPath sibling npm-cli.js selected before ambient overrides, unchanged non-Windows routing and outer npmEntrypoint diagnostic seam. Original300000ms install/900000ms consumer/60000ms provenance, cleanup eight attempts and native/published same-byte acceptance remain unchanged. Source helper is never copied over published Core.
+
+Meaningful prospective fixtures exercise actual scoped allocation/candidate/provenance/staging/install/consumer/catch/finally bodies, original shared resource grammar and forged/private/unknown/contradictory stderr negatives, unreached resources and error/cleanup precedence. They are UNEXECUTED; different fresh ENTIRE cumulative source review and NEW complete-input ROOT admission precede any import/parser/compiler/build/npm/test/native invocation. EMPTY catalogs, provider original ZIP/private Admin/held-buffer custody, native1640 NO-GO, F7 unknown causes, full Windows/Linux released journeys/TUI five actions/Core ZIP and owner GA gates remain unchanged. Parent owns tracking/landing.

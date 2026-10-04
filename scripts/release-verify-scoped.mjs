@@ -1,0 +1,43 @@
+import { assertDevelopIdentity, assertPolicyEnvironment, readSourceScope } from "./ga-platform-scope-lib.mjs";
+assertDevelopIdentity();
+assertPolicyEnvironment();
+const scope = await readSourceScope();
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import {
+  stageBundledReleaseArtifact,
+  stageReleaseArtifact,
+  verifyBundledStagedArtifact,
+  verifyStagedArtifact,
+} from "./release-artifact-lib.mjs";
+import { consumeReleaseMetadataToken } from "./operator-tool-packaging-lib.mjs";
+
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+// Consume the step-scoped credential before either child stager runs. The same
+// bounded local is deliberately shared by the sequential normal and bundled
+// stagers; neither stager may reacquire it from process-wide environment state.
+const releaseMetadataToken = consumeReleaseMetadataToken();
+
+const staged = await stageReleaseArtifact({ repoRoot, releaseMetadataToken, scope });
+const verified = await verifyStagedArtifact({
+  repoRoot,
+  scope,
+  artifactRoot: staged.artifactRoot,
+  archivePath: staged.archivePath,
+});
+const bundled = await stageBundledReleaseArtifact({ repoRoot, releaseMetadataToken, scope });
+const bundledVerified = await verifyBundledStagedArtifact({
+  repoRoot,
+  scope,
+  artifactRoot: bundled.artifactRoot,
+  archivePath: bundled.archivePath,
+});
+
+console.log("[service-lasso] verified bounded release artifact");
+console.log(`- artifact: ${verified.artifactName}`);
+console.log(`- folder: ${verified.stagedRoot}`);
+console.log(`- archive: ${verified.stagedArchivePath}`);
+console.log("[service-lasso] verified bundled release artifact");
+console.log(`- artifact: ${bundledVerified.artifactName}`);
+console.log(`- folder: ${bundledVerified.stagedRoot}`);
+console.log(`- archive: ${bundledVerified.stagedArchivePath}`);
