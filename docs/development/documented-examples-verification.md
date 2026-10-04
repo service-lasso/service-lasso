@@ -23,11 +23,11 @@ published consumer attempt then exposed Core's health-check import serialization
 defect, tracked as [#1669](https://github.com/service-lasso/service-lasso/issues/1669).
 Both producers use the supported singular form for their single HTTP check.
 
-The pinned PostgreSQL provider's original defaults fail first boot on the
-materialized data directory and detach the launcher. The intermediate tutorial
-explicitly applies a local foreground adapter; that adaptation does not qualify
-the published defaults. [#1667](https://github.com/service-lasso/service-lasso/issues/1667)
-tracks the provider correction.
+The original PostgreSQL pin failed first boot on the materialized data directory
+and detached the launcher. The preceding tutorial verification used an explicit
+local foreground adapter and did not qualify those published defaults. The
+corrected producer release below replaces that prerequisite; original failures
+remain retained under [#1667](https://github.com/service-lasso/service-lasso/issues/1667).
 
 Independent Windows consumer verification of the corrected development releases
 passed for Todo [`2026.10.4-b6d089f`](https://github.com/service-lasso/lasso-todo/releases/tag/2026.10.4-b6d089f)
@@ -45,6 +45,38 @@ consumer checks run on all three; API additionally verifies its held Linux
 archive against real PostgreSQL. Full managed/Admin integration above was
 executed on Windows with the explicit PostgreSQL adapter. It does not qualify
 macOS PostgreSQL, whole-demo shutdown, upstream template admission or GA.
+
+## Corrected PostgreSQL producer release
+
+[`lasso-postgres 2026.10.4-1af7982`](https://github.com/service-lasso/lasso-postgres/releases/tag/2026.10.4-1af7982)
+targets `1af7982802a1f996a35c86cf42417d35d222cf7c` and includes a foreground
+launcher beneath the managed Node provider. It leaves install files outside the
+cluster, retains only the old sole empty placeholder outside that directory,
+refuses unexpected nonempty contents and removes the temporary initialization
+password. The released manifest pins the tag and binds archive SHA256 checksums.
+
+All three platform jobs passed in [publication run 37196595447](https://github.com/service-lasso/lasso-postgres/actions/runs/37196595447).
+Held archives were tested for actual install files, foreground child identity,
+cold/warm SQL persistence, launcher stop/listener closure, abnormal child
+failure/recovery, old-placeholder recovery, retained-data refusal and configured
+`max_connections=120`. Windows hosted execution uses an ordinary account because
+the upstream server refuses administrative tokens. Its archive graceful stop
+uses parent IPC; that check is separate from native Core stop/start below.
+
+Independent Windows consumption of the actual published archive passed literal
+release import, Core checksum acquisition, cold startup, SQL write, configured
+120 connections, native confirmed Stop with port closure and Start retaining the
+original row. The observed PostgreSQL process is a descendant of the acquired
+Node provider and Core's managed process. No local tutorial adapter was used.
+Published Todo retained its original IDs through JSON-to-SQL migration; the
+published Go API served the proxy and recovered from a real 503 outage.
+Stopping and restarting all three services through native Core retained all
+three original Todo IDs.
+
+The supplementary historical PostgreSQL smoke example keeps its old pin and
+adapter. Full native Core integration here was verified on Windows; hosted
+producer archive checks do not establish Core integration on Linux/macOS, Apple
+Silicon, whole-demo shutdown or GA.
 
 ## Previous managed Todo execution (before template correction)
 
