@@ -184,3 +184,9 @@ native status before the witness reader advances. Original raw ABI bytes are
 retained unchanged; this decoder cannot authenticate a process or infer EOF.
 Adversarial source regression cases cover truncated native records, inconsistent
 observation, invented native calls and byte preservation, all UNEXECUTED.
+
+Linux deadline clock failure now retains the actual clock_gettime result,
+original timespec bytes and immediately captured errno in a private inline
+witness before the drain marks the attempt incomplete. Invalid/overflowed time
+values retain their original bytes with status zero, without a fabricated errno.
+No clock failure is turned into EOF, termination, cleanup or a universal bound.

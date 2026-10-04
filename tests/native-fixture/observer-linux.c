@@ -8,7 +8,18 @@
 #include <stdlib.h>
 #include <time.h>
 #include <sys/stat.h>
-static uint64_t milliseconds(void){struct timespec ts;if(clock_gettime(CLOCK_MONOTONIC,&ts)<0)return UINT64_MAX;
+#include <string.h>
+static uint64_t milliseconds(struct f7_capture *capture){
+ struct timespec ts;memset(&ts,0,sizeof(ts));
+ int result=clock_gettime(CLOCK_MONOTONIC,&ts);int actual_error=result<0?errno:0;
+ if(result<0||ts.tv_sec<0||ts.tv_nsec<0||ts.tv_nsec>=1000000000||
+    (uint64_t)ts.tv_sec>(UINT64_MAX-999)/1000){
+  uint8_t record[8+sizeof(ts)];f7_u64be(record,(uint64_t)(int64_t)result);
+  memcpy(record+8,&ts,sizeof(ts));capture->terminal_status[F7_CONTROL]=actual_error;
+  f7_witness_emit(capture->witness,F7_CONTROL,F7_CLOCK_ERROR,sizeof(record),sizeof(record),
+   capture->observed[F7_CONTROL],record,actual_error,1);
+  return UINT64_MAX;
+ }
  return (uint64_t)ts.tv_sec*1000+(uint64_t)ts.tv_nsec/1000000;}
 int f7_capture_linux(struct f7_capture *c,uint64_t deadline){
  struct pollfd p[F7_STREAM_COUNT];
@@ -44,7 +55,7 @@ int f7_capture_linux(struct f7_capture *c,uint64_t deadline){
   else if(observation!=F7_INCOMPLETE)result=F7_INCOMPLETE;
  }
  while(active){
-  uint64_t now=milliseconds();if(now==UINT64_MAX||now>=deadline){result=F7_INCOMPLETE;break;}
+  uint64_t now=milliseconds(c);if(now==UINT64_MAX||now>=deadline){result=F7_INCOMPLETE;break;}
   uint64_t remaining=deadline-now;int wait=(int)(remaining>1000?1000:remaining);
   int ready=poll(p,F7_STREAM_COUNT,wait);
   if(ready<0&&errno==EINTR){int actual_error=errno;
