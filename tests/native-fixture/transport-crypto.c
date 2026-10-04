@@ -16,7 +16,11 @@ int f7_encrypt_object_once(struct f7_crypto_object *o,const uint8_t *plain,
  n>SIZE_MAX-crypto_box_SEALBYTES||!o->workspace||
  n+crypto_box_SEALBYTES>o->workspace_capacity)return F7_INVALID;
  if(!disjoint(o->workspace,n+crypto_box_SEALBYTES,plain,n)||
-    !disjoint(o->workspace,n+crypto_box_SEALBYTES,pins,sizeof(*pins)))return F7_INVALID;
+    !disjoint(o->workspace,n+crypto_box_SEALBYTES,pins,sizeof(*pins))||
+    (pins->signer_secret&&!disjoint(o->workspace,n+crypto_box_SEALBYTES,pins->signer_secret,crypto_sign_SECRETKEYBYTES))||
+    !disjoint(o->workspace,n+crypto_box_SEALBYTES,o,sizeof(*o))||
+    !disjoint(o->workspace,n+crypto_box_SEALBYTES,o->write,sizeof(*o->write))||
+    !disjoint(o->workspace,n+crypto_box_SEALBYTES,o->journal,sizeof(*o->journal)))return F7_INVALID;
  o->started=1;
  result=f7_journal_reserve(o->journal,o->key,status);if(result)return result;
  cipher_n=n+crypto_box_SEALBYTES;cipher=o->workspace;

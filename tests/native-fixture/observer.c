@@ -2,6 +2,37 @@
 #include <string.h>
 #include <stdlib.h>
 static int present(const uint8_t *bytes,size_t length){uint8_t found=0;for(size_t i=0;i<length;i++)found|=bytes[i];return found!=0;}
+static int storage_geometry(const struct f7_capture *c){
+ struct span {uintptr_t address;size_t length;};struct span spans[40];size_t count=0;
+#define ADD_SPAN(pointer,bytes) do {if(!(pointer)||!(bytes)||count==40)return F7_BUDGET_ABSENT; \
+ spans[count].address=(uintptr_t)(pointer);spans[count++].length=(bytes);} while(0)
+ ADD_SPAN(c,sizeof(*c));ADD_SPAN(c->reservation,sizeof(*c->reservation));
+ ADD_SPAN(c->witness,sizeof(*c->witness));ADD_SPAN(c->witness->member,sizeof(*c->witness->member));
+ ADD_SPAN(c->witness->emergency_member,sizeof(*c->witness->emergency_member));
+ if(c->error_channel){ADD_SPAN(c->error_channel,sizeof(*c->error_channel));
+  ADD_SPAN(c->error_channel->payload,c->error_channel->payload_capacity);}
+ for(unsigned i=0;i<F7_STREAM_COUNT+2;i++){
+  const struct f7_async_memory *m;
+  if(i<F7_STREAM_COUNT){if(c->created[i]!=F7_CREATED)continue;
+   ADD_SPAN(c->raw[i],sizeof(*c->raw[i]));ADD_SPAN(c->drain_buffer[i],c->drain_capacity[i]);m=&c->raw_memory[i];}
+  else m=i==F7_STREAM_COUNT?&c->witness_memory:&c->emergency_memory;
+  if(m->state_bytes<f7_async_state_bytes()||!m->stack_bytes)return F7_BUDGET_ABSENT;
+  ADD_SPAN(m->state,m->state_bytes);ADD_SPAN(m->ring,m->ring_bytes);ADD_SPAN(m->write_buffer,m->write_bytes);
+ }
+#ifdef _WIN32
+ if(c->native_drain_storage_bytes<f7_capture_windows_drain_state_bytes())return F7_BUDGET_ABSENT;
+ ADD_SPAN(c->native_drain_storage,c->native_drain_storage_bytes);
+#endif
+ for(size_t i=0;i<count;i++){
+  if(spans[i].length>UINTPTR_MAX-spans[i].address)return F7_INVALID;
+  for(size_t j=0;j<i;j++)if(!(spans[i].address+spans[i].length<=spans[j].address||
+   spans[j].address+spans[j].length<=spans[i].address))return F7_CONFLICT;
+ }
+#undef ADD_SPAN
+ /* Explicit disjoint source storage is necessary, never sufficient proof
+    of admitted allocation/rounded kernel charge or original actor custody. */
+ return F7_OK;
+}
 int f7_capture_validate(const struct f7_capture *c){
  unsigned i;
  if(!c||!c->reservation||!c->witness||c->witness->reservation!=c->reservation||
@@ -45,6 +76,7 @@ int f7_capture_validate(const struct f7_capture *c){
 int f7_capture_prepare(struct f7_capture *c){
  unsigned i;
  if(f7_capture_validate(c)||c->prepared||c->child_created!=F7_NOT_CREATED)return F7_INVALID;
+ int shaped=storage_geometry(c);if(shaped)return shaped;
  /* Separate queue/buffer allocation is complete before READY. Partial
     construction failure retains every already-created writer/context. */
  for(i=0;i<F7_STREAM_COUNT;i++)if(c->created[i]==F7_CREATED){
