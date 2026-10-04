@@ -1,8 +1,8 @@
 ---
-title: Beginner — Add a Todo app service
+title: Beginner â€” Add a Todo app service
 ---
 
-# Beginner — Add a Todo app service
+# Beginner â€” Add a Todo app service
 
 Add your first application service to Service Lasso. You will register a small
 Todo web app, start it through Lasso, inspect its health and endpoint in Admin,
@@ -24,16 +24,12 @@ flowchart TB
   accDescr: Service Lasso manages the Todo app from stage one alongside baseline apps. Stage two adds PostgreSQL. Stage three adds a Go API between the Todo service and database. JSON storage belongs to the Todo service and is not a separate service.
   browser["Browser Todo UI"]
   subgraph lasso["Service Lasso"]
-    baseline["Baseline apps<br/>Service Admin<br/>Secrets Broker<br/>Echo · Node provider"]
-    subgraph app["Todo app service"]
-      todo["Todo UI + backend"]
-      file[("JSON data file")]
-      todo -->|Read / write| file
-    end
+    baseline["Baseline apps<br/>Service Admin<br/>Secrets Broker<br/>Echo Â· Node provider"]
+    todo["Todo app service<br/>UI + backend<br/>JSON file storage"]
   end
   browser -->|HTTP| todo
   classDef added fill:#e0f2fe,stroke:#0369a1,color:#0c4a6e
-  class todo,file added
+  class todo added
 ```
 
 Blue highlights what this lesson adds. Solid arrows show application traffic.
@@ -116,7 +112,7 @@ npm run demo
 ```
 
 Restarting Lasso discovers the new manifest. Enabled services may autostart.
-In Admin, open **Services → Todo App**:
+In Admin, open **Services â†’ Todo App**:
 
 1. Confirm `todo-app` and its Node dependency appear.
 2. Use **Start** if it is stopped; wait for the HTTP health check to pass.
