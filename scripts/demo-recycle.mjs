@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { prepareCanonicalDemoOptions } from "./demo-canonical-root.mjs";
 import {
   formatCanonicalDemoReport,
   runCanonicalDemoRecycle,
@@ -18,7 +19,7 @@ import {
   resolveWatchdogOptions,
 } from "./demo-watchdog.mjs";
 
-const options = resolveDemoOptions();
+let options = resolveDemoOptions();
 const recoveryLockAlreadyHeldEnv = "SERVICE_LASSO_DEMO_RECOVERY_LOCK_HELD";
 const detachedLockWaitTimeoutMs = 10 * 60 * 1000;
 
@@ -235,6 +236,7 @@ async function waitUntilSignal() {
 }
 
 async function runRecycleCli() {
+  options = await prepareCanonicalDemoOptions(options);
   await ensureGitHubTokenEnv();
   const locks = await acquireDetachedRecycleLocks();
   try {

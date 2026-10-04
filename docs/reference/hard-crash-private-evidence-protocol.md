@@ -134,3 +134,36 @@ F5 physical mutation binding, F6 direct-child classification and F7 private fail
 capture require independent entire review and freshly admitted direct execution.
 Historical EBUSY and all seven current initialization failures remain failed and
 unattributed. This source protocol grants no execution or provider/release action.
+
+## Selected architecture amendment (#1629)
+
+The earlier option table is historical candidate analysis. The conductor has now
+selected ADR-002 (`.governance/decisions/ADR-002-fixture-isolation.md`; see the [canonical repository source](https://github.com/service-lasso/service-lasso/blob/develop/.governance/decisions/ADR-002-fixture-isolation.md)) and
+SPEC-002 AC-4BJ.9c.fixture-isolation-v1 FI-1..FI-7 for prospective source work:
+Linux distinct host UID/private persistent backing/mount/supervisor; Windows W2
+fresh SID/restricted token/process protection/controlled Job plus W1 same-held
+original copy and ordinary disposition. W1 alone and changed retention acceptance
+remain unselected. No additional human confirmation is needed to prepare this
+source contract. Current destructive refusal stays enabled until actual newly
+admitted native proof; this amendment is neither provisioned capability nor GO.
+
+ADR-002 defines source-owned actor paths, live mediator/workload separation,
+continuous guardian identity transfer/delete-handle settlement, bounded inherited
+private IPC, proof keys and compiler/runtime/ENV/native provenance admission.
+Its persistent independent copy is separate from original removal and survives
+observer failure. Memfd is a sealed read capability with finite lifetime, never
+persistent storage. Windows copy remains private point-in-time owner-mutable.
+All primary/secondary raw errors and ENV/hook/reset/partial states remain private
+and separately truthful. Original failure records are never rewritten.
+
+F7's independent pre-established initialization-error stream must use its own
+admitted held root before the diagnostic prerequisite can fail. The launcher
+cannot invent that root's authority or treat its own successful initialization
+as capture of earlier provisioning failure. Actual accessible off-host transfer
+still requires the owner-selected real private custodian/destination/access
+policy and direct failed-attempt readback. None is supplied by this amendment;
+no public upload or credential/provider grant is authorized. Native source
+preparation can progress while F7 runtime acceptance remains blocked.
+
+F1 cumulative correction selects ADR-002's trusted privileged supervisor and distinct W original-owner, M mediator, K keeper and R ordinary-runner principals. Original W ownership is preserved; live M/K have only authenticated finite held-object read channels, no named original mutation/reopen/owner-rights/attach/duplication authority. Existing current-actor helper guards require source-owned loader/client adaptation to authenticated actual prior W owner/object capsules, with separate M diagnostic and supervisor copy/control ownership; no caller/ENV override, whitelist, chown or DACL widening. Actor/object/owner/receipt negatives and live mutation denials supplement every original positive/copy/removal/reset/partial/ENV/history/native guard. Guardian settlement and exact W process/EOF closure remain continuous; prospective capabilities remain UNKNOWN/fail-closed. Fresh different ENTIRE cumulative review and develop landing precede native authorship. F7 actual off-host custodian remains absent.
+For this selected adapter, historical current-actor privacy behavior above remains the ordinary helper contract. M cannot perform original privacy mutation. Supervisor verifies held prior W owner/identity and initial private protection; genuine W driver operations keep native owner equality. M-owned diagnostics require their own private held role proof and initialization failures use the separately pre-established stream. Source-owned inherited role endpoints authenticate each capsule/read/error frame; no receipt file, ENV owner or path supplied by a caller can authorize access. Persistent copies/control are root/SYSTEM-owned, K receives only finite read capability, and supervisor/administrator mutability remains explicit. Neither M parking nor owner chmod/WRITE_DAC labels prove original writer exclusion.

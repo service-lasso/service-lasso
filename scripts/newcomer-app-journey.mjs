@@ -5,9 +5,14 @@ import path from "node:path";
 import { x as extract } from "tar";
 import { stagePublishedPackage } from "./publish-package-lib.mjs";
 import { runCommand } from "./release-artifact-lib.mjs";
+import { getNpmCommand } from "./npm-command-lib.mjs";
 import { installedArtifactEvidence } from "./newcomer-artifact-evidence.mjs";
 
 export async function runAppNpm(args, options) {
+  if (process.platform === "win32") {
+    const descriptor = getNpmCommand(args);
+    return runCommand(descriptor.command, descriptor.args, options);
+  }
   const candidates = [process.env.npm_execpath, path.join(path.dirname(process.execPath), "node_modules/npm/bin/npm-cli.js"), path.resolve(path.dirname(process.execPath), "../lib/node_modules/npm/bin/npm-cli.js")].filter(Boolean);
   for (const candidate of candidates) {
     try { await access(candidate); } catch { continue; }

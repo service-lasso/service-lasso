@@ -3,6 +3,7 @@ import { access, link, lstat, mkdir, open, readFile, rm, writeFile } from "node:
 import { createHash, randomBytes } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { observerExitWitness, readObserverDiagnostic, retainObserverEvent } from "./admin-observer-diagnostics.mjs";
 
 export const SCHEMA = "service-admin.trusted-unlock-receipt.v1";
 const REQUIRED_KEYS = new Set(["schema", "status", "present", "verified", "localRoot", "loading", "unavailable"]);
@@ -447,13 +448,6 @@ async function validateObserverTerminal(root, nonce, source, wantClose) {
   return terminal;
 }
 
-function observerExitWitness(observer) {
-  return new Promise((resolve) => {
-    observer.once("error", () => resolve({ exitCode: null, signal: null, spawnError: true }));
-    observer.once("close", (exitCode, signal) => resolve({ exitCode, signal, spawnError: false }));
-  });
-}
-
 async function recordAndValidateObserverExit(root, nonce, source, close, observer, observerExit) {
   const initial = await privateJson(root, "initial.json");
   if (!initial || initial.observer?.pid !== observer.pid) return false;
@@ -466,7 +460,11 @@ async function recordAndValidateObserverExit(root, nonce, source, close, observe
     observer: initial.observer, heldHandle: true, childAndPipesClosed: true,
     terminal: observerExit,
   };
-  try { await exclusiveJson(path.join(root, "consumer-terminal.json"), witness); } catch { return false; }
+  try { await exclusiveJson(path.join(root, "consumer-terminal.json"), witness); }
+  catch (error) {
+    await retainObserverEvent({ root, nonce, source }, "consumer_terminal", "failed", error);
+    return false;
+  }
   const persisted = await privateJson(root, "consumer-terminal.json");
   return !!persisted && exactKeys(persisted, ["schema", "private", "nonce", "source", "close", "state", "observer", "heldHandle", "childAndPipesClosed", "terminal"])
     && persisted.schema === witness.schema && persisted.private === true && persisted.close === "close.json" && persisted.state === "OBSERVER_EXITED"
@@ -482,47 +480,98 @@ async function recordAndValidateObserverExit(root, nonce, source, close, observe
 export async function consumeWithDurableObserver(command, args, options = {}) {
   const root = options.observerRoot;
   const source = options.source;
-  if (typeof root !== "string" || !source || !/^[0-9a-f]{40}$/u.test(source.head) || !/^[0-9a-f]{40}$/u.test(source.tree)) {
-    return { code: null, signal: null, executionFailure: "spawn_failed", trustedUnlock: { classification: "missing" }, streamFailure: null };
-  }
-  await mkdir(root, { recursive: false, mode: 0o700 });
-  const nonce = randomBytes(32).toString("hex");
-  const config = {
-    root, command, args, cwd: options.cwd, source, nonce, timeoutMs: options.timeoutMs,
-    inputs: options.inputs,
+  let binding = null;
+  let stage = "config";
+  const diagnostic = async () => {
+    const value = await readObserverDiagnostic(binding);
+    // Only fixed enums leave the private root. A callback/log failure cannot
+    // replace the provider's original result or become qualification evidence.
+    try {
+      if (typeof options.onObserverDiagnostic === "function") Promise.resolve(options.onObserverDiagnostic(value)).catch(() => {});
+      else process.stderr.write(`admin-observer:${value.stage}:${value.event}\n`);
+    } catch { /* Diagnostic consumers have no product authority. */ }
   };
-  const configPath = path.join(root, "observer-config.json");
-  await exclusiveJson(configPath, config);
-  const observer = spawn(process.execPath, [fileURLToPath(new URL("./admin-receipt-provider-observer.mjs", import.meta.url)), configPath], {
-    cwd: options.cwd, env: options.env, detached: true, stdio: "ignore", windowsHide: true,
-  });
-  // Install this before any private-record polling. A quick observer exit must
-  // still be tied to the OS child handle that created the private root.
-  const observerExitPromise = observerExitWitness(observer);
-  // The provider deadline starts only after the observer has completed its
-  // native identity and activation barrier.  Before that, wait solely for the
-  // exact observer we spawned to publish a complete terminal file or exit;
-  // no wall-clock caller shortcut can turn setup latency into spawn failure.
-  const terminal = await waitForPrivateObserver(root, ["close.json", "unresolved.json"], observerExitPromise);
-  if (!terminal) { observer.unref(); return { code: null, signal: null, executionFailure: "spawn_failed", trustedUnlock: { classification: "missing" }, streamFailure: null }; }
-  if (terminal.endsWith("unresolved.json")) {
-    const unresolved = await validateObserverTerminal(root, nonce, source, false);
-    observer.unref();
-    return unresolved ? { code: null, signal: null, executionFailure: "execution_timeout", trustedUnlock: { classification: "missing" }, streamFailure: null }
-      : { code: null, signal: null, executionFailure: "spawn_failed", trustedUnlock: { classification: "invalid" }, streamFailure: null };
+  const settle = async (result) => {
+    if (result.executionFailure) await diagnostic();
+    return result;
+  };
+  if (typeof root !== "string" || !source || !/^[0-9a-f]{40}$/u.test(source.head) || !/^[0-9a-f]{40}$/u.test(source.tree)) {
+    return settle({ code: null, signal: null, executionFailure: "spawn_failed", trustedUnlock: { classification: "missing" }, streamFailure: null });
   }
-  const close = await validateObserverTerminal(root, nonce, source, true);
-  if (!close) return { code: null, signal: null, executionFailure: "spawn_failed", trustedUnlock: { classification: "invalid" }, streamFailure: null };
-  // `close.json` binds a real owned provider exit and both closed pipes. Only
-  // then wait for this exact observer's native handle to close.  There is no
-  // global timeout or synthetic termination: timeout callers already settled
-  // on durable UNRESOLVED custody and do not enter this path.
-  const observerExit = await observerExitPromise;
-  if (!(await recordAndValidateObserverExit(root, nonce, source, close, observer, observerExit))) {
-    observer.unref();
-    return { code: null, signal: null, executionFailure: "observer_terminal_unresolved", trustedUnlock: { classification: "missing" }, streamFailure: null };
+  try {
+    await mkdir(root, { recursive: false, mode: 0o700 });
+    const nonce = randomBytes(32).toString("hex");
+    binding = { root, source, nonce };
+    await retainObserverEvent(binding, stage, "entered");
+    const config = {
+      root, command, args, cwd: options.cwd, source, nonce, timeoutMs: options.timeoutMs,
+      inputs: options.inputs,
+    };
+    const configPath = path.join(root, "observer-config.json");
+    await exclusiveJson(configPath, config);
+    // Inherit exclusive private file handles, not ignored channels or pipes
+    // whose reader could retire before the detached observer. Closing our local
+    // copies does not close the child's inherited handles.
+    const channels = [];
+    let observer;
+    try {
+      channels.push(await open(path.join(root, "observer-stdout.private.log"), "wx", 0o600));
+      channels.push(await open(path.join(root, "observer-stderr.private.log"), "wx", 0o600));
+      observer = spawn(process.execPath, [fileURLToPath(new URL("./admin-receipt-provider-observer.mjs", import.meta.url)), configPath], {
+        cwd: options.cwd, env: options.env, detached: true, stdio: ["ignore", channels[0].fd, channels[1].fd], windowsHide: true,
+      });
+    } catch (error) {
+      await Promise.allSettled(channels.map((handle) => handle.close()));
+      throw error;
+    }
+    // Install this before any private-record polling. A quick observer exit must
+    // still be tied to the OS child handle that created the private root.
+    const observerWitness = observerExitWitness(observer, binding);
+    const observerExitPromise = observerWitness.result;
+    await Promise.allSettled(channels.map((handle) => handle.close()));
+    // The provider deadline starts only after the observer has completed its
+    // native identity and activation barrier.  Before that, wait solely for the
+    // exact observer we spawned to publish a complete terminal file or exit;
+    // no wall-clock caller shortcut can turn setup latency into spawn failure.
+    const terminal = await waitForPrivateObserver(root, ["close.json", "unresolved.json"], observerExitPromise);
+    if (!terminal) {
+      const observerExit = await observerExitPromise;
+      if (!observerExit.spawnError) await observerWitness.readback;
+      observer.unref();
+      return settle({ code: null, signal: null, executionFailure: "spawn_failed", trustedUnlock: { classification: "missing" }, streamFailure: null });
+    }
+    if (terminal.endsWith("unresolved.json")) {
+      stage = "close";
+      const unresolved = await validateObserverTerminal(root, nonce, source, false);
+      // Eventual readback remains attached while this consumer host lives.
+      // Preserve detached timeout ownership: host exit cannot promise readback.
+      observer.unref();
+      return settle(unresolved ? { code: null, signal: null, executionFailure: "execution_timeout", trustedUnlock: { classification: "missing" }, streamFailure: null }
+        : { code: null, signal: null, executionFailure: "spawn_failed", trustedUnlock: { classification: "invalid" }, streamFailure: null });
+    }
+    stage = "close";
+    const close = await validateObserverTerminal(root, nonce, source, true);
+    if (!close) return settle({ code: null, signal: null, executionFailure: "spawn_failed", trustedUnlock: { classification: "invalid" }, streamFailure: null });
+    // `close.json` binds a real owned provider exit and both closed pipes. Only
+    // then wait for this exact observer's native handle to close.  There is no
+    // global timeout or synthetic termination: timeout callers already settled
+    // on durable UNRESOLVED custody and do not enter this path.
+    const observerExit = await observerExitPromise;
+    if (!observerExit.spawnError) await observerWitness.readback;
+    stage = "consumer_terminal";
+    await retainObserverEvent(binding, stage, "entered");
+    if (!(await recordAndValidateObserverExit(root, nonce, source, close, observer, observerExit))) {
+      await retainObserverEvent(binding, stage, "failed");
+      observer.unref();
+      return settle({ code: null, signal: null, executionFailure: "observer_terminal_unresolved", trustedUnlock: { classification: "missing" }, streamFailure: null });
+    }
+    await retainObserverEvent(binding, stage, "completed");
+    return { code: close.terminal.exitCode, signal: close.terminal.signal, executionFailure: null, trustedUnlock: close.trustedUnlock, streamFailure: null };
+  } catch (error) {
+    await retainObserverEvent(binding, stage, "failed", error);
+    await diagnostic();
+    throw error;
   }
-  return { code: close.terminal.exitCode, signal: close.terminal.signal, executionFailure: null, trustedUnlock: close.trustedUnlock, streamFailure: null };
 }
 
 function outcomeFor(result) {

@@ -19,3 +19,4 @@ src/runtime/execution/windows-managed-launcher-managed.provenance.json text eol=
 tests/fixtures/windows-held-exit-probe.cs text eol=lf
 tests/fixtures/windows-held-exit-probe.exe binary
 tests/fixtures/windows-held-exit-probe.provenance.json text eol=lf
+.governance/project/ga-platform-scope.json -text

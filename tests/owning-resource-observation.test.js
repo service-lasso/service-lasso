@@ -5,6 +5,175 @@ import { owningResourceObservations, ownedCommandStderr, relayOwningResourceObse
 const prefix = "[owning-resource-observation] ";
 const decode = text => text.split("\n").filter(line => line.startsWith(prefix)).map(line => JSON.parse(line.slice(prefix.length)));
 
+const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+async function sourceBody(name) {
+  return (await readFile(new URL(`../scripts/${name}`, import.meta.url), "utf8")).replaceAll("\r\n", "\n");
+}
+function originalBody(source, start, end) {
+  const first = source.indexOf(start), last = source.indexOf(end, first);
+  assert.ok(first >= 0 && last > first, `Actual owner boundary: ${start}`);
+  return source.slice(first, last);
+}
+
+// Prospective actual scoped caller fixtures. Controlled dependency boundaries
+// do not supply native, package, provider or complete-input acceptance.
+test("scoped candidate and four provenance owners preserve skips, order and original rejection", async () => {
+  const source = await sourceBody("verify-mcp-packaged-scoped.mjs");
+  const allocation = originalBody(source, 'const allocateResource = owningResourceObservations("verifier");', "const repoRoot =");
+  const candidate = originalBody(source, "async function exactCandidateSha(", "async function requirePathAbsent(");
+  const provenance = originalBody(source, "async function runWindowsProvenanceVerifier(", "function isolatedConsumerEnvironment(");
+  const path = (await import("node:path")).default;
+  for (const scenario of ["configured", "linux", "windows", "invalid_root", "candidate_failure", "provenance_failure"]) {
+    let output = ""; const calls = []; const primary = new Error("private-original");
+    const context = {
+      owningResourceObservations: boundary => owningResourceObservations(boundary, value => { output += value; }),
+      repoRoot: "private-source", path,
+      process: { platform: scenario === "linux" ? "linux" : "win32", env: { CANDIDATE_SHA: scenario === "configured" ? "A".repeat(40) : undefined, SystemRoot: scenario === "invalid_root" ? "relative" : "C:\\Windows" }, stderr: { write() {} } },
+      runCommand: async (command, args, options) => {
+        calls.push({ command, args, options });
+        options.resourceObservation.record("creation_attempted");
+        if (scenario === "candidate_failure" || scenario === "provenance_failure" && calls.length === 3) { options.resourceObservation.record("creation_rejected"); throw primary; }
+        options.resourceObservation.record("created"); options.resourceObservation.record("exit_observed"); options.resourceObservation.record("close_observed");
+        return { stdout: "a".repeat(40) };
+      },
+    };
+    const run = new AsyncFunction(...Object.keys(context), allocation + candidate + provenance + `
+      const sha = await exactCandidateSha();
+      await verifyWindowsProcessInspectorProvenance();
+      await verifyWindowsManagedLauncherNativeProvenance();
+      await verifyWindowsDpapiHelperProvenance();
+      await verifyWindowsDirectorySyncHelperProvenance();
+      return sha;
+    `);
+    let caught, value; try { value = await run(...Object.values(context)); } catch (error) { caught = error; }
+    const rows = decode(output); assert.equal(rows.filter(row => row.status === "not_created").length, 9);
+    assert.deepEqual(rows.slice(0, 9).map(row => row.sequence), [1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    if (scenario.endsWith("failure")) assert.equal(caught, primary);
+    else if (scenario === "invalid_root") assert.match(caught.message, /absolute Windows system root/);
+    else assert.equal(value, "a".repeat(40));
+    const reached = calls.filter(call => call.command !== "git");
+    for (const call of reached) { assert.equal(call.options.timeoutMs, 60_000); assert.equal(call.command, path.win32.join("C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe")); }
+    assert.deepEqual(reached.map(call => call.options.resourceObservation), [...new Set(reached.map(call => call.options.resourceObservation))]);
+    if (scenario === "windows" || scenario === "configured") assert.equal(reached.length, 4);
+    if (scenario === "configured") assert.equal(rows.filter(row => row.role === "candidate_command").length, 1);
+    if (scenario === "linux") assert.equal(reached.length, 0);
+    assert.equal(output.includes("private"), false);
+  }
+});
+
+test("entire scoped verifier owns nested staging, installation, consumer relay and exceptional finally", async () => {
+  const source = await sourceBody("verify-mcp-packaged-scoped.mjs");
+  const allocation = originalBody(source, 'const allocateResource = owningResourceObservations("verifier");', "const repoRoot =");
+  const body = source.slice(source.indexOf("let verificationFailure = null;"));
+  const library = await sourceBody("mcp-product-acceptance-lib.mjs");
+  const commandBody = originalBody(library, "export async function runCommand(", "async function inspectorEntrypoint(").replaceAll("export ", "");
+  const kinds = originalBody(library, "const RUN_COMMAND_FAILURE_KINDS =", "const SAFE_DIAGNOSTIC_CODE =");
+  const release = await sourceBody("release-artifact-lib.mjs");
+  const packBody = originalBody(release, "export function runCommand(", "export function runNpmCommand(").replace("export ", "");
+  const publish = await sourceBody("publish-package-lib.mjs");
+  const lockBody = originalBody(publish, "export async function withPackageStageLock(", "function buildPublishedPackageJson(").replace("export ", "");
+  const stageBody = originalBody(publish, "export async function stagePublishedPackage(", "export async function verifyPublishedPackage(").replace("export ", "");
+  const { EventEmitter } = await import("node:events");
+  const path = (await import("node:path")).default;
+  const { createHash } = await import("node:crypto");
+  const { dependencyAcquisitionReceipt, packagedVerificationDiagnostic } = await import("../scripts/packaged-verification-diagnostics.mjs");
+  const { ownedTempCleanupObservation, removeOwnedTempRoot } = await import("../scripts/owned-temp-cleanup.mjs");
+  const { parsePackagedAcceptanceFailure, runCommandFailureKind } = await import("../scripts/mcp-product-acceptance-lib.mjs");
+  for (const scenario of ["success", "setup", "lock_acquire", "pack", "lock_release", "pack_and_release", "install", "consumer", "unclosed", "accessor", "cleanup", "consumer_and_cleanup"]) {
+    let stderr = "", stdout = "", releases = 0, cleanups = 0, writes = 0; const commands = [], copies = [], buffers = [];
+    const primary = new Error("private-original"), releaseError = new Error("private-release"); const cleanupError = Object.assign(new Error("private-cleanup"), { code: "EACCES" });
+    let consumerStderr = "";
+    const consumerOwner = owningResourceObservations("consumer", value => { consumerStderr += value; })("http_client");
+    for (const status of ["creation_attempted", "created", "close_attempted", "close_rejected", "close_attempted", "close_resolved"]) consumerOwner.record(status);
+    const validConsumer = decode(consumerStderr);
+    consumerStderr += "private-token\n" + prefix + JSON.stringify({ ...validConsumer[0], private: "private-token" }) + "\n";
+    consumerStderr += prefix + JSON.stringify({ ...validConsumer[0], boundary: "verifier", role: "install_command" }) + "\n";
+    consumerStderr += prefix + JSON.stringify({ ...validConsumer[0], role: "stdio_client", status: "close_resolved" }) + "\n";
+    consumerStderr += prefix + '{"schema":"service-lasso.owning-resource-observation.v1","boundary":"consumer","role":"http_client","sequence":2,"sequence":2,"status":"not_created"}\n';
+    consumerStderr += prefix + JSON.stringify({ ...validConsumer[0], role: "__proto__", sequence: 2 }) + "\n";
+    const spawn = (command, args, options) => {
+      const phase = args.includes("pack") ? "pack" : args.includes("install") ? "install" : "consumer";
+      commands.push({ phase, command, args, options });
+      if (phase === "pack") { assert.equal(options.shell, false); assert.equal(options.windowsVerbatimArguments, false); }
+      else { assert.equal(options.shell, undefined); assert.equal(options.windowsVerbatimArguments, undefined); }
+      const child = new EventEmitter(); child.stdout = new EventEmitter(); child.stderr = new EventEmitter(); child.exitCode = null; child.signalCode = null; child.kill = () => true;
+      queueMicrotask(() => {
+        child.stdout.emit("data", Buffer.from(phase === "pack" ? "fixture.tgz\n" : phase === "consumer" ? JSON.stringify({ sdk: { protocolVersion: "test", version: "1.0.0" }, inspector: { version: "2.4.0" }, packagedRuntime: {}, canonical: {}, coverage: {}, assertions: {} }) : ""));
+        if (phase === "consumer") child.stderr.emit("data", Buffer.from(consumerStderr));
+        if (scenario === phase || phase === "consumer" && scenario === "consumer_and_cleanup" || phase === "pack" && scenario === "pack_and_release") child.emit("error", primary);
+        child.emit("exit", 0, null); child.emit("close", 0, null);
+      });
+      return child;
+    };
+    const mcpCommand = new Function("spawn", "repoRoot", "MAX_CAPTURE_BYTES", kinds + commandBody + ";return runCommand;")(spawn, "private-source", 2 * 1024 * 1024);
+    const packCommand = new Function("spawn", packBody + ";return runCommand;")(spawn);
+    const lock = new Function("acquirePackageStageLock", lockBody + ";return withPackageStageLock;")(async () => {
+      if (scenario === "lock_acquire") throw primary;
+      return async () => { releases++; if (["lock_release", "pack_and_release"].includes(scenario)) throw releaseError; };
+    });
+    const scope = Object.freeze({ fixture: "private-policy" });
+    const stageContext = {
+      path, withPackageStageLock: lock, consumeReleaseMetadataToken: () => "private-token", getPublishedPackageArtifactName: () => "fixture-package",
+      ensureBuildOutput: async () => {}, rm: async () => {}, mkdir: async () => {}, PUBLISH_FILES: [], copyPublishPath: async () => {},
+      stageOperatorTools: async options => assert.equal(options.scope, scope), verifyRetainedOperatorTools: async () => {},
+      writePublishScaffold: async () => ({ artifactKind: "fixture" }), writeArtifactSBOM: async () => {}, stat: async () => {},
+      runNpmCommand: async (args, options) => {
+        try { return await packCommand("private-node", ["private-npm", ...args], options); }
+        catch (error) { assert.equal(error, primary); throw error; }
+      },
+    };
+    const stage = new Function(...Object.keys(stageContext), stageBody + ";return stagePublishedPackage;")(...Object.values(stageContext));
+    const context = {
+      path, createHash, scope, ownedCommandStderr,
+      owningResourceObservations: boundary => owningResourceObservations(boundary, value => { stderr += value; }),
+      relayOwningResourceObservations: value => relayOwningResourceObservations(value, line => { stderr += line; }),
+      dependencyAcquisitionReceipt, packagedVerificationDiagnostic, runCommandFailureKind, ownedTempCleanupObservation, parsePackagedAcceptanceFailure,
+      ownPackagedAcceptanceDiagnostic: error => Object.getOwnPropertyDescriptor(error, "packagedAcceptanceDiagnostic")?.value,
+      operatorToolFailureDiagnostic: () => undefined, releaseMetadataToken: "private-token",
+      tempRoot: "private-root", consumerRoot: "private-root/consumer", servicesRoot: "private-services", httpWorkspaceRoot: "private-http", stdioWorkspaceRoot: "private-stdio",
+      repoRoot: "private-source", packageOutputRoot: "private-output", version: "0.1.0", candidateSha: "a".repeat(40), platform: "linux", pinnedSdkVersion: "1.0.0", npmEntrypoint: "private-npm", evidencePath: "private-evidence", MCP_PRODUCT_EVIDENCE_CONTRACT: "test",
+      mkdir: async () => { if (scenario === "setup") throw primary; }, writeCanonicalService: async () => "fixture",
+      stagePublishedPackage: async options => {
+        try { return await stage(options); }
+        catch (error) { assert.equal(error, ["lock_release", "pack_and_release"].includes(scenario) ? releaseError : primary); throw error; }
+      },
+      readFile: async file => { if (file.endsWith("package.json")) return JSON.stringify({ name: "@service-lasso/service-lasso", version: "0.1.0" }); const bytes = Buffer.from("held same native bytes"); buffers.push(bytes); return bytes; },
+      writeFile: async file => { if (file === "private-evidence") writes++; }, copyFile: async (from, to) => { copies.push({ from, to }); }, requirePathAbsent: async () => {}, isolatedConsumerEnvironment: value => value,
+      runCommand: async (command, args, options) => {
+        const isConsumer = options.timeoutMs === 900_000;
+        if (isConsumer && scenario === "accessor") { const error = new Error("private-accessor"); Object.defineProperty(error, "stderr", { get() { assert.fail("stderr getter invoked"); } }); throw error; }
+        let result;
+        try { result = await mcpCommand(command, args, options); }
+        catch (error) { assert.equal(error, primary); throw error; }
+        return isConsumer && scenario === "unclosed" ? { ...result, closeObserved: false } : result;
+      },
+      validateMcpProductEvidence: evidence => assert.equal(Object.hasOwn(evidence, "resourceObservations"), false),
+      removeOwnedTempRoot: root => removeOwnedTempRoot(root, { remove: async () => { cleanups++; if (["cleanup", "consumer_and_cleanup"].includes(scenario)) throw cleanupError; }, wait: async () => assert.fail("nonretryable cleanup waited") }),
+      process: { execPath: "private-node", platform: "linux", env: {}, arch: "x64", version: "test", exitCode: 0, stderr: { write: value => { stderr += value; } }, stdout: { write: value => { stdout += value; } } },
+    };
+    await new AsyncFunction(...Object.keys(context), allocation + body)(...Object.values(context));
+    assert.equal(cleanups, 1); assert.equal(context.process.exitCode, scenario === "success" ? 0 : 1);
+    const rows = decode(stderr), statuses = role => rows.filter(row => row.boundary === "verifier" && row.role === role).map(row => row.status);
+    assert.equal(rows.filter(row => row.boundary === "verifier" && row.status === "not_created").length, 9);
+    assert.deepEqual(statuses("candidate_command"), ["not_created"]); assert.equal(rows.filter(row => row.role === "provenance_command").length, 4);
+    const reachedStage = scenario !== "setup", acquired = reachedStage && scenario !== "lock_acquire";
+    assert.equal(releases, acquired ? 1 : 0);
+    assert.deepEqual(statuses("stage_lock"), !reachedStage ? ["not_created"] : !acquired ? ["not_created", "creation_attempted", "creation_rejected"] : ["not_created", "creation_attempted", "created", "close_attempted", ["lock_release", "pack_and_release"].includes(scenario) ? "close_rejected" : "close_resolved"]);
+    for (const role of ["pack_command", "install_command", "consumer_command"]) {
+      const phase = role.split("_")[0], call = commands.find(command => command.phase === phase);
+      assert.deepEqual(statuses(role), call ? ["not_created", "creation_attempted", "created", ...(scenario === phase || phase === "consumer" && scenario === "consumer_and_cleanup" || phase === "pack" && scenario === "pack_and_release" ? ["creation_rejected"] : []), "exit_observed", "close_observed"] : ["not_created"], `${scenario}/${role}`);
+    }
+    const install = commands.find(command => command.phase === "install"), consumer = commands.find(command => command.phase === "consumer");
+    if (install) assert.deepEqual(install.args.slice(0, 7), ["private-npm", "install", "--json", "--ignore-scripts", "--no-audit", "--no-fund", "--save-exact"]);
+    if (consumer) { assert.equal(copies.length, 2); assert.deepEqual(copies.map(copy => path.basename(copy.to)), ["mcp-packaged-consumer-runner.mjs", "mcp-product-acceptance-lib.mjs"]); assert.deepEqual(rows.filter(row => row.boundary === "consumer"), validConsumer); }
+    if (["consumer", "consumer_and_cleanup", "install"].includes(scenario)) assert.equal(ownedCommandStderr(primary), scenario.startsWith("consumer") ? consumerStderr : "");
+    assert.equal(stderr.includes("private"), false); assert.equal(stdout.includes("private"), false);
+    if (["cleanup", "consumer_and_cleanup"].includes(scenario)) { const error = JSON.parse(stderr.split("\n").find(line => line.startsWith("[mcp-package-verification-error] ")).slice("[mcp-package-verification-error] ".length)); assert.equal(error.stage, "temp_cleanup"); if (scenario === "consumer_and_cleanup") assert.equal(error.verificationStage, "consumer_runner"); }
+    assert.equal(writes, ["success", "cleanup"].includes(scenario) ? 1 : 0);
+    if (copies.length) assert.equal(buffers.slice(1).every(bytes => bytes.every(byte => byte === 0)), true);
+  }
+});
+
 // AC-6G.owning-resource-observation: actual consumer owner code, including its
 // original catch/finally, is exercised; no second close algorithm is modeled.
 test("consumer creation and exceptional finally preserve exact resource correlation and close order", async () => {
@@ -118,7 +287,10 @@ test("direct command observations never replace original result when observer th
 });
 test("nested staging command uses actual release command exit/close and preserves rejection",async()=>{
   const source=await readFile(new URL("../scripts/release-artifact-lib.mjs",import.meta.url),"utf8");
-  const body=source.slice(source.indexOf("export function runCommand("),source.indexOf("function escapeWindowsCmdArg("));
+  const start=source.indexOf("export function runCommand(");
+  const end=source.indexOf("export function runNpmCommand(",start);
+  assert.ok(start>=0 && end>start,"actual release command export boundary");
+  const body=source.slice(start,end);
   const {EventEmitter}=await import("node:events");
   for(const outcome of ["success","nonzero","spawn_error"]) {
     let output="";const resourceObservation=owningResourceObservations("verifier",value=>{output+=value;})("pack_command");

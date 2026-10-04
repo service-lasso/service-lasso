@@ -1,0 +1,35 @@
+# PR #1624 owning-resource observation reconciliation
+
+Issue #1623, parent #1594 / #1562, implements [SPEC-006 AC-6G.owning-resource-observation](../specs/SPEC-006-operator-mcp.md). This record preserves the original PR contribution as the same pending PR is reconciled with the receiving `develop` source. It records source provenance, not native acceptance, PR merge, issue closure or release readiness.
+
+The original independently reviewed cumulative head is `afc841cf0d6520a076e55ed501dceccc9fd0a003`, tree `4524031e676e2a1fd60437c3f1dd8dd61c62e58d`, against original `develop` base `7a76037dc81f4cbcf6ef46c2dbe895acfff32596`. The original source review applies only to that tuple. The receiving revision is `d65fe71cf399896547b88ee13855cf884d72440a`, tree `c933b918ce96885678272333ecb28e3f81d75a0d`, following PR #1638 and the separately reviewed documentation integration. Reconciliation retains every receiving product, fixture, workflow and existing specification byte. Its additions are this source-traceability record and governance links; no older implementation is restored over the receiving source.
+
+## Complete original contribution mapping
+
+| Original cumulative path | Preserved receiving contribution |
+| --- | --- |
+| `.governance/project/BACKLOG.md` | Original #1623 source-preparation/F1 intent maps to #1636 consolidation and this original-PR provenance. Existing receiving backlog remains intact. |
+| `.governance/project/PROJECT_INTENT.md` | Complete verifier/consumer/Inspector and exceptional-close intent remains governed by the owning specification; receiving intent and all incoming work remain intact. |
+| `.governance/specs/SPEC-006-operator-mcp.md` | Full original owning grammar, families, inventory, privacy, cleanup and qualification boundaries remain in AC-6G.owning-resource-observation; later specification additions remain intact. |
+| `INIT-TODO.md` | Original adoption/F1 source work is accounted for through consolidation and this reconciliation. Execution and qualification remain separate pending work. |
+| `package.json` | The complete protected `test:mcp:product` command retains the owning-resource suite and every original test member, build and concurrency constraint. Later demo command changes remain. |
+| `scripts/mcp-packaged-consumer-runner.mjs` | Exact original blob retains eight allocations: HTTP server/transport/client, stdio transport/client and three Inspector commands, with actual creation/explicit/finally close and transport-unavailable paths. |
+| `scripts/mcp-product-acceptance-lib.mjs` | Exact original blob retains the shared producer/relay role-family grammar, bounded canonical rows, own-data stderr reader, direct-command events/late events and Inspector propagation. |
+| `scripts/publish-package-lib.mjs` | Original staging lock acquisition/finally release and nested pack observation remain; receiving canonical npm descriptor, scope propagation and published-consumer changes remain. |
+| `scripts/release-artifact-lib.mjs` | Original actual spawn/error/exit/close observation and removal of observation from spawn options remain; canonical npm descriptor, forced spawn options and scoped archive/package paths remain. |
+| `scripts/verify-mcp-packaged.mjs` | Original nine verifier allocations and actual candidate/four provenance/pack/lock/install/consumer owners, success/failure relay and safe stderr reader remain; receiving Windows npm selection remains. |
+| `tests/owned-temp-cleanup.test.js` | Exact original blob retains protected actual removal and verifier-finalization assertions; original observation dependencies remain. |
+| `tests/owning-resource-observation.test.js` | Entire original suite remains after receiving source-extraction delimiter repair; added actual scoped candidate/provenance/staging/install/consumer/finally fixtures remain. |
+| `tests/packaged-verification-diagnostics.test.js` | Exact original blob retains original direct-command, safe diagnostic and actual owner/finalization assertions. |
+
+Four paths above retain exact original blobs at the receiving tuple. The other paths preserve the complete original contribution with receiving source changes and traceability consolidation. The unchanged `scripts/owned-temp-cleanup.mjs` is also identical at original base, original head and receiving revision; it is a protected dependency outside the thirteen-path original change.
+
+## Preserved contract and evidence boundaries
+
+Verifier roles are candidate/provenance/install/pack/consumer command and awaited stage lock. Consumer roles are Inspector command, awaited HTTP server/client and stdio client, and HTTP/stdio transport. All begin `not_created -> creation_attempted -> created` or terminal synchronous `creation_rejected`. Returned commands retain actual asynchronous error, exit, unavailable and close, including late events after unavailable and close without fabricated exit. Awaited owners retain repeated explicit/finally close attempts and actual resolved/rejected outcomes; transport closure remains unavailable without a separately awaited transport close. Invalid relay rows never advance correlation/state.
+
+The original limits remain: 32 resources, 256 accepted relay rows, 512-character line guard and 2 MiB capture guard; canonical all-and-only schema/boundary/role/sequence/status rows; primitive closed roles/families; proxy/accessor-safe own-data stderr; sink suppression and primary error identity. No path, PID, command/argv, environment, credential, native identity or raw cause is added to observations, success JSON or public/private envelopes. Optional and unreached owners remain not-created. The receiving scoped verifier now carries the same actual owner and relay wiring; the original omission was separately repaired in PR #1638.
+
+Exactly eight cleanup removals, recursive/force flags, EBUSY/ENOTEMPTY/EPERM retry admission, 100..700 ms waits, original deadlines, actual last code/count, partial-removal truthfulness and cleanup-failure exit-one/primary precedence remain. Command/resource observations cannot establish kernel lock release, lock owner or descendant absence. The source-getter difference previously noted in the scoped wrapper did not establish a reachable attacker-supplied exception or runtime disclosure; the restored own-data reader preserves the source contract.
+
+This reconciliation needs a different fresh ENTIRE cumulative source review for its new final head. Historical source reviews do not transfer to changed bytes. A NEW complete-input ROOT admission precedes any product import/parser/compiler/build/npm/test/native execution. Source preparation, hosted CI, source landing, Windows/Linux installed/native/operator qualification, immutable publication, same-byte/catalog proof and owner GA remain distinct. All prior failures/private evidence and native #1640 D1/D4/D8 NO-GO remain retained; macOS is deferred, never PASS. PR #1624 remains pending until the parent completes its governed disposition; this record does not claim it merged or that the delivery goal is complete.
