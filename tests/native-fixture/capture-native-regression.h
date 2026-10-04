@@ -8,6 +8,9 @@ struct f7_original_capture_expectation {
  const uint8_t *raw[F7_STREAM_COUNT];size_t raw_length[F7_STREAM_COUNT];
  int natural_eof[F7_STREAM_COUNT],capture_result;
 };
+struct f7_native_capture_regression_result {
+ int observed_capture_result,assertions_complete;int64_t capture_native_status;
+};
 /* Actual native readback/worker settlement regression SOURCE for the original
    independently admitted fixture owner. All objects, expected ORIGINAL bytes,
    finite scratch/deadline and row decisions come from its original inputs.
@@ -16,7 +19,7 @@ int f7_capture_native_regression(struct f7_capture *capture,
  const struct f7_capture_readbacks *original_reads,
  const struct f7_original_capture_expectation *original_expected,
  uint8_t *original_scratch,size_t scratch_capacity,uint64_t absolute_deadline,
- int64_t *original_native_status);
+ int64_t *original_native_status,struct f7_native_capture_regression_result *original_result);
 #ifdef __cplusplus
 }
 #endif
