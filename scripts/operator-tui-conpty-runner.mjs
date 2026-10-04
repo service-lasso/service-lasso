@@ -169,7 +169,8 @@ export async function runConptyHelper({ command = "python", helperPath, executab
     }
     });
 
-    if (completion.kind === "success" || completion.kind === "nonzero") {
+    // Closed success output cannot override a failed or timed-out owned close.
+    if (completion.kind === "success") {
       try {
         return parseConptyProbeResult(stdout, mode);
       } catch {

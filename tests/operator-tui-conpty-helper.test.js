@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, writeFile, stat, rm } from "node:fs/promises";
 import { PassThrough } from "node:stream";
 import { EventEmitter } from "node:events";
 import { createConnection } from "node:net";
@@ -116,15 +116,80 @@ test("ConPTY helper waits for the owned containment host to close after timeout"
       spawned();
       return child;
     },
-  }).then(() => { settled = true; }, () => { settled = true; });
+  });
+  const rejected = assert.rejects(result, (error) => error.message === "Windows ConPTY TUI probe did not complete its bounded assertions.").then(() => { settled = true; });
   await didSpawn;
   await new Promise((resolve) => setTimeout(resolve, 75));
   assert.equal(killed, true);
   assert.equal(settled, false);
   child.emit("close", 1, "SIGTERM");
-  await result;
+  await rejected;
   assert.equal(settled, true);
 });
+
+for (const mode of ["unavailable", "connected"]) {
+  const success = {
+    ok: true, mode, startup: mode,
+    navigation: mode === "connected" ? "help" : "not_applicable", exit: "q",
+  };
+  for (const closure of [
+    { name: "exit1", code: 1, signal: null, timedOut: false },
+    { name: "signal", code: null, signal: "SIGTERM", timedOut: false },
+    { name: "timeout then code0", code: 0, signal: null, timedOut: true },
+    { name: "timeout then exit1", code: 1, signal: null, timedOut: true },
+  ]) {
+    test(`ConPTY ${mode} success output rejects ${closure.name} only after owned close and cleanup`, async () => {
+      const child = new EventEmitter();
+      child.stdout = new PassThrough(); child.stderr = new PassThrough();
+      let spawned, killed, gatePath;
+      const didSpawn = new Promise((resolve) => { spawned = resolve; });
+      const didKill = new Promise((resolve) => { killed = resolve; });
+      child.kill = () => { killed(); return true; };
+      let settled = false;
+      const result = runConptyHelper({
+        command: process.execPath,
+        helperPath: path.join(repoRoot, "scripts", "verify-operator-tui-conpty.py"),
+        executable: "fixture.exe", mode, apiUrl: "http://127.0.0.1:41999", apiToken: "synthetic-attempt-token-value",
+        envSource: { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot ?? "C:\\Windows" },
+        timeoutMs: closure.timedOut ? 25 : 35_000, platform: "win32",
+        spawnProcess: (_command, _args, options) => {
+          gatePath = options.env.SERVICE_LASSO_MANAGED_LAUNCH_GATE;
+          spawned(); return child;
+        },
+      });
+      const rejected = assert.rejects(result, (error) => error.message === "Windows ConPTY TUI probe did not complete its bounded assertions.").then(() => { settled = true; });
+      await didSpawn;
+      child.stdout.write(`${JSON.stringify(success)}\n`);
+      child.emit("exit", closure.code, closure.signal);
+      if (closure.timedOut) await didKill;
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.equal(settled, false, "stdout and exit never substitute for actual close");
+      assert.ok((await stat(path.dirname(gatePath))).isDirectory(), "owned launch inputs remain until close");
+      child.emit("close", closure.code, closure.signal);
+      await rejected;
+      assert.equal(settled, true);
+      await assert.rejects(stat(path.dirname(gatePath)), { code: "ENOENT" });
+    });
+  }
+  test(`ConPTY ${mode} actual helper code0 returns closed success after cleanup`, async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "conpty-code0-"));
+    const helper = path.join(root, "success.mjs");
+    let gatePath;
+    try {
+      await writeFile(helper, `process.stdout.write(${JSON.stringify(`${JSON.stringify(success)}\n`)});`);
+      const result = await runConptyHelper({
+        command: process.execPath, helperPath: helper, executable: "fixture.exe", mode,
+        apiUrl: "http://127.0.0.1:41999", apiToken: "synthetic-attempt-token-value",
+        spawnProcess: (command, args, options) => {
+          gatePath = options.env.SERVICE_LASSO_MANAGED_LAUNCH_GATE;
+          return spawn(command, args, options);
+        },
+      });
+      assert.deepEqual(result, success);
+      if (gatePath) await assert.rejects(stat(path.dirname(gatePath)), { code: "ENOENT" });
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+}
 
 test("Windows ConPTY timeout terminates the helper's Job Object descendant before reporting failure", {
   skip: process.platform !== "win32",
