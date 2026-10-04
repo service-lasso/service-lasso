@@ -855,3 +855,14 @@ Meaningful prospective fixtures exercise actual scoped allocation/candidate/prov
 #1670: SPEC-002 AC-4AJ.7/.8 diagram presentation correction; docs-only Development, SVG light/dark/mobile and explicit live publication verification.
 
 #1667: Consume the corrected foreground lasso-postgres release under SPEC-002 AC-4AJ.7/.8 and producer SPEC-PG-MANAGED. Remove the tutorial adapter prerequisite, preserve prior data/failures, bind exact tag/checksum native Core evidence and explicit docs publication.
+
+
+## PR1638 F1/F2 entire-review correction (2026-10-05)
+
+Development SOURCE ONLY continuation of issue #1626 at retained bca254a4233a1297626caf6c38aa9b658fb913f8. The complete independent128/58/22-path review is SOURCE NO-GO for F1 policy checkout transformation and F2 early PTY child cleanup; neither earlier GO nor byte replay qualifies the corrected source.
+
+SPEC-008 R1/R5 require physical canonical policy bytes to remain exactly445 LF bytes, SHA256159d644c161cf532c94d3bfe17ed55e32bf94c5d2843928945c450f6d8140c12 and the original pinned Git blob/schema/provenance. Add only the exact policy -text attribute to exclude Git checkout newline translation, including core.autocrlf=true; no policy rewrite, new pin or broad normalization. Prospective real Git filter cases must prove exact bytes under true/false/input and demonstrate the original unprotected transformation.
+
+SPEC-008 R6/R7 require both actual scoped and legacy generated PTY owners to establish cleanup status before any startup/connected/help action can fail. Preserve the primary exception, exact forked-child kill/wait and PTY descriptor close, original20-second startup/5-second help/q deadlines, unavailable and connected-positive assertions, help/navigation and clean q-exit. Meaningful prospective cases execute the actual generated run_case body against owned failing startup/help children and independently observe exact kill/reap/descriptor close and retained original error; fixture behavior is not native TUI acceptance.
+
+Prepare this coherent two-finding source correction only. Existing R1..R7/TC01..TC12/CA01..CA08, complete incoming integration, protected preparer bodies, all original failures/private custody, empty catalogs, native1640 NO-GO/F7 absence and actual Windows/Linux released/published/operator gates remain unchanged. New authored cases remain UNEXECUTED until a DIFFERENT fresh ENTIRE corrected-source GO and NEW complete-input ROOT admission. Parent owns issue tracking/landing. No parser/import/compiler/build/Node/npm/test/native invocation, main, provider controls/dispatch/rerun, release or cleanup.

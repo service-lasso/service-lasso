@@ -60,6 +60,9 @@ def run_case(name, connected):
         env = {"PATH": os.environ.get("PATH", ""), "HOME": os.environ.get("HOME", "")}
         if connected: env["SERVICE_LASSO_API_URL"] = api_url
         os.execve(exe, [exe], env)
+    status = None
+    reaped = False
+    primary_error = None
     buffer = b""
     def read_until(needles, timeout):
         nonlocal buffer
@@ -82,28 +85,41 @@ def run_case(name, connected):
         if not read_until([b"d dashboard", b"esc back"], 5): raise RuntimeError(name + " keyboard navigation did not render help")
         os.write(fd, b"q")
         deadline = time.monotonic() + 5
-        status = None
         while time.monotonic() < deadline:
             waited, value = os.waitpid(pid, os.WNOHANG)
             if waited == pid:
                 status = value
+                reaped = True
                 break
             time.sleep(0.05)
         if status is None:
-            os.kill(pid, signal.SIGKILL); os.waitpid(pid, 0)
             raise RuntimeError(name + " q did not exit within the bounded terminal window")
         if not os.WIFEXITED(status) or os.WEXITSTATUS(status) != 0: raise RuntimeError(name + " did not exit cleanly")
+    except BaseException as error:
+        primary_error = error
+        raise
     finally:
-        if status is None:
-            try:
-                waited, _ = os.waitpid(pid, os.WNOHANG)
-                if waited != pid:
-                    os.kill(pid, signal.SIGKILL)
-                    os.waitpid(pid, 0)
-            except (ChildProcessError, OSError):
-                pass
-        try: os.close(fd)
-        except OSError: pass
+        cleanup_error = None
+        try:
+            if not reaped:
+                try:
+                    waited, value = os.waitpid(pid, os.WNOHANG)
+                    if waited != pid:
+                        os.kill(pid, signal.SIGKILL)
+                        waited, value = os.waitpid(pid, 0)
+                    if waited != pid: raise RuntimeError("owned PTY child was not reaped")
+                    status = value
+                    reaped = True
+                except BaseException as error:
+                    cleanup_error = error
+        finally:
+            try: os.close(fd)
+            except OSError as error:
+                if cleanup_error is None: cleanup_error = error
+        if cleanup_error is not None:
+            if primary_error is None: raise RuntimeError("owned PTY cleanup failed") from cleanup_error
+            try: print("owned PTY cleanup failed", file=sys.stderr)
+            except OSError: pass
 run_case("safe_unavailable", False)
 run_case("connected_dashboard", True)
 print(json.dumps({"ok": True, "platform": sys.argv[2], "safeStartup": "unavailable", "connectedDashboard": "rendered", "navigation": "help", "exit": "q"}))
