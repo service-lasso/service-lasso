@@ -29,6 +29,23 @@ explicitly applies a local foreground adapter; that adaptation does not qualify
 the published defaults. [#1667](https://github.com/service-lasso/service-lasso/issues/1667)
 tracks the provider correction.
 
+Independent Windows consumer verification of the corrected development releases
+passed for Todo [`2026.10.4-b6d089f`](https://github.com/service-lasso/lasso-todo/releases/tag/2026.10.4-b6d089f)
+and API [`2026.10.4-9b45f09`](https://github.com/service-lasso/lasso-todo-api/releases/tag/2026.10.4-9b45f09).
+Literal fresh imports and Core checksum acquisition passed. Released Admin
+installed, configured and started both services. Browser creation, refresh and
+Admin stop/start retained the same Todo data. Original JSON IDs migrated into
+real PostgreSQL; the Go API served the Todo proxy, returned an observable 503
+during API outage, recovered and retained all original IDs after the three
+managed services stopped and restarted. The acquired Go binary identifies the
+exact clean release source commit.
+
+Both service pipelines package Windows, Linux and macOS archives. Todo archive
+consumer checks run on all three; API additionally verifies its held Linux
+archive against real PostgreSQL. Full managed/Admin integration above was
+executed on Windows with the explicit PostgreSQL adapter. It does not qualify
+macOS PostgreSQL, whole-demo shutdown, upstream template admission or GA.
+
 ## Previous managed Todo execution (before template correction)
 
 The previous [beginner](../getting-started/beginner-todo-app.md),

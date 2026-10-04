@@ -83,8 +83,8 @@ Your local package proves the authoring step. Next consume a published developme
 ## 3. Import the released manifest and start through Lasso
 
 ```powershell
-node dist/cli.js services import service-lasso/lasso-todo --tag 2026.10.4-cc1b71b --services-root workspace/canonical-services-root --workspace-root workspace/demo-instance --dry-run --json
-node dist/cli.js services import service-lasso/lasso-todo --tag 2026.10.4-cc1b71b --services-root workspace/canonical-services-root --workspace-root workspace/demo-instance
+node dist/cli.js services import service-lasso/lasso-todo --tag 2026.10.4-b6d089f --services-root workspace/canonical-services-root --workspace-root workspace/demo-instance --dry-run --json
+node dist/cli.js services import service-lasso/lasso-todo --tag 2026.10.4-b6d089f --services-root workspace/canonical-services-root --workspace-root workspace/demo-instance
 ```
 
 Import writes the released manifest to <code>workspace/canonical-services-root/todo/service.json</code>. This is the demo's running inventory; checked-in <code>services/</code> supplies baseline seed manifests. Import refuses to overwrite an existing service. Keep data and inspect conflicts; force is not a routine restart step.
