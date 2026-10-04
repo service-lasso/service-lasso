@@ -181,7 +181,7 @@ export async function runConptyHelper({ command = "python", helperPath, executab
     });
     // Missing/invalid private native receipt leaves this attempt unresolved
     // with its inputs retained. Top bootstrap close is not Job closure.
-    const nativeTerminal = containment && returnedChild ? await containment.terminal : null;
+    const nativeTerminal = containment && returnedChild ? await containment.finalizeAfterChildClose() : null;
     cleanupAuthorized = true;
 
     // Closed success output cannot override a failed or timed-out owned close.

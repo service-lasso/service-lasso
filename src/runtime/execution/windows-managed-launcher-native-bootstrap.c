@@ -37,16 +37,43 @@ typedef struct {
   HANDLE pipe;
   HANDLE job;
   HANDLE owner;
+  HANDLE stopEvent;
   wchar_t token[65];
   volatile LONG cancelled;
   volatile LONG failed;
   volatile LONG stopping;
 } ConptyControl;
 
-static int ReadControlLine(HANDLE pipe, char* line, DWORD capacity) {
+static int ReadControlByte(ConptyControl* control, char* byte, DWORD* read) {
+  OVERLAPPED operation;
+  ZeroMemory(&operation, sizeof(operation));
+  operation.hEvent = CreateEventW(NULL, TRUE, FALSE, NULL);
+  if (operation.hEvent == NULL) return 0;
+  int result = 0;
+  if (WaitForSingleObject(control->stopEvent, 0) != WAIT_TIMEOUT) goto completed;
+  if (ReadFile(control->pipe, byte, 1, read, &operation)) {
+    result = *read == 1;
+  } else if (GetLastError() == ERROR_IO_PENDING) {
+    HANDLE events[2] = { control->stopEvent, operation.hEvent };
+    DWORD observed = WaitForMultipleObjects(2, events, FALSE, INFINITE);
+    if (observed != WAIT_OBJECT_0 + 1) {
+      /* Cancellation names the exact issued operation, not a future read.
+       * ERROR_NOT_FOUND means it raced completion; still await its result. */
+      CancelIoEx(control->pipe, &operation);
+      GetOverlappedResult(control->pipe, &operation, read, TRUE);
+    } else {
+      result = GetOverlappedResult(control->pipe, &operation, read, TRUE) && *read == 1;
+    }
+  }
+completed:
+  CloseHandle(operation.hEvent);
+  return result;
+}
+
+static int ReadControlLine(ConptyControl* control, char* line, DWORD capacity) {
   DWORD count = 0, read = 0;
   while (count + 1 < capacity) {
-    if (!ReadFile(pipe, line + count, 1, &read, NULL) || read != 1) return 0;
+    if (!ReadControlByte(control, line + count, &read)) return 0;
     if (line[count] == '\n') { line[count] = '\0'; return 1; }
     if ((unsigned char)line[count] < 32 || (unsigned char)line[count] > 126) return 0;
     count++;
@@ -59,7 +86,15 @@ static int WriteControlLine(ConptyControl* control, const char* kind, DWORD pid,
   for (DWORD i = 0; i < 64; i++) token[i] = (char)control->token[i];
   token[64] = '\0';
   int length = _snprintf_s(line, sizeof(line), _TRUNCATE, "%s:%s:%lu:%lu:0\n", kind, token, (unsigned long)pid, (unsigned long)code);
-  return length > 0 && WriteFile(control->pipe, line, (DWORD)length, &written, NULL) && written == (DWORD)length;
+  if (length <= 0) return 0;
+  OVERLAPPED operation;
+  ZeroMemory(&operation, sizeof(operation));
+  operation.hEvent = CreateEventW(NULL, TRUE, FALSE, NULL);
+  if (operation.hEvent == NULL) return 0;
+  int result = WriteFile(control->pipe, line, (DWORD)length, &written, &operation);
+  if (!result && GetLastError() == ERROR_IO_PENDING) result = GetOverlappedResult(control->pipe, &operation, &written, TRUE);
+  CloseHandle(operation.hEvent);
+  return result && written == (DWORD)length;
 }
 
 static int ReadControlCommand(ConptyControl* control, const char* kind) {
@@ -67,7 +102,7 @@ static int ReadControlCommand(ConptyControl* control, const char* kind) {
   for (DWORD i = 0; i < 64; i++) token[i] = (char)control->token[i];
   token[64] = '\0';
   if (_snprintf_s(expected, sizeof(expected), _TRUNCATE, "%s:%s", kind, token) < 0) return 0;
-  return ReadControlLine(control->pipe, line, sizeof(line)) && strcmp(line, expected) == 0;
+  return ReadControlLine(control, line, sizeof(line)) && strcmp(line, expected) == 0;
 }
 
 static DWORD WINAPI ConptyCancelReader(LPVOID parameter) {
@@ -103,7 +138,9 @@ static int OpenConptyControl(ConptyControl* control) {
   }
   unsigned long ownerPid = wcstoul(ownerText, &end, 10);
   if (ownerPid == 0 || end == ownerText || *end != L'\0') return -1;
-  control->pipe = CreateFileW(pipeName, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+  control->stopEvent = CreateEventW(NULL, TRUE, FALSE, NULL);
+  if (control->stopEvent == NULL) return -1;
+  control->pipe = CreateFileW(pipeName, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL);
   if (control->pipe == INVALID_HANDLE_VALUE) return -1;
   ULONG actualOwner = 0;
   if (!GetNamedPipeServerProcessId(control->pipe, &actualOwner) || actualOwner != ownerPid) return -1;
@@ -126,6 +163,16 @@ static int DrainConptyJob(ConptyControl* control) {
     if (accounting.ActiveProcesses == 0) return 1;
     Sleep(1); /* observation only; never a new caller success deadline */
   }
+}
+
+static int FinishConptyContainment(ConptyControl* control, HANDLE process, HANDLE reader) {
+  InterlockedExchange(&control->stopping, 1);
+  if (!SetEvent(control->stopEvent)) return 0;
+  /* Containment is never obstructed by joining a reader first. */
+  int drained = DrainConptyJob(control);
+  int readerClosed = reader == NULL || WaitForSingleObject(reader, INFINITE) == WAIT_OBJECT_0;
+  int managedClosed = WaitForSingleObject(process, INFINITE) == WAIT_OBJECT_0;
+  return drained && readerClosed && managedClosed;
 }
 
 static int IsLoaderSensitiveName(const wchar_t* name) {
@@ -317,18 +364,19 @@ int wmain(void) {
   if (WaitForSingleObject(processInformation.hProcess, INFINITE) != WAIT_OBJECT_0 || !GetExitCodeProcess(processInformation.hProcess, &exitCode)) exitCode = BOOTSTRAP_FAILURE_WAIT;
 contained:
   if (conptyMode) {
-    if (controlThread != NULL) { InterlockedExchange(&control.stopping, 1); CancelSynchronousIo(controlThread); WaitForSingleObject(controlThread, INFINITE); CloseHandle(controlThread); controlThread = NULL; }
-    if (!DrainConptyJob(&control) || WaitForSingleObject(processInformation.hProcess, INFINITE) != WAIT_OBJECT_0) {
+    if (!FinishConptyContainment(&control, processInformation.hProcess, controlThread)) {
       /* No receipt: JavaScript retains inputs and does not enter caller cleanup. */
       exitCode = BOOTSTRAP_FAILURE_WAIT;
     } else {
       if (control.cancelled || control.failed) exitCode = BOOTSTRAP_FAILURE_WAIT;
       if (!WriteControlLine(&control, "terminal", GetCurrentProcessId(), exitCode)) exitCode = BOOTSTRAP_FAILURE_WAIT;
     }
+    if (controlThread != NULL) { CloseHandle(controlThread); controlThread = NULL; }
   }
   if (processInformation.hThread != NULL) CloseHandle(processInformation.hThread);
   CloseHandle(processInformation.hProcess);
 release:
+  if (control.stopEvent != NULL) CloseHandle(control.stopEvent);
   if (control.job != NULL) CloseHandle(control.job);
   if (control.owner != NULL) CloseHandle(control.owner);
   if (control.pipe != INVALID_HANDLE_VALUE) CloseHandle(control.pipe);

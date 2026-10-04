@@ -17,7 +17,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
 
 // Explicit seam receipt, never actual native containment evidence.
 function fixtureContainment(child, terminal = Promise.resolve({ code: 0, activeProcesses: 0 })) {
-  return async () => ({ environment: {}, bindChild() {}, requestCancellation() { child.kill(); }, terminal, cleanup: async () => {} });
+  return async () => ({ environment: {}, bindChild() {}, requestCancellation() { child.kill(); }, finalizeAfterChildClose: () => terminal, cleanup: async () => {} });
 }
 
 test("Windows ConPTY helper uses a bounded host with a sanitized child environment", async () => {
