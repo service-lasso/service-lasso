@@ -67,6 +67,22 @@ Provisioning uses declared create-only signed Broker IPC and preserves existing
 master-key/password references. The initial incorrect bootstrap-variable attempt
 remains failure evidence; `FIRSTINSTANCE_ORG_HUMAN_*` is the checked contract.
 
+Independent Windows execution acquired the actual released Todo archive through
+literal Core CLI import/install and verified SHA256
+`a8297a6f16e13cc283ef80ccc0a5187e1c276fdbb176d21f0e6faa3d32b8d5e6`.
+A fresh owned Core loaded that exact artifact; an earlier in-memory held-artifact
+attempt was retained and excluded from released acceptance. Actual Zitadel test
+user login, protected Go API proxy reads/writes/reload, native confirmed Todo
+restart, re-login and logout passed. PostgreSQL retained all four original JSON
+IDs/titles, and the released Go API list matched the SQL rows.
+
+Node verified the local CA chain. Browser verification used an isolated profile
+with the exact leaf SPKI pinned; it did not install OS trust or establish a
+machine-wide trust claim. Public `/healthz` stayed available; anonymous `/todos`
+was denied, and restart invalidated sessions while retaining data. Local sessions
+authorize the shared list, not per-user rows or direct remote API access. No
+Linux/macOS native identity, production deployment or GA claim follows.
+
 ## Corrected PostgreSQL producer release
 
 [`lasso-postgres 2026.10.4-1af7982`](https://github.com/service-lasso/lasso-postgres/releases/tag/2026.10.4-1af7982)
