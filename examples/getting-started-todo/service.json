@@ -1,0 +1,19 @@
+{
+  "id": "todo-app",
+  "name": "Todo App",
+  "description": "Beginner managed Todo UI and API with service-owned JSON storage.",
+  "version": "0.1.0",
+  "enabled": true,
+  "depend_on": ["@node"],
+  "execservice": "@node",
+  "args": ["${SERVICE_ROOT}/runtime/server.mjs"],
+  "endpoints": [
+    {"id": "web", "kind": "network", "transport": "tcp", "protocol": "http", "bind": "127.0.0.1", "port": {"default": 18552, "strategy": "preferred"}, "exposure": "local", "primary": true},
+    {"id": "ui", "kind": "url", "target": "web", "url": "http://127.0.0.1:${endpoint.web.port}/", "exposure": "local", "primary": true}
+  ],
+  "env": {
+    "TODO_PORT": "${endpoint.web.port}",
+    "TODO_DATA_FILE": "${SERVICE_ROOT}/data/todos.json"
+  },
+  "healthchecks": [{"id": "http-health", "type": "http", "url": "http://127.0.0.1:${endpoint.web.port}/healthz", "expected_status": 200, "retries": 80, "interval": 250}]
+}

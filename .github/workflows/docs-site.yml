@@ -14,6 +14,9 @@ on:
     paths:
       - ".github/workflows/docs-site.yml"
       - "docs/**"
+      - "examples/getting-started-todo/**"
+      - "examples/getting-started-todo-api/**"
+      - "tests/managed-todo-example.test.js"
       - "tests/docs-site-workflow.test.js"
       - "tests/docs-tooling-security.test.js"
       - "tests/development-dependency-security.test.js"
@@ -31,6 +34,9 @@ on:
     paths:
       - ".github/workflows/docs-site.yml"
       - "docs/**"
+      - "examples/getting-started-todo/**"
+      - "examples/getting-started-todo-api/**"
+      - "tests/managed-todo-example.test.js"
       - "tests/docs-site-workflow.test.js"
       - "tests/docs-tooling-security.test.js"
       - "tests/development-dependency-security.test.js"
@@ -71,7 +77,7 @@ jobs:
         run: npm run docs:check-secrets-ledger
 
       - name: Verify documentation publication boundaries
-        run: node --test tests/docs-site-workflow.test.js tests/docs-tooling-security.test.js tests/development-dependency-security.test.js
+        run: node --test tests/docs-site-workflow.test.js tests/docs-tooling-security.test.js tests/development-dependency-security.test.js tests/managed-todo-example.test.js
 
       - name: Build Docusaurus site
         run: npm run docs:build
