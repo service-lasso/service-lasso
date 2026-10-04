@@ -49,8 +49,9 @@ int f7_capture_finalize(struct f7_capture *c,
    }
    continue;
   }
-  if(f7_async_release_settled(c->raw_async[i])){result=F7_INCOMPLETE;continue;}
-  c->raw_async[i]=NULL;
+  if(f7_async_join_settled(c->raw_async[i])){result=F7_INCOMPLETE;continue;}
+  /* Keep the original queue state/native facts reachable after successful
+     actual exit, for manifest/regression custody. Finalize is no disposal. */
   if(finish(c->raw[i],reads->raw[i],native_status)){
    result=F7_INCOMPLETE;
    f7_witness_emit(c->witness,(enum f7_stream)i,F7_UNAVAILABLE,0,0,
@@ -64,11 +65,10 @@ int f7_capture_finalize(struct f7_capture *c,
  struct f7_member *members[2]={c->witness->member,c->witness->emergency_member};
  f7_handle companions[2]={reads->witness,reads->emergency};
  for(i=0;i<2;i++){
-  if(close_wait(*queues[i],deadline,&status)||f7_async_release_settled(*queues[i])){
+  if(close_wait(*queues[i],deadline,&status)||f7_async_join_settled(*queues[i])){
    if(!f7_async_join_settled(*queues[i]))finish(members[i],companions[i],native_status);
    result=F7_INCOMPLETE;continue;
   }
-  *queues[i]=NULL;
   if(finish(members[i],companions[i],native_status))result=F7_INCOMPLETE;
  }
  if(result||c->witness->failed||c->reservation->exhausted)c->incomplete=1;
