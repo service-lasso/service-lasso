@@ -29,10 +29,12 @@ struct f7_member {
    from the actual handle, not accepted from a caller JSON receipt. */
 int f7_identity_read(f7_handle handle,struct f7_identity *out,int directory);
 int f7_identity_equal(const struct f7_identity *a,const struct f7_identity *b);
+int f7_handle_size(f7_handle handle,uint64_t *length,int64_t *native_status);
 int f7_member_adopt(struct f7_member *m,f7_handle exclusive_empty_file);
 int f7_member_append(struct f7_member *m,const uint8_t *bytes,size_t count,
  uint64_t *persisted,int64_t *native_status);
 int f7_member_finish(struct f7_member *m,int64_t *native_status);
+int f7_member_flush(struct f7_member *m,int64_t *native_status);
 int f7_member_readback(struct f7_member *m,f7_handle independent_read_handle,
  int64_t *native_status);
 int f7_member_read_at(const struct f7_member *m,uint64_t offset,uint8_t *out,

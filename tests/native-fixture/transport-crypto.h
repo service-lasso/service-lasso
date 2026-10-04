@@ -1,11 +1,13 @@
 #ifndef SERVICE_LASSO_F7_CRYPTO_H
 #define SERVICE_LASSO_F7_CRYPTO_H
 #include "capture-spool.h"
+#include "attempt-journal.h"
 struct f7_crypto_object {
  struct f7_member *write;
  f7_handle independent_read;
  uint8_t key[16];
  int started;
+ struct f7_attempt_journal *journal;
 };
 struct f7_signing_pin {
  uint8_t recipient[crypto_box_PUBLICKEYBYTES];

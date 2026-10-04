@@ -2,7 +2,25 @@
 
 Canonical owner map for SPEC-010 F7-09, ADR-002 and native #1640 D8. This is the ONE planned inventory; historical `tests/native/fixture-isolation/` paths in ADR-002 are aliases for `tests/native-fixture/` below, not a second implementation. Existing #1640 checkout remains untouched and its source owner retains custody. This source map does not repair D1-D7 or authorize native implementation of their rejected architecture.
 
-Status: planned source contract awaiting distinct entire canonical review. Every new native/source component below is **ABSENT / UNIMPLEMENTED** at base ae912db700a7f879efb8665203d115ee3c59fc93. Existing adaptation targets are present source requiring future owned changes; no present target establishes capability. Actors are architectural roles, not invented accounts or people. Product paths may be authored only after this whole pre-code contract is accepted/landed, under a newly selected issue and sole writer. Outputs/compiler/SDK/TLS/zlib/crypto/Node-API libraries and actual loaded inputs are ABSENT/unadmitted, never inferred from documentation.
+Status: complete canonical contract independently reviewed and landed through #1651 at develop d65aa4c7. Every new native/source component below was **ABSENT / UNIMPLEMENTED** at historical base ae912db700a7f879efb8665203d115ee3c59fc93; this table retains the original complete ownership plan. Current U1 actual partial source progress is recorded below and is not complete U1. Existing adaptation targets are present source requiring future owned changes; no present target establishes capability. Actors are architectural roles, not invented accounts or people. Outputs/compiler/SDK/TLS/zlib/crypto/Node-API libraries and actual loaded inputs remain ABSENT/unadmitted, never inferred from source.
+
+## Current owned U1 source progress — incomplete
+
+Sole writer `feature/1647-f7-u1-native-capture` / draft #1686 owns actual native
+framing/state/budget, held spool/witness, Linux and Windows drain, canonical
+index/segment encoder and exact index decoder, reserve-before-crypto journal,
+crypto/signing, finite projection, partial native regression and provenance/
+row-derivation source. Internal `protocol.c`, `observer.h`,
+`canonical-index-reader.c`, `attempt-journal.c/.h` and
+`protocol-native-regression.c` implement the existing U1 boundary; they grant
+no new actor or public authority. Complete actual limitations/missing callers
+are retained in [U1 source checkpoint](../../tests/native-fixture/U1-SOURCE-CHECKPOINT.md).
+Async persistence/control settlement, authenticated pre-O entry/creation,
+complete manifests/records/errors/caller integration/SAME recovery and full
+production-path regression coverage remain missing. Actual nine-row inputs,
+actors/resources/keys/grants/spool/binaries/loaded inputs remain ABSENT. No
+component-only source GO or U1 completion follows. Existing #1640/#1643 writers
+and their checkouts remain untouched; U2/U3/U4/U5 statuses are unchanged.
 
 ## Source ownership map
 

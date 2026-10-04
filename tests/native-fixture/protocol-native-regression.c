@@ -3,6 +3,7 @@
 #include "protocol.h"
 #include "budget-reservation.h"
 #include "public-projection.h"
+#include "canonical-index.h"
 #include <assert.h>
 #include <string.h>
 #include <stdint.h>
@@ -46,4 +47,19 @@ static void states(void){
  assert(f7_state_advance(&state,F7_LOCAL_READBACK)==F7_INVALID);
  assert(!strcmp(f7_public_projection((enum f7_public_status)999),"{\"status\":\"capture_unavailable\"}"));
 }
-int main(void){framing();budgets();states();return 0;}
+static void index_records(void){
+ struct f7_index_object objects[2]={0},decoded_objects[2];
+ struct f7_index_input input={0},decoded;uint8_t original[4096],scratch[4096];size_t n;
+ objects[0].key[15]=1;objects[0].kind=F7_ENCRYPTED_SEGMENT;objects[0].length=128;
+ objects[1].key[15]=2;objects[1].kind=F7_ENCRYPTED_MANIFEST;objects[1].length=256;
+ input.objects=objects;input.count=2;
+ assert(f7_canonical_index(&input,original,sizeof(original),&n)==F7_OK);
+ assert(f7_decode_index(original,n,&decoded,decoded_objects,2,scratch,sizeof(scratch))==F7_OK);
+ assert(decoded.count==2&&decoded.objects[1].kind==F7_ENCRYPTED_MANIFEST);
+ original[n]='\n';assert(f7_decode_index(original,n+1,&decoded,decoded_objects,2,scratch,sizeof(scratch))==F7_INVALID);
+ /* Equal plaintext or valid JSON is irrelevant: exact signed roster bytes
+    reject changed/duplicate object keys and incomplete caller reservation. */
+ assert(f7_decode_index(original,n,&decoded,decoded_objects,1,scratch,sizeof(scratch))==F7_OVERFLOWED);
+ objects[1].key[15]=1;assert(f7_canonical_index(&input,original,sizeof(original),&n)==F7_INVALID);
+}
+int main(void){framing();budgets();states();index_records();return 0;}

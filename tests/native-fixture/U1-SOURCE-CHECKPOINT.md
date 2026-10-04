@@ -15,6 +15,10 @@ threaded original anonymous-pipe drain with native broken-pipe terminal status;
 libsodium sealed-box
 encryption and domain-separated Ed25519 index signing/readback operations;
 closed native canonical ciphertext-index and segment-metadata encoding;
+closed exact original ciphertext-index decoding with canonical roster digest
+recomputation, duplicate/order/extra/trailing/length/capacity rejection;
+held persistent reserve-before-crypto attempt journal with flush/independent
+same-object byte readback and strict hash-chain/replay/partial-record parsing;
 finite public strings with no arbitrary payload parameter.
 Native framing/state/budget negative regression source is present but UNEXECUTED;
 it is partial and does not replace complete original production-path regressions.
@@ -31,9 +35,12 @@ These components have no authorized entry path yet. Missing complete U1 work:
   native drain threads before releasing borrowed capture memory; that settlement
   is presently an unbounded wait. No universal bound or control-settlement proof.
 - Complete native plaintext-manifest encoder and closed record decoders;
-  persisted once-only attempt journal, recovery custodian and authenticated
-  SAME read-only successor handoff. Crypto `started` is process-local only and
-  is insufficient for once-after-death custody; no recovery claim follows.
+  complete journal admission/final freeze, recovery custodian and authenticated
+  SAME read-only successor handoff. Crypto uses a persistent reservation before
+  encryption/signing, but source-owned admission/creation, complete journal
+  freeze and authenticated restart/recovery integration remain missing.
+  A new empty caller journal cannot establish SAME authority after death.
+  No once-after-death or recovery claim follows from this partial module.
 - Linux held same-object read-only open capability creation. Duplicating a
   write-open fd is deliberately refused; the source-owned creation layer must
   retain separate admitted read-only descriptors before named authority ends.

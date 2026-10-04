@@ -16,6 +16,19 @@ int f7_identity_equal(const struct f7_identity *a,const struct f7_identity *b){
  !memcmp(a->owner,b->owner,a->owner_length)&&
  !memcmp(a->protection_sha256,b->protection_sha256,32);
 }
+int f7_handle_size(f7_handle handle,uint64_t *length,int64_t *status){
+ if(!length||!status)return F7_INVALID;*status=0;
+#ifdef _WIN32
+ LARGE_INTEGER size;
+ if(!GetFileSizeEx(handle,&size)||size.QuadPart<0){*status=GetLastError();return F7_NATIVE_FAILURE;}
+ *length=(uint64_t)size.QuadPart;
+#else
+ struct stat st;
+ if(fstat(handle,&st)<0||st.st_size<0){*status=errno;return F7_NATIVE_FAILURE;}
+ *length=(uint64_t)st.st_size;
+#endif
+ return F7_OK;
+}
 int f7_identity_read(f7_handle h,struct f7_identity *out,int directory){
  if(!out)return F7_INVALID;memset(out,0,sizeof(*out));
 #ifdef _WIN32
@@ -82,7 +95,7 @@ int f7_member_append(struct f7_member *m,const uint8_t *bytes,size_t count,
  }
  *persisted=done;return m->failed?F7_NATIVE_FAILURE:F7_OK;
 }
-int f7_member_finish(struct f7_member *m,int64_t *status){
+int f7_member_flush(struct f7_member *m,int64_t *status){
  struct f7_identity current;
  if(!m||!status||m->finalized)return F7_INVALID;*status=0;
 #ifdef _WIN32
@@ -91,8 +104,11 @@ int f7_member_finish(struct f7_member *m,int64_t *status){
  if(fsync(m->handle)<0){*status=errno;m->failed=1;}
 #endif
  if(f7_identity_read(m->handle,&current,0)||!f7_identity_equal(&current,&m->identity))m->failed=1;
- crypto_hash_sha256_final(&m->hash,m->digest);m->finalized=1;
  return m->failed?F7_INCOMPLETE:F7_OK;
+}
+int f7_member_finish(struct f7_member *m,int64_t *status){
+ int result=f7_member_flush(m,status);if(!m||!status||m->finalized)return F7_INVALID;
+ crypto_hash_sha256_final(&m->hash,m->digest);m->finalized=1;return result;
 }
 int f7_member_read_at(const struct f7_member *m,uint64_t offset,uint8_t *out,size_t count,int64_t *status){
  size_t done=0;
