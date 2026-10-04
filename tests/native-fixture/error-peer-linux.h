@@ -7,6 +7,7 @@ extern "C" {
 struct f7_linux_error_peer {
  f7_handle socket;
  int64_t original_pid;uint64_t original_uid,original_gid;
+ int64_t original_connected_pid;uint64_t original_connected_uid,original_connected_gid;
 };
 struct f7_linux_receive_fact {
  int native_called;int64_t returned,native_error;
@@ -16,7 +17,8 @@ struct f7_linux_receive_fact {
  int credentials_count;int64_t actual_pid;uint64_t actual_uid,actual_gid;
 };
 /* PRIVATE native source only. The original independently admitted ROOT owner
-   supplies the held socket and original creator credentials; these arguments
+   supplies the held socket, original endpoint creator and original per-message
+   sender credentials separately; these arguments
    cannot create a role, substitute a PID lookup or prove child lifetime.
    Body/control buffers remain original byte records on every result. Unknown
    ancillary capabilities are retained in control bytes for the owning native

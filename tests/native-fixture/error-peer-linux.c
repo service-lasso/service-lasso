@@ -28,8 +28,8 @@ static int query(const struct f7_linux_error_peer *peer,struct f7_linux_receive_
  fact->native_queries|=8;
  if(getsockopt(peer->socket,SOL_SOCKET,SO_PEERCRED,&original,&length)<0){fact->native_error=errno;return F7_NATIVE_FAILURE;}
  fact->connected_pid=original.pid;fact->connected_uid=original.uid;fact->connected_gid=original.gid;
- if(length!=sizeof(original)||original.pid!=peer->original_pid||
-    original.uid!=peer->original_uid||original.gid!=peer->original_gid)return F7_AUTH_FAILURE;
+ if(length!=sizeof(original)||original.pid!=peer->original_connected_pid||
+    original.uid!=peer->original_connected_uid||original.gid!=peer->original_connected_gid)return F7_AUTH_FAILURE;
  return F7_OK;
 }
 int f7_linux_error_peer_receive(const struct f7_linux_error_peer *peer,
@@ -37,6 +37,8 @@ int f7_linux_error_peer_receive(const struct f7_linux_error_peer *peer,
  struct f7_linux_receive_fact *fact){
  if(!fact)return F7_INVALID;memset(fact,0,sizeof(*fact));
  if(!peer||peer->socket<0||peer->original_pid<=0||peer->original_pid>INT_MAX||
+    peer->original_connected_pid<=0||peer->original_connected_pid>INT_MAX||
+    peer->original_connected_uid>UINT_MAX||peer->original_connected_gid>UINT_MAX||
     peer->original_uid>UINT_MAX||peer->original_gid>UINT_MAX||!body||!control||
     !capacity||capacity>F7_FRAME_HEADER_SIZE+F7_FRAME_MAX||
     control_capacity<CMSG_SPACE(sizeof(struct ucred))||control_capacity>F7_FRAME_MAX||
