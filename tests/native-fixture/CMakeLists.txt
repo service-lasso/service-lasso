@@ -35,7 +35,9 @@ add_library(f7_u1_native STATIC
   async-spool.c witness.c witness-reader.c observer.c observer-finalize.c
   observer-linux.c observer-windows.cpp child-witness.c
   child-witness-linux.c child-witness-windows.cpp
-  error-channel.c error-graph.c original-error-node.cpp original-error-node-regression.cpp
+  error-channel.c error-graph.c error-producer-endpoint.c error-producer-queue.c
+  serialization-fallback.c original-error-node.cpp original-error-producer.cpp
+  original-error-node-regression.cpp
   error-peer-linux.c canonical-index.c canonical-index-reader.c
   segment-record.c plaintext-manifest.c manifest-reader.c attempt-journal.c
   transport-crypto.c transport-package.c recovery.c recovery-linux.c

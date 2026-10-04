@@ -30,3 +30,5 @@ executable only. It does not provide positive pre-O ROOT entry, original-W/U4
 addon or lifecycle authority, authenticated recovery issuance, complete original
 nine-row regression execution, runtime qualification or source GO. All original
 failures and same-W/all-W-exit-before-delete NO-GO remain required.
+
+Native producer kernel-object comparison additionally requires the exact separately admitted Kernelbase.lib/Kernelbase.dll and SDK declarations for CompareObjectHandles. Official reference: https://learn.microsoft.com/en-us/windows/win32/api/handleapi/nf-handleapi-compareobjecthandles. It is advisory source data, never native input admission or an added object access grant. Actual inputs remain ABSENT.

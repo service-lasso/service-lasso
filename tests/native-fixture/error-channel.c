@@ -1,5 +1,6 @@
 #include "error-channel.h"
 #include "error-graph.h"
+#include "serialization-fallback.h"
 #include <string.h>
 int f7_error_channel_feed(struct f7_error_channel *c,const uint8_t *input,size_t n,
  uint64_t frame_limit,uint64_t payload_limit){
@@ -19,7 +20,10 @@ int f7_error_channel_feed(struct f7_error_channel *c,const uint8_t *input,size_t
     }
     /* Independently bounded fallback preserves the fact of serialization
        failure. It can never stand in for a complete original error graph. */
-    if(c->payload_type==F7_SERIALIZATION_FALLBACK){c->failed=1;return F7_INCOMPLETE;}
+    if(c->payload_type==F7_SERIALIZATION_FALLBACK){
+     if(f7_serialization_fallback_validate(c->payload,c->payload_used)){c->failed=1;return F7_INCOMPLETE;}
+     c->incomplete=1;
+    }
     c->header_used=0;c->payload_used=0;
    }
    continue;
@@ -42,10 +46,10 @@ int f7_error_channel_feed(struct f7_error_channel *c,const uint8_t *input,size_t
    c->payload_type=frame.payload_type;c->payload_used=0;
   }
  }
- return F7_OK;
+ return c->incomplete?F7_INCOMPLETE:F7_OK;
 }
 int f7_error_channel_eof(struct f7_error_channel *c){
  if(!c)return F7_INVALID;
- if(c->failed||c->remaining||c->header_used){c->failed=1;return F7_INCOMPLETE;}
+ if(c->failed||c->incomplete||c->remaining||c->header_used){c->failed=1;return F7_INCOMPLETE;}
  return F7_OK;
 }

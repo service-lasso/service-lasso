@@ -11,7 +11,7 @@ struct f7_error_channel {
  uint32_t remaining;
  uint8_t *payload;size_t payload_capacity,payload_used;
  uint16_t payload_type;uint32_t graph_node_limit;
- int failed;
+ int failed,incomplete;
 };
 /* Graph bytes are validated in the original admitted channel before terminal
    acceptance. This never substitutes for the original W identity assertion. */

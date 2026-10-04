@@ -101,3 +101,22 @@ actual execution remain separately owned. Original F1-F7 and nine fixture rows,
 all failures and deadlines, D1 same-isolate/all-W-exit-before-delete NO-GO remain
 unchanged. DIFFERENT ENTIRE source review and NEW exact ROOT precede any import,
 parser, compiler, build, native/ACL/lifecycle action or fixture execution.
+
+Native original-error transport now has explicit caller-owned normal/emergency
+rings, write/history/state buffers and stack/guard reservations. A single actual
+Linux/Windows native writer merges immutable frames by original global sequence;
+VM/control submission never blocks on transport. Known delivered prefixes and
+all failed queued/in-flight originals remain retained. Original sender native
+query/write/peer/object facts have bounded append-only private history; missing
+history capacity stops before another write. Construction errors retain their
+ordered original native statuses and partially initialized objects. Windows
+compares the held original kernel-object reference without additional object
+access rights; exact Kernelbase/SDK inputs remain UNADMITTED. Linux verifies
+original socket identity/connected credentials and held peer liveness against
+independently admitted ROOT expectations. These observations do not issue roles.
+The actual Node-API encoder now feeds the native queue, with a closed emergency
+serialization-failure record preserving primary and pending exception status.
+O error-channel source continues validating later original frames after a known
+serialization fallback while retaining attempt incompleteness. Malformed data
+still rejects. Original ROOT actor/source/peer/entry proof, W adapter integration,
+full resource/row/provenance and entire native regression source remain pending.
