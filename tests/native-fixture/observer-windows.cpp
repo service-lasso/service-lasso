@@ -10,6 +10,7 @@ struct drain_context {
  DWORD capacity;
  int result;
  volatile LONG *abort;
+ volatile LONG entered;
 };
 struct drain_owner {
  drain_context contexts[F7_STREAM_COUNT];
@@ -48,6 +49,7 @@ static int record(drain_context *d,enum f7_event event,uint64_t requested,
 }
 static DWORD WINAPI drain(LPVOID value){
  drain_context *d=(drain_context *)value;f7_capture *c=d->capture;unsigned i=d->stream;
+ InterlockedExchange(&d->entered,1);
  if(InterlockedCompareExchange(d->abort,0,0))return 0;
  for(;;){
   DWORD got=0;BOOL success=ReadFile(c->pipe[i],d->buffer,d->capacity,&got,NULL);
@@ -126,13 +128,37 @@ extern "C" int f7_capture_windows_prepare(struct f7_capture *c){
  }
  owner->prepared=1;return F7_OK;
 }
+extern "C" int f7_capture_windows_start_prepared(struct f7_capture *c){
+ if(!c||!c->prepared||c->child_created!=F7_NOT_CREATED)return F7_CONFLICT;
+ int result=f7_capture_persistence_ready(c);if(result)return result;
+ drain_owner *owner=(drain_owner *)c->native_drains;
+ if(!owner||!owner->prepared||!owner->lock_ready||owner->started)return F7_CONFLICT;
+ owner->started=1;
+ for(unsigned i=0;i<F7_STREAM_COUNT;i++)if(owner->threads[i]){
+  if(ResumeThread(owner->threads[i])==MAXDWORD){owner->resume_status[i]=GetLastError();return F7_NATIVE_FAILURE;}
+ }
+ /* Thread resume is not its running acknowledgment. Caller polls ready and
+    holds downstream launch until all ORIGINAL drains actually entered. */
+ return F7_OK;
+}
+extern "C" int f7_capture_windows_ready(struct f7_capture *c){
+ int result=f7_capture_persistence_ready(c);if(result)return result;
+ drain_owner *owner=(drain_owner *)c->native_drains;
+ if(!owner||!owner->prepared||!owner->started||InterlockedCompareExchange(&owner->abort,0,0))return F7_INCOMPLETE;
+ for(unsigned i=0;i<F7_STREAM_COUNT;i++)if(c->created[i]==F7_CREATED){
+  if(!owner->threads[i]||owner->resume_status[i]||!InterlockedCompareExchange(&owner->contexts[i].entered,0,0))return F7_INCOMPLETE;
+  DWORD waited=WaitForSingleObject(owner->threads[i],0);
+  if(waited!=WAIT_TIMEOUT){if(waited==WAIT_FAILED){owner->reap_status[i]=GetLastError();return F7_NATIVE_FAILURE;}return F7_INCOMPLETE;}
+ }
+ return F7_OK;
+}
 extern "C" int f7_capture_windows(struct f7_capture *c,uint64_t deadline){
  unsigned i;int result=F7_OK;
  if(!deadline)return F7_INVALID;
  int validation=f7_capture_validate(c);if(validation)return validation;
  if(!c->prepared)return F7_BUDGET_ABSENT;
  drain_owner *owner=(drain_owner *)c->native_drains;
- if(!owner||!owner->prepared||owner->started)return F7_CONFLICT;
+ if(!owner||!owner->prepared||!owner->started)return F7_CONFLICT;
  drain_context *contexts=owner->contexts;HANDLE *threads=owner->threads;
  /* Complete contexts and suspended drain lifetimes were installed before
     downstream READY. The owning entry must also start drains before READY;
@@ -149,10 +175,6 @@ extern "C" int f7_capture_windows(struct f7_capture *c,uint64_t deadline){
   if(f7_child_exit_record(c->witness,&exit))result=F7_INCOMPLETE;
   if(observation==F7_OK)c->child_exit_observed=1;
   else if(observation!=F7_INCOMPLETE)result=F7_INCOMPLETE;
- }
- owner->started=1;
- for(i=0;i<F7_STREAM_COUNT;i++)if(threads[i]){
-  if(ResumeThread(threads[i])==MAXDWORD){owner->resume_status[i]=GetLastError();result=F7_NATIVE_FAILURE;goto settle;}
  }
  for(;;){
   int live=0;

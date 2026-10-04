@@ -98,3 +98,16 @@ int f7_capture_settle(struct f7_capture *c,uint64_t deadline){
     heap context and members until actual writer lifetimes have settled. */
  return result;
 }
+int f7_capture_persistence_ready(struct f7_capture *c){
+ if(!c||!c->prepared||!c->witness)return F7_BUDGET_ABSENT;
+ struct f7_async_status status;
+ for(unsigned i=0;i<F7_STREAM_COUNT+2;i++){
+  struct f7_async_spool *q;
+  if(i<F7_STREAM_COUNT){if(c->created[i]!=F7_CREATED)continue;q=c->raw_async[i];}
+  else q=i==F7_STREAM_COUNT?c->witness->async:c->witness->emergency_async;
+  if(!q)return F7_BUDGET_ABSENT;
+  int result=f7_async_snapshot(q,&status);if(result)return result;
+  if(status.failed||status.finished||status.joined||status.worker_created!=1||!status.worker_entered)return F7_INCOMPLETE;
+ }
+ return F7_OK;
+}

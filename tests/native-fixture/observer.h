@@ -40,6 +40,11 @@ int f7_capture_validate(const struct f7_capture *capture);
 /* Prepare is called and successfully acknowledged BEFORE downstream launch.
    Capture refuses unprepared contexts; it never silently allocates on launch. */
 int f7_capture_prepare(struct f7_capture *capture);
+/* Nonblocking original worker readiness. Prepared storage/thread creation is
+   insufficient. Owning ROOT still supplies source/actor/endpoint admission. */
+int f7_capture_persistence_ready(struct f7_capture *capture);
+int f7_capture_windows_start_prepared(struct f7_capture *capture);
+int f7_capture_windows_ready(struct f7_capture *capture);
 int f7_capture_settle(struct f7_capture *capture,uint64_t absolute_monotonic_ms);
 /* Windows drain contexts are retained on deadline. Reap refuses live threads;
    the owner must retain capture and every referenced member until it succeeds. */
