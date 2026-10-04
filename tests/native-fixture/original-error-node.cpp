@@ -285,24 +285,26 @@ extern "C" int f7_original_error_encode(napi_env env,napi_value primary,napi_val
   memset(out,0,sizeof(*out));out->original_primary=primary;return F7_BUDGET_ABSENT;
  }
  int shape=geometry(w,payload,capacity,secondary,secondary_count,out);if(shape)return shape;
+ if(w->retained_incomplete)return F7_CONFLICT;
  memset(out,0,sizeof(*out));out->original_primary=primary;
  w->node_count=1;w->originals[0]=primary;memset(w->nodes,0,sizeof(*w->nodes));
  w->text_used=w->reference_used=w->primitive_used=w->read_used=0;builder build={env,w,out};int result=F7_OK;
- result=build.hold(primary);if(result){preserve_exception(env,w,out);return result;}
+ result=build.hold(primary);if(result){w->retained_incomplete=1;preserve_exception(env,w,out);return result;}
  if(expected){
-  result=build.hold(expected);if(result){preserve_exception(env,w,out);return result;}
+  result=build.hold(expected);if(result){w->retained_incomplete=1;preserve_exception(env,w,out);return result;}
   bool same=false;result=build.api(napi_strict_equals(env,primary,expected,&same));
   out->identity_checked=1;out->identity_equal=(int)same;
-  if(result){preserve_exception(env,w,out);return result;}
-  if(!same)return F7_AUTH_FAILURE;
+  if(result){w->retained_incomplete=1;preserve_exception(env,w,out);return result;}
+  if(!same){w->retained_incomplete=1;return F7_AUTH_FAILURE;}
  }
  uint32_t *original_secondary=w->references;w->reference_used=secondary_count;
  for(size_t i=0;i<secondary_count;i++){
-  result=build.reference(secondary[i],original_secondary+i);if(result){preserve_exception(env,w,out);return result;}
+  result=build.reference(secondary[i],original_secondary+i);if(result){w->retained_incomplete=1;preserve_exception(env,w,out);return result;}
  }
  for(size_t i=0;i<w->node_count;i++){
-  result=build.node(i);if(result){preserve_exception(env,w,out);return result;}
+  result=build.node(i);if(result){w->retained_incomplete=1;preserve_exception(env,w,out);return result;}
  }
  f7_error_graph graph={w->nodes,(uint32_t)w->node_count,1,original_secondary,(uint32_t)secondary_count};
- return f7_error_graph_encode(&graph,payload,capacity,&out->length);
+ result=f7_error_graph_encode(&graph,payload,capacity,&out->length);
+ if(result)w->retained_incomplete=1;return result;
 }

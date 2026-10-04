@@ -12,6 +12,7 @@ extern "C" int f7_original_error_produce(napi_env env,napi_value primary,napi_va
  out->serialization_result=result;
  if(result==F7_OK){
   out->submission_result=f7_error_queue_submit(queue,F7_ERROR_GRAPH,payload,out->original.length,0,&out->ticket);
+  if(out->submission_result)workspace->retained_incomplete=1;
   return out->submission_result;
  }
  /* No Node-API call occurs between preserving the actual serialization

@@ -16,9 +16,10 @@ static int same(napi_env env,napi_value first,napi_value second,napi_status *sta
 }
 }
 extern "C" int f7_original_error_native_regression(napi_env env,
- f7_original_error_workspace *w,f7_original_error_regression_context *context,
+ f7_original_error_workspace *workspaces,size_t workspace_count,f7_original_error_regression_context *context,
  uint8_t *payload,size_t capacity,napi_status *status){
- if(!env||!w||!context||context->original||!payload||!status)return F7_INVALID;*status=napi_ok;
+ if(!env||!workspaces||workspace_count!=4||!context||context->original||!payload||!status)return F7_INVALID;*status=napi_ok;
+ f7_original_error_workspace *w=workspaces;
 #define CALL(operation) do{*status=(operation);if(*status!=napi_ok)return F7_NATIVE_FAILURE;}while(0)
  char16_t original_units[]={u'x',0xd800,0};napi_value message,first,second,aggregate,array,plain;
  CALL(napi_create_string_utf16(env,original_units,3,&message));
@@ -70,10 +71,10 @@ extern "C" int f7_original_error_native_regression(napi_env env,
  descriptor.utf8name="stack";descriptor.getter=original_throw;descriptor.data=context;
  descriptor.attributes=napi_configurable;
  CALL(napi_define_properties(env,first,1,&descriptor));
- encoded=f7_original_error_encode(env,first,second,NULL,0,w,payload,capacity,&result);
+ encoded=f7_original_error_encode(env,first,second,NULL,0,workspaces+1,payload,capacity,&result);
  if(encoded!=F7_AUTH_FAILURE||context->calls||!result.identity_checked||result.identity_equal||
     !same(env,result.original_primary,first,status))return F7_CONFLICT;
- encoded=f7_original_error_encode(env,first,first,NULL,0,w,payload,capacity,&result);
+ encoded=f7_original_error_encode(env,first,first,NULL,0,workspaces+2,payload,capacity,&result);
  if(encoded!=F7_NATIVE_FAILURE||context->calls!=1||context->query_status!=napi_ok||context->throw_status!=napi_ok||
     result.exception_keeper_result!=F7_OK||result.native_status!=napi_pending_exception||
     result.exception_query_status!=napi_ok||result.exception_restore_status!=napi_ok)return F7_CONFLICT;
@@ -81,10 +82,14 @@ extern "C" int f7_original_error_native_regression(napi_env env,
  napi_value caught;CALL(napi_get_and_clear_last_exception(env,&caught));
  if(!same(env,caught,second,status)||!same(env,result.serialization_exception,second,status)||
     !same(env,result.original_primary,first,status))return F7_CONFLICT;
+ size_t retained_text=workspaces[2].text_used,retained_nodes=workspaces[2].node_count;
+ encoded=f7_original_error_encode(env,first,first,NULL,0,workspaces+2,payload,capacity,&result);
+ if(encoded!=F7_CONFLICT||context->calls!=1||workspaces[2].text_used!=retained_text||
+    workspaces[2].node_count!=retained_nodes)return F7_CONFLICT;
  /* Source geometry/refusal never substitutes a replacement Error. */
- size_t saved=w->primitive_capacity;w->primitive_capacity=0;
- encoded=f7_original_error_encode(env,second,second,NULL,0,w,payload,capacity,&result);
- w->primitive_capacity=saved;
+ size_t saved=workspaces[3].primitive_capacity;workspaces[3].primitive_capacity=0;
+ encoded=f7_original_error_encode(env,second,second,NULL,0,workspaces+3,payload,capacity,&result);
+ workspaces[3].primitive_capacity=saved;
  if(encoded!=F7_BUDGET_ABSENT||!same(env,result.original_primary,second,status))return F7_CONFLICT;
 #undef CALL
  return F7_OK;

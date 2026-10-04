@@ -14,7 +14,8 @@ struct f7_original_error_regression_context {
    Caller owns the getter context and persistent strong-reference arena until
    all original Error/getter lifetimes settle; callback-local storage is refused. */
 int f7_original_error_native_regression(napi_env env,
- struct f7_original_error_workspace *workspace,struct f7_original_error_regression_context *original_context,
+ struct f7_original_error_workspace *original_workspaces,size_t workspace_count,
+ struct f7_original_error_regression_context *original_context,
  uint8_t *payload,size_t capacity,
  napi_status *native_status);
 #ifdef __cplusplus

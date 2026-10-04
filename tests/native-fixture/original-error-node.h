@@ -26,6 +26,7 @@ struct f7_original_error_workspace {
  struct f7_original_property_read *reads;size_t read_capacity,read_used;
  napi_env original_env;
  napi_ref *held;size_t held_capacity,held_count;
+ int retained_incomplete;
 };
 struct f7_original_error_result {
  napi_value original_primary,serialization_exception;
