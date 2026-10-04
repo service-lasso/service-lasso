@@ -439,3 +439,5 @@ The newcomer journey teaches adding and operating managed services. Todo runs as
 ## Tutorial architecture presentation (#1670)
 
 Show purpose first and implementation second: App (lasso-todo), Database (lasso-postgres), API (lasso-todo-api). Keep the managed boundary and progressive additions; move detailed responsibilities, support services and data paths into adjacent tables.
+
+#1667: Consume the corrected foreground lasso-postgres release under SPEC-002 AC-4AJ.7/.8 and producer SPEC-PG-MANAGED. Remove the tutorial adapter prerequisite, preserve prior data/failures, bind exact tag/checksum native Core evidence and explicit docs publication.

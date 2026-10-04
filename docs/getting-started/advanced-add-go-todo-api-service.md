@@ -44,7 +44,7 @@ The highlighted service is new in this lesson. Everything inside the boundary is
 | --- | --- | --- |
 | App | `lasso-todo` (`todo`) | Serve the browser UI and proxy `/todos` to the API's allocated HTTP endpoint. |
 | API | `lasso-todo-api` (`todo-api`) | Validate requests and read/write SQL through the Database's allocated endpoint. |
-| Database | `lasso-postgres` (`postgres`) | Retain todos in `${SERVICE_ROOT}/data/database` across service restarts. |
+| Database | `lasso-postgres` (`postgres`) | Retain todos in `${SERVICE_ROOT}/runtime/data` across service restarts. |
 
 <details>
 <summary>Existing platform services</summary>

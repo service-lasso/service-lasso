@@ -39,8 +39,8 @@ For bundled release outputs, the packaging step runs Service Lasso package/acqui
 Use the CLI import flow when the add-on repo publishes `service.json` as a release asset:
 
 ```powershell
-node dist/cli.js services import service-lasso/lasso-postgres --tag 2026.5.3-ddd9e47 --services-root ./services --dry-run --json
-node dist/cli.js services import service-lasso/lasso-postgres --tag 2026.5.3-ddd9e47 --services-root ./services
+node dist/cli.js services import service-lasso/lasso-postgres --tag 2026.10.4-1af7982 --services-root ./services --dry-run --json
+node dist/cli.js services import service-lasso/lasso-postgres --tag 2026.10.4-1af7982 --services-root ./services
 ```
 
 The command downloads and validates only the released manifest, writes it to `services/<service-id>/service.json`, and leaves service enablement, setup, secrets, install, and start decisions to the consuming app/operator. Existing manifests are protected by default; use `--force` only when replacing a manifest intentionally.
