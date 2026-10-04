@@ -452,3 +452,14 @@ SPEC-006 AC-6G.owning-resource-observation and SPEC-008 R2/R5/R7 require the ACT
 The scoped verifier must also carry the landed Windows npm descriptor selection from issue1650: fixed actual process.execPath sibling npm-cli.js selected before ambient overrides, unchanged non-Windows routing and outer npmEntrypoint diagnostic seam. Original300000ms install/900000ms consumer/60000ms provenance, cleanup eight attempts and native/published same-byte acceptance remain unchanged. Source helper is never copied over published Core.
 
 Meaningful prospective fixtures exercise actual scoped allocation/candidate/provenance/staging/install/consumer/catch/finally bodies, original shared resource grammar and forged/private/unknown/contradictory stderr negatives, unreached resources and error/cleanup precedence. They are UNEXECUTED; different fresh ENTIRE cumulative source review and NEW complete-input ROOT admission precede any import/parser/compiler/build/npm/test/native invocation. EMPTY catalogs, provider original ZIP/private Admin/held-buffer custody, native1640 NO-GO, F7 unknown causes, full Windows/Linux released journeys/TUI five actions/Core ZIP and owner GA gates remain unchanged. Parent owns tracking/landing.
+
+## Getting Started service learning (#1658)
+
+The newcomer journey teaches adding and operating managed services. Todo runs as a service from the first lesson; PostgreSQL and Go API are subsequent managed additions. User correction #1666 requires a proper GitHub-template-derived `lasso-todo` service repository with its own manifest, packaging, verification and CI; Core-owned ad-hoc runtime copying is superseded. Go API follows the same service authoring contract. Template provenance, packaged consumer evidence and progressive managed architecture must be verified. Runtime/GA qualification remains separate.
+
+
+## Tutorial architecture presentation (#1670)
+
+Show purpose first and implementation second: App (lasso-todo), Database (lasso-postgres), API (lasso-todo-api). Keep the managed boundary and progressive additions; move detailed responsibilities, support services and data paths into adjacent tables.
+
+#1667: Consume the corrected foreground lasso-postgres release under SPEC-002 AC-4AJ.7/.8 and producer SPEC-PG-MANAGED. Remove the tutorial adapter prerequisite, preserve prior data/failures, bind exact tag/checksum native Core evidence and explicit docs publication.
