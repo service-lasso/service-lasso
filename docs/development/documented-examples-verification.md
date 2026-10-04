@@ -143,7 +143,51 @@ The reviewer caught and reran fixes for the running inventory path, required
 manifest description and direct executable path. The earlier external-host
 architecture and comment-only Go sketch did not satisfy these lessons.
 
-## Wider example inventory
+## Todo desktop stage (#1679)
+
+The [fifth tutorial](../getting-started/package-todo-tauri.md) uses the native
+Windows implementation in [template PR #25](https://github.com/service-lasso/service-lasso-app-tauri/pull/25).
+Its reviewed source candidate is `2372ca237dfe671a4b7bb1e6ae0d99a74a549c9f`.
+[Native Windows run 37219797993](https://github.com/service-lasso/service-lasso-app-tauri/actions/runs/37219797993)
+compiled the application and NSIS installer; protected host regressions passed
+on Windows and in [Linux run 37219797955](https://github.com/service-lasso/service-lasso-app-tauri/actions/runs/37219797955).
+Existing protected tests were not edited.
+
+| Boundary | Direct observation |
+| --- | --- |
+| Packaged host dependencies | Portable Node 22, published Core `2026.9.22-f3de461`, checksum-verified Admin `2026.8.31-f015b44` |
+| Released managed stack | Todo `2026.10.4-6f47534`, Go API `2026.10.4-9b45f09`, PostgreSQL `2026.10.4-1af7982` installed/configured/started through real Core |
+| Todo persistence | Real browser creation; API and Todo read the same ID after a full host restart |
+| Seed preservation | Modified manifest and user-data sentinel remained unchanged after restart |
+| Broker onboarding | Canonical Core IPC consumer manifest completed bootstrap/authenticated readiness; same Broker remained healthy after 63 seconds |
+| Credential acknowledgement | Reviewer custody retained privately; literal Copy/Continue/sign-in flow remains unqualified because verification did not write credentials to the shared clipboard |
+| Owned shutdown | Host exited zero after stdin shutdown plus EOF; exact PostgreSQL/API/Todo and Broker PIDs were absent afterward |
+| Actual compiled native app | Unchanged NSIS-extracted application created a native window, started real PostgreSQL/API/Todo and read the retained Todo ID; the normal CloseRequested handler exited zero and all five exact native/Node/service PIDs were absent |
+| Diagrams | All five tutorial diagrams passed desktop/mobile and light/dark rendering: 20 views, readable labels and no page overflow |
+
+The first compiled candidate (`019adef`) failed before readiness because Node
+could not resolve Tauri's extended Windows resource path. The final source
+normalizes those paths. Earlier raw Broker-producer HTTP health failures remain
+retained; the corrected template uses Core's canonical IPC consumer definition.
+The legacy packaging fixture also lacked its declared executable; the packaging
+helper now creates that fixture without weakening its protected tests. Fixture
+installation is separate from the real released Todo execution above.
+
+The native application SHA-256 is
+`9c2ea584f7e2b9ff1bd7e0fa2ad4fa0ae9419c7b00f014406c7a903ed1474a91`;
+installer SHA-256 is
+`4912b21184d643284d7da283538411e09d806163972e3317b32ccb5f05e8c843`.
+The held payload includes Node `22.23.3`; no source or dependency was swapped
+for execution. The same implementation landed on template `develop` at
+`59a8039d5aa57bc60728f3e6e5fda461d6d7a825`.
+
+Native installer UI installation/uninstallation/upgrades, manual native-window
+interaction, code signing, offline service acquisition, embedded WebView SSO,
+macOS/Linux native execution and GA are separate, unqualified boundaries.
+The unchanged Core startup-crash suite still reports existing fixture failures;
+this docs-only change does not claim whole-Core acceptance.
+
+## Wider example inventory (earlier review)
 
 | Article/example | Observed result and remaining boundary |
 | --- | --- |

@@ -1,0 +1,418 @@
+name: Release Qualification Scoped
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: release-qualification-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CANDIDATE_SHA: ${{ github.sha }}
+
+jobs:
+  qualify-products:
+    if: ${{ github.ref == 'refs/heads/develop' }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+
+      - name: Bind source-owned scoped policy before acquisition
+        run: node scripts/bind-scoped-workflow-source.mjs
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Compute candidate version
+        shell: bash
+        run: |
+          set -euo pipefail
+          short_sha="${CANDIDATE_SHA::7}"
+          date_utc="$(date -u +%Y.%-m.%-d)"
+          echo "SERVICE_LASSO_RELEASE_VERSION=${date_utc}-${short_sha}" >> "$GITHUB_ENV"
+
+      - name: Audit production dependencies
+        run: npm run audit:production
+
+      - name: Audit tooling dependencies
+        run: npm run audit:tooling
+
+      - name: Establish complete-suite custody
+        shell: bash
+        run: |
+          set -euo pipefail
+          qualification_root="${RUNNER_TEMP}/release-qualification-${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}"
+          mkdir -p "$qualification_root/workspace"
+          test ! -e "$qualification_root/instances.json"
+          test ! -e "$qualification_root/ports.json"
+
+      - name: Run complete test suite
+        # The suite gets its own fresh custody paths.  Tests must close their
+        # owned work naturally; a force-exit would hide retained handles.
+        env:
+          SERVICE_LASSO_RELEASE_METADATA_TOKEN: ${{ github.token }}
+          SERVICE_LASSO_WORKSPACE_ROOT: ${{ runner.temp }}/release-qualification-${{ github.run_id }}-${{ github.job }}-${{ github.run_attempt }}/workspace
+          SERVICE_LASSO_INSTANCE_REGISTRY_PATH: ${{ runner.temp }}/release-qualification-${{ github.run_id }}-${{ github.job }}-${{ github.run_attempt }}/instances.json
+          SERVICE_LASSO_HOST_PORT_REGISTRY_PATH: ${{ runner.temp }}/release-qualification-${{ github.run_id }}-${{ github.job }}-${{ github.run_attempt }}/ports.json
+        run: npm test
+
+      - name: Write exact-head guarded MCP evidence
+        env:
+          MCP_GUARDED_ACTION_EVIDENCE_PATH: artifacts/mcp-guarded-actions.json
+        run: node scripts/write-mcp-guarded-action-evidence.mjs
+
+      - name: Upload exact-head guarded MCP evidence
+        id: guarded_mcp_artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mcp-guarded-actions-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/mcp-guarded-actions.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Read back exact-head guarded MCP evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MCP_GUARDED_ACTION_ARTIFACT_ID: ${{ steps.guarded_mcp_artifact.outputs.artifact-id }}
+          MCP_GUARDED_ACTION_ARTIFACT_NAME: mcp-guarded-actions-${{ github.run_id }}-${{ github.run_attempt }}
+          MCP_GUARDED_ACTION_ARTIFACT_DIGEST: ${{ steps.guarded_mcp_artifact.outputs.artifact-digest }}
+        run: node scripts/verify-mcp-guarded-action-artifact.mjs
+
+      - name: Write exact-head durable MCP operation evidence
+        env:
+          MCP_OPERATION_EVIDENCE_PATH: artifacts/mcp-operations.json
+        run: node scripts/write-mcp-operation-evidence.mjs
+
+      - name: Upload exact-head durable MCP operation evidence
+        id: durable_mcp_artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mcp-operations-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/mcp-operations.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Read back exact-head durable MCP operation evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MCP_OPERATION_ARTIFACT_ID: ${{ steps.durable_mcp_artifact.outputs.artifact-id }}
+          MCP_OPERATION_ARTIFACT_NAME: mcp-operations-${{ github.run_id }}-${{ github.run_attempt }}
+          MCP_OPERATION_ARTIFACT_DIGEST: ${{ steps.durable_mcp_artifact.outputs.artifact-digest }}
+        run: node scripts/verify-mcp-operation-artifact.mjs
+
+      - name: Verify release artifacts
+        env:
+          SERVICE_LASSO_RELEASE_METADATA_TOKEN: ${{ github.token }}
+        run: npm run build && node scripts/release-verify-scoped.mjs
+
+      - name: Verify publishable package
+        env:
+          SERVICE_LASSO_RELEASE_METADATA_TOKEN: ${{ github.token }}
+        run: npm run build && node scripts/publish-package-verify-scoped.mjs
+
+      - name: Validate release asset policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$SERVICE_LASSO_RELEASE_VERSION"
+          mapfile -t asset_names < <(node scripts/check-release-assets-scoped.mjs --expected "$version")
+          (
+            cd artifacts
+            sha256sum "${asset_names[@]:0:12}" | LC_ALL=C sort -k2 > SHA256SUMS.txt
+          )
+          for asset_name in "${asset_names[@]}"; do
+            test -f "artifacts/${asset_name}"
+          done
+          node scripts/check-release-assets-scoped.mjs "$version" "${asset_names[@]}"
+
+      - name: Upload qualification manifests
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-qualification-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            artifacts/service-lasso-*/release-artifact.json
+            artifacts/npm/service-lasso-package-*/publish-artifact.json
+          if-no-files-found: warn
+          retention-days: 90
+
+  qualify-broker-ipc:
+    if: ${{ github.ref == 'refs/heads/develop' }}
+    name: broker-ipc (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            asset: secretsbroker-win32.zip
+            binary: secretsbroker.exe
+            sha256: e64ee6a85c053c6dd68e2713477dae0620a458496bbd41077b55cc4c2df3f966
+          - os: ubuntu-latest
+            asset: secretsbroker-linux.tar.gz
+            binary: secretsbroker
+            sha256: 3466c9adf01d14b202fd084705bfda11fef627206587a0ad1f62dbb6a6a4f295
+
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+
+      - name: Bind source-owned scoped policy before acquisition
+        run: node scripts/bind-scoped-workflow-source.mjs
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Core
+        run: npm run build
+
+      - name: Download and verify pinned Secrets Broker
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $asset = '${{ matrix.asset }}'
+          $expected = '${{ matrix.sha256 }}'
+          $archive = Join-Path $env:RUNNER_TEMP $asset
+          $extractRoot = Join-Path $env:RUNNER_TEMP 'secretsbroker-ipc-qualification'
+          $url = "https://github.com/service-lasso/lasso-secretsbroker/releases/download/2026.8.31-f340883/$asset"
+          $downloaded = $false
+          $maxAttempts = 4
+          for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+            Remove-Item -LiteralPath $archive -Force -ErrorAction SilentlyContinue
+            try {
+              Invoke-WebRequest -Uri $url -OutFile $archive
+              $downloaded = $true
+              break
+            } catch {
+              if ($attempt -eq $maxAttempts) {
+                throw 'Pinned Secrets Broker archive download failed after bounded retries.'
+              }
+              Start-Sleep -Seconds ([Math]::Pow(2, $attempt))
+            }
+          }
+          if (-not $downloaded) {
+            throw 'Pinned Secrets Broker archive download did not complete.'
+          }
+          $actual = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne $expected) {
+            throw 'Pinned Secrets Broker archive checksum mismatch.'
+          }
+          New-Item -ItemType Directory -Path $extractRoot | Out-Null
+          if ($asset.EndsWith('.zip')) {
+            Expand-Archive -LiteralPath $archive -DestinationPath $extractRoot
+          } else {
+            tar -xzf $archive -C $extractRoot
+            if ($LASTEXITCODE -ne 0) {
+              throw 'Pinned Secrets Broker archive extraction failed.'
+            }
+          }
+          $binary = Get-ChildItem -LiteralPath $extractRoot -Filter '${{ matrix.binary }}' -File -Recurse | Select-Object -First 1
+          if (-not $binary) {
+            throw 'Pinned Secrets Broker binary is missing from the verified archive.'
+          }
+          if ($env:RUNNER_OS -ne 'Windows') {
+            chmod +x $binary.FullName
+            if ($LASTEXITCODE -ne 0) {
+              throw 'Pinned Secrets Broker binary could not be made executable.'
+            }
+          }
+          "SERVICE_LASSO_TEST_BROKER_BINARY=$($binary.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Qualify real Broker subprocess over authenticated OS IPC
+        env:
+          SERVICE_LASSO_REQUIRE_TEST_BROKER_BINARY: "1"
+          SERVICE_LASSO_BROKER_IPC_EVIDENCE_PATH: artifacts/broker-ipc-${{ runner.os }}.json
+        run: node --test --test-concurrency=1 --test-timeout=900000 tests/broker-real-ipc-qualification.test.js
+
+      - name: Upload Broker IPC qualification evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: broker-ipc-qualification-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/broker-ipc-${{ runner.os }}.json
+          if-no-files-found: error
+          retention-days: 90
+
+  qualify-mcp-product:
+    if: ${{ github.ref == 'refs/heads/develop' }}
+    name: mcp-product-source
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - name: Check out exact candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+
+      - name: Bind source-owned scoped policy before acquisition
+        run: node scripts/bind-scoped-workflow-source.mjs
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Run blocking MCP source conformance
+        run: npm run test:mcp:product
+
+  qualify-mcp-packaged:
+    if: ${{ github.ref == 'refs/heads/develop' }}
+    name: mcp-packaged (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    permissions:
+      actions: read
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: win32
+          - os: ubuntu-latest
+            platform: linux
+    steps:
+      - name: Check out exact candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+
+      - name: Bind source-owned scoped policy before acquisition
+        run: node scripts/bind-scoped-workflow-source.mjs
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Compute candidate package version
+        shell: pwsh
+        run: |
+          $shortSha = $env:CANDIDATE_SHA.Substring(0, 7)
+          $dateUtc = [DateTime]::UtcNow.ToString('yyyy.M.d')
+          "SERVICE_LASSO_RELEASE_VERSION=$dateUtc-$shortSha" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Build packaged MCP verifier
+        run: npm run build
+
+      - name: Set up hash-pinned Windows ConPTY host
+        if: matrix.platform == 'win32'
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+          architecture: "x64"
+
+      - name: Install hash-pinned Windows ConPTY host
+        if: matrix.platform == 'win32'
+        run: "python -m pip install --require-hashes --only-binary=:all: --no-deps -r scripts/requirements-conpty.txt"
+
+      - name: Verify attached-terminal TUI behavior (Windows ConPTY)
+        if: matrix.platform == 'win32'
+        env:
+          SERVICE_LASSO_RELEASE_METADATA_TOKEN: ${{ github.token }}
+        run: node scripts/verify-operator-tui-conpty-scoped.mjs
+
+      - name: Verify fresh-consumer packaged MCP
+        env:
+          MCP_PRODUCT_EVIDENCE_PATH: artifacts/mcp-product-${{ matrix.platform }}.json
+          SERVICE_LASSO_RELEASE_METADATA_TOKEN: ${{ github.token }}
+        run: node scripts/verify-mcp-packaged-bootstrap-scoped.mjs
+
+      - name: Upload exact-SHA release MCP evidence
+        id: release_mcp_artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-mcp-product-${{ matrix.platform }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/mcp-product-${{ matrix.platform }}.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Download and validate release MCP evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MCP_PRODUCT_PLATFORM: ${{ matrix.platform }}
+          MCP_PRODUCT_ARTIFACT_ID: ${{ steps.release_mcp_artifact.outputs.artifact-id }}
+          MCP_PRODUCT_ARTIFACT_NAME: release-mcp-product-${{ matrix.platform }}-${{ github.run_id }}-${{ github.run_attempt }}
+          MCP_PRODUCT_ARTIFACT_DIGEST: ${{ steps.release_mcp_artifact.outputs.artifact-digest }}
+        run: node scripts/verify-mcp-product-artifact.mjs
+
+  qualify-release:
+    if: ${{ always() && github.ref == 'refs/heads/develop' }}
+    needs:
+      - qualify-products
+      - qualify-broker-ipc
+      - qualify-mcp-product
+      - qualify-mcp-packaged
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+      - name: Bind scoped source
+        run: node scripts/bind-scoped-workflow-source.mjs
+      - name: Require product, Broker IPC, and MCP qualification
+        shell: bash
+        run: |
+          set -euo pipefail
+          test '${{ needs.qualify-products.result }}' = 'success'
+          test '${{ needs.qualify-broker-ipc.result }}' = 'success'
+          test '${{ needs.qualify-mcp-product.result }}' = 'success'
+          test '${{ needs.qualify-mcp-packaged.result }}' = 'success'
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install and build exact aggregate reader dependencies
+        run: npm ci && npm run build
+      - name: Collect exact current-attempt scoped qualification
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/collect-scoped-mcp-qualification.mjs
+
+      - name: Retain complete scoped qualification wrapper
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: scoped-release-qualification-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/scoped-qualification
+          if-no-files-found: error
+          retention-days: 90
