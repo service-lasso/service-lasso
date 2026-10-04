@@ -17,6 +17,8 @@ $managedPath = Join-Path $repoRoot $managedRelativePath
 $binaryPath = Join-Path $repoRoot $binaryRelativePath
 $provenancePath = Join-Path $repoRoot $provenanceRelativePath
 $vsDevCmd = "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat"
+$vcVars = Join-Path (Split-Path -Parent $vsDevCmd) "vsdevcmd/ext/vcvars.bat"
+$recipe = "BOOTSTRAP-NATIVE-VCVARS-ENV-2"
 $compilerOptions = @("/nologo", "/TC", "/O2", "/GS", "/MT", "/W4", "/link", "/Brepro", "bcrypt.lib")
 
 if (-not [IO.File]::Exists($vsDevCmd)) { throw "The trusted Visual Studio native compiler environment was unavailable." }
@@ -51,7 +53,7 @@ function Get-CanonicalProvenanceJson([string]$sourceSha256, [string]$managedSha2
     '  "schemaVersion": 1,',
     '  "compiler": {',
     '    "family": "Microsoft Visual C++ Build Tools native compiler",',
-    '    "path": "Visual Studio 2022 Build Tools via VsDevCmd",',
+    '    "path": "Visual Studio 2022 Build Tools via BOOTSTRAP-NATIVE-VCVARS-ENV-2",',
     '    "options": [',
     '      "/nologo",',
     '      "/TC",',
@@ -85,24 +87,102 @@ function Get-CanonicalProvenanceJson([string]$sourceSha256, [string]$managedSha2
   ) -join "`n")
 }
 
+[byte[]]$sourceBytes = [IO.File]::ReadAllBytes($sourcePath)
+[byte[]]$managedBytes = [IO.File]::ReadAllBytes($managedPath)
+$sourceSha256 = Get-Sha256Hex $sourceBytes
+$managedSha256 = Get-Sha256Hex $managedBytes
+$sourceText = [Text.Encoding]::UTF8.GetString($sourceBytes)
+$digestDeclaration = [regex]::Match($sourceText, 'MANAGED_LAUNCHER_SHA256\[32\]\s*=\s*\{([^}]+)\}', [Text.RegularExpressions.RegexOptions]::Singleline)
+$digestValues = @([regex]::Matches($digestDeclaration.Groups[1].Value, '0x([a-fA-F0-9]{2})') | ForEach-Object { $_.Groups[1].Value.ToLowerInvariant() })
+if ($managedBytes.Length -ne 39936 -or $sourceText -notmatch 'MANAGED_LAUNCHER_BYTE_LENGTH\s+39936LL' -or $digestValues.Count -ne 32 -or ($digestValues -join '') -cne $managedSha256) {
+  throw "Native bootstrap source did not pin the managed launcher identity."
+}
 $temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) ("service-lasso-native-bootstrap-" + [Guid]::NewGuid().ToString("N"))
-try {
-  $null = New-Item -ItemType Directory -Path $temporaryRoot
+  # Retain every original attempt, including failed initialization/compiler output.
+  $null = New-Item -ItemType Directory -Path $temporaryRoot -ErrorAction Stop
+  $childTemp = Join-Path $temporaryRoot "temp"
+  $null = New-Item -ItemType Directory -Path $childTemp -ErrorAction Stop
+  $childEnvironment = [Collections.Generic.Dictionary[string,string]]::new([StringComparer]::OrdinalIgnoreCase)
+  foreach ($name in @("PUBLIC", "PROCESSOR_IDENTIFIER", "SystemRoot", "PROCESSOR_REVISION", "ProgramW6432", "PROCESSOR_ARCHITECTURE", "SystemDrive", "ProgramFiles", "APPDATA", "USERPROFILE", "OS", "LOCALAPPDATA", "ProgramFiles(x86)", "WINDIR", "ProgramData", "NUMBER_OF_PROCESSORS", "PROCESSOR_LEVEL", "COMSPEC")) {
+    $value = [Environment]::GetEnvironmentVariable($name)
+    if ([string]::IsNullOrEmpty($value)) { throw "A required minimal child environment input was unavailable: $name" }
+    $childEnvironment.Add($name, $value)
+  }
+  $childEnvironment.Add("TEMP", $childTemp)
+  $childEnvironment.Add("TMP", $childTemp)
+  $childEnvironment.Add("PATH", "$env:SystemRoot\System32;$env:SystemRoot;$env:SystemRoot\System32\Wbem")
+  $childEnvironment.Add("VSCMD_SKIP_SENDTELEMETRY", "1")
+  if (-not [IO.File]::Exists($vcVars)) { throw "The selected native compiler extension was unavailable." }
+  $initializePath = Join-Path $temporaryRoot "initialize-native-env.cmd"
+  $initializeText = @(
+    '@echo off',
+    ('call "{0}" -no_logo -arch=x64 -no_ext' -f $vsDevCmd),
+    'if errorlevel 1 exit /b 1',
+    ('call "{0}"' -f $vcVars),
+    'if errorlevel 1 exit /b 1',
+    'set "INCLUDE=%__VSCMD_VCVARS_INCLUDE%%INCLUDE%"',
+    'set "EXTERNAL_INCLUDE=%__VSCMD_VCVARS_INCLUDE%%EXTERNAL_INCLUDE%"',
+    'set __VSCMD_VCVARS_INCLUDE=',
+    'set',
+    'exit /b 0',
+    ''
+  ) -join "`r`n"
+  [IO.File]::WriteAllText($initializePath, $initializeText, [Text.UTF8Encoding]::new($false))
+  function Invoke-RetainedNativeTool([string]$file, [string[]]$arguments, $environment, [string]$label) {
+    $start = [Diagnostics.ProcessStartInfo]::new()
+    $start.FileName = $file
+    $start.WorkingDirectory = $temporaryRoot
+    $start.UseShellExecute = $false
+    $start.RedirectStandardOutput = $true
+    $start.RedirectStandardError = $true
+    $start.Environment.Clear()
+    foreach ($entry in $environment.GetEnumerator()) { $start.Environment.Add($entry.Key, $entry.Value) }
+    foreach ($argument in $arguments) { $start.ArgumentList.Add($argument) }
+    $stdout = [IO.File]::Open((Join-Path $temporaryRoot "$label.stdout.raw"), [IO.FileMode]::CreateNew)
+    $stderr = [IO.File]::Open((Join-Path $temporaryRoot "$label.stderr.raw"), [IO.FileMode]::CreateNew)
+    $process = [Diagnostics.Process]::new(); $process.StartInfo = $start
+    $completed = $false; $exitCode = $null; $classification = "exception"
+    try {
+      if (-not $process.Start()) { throw "The selected tool did not start." }
+      $outCopy = $process.StandardOutput.BaseStream.CopyToAsync($stdout)
+      $errCopy = $process.StandardError.BaseStream.CopyToAsync($stderr)
+      $process.WaitForExit()
+      $outCopy.GetAwaiter().GetResult(); $errCopy.GetAwaiter().GetResult()
+      $completed = $true; $exitCode = $process.ExitCode
+      $classification = if ($exitCode -eq 0) { "completed_success" } else { "completed_failure" }
+      if ($process.ExitCode -ne 0) { throw "The selected tool returned a failed original result." }
+    } finally {
+      $stdout.Dispose(); $stderr.Dispose(); $process.Dispose()
+      $result = [ordered]@{ recipe = $recipe; tool = $file; arguments = $arguments; completed = $completed; exitCode = $exitCode; classification = $classification }
+      $resultBytes = [Text.UTF8Encoding]::new($false).GetBytes(($result | ConvertTo-Json -Depth 4))
+      $resultFile = [IO.File]::Open((Join-Path $temporaryRoot "$label.result.json"), [IO.FileMode]::CreateNew)
+      try { $resultFile.Write($resultBytes, 0, $resultBytes.Length) } finally { $resultFile.Dispose() }
+    }
+  }
+  Invoke-RetainedNativeTool (Join-Path $env:SystemRoot "System32/cmd.exe") @('/d', '/u', '/s', '/c', ('"' + $initializePath + '"')) $childEnvironment "initialize"
+  $initialized = [Collections.Generic.Dictionary[string,string]]::new([StringComparer]::OrdinalIgnoreCase)
+  $rawEnvironment = [IO.File]::ReadAllBytes((Join-Path $temporaryRoot "initialize.stdout.raw"))
+  if ($rawEnvironment.Length % 2 -ne 0) { throw "The initialized environment output was not UTF16LE." }
+  foreach ($line in ([Text.UnicodeEncoding]::new($false, $false, $true).GetString($rawEnvironment) -split "\r?\n")) {
+    if ($line.Length -eq 0) { continue }
+    $separator = $line.IndexOf('=')
+    if ($separator -lt 1) { throw "The initialized environment contained an invalid record." }
+    $initialized.Add($line.Substring(0, $separator), $line.Substring($separator + 1))
+  }
+  if ($initialized['VSCMD_ARG_HOST_ARCH'] -ne 'x64' -or $initialized['VSCMD_ARG_TGT_ARCH'] -ne 'x64') { throw "The initialized native architecture was invalid." }
+  foreach ($name in @('CL', '_CL_', 'LINK', '_LINK_')) { if ($initialized.ContainsKey($name)) { throw "An undeclared compiler override was present." } }
+  foreach ($name in @('VCToolsInstallDir', 'VCToolsVersion', 'WindowsSdkDir', 'WindowsSDKVersion', 'PATH', 'INCLUDE', 'EXTERNAL_INCLUDE', 'LIB', 'LIBPATH')) {
+    if (-not $initialized.ContainsKey($name) -or [string]::IsNullOrEmpty($initialized[$name])) { throw "A selected native dependency was unavailable: $name" }
+  }
+  [IO.File]::WriteAllText((Join-Path $temporaryRoot "PRIVATE-initialized-environment.json"), ($initialized | ConvertTo-Json -Depth 3), [Text.UTF8Encoding]::new($false))
+  $cl = Join-Path $initialized['VCToolsInstallDir'] "bin/Hostx64/x64/cl.exe"
+  if (-not [IO.File]::Exists($cl)) { throw "The selected absolute native compiler was unavailable." }
   $compiledPath = Join-Path $temporaryRoot "windows-managed-launcher-native.exe"
   $objectPath = Join-Path $temporaryRoot "windows-managed-launcher-native-bootstrap.obj"
-  $nativeCommand = 'call "' + $vsDevCmd + '" -no_logo -arch=x64 && cl.exe /nologo /TC /O2 /GS /MT /W4 "' + $sourcePath + '" /Fo:"' + $objectPath + '" /Fe:"' + $compiledPath + '" /link /Brepro bcrypt.lib'
-  & cmd.exe /d /s /c $nativeCommand
-  if ($LASTEXITCODE -ne 0 -or -not [IO.File]::Exists($compiledPath)) { throw "Native bootstrap compilation failed." }
+  Invoke-RetainedNativeTool $cl @('/nologo', '/TC', '/O2', '/GS', '/MT', '/W4', $sourcePath, "/Fo:$objectPath", "/Fe:$compiledPath", '/link', '/Brepro', 'bcrypt.lib') $initialized "compile"
+  if (-not [IO.File]::Exists($compiledPath)) { throw "Native bootstrap compilation did not produce an image." }
   [byte[]]$normalizedBinaryBytes = Get-NormalizedNativePeBytes $compiledPath
-  [byte[]]$sourceBytes = [IO.File]::ReadAllBytes($sourcePath)
-  [byte[]]$managedBytes = [IO.File]::ReadAllBytes($managedPath)
-  $sourceSha256 = Get-Sha256Hex $sourceBytes
-  $managedSha256 = Get-Sha256Hex $managedBytes
   $binarySha256 = Get-Sha256Hex $normalizedBinaryBytes
-  $sourceText = [Text.Encoding]::UTF8.GetString($sourceBytes)
-  if ($sourceText -notmatch ('MANAGED_LAUNCHER_BYTE_LENGTH\s+' + $managedBytes.Length + 'LL') -or $sourceText -notmatch ('0x' + $managedSha256.Substring(0, 2))) {
-    throw "Native bootstrap source did not pin the managed launcher identity."
-  }
   $provenanceJson = Get-CanonicalProvenanceJson $sourceSha256 $managedSha256 $managedBytes.Length $binarySha256 $normalizedBinaryBytes.Length
   [byte[]]$provenanceBytes = (New-Object Text.UTF8Encoding($false, $true)).GetBytes($provenanceJson)
   if ($Update) {
@@ -116,6 +196,3 @@ try {
   if (-not (Test-ByteArrayEqual $shippedProvenance $provenanceBytes)) { throw "The native bootstrap provenance was not canonical." }
   if ([Text.Encoding]::ASCII.GetString($shippedBytes).Contains("BSJB")) { throw "The native bootstrap unexpectedly contains CLR metadata." }
   [pscustomobject]@{ result = "passed"; sourceSha256 = $sourceSha256; managedLauncherSha256 = $managedSha256; managedLauncherByteLength = $managedBytes.Length; binarySha256 = $binarySha256; binaryByteLength = $normalizedBinaryBytes.Length; clrMetadata = "absent" } | ConvertTo-Json -Compress
-} finally {
-  if ([IO.Directory]::Exists($temporaryRoot)) { Remove-Item -LiteralPath $temporaryRoot -Recurse -Force }
-}
