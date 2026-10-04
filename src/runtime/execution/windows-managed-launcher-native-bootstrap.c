@@ -66,7 +66,7 @@ static int ReadControlCommand(ConptyControl* control, const char* kind) {
   char line[256], expected[256], token[65];
   for (DWORD i = 0; i < 64; i++) token[i] = (char)control->token[i];
   token[64] = '\0';
-  if (_snprintf_s(expected, sizeof(expected), _TRUNCATE, "%s:%s\0", kind, token) < 0) return 0;
+  if (_snprintf_s(expected, sizeof(expected), _TRUNCATE, "%s:%s", kind, token) < 0) return 0;
   return ReadControlLine(control->pipe, line, sizeof(line)) && strcmp(line, expected) == 0;
 }
 

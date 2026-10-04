@@ -13,11 +13,10 @@ export async function createConptyNativeContainment() {
     if (socket || invalid) { peer.destroy(); invalid = true; return; }
     socket = peer;
     let buffered = "";
-    peer.setEncoding("ascii");
     peer.on("error", () => { invalid = true; });
     peer.on("data", (chunk) => {
-      if (invalid || terminalSeen || buffered.length + chunk.length > 256 || /[^\x20-\x7e\n]/u.test(chunk)) { invalid = true; return; }
-      buffered += chunk;
+      if (invalid || terminalSeen || buffered.length + chunk.length > 256 || [...chunk].some((byte) => byte !== 10 && (byte < 32 || byte > 126))) { invalid = true; return; }
+      buffered += chunk.toString("ascii");
       const end = buffered.indexOf("\n");
       if (end < 0) return;
       const line = buffered.slice(0, end);
