@@ -17,7 +17,7 @@ managed API recovery.
 <div className="tutorial-architecture">
 
 ```mermaid
-%%{init: {"flowchart": {"nodeSpacing": 24, "rankSpacing": 28, "padding": 18}, "themeVariables": {"fontFamily": "system-ui, sans-serif"}}}%%
+%%{init: {"flowchart": {"nodeSpacing": 24, "rankSpacing": 28, "padding": 18, "subGraphTitleMargin": {"top": 10, "bottom": 20}}, "themeVariables": {"fontFamily": "system-ui, sans-serif"}}}%%
 flowchart TB
   accTitle: Stage 3: Add the API
   accDescr: The App calls the API, which reads and writes the Database. All application services run inside the Service Lasso boundary. Existing management and runtime services are listed in the adjacent table.

@@ -18,7 +18,7 @@ it after refresh and a service restart.
 <div className="tutorial-architecture">
 
 ```mermaid
-%%{init: {"flowchart": {"nodeSpacing": 24, "rankSpacing": 28, "padding": 18}, "themeVariables": {"fontFamily": "system-ui, sans-serif"}}}%%
+%%{init: {"flowchart": {"nodeSpacing": 24, "rankSpacing": 28, "padding": 18, "subGraphTitleMargin": {"top": 10, "bottom": 20}}, "themeVariables": {"fontFamily": "system-ui, sans-serif"}}}%%
 flowchart TB
   accTitle: Stage 1: Add the App
   accDescr: The App stores todos in its own JSON file. All application services run inside the Service Lasso boundary. Existing management and runtime services are listed in the adjacent table.

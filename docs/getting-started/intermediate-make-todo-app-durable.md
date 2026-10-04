@@ -16,7 +16,7 @@ health, database storage and restart recovery.
 <div className="tutorial-architecture">
 
 ```mermaid
-%%{init: {"flowchart": {"nodeSpacing": 24, "rankSpacing": 28, "padding": 18}, "themeVariables": {"fontFamily": "system-ui, sans-serif"}}}%%
+%%{init: {"flowchart": {"nodeSpacing": 24, "rankSpacing": 28, "padding": 18, "subGraphTitleMargin": {"top": 10, "bottom": 20}}, "themeVariables": {"fontFamily": "system-ui, sans-serif"}}}%%
 flowchart TB
   accTitle: Stage 2: Add the Database
   accDescr: The same App now saves todos in the Database. All application services run inside the Service Lasso boundary. Existing management and runtime services are listed in the adjacent table.
