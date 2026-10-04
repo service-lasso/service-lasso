@@ -143,3 +143,13 @@ closed, and recovery supplies its own retained signature workspace. Source
 regressions cover closed domains, insufficient capacity and overlap rejection;
 they remain UNEXECUTED. These memory inputs still need full actual native row
 reservation/provenance and authenticated ROOT owning-entry integration.
+
+Private witness reader source now checks the complete closed fixed record,
+original invocation/attempt/lifetime/pipe bindings, exact merged sequence and
+per-stream ordinal, reserved bytes, event-inline rules, exact length and SHA256
+against inline facts or an independently read original raw slice. Rejection
+preserves reader position; replay/gaps and altered raw bytes cannot advance it.
+This structural/byte validator does not prove an OS call or admit custody.
+Source regressions are present and UNEXECUTED; production original-witness
+semantics, authenticated expectations and complete native fixture coverage
+remain incomplete and cannot be replaced by these structural vectors.

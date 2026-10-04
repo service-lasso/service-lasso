@@ -31,7 +31,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_library(f7_u1_native STATIC
   protocol.c budget-reservation.c capture-spool.c read-capability.c
-  async-spool.c witness.c observer.c observer-finalize.c
+  async-spool.c witness.c witness-reader.c observer.c observer-finalize.c
   observer-linux.c observer-windows.cpp child-witness.c
   child-witness-linux.c child-witness-windows.cpp
   error-channel.c error-graph.c canonical-index.c canonical-index-reader.c

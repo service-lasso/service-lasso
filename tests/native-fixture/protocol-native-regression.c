@@ -133,4 +133,24 @@ static void signature_buffers(void){
  assert(f7_signature_message((enum f7_signature_domain)0,original,2,index,sizeof(index),&in)==F7_INVALID);
  assert(original[0]=='{'&&original[1]=='}');
 }
-int main(void){framing();budgets();states();index_records();error_records();unknown_creation();segment_records();error_graphs();signature_buffers();return 0;}
+static void witness_records(void){
+ struct f7_witness_expectation expected={0};struct f7_witness_view view;
+ uint8_t record[F7_WITNESS_BYTES+32]={0},raw[3]={0,255,7};
+ expected.invocation[0]=1;expected.attempt[0]=2;expected.lifetime[0]=3;
+ expected.pipe_key[F7_STDOUT][0]=4;expected.role=F7_O;
+ memcpy(record,"SLF7WIT1",8);memcpy(record+8,expected.invocation,16);
+ memcpy(record+24,expected.attempt,32);memcpy(record+56,expected.lifetime,16);
+ memcpy(record+72,expected.pipe_key[F7_STDOUT],16);
+ f7_u64be(record+88,1);f7_u64be(record+96,1);record[105]=F7_READ;record[109]=F7_O;
+ f7_u64be(record+112,3);f7_u64be(record+120,3);
+ memcpy(record+144,expected.invocation,8);f7_u64be(record+152,1);
+ crypto_hash_sha256(record+F7_WITNESS_BYTES,raw,sizeof(raw));
+ record[107]=1;assert(f7_witness_validate(&expected,record,sizeof(record),raw,3,&view)==F7_INVALID);
+ assert(expected.sequence==0);record[107]=0;raw[2]=8;
+ assert(f7_witness_validate(&expected,record,sizeof(record),raw,3,&view)==F7_CONFLICT);
+ assert(expected.sequence==0);raw[2]=7;
+ assert(f7_witness_validate(&expected,record,sizeof(record),raw,3,&view)==F7_OK);
+ assert(expected.sequence==1&&view.returned==3&&!view.inline_bytes);
+ assert(f7_witness_validate(&expected,record,sizeof(record),raw,3,&view)==F7_INVALID);
+}
+int main(void){framing();budgets();states();index_records();error_records();unknown_creation();segment_records();error_graphs();signature_buffers();witness_records();return 0;}
