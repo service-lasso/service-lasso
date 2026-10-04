@@ -46,6 +46,27 @@ archive against real PostgreSQL. Full managed/Admin integration above was
 executed on Windows with the explicit PostgreSQL adapter. It does not qualify
 macOS PostgreSQL, whole-demo shutdown, upstream template admission or GA.
 
+## Todo identity stage (#1673)
+
+The [fourth tutorial](../getting-started/zitadel-sso-hub.md) now adds Zitadel
+sign-in to the managed Todo app, rather than leaving the consuming application
+unspecified. Published Todo [`2026.10.4-6f47534`](https://github.com/service-lasso/lasso-todo/releases/tag/2026.10.4-6f47534)
+targets `6f4753485dfa93a8a23e6f3d9751416d770042e3`; all three platform source and
+extracted-archive checks plus publication passed in
+[run 37213848505](https://github.com/service-lasso/lasso-todo/actions/runs/37213848505).
+
+Signed HTTPS protocol fixtures directly exercise code + PKCE, nonce/state,
+signature/issuer/audience/expiry rejection, outage refusal, callback replay,
+CSRF/host denial, capacity, logout, restart invalidation and retained shared data.
+Those fixtures are separate from actual Zitadel/browser execution.
+
+The local identity setup pins Zitadel `2026.9.25-93d4c84`, Certificates
+`2026.9.25-588398b` and corrected PostgreSQL `2026.10.4-1af7982`. The application
+owns `@todo-certs`; the baseline certificate manifest and CA remain untouched.
+Provisioning uses declared create-only signed Broker IPC and preserves existing
+master-key/password references. The initial incorrect bootstrap-variable attempt
+remains failure evidence; `FIRSTINSTANCE_ORG_HUMAN_*` is the checked contract.
+
 ## Corrected PostgreSQL producer release
 
 [`lasso-postgres 2026.10.4-1af7982`](https://github.com/service-lasso/lasso-postgres/releases/tag/2026.10.4-1af7982)
