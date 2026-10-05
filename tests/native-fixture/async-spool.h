@@ -21,6 +21,9 @@ struct f7_async_status {
    separate writer; a blocked file cannot hold any drain/control queue lock.
    The source-owned member and queue remain retained while a writer is live. */
 size_t f7_async_state_bytes(void);
+/* Pure full original storage overlap check; no worker or authority creation. */
+int f7_async_output_storage_validate(const struct f7_async_spool *queue,
+ const void *output,size_t output_bytes);
 int f7_async_create(struct f7_async_spool **out,struct f7_member *member,
  const struct f7_async_memory *original_memory,size_t maximum_chunk);
 int f7_async_submit(struct f7_async_spool *queue,const uint8_t *bytes,size_t count);

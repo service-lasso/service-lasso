@@ -9,7 +9,7 @@
 #endif
 struct f7_async_spool {
  struct f7_member *member;
- uint8_t *ring,*write_buffer;size_t capacity,maximum_chunk,head,used;
+ uint8_t *ring,*write_buffer;size_t capacity,write_capacity,maximum_chunk,head,used;
  uint64_t submitted,persisted,high_water;
  uint64_t in_flight,in_flight_persisted;
  int closed,failed,finished,joined,lock_ready,condition_ready,worker_created,worker_entered,released;int64_t native_status;
@@ -94,12 +94,29 @@ static void *writer(void *value){
  return 0;
 }
 size_t f7_async_state_bytes(void){return sizeof(struct f7_async_spool);}
+int f7_async_output_storage_validate(const struct f7_async_spool *q,
+ const void *out,size_t bytes){
+ if(!q||!q->member||!out||!bytes)return F7_INVALID;
+ uintptr_t output=(uintptr_t)out;if(bytes>UINTPTR_MAX-output)return F7_INVALID;
+ struct span {uintptr_t address;size_t length;};
+ const struct span spans[]={{(uintptr_t)q,sizeof(*q)},
+  {(uintptr_t)q->member,sizeof(*q->member)},{(uintptr_t)q->ring,q->capacity},
+  {(uintptr_t)q->write_buffer,q->write_capacity},
+  {(uintptr_t)q->member->readback_storage,q->member->readback_capacity}};
+ for(size_t i=0;i<sizeof(spans)/sizeof(spans[0]);i++){
+  if(!spans[i].address||!spans[i].length)return F7_BUDGET_ABSENT;
+  if(spans[i].length>UINTPTR_MAX-spans[i].address)return F7_INVALID;
+  if(!(output+bytes<=spans[i].address||spans[i].address+spans[i].length<=output))return F7_CONFLICT;
+ }
+ return F7_OK;
+}
 static int memory_geometry(struct f7_async_spool **out,struct f7_member *member,
  const struct f7_async_memory *m){
  struct span {uintptr_t address;size_t length;};
  struct span spans[]={{(uintptr_t)out,sizeof(*out)},{(uintptr_t)member,sizeof(*member)},
   {(uintptr_t)m,sizeof(*m)},{(uintptr_t)m->state,m->state_bytes},
-  {(uintptr_t)m->ring,m->ring_bytes},{(uintptr_t)m->write_buffer,m->write_bytes}};
+  {(uintptr_t)m->ring,m->ring_bytes},{(uintptr_t)m->write_buffer,m->write_bytes},
+  {(uintptr_t)member->readback_storage,member->readback_capacity}};
  for(size_t i=0;i<sizeof(spans)/sizeof(spans[0]);i++){
   if(spans[i].length>UINTPTR_MAX-spans[i].address)return F7_INVALID;
   for(size_t j=0;j<i;j++)if(!(spans[i].address+spans[i].length<=spans[j].address||
@@ -112,11 +129,12 @@ int f7_async_create(struct f7_async_spool **out,struct f7_member *member,
  if(!memory->state||memory->state_bytes<sizeof(struct f7_async_spool)||
     (uintptr_t)memory->state%_Alignof(struct f7_async_spool)||!memory->ring||!memory->write_buffer||
     !memory->stack_bytes||member->failed||member->finalized||!chunk||chunk>F7_FRAME_MAX+192u||
+    !member->readback_storage||!member->readback_capacity||member->readback_capacity>F7_FRAME_MAX||
     chunk>SIZE_MAX-8||memory->ring_bytes<chunk+8||memory->ring_bytes>SIZE_MAX/2||memory->write_bytes<chunk)return F7_BUDGET_ABSENT;
  int result=memory_geometry(out,member,memory);if(result)return result;
  *out=memory->state;struct f7_async_spool *q=*out;memset(q,0,sizeof(*q));
  q->member=member;q->capacity=memory->ring_bytes;q->maximum_chunk=chunk;
- q->ring=memory->ring;q->write_buffer=memory->write_buffer;q->worker_created=2;
+ q->ring=memory->ring;q->write_buffer=memory->write_buffer;q->write_capacity=memory->write_bytes;q->worker_created=2;
 #ifdef _WIN32
  BOOL initialized=InitializeCriticalSectionEx(&q->lock,0,0);q->native_status=initialized?0:GetLastError();
  f7_error_endpoint_call(&q->construction_fact,13,0,initialized,q->native_status);
@@ -163,6 +181,7 @@ failed:
 int f7_async_submit(struct f7_async_spool *q,const uint8_t *bytes,size_t n){
  uint8_t header[8];
  if(!q||(!bytes&&n)||!n||n>q->maximum_chunk)return F7_INVALID;
+ int shaped=f7_async_output_storage_validate(q,bytes,n);if(shaped)return shaped;
  /* A contended/full queue is loss, never a blocking drain or silent success. */
  if(try_lock(q))return F7_OVERFLOWED;
  if(q->closed||q->failed||q->finished){unlock(q);return F7_INCOMPLETE;}
@@ -175,7 +194,9 @@ int f7_async_close_input(struct f7_async_spool *q){
  q->closed=1;wake(q);unlock(q);return F7_OK;
 }
 int f7_async_snapshot(struct f7_async_spool *q,struct f7_async_status *out){
- if(!q||!out)return F7_INVALID; if(!q->lock_ready){memset(out,0,sizeof(*out));out->failed=q->failed;out->finished=q->finished;out->native_status=q->native_status;out->worker_created=q->worker_created;out->construction_fact=q->construction_fact;return F7_OK;} if(try_lock(q))return F7_OVERFLOWED;
+ if(!q||!out)return F7_INVALID;
+ int shaped=f7_async_output_storage_validate(q,out,sizeof(*out));if(shaped)return shaped;
+ if(!q->lock_ready){memset(out,0,sizeof(*out));out->failed=q->failed;out->finished=q->finished;out->native_status=q->native_status;out->worker_created=q->worker_created;out->construction_fact=q->construction_fact;return F7_OK;} if(try_lock(q))return F7_OVERFLOWED;
  out->submitted=q->submitted;out->persisted=q->persisted;out->queued=q->used;
  out->high_water=q->high_water;out->native_status=q->native_status;
  out->in_flight=q->in_flight;out->in_flight_persisted=q->in_flight_persisted;
