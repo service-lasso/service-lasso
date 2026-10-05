@@ -7,7 +7,8 @@ static int disjoint(const void *a,size_t an,const void *b,size_t bn){
  return av+an<=bv||bv+bn<=av;
 }
 static int empty_object(struct f7_crypto_object *o){
- return o&&o->journal&&!o->started&&o->write&&!o->write->length&&!o->write->finalized&&!o->write->failed;
+ return o&&o->journal&&!o->started&&!o->crypto_returned&&!o->requested_output_bytes&&
+  !o->known_output_bytes&&!o->retained_message_bytes&&o->write&&!o->write->length&&!o->write->finalized&&!o->write->failed;
 }
 static int readback_reserved(struct f7_crypto_object *o,const uint8_t *input,size_t length,
  const struct f7_signing_pin *pins,int64_t *status){
@@ -61,9 +62,11 @@ int f7_encrypt_object_once(struct f7_crypto_object *o,const uint8_t *plain,
  o->started=1;
  result=f7_journal_reserve(o->journal,o->key,status);if(result)return result;
  cipher_n=n+crypto_box_SEALBYTES;cipher=o->workspace;
- if(crypto_box_seal(cipher,plain,n,pins->recipient)){sodium_memzero(cipher,cipher_n);return F7_NATIVE_FAILURE;}
+ o->requested_output_bytes=cipher_n;
+ o->crypto_result=crypto_box_seal(cipher,plain,n,pins->recipient);o->crypto_returned=1;
+ if(o->crypto_result)return F7_NATIVE_FAILURE;
+ o->known_output_bytes=cipher_n;
  result=f7_member_append(o->write,cipher,cipher_n,&persisted,status);
- sodium_memzero(cipher,cipher_n);
  if(result)return result;
  if(f7_member_finish(o->write,status))return F7_INCOMPLETE;
  result=f7_member_readback(o->write,o->independent_read,status);if(result)return result;
@@ -85,21 +88,26 @@ int f7_signature_message(enum f7_signature_domain domain,const uint8_t *canonica
 }
 int f7_sign_index_once(struct f7_crypto_object *o,const uint8_t *canonical,
  size_t n,const struct f7_signing_pin *pins,int64_t *status){
- uint8_t signature[crypto_sign_BYTES],*message=NULL,actual_public[32];
+ uint8_t *signature,*message=NULL,actual_public[32];
  size_t message_n=0;uint64_t persisted;int result;
  if(!empty_object(o)||!pins||!pins->signer_secret||!status||!o->workspace)return F7_INVALID;
  result=readback_reserved(o,canonical,n,pins,status);if(result)return result;
+ if(o->workspace_capacity<crypto_sign_BYTES)return F7_BUDGET_ABSENT;
  if(!disjoint(o->workspace,o->workspace_capacity,pins,sizeof(*pins))||
     !disjoint(o->workspace,o->workspace_capacity,pins->signer_secret,crypto_sign_SECRETKEYBYTES))return F7_INVALID;
  if(crypto_sign_ed25519_sk_to_pk(actual_public,pins->signer_secret)||
  sodium_memcmp(actual_public,pins->signer,32))return F7_AUTH_FAILURE;
  o->started=1;result=f7_journal_reserve(o->journal,o->key,status);if(result)return result;
- result=f7_signature_message(F7_INDEX_DOMAIN,canonical,n,o->workspace,o->workspace_capacity,&message_n);
- if(result)return result;message=o->workspace;
- result=crypto_sign_detached(signature,NULL,message,message_n,pins->signer_secret);
- sodium_memzero(message,message_n);if(result)return F7_NATIVE_FAILURE;
- result=f7_member_append(o->write,signature,sizeof(signature),&persisted,status);
- sodium_memzero(signature,sizeof(signature));if(result)return result;
+ signature=o->workspace;message=o->workspace+crypto_sign_BYTES;
+ result=f7_signature_message(F7_INDEX_DOMAIN,canonical,n,message,
+   o->workspace_capacity-crypto_sign_BYTES,&message_n);
+ if(result)return result;o->retained_message_bytes=message_n;
+ o->requested_output_bytes=crypto_sign_BYTES;
+ o->crypto_result=crypto_sign_detached(signature,NULL,message,message_n,pins->signer_secret);o->crypto_returned=1;
+ if(o->crypto_result)return F7_NATIVE_FAILURE;
+ o->known_output_bytes=crypto_sign_BYTES;
+ result=f7_member_append(o->write,signature,crypto_sign_BYTES,&persisted,status);
+ if(result)return result;
  if(f7_member_finish(o->write,status))return F7_INCOMPLETE;
  result=f7_member_readback(o->write,o->independent_read,status);if(result)return result;
  return f7_journal_persisted(o->journal,o->key,o->write,status);

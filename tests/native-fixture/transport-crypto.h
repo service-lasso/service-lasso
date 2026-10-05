@@ -14,6 +14,10 @@ struct f7_crypto_object {
  /* Separately admitted writable memory, retained for this serial operation.
     Missing capacity fails closed; crypto does not allocate an unseen buffer. */
  uint8_t *workspace;size_t workspace_capacity;
+ /* Original generated output stays in workspace after every outcome.
+    A returned failure does not establish which output bytes were written. */
+ size_t requested_output_bytes,known_output_bytes,retained_message_bytes;
+ int crypto_returned,crypto_result;
 };
 struct f7_signing_pin {
  uint8_t recipient[crypto_box_PUBLICKEYBYTES];
