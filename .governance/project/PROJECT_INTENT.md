@@ -551,3 +551,11 @@ Preserve all earlier framing/budget/opaque-byte/path/link/alias controls and loc
 dependencies/protected originals. Fresh actual-reader additive cases are SOURCE_UNRUN;
 no target execution, native equivalence, merge or release claim. Parent owns tracking;
 freeze cumulative source/dependency/history/prior failures for DIFFERENT ENTIRE review.
+
+
+## PR #1624 original owning-resource source provenance
+
+[Reconciliation record](PR-1624-RECONCILIATION.md) binds the complete original #1623 contribution to receiving develop b0c98b1079ee1763ce869ead3485c13e52b78305 under SPEC-006 AC-6G.owning-resource-observation. Preserve receiving implementation/scoped owner coverage and all original privacy/cleanup/qualification limits. New cumulative review and NEW ROOT precede execution; parent PR disposition and direct acceptance remain pending.
+
+
+PR #1624 current receiving checkpoint: normal develop integration of `ce832478da5ad6997ffcb9c82aab95cdf55b1d06` (PR #1707 TAR framing landing). The preceding b0c checkpoint is historical provenance. Complete receiving TAR/header/framing/link source and all original owning-observation contracts are preserved. Source preparation only; DIFFERENT fresh ENTIRE review and NEW complete-input ROOT admission remain required before execution.

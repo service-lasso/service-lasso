@@ -373,3 +373,11 @@ F3/F4 final-closure correction (2026-10-06): all shutdown-owned work, support-co
 
 Development source-only repair bound to SPEC-002 AC-4DOC.1690 and existing SPEC-010 F7-01..F7-09 authority: replace the two owning protocol links with canonical develop repository references, retaining every protocol/actor/resource/private-custody and unqualified boundary. Strict broken-link gate and disabled image parser remain unchanged. Original Docs37229127609 and MCP37229127658 documentation failures stay failed; no build/tests/import/native/CI rerun/publication or GA claim. Different fresh ENTIRE review and NEW complete-input ROOT precede build; parent owns landing after1681 and before1676/1624/1688. Darwin is Deferred / Not applicable, never PASS. Status: in_progress source preparation.
 - [ ] #1702 / AC-4AJ.13: reconcile first3 articles with published lesson-host Mac path; isolated docs branch; final source, docs build, review and publication evidence pending.
+
+
+## PR #1624 original source reconciliation
+
+- [ ] #1623 / SPEC-006 AC-6G.owning-resource-observation: independently review the [complete original contribution reconciliation](.governance/project/PR-1624-RECONCILIATION.md), then parent completes the same pending PR disposition. Receiving code/spec/fixtures retained; NEW ROOT and direct Windows/Linux qualification remain separate requirements.
+
+
+PR #1624 current receiving checkpoint: normal develop integration of `ce832478da5ad6997ffcb9c82aab95cdf55b1d06` (PR #1707 TAR framing landing). The preceding b0c checkpoint is historical provenance. Complete receiving TAR/header/framing/link source and all original owning-observation contracts are preserved. Source preparation only; DIFFERENT fresh ENTIRE review and NEW complete-input ROOT admission remain required before execution.
