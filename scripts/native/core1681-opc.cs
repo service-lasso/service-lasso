@@ -213,8 +213,8 @@ namespace ServiceLasso.SourceAcquisition
                 var transforms = transformContainers.SelectMany(t => t.Elements(Ds + "Transform")).ToArray();
                 var row = new OpcReference { Uri = (string)reference.Attribute("URI"), DigestAlgorithm = (string)digest[0].Attribute("Algorithm"),
                     DigestValue = values[0].Value, Transforms = transforms.Select(t => (string)t.Attribute("Algorithm")).ToArray(),
-                    SourceIds = transforms.Elements(Opc + "RelationshipReference").Select(t => (string)t.Attribute("SourceId")).ToArray(),
-                    SourceTypes = transforms.Elements(Opc + "RelationshipsGroupReference").Select(t => (string)t.Attribute("SourceType")).ToArray() };
+                    SourceIds = transforms.Where(t => (string)t.Attribute("Algorithm") == Relationships).Elements(Opc + "RelationshipReference").Select(t => (string)t.Attribute("SourceId")).ToArray(),
+                    SourceTypes = transforms.Where(t => (string)t.Attribute("Algorithm") == Relationships).Elements(Opc + "RelationshipsGroupReference").Select(t => (string)t.Attribute("SourceType")).ToArray() };
                 result.References.Add(row);
                 byte[] digestBytes;
                 try { digestBytes = Convert.FromBase64String(row.DigestValue); }
@@ -223,8 +223,12 @@ namespace ServiceLasso.SourceAcquisition
                 bool relation = row.Transforms.SequenceEqual(new[] { Relationships, Canonical });
                 if (row.Transforms.Length != 0 && !row.Transforms.SequenceEqual(new[] { Canonical }) && !relation)
                 { result.State = "UNSUPPORTED_TRANSFORM_ORDER"; return result; }
-                if (transforms.Any(t => t.Elements().Any(child => !relation ||
-                    child.Name != Opc + "RelationshipReference" && child.Name != Opc + "RelationshipsGroupReference")))
+                if (transforms.Any(t => (string)t.Attribute("Algorithm") == Canonical ? t.HasElements :
+                    (string)t.Attribute("Algorithm") != Relationships || t.Elements().Any(child =>
+                        child.Name != Opc + "RelationshipReference" && child.Name != Opc + "RelationshipsGroupReference" ||
+                        child.HasElements || child.Attributes().Count(a => !a.IsNamespaceDeclaration) != 1 ||
+                        child.Attributes().Any(a => !a.IsNamespaceDeclaration && a.Name !=
+                            (child.Name == Opc + "RelationshipReference" ? "SourceId" : "SourceType")))))
                 { result.State = "UNSUPPORTED_TRANSFORM_PARAMETERS"; return result; }
                 if (relation && (row.SourceIds.Length + row.SourceTypes.Length == 0 || row.SourceIds.Any(String.IsNullOrEmpty) ||
                     row.SourceTypes.Any(String.IsNullOrEmpty) || row.SourceIds.Distinct().Count() != row.SourceIds.Length ||

@@ -104,17 +104,30 @@ internal static class Core1681AcquisitionSourceCases
             claims, members.Keys.Select(name => "/" + name).ToArray(), out selected);
         Expect(full.Members.Count == 7 && full.MatchedClaims == 7 && selected.Count == 7, "PART_full_roster_and_selected_positive");
         foreach (var pair in members) Expect(selected["/" + pair.Key].SequenceEqual(pair.Value), "PART_original_bytes:" + pair.Key);
-        byte[] corrupt = (byte[])archive.Clone(); corrupt[full.Members[0].DataOffset] ^= 1;
+        byte[] firstCorrupt = (byte[])archive.Clone(); firstCorrupt[full.Members[0].DataOffset] ^= 1;
+        bool firstCrc = false;
+        try { Core1681BoundedVsix.Observe(firstCorrupt, firstCorrupt.Length, Convert.ToHexString(SHA256.HashData(firstCorrupt)), claims,
+            new[] { "/metadata/part0.xml" }, out selected); }
+        catch (InvalidDataException original) { firstCrc = original.Message == "CRC mismatch"; }
+        Expect(firstCrc && selected == null, "PART_changed_bytes_resealed_archive_hits_CRC");
+        byte[] corrupt = (byte[])archive.Clone(); corrupt[full.Members[6].DataOffset] ^= 1;
         bool crc = false;
         try { Core1681BoundedVsix.Observe(corrupt, corrupt.Length, Convert.ToHexString(SHA256.HashData(corrupt)), claims,
             new[] { "/metadata/part0.xml" }, out selected); }
         catch (InvalidDataException original) { crc = original.Message == "CRC mismatch"; }
-        Expect(crc, "PART_changed_bytes_resealed_archive_hits_CRC");
+        Expect(crc && selected == null, "PART_late_CRC_never_publishes_prior_selected_bytes");
+        var wrongClaims = claims.Select(c => new Core1681BoundedVsix.Claim { Name = c.Name, Sha256 = c.Sha256 }).ToArray();
+        wrongClaims[6].Sha256 = new string('0', 64);
+        bool claim = false;
+        try { Core1681BoundedVsix.Observe(archive, archive.Length, Convert.ToHexString(SHA256.HashData(archive)), wrongClaims,
+            new[] { "/metadata/part0.xml" }, out selected); }
+        catch (InvalidDataException original) { claim = original.Message == "claim bytes mismatch"; }
+        Expect(claim && selected == null, "PART_late_claim_never_publishes_prior_selected_bytes");
         bool missing = false;
         try { Core1681BoundedVsix.Observe(archive, archive.Length, Convert.ToHexString(SHA256.HashData(archive)), claims,
-            new[] { "/metadata/missing.xml" }, out selected); }
+            new[] { "/metadata/part0.xml", "/metadata/missing.xml" }, out selected); }
         catch (InvalidDataException original) { missing = original.Message == "selected member missing"; }
-        Expect(missing, "PART_missing_selected_not_empty_success");
+        Expect(missing && selected == null, "PART_missing_selection_never_publishes_present_selection");
     }
     // Direct original native cases need genuine separately admitted module, held package, database association,
     // anchors and installed branch. This entrypoint fabricates none and does not bypass missing resources.
@@ -130,5 +143,46 @@ internal static class Core1681AcquisitionSourceCases
             "TRUST_original_finite_signature_roster");
         Expect(signature.Signatures.All(row => row.CloseStatus == 0), "TRUST_each_original_VERIFY_CLOSE");
         Expect(signature.State != "AUTHENTICATED_DISTRIBUTION", "TRUST_provider_not_independent_authentication");
+    }
+    // Called by a separately admitted original module's retention observer for the
+    // actual nested-close failure scenario. Never creates delegates or native results.
+    internal static void ObserveOriginalNestedCloseRetention(object sameOwner, uint originalStatus, uint errorCloseStatus)
+    {
+        var owner = sameOwner as MsiReadOnly;
+        Expect(owner != null && originalStatus != 0 && errorCloseStatus != 0, "MSI_nested_close_original_owner");
+        var receipt = owner.CurrentReceipt;
+        Expect(receipt.Resources.Count(r => r.Kind == "extended-error-record") == 1,
+            "MSI_nested_close_no_recursive_error_acquisition");
+        Expect(receipt.Resources.Any(r => r.Kind != "extended-error-record" && r.CloseStatus == originalStatus) &&
+            receipt.Resources.Single(r => r.Kind == "extended-error-record").CloseStatus == errorCloseStatus,
+            "MSI_nested_close_same_original_failed_resources_retained");
+        Expect(receipt.Observations.Any(o => o.Operation == "MsiCloseHandle:extended-error" &&
+            o.Status == originalStatus && o.ExtendedFields != null) &&
+            receipt.Observations.Last(o => o.Operation == "MsiCloseHandle").Status == errorCloseStatus,
+            "MSI_nested_close_original_status_fields_and_cleanup_status");
+    }
+    internal static void ObserveOriginalXmlGrammar(IOriginalNativeModule qualifiedXmlRuntime)
+    {
+        const string ds = "http://www.w3.org/2000/09/xmldsig#";
+        const string opc = "http://schemas.openxmlformats.org/package/2006/digital-signature";
+        string selector = "<o:RelationshipReference SourceId='r1'/>";
+        string prefix = "<Signature xmlns='" + ds + "' xmlns:o='" + opc + "'><SignedInfo><CanonicalizationMethod Algorithm='" +
+            OpcCoverage.Canonical + "'/><SignatureMethod Algorithm='" + OpcCoverage.Signature + "'/><Reference URI='/a.xml?ContentType=application/xml'><Transforms>";
+        string suffix = "</Transforms><DigestMethod Algorithm='" + OpcCoverage.Digest + "'/><DigestValue>" +
+            Convert.ToBase64String(new byte[32]) + "</DigestValue></Reference></SignedInfo></Signature>";
+        string relation = "<Transform Algorithm='" + OpcCoverage.Relationships + "'>";
+        string canonical = "<Transform Algorithm='" + OpcCoverage.Canonical + "'>";
+        string[] bodies = { relation + selector + "</Transform>" + canonical + "</Transform>",
+            relation + "</Transform>" + canonical + selector + "</Transform>",
+            relation + "<o:Unsupported SourceId='r1'/></Transform>" + canonical + "</Transform>",
+            canonical + selector + "</Transform>" };
+        for (int i = 0; i < bodies.Length; i++)
+        {
+            var result = OpcCoverage.Inspect(Encoding.UTF8.GetBytes(prefix + bodies[i] + suffix), qualifiedXmlRuntime);
+            Expect(result.State == (i == 0 ? "FORMAT_OBSERVED_XML_CRYPTO_UNQUALIFIED" : "UNSUPPORTED_TRANSFORM_PARAMETERS"),
+                "OPC_transform_position_parameter_case:" + i);
+            if (i == 1) Expect(result.References.Single().SourceIds.Length == 0,
+                "OPC_canonical_selectors_never_collected");
+        }
     }
 }

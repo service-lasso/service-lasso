@@ -43,6 +43,15 @@ typedef struct ConptyReadOwner {
   unsigned observations;
   ConptyObservation ledger[10];
 } ConptyReadOwner;
+typedef struct ConptyWriteOwner {
+  struct ConptyWriteOwner* next;
+  OVERLAPPED operation;
+  char token[65], line[256];
+  DWORD written;
+  int length, issued, completed, cancelAttempted, closeAttempted, closed, result;
+  unsigned observations;
+  ConptyObservation ledger[10];
+} ConptyWriteOwner;
 typedef struct {
   HANDLE pipe;
   HANDLE job;
@@ -53,6 +62,7 @@ typedef struct {
   volatile LONG failed;
   volatile LONG stopping;
   ConptyReadOwner* reads;
+  ConptyWriteOwner* writes;
   void (*observeFailure)(void*, const char*, DWORD, int);
   void* observationOwner;
   ConptyObservation containment[8];
@@ -149,21 +159,64 @@ static int ReadControlLine(ConptyControl* control, char* line, DWORD capacity) {
   return 0;
 }
 
-static int WriteControlLine(ConptyControl* control, const char* kind, DWORD pid, DWORD code) {
-  char token[65], line[256]; DWORD written = 0;
-  for (DWORD i = 0; i < 64; i++) token[i] = (char)control->token[i];
-  token[64] = '\0';
-  int length = _snprintf_s(line, sizeof(line), _TRUNCATE, "%s:%s:%lu:%lu:0\n", kind, token, (unsigned long)pid, (unsigned long)code);
-  if (length <= 0) return 0;
-  OVERLAPPED operation;
-  ZeroMemory(&operation, sizeof(operation));
-  operation.hEvent = CreateEventW(NULL, TRUE, FALSE, NULL);
-  if (operation.hEvent == NULL) return 0;
-  int result = WriteFile(control->pipe, line, (DWORD)length, &written, &operation);
-  if (!result && GetLastError() == ERROR_IO_PENDING) result = GetOverlappedResult(control->pipe, &operation, &written, TRUE);
-  CloseHandle(operation.hEvent);
-  return result && written == (DWORD)length;
+#define WRITE_OBSERVE(site,status,native,failure) ObserveConpty(control,owner->ledger,&owner->observations,_countof(owner->ledger),site,status,native,failure)
+static int CompleteControlWrite(ConptyControl* control, ConptyWriteOwner* owner) {
+  BOOL complete = GetOverlappedResult(control->pipe,&owner->operation,&owner->written,TRUE);
+  DWORD completionError = complete ? 0 : GetLastError();
+  WRITE_OBSERVE("write-original-completion",completionError,1,!complete);
+  if (!complete && (!HasOverlappedIoCompleted(&owner->operation) || completionError == ERROR_INVALID_HANDLE || completionError == ERROR_IO_INCOMPLETE)) RetainConpty();
+  owner->completed = 1; return complete;
 }
+static void CloseControlWrite(ConptyControl* control, ConptyWriteOwner* owner) {
+  owner->closeAttempted = 1;
+  BOOL closed = CloseHandle(owner->operation.hEvent);
+  DWORD closeError = closed ? 0 : GetLastError();
+  WRITE_OBSERVE("write-close-event",closeError,1,!closed);
+  if (!closed) RetainConpty();
+  owner->closed = 1; owner->operation.hEvent = NULL;
+}
+static int WriteControlLine(ConptyControl* control, const char* kind, DWORD pid, DWORD code) {
+  ConptyWriteOwner* owner = (ConptyWriteOwner*)HeapAlloc(GetProcessHeap(),HEAP_ZERO_MEMORY,sizeof(*owner));
+  if (!owner) {
+    InterlockedExchange(&control->failed,1);
+    if (control->observeFailure) control->observeFailure(control->observationOwner,"write-owner-allocation",ERROR_NOT_ENOUGH_MEMORY,0);
+    return 0;
+  }
+  owner->next = control->writes; control->writes = owner;
+  for (DWORD i = 0; i < 64; i++) owner->token[i] = (char)control->token[i];
+  owner->token[64] = '\0';
+  owner->length = _snprintf_s(owner->line,sizeof(owner->line),_TRUNCATE,"%s:%s:%lu:%lu:0\n",kind,owner->token,(unsigned long)pid,(unsigned long)code);
+  WRITE_OBSERVE("write-format",0,0,owner->length <= 0);
+  if (owner->length <= 0) return 0;
+  owner->operation.hEvent = CreateEventW(NULL,TRUE,FALSE,NULL);
+  DWORD eventError = owner->operation.hEvent ? 0 : GetLastError();
+  WRITE_OBSERVE("write-create-event",eventError,1,!owner->operation.hEvent);
+  if (!owner->operation.hEvent) return 0;
+  BOOL issued = WriteFile(control->pipe,owner->line,(DWORD)owner->length,&owner->written,&owner->operation);
+  DWORD issueError = issued ? 0 : GetLastError();
+  WRITE_OBSERVE("write-issuance",issueError,1,!issued && issueError != ERROR_IO_PENDING);
+  if (issued) { owner->issued = 1; owner->completed = 1; owner->result = 1; }
+  else if (issueError == ERROR_IO_PENDING) {
+    owner->issued = 1;
+    DWORD observed = WaitForSingleObject(owner->operation.hEvent,INFINITE);
+    DWORD waitError = observed == WAIT_FAILED ? GetLastError() : observed;
+    WRITE_OBSERVE("write-event-wait",waitError,observed == WAIT_FAILED,observed != WAIT_OBJECT_0);
+    if (observed != WAIT_OBJECT_0) {
+      owner->cancelAttempted = 1;
+      BOOL cancelled = CancelIoEx(control->pipe,&owner->operation);
+      DWORD cancelError = cancelled ? 0 : GetLastError();
+      WRITE_OBSERVE("write-exact-cancel",cancelError,1,!cancelled && cancelError != ERROR_NOT_FOUND);
+    }
+    int complete = CompleteControlWrite(control,owner);
+    owner->result = complete && observed == WAIT_OBJECT_0;
+  }
+  /* Close only after qualified original completion or synchronous non-issuance.
+   * Unknown completion/release retains this linked original owner and invocation. */
+  CloseControlWrite(control,owner);
+  WRITE_OBSERVE("write-exact-count",0,0,owner->result && owner->written != (DWORD)owner->length);
+  return owner->result && owner->written == (DWORD)owner->length;
+}
+#undef WRITE_OBSERVE
 
 static int ReadControlCommand(ConptyControl* control, const char* kind) {
   char line[256], expected[256], token[65];

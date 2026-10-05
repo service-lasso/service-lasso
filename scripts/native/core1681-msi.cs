@@ -121,7 +121,9 @@ namespace ServiceLasso.SourceAcquisition
         private readonly Budget budget = new Budget();
         private readonly MsiReceipt receipt = new MsiReceipt();
         private bool closing;
+        private bool capturingExtendedError;
         private object pendingCall;
+        internal MsiReceipt CurrentReceipt { get { return receipt; } }
         internal MsiReadOnly(MsiExports exports, IHeldInput input)
         {
             if (exports == null || input == null || input.OriginalBytes == null || input.OriginalReadableHandle == IntPtr.Zero ||
@@ -154,11 +156,20 @@ namespace ServiceLasso.SourceAcquisition
             // Store initiating operation/status before acquiring the extended native error record.
             var original = new NativeObservation(receipt.Observations.Count + 1, operation, status, null, null);
             receipt.Observations.Add(original);
-            if (error && status != 0 && status != 234 && status != 259) CaptureExtendedError(operation, status);
+            if (error && !capturingExtendedError && status != 0 && status != 234 && status != 259)
+                CaptureExtendedError(operation, status);
             api.Module.ObserveOriginalCall(operation, status);
             budget.Charge(128);
         }
         private void CaptureExtendedError(string operation, uint status)
+        {
+            // The original failed owner stays in receipt.Resources. Error-record cleanup
+            // must never acquire another error record before that owner is retained.
+            capturingExtendedError = true;
+            try { CaptureOneExtendedError(operation, status); }
+            finally { capturingExtendedError = false; }
+        }
+        private void CaptureOneExtendedError(string operation, uint status)
         {
             Before("MsiGetLastErrorRecord", operation);
             uint handle = Call("MsiGetLastErrorRecord", () => api.Error());

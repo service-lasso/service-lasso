@@ -249,12 +249,92 @@ static int ActualDrainError(void) {
   int finished = FinishOwner(o);
   return matched && !finished && o->closed && o->failures == 1;
 }
+static int ActualWriteError(void) {
+  FixtureOwner* o = NewOwner(); if (!o) return 0;
+  if (!OpenFixture(o,0)) { FinishOwner(o); return 0; }
+  if (!CloseOriginal(o,&o->control.pipe,"write-error-original-close")) { FinishOwner(o); return 0; }
+  int result = WriteControlLine(&o->control,"registered",GetCurrentProcessId(),0);
+  ConptyWriteOwner* write = o->control.writes;
+  int matched = !result && write && !write->issued && write->closed && write->closeAttempted &&
+    o->failures == 1 && o->ledger[0].native && o->ledger[0].code == ERROR_INVALID_HANDLE &&
+    strcmp(o->ledger[0].site,"write-issuance") == 0;
+  int finished = FinishOwner(o);
+  return matched && !finished && o->closed && o->failures == 1;
+}
+static int NaturalControlWrites(void) {
+  FixtureOwner* o = NewOwner(); if (!o) return 0;
+  if (!OpenFixture(o,0)) { FinishOwner(o); return 0; }
+  for (unsigned i = 0; i < 64; i++) o->control.token[i] = L'a';
+  if (!WriteControlLine(&o->control,"registered",123,0) || !WriteControlLine(&o->control,"terminal",123,7)) {
+    Failure(o,"positive-control-write",0,0); FinishOwner(o); return 0;
+  }
+  const char* expected = "registered:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:123:0:0\nterminal:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:123:7:0\n";
+  o->write.hEvent = CreateEventW(NULL,TRUE,FALSE,NULL);
+  if (!o->write.hEvent) { NativeFailure(o,"positive-control-read-event"); FinishOwner(o); return 0; }
+  BOOL read = ReadFile(o->server,o->writeBytes,(DWORD)strlen(expected),&o->written,&o->write);
+  DWORD error = read ? 0 : GetLastError();
+  if (!read && error == ERROR_IO_PENDING) {
+    read = GetOverlappedResult(o->server,&o->write,&o->written,TRUE);
+    error = read ? 0 : GetLastError();
+    if (!read) { Failure(o,"positive-control-read-completion",error,1); RetainOriginal(o,"positive-control-read-unknown"); }
+  }
+  if (!read || o->written != strlen(expected) || memcmp(o->writeBytes,expected,strlen(expected))) Failure(o,"positive-control-protocol-bytes",error,read ? 0 : 1);
+  for (ConptyWriteOwner* write = o->control.writes; write; write = write->next)
+    if (!write->issued || !write->completed || !write->closed || write->written != (DWORD)write->length || write->cancelAttempted) Failure(o,"positive-control-owner-closure",0,0);
+  return FinishOwner(o);
+}
+/* Separate prospective NONRETURNING cases. An external independently admitted
+ * observer must qualify SAME owner retention and original ledger; process exit
+ * or a deadline is never the assertion. These cases are not default positives. */
+static int ActualWriteRetentionCase(int closeEvent) {
+  FixtureOwner* o = NewOwner(); if (!o) return 0;
+  if (!OpenFixture(o,0)) { FinishOwner(o); return 0; }
+  ConptyWriteOwner* write = (ConptyWriteOwner*)HeapAlloc(GetProcessHeap(),HEAP_ZERO_MEMORY,sizeof(*write));
+  if (!write) { Failure(o,"retention-write-allocation",ERROR_NOT_ENOUGH_MEMORY,0); FinishOwner(o); return 0; }
+  write->next = o->control.writes; o->control.writes = write;
+  write->operation.hEvent = CreateEventW(NULL,TRUE,FALSE,NULL);
+  if (!write->operation.hEvent) { NativeFailure(o,"retention-write-event"); FinishOwner(o); return 0; }
+  if (closeEvent) {
+    HANDLE originalEvent = write->operation.hEvent;
+    if (!CloseHandle(originalEvent)) { NativeFailure(o,"retention-original-event-close"); RetainOriginal(o,"retention-original-event-release"); }
+    // Actual previously acquired event; no intervening handle acquisition/reuse.
+    CloseControlWrite(&o->control,write);
+  } else {
+    for (unsigned index = 0;; index++) {
+      write->length = sizeof(write->line); memset(write->line,'x',sizeof(write->line));
+      BOOL issued = WriteFile(o->control.pipe,write->line,(DWORD)write->length,&write->written,&write->operation);
+      DWORD issueError = issued ? 0 : GetLastError();
+      ObserveConpty(&o->control,write->ledger,&write->observations,_countof(write->ledger),"write-issuance",issueError,1,!issued && issueError != ERROR_IO_PENDING);
+      if (!issued && issueError == ERROR_IO_PENDING) { write->issued = 1; break; }
+      if (!issued || write->written != (DWORD)write->length || index == 4095) {
+        Failure(o,"retention-case-original-write-not-pending",issueError,1);
+        CloseControlWrite(&o->control,write); FinishOwner(o); return 0;
+      }
+      write->issued = 1; write->completed = 1; CloseControlWrite(&o->control,write);
+      // Each fill is a NEW original operation with separate stable storage, never
+      // a retry of a failed/pending write. No server reads drain this bounded fill.
+      write = (ConptyWriteOwner*)HeapAlloc(GetProcessHeap(),HEAP_ZERO_MEMORY,sizeof(*write));
+      if (!write) RetainOriginal(o,"retention-fill-owner-allocation");
+      write->next = o->control.writes; o->control.writes = write;
+      write->operation.hEvent = CreateEventW(NULL,TRUE,FALSE,NULL);
+      if (!write->operation.hEvent) { NativeFailure(o,"retention-fill-event"); RetainOriginal(o,"retention-fill-event-failed"); }
+    }
+    HANDLE originalPipe = o->control.pipe;
+    if (!CloseHandle(originalPipe)) { NativeFailure(o,"retention-original-pipe-close"); RetainOriginal(o,"retention-original-pipe-release"); }
+    // The actual API receives the original closed handle; result is not injected.
+    CompleteControlWrite(&o->control,write);
+  }
+  Failure(o,"retention-case-unexpected-return",0,0); RetainOriginal(o,"retention-case-failed-contract"); return 0;
+}
 int wmain(int argc, wchar_t** argv) {
   if (argc == 2 && wcscmp(argv[1],L"--hold") == 0) { for (;;) Sleep(INFINITE); }
+  if (argc == 2 && wcscmp(argv[1],L"--actual-write-closed-completion") == 0) return ActualWriteRetentionCase(0);
+  if (argc == 2 && wcscmp(argv[1],L"--actual-write-closed-event") == 0) return ActualWriteRetentionCase(1);
   int ok = StoppedRead(0,0) && StoppedRead(1,0) && NaturalOrLostRead(0) && NaturalOrLostRead(1) && SuspendedResumeFailure(0);
   /* Independent native counterparts; no fake API, handle, completion or zero. */
   for (int point = 1; point <= 7; point++) if (!StoppedRead(1,point)) ok = 0;
   for (int point = 8; point <= 12; point++) if (!SuspendedResumeFailure(point)) ok = 0;
-  if (!ActualReadError(0) || !ActualReadError(1) || !ActualDrainError()) ok = 0;
+  if (!ActualReadError(0) || !ActualReadError(1) || !ActualDrainError() || !ActualWriteError()) ok = 0;
+  if (!NaturalControlWrites()) ok = 0;
   return ok ? 0 : 1;
 }
