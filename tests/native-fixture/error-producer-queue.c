@@ -133,6 +133,15 @@ static int apart(const void *a,size_t an,const void *b,size_t bn){
  if(an>UINTPTR_MAX-av||bn>UINTPTR_MAX-bv)return 0;
  return av+an<=bv||bv+bn<=av;
 }
+static int output_apart(const struct f7_error_queue *q,const void *out,size_t bytes){
+ /* Snapshot/result outputs cannot overwrite queued originals, in-flight
+    bytes, exact native history, synchronization state or endpoint binding. */
+ return out&&bytes&&apart(out,bytes,q,sizeof(*q))&&
+  apart(out,bytes,q->normal.bytes,q->normal.capacity)&&
+  apart(out,bytes,q->emergency.bytes,q->emergency.capacity)&&
+  apart(out,bytes,q->write_buffer,q->write_capacity)&&
+  apart(out,bytes,q->native_history,q->native_history_capacity);
+}
 static int geometry(const struct f7_error_queue_memory *memory,const struct f7_error_queue_binding *binding,
  struct f7_error_queue **out,int64_t *native){
  struct span {uintptr_t address;size_t length;};
@@ -259,12 +268,15 @@ int f7_error_queue_close(struct f7_error_queue *q){
 }
 int f7_error_queue_snapshot(struct f7_error_queue *q,struct f7_error_queue_status *out){
  if(!q||!out)return F7_INVALID;
+ if(!output_apart(q,out,sizeof(*out)))return F7_CONFLICT;
  if(!q->lock_ready){*out=q->status;return F7_OK;}
  if(lock_try(q))return F7_INCOMPLETE;*out=q->status;
  out->normal_queued=q->normal.used;out->emergency_queued=q->emergency.used;unlock(q);return F7_OK;
 }
 int f7_error_queue_join_exited(struct f7_error_queue *q,int64_t *native){
- if(!q||!native)return F7_INVALID;*native=0;
+ if(!q||!native)return F7_INVALID;
+ if(!output_apart(q,native,sizeof(*native)))return F7_CONFLICT;
+ *native=0;
  if(q->status.worker_created!=1)return F7_INCOMPLETE;
  if(lock_try(q))return F7_INCOMPLETE;
  if(q->status.joined){unlock(q);return F7_OK;}
