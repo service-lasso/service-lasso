@@ -2,6 +2,7 @@ import { Parser } from "tar";
 import { gunzipSync } from "node:zlib";
 import { digest } from "./ga-platform-scope-lib.mjs";
 import { assertNames } from "./scoped-release-evidence-lib.mjs";
+import { assertScopedTarFraming } from "./scoped-tar-framing-lib.mjs";
 
 // Read the registry's original package tarball without materialization, imports,
 // lifecycle scripts or native execution. Tool bytes remain opaque retained files.
@@ -9,6 +10,7 @@ export async function verifyNpmOriginalToolBytes(tarball, manifestBytes, origina
   if (!Buffer.isBuffer(tarball) || !Buffer.isBuffer(manifestBytes) || !(originals instanceof Map)) throw new Error("npm original byte custody missing");
   if (tarball.length === 0 || tarball.length > 256 * 1024 * 1024) throw new Error("npm archive compressed byte budget exceeded");
   const archiveBytes = gunzipSync(tarball, { maxOutputLength: 512 * 1024 * 1024 });
+  assertScopedTarFraming(archiveBytes);
   const wanted = new Map([...originals].map(([name, bytes]) => [`package/${name}`, bytes]));
   wanted.set("package/operator-tools/manifest.json", manifestBytes);
   const observed = new Map(), seen = new Set();
@@ -37,8 +39,12 @@ export async function verifyNpmOriginalToolBytes(tarball, manifestBytes, origina
       });
       entry.resume();
     } });
-    parser.once("error", reject);
-    parser.once("end", resolve);
+    parser.on("ignoredEntry", entry => {
+      failure ??= new Error("npm archive ignored member/metadata differs");
+      entry.resume();
+    });
+    parser.on("error", error => { failure ??= error; reject(failure); });
+    parser.once("end", () => failure ? reject(failure) : resolve());
     parser.end(archiveBytes);
   });
   if (failure) throw failure;

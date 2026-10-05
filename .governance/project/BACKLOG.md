@@ -896,3 +896,9 @@ Parse import failure to both actual archive readers. Isolated current-develop
 repair; dependency pins/protected tests unchanged. Whole-source review and new
 input admission required before execution. Other nineteen natural failures,
 native custody, empty catalogs and publication qualification remain separate.
+
+R1/R2 follow-up in the same owned PR #1707: AC-7G.scoped-tar-parser.R1/R2 binds
+every ignored-entry rejection and complete held-original effective-size framing,
+GNU/PAX positives and missing/partial/nonzero/after-EOF negatives. Retained prior
+whole-reader SOURCE NO-GO remains historical authority; corrected source still
+requires new different entire review and fresh complete execution-input ROOT.

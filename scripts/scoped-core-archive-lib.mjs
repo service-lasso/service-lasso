@@ -5,6 +5,7 @@ import { spawn } from "node:child_process";
 import { gunzipSync } from "node:zlib";
 import { extractZipSafely } from "../dist/runtime/files/safe-zip.js";
 import { digest } from "./ga-platform-scope-lib.mjs";
+import { assertScopedTarFraming } from "./scoped-tar-framing-lib.mjs";
 
 // This is Core outer archive preflight, not staged-service transport or CLI
 // native TAR grammar. Effective GNU/PAX names are checked before extraction.
@@ -15,6 +16,7 @@ export async function preflightScopedCoreTar(bytes, rootName) {
   let expanded;
   try { expanded = gunzipSync(bytes, { maxOutputLength: 512 * 1024 * 1024 }); }
   catch { throw new Error("Core outer TAR gzip/expanded byte budget differs"); }
+  assertScopedTarFraming(expanded);
   const safe = raw => {
     if (typeof raw !== "string" || raw !== raw.normalize("NFC") || Buffer.byteLength(raw) > 4096 || /[\\:\x00-\x1f\x7f]/u.test(raw) || raw.startsWith("/") || raw.split("/").some(part => part === "." || part === ".." || !part)) throw new Error("Core outer TAR path unsafe");
     if (raw !== rootName && !raw.startsWith(`${rootName}/`)) throw new Error("Core outer TAR root differs");
@@ -37,7 +39,13 @@ export async function preflightScopedCoreTar(bytes, rootName) {
       } catch (error) { failure ??= error; }
       entry.resume();
     } });
-    parser.once("error", reject); parser.once("end", resolve); parser.end(expanded);
+    parser.on("ignoredEntry", entry => {
+      failure ??= new Error("Core outer TAR ignored member/metadata differs");
+      entry.resume();
+    });
+    parser.on("error", error => { failure ??= error; reject(failure); });
+    parser.once("end", () => failure ? reject(failure) : resolve());
+    parser.end(expanded);
   });
   if (failure) throw failure;
   if (rows.size === 0 || rows.get(rootName)?.type !== "Directory") throw new Error("Core outer TAR complete root directory missing");

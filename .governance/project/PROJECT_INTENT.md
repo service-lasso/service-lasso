@@ -505,3 +505,12 @@ SPEC-007 AC-7G.scoped-tar-parser. Preserve dependency lock, custody, EOF/drainin
 privacy, budgets, extraction/readback and protected gates. New finite regressions
 remain SOURCE UNEXECUTED pending distinct whole-source review and new complete
 input admission. Other natural failures and native/pin/publication gates remain.
+
+The retained distinct whole-reader NO-GO requires AC-7G.scoped-tar-parser.R1/R2:
+reject every ignored entry and prove finite original expanded TAR framing/EOF
+before acceptance in both readers. Shared effective-size framing preserves
+bounded GNU/PAX metadata, raw original custody and all reader/native limits.
+Two zero EOF blocks and only complete zero-block trailing padding are required;
+permissive missing-EOF recovery is outside this scoped producer contract.
+Additive actual-reader fixtures remain UNEXECUTED pending new entire review and
+fresh complete execution-input admission. No native acceptance is asserted.

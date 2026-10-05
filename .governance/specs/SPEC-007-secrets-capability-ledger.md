@@ -346,3 +346,28 @@ unchanged. Additive source regressions exercise both actual readers with valid
 finite archives and invalid/truncated/traversal/substitution input. Source tests
 are UNEXECUTED until distinct whole-source review and new input admission;
 source compatibility does not establish publication or native acceptance.
+
+`AC-7G.scoped-tar-parser.R1/R2`: both actual readers reject every `ignoredEntry`
+(including unsupported types and metadata exceeding tar's 1 MiB limit), retaining
+the first error and draining entries. Before reader acceptance, the same held
+expanded original buffer must pass shared finite framing: complete 512-byte
+headers and rounded-up effective payload blocks, at most 100,000 physical
+headers, safe nonnegative effective sizes within existing 256 MiB member and
+512 MiB total expanded budgets, and two consecutive entirely zero 512-byte EOF
+blocks. After the first EOF block only complete zero blocks are permitted;
+missing EOF, a single zero block, partial headers/padding, or any nonzero byte
+after EOF denies. This deliberately requires finite producer completeness rather
+than permissive TAR-tool recovery; normal npm/Core producers terminate with zero
+blocks. Payload padding remains opaque. GNU long-name/long-link and local/global
+PAX metadata remain supported under the existing 1 MiB bound; framing uses tar's
+public Header/Pax interpretation of effective sizes, applying pending metadata
+only to ordinary members and consuming local metadata once. Pending local
+metadata at EOF denies. Ordinary reader path/root/link/duplicate/inventory checks
+still govern effective names, and strict parser errors remain mandatory. Additive
+actual-reader positives include GNU/PAX names, local/global size overrides and
+zero-block trailing padding; negatives include unknown types, oversized GNU
+metadata, complete-payload missing EOF/partial header/single EOF/nonzero trailing
+data and a member after EOF. Existing active-body truncation tests stay intact.
+All new source remains UNEXECUTED until new distinct entire-source GO and exact
+fresh complete execution-input ROOT admission; original native extraction and
+publication authority are unchanged.
