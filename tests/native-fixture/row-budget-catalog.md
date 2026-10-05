@@ -28,3 +28,5 @@ Overflow retains actual captured prefixes and marks capture incomplete. Missing
 or unknown dynamic suffix is unavailable, not complete. Allocation before native
 capture is necessary but does not authorize launch; full pre-O admission and
 private emergency persistence must be complete before any downstream start.
+
+#1687 original member constructor dependency: tests/native-fixture/MEMBER-ADOPTION-STORAGE-PROPOSAL.md at c7fc9c1a records the exact proposed before-first-effect storage/observation ABI, complete identity-query caller map, original SD ownership/LocalFree failures, Linux protection gap and all nine actual row rounding obligations (catalogs ABSENT). It is SOURCE pre-code only, pending parent audit and NEW different whole architecture decision. No changed constructor, ROOT issuer/ingress or physical reservation is implemented or admitted; independent authorized U1 implementation continues and the entire unit remains INCOMPLETE.

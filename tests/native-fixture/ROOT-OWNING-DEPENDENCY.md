@@ -109,3 +109,5 @@ settings/grants/keys/profile/provider CI rerun, cleanup or publication occurred.
 U2 G/P, U3 T/C, U4 original W/reset, D1 positive cleanup and U5 actual execution
 remain separate. Same-isolate/all-W-exit-before-delete and original D1/D4/D8
 NO-GO are retained; no unsupported-OS blanket or universal bound is asserted.
+
+#1687 original member constructor dependency: tests/native-fixture/MEMBER-ADOPTION-STORAGE-PROPOSAL.md at c7fc9c1a records the exact proposed before-first-effect storage/observation ABI, complete identity-query caller map, original SD ownership/LocalFree failures, Linux protection gap and all nine actual row rounding obligations (catalogs ABSENT). It is SOURCE pre-code only, pending parent audit and NEW different whole architecture decision. No changed constructor, ROOT issuer/ingress or physical reservation is implemented or admitted; independent authorized U1 implementation continues and the entire unit remains INCOMPLETE.
