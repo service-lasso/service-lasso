@@ -12,6 +12,8 @@ int f7_original_native_error_produce(const struct f7_error_graph *graph,
  int result=f7_error_graph_output_validate(graph,payload,capacity);if(result)return result;
  result=f7_error_graph_output_validate(graph,out,sizeof(*out));if(result)return result;
  result=f7_error_graph_output_validate(graph,queue,f7_error_queue_state_bytes());if(result)return result;
+ result=f7_error_queue_output_storage_validate(queue,payload,capacity);if(result)return result;
+ result=f7_error_queue_output_storage_validate(queue,out,sizeof(*out));if(result)return result;
  if(!separate(payload,capacity,out,sizeof(*out))||
     !separate(payload,capacity,queue,f7_error_queue_state_bytes())||
     !separate(out,sizeof(*out),queue,f7_error_queue_state_bytes()))return F7_CONFLICT;

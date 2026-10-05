@@ -7,6 +7,9 @@ int f7_producer_regression_submit(struct f7_error_queue *queue,
  if(!queue||!graph||!length||!ticket)return F7_INVALID;
  int result=f7_error_queue_snapshot(queue,&before);if(result)return result;
  if(!before.worker_entered||before.failed||before.closed)return F7_INCOMPLETE;
+ result=f7_error_queue_output_storage_validate(queue,queue,f7_error_queue_state_bytes());
+ if(result!=F7_CONFLICT)return F7_CONFLICT;
+ result=f7_error_queue_output_storage_validate(queue,&after,sizeof(after));if(result)return result;
  /* An output located in the live queue must reject before a status write or
     native settlement call. This uses the eventual owning fixture's original
     queue; it never creates an endpoint, actor or synthetic ROOT receipt. */

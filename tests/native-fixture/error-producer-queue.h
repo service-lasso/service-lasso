@@ -38,6 +38,10 @@ struct f7_error_queue;
    Caller reserves all storage/stack/guard and original endpoint before READY.
    This private library cannot manufacture the authentic ROOT entry/binding. */
 size_t f7_error_queue_state_bytes(void);
+/* Pure storage preflight before serialization. It inspects the existing queue
+   storage graph and never starts, admits, settles or authenticates a queue. */
+int f7_error_queue_output_storage_validate(const struct f7_error_queue *queue,
+ const void *output,size_t output_bytes);
 uint16_t f7_error_queue_expected_role(const struct f7_error_queue *queue);
 int f7_error_queue_start(struct f7_error_queue **out,const struct f7_error_queue_memory *memory,
  const struct f7_error_queue_binding *original_binding,int64_t *native_status);

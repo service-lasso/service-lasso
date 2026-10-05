@@ -142,6 +142,11 @@ static int output_apart(const struct f7_error_queue *q,const void *out,size_t by
   apart(out,bytes,q->write_buffer,q->write_capacity)&&
   apart(out,bytes,q->native_history,q->native_history_capacity);
 }
+int f7_error_queue_output_storage_validate(const struct f7_error_queue *q,
+ const void *out,size_t bytes){
+ if(!q||!out||!bytes)return F7_INVALID;
+ return output_apart(q,out,bytes)?F7_OK:F7_CONFLICT;
+}
 static int geometry(const struct f7_error_queue_memory *memory,const struct f7_error_queue_binding *binding,
  struct f7_error_queue **out,int64_t *native){
  struct span {uintptr_t address;size_t length;};
