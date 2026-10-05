@@ -39,3 +39,23 @@ are SOURCE_CONFORMANCE_UNRUN, never native proof. NEW complete actual-input ROOT
 fresh ENTIRE GO and parent admission precede target execution. Parent owns tracking,
 matching-head landing/qualification; macOS Deferred never PASS. Sole retained PR1681
 branch continuation is the bounded recovery exception; no unrelated-owner changes.
+## #1681 G1-A/G1-B closed statement and effect grammar (2026-10-06)
+
+AC-4DI.4 / R3 / C3, Development SOURCE ONLY / in_progress. The distinct05
+ENTIRE review of 2e823 is NO_GO: required-token order/depth permits reachable
+release/retention bypass and unexamined mutation of original objects/aliases.
+CORE1681_G1_SOURCE_CONFORMANCE.md now requires a closed, fully consumed statement,
+control-flow and effect grammar for each actual owning region. Explicit accepted
+roles bind reachable containment, every independent safe release before failure
+retention, attempted-before-first-retirement, immutable original roster/ledger/
+exception identity and original finisher aliases. Unsupported flow/effects deny.
+Safe structural variations (comments/whitespace/braces/empty statements and
+explicitly equivalent loop spelling) remain accepted; no production body snapshot.
+Actual-source negatives preserve mandatory phrases while injecting both finding
+classes, including indirect aliases/calls/uncaptured throws and outside-owner decoys.
+All prospective guard cases SOURCE_CONFORMANCE_UNRUN. Protected complete acceptance,
+production/native bodies, old images/pins, original failures and C1-C3/R1-R4 remain.
+Normal named develop integration precedes final whole freeze. DIFFERENT fresh
+ENTIRE cumulative review + NEW complete actual-input ROOT + parent admission
+precede all target execution. Sole retained PR1681 recovery owner exception;
+parent owns tracking/landing/qualification, no release authority.

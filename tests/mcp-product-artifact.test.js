@@ -113,6 +113,33 @@ test("#1681 AC-4DI.4 G1 actual-source closure guard rejects ownership and orderi
     ["unknown containment skips retention", "RunManagedInvocation", "RetainManagedInvocation(invocation);", "// unknown containment escapes"],
     ["lost live owner", "RetainManagedInvocation", "GC.KeepAlive(owner);", "GC.KeepAlive(null);"],
     ["unreachable release decoy", "ReleaseFile", "Outcomes.Add(original);", "if (false) { Outcomes.Add(original); }"],
+    // Both distinct05 finding classes preserve ALL original mandatory phrases.
+    // A blacklist for goto alone cannot exclude these added effects or aliases.
+    ["forward jump skips every safe release", "FinishManagedReleases", 'invocation.Release(ref thread, "target-thread-release", 0);', 'goto OriginalReleaseEnd; invocation.Release(ref thread, "target-thread-release", 0);'],
+    ["forward jump escapes same-owner retention", "RetainManagedInvocation", "for (;;)", "goto Escaped; for (;;)"],
+    ["uncaptured throw precedes containment", "RunManagedInvocation", "try { ContainManagedJobBeforeFileRelease(", "throw new InvalidOperationException(); try { ContainManagedJobBeforeFileRelease("],
+    ["extra Close before original attempted lookup", "ReleaseFile", "OriginalObservation previous =", "file.Close(); OriginalObservation previous ="],
+    ["original exception overwritten after capture", "ReleaseFile", "Failed |= original.Failed;", "original.Exception = null; Failed |= original.Failed;"],
+    ["ordered original ledger RemoveAt", "ReleaseFile", "Outcomes.Add(original);", "Outcomes.Add(original); Outcomes.RemoveAt(Outcomes.Count - 1);"],
+    ["original roster lost through bound alias", "RunManagedInvocation", "boundFiles.Add(boundFile);", "boundFiles.Add(boundFile); boundFiles.Clear();"],
+    ["actual ref handles zeroed after owner saved", "RunManagedInvocation", "invocation.Thread = threadHandle;", "invocation.Thread = threadHandle; threadHandle = IntPtr.Zero; processHandle = IntPtr.Zero;"],
+    ["roster alias handed to unknown mutating call", "RunManagedInvocation", "boundFiles.Add(boundFile);", "boundFiles.Add(boundFile); MutateOriginalRoster(boundFiles);"],
+    ["new roster alias mutates same list", "RunManagedInvocation", "boundFiles.Add(boundFile);", "boundFiles.Add(boundFile); List<FileStream> alias = boundFiles; alias.RemoveAt(0);"],
+    ["new ledger alias removes original outcome", "ReleaseFile", "Outcomes.Add(original);", "Outcomes.Add(original); var ledgerAlias = Outcomes; ledgerAlias.Clear();"],
+    ["original exception modified by indirect call", "ReleaseFile", "Failed |= original.Failed;", "OverwriteOriginalException(original); Failed |= original.Failed;"],
+    ["unknown retirement call before containment", "RunManagedInvocation", "try { ContainManagedJobBeforeFileRelease(", "RetireAlias(invocation.Files); try { ContainManagedJobBeforeFileRelease("],
+    ["unknown call before attempted retirement", "ReleaseFile", "OriginalObservation previous =", "RetireIndirectly(file); OriginalObservation previous ="],
+    ["exception suppression in additional finally", "ReleaseFile", "Failed |= original.Failed;", "try { } finally { original.Exception = null; } Failed |= original.Failed;"],
+    ["additional release after original observation", "ReleaseFile", "Failed |= original.Failed;", "file.Dispose(); Failed |= original.Failed;"],
+    ["additional exception before remaining safe releases", "FinishManagedReleases", 'invocation.Release(ref process, "target-process-release", 0);', 'throw new InvalidOperationException(); invocation.Release(ref process, "target-process-release", 0);'],
+    ["ledger failure reset after all originals retained", "ReleaseFile", "return original.Closed;", "Failed = false; return original.Closed;"],
+    ["original finisher alias replaced", "RunManagedInvocation", "invocation.Thread = threadHandle;", "invocation.Thread = threadHandle; threadHandle = invocation.Job;"],
+    ["same-owner object reset before retention", "RetainManagedInvocation", "GC.KeepAlive(owner);", "owner = new ManagedInvocation(new List<FileStream>()); GC.KeepAlive(owner);"],
+    ["unknown finalizer call after legitimate containment", "RunManagedInvocation", "FinishManagedReleases(invocation, ref threadHandle, ref processHandle);", "UnknownMutation(invocation); FinishManagedReleases(invocation, ref threadHandle, ref processHandle);"],
+    ["accepted-looking infinite delay in caller", "RunManagedInvocation", "targetAssignedToJob = true;", "targetAssignedToJob = true; Thread.Sleep(Timeout.Infinite);"],
+    ["additional original-looking process creation", "RunManagedInvocation", "targetAssignedToJob = true;", "targetAssignedToJob = true; targetCreated = CreateProcessW(resolvedExecutable, commandLine, IntPtr.Zero, IntPtr.Zero, true, CreateSuspended, IntPtr.Zero, payload.workingDirectory, ref startupInfo, out processInformation);"],
+    ["unexamined direct owner field mutation", "RunManagedInvocation", "targetAssignedToJob = true;", "targetAssignedToJob = true; invocation.Files[0] = null;"],
+    ["original create disposition erased before handles saved", "RunManagedInvocation", "if (!targetCreated)", "targetCreated = false; if (!targetCreated)"],
   ];
   for (const [label, owner, needle, replacement] of vectors) {
     const signatures = {
@@ -125,13 +152,33 @@ test("#1681 AC-4DI.4 G1 actual-source closure guard rejects ownership and orderi
     assert.ok(at >= 0, `${label}: actual owner exists`);
     const after = source.slice(at);
     assert.ok(after.includes(needle), `${label}: actual mutation anchor exists`);
-    const mutant = source.slice(0, at) + after.replace(needle, replacement);
+    let mutant = source.slice(0, at) + after.replace(needle, replacement);
+    // Complete compiling forward-jump shapes from distinct05, retaining all
+    // original release/retention statements as unreachable source decoys.
+    if (label === "forward jump skips every safe release") mutant = mutant.replace("if (invocation.Failed) RetainManagedInvocation(invocation);", "OriginalReleaseEnd: ; if (invocation.Failed) RetainManagedInvocation(invocation);");
+    if (label === "forward jump escapes same-owner retention") mutant = mutant.replace("GC.KeepAlive(owner);\r\n        }", "GC.KeepAlive(owner);\r\n        }\r\n        Escaped: ;").replace("GC.KeepAlive(owner);\n        }", "GC.KeepAlive(owner);\n        }\n        Escaped: ;");
     assert.notEqual(mutant, source, `${label}: actual source changed`);
     assert.throws(() => assertManagedClosureSourceConformance(mutant), /managed closure/u, label);
     // A correct-looking original snippet outside the owning body cannot repair
     // either lexical ownership or the independently required relational chain.
     const decoy = `${mutant}\n/* unrelated original snippet: ${needle} */\n`;
     assert.throws(() => assertManagedClosureSourceConformance(decoy), /managed closure/u, `${label}: outside-owner decoy`);
+  }
+  // Safe source variations exercise grammar roles rather than a production-body
+  // snapshot. They change structure while preserving observable closure effects.
+  const positiveVariations = [
+    ["braced prior-attempt return", "internal bool ReleaseFile(", "if (previous != null) return previous.Closed;", "if (previous != null) { return previous.Closed; }"],
+    ["braced failure gate", "internal static void FinishManagedReleases(", "if (invocation.Failed) RetainManagedInvocation(invocation);", "if (invocation.Failed) { RetainManagedInvocation(invocation); }"],
+    ["equivalent file-loop increment", "internal static void FinishManagedReleases(", "ordinal < invocation.Files.Count; ordinal++", "ordinal < invocation.Files.Count; ordinal += 1"],
+    ["original field initializer permutation", "internal bool ReleaseFile(", 'Site = "bound-file-release", Ordinal = ordinal,', 'Ordinal = ordinal, Site = "bound-file-release",'],
+    ["harmless release block and empty statement", "internal bool ReleaseFile(", "Outcomes.Add(original);", "{ ; Outcomes.Add(original); ; }"],
+  ];
+  for (const [label, signature, needle, replacement] of positiveVariations) {
+    const at = source.indexOf(signature), after = source.slice(at);
+    assert.ok(at >= 0 && after.includes(needle), `${label}: actual owning anchor exists`);
+    const variant = source.slice(0, at) + after.replace(needle, replacement);
+    assert.notEqual(variant, source);
+    assert.doesNotThrow(() => assertManagedClosureSourceConformance(variant), label);
   }
 });
 
