@@ -184,5 +184,21 @@ internal static class Core1681AcquisitionSourceCases
             if (i == 1) Expect(result.References.Single().SourceIds.Length == 0,
                 "OPC_canonical_selectors_never_collected");
         }
+        string[] containers = { "<XPath>unsupported</XPath>",
+            "<f:Transform xmlns:f='urn:foreign' Algorithm='" + OpcCoverage.Canonical + "'/>",
+            canonical + "</Transform><XPath/>", selector, "unexpected text", "<?unsupported parameter?>" };
+        foreach (string body in containers)
+        {
+            byte[] original = Encoding.UTF8.GetBytes(prefix + body + suffix);
+            var result = OpcCoverage.Inspect(original, qualifiedXmlRuntime);
+            Expect(result.State == "UNSUPPORTED_TRANSFORM_CONTAINER" && result.OriginalXml.SequenceEqual(original),
+                "OPC_entire_unsupported_transform_container_retains_original:" + body);
+            Expect(result.References.Count == 0, "OPC_unsupported_container_not_projected");
+        }
+        foreach (string body in new[] { "", canonical + "</Transform>" })
+        {
+            var result = OpcCoverage.Inspect(Encoding.UTF8.GetBytes(prefix + body + suffix), qualifiedXmlRuntime);
+            Expect(result.State == "FORMAT_OBSERVED_XML_CRYPTO_UNQUALIFIED", "OPC_natural_container_positive");
+        }
     }
 }

@@ -68,6 +68,10 @@ typedef struct {
   ConptyObservation containment[8];
   unsigned containmentCount;
   int containmentStop, containmentDrain, containmentReader, containmentProcess;
+  struct { HANDLE original; const char* site; DWORD ordinal, status; int attempted, closed; }
+    releases[PACKAGE_DIRECTORY_HANDLE_CAPACITY + 16];
+  unsigned releaseCount;
+  int releaseFailed;
 } ConptyControl;
 
 static void ObserveConpty(ConptyControl* control, ConptyObservation* ledger, unsigned* count,
@@ -373,11 +377,30 @@ static int SameFinalPath(const wchar_t* expected, const wchar_t* actual) {
  * Each handle is also checked against its final path, which rejects a reparse
  * component instead of silently following it.
  */
-static void ReleasePackageDirectories(HANDLE* handles, DWORD count) {
-  while (count > 0) CloseHandle(handles[--count]);
+static void ReleaseBootstrapHandle(ConptyControl* control, HANDLE* handle, const char* site, DWORD ordinal) {
+  if (*handle == NULL || *handle == INVALID_HANDLE_VALUE) return;
+  if (control->releaseCount >= _countof(control->releases)) RetainConpty();
+  unsigned index = control->releaseCount++;
+  control->releases[index].original = *handle;
+  control->releases[index].site = site;
+  control->releases[index].ordinal = ordinal;
+  control->releases[index].attempted = 1;
+  BOOL closed = CloseHandle(*handle);
+  DWORD error = closed ? 0 : GetLastError();
+  control->releases[index].status = error;
+  control->releases[index].closed = closed;
+  if (!closed) {
+    control->releaseFailed = 1;
+    InterlockedExchange(&control->failed,1);
+    if (control->observeFailure) control->observeFailure(control->observationOwner,site,error,1);
+  } else *handle = NULL;
+}
+static void ReleasePackageDirectories(ConptyControl* control, HANDLE* handles, DWORD count) {
+  while (count > 0) { --count; ReleaseBootstrapHandle(control,&handles[count],"release-package-directory",count); }
+  if (control->releaseFailed) RetainConpty();
 }
 
-static int VerifyPackageDirectory(const wchar_t* requestedDirectory, wchar_t* finalDirectory, DWORD capacity, HANDLE* handles, DWORD* handleCount) {
+static int VerifyPackageDirectory(ConptyControl* control, const wchar_t* requestedDirectory, wchar_t* finalDirectory, DWORD capacity, HANDLE* handles, DWORD* handleCount) {
   wchar_t canonical[32768];
   wchar_t packageFinalPath[32768];
   DWORD length = GetFullPathNameW(requestedDirectory, (DWORD)_countof(canonical), canonical, NULL);
@@ -401,8 +424,8 @@ static int VerifyPackageDirectory(const wchar_t* requestedDirectory, wchar_t* fi
     }
     *componentEnd = preserved;
     if (directory == INVALID_HANDLE_VALUE || !finalPathMatches) {
-      if (directory != INVALID_HANDLE_VALUE) CloseHandle(directory);
-      ReleasePackageDirectories(handles, count);
+      ReleaseBootstrapHandle(control,&directory,"release-unverified-directory",count);
+      ReleasePackageDirectories(control,handles, count);
       return 0;
     }
     handles[count++] = directory;
@@ -410,21 +433,21 @@ static int VerifyPackageDirectory(const wchar_t* requestedDirectory, wchar_t* fi
       const wchar_t* normalizedPackageFinalPath = componentFinalPath;
       if (wcsncmp(normalizedPackageFinalPath, L"\\\\?\\", 4) == 0) normalizedPackageFinalPath += 4;
       if (wcsncpy_s(packageFinalPath, _countof(packageFinalPath), normalizedPackageFinalPath, _TRUNCATE) != 0) {
-        ReleasePackageDirectories(handles, count);
+        ReleasePackageDirectories(control,handles, count);
         return 0;
       }
       break;
     }
   }
   if (!SameFinalPath(requestedDirectory, packageFinalPath) || wcsncpy_s(finalDirectory, capacity, packageFinalPath, _TRUNCATE) != 0) {
-    ReleasePackageDirectories(handles, count);
+    ReleasePackageDirectories(control,handles, count);
     return 0;
   }
   *handleCount = count;
   return 1;
 }
 
-static int VerifyManagedLauncher(const wchar_t* managedPath, HANDLE* heldHandle) {
+static int VerifyManagedLauncher(ConptyControl* control, const wchar_t* managedPath, HANDLE* heldHandle) {
   DWORD attributes = GetFileAttributesW(managedPath);
   if (attributes == INVALID_FILE_ATTRIBUTES || (attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0 || (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0) return 0;
   HANDLE file = CreateFileW(managedPath, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
@@ -459,9 +482,26 @@ cleanup:
   if (hash != NULL) BCryptDestroyHash(hash);
   if (algorithm != NULL) BCryptCloseAlgorithmProvider(algorithm, 0);
   if (hashObject != NULL) { SecureZeroMemory(hashObject, hashObjectLength); HeapFree(GetProcessHeap(), 0, hashObject); }
-  if (!valid) { CloseHandle(file); return 0; }
+  /* The caller still releases independently safe held directories before the
+   * shared releaseFailed retention gate. Failed file identity stays in ledger. */
+  if (!valid) { ReleaseBootstrapHandle(control,&file,"release-unverified-managed-file",0); return 0; }
   *heldHandle = file;
   return 1;
+}
+
+/* Called only after genuine original reader/process closure, or before any
+ * child acquisition. Every independent safe release is observed before retention.
+ * Pipe is deliberately separate: it is the last release after provisional terminal. */
+static void ReleaseBootstrapResources(ConptyControl* control, PROCESS_INFORMATION* process,
+    HANDLE* reader, HANDLE* heldFile, HANDLE* directories, DWORD count) {
+  ReleaseBootstrapHandle(control,reader,"release-control-reader",0);
+  ReleaseBootstrapHandle(control,&process->hThread,"release-managed-thread",0);
+  ReleaseBootstrapHandle(control,&process->hProcess,"release-managed-process",0);
+  ReleaseBootstrapHandle(control,&control->stopEvent,"release-stop-event",0);
+  ReleaseBootstrapHandle(control,&control->job,"release-job",0);
+  ReleaseBootstrapHandle(control,&control->owner,"release-control-owner",0);
+  ReleaseBootstrapHandle(control,heldFile,"release-managed-file",0);
+  ReleasePackageDirectories(control,directories,count);
 }
 
 int wmain(void) {
@@ -479,15 +519,16 @@ int wmain(void) {
   HANDLE controlThread = NULL;
   int conptyMode;
   ZeroMemory(&control, sizeof(control));
+  ZeroMemory(&processInformation, sizeof(processInformation));
   control.pipe = INVALID_HANDLE_VALUE;
   if (!SanitizeLoaderEnvironment()) return BOOTSTRAP_FAILURE_UNKNOWN;
   if (!GetSelfDirectory(directory, (DWORD)(sizeof(directory) / sizeof(directory[0])))) return BOOTSTRAP_FAILURE_BINDING;
-  if (!VerifyPackageDirectory(directory, finalDirectory, (DWORD)_countof(finalDirectory), heldDirectories, &heldDirectoryCount)) return BOOTSTRAP_FAILURE_BINDING;
-  if (_snwprintf_s(managedPath, _countof(managedPath), _TRUNCATE, L"%s\\%s", finalDirectory, MANAGED_LAUNCHER_NAME) < 0) { ReleasePackageDirectories(heldDirectories, heldDirectoryCount); return BOOTSTRAP_FAILURE_BINDING; }
-  if (!VerifyManagedLauncher(managedPath, &heldHandle)) { ReleasePackageDirectories(heldDirectories, heldDirectoryCount); return BOOTSTRAP_FAILURE_BINDING; }
+  if (!VerifyPackageDirectory(&control,directory, finalDirectory, (DWORD)_countof(finalDirectory), heldDirectories, &heldDirectoryCount)) return BOOTSTRAP_FAILURE_BINDING;
+  if (_snwprintf_s(managedPath, _countof(managedPath), _TRUNCATE, L"%s\\%s", finalDirectory, MANAGED_LAUNCHER_NAME) < 0) { ReleasePackageDirectories(&control,heldDirectories, heldDirectoryCount); return BOOTSTRAP_FAILURE_BINDING; }
+  if (!VerifyManagedLauncher(&control,managedPath, &heldHandle)) { ReleasePackageDirectories(&control,heldDirectories, heldDirectoryCount); return BOOTSTRAP_FAILURE_BINDING; }
   conptyMode = OpenConptyControl(&control);
   if (conptyMode < 0) { exitCode = BOOTSTRAP_FAILURE_BINDING; goto release; }
-  if (_snwprintf_s(commandLine, _countof(commandLine), _TRUNCATE, L"\"%s\"", managedPath) < 0) { CloseHandle(heldHandle); ReleasePackageDirectories(heldDirectories, heldDirectoryCount); return BOOTSTRAP_FAILURE_CREATE; }
+  if (_snwprintf_s(commandLine, _countof(commandLine), _TRUNCATE, L"\"%s\"", managedPath) < 0) { exitCode = BOOTSTRAP_FAILURE_CREATE; goto release; }
   ZeroMemory(&startupInfo, sizeof(startupInfo));
   ZeroMemory(&processInformation, sizeof(processInformation));
   startupInfo.cb = sizeof(startupInfo);
@@ -502,8 +543,6 @@ int wmain(void) {
     controlThread = CreateThread(NULL, 0, ConptyCancelReader, &control, 0, NULL);
     if (controlThread == NULL || ResumeThread(processInformation.hThread) == (DWORD)-1) { exitCode = BOOTSTRAP_FAILURE_CREATE; goto contained; }
   }
-  CloseHandle(processInformation.hThread);
-  processInformation.hThread = NULL;
   if (WaitForSingleObject(processInformation.hProcess, INFINITE) != WAIT_OBJECT_0 || !GetExitCodeProcess(processInformation.hProcess, &exitCode)) exitCode = BOOTSTRAP_FAILURE_WAIT;
 contained:
   if (conptyMode) {
@@ -512,18 +551,14 @@ contained:
       exitCode = BOOTSTRAP_FAILURE_WAIT;
     } else {
       if (control.cancelled || control.failed) exitCode = BOOTSTRAP_FAILURE_WAIT;
-      if (!WriteControlLine(&control, "terminal", GetCurrentProcessId(), exitCode)) exitCode = BOOTSTRAP_FAILURE_WAIT;
     }
-    if (controlThread != NULL) { CloseHandle(controlThread); controlThread = NULL; }
   }
-  if (processInformation.hThread != NULL) CloseHandle(processInformation.hThread);
-  CloseHandle(processInformation.hProcess);
 release:
-  if (control.stopEvent != NULL) CloseHandle(control.stopEvent);
-  if (control.job != NULL) CloseHandle(control.job);
-  if (control.owner != NULL) CloseHandle(control.owner);
-  if (control.pipe != INVALID_HANDLE_VALUE) CloseHandle(control.pipe);
-  CloseHandle(heldHandle);
-  ReleasePackageDirectories(heldDirectories, heldDirectoryCount);
+  ReleaseBootstrapResources(&control,&processInformation,&controlThread,&heldHandle,heldDirectories,heldDirectoryCount);
+  if (conptyMode > 0 && control.containmentDrain && control.containmentReader && control.containmentProcess) {
+    if (!WriteControlLine(&control,"terminal",GetCurrentProcessId(),exitCode)) exitCode = BOOTSTRAP_FAILURE_WAIT;
+  }
+  ReleaseBootstrapHandle(&control,&control.pipe,"release-control-pipe",0);
+  if (control.releaseFailed) RetainConpty();
   return (int)exitCode;
 }

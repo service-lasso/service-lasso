@@ -20,6 +20,8 @@ struct FixtureOwner {
   unsigned failures; int ledgerOverflow;
   volatile LONG ledgerLock;
   FixtureFailure ledger[64];
+  PROCESS_INFORMATION bootstrapProcess;
+  HANDLE bootstrapReader, bootstrapFile, bootstrapDirectories[2];
 };
 static FixtureOwner* originalOwners;
 static void Failure(FixtureOwner* o, const char* site, DWORD code, int native) {
@@ -252,8 +254,14 @@ static int ActualDrainError(void) {
 static int ActualWriteError(void) {
   FixtureOwner* o = NewOwner(); if (!o) return 0;
   if (!OpenFixture(o,0)) { FinishOwner(o); return 0; }
+  HANDLE originalPipe = o->control.pipe;
   if (!CloseOriginal(o,&o->control.pipe,"write-error-original-close")) { FinishOwner(o); return 0; }
+  /* Artificial acquired-then-closed numeric handle regression, not an ordinary
+   * original-release failure. WriteControlLine may acquire/reuse handle values;
+   * only the real API observation can qualify this prospective case. */
+  o->control.pipe = originalPipe;
   int result = WriteControlLine(&o->control,"registered",GetCurrentProcessId(),0);
+  o->control.pipe = NULL; /* borrowed closed value; never close/retry it */
   ConptyWriteOwner* write = o->control.writes;
   int matched = !result && write && !write->issued && write->closed && write->closeAttempted &&
     o->failures == 1 && o->ledger[0].native && o->ledger[0].code == ERROR_INVALID_HANDLE &&
@@ -326,15 +334,75 @@ static int ActualWriteRetentionCase(int closeEvent) {
   }
   Failure(o,"retention-case-unexpected-return",0,0); RetainOriginal(o,"retention-case-failed-contract"); return 0;
 }
+static DWORD WINAPI CompletedBootstrapReader(LPVOID parameter) { (void)parameter; return 0; }
+/* Actual production release helper with real acquired file/directory/process/
+ * thread/job/owner/event/pipe handles. Negative cases need a separate original
+ * observer of the SAME owner ledger and nonreturning invocation; no timeout or
+ * process exit is a PASS. No native API/result is replaced. */
+static int ProductionReleaseCase(int selected) {
+  FixtureOwner* o = NewOwner(); if (!o) return 0;
+  if (!OpenFixture(o,0)) { FinishOwner(o); return 0; }
+  wchar_t image[32768], command[32770];
+  DWORD length = GetModuleFileNameW(NULL,image,_countof(image));
+  if (!length || length >= _countof(image)) RetainOriginal(o,"production-release-image");
+  o->bootstrapFile = CreateFileW(image,GENERIC_READ,FILE_SHARE_READ,NULL,OPEN_EXISTING,0,NULL);
+  for (unsigned i = 0; i < 2; i++) o->bootstrapDirectories[i] =
+    CreateFileW(L".",GENERIC_READ,FILE_SHARE_READ|FILE_SHARE_WRITE,NULL,OPEN_EXISTING,FILE_FLAG_BACKUP_SEMANTICS,NULL);
+  o->control.owner = OpenProcess(SYNCHRONIZE|PROCESS_QUERY_LIMITED_INFORMATION,FALSE,GetCurrentProcessId());
+  o->control.job = CreateJobObjectW(NULL,NULL);
+  o->bootstrapReader = CreateThread(NULL,0,CompletedBootstrapReader,NULL,0,NULL);
+  if (o->bootstrapFile == INVALID_HANDLE_VALUE || o->bootstrapDirectories[0] == INVALID_HANDLE_VALUE ||
+      o->bootstrapDirectories[1] == INVALID_HANDLE_VALUE || !o->control.owner || !o->control.job || !o->bootstrapReader)
+    RetainOriginal(o,"production-release-acquisition-incomplete");
+  if (_snwprintf_s(command,_countof(command),_TRUNCATE,L"\"%s\" --hold",image) < 0) RetainOriginal(o,"production-release-command");
+  STARTUPINFOW startup; ZeroMemory(&startup,sizeof(startup)); startup.cb = sizeof(startup);
+  if (!CreateProcessW(image,command,NULL,NULL,FALSE,CREATE_SUSPENDED,NULL,NULL,&startup,&o->bootstrapProcess))
+    RetainOriginal(o,"production-release-child-create");
+  if (!AssignProcessToJobObject(o->control.job,o->bootstrapProcess.hProcess)) RetainOriginal(o,"production-release-child-assign");
+  if (!FinishConptyContainment(&o->control,o->bootstrapProcess.hProcess,o->bootstrapReader))
+    RetainOriginal(o,"production-release-original-containment");
+  HANDLE* slots[] = { &o->bootstrapReader, &o->bootstrapProcess.hThread, &o->bootstrapProcess.hProcess,
+    &o->control.stopEvent, &o->control.job, &o->control.owner, &o->bootstrapFile,
+    &o->bootstrapDirectories[0], &o->bootstrapDirectories[1], &o->control.pipe };
+  if (selected > 0 && selected <= (int)_countof(slots)) {
+    /* All acquisitions precede this close. No new handles before the release
+     * helper's real CloseHandle of the saved original number. An external actor
+     * can still affect reuse; record original numeric identity and real status. */
+    if (!CloseHandle(*slots[selected-1])) RetainOriginal(o,"production-release-preclose-failed");
+  }
+  ReleaseBootstrapResources(&o->control,&o->bootstrapProcess,&o->bootstrapReader,&o->bootstrapFile,o->bootstrapDirectories,2);
+  if (o->control.releaseCount != 9 || o->control.releaseFailed) RetainOriginal(o,"production-release-roster");
+  /* For pipe negative, directly traverse the last production seam without a
+   * new write-event acquisition that might reuse its deliberately closed value. */
+  if (selected == 10) {
+    ReleaseBootstrapHandle(&o->control,&o->control.pipe,"release-control-pipe",0);
+    if (o->control.releaseFailed) RetainConpty();
+    RetainOriginal(o,"production-pipe-release-unexpected-success");
+  }
+  for (unsigned i = 0; i < 64; i++) o->control.token[i] = L'a';
+  if (!WriteControlLine(&o->control,"terminal",123,0)) RetainOriginal(o,"production-release-terminal-write");
+  ReleaseBootstrapHandle(&o->control,&o->control.pipe,"release-control-pipe",0);
+  if (o->control.releaseFailed) RetainConpty();
+  if (selected) RetainOriginal(o,"production-release-unexpected-return");
+  if (o->control.releaseCount != 10 || o->failures) return 0;
+  for (unsigned i = 0; i < o->control.releaseCount; i++)
+    if (!o->control.releases[i].attempted || !o->control.releases[i].closed || o->control.releases[i].status) return 0;
+  return FinishOwner(o);
+}
 int wmain(int argc, wchar_t** argv) {
   if (argc == 2 && wcscmp(argv[1],L"--hold") == 0) { for (;;) Sleep(INFINITE); }
   if (argc == 2 && wcscmp(argv[1],L"--actual-write-closed-completion") == 0) return ActualWriteRetentionCase(0);
   if (argc == 2 && wcscmp(argv[1],L"--actual-write-closed-event") == 0) return ActualWriteRetentionCase(1);
+  if (argc == 3 && wcscmp(argv[1],L"--production-release-closed-handle") == 0) {
+    int slot = _wtoi(argv[2]); if (slot < 1 || slot > 10) return 1;
+    return ProductionReleaseCase(slot);
+  }
   int ok = StoppedRead(0,0) && StoppedRead(1,0) && NaturalOrLostRead(0) && NaturalOrLostRead(1) && SuspendedResumeFailure(0);
   /* Independent native counterparts; no fake API, handle, completion or zero. */
   for (int point = 1; point <= 7; point++) if (!StoppedRead(1,point)) ok = 0;
   for (int point = 8; point <= 12; point++) if (!SuspendedResumeFailure(point)) ok = 0;
   if (!ActualReadError(0) || !ActualReadError(1) || !ActualDrainError() || !ActualWriteError()) ok = 0;
   if (!NaturalControlWrites()) ok = 0;
+  if (!ProductionReleaseCase(0)) ok = 0;
   return ok ? 0 : 1;
 }

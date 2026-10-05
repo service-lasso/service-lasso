@@ -210,6 +210,12 @@ namespace ServiceLasso.SourceAcquisition
                 var transformContainers = reference.Elements(Ds + "Transforms").ToArray();
                 if (digest.Length != 1 || values.Length != 1 || transformContainers.Length > 1 || digest[0].HasElements)
                 { result.State = "AMBIGUOUS_REFERENCE_STRUCTURE"; return result; }
+                // Validate the whole observed container before projecting its roster.
+                if (transformContainers.Any(t => t.Attributes().Any(a => !a.IsNamespaceDeclaration) ||
+                    t.Elements().Any(e => e.Name != Ds + "Transform") ||
+                    t.Nodes().Any(n => !(n is XElement) && !(n is XText) && !(n is XComment)) ||
+                    t.Nodes().OfType<XText>().Any(n => !String.IsNullOrWhiteSpace(n.Value))))
+                { result.State = "UNSUPPORTED_TRANSFORM_CONTAINER"; return result; }
                 var transforms = transformContainers.SelectMany(t => t.Elements(Ds + "Transform")).ToArray();
                 var row = new OpcReference { Uri = (string)reference.Attribute("URI"), DigestAlgorithm = (string)digest[0].Attribute("Algorithm"),
                     DigestValue = values[0].Value, Transforms = transforms.Select(t => (string)t.Attribute("Algorithm")).ToArray(),
