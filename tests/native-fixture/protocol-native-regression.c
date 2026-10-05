@@ -64,6 +64,22 @@ static void index_records(void){
  assert(f7_canonical_index(&input,original,sizeof(original),&n)==F7_OK);
  assert(f7_decode_index(original,n,&decoded,decoded_objects,2,scratch,sizeof(scratch))==F7_OK);
  assert(decoded.count==2&&decoded.objects[1].kind==F7_ENCRYPTED_MANIFEST);
+ /* Geometry rejection precedes any parsed-table or source-byte write. These
+    are format data, not signed custody or original actor evidence. */
+ uint8_t saved[4096];struct f7_index_object saved_objects[2];
+ struct f7_index_input saved_decoded=decoded;
+ memcpy(saved,original,n);memcpy(saved_objects,decoded_objects,sizeof(saved_objects));
+ assert(f7_decode_index(original,n,&decoded,decoded_objects,2,original,sizeof(original))==F7_CONFLICT);
+ assert(!memcmp(original,saved,n)&&!memcmp(&decoded,&saved_decoded,sizeof(decoded)));
+ assert(!memcmp(decoded_objects,saved_objects,sizeof(saved_objects)));
+ assert(f7_decode_index(original,n,&decoded,decoded_objects,2,(uint8_t *)decoded_objects,sizeof(decoded_objects))==F7_CONFLICT);
+ assert(!memcmp(decoded_objects,saved_objects,sizeof(saved_objects)));
+ assert(f7_decode_index(original,n,&decoded,(struct f7_index_object *)&decoded,1,scratch,sizeof(scratch))==F7_CONFLICT);
+ assert(!memcmp(&decoded,&saved_decoded,sizeof(decoded)));
+ n=777;
+ assert(f7_canonical_index(&input,(uint8_t *)objects,sizeof(objects),&n)==F7_CONFLICT);
+ assert(n==777&&objects[0].key[15]==1&&objects[1].key[15]==2);
+ assert(f7_canonical_index(&input,original,sizeof(original),&n)==F7_OK);
  original[n]='\n';assert(f7_decode_index(original,n+1,&decoded,decoded_objects,2,scratch,sizeof(scratch))==F7_INVALID);
  /* Equal plaintext or valid JSON is irrelevant: exact signed roster bytes
     reject changed/duplicate object keys and incomplete caller reservation. */
