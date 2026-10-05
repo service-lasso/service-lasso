@@ -1,6 +1,7 @@
 #ifndef SERVICE_LASSO_F7_ERROR_CHANNEL_H
 #define SERVICE_LASSO_F7_ERROR_CHANNEL_H
 #include "protocol.h"
+#include "partial-error.h"
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -12,6 +13,8 @@ struct f7_error_channel {
  uint8_t *payload;size_t payload_capacity,payload_used;
  uint16_t payload_type;uint32_t graph_node_limit;
  int failed,incomplete;
+ struct f7_partial_reader *partial;
+ uint64_t partial_message;
 };
 /* Graph bytes are validated in the original admitted channel before terminal
    acceptance. This never substitutes for the original W identity assertion. */

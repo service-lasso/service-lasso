@@ -24,6 +24,12 @@ int f7_error_channel_feed(struct f7_error_channel *c,const uint8_t *input,size_t
      if(f7_serialization_fallback_validate(c->payload,c->payload_used)){c->failed=1;return F7_INCOMPLETE;}
      c->incomplete=1;
     }
+    if(c->payload_type==F7_KNOWN_PARTIAL_GRAPH){
+     if(!c->partial||f7_partial_fragment_accept(c->partial,c->payload,c->payload_used,c->partial_message,c->graph_node_limit)){
+      c->failed=1;return F7_INCOMPLETE;
+     }
+     c->incomplete=1;
+    }
     c->header_used=0;c->payload_used=0;
    }
    continue;
@@ -42,6 +48,7 @@ int f7_error_channel_feed(struct f7_error_channel *c,const uint8_t *input,size_t
      c->failed=1;return F7_INCOMPLETE;
    }
    c->ordinal=frame.ordinal;c->frames++;c->payload_bytes+=frame.payload_length;
+   if(frame.payload_type==F7_SERIALIZATION_FALLBACK)c->partial_message=frame.sequence;
    c->remaining=frame.payload_length;
    c->payload_type=frame.payload_type;c->payload_used=0;
   }

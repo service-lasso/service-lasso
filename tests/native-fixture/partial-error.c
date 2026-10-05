@@ -1,5 +1,6 @@
 #include "partial-error.h"
 #include <string.h>
+#include <sodium.h>
 static uint32_t u32(const uint8_t *p){return ((uint32_t)p[0]<<24)|((uint32_t)p[1]<<16)|((uint32_t)p[2]<<8)|p[3];}
 static void put32(uint8_t *p,uint32_t n){p[0]=(uint8_t)(n>>24);p[1]=(uint8_t)(n>>16);p[2]=(uint8_t)(n>>8);p[3]=(uint8_t)n;}
 static int range(uint32_t offset,uint32_t count,uint64_t capacity){return offset<=capacity&&count<=capacity-offset;}
@@ -91,5 +92,59 @@ int f7_partial_graph_validate(const uint8_t *p,size_t length,uint32_t limit){
   if(progress&64){if(!native_count||!range(native_at,native_count,native))return F7_INVALID;}
   else if(native_at||native_count)return F7_INVALID;
  }
+ return F7_OK;
+}
+int f7_partial_fragment_validate(const uint8_t *p,size_t n){
+ if(!p||n<F7_PARTIAL_FRAGMENT_HEADER||n>F7_FRAME_MAX-F7_FRAME_HEADER_SIZE||memcmp(p,"SLF7KPF1",8))return F7_INVALID;
+ uint64_t message=f7_read_u64be(p+8),total=f7_read_u64be(p+16),offset=f7_read_u64be(p+24),
+  bytes=f7_read_u64be(p+32),part=f7_read_u64be(p+40),count=f7_read_u64be(p+48);
+ if(!message||!total||total>F7_PARTIAL_MAX||!part||part>count||
+    count!=total/F7_PARTIAL_FRAGMENT_DATA+(total%F7_PARTIAL_FRAGMENT_DATA!=0)||
+    offset!=(part-1)*F7_PARTIAL_FRAGMENT_DATA||offset>=total||
+    bytes!=(total-offset>F7_PARTIAL_FRAGMENT_DATA?F7_PARTIAL_FRAGMENT_DATA:total-offset)||
+    n!=F7_PARTIAL_FRAGMENT_HEADER+bytes)return F7_INVALID;
+ return F7_OK;
+}
+int f7_partial_fragment_encode(uint8_t *out,size_t capacity,size_t *out_n,uint64_t message,
+ const uint8_t *snapshot,size_t length,uint64_t part,const uint8_t digest[32]){
+ if(!out||!out_n||!snapshot||!digest||!message||!length||length>F7_PARTIAL_MAX||!part)return F7_INVALID;
+ uint64_t count=length/F7_PARTIAL_FRAGMENT_DATA+(length%F7_PARTIAL_FRAGMENT_DATA!=0);
+ if(part>count)return F7_INVALID;size_t offset=(size_t)(part-1)*F7_PARTIAL_FRAGMENT_DATA;
+ size_t bytes=length-offset;if(bytes>F7_PARTIAL_FRAGMENT_DATA)bytes=F7_PARTIAL_FRAGMENT_DATA;
+ if(capacity<F7_PARTIAL_FRAGMENT_HEADER+bytes)return F7_BUDGET_ABSENT;
+ uintptr_t output=(uintptr_t)out,input=(uintptr_t)snapshot,pin=(uintptr_t)digest;
+ uintptr_t size_output=(uintptr_t)out_n;
+ if(capacity>UINTPTR_MAX-output||length>UINTPTR_MAX-input||32>UINTPTR_MAX-pin||
+    sizeof(*out_n)>UINTPTR_MAX-size_output||
+    !(output+capacity<=input||input+length<=output)||!(output+capacity<=pin||pin+32<=output)||
+    !(output+capacity<=size_output||size_output+sizeof(*out_n)<=output)||
+    !(size_output+sizeof(*out_n)<=input||input+length<=size_output)||
+    !(size_output+sizeof(*out_n)<=pin||pin+32<=size_output))return F7_INVALID;
+ memcpy(out,"SLF7KPF1",8);f7_u64be(out+8,message);f7_u64be(out+16,length);f7_u64be(out+24,offset);
+ f7_u64be(out+32,bytes);f7_u64be(out+40,part);f7_u64be(out+48,count);memcpy(out+56,digest,32);
+ memcpy(out+F7_PARTIAL_FRAGMENT_HEADER,snapshot+offset,bytes);*out_n=F7_PARTIAL_FRAGMENT_HEADER+bytes;return F7_OK;
+}
+int f7_partial_fragment_accept(struct f7_partial_reader *r,const uint8_t *p,size_t n,
+ uint64_t original_message,uint32_t limit){
+ if(!r||!r->bytes||!r->capacity||r->capacity>F7_PARTIAL_MAX||r->failed||r->complete)return F7_INVALID;
+ uintptr_t state=(uintptr_t)r,buffer=(uintptr_t)r->bytes,input=(uintptr_t)p;
+ if(sizeof(*r)>UINTPTR_MAX-state||r->capacity>UINTPTR_MAX-buffer||n>UINTPTR_MAX-input||
+    !(state+sizeof(*r)<=buffer||buffer+r->capacity<=state)||
+    !(state+sizeof(*r)<=input||input+n<=state)||
+    !(buffer+r->capacity<=input||input+n<=buffer))return F7_INVALID;
+ int result=f7_partial_fragment_validate(p,n);if(result){r->failed=1;return result;}
+ uint64_t message=f7_read_u64be(p+8),total=f7_read_u64be(p+16),offset=f7_read_u64be(p+24),
+  bytes=f7_read_u64be(p+32),part=f7_read_u64be(p+40),count=f7_read_u64be(p+48);
+ if(!original_message||message!=original_message||total>r->capacity||
+    (!r->seen&&(part!=1||r->used))||(r->seen&&(message!=r->message||total!=r->length||count!=r->part_count||
+      part!=r->next_part||sodium_memcmp(p+56,r->digest,32)))||offset!=r->used){r->failed=1;return F7_CONFLICT;}
+ if(!r->seen){r->seen=1;r->message=message;r->length=total;r->part_count=count;memcpy(r->digest,p+56,32);}
+ memcpy(r->bytes+r->used,p+F7_PARTIAL_FRAGMENT_HEADER,(size_t)bytes);r->used+=(size_t)bytes;r->next_part=part+1;
+ if(part==count){uint8_t digest[32];crypto_hash_sha256(digest,r->bytes,r->used);
+  if(sodium_memcmp(digest,r->digest,32)||f7_partial_graph_validate(r->bytes,r->used,limit)){r->failed=1;return F7_CONFLICT;}
+  r->complete=1;
+ }
+ /* Complete here refers only to the immutable known-byte snapshot. It never
+    means complete original Error capture, native calls or ROOT admission. */
  return F7_OK;
 }

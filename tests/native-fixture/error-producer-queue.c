@@ -3,6 +3,7 @@
 #include "error-producer-endpoint.h"
 #include "error-graph.h"
 #include "serialization-fallback.h"
+#include "partial-error.h"
 #include <string.h>
 #ifndef _WIN32
 #include <pthread.h>
@@ -221,7 +222,8 @@ int f7_error_queue_submit(struct f7_error_queue *q,enum f7_payload_type type,
  const uint8_t *payload,size_t length,int emergency,uint64_t *ticket){
  uint8_t frame_bytes[F7_FRAME_HEADER_SIZE],queue_bytes[16];struct f7_frame frame;
  if(!q||!payload||!ticket||!length||length>F7_FRAME_MAX-F7_FRAME_HEADER_SIZE||
-    type<F7_ERROR_GRAPH||type>F7_RAW_NATIVE_ERROR||(emergency!=0&&emergency!=1))return F7_INVALID;
+    (type!=F7_ERROR_GRAPH&&type!=F7_SERIALIZATION_FALLBACK&&type!=F7_RAW_NATIVE_ERROR&&type!=F7_KNOWN_PARTIAL_GRAPH)||
+    (emergency!=0&&emergency!=1))return F7_INVALID;
  if(!apart(payload,length,q,sizeof(*q))||!apart(payload,length,q->normal.bytes,q->normal.capacity)||
     !apart(payload,length,q->emergency.bytes,q->emergency.capacity)||
     !apart(payload,length,q->write_buffer,q->write_capacity)||
@@ -233,6 +235,7 @@ int f7_error_queue_submit(struct f7_error_queue *q,enum f7_payload_type type,
     !apart(ticket,sizeof(*ticket),q->native_history,q->native_history_capacity))return F7_INVALID;
  *ticket=0;if(type==F7_ERROR_GRAPH&&f7_error_graph_validate(payload,length,q->binding.graph_node_limit))return F7_INVALID;
  if(type==F7_SERIALIZATION_FALLBACK&&f7_serialization_fallback_validate(payload,length))return F7_INVALID;
+ if(type==F7_KNOWN_PARTIAL_GRAPH&&f7_partial_fragment_validate(payload,length))return F7_INVALID;
  if(lock_try(q))return F7_INCOMPLETE;
  if(q->status.failed||q->status.finished||q->status.closed||q->status.worker_created!=1){unlock(q);return F7_INCOMPLETE;}
  struct lane *lane=emergency?&q->emergency:&q->normal;size_t whole=F7_FRAME_HEADER_SIZE+length;

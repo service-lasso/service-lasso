@@ -11,7 +11,9 @@ static int storage_geometry(const struct f7_capture *c){
  ADD_SPAN(c->witness->record_buffer,c->witness->record_capacity);
  ADD_SPAN(c->witness->emergency_member,sizeof(*c->witness->emergency_member));
  if(c->error_channel){ADD_SPAN(c->error_channel,sizeof(*c->error_channel));
-  ADD_SPAN(c->error_channel->payload,c->error_channel->payload_capacity);}
+  ADD_SPAN(c->error_channel->payload,c->error_channel->payload_capacity);
+  if(c->error_channel->partial){ADD_SPAN(c->error_channel->partial,sizeof(*c->error_channel->partial));
+   ADD_SPAN(c->error_channel->partial->bytes,c->error_channel->partial->capacity);}}
  for(unsigned i=0;i<F7_STREAM_COUNT+2;i++){
   const struct f7_async_memory *m;
   if(i<F7_STREAM_COUNT){if(c->created[i]!=F7_CREATED)continue;
@@ -67,7 +69,11 @@ int f7_capture_validate(const struct f7_capture *c){
  }
  if(c->created[F7_PRIVATE_ERRORS]==F7_CREATED){
   if(!c->error_channel||(!c->prepared&&(c->error_channel->failed||c->error_channel->frames))||
-    !c->error_channel->payload||!c->error_channel->payload_capacity||
+    !c->error_channel->payload||!c->error_channel->payload_capacity||!c->error_channel->partial||
+    !c->error_channel->partial->bytes||c->error_channel->partial->capacity<F7_PARTIAL_HEADER+F7_PARTIAL_NODE||
+    c->error_channel->partial->capacity>F7_PARTIAL_MAX||
+    (!c->prepared&&(c->error_channel->partial->used||c->error_channel->partial->seen||
+      c->error_channel->partial->complete||c->error_channel->partial->failed||c->error_channel->partial_message))||
     c->error_channel->payload_capacity>F7_FRAME_MAX||!c->error_channel->graph_node_limit||
     c->error_channel->role!=F7_W||!present(c->error_channel->lifetime,16)||
     memcmp(c->error_channel->invocation,c->witness->invocation,16)||

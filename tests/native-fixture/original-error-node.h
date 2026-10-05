@@ -5,6 +5,7 @@
 #endif
 #include <node_api.h>
 #include "error-graph.h"
+#include "partial-error.h"
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -28,6 +29,7 @@ struct f7_original_error_workspace {
  napi_ref *held;size_t held_capacity,held_count;
  int retained_incomplete;
  uint8_t *node_progress;size_t progress_capacity;
+ uint8_t *partial_snapshot,*partial_fragment;size_t partial_capacity,fragment_capacity,partial_length;
 };
 struct f7_original_error_result {
  napi_value original_primary,serialization_exception;

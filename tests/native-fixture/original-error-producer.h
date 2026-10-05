@@ -9,6 +9,8 @@ extern "C" {
 struct f7_original_error_delivery {
  struct f7_original_error_result original;
  uint64_t ticket;int serialization_result,submission_result;
+ uint64_t partial_last_ticket,partial_fragments;
+ size_t partial_bytes;int partial_result;
 };
 /* Actual serializer-to-native queue path. The original admitted W adapter
    supplies an independently prepared/authenticated original queue and retains

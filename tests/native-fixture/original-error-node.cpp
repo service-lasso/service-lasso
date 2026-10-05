@@ -277,7 +277,8 @@ static int geometry(f7_original_error_workspace *w,uint8_t *payload,size_t capac
   {(uintptr_t)w->bigint_words,w->bigint_word_capacity*sizeof(*w->bigint_words)},
   {(uintptr_t)w->reads,w->read_capacity*sizeof(*w->reads)},
   {(uintptr_t)w->held,w->held_capacity*sizeof(*w->held)},
-  {(uintptr_t)w->node_progress,w->progress_capacity}
+  {(uintptr_t)w->node_progress,w->progress_capacity},
+  {(uintptr_t)w->partial_snapshot,w->partial_capacity},{(uintptr_t)w->partial_fragment,w->fragment_capacity}
  };
  for(size_t i=0;i<sizeof(spans)/sizeof(spans[0]);i++){
   if(spans[i].length>UINTPTR_MAX-spans[i].address)return F7_INVALID;
@@ -299,6 +300,8 @@ extern "C" int f7_original_error_encode(napi_env env,napi_value primary,napi_val
     !w->originals||!w->nodes||!w->node_capacity||w->node_capacity>(F7_FRAME_MAX-24)/32||
     w->original_env!=env||!w->held||!w->held_capacity||w->held_capacity>F7_OBJECT_MAX||w->held_count>w->held_capacity||
     !w->node_progress||w->progress_capacity<w->node_capacity||w->progress_capacity>F7_OBJECT_MAX||
+    !w->partial_snapshot||!w->partial_capacity||w->partial_capacity>F7_PARTIAL_MAX||
+    !w->partial_fragment||w->fragment_capacity!=F7_FRAME_MAX-F7_FRAME_HEADER_SIZE||
     !w->text||!w->text_capacity||w->text_capacity>F7_FRAME_MAX||
     !w->text_getter||!w->text_getter_capacity||w->text_getter_capacity>F7_FRAME_MAX+1u||
     !w->references||!w->reference_capacity||w->reference_capacity>F7_FRAME_MAX/4||
@@ -314,6 +317,7 @@ extern "C" int f7_original_error_encode(napi_env env,napi_value primary,napi_val
  memset(out,0,sizeof(*out));out->original_primary=primary;
  w->node_count=1;w->originals[0]=primary;memset(w->nodes,0,sizeof(*w->nodes));
  w->node_progress[0]=0;
+ w->partial_length=0;
  w->text_used=w->reference_used=w->primitive_used=w->read_used=0;builder build={env,w,out};int result=F7_OK;
  result=build.hold(primary);if(result){w->retained_incomplete=1;preserve_exception(env,w,out);return result;}
  if(expected){

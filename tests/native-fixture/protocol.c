@@ -11,7 +11,7 @@ static uint16_t r16(const uint8_t *p){return (uint16_t)((p[0]<<8)|p[1]);}
 int f7_frame_encode(uint8_t out[F7_FRAME_HEADER_SIZE], const struct f7_frame *f) {
   if(!out||!f||f->payload_length>F7_FRAME_MAX-F7_FRAME_HEADER_SIZE||
      f->role<F7_O||f->role>F7_R||!f->sequence||
-     f->payload_type<F7_ERROR_GRAPH||f->payload_type>F7_CONTROL_RECORD) return F7_INVALID;
+     f->payload_type<F7_ERROR_GRAPH||f->payload_type>F7_KNOWN_PARTIAL_GRAPH) return F7_INVALID;
   memset(out,0,F7_FRAME_HEADER_SIZE); memcpy(out,"SLF7",4);
   u16(out+4,F7_VERSION);u16(out+6,f->role);
   memcpy(out+8,f->invocation,16);memcpy(out+24,f->attempt,32);
@@ -30,7 +30,7 @@ int f7_frame_decode(struct f7_frame *f,const uint8_t in[F7_FRAME_HEADER_SIZE]) {
   f->payload_length=((uint32_t)in[104]<<24)|((uint32_t)in[105]<<16)|((uint32_t)in[106]<<8)|in[107];
   f->payload_type=r16(in+108);
   if(f->role<F7_O||f->role>F7_R||!f->sequence||
-     f->payload_type<F7_ERROR_GRAPH||f->payload_type>F7_CONTROL_RECORD||
+     f->payload_type<F7_ERROR_GRAPH||f->payload_type>F7_KNOWN_PARTIAL_GRAPH||
      f->payload_length>F7_FRAME_MAX-F7_FRAME_HEADER_SIZE)return F7_INVALID;
   return F7_OK;
 }
