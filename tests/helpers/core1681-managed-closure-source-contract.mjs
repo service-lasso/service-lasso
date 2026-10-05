@@ -32,14 +32,18 @@ function group(body, at, open = "{", close = "}") {
   }
   fail("unclosed region");
 }
-function method(all, signature) {
+function region(all, signature) {
   const want = tokens(signature), found = [];
+  let depth = 0;
   for (let at = 0; at <= all.length - want.length; at += 1) {
-    if (same(all.slice(at, at + want.length), want)) found.push(at + want.length);
+    if (!depth && same(all.slice(at, at + want.length), want)) found.push(at + want.length);
+    if (all[at] === "{") depth += 1;
+    if (all[at] === "}") depth -= 1;
   }
   if (found.length !== 1) fail(`unique actual owner ${signature}`);
-  return parse(group(all, found[0]).body);
+  return group(all, found[0]).body;
 }
+function method(all, signature) { return parse(region(all, signature)); }
 
 // Only these statement categories exist in the accepted subset. In particular,
 // labels/goto/switch/return inside finally/local functions/lock/delegates/unsafe
@@ -366,8 +370,17 @@ function caller(nodes) {
 
 export function assertManagedClosureSourceConformance(source) {
   const all = tokens(source);
-  caller(method(all, "internal static int RunManagedInvocation(ManagedInvocation invocation)"));
-  fileRelease(method(all, "internal bool ReleaseFile(FileStream file, int ordinal)"));
-  finisher(method(all, "internal static void FinishManagedReleases(ManagedInvocation invocation, ref IntPtr thread, ref IntPtr process)"));
-  retention(method(all, "internal static void RetainManagedInvocation(ManagedInvocation owner)"));
+  const launcher = region(all, "public static class ServiceLassoManagedLauncherNative");
+  const invocation = region(launcher, "internal sealed class ManagedInvocation");
+  // A real method in an unrelated/nested class cannot supply an owning role.
+  const entry = method(launcher, "public static int Main()");
+  count(entry, 4);
+  caught(entry[0], ["AssertBootstrapEnvironmentSanitized()"], "", ["return FailureExitCodeUnknown"]);
+  requireLeaf(entry[1], "string directorySyncPayload = Environment.GetEnvironmentVariable(DirectorySyncPayloadEnvironmentName, EnvironmentVariableTarget.Process)");
+  branch(entry[2], "!String.IsNullOrWhiteSpace(directorySyncPayload)", ["return RunDirectorySyncLaunch(directorySyncPayload)"]);
+  requireLeaf(entry[3], "return RunManagedInvocation(new ManagedInvocation(new List<FileStream>()))");
+  caller(method(launcher, "internal static int RunManagedInvocation(ManagedInvocation invocation)"));
+  fileRelease(method(invocation, "internal bool ReleaseFile(FileStream file, int ordinal)"));
+  finisher(method(launcher, "internal static void FinishManagedReleases(ManagedInvocation invocation, ref IntPtr thread, ref IntPtr process)"));
+  retention(method(launcher, "internal static void RetainManagedInvocation(ManagedInvocation owner)"));
 }

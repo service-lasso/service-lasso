@@ -180,6 +180,21 @@ test("#1681 AC-4DI.4 G1 actual-source closure guard rejects ownership and orderi
     assert.notEqual(variant, source);
     assert.doesNotThrow(() => assertManagedClosureSourceConformance(variant), label);
   }
+  // A real correct-looking method in another class must not supply the actual
+  // invocation's release role. The old global-signature lookup could select it.
+  const releaseAt = source.indexOf("internal bool ReleaseFile(");
+  const retainAt = source.indexOf("internal static void RetainManagedInvocation(", releaseAt);
+  assert.ok(releaseAt >= 0 && retainAt > releaseAt);
+  const enclosed = source.slice(releaseAt, retainAt);
+  const releaseMethod = enclosed.slice(0, enclosed.lastIndexOf("}"));
+  const wrongOwner = source.replace("internal bool ReleaseFile(", "public bool ReleaseFile(")
+    .replace("public static int Main()", `internal sealed class UnrelatedOwner {
+      internal readonly List<OriginalObservation> Outcomes = new List<OriginalObservation>();
+      internal bool Failed;
+      ${releaseMethod}
+    }
+    public static int Main()`);
+  assert.throws(() => assertManagedClosureSourceConformance(wrongOwner), /managed closure/u, "real unrelated method decoy");
 });
 
 test("#864 packaged failure diagnostics admit one strict bounded record and discard captured process detail", () => {
