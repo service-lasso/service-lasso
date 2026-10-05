@@ -6,6 +6,29 @@ extern "C" int f7_original_error_produce(napi_env env,napi_value primary,napi_va
  if(!out||!workspace||!queue)return F7_INVALID;
  int shape=f7_original_error_storage_validate(workspace,payload,capacity,secondary,secondary_count,
    out,sizeof(*out),queue,f7_error_queue_state_bytes());if(shape)return shape;
+ /* The serializer may write every supplied arena before enqueue. Preserve
+    all original queued/in-flight/native-history bytes before any Node API,
+    result reset, property capture or fallback encoding. The initial geometry
+    check above has already checked each multiplication and caller span. */
+ struct span {const void *bytes;size_t length;};
+ const span spans[]={{workspace,sizeof(*workspace)},{out,sizeof(*out)},
+  {payload,capacity},{secondary,secondary_count*sizeof(*secondary)},
+  {workspace->originals,workspace->node_capacity*sizeof(*workspace->originals)},
+  {workspace->nodes,workspace->node_capacity*sizeof(*workspace->nodes)},
+  {workspace->text,workspace->text_capacity*sizeof(*workspace->text)},
+  {workspace->text_getter,workspace->text_getter_capacity*sizeof(*workspace->text_getter)},
+  {workspace->references,workspace->reference_capacity*sizeof(*workspace->references)},
+  {workspace->primitive,workspace->primitive_capacity},
+  {workspace->bigint_words,workspace->bigint_word_capacity*sizeof(*workspace->bigint_words)},
+  {workspace->reads,workspace->read_capacity*sizeof(*workspace->reads)},
+  {workspace->held,workspace->held_capacity*sizeof(*workspace->held)},
+  {workspace->node_progress,workspace->progress_capacity},
+  {workspace->partial_snapshot,workspace->partial_capacity},
+  {workspace->partial_fragment,workspace->fragment_capacity}};
+ for(size_t i=0;i<sizeof(spans)/sizeof(spans[0]);i++)if(spans[i].length){
+  shape=f7_error_queue_output_storage_validate(queue,spans[i].bytes,spans[i].length);
+  if(shape)return shape;
+ }
  if(!workspace->partial_fragment||workspace->fragment_capacity!=F7_FRAME_MAX-F7_FRAME_HEADER_SIZE)return F7_BUDGET_ABSENT;
  memset(out,0,sizeof(*out));out->original.original_primary=primary;
  if(workspace&&workspace->retained_incomplete){out->serialization_result=F7_CONFLICT;return F7_CONFLICT;}
