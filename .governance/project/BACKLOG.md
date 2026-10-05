@@ -917,5 +917,13 @@ GNU/PAX positives and missing/partial/nonzero/after-EOF negatives. Retained prio
 whole-reader SOURCE NO-GO remains historical authority; corrected source still
 requires new different entire review and fresh complete execution-input ROOT.
 
+
+## PR #1624 original contribution reconciliation
+
+ISS-1623 / SPEC-006 AC-6G.owning-resource-observation: [complete thirteen-path original contribution and receiving source provenance](PR-1624-RECONCILIATION.md). All receiving code/spec/fixtures retained; fresh ENTIRE source review and NEW ROOT remain required. Source reconciliation is pending parent PR disposition, not native acceptance or delivery completion.
+
+
+PR #1624 current receiving checkpoint: normal develop integration of `ce832478da5ad6997ffcb9c82aab95cdf55b1d06` (PR #1707 TAR framing landing). The preceding b0c checkpoint is historical provenance. Complete receiving TAR/header/framing/link source and all original owning-observation contracts are preserved. Source preparation only; DIFFERENT fresh ENTIRE review and NEW complete-input ROOT admission remain required before execution.
+
 ## #1562 scoped gate fixtures (2026-10-06)
 Development SOURCE ONLY, fix/1562-scoped-gate-fixtures-oct06 from exact current develop ce832478da5ad6997ffcb9c82aab95cdf55b1d06. SPEC-008 R2/R3/R6/R7 scoped fixture boundary amendment; SPEC-002 AC-4CG; SPEC-007 AC-7F/AC-7G. Sole bounded writer repairs natural #916/#1533/#1536/#1538 fixture/error/harness mismatches while preserving actual validators and meaningful complete positive/denial matrices. Original natural hosted6f job111872673279 remains 1942/1834PASS/21FAIL/87SKIP, all11TAR rows PASS; every other17 failure remains UNQUALIFIED with private/native causes unobserved. Regression sources SURROGATE / UNRUN; DIFFERENT fresh ENTIRE review and NEW complete-input ROOT before execution. Complete original #1562 scope, empty protected catalogs, direct Windows/Linux operators/native/template/same published bytes and owner release authority remain unchanged. Parent owns independent review/admission/landing; open PR/worktree preserved.
