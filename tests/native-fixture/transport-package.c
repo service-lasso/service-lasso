@@ -175,17 +175,21 @@ int f7_package_once(struct f7_package *p,int64_t *status){
  uint8_t signer[32];
  if(crypto_sign_ed25519_sk_to_pk(signer,p->pins.signer_secret)||
     sodium_memcmp(signer,p->pins.signer,32))return F7_AUTH_FAILURE;
- if(empty_native(p->encrypted_manifest->write,p->encrypted_manifest->independent_read,status)||
-    empty_native(p->signature->write,p->signature->independent_read,status)||
-    empty_native(p->plaintext_manifest,p->plaintext_manifest_read,status)||
-    empty_native(p->index,p->index_read,status))return F7_INCOMPLETE;
+ int original_result=empty_native(p->encrypted_manifest->write,p->encrypted_manifest->independent_read,status);
+ if(original_result)return original_result;
+ original_result=empty_native(p->signature->write,p->signature->independent_read,status);
+ if(original_result)return original_result;
+ original_result=empty_native(p->plaintext_manifest,p->plaintext_manifest_read,status);
+ if(original_result)return original_result;
+ original_result=empty_native(p->index,p->index_read,status);
+ if(original_result)return original_result;
  /* Validate the entire preassigned segmentation before the first randomized
     operation. No omission, duplicate segment, arbitrary offset or surplus
     encrypted-object slot can be normalized into a passing inventory. */
  for(i=0;i<p->member_count;i++){
   if(memcmp(p->members[i].key,p->manifest_input->members[i].key,16)||
      p->members[i].original!=p->manifest_input->members[i].persisted)return F7_CONFLICT;
-  if(member_ready(p->members+i,status))return F7_INCOMPLETE;
+  original_result=member_ready(p->members+i,status);if(original_result)return original_result;
   if(i&&memcmp(p->members[i-1].key,p->members[i].key,16)>=0)return F7_CONFLICT;
   for(j=0;j<i;j++)if(f7_identity_equal(&p->members[i].original->identity,
      &p->members[j].original->identity))return F7_CONFLICT;
@@ -209,7 +213,8 @@ int f7_package_once(struct f7_package *p,int64_t *status){
   if(!memcmp(s->object->key,p->encrypted_manifest->key,16)||
      !memcmp(s->object->key,p->signature->key,16)||
      !memcmp(s->object->key,p->index_key,16))return F7_CONFLICT;
-  if(empty_native(s->object->write,s->object->independent_read,status))return F7_INCOMPLETE;
+  original_result=empty_native(s->object->write,s->object->independent_read,status);
+  if(original_result)return original_result;
   if(f7_identity_equal(&s->object->write->identity,&p->encrypted_manifest->write->identity)||
      f7_identity_equal(&s->object->write->identity,&p->signature->write->identity)||
      f7_identity_equal(&s->object->write->identity,&p->plaintext_manifest->identity)||
@@ -269,8 +274,9 @@ int f7_package_once(struct f7_package *p,int64_t *status){
  int result=f7_canonical_manifest(p->manifest_input,p->manifest,p->manifest_capacity,&p->manifest_length);
  if(result)return result;
  result=f7_member_append(p->plaintext_manifest,p->manifest,p->manifest_length,&persisted,status);
- if(result||f7_member_finish(p->plaintext_manifest,status)||
-    f7_member_readback(p->plaintext_manifest,p->plaintext_manifest_read,status))return F7_INCOMPLETE;
+ if(result)return result;
+ result=f7_member_finish(p->plaintext_manifest,status);if(result)return result;
+ result=f7_member_readback(p->plaintext_manifest,p->plaintext_manifest_read,status);if(result)return result;
  result=f7_encrypt_object_once(p->encrypted_manifest,p->manifest,p->manifest_length,&p->pins,status);
  if(result)return result;
  /* Merge the separately allocated manifest key into an already sorted exact
@@ -293,7 +299,9 @@ int f7_package_once(struct f7_package *p,int64_t *status){
  result=f7_journal_reserve(p->encrypted_manifest->journal,p->index_key,status);
  if(result)return result;
  result=f7_member_append(p->index,p->canonical,canonical_length,&persisted,status);
- if(result||f7_member_finish(p->index,status)||f7_member_readback(p->index,p->index_read,status))return F7_INCOMPLETE;
+ if(result)return result;
+ result=f7_member_finish(p->index,status);if(result)return result;
+ result=f7_member_readback(p->index,p->index_read,status);if(result)return result;
  result=f7_journal_persisted(p->encrypted_manifest->journal,p->index_key,p->index,status);
  if(result)return result;
  result=f7_sign_index_once(p->signature,p->canonical,canonical_length,&p->pins,status);
