@@ -310,12 +310,46 @@ async function requireAbsentPrivateReceipt(filePath) {
   }
 }
 
-async function createPrivateReceipt(filePath, receipt) {
-  await writeFile(filePath, JSON.stringify(receipt), {
+const ownedReceiptWork = new Set();
+const ownedReceiptFailures = [];
+let providerWorkClosing = false;
+
+function ownReceiptWork(promise) {
+  ownedReceiptWork.add(promise);
+  // Attach a rejection observer in the same turn, including writes whose HTTP
+  // response has already finished. Keep failures after removal from the set.
+  promise.then(
+    () => ownedReceiptWork.delete(promise),
+    (error) => { ownedReceiptFailures.push(error); ownedReceiptWork.delete(promise); },
+  );
+  return promise;
+}
+
+async function settleReceiptWork() {
+  let timer;
+  const drained = (async () => {
+    while (ownedReceiptWork.size) await Promise.allSettled([...ownedReceiptWork]);
+    if (ownedReceiptFailures.length) {
+      throw new RealAdminBrowserTeardownError(ownedReceiptFailures.map((error) => ({
+        phase: "receipt_work_settlement", code: safeFailureCode(error),
+      })));
+    }
+  })();
+  const bounded = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new RealAdminBrowserTeardownError([
+      { phase: "receipt_work_settlement", code: "receipt_work_timeout" },
+    ])), 5_000);
+  });
+  try { await Promise.race([drained, bounded]); }
+  finally { clearTimeout(timer); }
+}
+
+function createPrivateReceipt(filePath, receipt) {
+  return ownReceiptWork(writeFile(filePath, JSON.stringify(receipt), {
     encoding: "utf8",
     mode: 0o600,
     flag: "wx",
-  });
+  }));
 }
 
 for (const receiptPath of [
@@ -435,6 +469,7 @@ const {
 } = await import("./real-admin-browser-lockout.mjs");
 const {
   createSafeRealAdminBrowserTeardownFailure,
+  RealAdminBrowserTeardownError,
   teardownRealAdminBrowserFixture,
 } = await import("./real-admin-browser-shutdown.mjs");
 const {
@@ -606,8 +641,16 @@ async function waitFor(url, timeoutMs = 30_000) {
 
 function shutdown({ exitCode = 0, trigger = "ipc", signal = null } = {}) {
   if (shutdownPromise) return shutdownPromise;
+  providerWorkClosing = true;
+  // Start one settlement clock now. The teardown consumes this SAME outcome;
+  // it must not restart a timeout after stopping servers or retry a failed sink.
+  const settlement = settleReceiptWork().then(
+    () => null, (error) => error,
+  );
   shutdownPromise = (async () => {
     let resolvedExitCode = exitCode;
+    let closure;
+    let failure = null;
     try {
       const teardown = await teardownRealAdminBrowserFixture({
         adminProcess,
@@ -618,10 +661,12 @@ function shutdown({ exitCode = 0, trigger = "ipc", signal = null } = {}) {
         vaultProviderServer,
         resetLifecycle: resetLifecycleState,
         tempRoot,
+        settleOwnedWork: async () => {
+          const error = await settlement;
+          if (error) throw error;
+        },
       });
-      await createPrivateReceipt(
-        closureReceiptPath,
-        {
+      closure = {
           schema: "service-lasso.real-admin-browser-live-closure.v1",
           private: true,
           nonce: receiptNonce,
@@ -634,14 +679,11 @@ function shutdown({ exitCode = 0, trigger = "ipc", signal = null } = {}) {
           teardown,
           providerFault:
             providerFaultState === "observed" ? "consumed" : "unresolved",
-        },
-      );
+        };
     } catch (error) {
       resolvedExitCode = 1;
-      const failure = createSafeRealAdminBrowserTeardownFailure(error);
-      await createPrivateReceipt(
-        closureReceiptPath,
-        {
+      failure = createSafeRealAdminBrowserTeardownFailure(error);
+      closure = {
           schema: "service-lasso.real-admin-browser-live-closure.v1",
           private: true,
           nonce: receiptNonce,
@@ -654,8 +696,20 @@ function shutdown({ exitCode = 0, trigger = "ipc", signal = null } = {}) {
           failure,
           providerFault:
             providerFaultState === "observed" ? "consumed" : "unresolved",
-        },
-      );
+        };
+    }
+    try {
+      // One exclusive attempt only: a failed/partial closure file is retained,
+      // never overwritten or retried as a second success-shaped receipt.
+      await createPrivateReceipt(closureReceiptPath, closure);
+    } catch (error) {
+      resolvedExitCode = 1;
+      failure = createSafeRealAdminBrowserTeardownFailure(new RealAdminBrowserTeardownError([
+        ...(failure?.failures ?? []),
+        { phase: "receipt_work_settlement", code: safeFailureCode(error) },
+      ]));
+    }
+    if (failure) {
       await new Promise((resolve) => {
         process.stderr.write(`${JSON.stringify(failure)}\n`, resolve);
       });
@@ -773,7 +827,21 @@ try {
         response.end();
         return;
       }
-      await persistProviderRecoveryReceipt();
+      if (requestUrl.searchParams.get("wait") === "recovery") {
+        if (request.headers["x-service-lasso-provider-control-nonce"] !== providerControlNonce) {
+          response.writeHead(403);
+          response.end();
+          return;
+        }
+        await persistProviderRecoveryReceipt();
+        if (!providerRecoveryRecorded) {
+          response.writeHead(409, { "Content-Type": "application/json" });
+          response.end(JSON.stringify({ outcome: "provider_fault_unobserved", receipt: null }));
+          return;
+        }
+      } else {
+        await persistProviderRecoveryReceipt();
+      }
       response.writeHead(providerFaultState === "observed" ? 200 : 409, {
         "Content-Type": "application/json",
       });
@@ -1000,10 +1068,30 @@ try {
     response.writeHead(405, { Allow: "GET, POST" });
     response.end();
   };
-  vaultServer = http.createServer(handleVaultRequest);
+  const ownedVaultRequest = (request, response) => {
+    if (providerWorkClosing) {
+      response.writeHead(503);
+      response.end();
+      return;
+    }
+    const operation = ownReceiptWork(handleVaultRequest(request, response));
+    // EventEmitter does not await async listeners. This observer prevents a
+    // post-finish rejection escaping and leaves the original failure retained.
+    void operation.catch(() => {
+      try {
+        if (!response.headersSent) {
+          response.writeHead(500, { "Content-Type": "application/json" });
+          response.end(JSON.stringify({ outcome: "provider_fault_unobserved", receipt: null }));
+        } else if (!response.writableEnded) response.destroy();
+      } catch (error) {
+        ownedReceiptFailures.push(error);
+      }
+    });
+  };
+  vaultServer = http.createServer(ownedVaultRequest);
   vaultProviderServer = https.createServer(
     { key: certificate.private, cert: certificate.cert },
-    handleVaultRequest,
+    ownedVaultRequest,
   );
   const controlPort = await listen(vaultServer);
   const vaultPort = await listen(vaultProviderServer);
