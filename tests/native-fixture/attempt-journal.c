@@ -1,11 +1,15 @@
 #include "attempt-journal.h"
 #include <string.h>
+static int present(const uint8_t *bytes,size_t length){
+ uint8_t found=0;for(size_t i=0;i<length;i++)found|=bytes[i];return found!=0;
+}
 static struct f7_journal_entry *find(struct f7_attempt_journal *j,const uint8_t key[16]){
  size_t i;for(i=0;i<j->count;i++)if(!memcmp(j->entries[i].key,key,16))return j->entries+i;return NULL;
 }
 static int valid(struct f7_attempt_journal *j){
  return j&&j->member&&j->entries&&j->capacity&&j->capacity<=F7_OUTER_OBJECT_MAX&&
- j->count<=j->capacity&&!j->failed&&!j->frozen&&!j->parse_started&&!j->member->failed&&!j->member->finalized;
+ j->count<=j->capacity&&present(j->invocation,16)&&present(j->attempt,32)&&
+ !j->failed&&!j->frozen&&!j->parse_started&&!j->member->failed&&!j->member->finalized;
 }
 static int geometry(struct f7_attempt_journal *j,int64_t *status){
  struct span {uintptr_t address;size_t length;};
@@ -97,6 +101,7 @@ int f7_journal_read(struct f7_attempt_journal *j,f7_handle read_only,uint64_t le
  struct f7_member reader;struct f7_identity identity;
  if(!j||!j->member||!j->entries||!j->capacity||j->capacity>F7_OUTER_OBJECT_MAX||
  !status||!length||length%F7_JOURNAL_RECORD_BYTES||
+ !present(j->invocation,16)||!present(j->attempt,32)||
  length/F7_JOURNAL_RECORD_BYTES>j->capacity*2+1)return F7_INVALID;
  int shaped=geometry(j,status);if(shaped)return shaped;
  if(j->parse_started||j->count||j->sequence||j->failed||j->frozen)return F7_CONFLICT;
@@ -113,6 +118,7 @@ int f7_journal_read(struct f7_attempt_journal *j,f7_handle read_only,uint64_t le
   if(f7_member_read_at(&reader,offset,record,sizeof(record),status))goto failed;
   crypto_hash_sha256(digest,record,160);
   if(memcmp(record,"SLF7JNL1",8)||f7_read_u64be(record+8)!=j->sequence+1||
+   !present(record+64,16)||
    memcmp(record+16,j->invocation,16)||memcmp(record+32,j->attempt,32)||
    sodium_memcmp(record+128,j->chain,32)||sodium_memcmp(record+160,digest,32))goto failed;
   uint64_t event=f7_read_u64be(record+80),object_length=f7_read_u64be(record+88);
