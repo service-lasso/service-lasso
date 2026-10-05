@@ -916,3 +916,6 @@ every ignored-entry rejection and complete held-original effective-size framing,
 GNU/PAX positives and missing/partial/nonzero/after-EOF negatives. Retained prior
 whole-reader SOURCE NO-GO remains historical authority; corrected source still
 requires new different entire review and fresh complete execution-input ROOT.
+
+## #1562 scoped gate fixtures (2026-10-06)
+Development SOURCE ONLY, fix/1562-scoped-gate-fixtures-oct06 from exact current develop ce832478da5ad6997ffcb9c82aab95cdf55b1d06. SPEC-008 R2/R3/R6/R7 scoped fixture boundary amendment; SPEC-002 AC-4CG; SPEC-007 AC-7F/AC-7G. Sole bounded writer repairs natural #916/#1533/#1536/#1538 fixture/error/harness mismatches while preserving actual validators and meaningful complete positive/denial matrices. Original natural hosted6f job111872673279 remains 1942/1834PASS/21FAIL/87SKIP, all11TAR rows PASS; every other17 failure remains UNQUALIFIED with private/native causes unobserved. Regression sources SURROGATE / UNRUN; DIFFERENT fresh ENTIRE review and NEW complete-input ROOT before execution. Complete original #1562 scope, empty protected catalogs, direct Windows/Linux operators/native/template/same published bytes and owner release authority remain unchanged. Parent owns independent review/admission/landing; open PR/worktree preserved.
