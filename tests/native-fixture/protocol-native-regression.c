@@ -19,6 +19,15 @@ static void framing(void){
  original.payload_type=1;original.sequence=1;original.payload_length=7;
  assert(f7_frame_encode(bytes,&original)==F7_OK);
  assert(f7_frame_decode(&decoded,bytes)==F7_OK);
+ union {struct f7_frame frame;uint8_t bytes[F7_FRAME_HEADER_SIZE];} aliased;
+ aliased.frame=original;
+ assert(f7_frame_encode(aliased.bytes,&aliased.frame)==F7_CONFLICT);
+ assert(!memcmp(&aliased.frame,&original,sizeof(original)));
+ memcpy(aliased.bytes,bytes,sizeof(bytes));
+ assert(f7_frame_decode(&aliased.frame,aliased.bytes)==F7_CONFLICT);
+ assert(!memcmp(aliased.bytes,bytes,sizeof(bytes)));
+ assert(f7_sequence_accept(&decoded.sequence,&decoded,original.invocation,original.attempt,F7_W)==F7_CONFLICT);
+ assert(decoded.sequence==1);
  assert(f7_sequence_accept(&sequence,&decoded,original.invocation,original.attempt,F7_W)==F7_OK);
  assert(f7_sequence_accept(&sequence,&decoded,original.invocation,original.attempt,F7_W)==F7_AUTH_FAILURE);
  sequence=0;decoded.invocation[0]^=1;
