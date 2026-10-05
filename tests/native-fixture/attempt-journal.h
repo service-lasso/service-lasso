@@ -17,7 +17,7 @@ struct f7_attempt_journal {
  uint8_t invocation[16],attempt[32],chain[32];
  uint64_t sequence;
  uint8_t frozen_index[16],frozen_inventory[32];
- int failed,frozen;
+ int failed,frozen,parse_started;
 };
 /* reserve is durable BEFORE any randomized encryption/signing. The exact
    original journal is retained on every outcome, including partial records. */
