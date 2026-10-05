@@ -489,3 +489,5 @@ Development source-only repair bound to SPEC-002 AC-4DOC.1690 and existing SPEC-
 Core #1692 / AC-4AJ.11 closes the direct API bypass with API#5 / API-AUTH-1–5 and Todo#7 / SSO-6–9. Prior app-only SSO claims are scoped incomplete until resource-server proof.
 
 Released consumer discovery added API#7 / API-AUTH-6 and Todo#9 / SSO-10: Core import removes metadata, so the paired capability now travels in preserved non-secret env. Tauri#30 updates exact consumer seeds. Keep that failed acquisition/configuration attempt separate from final released acceptance.
+
+Core #1695 / AC-4AJ.12 delivers the approved single lesson-todo repository with five runnable checkpoints, exact article/code links and verified publication. Preserve inherited primary package deletions and evidence; author this slice only in its dedicated current-develop worktree.

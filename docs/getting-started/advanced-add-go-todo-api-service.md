@@ -4,6 +4,11 @@ title: Advanced — Add a Go Todo API service
 
 # Advanced — Add a Go Todo API service
 
+**Lesson code:** [03 — API](https://github.com/service-lasso/lesson-todo/tree/develop/lessons/03-api).
+The folder contains the managed App → API → Database inventory, architecture,
+standalone run instructions and changes from the Database checkpoint.
+The commands below continue your Core demo workspace.
+
 Continue the managed [Todo](beginner-todo-app.md) and
 [PostgreSQL](intermediate-make-todo-app-durable.md) lessons. Add a Go API as the
 third application service in the same Service Lasso inventory. Keep the Todo UI

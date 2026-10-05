@@ -5,6 +5,11 @@ sidebar_label: Advanced — Add Zitadel SSO to Todo
 
 # Advanced — Add Zitadel SSO to the Todo App
 
+**Lesson code:** [04 — SSO](https://github.com/service-lasso/lesson-todo/tree/develop/lessons/04-sso).
+The folder contains the identity service inventory, paired App/API configuration,
+private provisioning instructions and architecture for this checkpoint.
+The commands below continue your Core demo workspace.
+
 Continue the [Go API lesson](advanced-add-go-todo-api-service.md). Keep the App,
 API and Database in the same Service Lasso inventory. Add Zitadel as another
 managed service, then use it to sign in to **your Todo app**. Service Admin's

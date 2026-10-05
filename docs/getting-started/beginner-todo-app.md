@@ -4,6 +4,11 @@ title: Beginner — Add a Todo app service
 
 # Beginner — Add a Todo app service
 
+**Lesson code:** [01 — App](https://github.com/service-lasso/lesson-todo/tree/develop/lessons/01-app).
+The folder contains this stage's service inventory, architecture and standalone
+run instructions. Browse [all five checkpoints](https://github.com/service-lasso/lesson-todo/tree/develop/lessons)
+to see the application grow. The commands below use the Core demo workspace.
+
 Add your first application service to Service Lasso. You will register a small
 Todo web app, start it through Lasso, inspect its health and endpoint in Admin,
 and prove that its data survives a managed stop/start.
