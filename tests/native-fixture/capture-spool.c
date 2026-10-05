@@ -10,6 +10,11 @@
 #include <errno.h>
 #include <fcntl.h>
 #endif
+static int separate(const void *a,size_t an,const void *b,size_t bn){
+ uintptr_t av=(uintptr_t)a,bv=(uintptr_t)b;
+ return (!an||a)&&(!bn||b)&&an<=UINTPTR_MAX-av&&bn<=UINTPTR_MAX-bv&&
+   (av+an<=bv||bv+bn<=av);
+}
 int f7_identity_equal(const struct f7_identity *a,const struct f7_identity *b){
  return a&&b&&a->owner_length<=sizeof(a->owner)&&b->owner_length<=sizeof(b->owner)&&a->owner_length==b->owner_length&&
  !memcmp(a->object,b->object,sizeof(a->object))&&
@@ -17,7 +22,9 @@ int f7_identity_equal(const struct f7_identity *a,const struct f7_identity *b){
  !memcmp(a->protection_sha256,b->protection_sha256,32);
 }
 int f7_handle_size(f7_handle handle,uint64_t *length,int64_t *status){
- if(!length||!status)return F7_INVALID;*status=0;
+ if(!length||!status)return F7_INVALID;
+ if(!separate(length,sizeof(*length),status,sizeof(*status)))return F7_CONFLICT;
+ *status=0;
 #ifdef _WIN32
  LARGE_INTEGER size;
  if(!GetFileSizeEx(handle,&size)){*status=GetLastError();return F7_NATIVE_FAILURE;}
@@ -35,7 +42,9 @@ int f7_identity_read(f7_handle h,struct f7_identity *out,int directory){
  int64_t native_status;return f7_identity_read_status(h,out,directory,&native_status);
 }
 int f7_identity_read_status(f7_handle h,struct f7_identity *out,int directory,int64_t *native_status){
- if(!out||!native_status)return F7_INVALID;memset(out,0,sizeof(*out));*native_status=0;
+ if(!out||!native_status)return F7_INVALID;
+ if(!separate(out,sizeof(*out),native_status,sizeof(*native_status)))return F7_CONFLICT;
+ memset(out,0,sizeof(*out));*native_status=0;
 #ifdef _WIN32
  FILE_ID_INFO id;FILE_STANDARD_INFO st;FILE_ATTRIBUTE_TAG_INFO tag;
  PSID owner=NULL;PACL dacl=NULL;PSECURITY_DESCRIPTOR sd=NULL;
@@ -89,6 +98,9 @@ int f7_member_append(struct f7_member *m,const uint8_t *bytes,size_t count,
  size_t done=0;
  if(!m||!persisted||!status||(!bytes&&count)||m->finalized||m->failed||
    count>UINT64_MAX-m->length)return F7_INVALID;
+ if(!separate(m,sizeof(*m),bytes,count)||!separate(m,sizeof(*m),persisted,sizeof(*persisted))||
+    !separate(m,sizeof(*m),status,sizeof(*status))||!separate(bytes,count,persisted,sizeof(*persisted))||
+    !separate(bytes,count,status,sizeof(*status))||!separate(persisted,sizeof(*persisted),status,sizeof(*status)))return F7_CONFLICT;
  *persisted=0;*status=0;
  while(done<count){
 #ifdef _WIN32
@@ -108,7 +120,9 @@ int f7_member_append(struct f7_member *m,const uint8_t *bytes,size_t count,
 }
 int f7_member_flush(struct f7_member *m,int64_t *status){
  struct f7_identity current;int64_t identity_status;
- if(!m||!status||m->finalized)return F7_INVALID;*status=0;
+ if(!m||!status||m->finalized)return F7_INVALID;
+ if(!separate(m,sizeof(*m),status,sizeof(*status)))return F7_CONFLICT;
+ *status=0;
 #ifdef _WIN32
  if(!FlushFileBuffers(m->handle)){*status=GetLastError();m->failed=1;}
 #else
@@ -120,12 +134,15 @@ int f7_member_flush(struct f7_member *m,int64_t *status){
 }
 int f7_member_finish(struct f7_member *m,int64_t *status){
  if(!m||!status||m->finalized)return F7_INVALID;
+ if(!separate(m,sizeof(*m),status,sizeof(*status)))return F7_CONFLICT;
  int result=f7_member_flush(m,status);
  crypto_hash_sha256_final(&m->hash,m->digest);m->finalized=1;return result;
 }
 int f7_member_read_at(const struct f7_member *m,uint64_t offset,uint8_t *out,size_t count,int64_t *status){
  size_t done=0;
  if(!m||!status||(!out&&count)||offset>INT64_MAX||count>INT64_MAX-offset)return F7_INVALID;
+ if(!separate(m,sizeof(*m),out,count)||!separate(m,sizeof(*m),status,sizeof(*status))||
+    !separate(out,count,status,sizeof(*status)))return F7_CONFLICT;
  *status=0;
  while(done<count){
 #ifdef _WIN32
