@@ -189,3 +189,17 @@ Original RegExpBytecodeGenerator::GetCode selects the original regexp_peephole_o
 The original optimizer reserves its output at the prior bytecode length, retains a sequence trie and five ordered maps for original/mapped jumps, destination usage and source/destination fixups, and allocates the final ByteArray while the optimizer and original generator backing are still live. Interior jump destinations can require preservation of an original suffix alongside the fused operation. Original source explicitly warns that this can increase output length, so output no larger than input is not a valid physical bound. Original operand mappings include signed packed24bit values and original target-endianness branches; target/build identity remains genuine reference association.
 
 The proposed compact source-selector route must represent the same longest-sequence decisions, mapped/ignored jump usage, preserved interior target suffix and final fixup identities without assuming two full program arrays fit. This is a material continuation of the whole program/target proof, not approval to disable peephole optimization or select a different original build flag. The closed two-file raw-capture script and exact source relations remain in working03; no bytecode optimizer, pattern, parser or compiler executed. The complete source-owned representation/physical peak is still unfinished.
+### Peephole local output bound from exact original instruction geometry
+
+Original regexp-bytecodes.h blob3d51f116f277b6675b19c9c4e30e7cecb6f2561b supplies the following inert source lengths. The preserved suffix starts strictly after the sequence's first instruction when an original interior bytecode target exists; each first instruction is8bytes. Original scanner consumes each replaced sequence once. These are source-layout arithmetic, without decoding/evaluating candidate bytecode.
+
+| Original fused sequence | Original bytes | Fused bytes | Maximum preserved suffix | Maximum combined bytes |
+| --- | ---: | ---: | ---: | ---: |
+| Bit-table skip | 40 | 32 | 32 | 64 |
+| Position-checked character skip | 28 | 20 | 20 | 40 |
+| Position-checked masked character skip | 32 | 24 | 24 | 48 |
+| Character skip | 24 | 16 | 16 | 32 |
+| Two-character skip | 32 | 20 | 24 | 44 |
+| Greater-than/table skip | 56 | 32 | 48 | 80 |
+
+For valid original bytecode targets, each consumed segment therefore contributes at most8/5 of its original bytes; untouched segments contribute exactly their original length. This supplies a local final-output bound replacing an incorrect non-growth assumption, with genuine jump-target validity and exact original source geometry as conditions. It does not bound the prior program length, five map cardinalities/control backing, trie records, growth overlap or whole simultaneous phase. A compact shared operand/preserved-suffix representation still needs exact original fixup identities and final interpreter effects; the8/5 bound is not a parser quota or a physical-fit claim. The bounded original layout capture and relation record are retained in working03.
