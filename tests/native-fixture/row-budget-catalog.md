@@ -29,4 +29,13 @@ or unknown dynamic suffix is unavailable, not complete. Allocation before native
 capture is necessary but does not authorize launch; full pre-O admission and
 private emergency persistence must be complete before any downstream start.
 
+Independent producer-history pre-code term: the existing `SLF7EFC1` retained
+record has a 48-byte header and at most `F7_PRODUCER_NATIVE_CALLS` 32-byte original
+native-call entries for each declared accepted frame. Before queue construction,
+checked storage requires `frame_count * (48 + 32 * F7_PRODUCER_NATIVE_CALLS)`
+bytes; multiplication overflow rejects before an effect. This derives a logical
+history capacity from the existing finite input and wire record. It supplies no
+actual row value, allocator class, physical charge, SDK bound or admission proof.
+Unknown actual native branches and missing original reservations remain absent.
+
 #1687 original member constructor dependency: tests/native-fixture/MEMBER-ADOPTION-STORAGE-PROPOSAL.md at c7fc9c1a records the exact proposed before-first-effect storage/observation ABI, complete identity-query caller map, original SD ownership/LocalFree failures, Linux protection gap and all nine actual row rounding obligations (catalogs ABSENT). It is SOURCE pre-code only, pending parent audit and NEW different whole architecture decision. No changed constructor, ROOT issuer/ingress or physical reservation is implemented or admitted; independent authorized U1 implementation continues and the entire unit remains INCOMPLETE.
