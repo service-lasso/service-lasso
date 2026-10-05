@@ -7,6 +7,7 @@ import { createServer } from "node:http";
 import { once } from "node:events";
 import { promisify } from "node:util";
 import { ZipArchive } from "./helpers/zip-fixture.mjs";
+import { assertManagedClosureSourceConformance } from "./helpers/core1681-managed-closure-source-contract.mjs";
 import {
   MCP_PACKAGED_COVERAGE_KEYS,
   MCP_PRODUCT_EVIDENCE_CONTRACT,
@@ -89,6 +90,48 @@ test("#864 guarded diagnostic acquisition is time- and size-bounded", async () =
   } finally {
     server.closeAllConnections?.();
     await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("#1681 AC-4DI.4 G1 actual-source closure guard rejects ownership and ordering drift", async () => {
+  // These are source-conformance vectors. They do not invoke the C# launcher or
+  // create native outcomes, and cannot qualify the retained executable images.
+  const source = await readFile("src/runtime/execution/windows-managed-launcher-native.cs", "utf8");
+  assert.doesNotThrow(() => assertManagedClosureSourceConformance(source));
+  const vectors = [
+    ["disposal before containment", "RunManagedInvocation", "try { ContainManagedJobBeforeFileRelease(", "invocation.Files[0].Dispose(); try { ContainManagedJobBeforeFileRelease("],
+    ["file release before outer finally", "RunManagedInvocation", "targetAssignedToJob = true;", "targetAssignedToJob = true; invocation.ReleaseFile(boundFiles[0], 0);"],
+    ["wrong original file", "ReleaseFile", "File = file, Attempted = true", "File = null, Attempted = true"],
+    ["wrong original ordinal", "FinishManagedReleases", "invocation.ReleaseFile(invocation.Files[ordinal], ordinal)", "invocation.ReleaseFile(invocation.Files[ordinal], ordinal + 1)"],
+    ["missing original exception capture", "ReleaseFile", "original.Exception = failure; original.Failed = true;", "original.Failed = true;"],
+    ["missing original object retention", "ReleaseFile", "Outcomes.Add(original);", "// original was not retained"],
+    ["repeated attempt after earlier outcome", "ReleaseFile", "if (previous != null) return previous.Closed;", "// retry bypasses previous outcome"],
+    ["missing original failure fold", "ReleaseFile", "Failed |= original.Failed;", "// failed result was not folded"],
+    ["missing same-owner failure retention", "FinishManagedReleases", "if (invocation.Failed) RetainManagedInvocation(invocation);", "// failed invocation escapes"],
+    ["later safe releases conditioned on earlier close", "FinishManagedReleases", "invocation.Release(ref process,", "if (!invocation.Failed) invocation.Release(ref process,"],
+    ["early success bypass", "RunManagedInvocation", "return invocation.PrimaryResult;", "return 0;"],
+    ["unknown containment skips retention", "RunManagedInvocation", "RetainManagedInvocation(invocation);", "// unknown containment escapes"],
+    ["lost live owner", "RetainManagedInvocation", "GC.KeepAlive(owner);", "GC.KeepAlive(null);"],
+    ["unreachable release decoy", "ReleaseFile", "Outcomes.Add(original);", "if (false) { Outcomes.Add(original); }"],
+  ];
+  for (const [label, owner, needle, replacement] of vectors) {
+    const signatures = {
+      RunManagedInvocation: "internal static int RunManagedInvocation(",
+      ReleaseFile: "internal bool ReleaseFile(",
+      FinishManagedReleases: "internal static void FinishManagedReleases(",
+      RetainManagedInvocation: "internal static void RetainManagedInvocation(",
+    };
+    const at = source.indexOf(signatures[owner]);
+    assert.ok(at >= 0, `${label}: actual owner exists`);
+    const after = source.slice(at);
+    assert.ok(after.includes(needle), `${label}: actual mutation anchor exists`);
+    const mutant = source.slice(0, at) + after.replace(needle, replacement);
+    assert.notEqual(mutant, source, `${label}: actual source changed`);
+    assert.throws(() => assertManagedClosureSourceConformance(mutant), /managed closure/u, label);
+    // A correct-looking original snippet outside the owning body cannot repair
+    // either lexical ownership or the independently required relational chain.
+    const decoy = `${mutant}\n/* unrelated original snippet: ${needle} */\n`;
+    assert.throws(() => assertManagedClosureSourceConformance(decoy), /managed closure/u, `${label}: outside-owner decoy`);
   }
 });
 
@@ -613,7 +656,7 @@ test("#864 retained evidence verifies downloaded content, exact SHA, three OSes,
     assert.match(managedLauncherManagedSource, /releaseToken[\s\S]*?filesBoundToken[\s\S]*?continueToken[\s\S]*?ackToken/u);
     assert.match(managedLauncherManagedSource, /HMACSHA256[\s\S]*?RetireProgress[\s\S]*?ClearLaunchEnvironment/u);
     assert.match(managedLauncherManagedSource, /AssertBootstrapEnvironmentSanitized[\s\S]*?ApplyTargetEnvironmentOverrides[\s\S]*?CreateProcessW[\s\S]*?ClearTargetEnvironmentOverrides/u);
-    assert.match(managedLauncherManagedSource, /targetAssignedToJob = true[\s\S]*?ContainManagedJobBeforeFileRelease[\s\S]*?boundFile\.Dispose/u);
+    assertManagedClosureSourceConformance(managedLauncherManagedSource);
     assert.match(managedLauncherManagedSource, /ContainManagedJobBeforeFileRelease[\s\S]*?TerminateJobObject[\s\S]*?ActiveProcesses == 0/u);
     assert.doesNotMatch(managedLauncherManagedSource, /Reflection\.Emit|Add-Type|Process\.Start|PowerShell/u);
     const managedLauncher = await readFile("src/runtime/execution/windows-managed-launcher-managed.exe");

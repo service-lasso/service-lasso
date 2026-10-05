@@ -436,3 +436,21 @@ actual entrypoint/helper cases SOURCE_UNRUN. Preserve ce2b ENTIRE NO_GO, R1-R4,
 whole MSI/VSIX/OPC/native/compiler contracts, original pins/clocks/private failures.
 Different fresh ENTIRE review and NEW complete actual-input ROOT/parent admission
 precede execution. Parent owns tracking/review/admission/landing; no release claim.
+
+## #1681 G1 protected managed closure source conformance (2026-10-06)
+
+AC-4DI.4 / R3 / C3 source-conformance amendment, Development SOURCE ONLY:
+[CORE1681_G1_SOURCE_CONFORMANCE.md](.governance/project/CORE1681_G1_SOURCE_CONFORMANCE.md)
+binds the exact protected mcp-product-artifact owning guard to the actual enclosing
+caller and whole once-only release/retention implementations. Original natural
+4c57 job112015528802 remains FAILED. Independent entire review report9cc0a152
+identified stale boundFile.Dispose after ownership moved to ReleaseFile; this
+explicit amendment precedes protected evidence editing and requires DIFFERENT
+independent ENTIRE review of the amendment and implementation before any PASS claim.
+Preserve all three-OS/digest/90-day/archive/body/payload/job-zero/source-image and
+later assertions, original native/runtime cases, complete C1-C3/R1-R4 mechanisms,
+old unqualified images/pins and every failure. Finite actual-source guard negatives
+are SOURCE_CONFORMANCE_UNRUN, never native proof. NEW complete actual-input ROOT,
+fresh ENTIRE GO and parent admission precede target execution. Parent owns tracking,
+matching-head landing/qualification; macOS Deferred never PASS. Sole retained PR1681
+branch continuation is the bounded recovery exception; no unrelated-owner changes.
