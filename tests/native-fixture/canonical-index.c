@@ -1,6 +1,14 @@
 #include "canonical-index.h"
 #include <string.h>
 struct output {uint8_t *bytes;size_t capacity,used;int failed;};
+static int separate(const void *a,size_t an,const void *b,size_t bn){
+ uintptr_t x=(uintptr_t)a,y=(uintptr_t)b;
+ if((an&&!x)||(bn&&!y)||an>UINTPTR_MAX-x||bn>UINTPTR_MAX-y)return 0;
+ return !an||!bn||x+an<=y||y+bn<=x;
+}
+static int output_separate(const void *source,size_t bytes,uint8_t *out,size_t capacity,size_t *length){
+ return separate(out,capacity,source,bytes)&&separate(length,sizeof(*length),source,bytes);
+}
 static void bytes(struct output *o,const void *p,size_t n){
  if(o->failed)return;
  if(n>o->capacity-o->used){o->failed=1;return;}
@@ -31,6 +39,9 @@ static void roster(struct output *o,const struct f7_index_input *in){
 int f7_canonical_index(const struct f7_index_input *in,uint8_t *out,size_t capacity,size_t *length){
  struct output o={out,capacity,0,0};size_t i,manifest=SIZE_MAX;uint8_t digest[32];
  if(!in||!out||!length||!in->objects||!in->count||in->count>F7_OBJECT_MAX)return F7_INVALID;
+ if(!separate(out,capacity,length,sizeof(*length))||
+    !output_separate(in,sizeof(*in),out,capacity,length)||
+    !output_separate(in->objects,in->count*sizeof(*in->objects),out,capacity,length))return F7_CONFLICT;
  *length=0;
  for(i=0;i<in->count;i++){
   if((i&&memcmp(in->objects[i-1].key,in->objects[i].key,16)>=0)||
@@ -61,6 +72,8 @@ int f7_canonical_segment_metadata(const struct f7_segment_input *in,
  in->length>F7_SEGMENT_MAX||in->full_size>F7_JSON_INTEGER_MAX||
  in->offset>in->full_size||in->length>in->full_size-in->offset||
  in->count>F7_JSON_INTEGER_MAX)return F7_INVALID;
+ if(!separate(out,capacity,length,sizeof(*length))||
+    !output_separate(in,sizeof(*in),out,capacity,length))return F7_CONFLICT;
  *length=0;text(&o,"{\"attempt\":");hex(&o,in->attempt,32);
  text(&o,",\"count\":");integer(&o,in->count);
  text(&o,",\"full_sha256\":");hex(&o,in->full_sha256,32);

@@ -6,6 +6,9 @@ static int disjoint(const void *a,size_t an,const void *b,size_t bn){
  if(an>UINTPTR_MAX-av||bn>UINTPTR_MAX-bv)return 0;
  return av+an<=bv||bv+bn<=av;
 }
+static int present(const uint8_t *bytes,size_t count){
+ uint8_t value=0;for(size_t i=0;i<count;i++)value|=bytes[i];return value!=0;
+}
 static int empty_object(struct f7_crypto_object *o){
  return o&&o->journal&&!o->started&&!o->crypto_returned&&!o->requested_output_bytes&&
   !o->known_output_bytes&&!o->retained_message_bytes&&o->write&&!o->write->length&&!o->write->finalized&&!o->write->failed;
@@ -53,6 +56,7 @@ int f7_encrypt_object_once(struct f7_crypto_object *o,const uint8_t *plain,
  n>SIZE_MAX-crypto_box_SEALBYTES||!o->workspace||
  n+crypto_box_SEALBYTES>o->workspace_capacity)return F7_INVALID;
  result=readback_reserved(o,plain,n,pins,status);if(result)return result;
+ if(!present(pins->recipient,crypto_box_PUBLICKEYBYTES))return F7_AUTH_FAILURE;
  if(!disjoint(o->workspace,n+crypto_box_SEALBYTES,plain,n)||
     !disjoint(o->workspace,n+crypto_box_SEALBYTES,pins,sizeof(*pins))||
     (pins->signer_secret&&!disjoint(o->workspace,n+crypto_box_SEALBYTES,pins->signer_secret,crypto_sign_SECRETKEYBYTES))||
@@ -82,7 +86,8 @@ int f7_signature_message(enum f7_signature_domain domain,const uint8_t *canonica
  prefix_n=strlen(prefix);
  if(n>SIZE_MAX-prefix_n-9)return F7_OVERFLOWED;
  total=prefix_n+1+8+n;if(total>capacity)return F7_BUDGET_ABSENT;
- if(!disjoint(workspace,total,canonical,n))return F7_INVALID;bytes=workspace;
+ if(!disjoint(workspace,total,canonical,n)||!disjoint(workspace,capacity,out_n,sizeof(*out_n))||
+    !disjoint(canonical,n,out_n,sizeof(*out_n)))return F7_INVALID;bytes=workspace;
  memcpy(bytes,prefix,prefix_n);bytes[prefix_n]=0;f7_u64be(bytes+prefix_n+1,n);
  memcpy(bytes+prefix_n+9,canonical,n);*out_n=total;return F7_OK;
 }
@@ -92,6 +97,7 @@ int f7_sign_index_once(struct f7_crypto_object *o,const uint8_t *canonical,
  size_t message_n=0;uint64_t persisted;int result;
  if(!empty_object(o)||!pins||!pins->signer_secret||!status||!o->workspace)return F7_INVALID;
  result=readback_reserved(o,canonical,n,pins,status);if(result)return result;
+ if(!present(pins->signer,crypto_sign_PUBLICKEYBYTES))return F7_AUTH_FAILURE;
  if(o->workspace_capacity<crypto_sign_BYTES)return F7_BUDGET_ABSENT;
  if(!disjoint(o->workspace,o->workspace_capacity,pins,sizeof(*pins))||
     !disjoint(o->workspace,o->workspace_capacity,pins->signer_secret,crypto_sign_SECRETKEYBYTES))return F7_INVALID;
