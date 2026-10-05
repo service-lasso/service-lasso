@@ -76,16 +76,23 @@ int f7_encrypt_object_once(struct f7_crypto_object *o,const uint8_t *plain,
  result=f7_member_readback(o->write,o->independent_read,status);if(result)return result;
  return f7_journal_persisted(o->journal,o->key,o->write,status);
 }
+static const char *signature_prefix(enum f7_signature_domain domain){
+ if(domain==F7_INDEX_DOMAIN)return "SERVICE-LASSO-F7-TRANSPORT-INDEX-v1";
+ if(domain==F7_RECEIPT_DOMAIN)return "SERVICE-LASSO-F7-CUSTODY-RECEIPT-v1";
+ return NULL;
+}
+int f7_signature_message_size(enum f7_signature_domain domain,size_t n,size_t *required){
+ const char *prefix=signature_prefix(domain);
+ if(!prefix||!required||n>F7_JSON_INTEGER_MAX)return F7_INVALID;
+ size_t prefix_n=strlen(prefix);if(n>SIZE_MAX-prefix_n-9)return F7_OVERFLOWED;
+ *required=prefix_n+9+n;return F7_OK;
+}
 int f7_signature_message(enum f7_signature_domain domain,const uint8_t *canonical,
  size_t n,uint8_t *workspace,size_t capacity,size_t *out_n){
- const char *prefix;size_t prefix_n,total;uint8_t *bytes;
- if(!canonical||!workspace||!out_n||n>F7_JSON_INTEGER_MAX)return F7_INVALID;
- if(domain==F7_INDEX_DOMAIN)prefix="SERVICE-LASSO-F7-TRANSPORT-INDEX-v1";
- else if(domain==F7_RECEIPT_DOMAIN)prefix="SERVICE-LASSO-F7-CUSTODY-RECEIPT-v1";
- else return F7_INVALID;
- prefix_n=strlen(prefix);
- if(n>SIZE_MAX-prefix_n-9)return F7_OVERFLOWED;
- total=prefix_n+1+8+n;if(total>capacity)return F7_BUDGET_ABSENT;
+ const char *prefix=signature_prefix(domain);size_t total;uint8_t *bytes;
+ if(!canonical||!workspace||!out_n)return F7_INVALID;
+ int result=f7_signature_message_size(domain,n,&total);if(result)return result;
+ size_t prefix_n=strlen(prefix);if(total>capacity)return F7_BUDGET_ABSENT;
  if(!disjoint(workspace,total,canonical,n)||!disjoint(workspace,capacity,out_n,sizeof(*out_n))||
     !disjoint(canonical,n,out_n,sizeof(*out_n)))return F7_INVALID;bytes=workspace;
  memcpy(bytes,prefix,prefix_n);bytes[prefix_n]=0;f7_u64be(bytes+prefix_n+1,n);

@@ -139,6 +139,22 @@ int f7_package_once(struct f7_package *p,int64_t *status){
     p->roster_capacity<p->segment_count+1||p->roster_capacity>F7_OBJECT_MAX||!p->plaintext||
     p->plaintext_capacity<F7_SEGMENT_MAX+F7_SEGMENT_HEADER_BYTES||!p->canonical)return F7_INVALID;
  int shaped=package_geometry(p,status);if(shaped)return shaped;
+ /* The entire original output workspace graph is required before any native
+    read or randomized generation. These are storage checks, not real charges. */
+ size_t signature_message_capacity;
+ int capacity_result=f7_signature_message_size(F7_INDEX_DOMAIN,p->canonical_capacity,&signature_message_capacity);
+ if(capacity_result)return capacity_result;
+ if(signature_message_capacity>SIZE_MAX-crypto_sign_BYTES||
+    p->signature->workspace_capacity<signature_message_capacity+crypto_sign_BYTES||
+    p->encrypted_manifest->workspace_capacity<p->manifest_capacity+crypto_box_SEALBYTES)return F7_BUDGET_ABSENT;
+ for(size_t segment=0;segment<p->segment_count;segment++){
+  const struct f7_segment_object *s=p->segments+segment;
+  if(s->member>=p->member_count||s->ordinal>UINT64_MAX/F7_SEGMENT_MAX)return F7_CONFLICT;
+  uint64_t original_length=p->members[s->member].original->length;
+  uint64_t offset=s->ordinal*F7_SEGMENT_MAX;if(offset>original_length)return F7_CONFLICT;
+  uint64_t bytes=original_length-offset;if(bytes>F7_SEGMENT_MAX)bytes=F7_SEGMENT_MAX;
+  if(!s->object||s->object->workspace_capacity<bytes+F7_SEGMENT_HEADER_BYTES+crypto_box_SEALBYTES)return F7_BUDGET_ABSENT;
+ }
  *status=0;
  if(p->manifest_input->member_count!=p->member_count||!p->manifest_input->members||
     !p->manifest_input->capture->witness||

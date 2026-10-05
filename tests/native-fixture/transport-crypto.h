@@ -34,6 +34,7 @@ int f7_verify_index(const uint8_t *canonical,size_t length,const uint8_t signatu
  const uint8_t signer[32],uint8_t *workspace,size_t workspace_capacity);
 /* Domain selection is closed. No caller-selected signing context. */
 enum f7_signature_domain { F7_INDEX_DOMAIN=1,F7_RECEIPT_DOMAIN=2 };
+int f7_signature_message_size(enum f7_signature_domain domain,size_t length,size_t *required);
 int f7_signature_message(enum f7_signature_domain domain,const uint8_t *canonical,
  size_t length,uint8_t *workspace,size_t workspace_capacity,size_t *out_length);
 #ifdef __cplusplus
