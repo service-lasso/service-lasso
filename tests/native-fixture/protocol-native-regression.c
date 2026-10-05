@@ -175,6 +175,13 @@ static void witness_records(void){
  f7_u64be(record+112,3);f7_u64be(record+120,3);
  memcpy(record+144,expected.invocation,8);f7_u64be(record+152,1);
  crypto_hash_sha256(record+F7_WITNESS_BYTES,raw,sizeof(raw));
+ uint8_t saved_record[sizeof(record)];memcpy(saved_record,record,sizeof(record));
+ assert(f7_witness_validate(&expected,record,sizeof(record),raw,3,
+  (struct f7_witness_view *)(void *)record)==F7_CONFLICT);
+ assert(!expected.sequence&&!memcmp(record,saved_record,sizeof(record)));
+ assert(f7_witness_validate(&expected,record,sizeof(record),raw,3,
+  (struct f7_witness_view *)(void *)&expected)==F7_CONFLICT);
+ assert(!expected.sequence&&!memcmp(record,saved_record,sizeof(record)));
  record[107]=1;assert(f7_witness_validate(&expected,record,sizeof(record),raw,3,&view)==F7_INVALID);
  assert(expected.sequence==0);record[107]=0;raw[2]=8;
  assert(f7_witness_validate(&expected,record,sizeof(record),raw,3,&view)==F7_CONFLICT);

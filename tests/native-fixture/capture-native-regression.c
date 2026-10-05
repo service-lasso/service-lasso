@@ -108,6 +108,12 @@ int f7_capture_native_regression(struct f7_capture *c,const struct f7_capture_re
   if(i<F7_STREAM_COUNT){if(c->created[i]!=F7_CREATED)continue;q=c->raw_async[i];}
   else q=i==F7_STREAM_COUNT?c->witness->async:c->witness->emergency_async;
   struct f7_async_status status;if(!q)return F7_BUDGET_ABSENT;
+  /* Existing original fixture-owned queue only: reject aliases before a
+     snapshot write/ring copy, without another worker or native resource. */
+  result=f7_async_snapshot(q,(struct f7_async_status *)q);
+  if(result!=F7_CONFLICT)return F7_CONFLICT;
+  result=f7_async_submit(q,(const uint8_t *)q,1);
+  if(result!=F7_CONFLICT)return F7_CONFLICT;
   result=f7_async_snapshot(q,&status);if(result)return result;
   struct f7_member *member=i<F7_STREAM_COUNT?c->raw[i]:
     i==F7_STREAM_COUNT?c->witness->member:c->witness->emergency_member;
