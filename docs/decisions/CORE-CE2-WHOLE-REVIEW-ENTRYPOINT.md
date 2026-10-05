@@ -33,3 +33,8 @@ T and S are independent decisions. Selecting one does not select the other, gran
 ## Review and continuation
 
 Review the complete prospective architecture and all original/current inputs, not only custody hashes. Separate byte-custody PASS from semantic architecture verdict, native eligibility and actual implementation. Any approval must name exact source choices and any deferred T/S consequence, and cannot be called entire product SOURCE_GO while the eighteen effect definitions and listed constructors/hooks remain absent. Preserve all failed compressed-port proofs, native CI failures, old codecs, private custody and original source evidence. After the architecture gate, complete the owning source and protected regressions, freeze a NEW entire product bundle, obtain a DIFFERENT whole source verdict and NEW complete execution admission before any product import/compiler/build/test/native action.
+
+## Review01 repair status
+
+The exact whole candidate received WHOLE_ARCHITECTURE_NO_GO_FOR_POSITIVE_CE2_IMPLEMENTATION. Current owning repair is [CORE-CE2-WHOLE-REPAIR-PRECODE.md](CORE-CE2-WHOLE-REPAIR-PRECODE.md), covering all six findings together. It supersedes no frozen evidence and supplies no partial positive approval. T/S remain unselected; the retry programme and replay/authority/Audit source closure remain whole-review prerequisites.
+
