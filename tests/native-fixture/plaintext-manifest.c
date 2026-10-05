@@ -50,6 +50,13 @@ static int output_geometry(const struct f7_manifest_input *in,uint8_t *out,size_
     !output_separate(out,capacity,length,c->witness->record_buffer,c->witness->record_capacity)||
     !output_memory(out,capacity,length,&c->witness_memory)||
     !output_memory(out,capacity,length,&c->emergency_memory))return F7_CONFLICT;
+ if(!output_separate(out,capacity,length,c->witness->async,c->witness->async?f7_async_state_bytes():0)||
+    !output_separate(out,capacity,length,c->witness->emergency_async,c->witness->emergency_async?f7_async_state_bytes():0))return F7_CONFLICT;
+#ifndef _WIN32
+ if(!output_separate(out,capacity,length,c->original_error_peer,c->original_error_peer?sizeof(*c->original_error_peer):0)||
+    !output_separate(out,capacity,length,c->error_receive_fact,c->error_receive_fact?sizeof(*c->error_receive_fact):0)||
+    !output_separate(out,capacity,length,c->error_control,c->error_control_capacity))return F7_CONFLICT;
+#endif
  if(c->error_channel){
   if(!output_separate(out,capacity,length,c->error_channel,sizeof(*c->error_channel))||
      !output_separate(out,capacity,length,c->error_channel->payload,c->error_channel->payload_capacity))return F7_CONFLICT;
@@ -59,6 +66,7 @@ static int output_geometry(const struct f7_manifest_input *in,uint8_t *out,size_
  }
  for(unsigned i=0;i<F7_STREAM_COUNT;i++)if(
     !output_memory(out,capacity,length,c->raw_memory+i)||
+    !output_separate(out,capacity,length,c->raw_async[i],c->raw_async[i]?f7_async_state_bytes():0)||
     !output_separate(out,capacity,length,c->drain_buffer[i],c->drain_capacity[i]))return F7_CONFLICT;
  for(size_t i=0;i<in->member_count;i++){
   const struct f7_member *m=in->members[i].persisted;

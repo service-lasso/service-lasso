@@ -52,6 +52,13 @@ int f7_capture_native_regression(struct f7_capture *c,const struct f7_capture_re
     !source_preserved(scratch,capacity,native,out,c->native_drain_storage,c->native_drain_storage_bytes)||
     !memory_preserved(scratch,capacity,native,out,&c->witness_memory)||
     !memory_preserved(scratch,capacity,native,out,&c->emergency_memory))return F7_CONFLICT;
+ if(!source_preserved(scratch,capacity,native,out,c->witness->async,c->witness->async?f7_async_state_bytes():0)||
+    !source_preserved(scratch,capacity,native,out,c->witness->emergency_async,c->witness->emergency_async?f7_async_state_bytes():0))return F7_CONFLICT;
+#ifndef _WIN32
+ if(!source_preserved(scratch,capacity,native,out,c->original_error_peer,c->original_error_peer?sizeof(*c->original_error_peer):0)||
+    !source_preserved(scratch,capacity,native,out,c->error_receive_fact,c->error_receive_fact?sizeof(*c->error_receive_fact):0)||
+    !source_preserved(scratch,capacity,native,out,c->error_control,c->error_control_capacity))return F7_CONFLICT;
+#endif
  if(c->error_channel->partial&&
     (!source_preserved(scratch,capacity,native,out,c->error_channel->partial,sizeof(*c->error_channel->partial))||
      !source_preserved(scratch,capacity,native,out,c->error_channel->partial->bytes,c->error_channel->partial->capacity)))return F7_CONFLICT;
@@ -61,6 +68,7 @@ int f7_capture_native_regression(struct f7_capture *c,const struct f7_capture_re
     i==F7_STREAM_COUNT?c->witness->member:c->witness->emergency_member;
   if(!member||(i<F7_STREAM_COUNT&&
      (!memory_preserved(scratch,capacity,native,out,c->raw_memory+i)||
+      !source_preserved(scratch,capacity,native,out,c->raw_async[i],c->raw_async[i]?f7_async_state_bytes():0)||
       !source_preserved(scratch,capacity,native,out,c->drain_buffer[i],c->drain_capacity[i])))||
      !source_preserved(scratch,capacity,native,out,member,sizeof(*member))||
      !source_preserved(scratch,capacity,native,out,member->readback_storage,member->readback_capacity))return F7_CONFLICT;
