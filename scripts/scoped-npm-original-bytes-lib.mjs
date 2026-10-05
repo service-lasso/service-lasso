@@ -1,4 +1,4 @@
-import { Parse } from "tar";
+import { Parser } from "tar";
 import { gunzipSync } from "node:zlib";
 import { digest } from "./ga-platform-scope-lib.mjs";
 import { assertNames } from "./scoped-release-evidence-lib.mjs";
@@ -14,7 +14,7 @@ export async function verifyNpmOriginalToolBytes(tarball, manifestBytes, origina
   const observed = new Map(), seen = new Set();
   let expanded = 0, count = 0, failure;
   await new Promise((resolve, reject) => {
-    const parser = new Parse({ strict: true, onReadEntry(entry) {
+    const parser = new Parser({ strict: true, onReadEntry(entry) {
       const name = entry.path;
       count++;
       if (count > 100_000 || typeof name !== "string" || name.includes("\\") || name.startsWith("/") || name.split("/").some(part => part === "." || part === "..") || !name.startsWith("package/") || seen.has(name) || !["File", "Directory"].includes(entry.type) || !Number.isSafeInteger(entry.size) || entry.size < 0) failure ??= new Error("npm archive member safety/inventory differs");

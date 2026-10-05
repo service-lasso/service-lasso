@@ -496,3 +496,12 @@ Released consumer discovery added API#7 / API-AUTH-6 and Todo#9 / SSO-10: Core i
 Core #1695 / AC-4AJ.12 delivers the approved single lesson-todo repository with five runnable checkpoints, exact article/code links and verified publication. Preserve inherited primary package deletions and evidence; author this slice only in its dedicated current-develop worktree.
 
 Core #1702 / AC-4AJ.13 adds the concise published lesson path to the first three tutorials. Keep checkpoint state isolated and retained legacy pins intact; parent orchestration owns exact lesson source acceptance, review, merge and Pages/live publication.
+
+## #1562 scoped TAR API compatibility (2026-10-06)
+
+Development source-only repair of the original natural PR #1681 CI module-load
+failure: both scoped readers use tar 7.5.22's public Parser export under
+SPEC-007 AC-7G.scoped-tar-parser. Preserve dependency lock, custody, EOF/draining,
+privacy, budgets, extraction/readback and protected gates. New finite regressions
+remain SOURCE UNEXECUTED pending distinct whole-source review and new complete
+input admission. Other natural failures and native/pin/publication gates remain.

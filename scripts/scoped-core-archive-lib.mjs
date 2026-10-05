@@ -1,4 +1,4 @@
-import { Parse } from "tar";
+import { Parser } from "tar";
 import path from "node:path";
 import { lstat, readdir } from "node:fs/promises";
 import { spawn } from "node:child_process";
@@ -21,7 +21,7 @@ export async function preflightScopedCoreTar(bytes, rootName) {
     return raw;
   };
   await new Promise((resolve, reject) => {
-    const parser = new Parse({ strict: true, onReadEntry(entry) {
+    const parser = new Parser({ strict: true, onReadEntry(entry) {
       try {
         const name = safe(entry.type === "Directory" ? entry.path.replace(/\/$/u, "") : entry.path);
         const key = name.toLowerCase();

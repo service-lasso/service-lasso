@@ -333,3 +333,16 @@ Development source preparation for SPEC-007 AC-7G.windows-npm-argv and SPEC-006 
 Published preparation routes getNpmCommand through its original local Promise runner, with shell:false/windowsVerbatimArguments:false after options. Preserve original synchronous/asynchronous Error identity, output through close, nonzero message, cwd/env/stdio/windowsHide/signal/timeout/killSignal, exact integrity-bound tarball and first failure/one pre-mutation retry. Source harness imports never replace or rebuild published Core bytes. MCP300000ms, original native15s/product/published gates, eight cleanup attempts/delays/privacy and all protected assertions remain unchanged.
 
 Prepare receiving argv, Windows-legal root/hostile child-only environment, real exact npm fixture install through both original launch seams, options/errors/close/nonzero, non-Windows routing and first-failure/no-third-attempt regressions. SOURCE UNEXECUTED: different fresh ENTIRE cumulative source review and NEW complete-input ROOT admission precede imports/parser/compiler/build/tests/npm/native. No provider dispatch/settings/merge or release authority. Backlog status: in_progress source authoring; review/qualification remains open. Existing primary retained state and other worktree ownership remain preserved.
+### `AC-7G.scoped-tar-parser` — #1562 scoped original archive compatibility
+
+The public npm original-tool byte verifier and Core outer TAR preflight must use
+`Parser`, the public parser class exported by the declared and locked tar 7.5.22
+ESM package. Both readers must admit complete finite archives while retaining
+strict parser errors, entry draining/end settlement, original-buffer comparison,
+member/path/link/inventory limits, compressed/expanded budgets and publication
+readback. No extraction, tool import, lifecycle or native execution is permitted
+by npm byte verification. Dependency pins and existing protected evidence remain
+unchanged. Additive source regressions exercise both actual readers with valid
+finite archives and invalid/truncated/traversal/substitution input. Source tests
+are UNEXECUTED until distinct whole-source review and new input admission;
+source compatibility does not establish publication or native acceptance.

@@ -888,3 +888,11 @@ Development source-only repair bound to SPEC-002 AC-4DOC.1690 and existing SPEC-
 #1699 backlog / AC-4BK: cold endpoint cutover resolves configured identity Broker refs before retained Broker startup. Observed while transferring a stopped fixture onto changed ports; fresh unchanged-port provisioning is verified separately. Preserve custody/rollback and require a governed Core fix plus exact-candidate publication authority before updating lesson pins.
 
 #1702 in_progress / AC-4AJ.13: published App/Database/API route and retained Mac profile guards; exact final lesson source confirmation, docs verification and fresh review pending.
+
+## #1562 scoped TAR source gate (2026-10-06)
+
+In progress: SPEC-007 AC-7G.scoped-tar-parser binds the natural PR #1681 obsolete
+Parse import failure to both actual archive readers. Isolated current-develop
+repair; dependency pins/protected tests unchanged. Whole-source review and new
+input admission required before execution. Other nineteen natural failures,
+native custody, empty catalogs and publication qualification remain separate.
