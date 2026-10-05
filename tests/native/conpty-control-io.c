@@ -18,13 +18,19 @@ struct FixtureOwner {
   int stopIssued, stopKnown, productionTerminal;
   unsigned closeAttempted;
   unsigned failures; int ledgerOverflow;
+  volatile LONG ledgerLock;
   FixtureFailure ledger[64];
 };
 static FixtureOwner* originalOwners;
 static void Failure(FixtureOwner* o, const char* site, DWORD code, int native) {
+  while (InterlockedCompareExchange(&o->ledgerLock,1,0)) Sleep(0);
   if (o->failures == _countof(o->ledger)) { o->ledgerOverflow = 1; for (;;) Sleep(INFINITE); }
   o->ledger[o->failures].site = site; o->ledger[o->failures].code = code;
   o->ledger[o->failures++].native = native;
+  InterlockedExchange(&o->ledgerLock,0);
+}
+static void ObserveOriginalFailure(void* owner, const char* site, DWORD code, int native) {
+  Failure((FixtureOwner*)owner,site,code,native);
 }
 static void NativeFailure(FixtureOwner* o, const char* site) { DWORD code = GetLastError(); Failure(o, site, code, 1); }
 static void RetainOriginal(FixtureOwner* o, const char* site) {
@@ -38,6 +44,7 @@ static FixtureOwner* NewOwner(void) {
   if (!o) return NULL;
   o->server = INVALID_HANDLE_VALUE; o->control.pipe = INVALID_HANDLE_VALUE;
   o->argument.control = &o->control; o->argument.result = -1;
+  o->control.observeFailure = ObserveOriginalFailure; o->control.observationOwner = o;
   o->next = originalOwners; originalOwners = o; return o;
 }
 static int CloseOriginal(FixtureOwner* o, HANDLE* handle, const char* site) {
@@ -199,14 +206,48 @@ static int SuspendedResumeFailure(int selected) {
   if (!Checkpoint(o,selected,12) || !StartReader(o,0)) goto finish;
   /* Exercise actual production containment; ownership remains with o on failure. */
   o->stopIssued = 1;
-  if (!FinishConptyContainment(&o->control,o->child,o->reader)) { NativeFailure(o,"production-containment"); RetainOriginal(o,"production-containment-result-unknown"); }
-  o->productionTerminal = 1; o->stopKnown = 1;
-  o->readerTerminal = 1; o->childTerminal = 1;
+  if (!FinishConptyContainment(&o->control,o->child,o->reader)) RetainOriginal(o,"production-containment-result-unknown");
+  o->productionTerminal = o->control.containmentDrain;
+  o->stopKnown = o->control.containmentStop;
+  o->readerTerminal = o->control.containmentReader;
+  o->childTerminal = o->control.containmentProcess;
   JOBOBJECT_BASIC_ACCOUNTING_INFORMATION accounting;
   if (!QueryInformationJobObject(o->control.job,JobObjectBasicAccountingInformation,&accounting,sizeof(accounting),NULL)) NativeFailure(o,"original-positive-accounting");
   else if (accounting.ActiveProcesses != 0 || o->argument.result != 0 || WaitForSingleObject(o->child,0) != WAIT_OBJECT_0) Failure(o,"positive-containment-contract",0,0);
 finish:
   { int result = FinishOwner(o); return selected ? (!result && o->closed && o->failures == 1 && o->ledger[0].code == (DWORD)selected && !o->ledger[0].native) : result; }
+}
+static int ActualReadError(int stopError) {
+  FixtureOwner* o = NewOwner(); if (!o) return 0;
+  if (!OpenFixture(o,0)) { FinishOwner(o); return 0; }
+  /* Genuine original resource acquisition/release, then the actual shared
+   * API receives that closed slot. No API wrapper or fabricated result. */
+  if (!CloseOriginal(o,stopError ? &o->control.stopEvent : &o->control.pipe,"read-error-original-close")) { FinishOwner(o); return 0; }
+  char line[256]; int result = ReadControlLine(&o->control,line,sizeof(line));
+  int matched = result == -1 && o->failures == 1 && o->ledger[0].native &&
+    o->ledger[0].code == ERROR_INVALID_HANDLE &&
+    strcmp(o->ledger[0].site,stopError ? "read-stop-observation" : "read-issuance") == 0;
+  ConptyReadOwner* read = o->control.reads;
+  matched = matched && read && read->closed && read->closeAttempted && !read->issued;
+  int finished = FinishOwner(o);
+  return matched && !finished && o->closed && o->failures == 1;
+}
+static int ActualDrainError(void) {
+  FixtureOwner* o = NewOwner(); if (!o) return 0;
+  o->control.job = CreateJobObjectW(NULL,NULL);
+  if (!o->control.job) { NativeFailure(o,"error-case-job-create"); FinishOwner(o); return 0; }
+  if (!CloseOriginal(o,&o->control.job,"error-case-job-close")) { FinishOwner(o); return 0; }
+  int drained = DrainConptyJob(&o->control);
+  /* Another genuine API after the failed seam cannot replace its origin. */
+  HANDLE later = CreateEventW(NULL,TRUE,FALSE,NULL);
+  if (!later) { NativeFailure(o,"error-case-later-event"); FinishOwner(o); return 0; }
+  BOOL laterClosed = CloseHandle(later);
+  if (!laterClosed) { NativeFailure(o,"error-case-later-event-close"); RetainOriginal(o,"error-case-later-release-unknown"); }
+  int matched = !drained && o->failures == 1 && o->ledger[0].native &&
+    o->ledger[0].code == ERROR_INVALID_HANDLE && strcmp(o->ledger[0].site,"containment-job-terminate") == 0 &&
+    o->control.containmentCount == 1 && o->control.containment[0].failure;
+  int finished = FinishOwner(o);
+  return matched && !finished && o->closed && o->failures == 1;
 }
 int wmain(int argc, wchar_t** argv) {
   if (argc == 2 && wcscmp(argv[1],L"--hold") == 0) { for (;;) Sleep(INFINITE); }
@@ -214,5 +255,6 @@ int wmain(int argc, wchar_t** argv) {
   /* Independent native counterparts; no fake API, handle, completion or zero. */
   for (int point = 1; point <= 7; point++) if (!StoppedRead(1,point)) ok = 0;
   for (int point = 8; point <= 12; point++) if (!SuspendedResumeFailure(point)) ok = 0;
+  if (!ActualReadError(0) || !ActualReadError(1) || !ActualDrainError()) ok = 0;
   return ok ? 0 : 1;
 }

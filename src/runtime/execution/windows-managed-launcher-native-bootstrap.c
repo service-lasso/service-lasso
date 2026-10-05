@@ -33,6 +33,16 @@ enum {
 
 /* Opt-in ConPTY custody only. Generic service and DIRECTORY_SYNC callers do
  * not supply this interface and retain their existing launch semantics. */
+typedef struct { const char* site; DWORD status; int native, failure; } ConptyObservation;
+typedef struct ConptyReadOwner {
+  struct ConptyReadOwner* next;
+  OVERLAPPED operation;
+  char byte;
+  DWORD read;
+  int issued, completed, cancelAttempted, closeAttempted, closed;
+  unsigned observations;
+  ConptyObservation ledger[10];
+} ConptyReadOwner;
 typedef struct {
   HANDLE pipe;
   HANDLE job;
@@ -42,38 +52,96 @@ typedef struct {
   volatile LONG cancelled;
   volatile LONG failed;
   volatile LONG stopping;
+  ConptyReadOwner* reads;
+  void (*observeFailure)(void*, const char*, DWORD, int);
+  void* observationOwner;
+  ConptyObservation containment[8];
+  unsigned containmentCount;
+  int containmentStop, containmentDrain, containmentReader, containmentProcess;
 } ConptyControl;
 
+static void ObserveConpty(ConptyControl* control, ConptyObservation* ledger, unsigned* count,
+    unsigned capacity, const char* site, DWORD status, int native, int failure) {
+  if (*count >= capacity) { for (;;) Sleep(INFINITE); }
+  ledger[*count].site = site; ledger[*count].status = status;
+  ledger[*count].native = native; ledger[(*count)++].failure = failure;
+  if (failure) {
+    InterlockedExchange(&control->failed, 1);
+    if (control->observeFailure) control->observeFailure(control->observationOwner,site,status,native);
+  }
+}
+static void RetainConpty(void) { for (;;) Sleep(INFINITE); }
+#define READ_OBSERVE(site, status, native, failure) ObserveConpty(control, owner->ledger, &owner->observations, _countof(owner->ledger), site, status, native, failure)
 static int ReadControlByte(ConptyControl* control, char* byte, DWORD* read) {
-  OVERLAPPED operation;
-  ZeroMemory(&operation, sizeof(operation));
-  operation.hEvent = CreateEventW(NULL, TRUE, FALSE, NULL);
-  if (operation.hEvent == NULL) return 0;
+  ConptyReadOwner* owner = (ConptyReadOwner*)HeapAlloc(GetProcessHeap(),HEAP_ZERO_MEMORY,sizeof(*owner));
+  if (!owner) {
+    /* HeapAlloc supplies no GetLastError contract. Preserve an explicit non-native failure. */
+    InterlockedExchange(&control->failed,1);
+    if (control->observeFailure) control->observeFailure(control->observationOwner,"read-owner-allocation",ERROR_NOT_ENOUGH_MEMORY,0);
+    return -1;
+  }
+  owner->next = control->reads; control->reads = owner;
+  owner->operation.hEvent = CreateEventW(NULL, TRUE, FALSE, NULL);
+  DWORD eventError = owner->operation.hEvent ? 0 : GetLastError();
+  READ_OBSERVE("read-create-event",eventError,1,!owner->operation.hEvent);
+  if (!owner->operation.hEvent) return -1;
   int result = 0;
-  if (WaitForSingleObject(control->stopEvent, 0) != WAIT_TIMEOUT) goto completed;
-  if (ReadFile(control->pipe, byte, 1, read, &operation)) {
-    result = *read == 1;
-  } else if (GetLastError() == ERROR_IO_PENDING) {
-    HANDLE events[2] = { control->stopEvent, operation.hEvent };
+  DWORD stop = WaitForSingleObject(control->stopEvent, 0);
+  DWORD stopError = stop == WAIT_FAILED ? GetLastError() : stop;
+  READ_OBSERVE("read-stop-observation",stopError,stop == WAIT_FAILED,stop != WAIT_TIMEOUT && stop != WAIT_OBJECT_0);
+  if (stop != WAIT_TIMEOUT) { if (stop != WAIT_OBJECT_0) result = -1; goto completed; }
+  BOOL issued = ReadFile(control->pipe, &owner->byte, 1, &owner->read, &owner->operation);
+  DWORD issueError = issued ? 0 : GetLastError();
+  int eof = !issued && (issueError == ERROR_BROKEN_PIPE || issueError == ERROR_HANDLE_EOF || issueError == ERROR_NO_DATA);
+  READ_OBSERVE("read-issuance",issueError,1,!issued && issueError != ERROR_IO_PENDING && !eof);
+  if (issued) {
+    owner->issued = 1; owner->completed = 1; result = owner->read == 1;
+  } else if (issueError == ERROR_IO_PENDING) {
+    owner->issued = 1;
+    HANDLE events[2] = { control->stopEvent, owner->operation.hEvent };
     DWORD observed = WaitForMultipleObjects(2, events, FALSE, INFINITE);
+    DWORD waitError = observed == WAIT_FAILED ? GetLastError() : observed;
+    int waitFailed = observed != WAIT_OBJECT_0 && observed != WAIT_OBJECT_0 + 1;
+    READ_OBSERVE("read-event-wait",waitError,observed == WAIT_FAILED,waitFailed);
     if (observed != WAIT_OBJECT_0 + 1) {
       /* Cancellation names the exact issued operation, not a future read.
        * ERROR_NOT_FOUND means it raced completion; still await its result. */
-      CancelIoEx(control->pipe, &operation);
-      GetOverlappedResult(control->pipe, &operation, read, TRUE);
-    } else {
-      result = GetOverlappedResult(control->pipe, &operation, read, TRUE) && *read == 1;
+      owner->cancelAttempted = 1;
+      BOOL cancelled = CancelIoEx(control->pipe, &owner->operation);
+      DWORD cancelError = cancelled ? 0 : GetLastError();
+      READ_OBSERVE("read-exact-cancel",cancelError,1,!cancelled && cancelError != ERROR_NOT_FOUND);
+      if (!cancelled && cancelError != ERROR_NOT_FOUND) result = -1;
     }
-  }
+    BOOL complete = GetOverlappedResult(control->pipe, &owner->operation, &owner->read, TRUE);
+    DWORD completionError = complete ? 0 : GetLastError();
+    int stopped = observed == WAIT_OBJECT_0;
+    int terminalExpected = !complete && ((stopped && completionError == ERROR_OPERATION_ABORTED) || completionError == ERROR_BROKEN_PIPE || completionError == ERROR_HANDLE_EOF || completionError == ERROR_NO_DATA);
+    READ_OBSERVE("read-original-completion",completionError,1,!complete && !terminalExpected);
+    /* A FALSE result is not automatically pending or automatically terminal.
+     * The original OVERLAPPED must actually be complete; invalid-handle means
+     * the API could not qualify the original operation at all. */
+    if (!complete && (!HasOverlappedIoCompleted(&owner->operation) || completionError == ERROR_INVALID_HANDLE || completionError == ERROR_IO_INCOMPLETE)) RetainConpty();
+    owner->completed = 1;
+    if (waitFailed || (!complete && !terminalExpected)) result = -1;
+    else if (result != -1) result = !stopped && complete && owner->read == 1;
+  } else if (!eof) result = -1;
 completed:
-  CloseHandle(operation.hEvent);
+  owner->closeAttempted = 1;
+  BOOL closed = CloseHandle(owner->operation.hEvent);
+  DWORD closeError = closed ? 0 : GetLastError();
+  READ_OBSERVE("read-close-event",closeError,1,!closed);
+  if (!closed) RetainConpty();
+  owner->closed = 1; owner->operation.hEvent = NULL;
+  *read = owner->read; if (result == 1) *byte = owner->byte;
   return result;
 }
+#undef READ_OBSERVE
 
 static int ReadControlLine(ConptyControl* control, char* line, DWORD capacity) {
   DWORD count = 0, read = 0;
   while (count + 1 < capacity) {
-    if (!ReadControlByte(control, line + count, &read)) return 0;
+    int result = ReadControlByte(control, line + count, &read);
+    if (result != 1) return result;
     if (line[count] == '\n') { line[count] = '\0'; return 1; }
     if ((unsigned char)line[count] < 32 || (unsigned char)line[count] > 126) return 0;
     count++;
@@ -102,7 +170,7 @@ static int ReadControlCommand(ConptyControl* control, const char* kind) {
   for (DWORD i = 0; i < 64; i++) token[i] = (char)control->token[i];
   token[64] = '\0';
   if (_snprintf_s(expected, sizeof(expected), _TRUNCATE, "%s:%s", kind, token) < 0) return 0;
-  return ReadControlLine(control, line, sizeof(line)) && strcmp(line, expected) == 0;
+  return ReadControlLine(control, line, sizeof(line)) == 1 && strcmp(line, expected) == 0;
 }
 
 static DWORD WINAPI ConptyCancelReader(LPVOID parameter) {
@@ -155,25 +223,47 @@ static int OpenConptyControl(ConptyControl* control) {
   return 1;
 }
 
+#define CONTAIN_OBSERVE(site,status,native,failure) ObserveConpty(control,control->containment,&control->containmentCount,_countof(control->containment),site,status,native,failure)
 static int DrainConptyJob(ConptyControl* control) {
-  if (!TerminateJobObject(control->job, BOOTSTRAP_FAILURE_WAIT)) return 0;
+  BOOL terminated = TerminateJobObject(control->job, BOOTSTRAP_FAILURE_WAIT);
+  DWORD terminateError = terminated ? 0 : GetLastError();
+  CONTAIN_OBSERVE("containment-job-terminate",terminateError,1,!terminated);
+  if (!terminated) return 0;
   for (;;) {
     JOBOBJECT_BASIC_ACCOUNTING_INFORMATION accounting;
-    if (!QueryInformationJobObject(control->job, JobObjectBasicAccountingInformation, &accounting, sizeof(accounting), NULL)) return 0;
-    if (accounting.ActiveProcesses == 0) return 1;
+    BOOL queried = QueryInformationJobObject(control->job, JobObjectBasicAccountingInformation, &accounting, sizeof(accounting), NULL);
+    DWORD queryError = queried ? 0 : GetLastError();
+    if (!queried || accounting.ActiveProcesses == 0) {
+      CONTAIN_OBSERVE("containment-job-accounting",queryError,1,!queried);
+      return queried;
+    }
     Sleep(1); /* observation only; never a new caller success deadline */
   }
 }
 
 static int FinishConptyContainment(ConptyControl* control, HANDLE process, HANDLE reader) {
   InterlockedExchange(&control->stopping, 1);
-  if (!SetEvent(control->stopEvent)) return 0;
+  BOOL stopped = SetEvent(control->stopEvent);
+  DWORD stopError = stopped ? 0 : GetLastError();
+  CONTAIN_OBSERVE("containment-stop",stopError,1,!stopped);
+  control->containmentStop = stopped;
   /* Containment is never obstructed by joining a reader first. */
   int drained = DrainConptyJob(control);
-  int readerClosed = reader == NULL || WaitForSingleObject(reader, INFINITE) == WAIT_OBJECT_0;
-  int managedClosed = WaitForSingleObject(process, INFINITE) == WAIT_OBJECT_0;
+  control->containmentDrain = drained;
+  DWORD readerWait = reader == NULL ? WAIT_OBJECT_0 : WaitForSingleObject(reader, INFINITE);
+  DWORD readerError = readerWait == WAIT_FAILED ? GetLastError() : readerWait;
+  CONTAIN_OBSERVE("containment-reader-wait",readerError,readerWait == WAIT_FAILED,readerWait != WAIT_OBJECT_0);
+  int readerClosed = readerWait == WAIT_OBJECT_0;
+  control->containmentReader = readerClosed;
+  DWORD processWait = WaitForSingleObject(process, INFINITE);
+  DWORD processError = processWait == WAIT_FAILED ? GetLastError() : processWait;
+  CONTAIN_OBSERVE("containment-process-wait",processError,processWait == WAIT_FAILED,processWait != WAIT_OBJECT_0);
+  int managedClosed = processWait == WAIT_OBJECT_0;
+  control->containmentProcess = managedClosed;
+  if (!stopped || !drained || !readerClosed || !managedClosed) RetainConpty();
   return drained && readerClosed && managedClosed;
 }
+#undef CONTAIN_OBSERVE
 
 static int IsLoaderSensitiveName(const wchar_t* name) {
   return _wcsnicmp(name, L"COR_", 4) == 0 ||
