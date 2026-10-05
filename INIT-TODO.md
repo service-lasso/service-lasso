@@ -396,3 +396,6 @@ The next original-error contract records bounded ordered initiating/inner/aggreg
 Whole producer/consumer design, prospective UNRUN protected cases and concrete unresolved installed equivalence cells are tracked in `.governance/project/NATIVE_SEARCH_CUSTODY_1681.md`; no native implementation or execution is authorized by this documentation amendment.
 
 - [ ] #1702 / AC-4AJ.13: reconcile first3 articles with published lesson-host Mac path; isolated docs branch; final source, docs build, review and publication evidence pending.
+
+
+#1681 / AC-4DI.4 next package/trust/MSI/native graph source acquisition: preserve authentic original685 load02 outcome C0559BFE (18/42/four841/full869) separately from normal receiving0a273f source tuple. Select bounded memory-only OPC part source, readonly MSI metadata source, independent trust/coverage/catalog boundary and complete native request/PE/provenance design in NATIVE_SEARCH_CUSTODY_1681.md; all new parser/API/compiler/load actions require DIFFERENT whole source/image/input review and exact separate admission. No auth/actor/memory/native/product/oldPE gate passes from metadata; originals/private failures/two unavailable files remain. Source precode only.
