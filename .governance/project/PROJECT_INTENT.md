@@ -493,3 +493,5 @@ Released consumer discovery added API#7 / API-AUTH-6 and Todo#9 / SSO-10: Core i
 Core #1695 / AC-4AJ.12 delivers the approved single lesson-todo repository with five runnable checkpoints, exact article/code links and verified publication. Preserve inherited primary package deletions and evidence; author this slice only in its dedicated current-develop worktree.
 
 Core #1702 / AC-4AJ.13 adds the concise published lesson path to the first three tutorials. Keep checkpoint state isolated and retained legacy pins intact; parent orchestration owns exact lesson source acceptance, review, merge and Pages/live publication.
+
+Core #1704 / AC-4AJ.14 prepares the final portable Mac stage04 SSO article. Publish only after exact public identity qualification and literal Mac paired App/API lesson proof are supplied. Preserve the retained legacy guard, manual route, data continuation and purpose-first diagrams. Stage05 native executable scope remains Windows x64; final review, merge and Pages/live receipt belong to parent orchestration.

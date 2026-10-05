@@ -886,4 +886,6 @@ Development source-only repair bound to SPEC-002 AC-4DOC.1690 and existing SPEC-
 
 #1699 backlog / AC-4BK: cold endpoint cutover resolves configured identity Broker refs before retained Broker startup. Observed while transferring a stopped fixture onto changed ports; fresh unchanged-port provisioning is verified separately. Preserve custody/rollback and require a governed Core fix plus exact-candidate publication authority before updating lesson pins.
 
-#1702 in_progress / AC-4AJ.13: published App/Database/API route and retained Mac profile guards; exact final lesson source confirmation, docs verification and fresh review pending.
+#1702 done / AC-4AJ.13: App/Database/API article route landed through PR #1703 at `22b6647f7a074a2bb3803c88f361a56396b83c9f`; Docs Site publication run `37274829122` completed successfully. Issue closed; parent holds live publication proof. This does not qualify stage04 SSO.
+
+#1704 in_progress / AC-4AJ.14: prepare final portable Mac stage04 SSO article and exact public lesson/identity pins. Article mutation awaits parent-supplied public identity qualification and final literal Mac paired App/API proof; docs validation, fresh distinct review, develop PR and parent-owned publication/live verification remain pending. See `DOCS-1704-PLAN.md`.
