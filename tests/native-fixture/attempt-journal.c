@@ -50,7 +50,7 @@ static int append(struct f7_attempt_journal *j,const uint8_t key[16],enum f7_jou
  uint64_t length,const uint8_t digest[32],int64_t *status){
  uint8_t record[F7_JOURNAL_RECORD_BYTES],readback[F7_JOURNAL_RECORD_BYTES];
  struct f7_identity identity;struct f7_member reader;uint64_t persisted,offset=j->member->length;
- if(f7_handle_readonly(j->independent_read,status))goto failed;
+ int result=f7_handle_readonly(j->independent_read,status);if(result)goto failed;
  if(j->sequence==UINT64_MAX||length>F7_JSON_INTEGER_MAX)return F7_OVERFLOWED;
  memset(record,0,sizeof(record));memcpy(record,"SLF7JNL1",8);
  f7_u64be(record+8,j->sequence+1);memcpy(record+16,j->invocation,16);
@@ -58,16 +58,16 @@ static int append(struct f7_attempt_journal *j,const uint8_t key[16],enum f7_jou
  f7_u64be(record+80,event);f7_u64be(record+88,length);
  if(digest)memcpy(record+96,digest,32);memcpy(record+128,j->chain,32);
  crypto_hash_sha256(record+160,record,160);
- if(f7_member_append(j->member,record,sizeof(record),&persisted,status)||
- f7_member_flush(j->member,status)||
- f7_identity_read_status(j->independent_read,&identity,0,status)||
- !f7_identity_equal(&identity,&j->member->identity))goto failed;
+ result=f7_member_append(j->member,record,sizeof(record),&persisted,status);if(result)goto failed;
+ result=f7_member_flush(j->member,status);if(result)goto failed;
+ result=f7_identity_read_status(j->independent_read,&identity,0,status);if(result)goto failed;
+ if(!f7_identity_equal(&identity,&j->member->identity)){result=F7_IDENTITY_MISMATCH;goto failed;}
  memset(&reader,0,sizeof(reader));reader.handle=j->independent_read;
- if(f7_member_read_at(&reader,offset,readback,sizeof(readback),status)||
- sodium_memcmp(readback,record,sizeof(record)))goto failed;
+ result=f7_member_read_at(&reader,offset,readback,sizeof(readback),status);if(result)goto failed;
+ if(sodium_memcmp(readback,record,sizeof(record))){result=F7_CONFLICT;goto failed;}
  memcpy(j->chain,record+160,32);j->sequence++;return F7_OK;
 failed:
- j->failed=1;return F7_INCOMPLETE;
+ j->failed=1;return result;
 }
 int f7_journal_reserve(struct f7_attempt_journal *j,const uint8_t key[16],int64_t *status){
  struct f7_journal_entry *entry;
@@ -108,14 +108,16 @@ int f7_journal_read(struct f7_attempt_journal *j,f7_handle read_only,uint64_t le
  /* Parse outputs are fresh independent owner reservations, never the original
     writer journal. Even a failed read cannot reset/reuse this retained state. */
  j->parse_started=1;
- int rights=f7_handle_readonly(read_only,status);if(rights)return rights;
- if(f7_identity_read_status(read_only,&identity,0,status)||!f7_identity_equal(&identity,&j->member->identity))return F7_IDENTITY_MISMATCH;
- if(f7_handle_size(read_only,&actual_length,status)||actual_length!=length)return F7_CONFLICT;
+ int original_result=f7_handle_readonly(read_only,status);if(original_result)goto native_failed;
+ original_result=f7_identity_read_status(read_only,&identity,0,status);if(original_result)goto native_failed;
+ if(!f7_identity_equal(&identity,&j->member->identity)){original_result=F7_IDENTITY_MISMATCH;goto native_failed;}
+ original_result=f7_handle_size(read_only,&actual_length,status);if(original_result)goto native_failed;
+ if(actual_length!=length){original_result=F7_CONFLICT;goto native_failed;}
  memset(&reader,0,sizeof(reader));reader.handle=read_only;
  memset(j->entries,0,j->capacity*sizeof(*j->entries));j->count=0;j->sequence=0;j->frozen=0;
  memset(j->frozen_index,0,16);memset(j->frozen_inventory,0,32);memset(j->chain,0,32);
  while(offset<length){
-  if(f7_member_read_at(&reader,offset,record,sizeof(record),status))goto failed;
+  original_result=f7_member_read_at(&reader,offset,record,sizeof(record),status);if(original_result)goto native_failed;
   crypto_hash_sha256(digest,record,160);
   if(memcmp(record,"SLF7JNL1",8)||f7_read_u64be(record+8)!=j->sequence+1||
    !present(record+64,16)||
@@ -138,11 +140,15 @@ int f7_journal_read(struct f7_attempt_journal *j,f7_handle read_only,uint64_t le
   }else goto failed;
   memcpy(j->chain,digest,32);j->sequence++;offset+=sizeof(record);
  }
- if(f7_identity_read_status(read_only,&identity,0,status)||!f7_identity_equal(&identity,&j->member->identity)||
-   f7_handle_size(read_only,&actual_length,status)||actual_length!=length)goto failed;
+ original_result=f7_identity_read_status(read_only,&identity,0,status);if(original_result)goto native_failed;
+ if(!f7_identity_equal(&identity,&j->member->identity)){original_result=F7_IDENTITY_MISMATCH;goto native_failed;}
+ original_result=f7_handle_size(read_only,&actual_length,status);if(original_result)goto native_failed;
+ if(actual_length!=length){original_result=F7_CONFLICT;goto native_failed;}
  return F7_OK;
 failed:
  j->failed=1;return F7_INCOMPLETE;
+native_failed:
+ j->failed=1;return original_result;
 }
 int f7_journal_freeze(struct f7_attempt_journal *j,const uint8_t index_key[16],
  const uint8_t signature_key[16],int64_t *status){
