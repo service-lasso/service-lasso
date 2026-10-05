@@ -140,6 +140,9 @@ test("#1681 AC-4DI.4 G1 actual-source closure guard rejects ownership and orderi
     ["additional original-looking process creation", "RunManagedInvocation", "targetAssignedToJob = true;", "targetAssignedToJob = true; targetCreated = CreateProcessW(resolvedExecutable, commandLine, IntPtr.Zero, IntPtr.Zero, true, CreateSuspended, IntPtr.Zero, payload.workingDirectory, ref startupInfo, out processInformation);"],
     ["unexamined direct owner field mutation", "RunManagedInvocation", "targetAssignedToJob = true;", "targetAssignedToJob = true; invocation.Files[0] = null;"],
     ["original create disposition erased before handles saved", "RunManagedInvocation", "if (!targetCreated)", "targetCreated = false; if (!targetCreated)"],
+    ["hidden interpolation mutates original roster", "RunManagedInvocation", "boundFiles.Add(boundFile);", 'boundFiles.Add(boundFile); SetProgress($"{MutateOriginalRoster(boundFiles)}");'],
+    ["unknown property getter carries an indirect effect", "RunManagedInvocation", "targetAssignedToJob = true;", "targetAssignedToJob = true; failureExitCode = UnknownMutation.Value;"],
+    ["original failure result relabeled success", "RunManagedInvocation", "targetAssignedToJob = true;", "targetAssignedToJob = true; failureExitCode = 0;"],
   ];
   for (const [label, owner, needle, replacement] of vectors) {
     const signatures = {

@@ -15,7 +15,7 @@ function tokens(source) {
     if (!/^\s|^\/\//u.test(match[0]) && !match[0].startsWith("/*")) result.push(match[0]);
   }
   // Conditional compilation cannot create a different reachable owning program.
-  if (result.includes("#")) fail("unsupported preprocessing");
+  if (result.includes("#") || result.includes("$")) fail("unsupported preprocessing/interpolation");
   return result;
 }
 function same(actual, expected) {
@@ -192,6 +192,21 @@ const callerWrites = new Set([
   "targetCreationError", "original", "acknowledgment", "targetWait", "targetWaitError",
 ]);
 const declarations = new Set(["string", "byte", "LaunchPayload", "ApprovedFile", "FileStream", "StringBuilder", "uint", "bool", "int", "StartupInfo", "ProcessInformation", "Win32Exception", "OriginalObservation"]);
+// Reads are closed as well as calls/writes. An unknown receiver could be a
+// property getter carrying a hidden alias mutation even without call tokens.
+const callerIdentifiers = new Set([
+  ...declarations, ...[...callerCalls].flatMap((value) => value.split(".")),
+  ...[...callerWrites].flatMap((value) => value.split(".")),
+  "new", "throw", "return", "true", "false", "null", "ref", "out",
+  "payload", "index", "argumentBinding", "sha256", "exitCode", "System", "Globalization", "CultureInfo", "InvariantCulture",
+  "PayloadEnvironmentName", "GateEnvironmentName", "EnvironmentVariableTarget", "Process", "MaximumPayloadCharacters",
+  "StringComparison", "Ordinal", "StrictUtf8", "Length", "approvedFiles", "args", "executable", "executableBindingIndex",
+  "argumentBindings", "bindingIndex", "prefix", "Empty", "Capacity", "ToString", "cb", "dwFlags", "wShowWindow",
+  "hStdInput", "hStdOutput", "hStdError", "StartfUseShowWindow", "StartfUseStdHandles", "StdInputHandle", "StdOutputHandle", "StdErrorHandle",
+  "UInt32", "MaxValue", "FailureExitCodeJobCreation", "FailureExitCodeTargetCreation", "FailureExitCodeResolvedExecutableMissing",
+  "FailureExitCodeWorkingDirectoryMissing", "FailureExitCodeJobAssignment", "FailureExitCodeTargetResume", "FailureExitCodeTargetThreadClose",
+  "FailureExitCodeAcknowledgmentWrite",
+]);
 const controls = new Set([
   "String.IsNullOrWhiteSpace(encodedPayload) || encodedPayload.Length > MaximumPayloadCharacters || String.IsNullOrWhiteSpace(gatePath) || !IsFullyQualifiedWindowsPath(gatePath)",
   "!String.Equals(Convert.ToBase64String(payloadBytes), encodedPayload, StringComparison.Ordinal)",
@@ -258,6 +273,7 @@ function safeExpression(expression) {
   if (expression[0] === "throw") {
     if (!same(expression, "throw") && !same(expression, "throw original") && !["InvalidOperationException", "Win32Exception"].includes(expression[2])) fail("unknown exception effect");
   }
+  for (const value of expression) if (/^[A-Za-z_][A-Za-z_0-9]*$/u.test(value) && !callerIdentifiers.has(value)) fail(`unknown read receiver ${value}`);
   // Arrow/lambda/initializer/local-function effects are confined to declared
   // ownership roles. No ref/out alias can escape through a newly added call.
   for (const value of ["=>", "{", "}", "++", "|=", "+="]) if (expression.includes(value)) fail("unsupported expression effect");
@@ -274,6 +290,11 @@ function safeExpression(expression) {
     if (same(left.slice(0, 2), "[ ]")) left = left.slice(2);
     const target = left.join("");
     if (!callerWrites.has(target) && !same(left, "boundFilePaths[index]") && !same(left, "resolvedArgs[argumentBinding.index]")) fail("unknown write target");
+    if (target === "failureExitCode" && ![
+      "FailureExitCodeJobCreation", "FailureExitCodeTargetCreation", "FailureExitCodeResolvedExecutableMissing", "FailureExitCodeWorkingDirectoryMissing",
+      "FailureExitCodeJobAssignment", "FailureExitCodeTargetResume", "FailureExitCodeTargetThreadClose", "FailureExitCodeAcknowledgmentWrite",
+      "TargetCreationFailureExitCode(targetCreationError)",
+    ].some((value) => same(expression.slice(assignments[0] + 1), value))) fail("original failure result replacement");
   }
   for (let at = 0; at < expression.length - 1; at += 1) {
     if (expression[at + 1] !== "(" || !/^[A-Za-z_]/u.test(expression[at])) continue;
