@@ -347,9 +347,9 @@ test("actual provider handler owns recovery persistence, concurrent readers and 
         const sources = JSON.parse(await readFile(path.join(supportRoot, "broker-sources.json"), "utf8"));
         const address = sources.sources.find(({ sourceId }) => sourceId === "vault-browser").address;
         const ca = await readFile(path.join(ready.tempRoot, "vault-test-ca.pem"));
-        const providerRequest = () => new Promise((resolve, reject) => {
+        const providerRequest = (token = "browser-vault-token-sentinel-2026-08-14") => new Promise((resolve, reject) => {
           const request = https.get(`${address}/v1/secret/data/browser/provider-control`, {
-            ca, headers: { "x-vault-token": "browser-vault-token-sentinel" },
+            ca, headers: { "x-vault-token": token },
           }, (response) => {
             response.resume();
             response.once("end", () => resolve(response.statusCode));
@@ -358,6 +358,10 @@ test("actual provider handler owns recovery persistence, concurrent readers and 
           request.once("error", reject);
         });
         const headers = { "x-service-lasso-provider-control-nonce": providerControlNonce };
+        // Match the original fixture's successful-token branch. A denied
+        // request cannot establish the authenticated baseline or its receipt.
+        assert.equal(await providerRequest("invalid-token"), 403);
+        await assert.rejects(access(path.join(evidenceRoot, "live-provider-control-receipt.json")), (error) => error?.code === "ENOENT");
         assert.equal(await providerRequest(), 404);
         assert.equal((await fetch(`${ready.controlUrl}/fail-next-provider-request`, { method: "POST", headers })).status, 200);
         const armedBytes = await readFile(path.join(evidenceRoot, "live-provider-control-receipt.json"));
@@ -430,6 +434,16 @@ test("actual provider handler owns recovery persistence, concurrent readers and 
           assert.equal(recovery.state, "controlled_fault_recovered");
           assert.equal(recovery.rearm, "rejected");
           assert.equal(recovery.secondConsume, false);
+          assert.equal(recovery.private, true);
+          assert.equal(recovery.phase, "authenticated_provider_request");
+          assert.equal(recovery.controlNonce, providerControlNonce);
+          assert.equal(recovery.platform, process.platform);
+          assert.deepEqual(recovery.originalRequest, {
+            method: "GET", path: "/v1/secret/data/browser/provider-control", authClass: "vault_token",
+          });
+          assert.equal(recovery.baselineStatus, 404);
+          assert.equal(recovery.recoveryStatus, 404);
+          assert.deepEqual(recovery.adminSource, { head: sourceHead, tree: sourceTree });
           assert.deepEqual(recovery.source, { head: sourceHead, tree: sourceTree });
           assert.equal(recovery.nonce, ready.liveReceipt.nonce);
           await assert.rejects(access(ready.tempRoot), (error) => error?.code === "ENOENT");
