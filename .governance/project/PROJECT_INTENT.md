@@ -506,4 +506,3 @@ Core #1695 / AC-4AJ.12 delivers the approved single lesson-todo repository with 
 
 
 #1643 NQ1 R4 current prospective selection: docs/decisions/CORE-NATIVE-QUALIFIED-NAMESPACE-ORIGINAL-V8-BACKEND-PRECODE.md selects ORIGINAL same-Core V8 ctor/test with genuine CommonEnvironmentSetup/thread/runtime owners, preserving original cache/width/code-size/failure order. R3 compressed compiler/cache substitution is historical unaccepted evidence. SPEC-002 AC-4CF.1b / SPEC-006 AC-6E.SA1 and CA03/CA04/CA06 remain mapped to complete native namespace/ZIP/JSON/policy semantics plus primary backend/physical joins. Blueprint37 parser/stream128MiB is unchanged; ordinary image/startup resources have separate finite SAME-owner classification. No positive code/grant/whole-fit claim; exact source backend join, actual preallocation hooks/lifetime proof and different whole architecture review precede implementation.
-
