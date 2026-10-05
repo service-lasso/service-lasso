@@ -486,3 +486,6 @@ Core #1679 adds the next Todo desktop packaging lesson using the Tauri template 
 ## Published governance reference repair (#1690; parent #1562)
 
 Development source-only repair bound to SPEC-002 AC-4DOC.1690 and existing SPEC-010 F7-01..F7-09 authority: replace the two owning protocol links with canonical develop repository references, retaining every protocol/actor/resource/private-custody and unqualified boundary. Strict broken-link gate and disabled image parser remain unchanged. Original Docs37229127609 and MCP37229127658 documentation failures stay failed; no build/tests/import/native/CI rerun/publication or GA claim. Different fresh ENTIRE review and NEW complete-input ROOT precede build; parent owns landing after1681 and before1676/1624/1688. Darwin is Deferred / Not applicable, never PASS. Status: in_progress source preparation.
+Core #1692 / AC-4AJ.11 closes the direct API bypass with API#5 / API-AUTH-1–5 and Todo#7 / SSO-6–9. Prior app-only SSO claims are scoped incomplete until resource-server proof.
+
+Released consumer discovery added API#7 / API-AUTH-6 and Todo#9 / SSO-10: Core import removes metadata, so the paired capability now travels in preserved non-secret env. Tauri#30 updates exact consumer seeds. Keep that failed acquisition/configuration attempt separate from final released acceptance.
