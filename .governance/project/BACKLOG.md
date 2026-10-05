@@ -963,3 +963,7 @@ every ignored-entry rejection and complete held-original effective-size framing,
 GNU/PAX positives and missing/partial/nonzero/after-EOF negatives. Retained prior
 whole-reader SOURCE NO-GO remains historical authority; corrected source still
 requires new different entire review and fresh complete execution-input ROOT.
+
+## #1681 entire6c R1-R4 correction (2026-10-06)
+
+AC-4DI.4 and AC-4CH.1 bind all four adopted findings to CORE1681_ENTIRE6C_R1_R4_CONTRACT.md. Full finite OPC grammar, shared once-only production job termination, original managed releases and directory-sync live-child/input custody form one source-only in_progress unit. Every prospective case UNRUN; entire6c NO_GO and old pins/private failures remain. Parent owns tracking/review/admission/landing.
