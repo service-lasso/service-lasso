@@ -7,10 +7,17 @@ int f7_producer_regression_submit(struct f7_error_queue *queue,
  if(!queue||!graph||!length||!ticket)return F7_INVALID;
  int result=f7_error_queue_snapshot(queue,&before);if(result)return result;
  if(!before.worker_entered||before.failed||before.closed)return F7_INCOMPLETE;
+ /* An output located in the live queue must reject before a status write or
+    native settlement call. This uses the eventual owning fixture's original
+    queue; it never creates an endpoint, actor or synthetic ROOT receipt. */
+ result=f7_error_queue_snapshot(queue,(struct f7_error_queue_status *)queue);
+ if(result!=F7_CONFLICT)return F7_CONFLICT;
+ result=f7_error_queue_join_exited(queue,(int64_t *)queue);
+ if(result!=F7_CONFLICT)return F7_CONFLICT;
  /* Rejected type must neither accept a ticket nor change submitted count.
     Delivery may progress concurrently, so it is deliberately not compared. */
  result=f7_error_queue_submit(queue,F7_CONTROL_RECORD,graph,length,0,&rejected);
- if(result!=F7_INVALID)return F7_CONFLICT;
+ if(result!=F7_INVALID||rejected!=UINT64_MAX)return F7_CONFLICT;
  result=f7_error_queue_snapshot(queue,&after);if(result)return result;
  if(after.submitted!=before.submitted)return F7_CONFLICT;
  return f7_error_queue_submit(queue,F7_ERROR_GRAPH,graph,length,0,ticket);
