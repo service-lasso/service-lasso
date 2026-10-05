@@ -362,3 +362,5 @@ Development source-only repair bound to SPEC-002 AC-4DOC.1690 and existing SPEC-
 #1643 NQ1-R1 preserves entireNO_GO and original01/reviews. Exact official engine/source/Unicode/allocator/deadline counterevidence and genuineCE1 acquisition absence replace placeholder optimism; capacity and semantic vectors are distinct. Whole physical128MiB feasibility and real producer/type remain pending primary source decisions, no cap/grant/parser execution.
 
 NQ1 R2 pending: primary CE2 original action/reference-runtime source ABI and real control/IO/physical allocation layout; different whole review of complete compact Irregexp/Unicode/count derivation before product code or execution.
+
+NQ1 continued R3 source architecture: docs/decisions/CORE-NATIVE-QUALIFIED-NAMESPACE-PORT-R3.md consolidates exact Node22.23.2 optimized jitless/ICU78 source, compressed original data custody and actual Core READ_STAGE/physical-retirement obligations. Same bounded precode unit, no positive implementation/execution/GO; full trace/target/arena proof and primary authentic source-owner association remain required.
