@@ -35,7 +35,8 @@ extern "C" int f7_original_error_produce(napi_env env,napi_value primary,napi_va
  if(!queue||capacity>F7_FRAME_MAX-F7_FRAME_HEADER_SIZE)return F7_BUDGET_ABSENT;
  if(f7_error_queue_expected_role(queue)!=F7_W)return F7_AUTH_FAILURE;
  f7_error_queue_status status;int observed=f7_error_queue_snapshot(queue,&status);
- if(observed||status.failed||status.closed||status.worker_created!=1||!status.worker_entered)return F7_INCOMPLETE;
+ if(observed)return observed;
+ if(status.failed||status.closed||status.worker_created!=1||!status.worker_entered)return F7_INCOMPLETE;
  int result=f7_original_error_encode(env,primary,expected,secondary,secondary_count,workspace,payload,capacity,&out->original);
  out->serialization_result=result;
  if(result==F7_OK){
