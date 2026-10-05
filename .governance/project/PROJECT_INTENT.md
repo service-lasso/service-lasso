@@ -1,5 +1,8 @@
 # Project Intent
 
+## Mac readiness follow-up (2026-10-05, #1675)
+
+The owner requested native Mac testing, demonstrated-defect fixes and a review of Mac GA activities. [Mac readiness activities](../../docs/development/macos-readiness.md) maps SPEC-006 AC-6E and SPEC-007 AC-7F/7G/7H to the bounded source experiment, existing packaged/operator investigations and deferred #1330 paired browser proof. The guarded lifecycle scenario passed unchanged after premature diagnostic limits; no product patch is justified by those interruptions. The legacy macOS 11 host does not meet current Playwright's macOS 14+ browser prerequisite. This follow-up does not revise the current Windows/Linux GA scope, weaken executable evidence, or authorize publication or an OS upgrade.
 PR1638 scoped npm argv correction (#1626, 85ca successor) is Development source-only under SPEC-008 R3/R5/R6. Sole author accepts the clean retained feature/1626-two-os-core-release-evidence branch as the bounded open-PR recovery exception. Preserve the verified archive as data argv using the landed canonical npm descriptor and force shell:false/windowsVerbatimArguments:false after options; retain original scoped command/error/output/close/retry/first-failure semantics and all protected consumer gates. Authored regressions are UNEXECUTED pending a different fresh ENTIRE cumulative review and NEW complete-input ROOT admission. All R1-R7/F1/F2/F3/R5, EMPTY catalogs, prior failed/private evidence and owner exact-candidate GA authority remain required; parent owns provider CodeQL19 conversation disposition and tracking/landing.
 
 
@@ -398,6 +401,9 @@ This integration is source-only documentation. Different fresh ENTIRE final-sour
 
 #1632 PR1635 managed fresh-inspection F1 correction (06f successor): AC-4BH.2 requires stopManagedProcess to preserve the requested newWindowsInspectionEpisode through managed termination, including ordinary live unfiltered records and empty retained membership. Acquire the actual shared Windows snapshot before control under the original caller deadline/signal; retain immutable lifetime conflict rejection, approved exclusions, monotonic verified restriction, private accepted history, shared termination/retry and original native actions. Protected request-context/operator cases153/154 remain unchanged; add direct ordinary requested-path coverage. Preserve case144 repair, eight native modes and seven unresolved history156..162 failures without invented cause. SOURCE ONLY and UNEXECUTED until a DIFFERENT fresh ENTIRE cumulative SOURCE GO and NEW complete-input ROOT; no imports/parser/compiler/build/tests/native/dispatch/merge.
 
+## Selected complete F7 source contract (#1647, 2026-10-04)
+[Active SPEC-010 F7-01..F7-09](../specs/SPEC-010-f7-private-failure-custody.md) promotes the complete reviewed conductor-selected O/T/C/P/G custody architecture. [One D8 source/actor/limits inventory](F7_D8_SOURCE_INVENTORY.md) selects the coherent next U1 native external observer/capture/once-encrypted persistence/authenticated recovery source package, then G/P and T/C packages; no interface skeleton or JS simulation can satisfy native implementation. Actual repository/receiver/host/principals/keys/brokers/grants/loaded native inputs/row reservations remain ABSENT. Architecture/interface GO permits source preparation only. Native #1640 D1 whole revocation/reset architecture remains separately NO-GO before positive fixture lifecycle, with D2-D7 unchanged. Distinct whole canonical review and develop landing precede product source authoring; whole implementation review and NEW exact ROOT precede execution. Historical proposal next-review/unselected text is chronology, not a reopened F7 blueprint selection. No resource activation, provider controls, private raw access/upload, cleanup, publication, deployment or GA is authorized.
+
 ## PR1638 F3 scoped Admin source-only continuation
 Sole author accepts clean retained ff0cbfcd on feature/1626-two-os-core-release-evidence under the open-PR recovery exception. SPEC-008 R2/R3/R6 now binds provider original ZIP members, compared downloaded Buffers, complete existing Admin/initial/receipt semantics and final wrapper refs as one continuity chain. Separate legacy reader behavior remains preserved. Actual caller regressions are prospective and UNEXECUTED; different ENTIRE source review and NEW complete-input ROOT admission precede any product execution. Prior F1/F2, R1-R7, credential controls, EMPTY catalogs, failed encoding and prior evidence remain required/preserved. Parent owns tracking/landing; no provider controls, rerun, merge or publication.
 
@@ -480,6 +486,18 @@ Issue #1683 preserves dependency compatibility under SPEC-002 AC-4DI: SDK 1.31.0
 
 Core #1679 adds the next Todo desktop packaging lesson using the Tauri template under AC-4AJ.10; native compilation and packaged runtime execution precede executable claims. Existing data and credentials stay outside build resources.
 
+## Published governance reference repair (#1690; parent #1562)
+
+Development source-only repair bound to SPEC-002 AC-4DOC.1690 and existing SPEC-010 F7-01..F7-09 authority: replace the two owning protocol links with canonical develop repository references, retaining every protocol/actor/resource/private-custody and unqualified boundary. Strict broken-link gate and disabled image parser remain unchanged. Original Docs37229127609 and MCP37229127658 documentation failures stay failed; no build/tests/import/native/CI rerun/publication or GA claim. Different fresh ENTIRE review and NEW complete-input ROOT precede build; parent owns landing after1681 and before1676/1624/1688. Darwin is Deferred / Not applicable, never PASS. Status: in_progress source preparation.
+Core #1692 / AC-4AJ.11 closes the direct API bypass with API#5 / API-AUTH-1–5 and Todo#7 / SSO-6–9. Prior app-only SSO claims are scoped incomplete until resource-server proof.
+
+Released consumer discovery added API#7 / API-AUTH-6 and Todo#9 / SSO-10: Core import removes metadata, so the paired capability now travels in preserved non-secret env. Tauri#30 updates exact consumer seeds. Keep that failed acquisition/configuration attempt separate from final released acceptance.
+
+Core #1695 / AC-4AJ.12 delivers the approved single lesson-todo repository with five runnable checkpoints, exact article/code links and verified publication. Preserve inherited primary package deletions and evidence; author this slice only in its dedicated current-develop worktree.
+
+Core #1702 / AC-4AJ.13 adds the concise published lesson path to the first three tutorials. Keep checkpoint state isolated and retained legacy pins intact; parent orchestration owns exact lesson source acceptance, review, merge and Pages/live publication.
+
+
 ## PR #1624 original owning-resource source provenance
 
-[Reconciliation record](PR-1624-RECONCILIATION.md) binds the complete original #1623 contribution to receiving develop 0efc025be37b01ac8b4dd48e3aa20bd416a27e51 under SPEC-006 AC-6G.owning-resource-observation. Preserve receiving implementation/scoped owner coverage and all original privacy/cleanup/qualification limits. New cumulative review and NEW ROOT precede execution; parent PR disposition and direct acceptance remain pending.
+[Reconciliation record](PR-1624-RECONCILIATION.md) binds the complete original #1623 contribution to receiving develop b0c98b1079ee1763ce869ead3485c13e52b78305 under SPEC-006 AC-6G.owning-resource-observation. Preserve receiving implementation/scoped owner coverage and all original privacy/cleanup/qualification limits. New cumulative review and NEW ROOT precede execution; parent PR disposition and direct acceptance remain pending.
