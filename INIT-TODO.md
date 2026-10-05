@@ -360,3 +360,5 @@ Development source-only repair bound to SPEC-002 AC-4DOC.1690 and existing SPEC-
 #1643 NQ1 precode interface/dependency proposal and UNRUN original-parser vectors are retained under docs/decisions. CA03/CA04/CA06 implementation remains pending genuine importer/type and exact native RegExp source/Unicode/allocator decision plus different entire review; no source authority, runtime resource, product execution or qualification is supplied. The primary Core owner retains actual engine/constructor integration.
 
 #1643 NQ1-R1 preserves entireNO_GO and original01/reviews. Exact official engine/source/Unicode/allocator/deadline counterevidence and genuineCE1 acquisition absence replace placeholder optimism; capacity and semantic vectors are distinct. Whole physical128MiB feasibility and real producer/type remain pending primary source decisions, no cap/grant/parser execution.
+
+NQ1 R2 pending: primary CE2 original action/reference-runtime source ABI and real control/IO/physical allocation layout; different whole review of complete compact Irregexp/Unicode/count derivation before product code or execution.
