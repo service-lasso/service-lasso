@@ -82,6 +82,19 @@ extern "C" int f7_original_error_native_regression(napi_env env,
  napi_value caught;CALL(napi_get_and_clear_last_exception(env,&caught));
  if(!same(env,caught,second,status)||!same(env,result.serialization_exception,second,status)||
     !same(env,result.original_primary,first,status))return F7_CONFLICT;
+ auto *failed=workspaces+2;
+ f7_partial_graph_input known={failed->nodes,failed->node_progress,failed->node_count,
+  failed->text,failed->text_used,failed->references,failed->reference_used,failed->primitive,failed->primitive_used};
+ size_t known_length=0;
+ encoded=f7_partial_graph_encode(&known,failed->partial_snapshot,failed->partial_capacity,&known_length);
+ if(encoded||f7_partial_graph_validate(failed->partial_snapshot,known_length,(uint32_t)failed->node_capacity))return F7_CONFLICT;
+ const uint8_t *original_record=failed->partial_snapshot+F7_PARTIAL_HEADER;
+ if((original_record[5]&6)!=6||(original_record[5]&8)||original_record[8]!=255||
+    original_record[7]!=F7_TEXT_STRING||number(original_record+32)!=3||context->calls!=1)return F7_CONFLICT;
+ size_t original_message=(size_t)f7_read_u64be(failed->partial_snapshot+8)*F7_PARTIAL_NODE+F7_PARTIAL_HEADER+
+  (size_t)number(original_record+28)*2;
+ const uint8_t original_message_bytes[]={0,0x78,0xd8,0,0,0};
+ if(memcmp(failed->partial_snapshot+original_message,original_message_bytes,sizeof(original_message_bytes)))return F7_CONFLICT;
  size_t retained_text=workspaces[2].text_used,retained_nodes=workspaces[2].node_count;
  encoded=f7_original_error_encode(env,first,first,NULL,0,workspaces+2,payload,capacity,&result);
  if(encoded!=F7_CONFLICT||context->calls!=1||workspaces[2].text_used!=retained_text||
