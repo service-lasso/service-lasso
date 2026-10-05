@@ -23,6 +23,9 @@ int f7_recovery_storage_validate(const struct f7_recovery_inventory *v,
  if(!v||!v->parsed_journal||!v->parsed_journal->member||
     v->count>F7_OUTER_OBJECT_MAX||v->decoded_capacity>F7_OUTER_OBJECT_MAX||
     v->parsed_journal->capacity>F7_OUTER_OBJECT_MAX)return F7_INVALID;
+ if(!v->parsed_journal->member->readback_storage||
+    v->parsed_journal->member->readback_capacity<2*F7_JOURNAL_RECORD_BYTES||
+    v->parsed_journal->member->readback_capacity>F7_FRAME_MAX)return F7_BUDGET_ABSENT;
  struct span {uintptr_t address;size_t length;};
  struct span spans[]={
   {(uintptr_t)v,sizeof(*v)},{(uintptr_t)v->objects,v->count*sizeof(*v->objects)},
@@ -32,7 +35,8 @@ int f7_recovery_storage_validate(const struct f7_recovery_inventory *v,
   {(uintptr_t)v->index_bytes,v->index_capacity},{(uintptr_t)v->canonical_scratch,v->canonical_capacity},
   {(uintptr_t)v->hash_scratch,v->hash_capacity},{(uintptr_t)v->signature_workspace,v->signature_workspace_capacity},
   {(uintptr_t)v->decoded_objects,v->decoded_capacity*sizeof(*v->decoded_objects)},
-  {(uintptr_t)state,state_bytes}
+  {(uintptr_t)state,state_bytes},
+  {(uintptr_t)v->parsed_journal->member->readback_storage,v->parsed_journal->member->readback_capacity}
  };
  for(size_t i=0;i<sizeof(spans)/sizeof(spans[0]);i++){
   if(i==10&&!state&&!state_bytes)continue;

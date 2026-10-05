@@ -20,7 +20,10 @@ struct f7_attempt_journal {
  int failed,frozen,parse_started;
 };
 /* reserve is durable BEFORE any randomized encryption/signing. The exact
-   original journal is retained on every outcome, including partial records. */
+   original journal is retained on every outcome, including partial records.
+   The existing member readback arena must reserve two complete v1 records;
+   record/independent-readback bytes remain there on failure. Storage capacity
+   is not a physical reservation or original source admission. */
 int f7_journal_reserve(struct f7_attempt_journal *journal,const uint8_t key[16],int64_t *status);
 int f7_journal_persisted(struct f7_attempt_journal *journal,const uint8_t key[16],
  const struct f7_member *object,int64_t *status);

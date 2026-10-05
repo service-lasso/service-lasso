@@ -21,6 +21,7 @@ static int package_geometry(const struct f7_package *p,int64_t *status){
     p->manifest_input->unavailable_count>F7_OBJECT_MAX||
     (p->manifest_input->unavailable_count&&!p->manifest_input->unavailable)||
     p->index->readback_capacity>F7_FRAME_MAX||p->plaintext_manifest->readback_capacity>F7_FRAME_MAX||
+    journal->member->readback_capacity<2*F7_JOURNAL_RECORD_BYTES||
     journal->member->readback_capacity>F7_FRAME_MAX)return F7_BUDGET_ABSENT;
  struct package_span fixed[]={
   {(uintptr_t)p,sizeof(*p)},{(uintptr_t)status,sizeof(*status)},

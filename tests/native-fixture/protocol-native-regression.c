@@ -239,6 +239,8 @@ static void recovery_absent_before_effect(void){
  struct f7_attempt_journal journal={0};struct f7_journal_entry entry[1];
  struct f7_index_object decoded[1];struct f7_recovery_inventory inventory={0};
  uint8_t index[1],canonical[1],hash[1],signature_workspace[1];int64_t native=777;
+ uint8_t journal_record_scratch[2*F7_JOURNAL_RECORD_BYTES];
+ member.readback_storage=journal_record_scratch;member.readback_capacity=sizeof(journal_record_scratch);
  journal.member=&member;journal.entries=entry;journal.capacity=1;
  inventory.objects=&object;inventory.count=1;inventory.parsed_journal=&journal;
  inventory.decoded_objects=decoded;inventory.decoded_capacity=1;

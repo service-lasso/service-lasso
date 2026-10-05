@@ -14,9 +14,12 @@ static int valid(struct f7_attempt_journal *j){
 static int geometry(struct f7_attempt_journal *j,int64_t *status){
  struct span {uintptr_t address;size_t length;};
  if(!j||!j->member||!j->entries||!j->capacity||j->capacity>F7_OUTER_OBJECT_MAX||!status)return F7_INVALID;
+ if(!j->member->readback_storage||j->member->readback_capacity<2*F7_JOURNAL_RECORD_BYTES||
+    j->member->readback_capacity>F7_FRAME_MAX)return F7_BUDGET_ABSENT;
  struct span spans[]={{(uintptr_t)j,sizeof(*j)},{(uintptr_t)j->member,sizeof(*j->member)},
-  {(uintptr_t)j->entries,j->capacity*sizeof(*j->entries)},{(uintptr_t)status,sizeof(*status)}};
- for(size_t i=0;i<4;i++){
+  {(uintptr_t)j->entries,j->capacity*sizeof(*j->entries)},{(uintptr_t)status,sizeof(*status)},
+  {(uintptr_t)j->member->readback_storage,j->member->readback_capacity}};
+ for(size_t i=0;i<sizeof(spans)/sizeof(spans[0]);i++){
   if(spans[i].length>UINTPTR_MAX-spans[i].address)return F7_INVALID;
   for(size_t k=0;k<i;k++)if(!(spans[i].address+spans[i].length<=spans[k].address||
     spans[k].address+spans[k].length<=spans[i].address))return F7_CONFLICT;
@@ -28,8 +31,9 @@ static int key_geometry(struct f7_attempt_journal *j,const uint8_t key[16],int64
  if(!key||16>UINTPTR_MAX-address)return F7_INVALID;
  struct span {uintptr_t address;size_t length;};
  struct span spans[]={{(uintptr_t)j,sizeof(*j)},{(uintptr_t)j->member,sizeof(*j->member)},
-  {(uintptr_t)j->entries,j->capacity*sizeof(*j->entries)},{(uintptr_t)status,sizeof(*status)}};
- for(size_t i=0;i<4;i++)if(!(address+16<=spans[i].address||
+  {(uintptr_t)j->entries,j->capacity*sizeof(*j->entries)},{(uintptr_t)status,sizeof(*status)},
+  {(uintptr_t)j->member->readback_storage,j->member->readback_capacity}};
+ for(size_t i=0;i<sizeof(spans)/sizeof(spans[0]);i++)if(!(address+16<=spans[i].address||
     spans[i].address+spans[i].length<=address))return F7_CONFLICT;
  for(size_t i=0;i<16;i++)present|=key[i];
  return present?F7_OK:F7_INVALID;
@@ -48,23 +52,24 @@ static int inventory_hash(struct f7_attempt_journal *j,uint8_t digest[32]){
 }
 static int append(struct f7_attempt_journal *j,const uint8_t key[16],enum f7_journal_event event,
  uint64_t length,const uint8_t digest[32],int64_t *status){
- uint8_t record[F7_JOURNAL_RECORD_BYTES],readback[F7_JOURNAL_RECORD_BYTES];
+ uint8_t *record=j->member->readback_storage;
+ uint8_t *readback=record+F7_JOURNAL_RECORD_BYTES;
  struct f7_identity identity;struct f7_member reader;uint64_t persisted,offset=j->member->length;
  int result=f7_handle_readonly(j->independent_read,status);if(result)goto failed;
  if(j->sequence==UINT64_MAX||length>F7_JSON_INTEGER_MAX)return F7_OVERFLOWED;
- memset(record,0,sizeof(record));memcpy(record,"SLF7JNL1",8);
+ memset(record,0,F7_JOURNAL_RECORD_BYTES);memcpy(record,"SLF7JNL1",8);
  f7_u64be(record+8,j->sequence+1);memcpy(record+16,j->invocation,16);
  memcpy(record+32,j->attempt,32);memcpy(record+64,key,16);
  f7_u64be(record+80,event);f7_u64be(record+88,length);
  if(digest)memcpy(record+96,digest,32);memcpy(record+128,j->chain,32);
  crypto_hash_sha256(record+160,record,160);
- result=f7_member_append(j->member,record,sizeof(record),&persisted,status);if(result)goto failed;
+ result=f7_member_append(j->member,record,F7_JOURNAL_RECORD_BYTES,&persisted,status);if(result)goto failed;
  result=f7_member_flush(j->member,status);if(result)goto failed;
  result=f7_identity_read_status(j->independent_read,&identity,0,status);if(result)goto failed;
  if(!f7_identity_equal(&identity,&j->member->identity)){result=F7_IDENTITY_MISMATCH;goto failed;}
  memset(&reader,0,sizeof(reader));reader.handle=j->independent_read;
- result=f7_member_read_at(&reader,offset,readback,sizeof(readback),status);if(result)goto failed;
- if(sodium_memcmp(readback,record,sizeof(record))){result=F7_CONFLICT;goto failed;}
+ result=f7_member_read_at(&reader,offset,readback,F7_JOURNAL_RECORD_BYTES,status);if(result)goto failed;
+ if(sodium_memcmp(readback,record,F7_JOURNAL_RECORD_BYTES)){result=F7_CONFLICT;goto failed;}
  memcpy(j->chain,record+160,32);j->sequence++;return F7_OK;
 failed:
  j->failed=1;return result;
@@ -84,26 +89,30 @@ int f7_journal_reserve(struct f7_attempt_journal *j,const uint8_t key[16],int64_
 int f7_journal_persisted(struct f7_attempt_journal *j,const uint8_t key[16],
  const struct f7_member *object,int64_t *status){
  struct f7_journal_entry *entry;
- if(!valid(j)||!key||!object||!status||!object->finalized||object->failed)return F7_INVALID;
+ if(!valid(j)||!key||!object||!status||!object->finalized||object->failed||!object->readback_complete)return F7_INVALID;
  int shaped=geometry(j,status);if(shaped)return shaped;
  shaped=key_geometry(j,key,status);if(shaped)return shaped;
  uintptr_t object_address=(uintptr_t)object,status_address=(uintptr_t)status;
  if(sizeof(*object)>UINTPTR_MAX-object_address)return F7_INVALID;
+ uintptr_t scratch=(uintptr_t)j->member->readback_storage;
+ if(!(object_address+sizeof(*object)<=scratch||scratch+j->member->readback_capacity<=object_address))return F7_CONFLICT;
  if(object==j->member||!(object_address+sizeof(*object)<=status_address||
     status_address+sizeof(*status)<=object_address))return F7_CONFLICT;
+ if(f7_identity_equal(&object->identity,&j->member->identity))return F7_CONFLICT;
  entry=find(j,key);if(!entry||!entry->reserved||entry->persisted)return F7_CONFLICT;
  int result=append(j,key,F7_OBJECT_PERSISTED,object->length,object->digest,status);
  if(result)return result;
  entry->length=object->length;memcpy(entry->digest,object->digest,32);entry->persisted=1;return F7_OK;
 }
 int f7_journal_read(struct f7_attempt_journal *j,f7_handle read_only,uint64_t length,int64_t *status){
- uint8_t record[F7_JOURNAL_RECORD_BYTES],digest[32];uint64_t offset=0,actual_length;
+ uint8_t *record,digest[32];uint64_t offset=0,actual_length;
  struct f7_member reader;struct f7_identity identity;
  if(!j||!j->member||!j->entries||!j->capacity||j->capacity>F7_OUTER_OBJECT_MAX||
  !status||!length||length%F7_JOURNAL_RECORD_BYTES||
  !present(j->invocation,16)||!present(j->attempt,32)||
  length/F7_JOURNAL_RECORD_BYTES>j->capacity*2+1)return F7_INVALID;
  int shaped=geometry(j,status);if(shaped)return shaped;
+ record=j->member->readback_storage;
  if(j->parse_started||j->count||j->sequence||j->failed||j->frozen)return F7_CONFLICT;
  /* Parse outputs are fresh independent owner reservations, never the original
     writer journal. Even a failed read cannot reset/reuse this retained state. */
@@ -117,7 +126,7 @@ int f7_journal_read(struct f7_attempt_journal *j,f7_handle read_only,uint64_t le
  memset(j->entries,0,j->capacity*sizeof(*j->entries));j->count=0;j->sequence=0;j->frozen=0;
  memset(j->frozen_index,0,16);memset(j->frozen_inventory,0,32);memset(j->chain,0,32);
  while(offset<length){
-  original_result=f7_member_read_at(&reader,offset,record,sizeof(record),status);if(original_result)goto native_failed;
+  original_result=f7_member_read_at(&reader,offset,record,F7_JOURNAL_RECORD_BYTES,status);if(original_result)goto native_failed;
   crypto_hash_sha256(digest,record,160);
   if(memcmp(record,"SLF7JNL1",8)||f7_read_u64be(record+8)!=j->sequence+1||
    !present(record+64,16)||
@@ -135,10 +144,10 @@ int f7_journal_read(struct f7_attempt_journal *j,f7_handle read_only,uint64_t le
   }else if(event==F7_ATTEMPT_FROZEN){
    uint8_t roster[32];
    if(j->frozen||!entry||!entry->persisted||object_length!=j->count||
-      offset+sizeof(record)!=length||inventory_hash(j,roster)||sodium_memcmp(roster,record+96,32))goto failed;
+      offset+F7_JOURNAL_RECORD_BYTES!=length||inventory_hash(j,roster)||sodium_memcmp(roster,record+96,32))goto failed;
    j->frozen=1;memcpy(j->frozen_index,record+64,16);memcpy(j->frozen_inventory,roster,32);
   }else goto failed;
-  memcpy(j->chain,digest,32);j->sequence++;offset+=sizeof(record);
+  memcpy(j->chain,digest,32);j->sequence++;offset+=F7_JOURNAL_RECORD_BYTES;
  }
  original_result=f7_identity_read_status(read_only,&identity,0,status);if(original_result)goto native_failed;
  if(!f7_identity_equal(&identity,&j->member->identity)){original_result=F7_IDENTITY_MISMATCH;goto native_failed;}
