@@ -93,11 +93,11 @@ int f7_capture_linux(struct f7_capture *c,uint64_t deadline){
     /* Preserve native query/recvmsg output and actual ancillary bytes BEFORE
        interpreting any frame. Fact storage contains no VM pointer/handle. */
     if(f7_witness_emit(c->witness,i,F7_RECEIVE_FACT,sizeof(*fact),sizeof(*fact),
-       c->observed[i],(const uint8_t *)fact,received,0))retain_stop=1;
+       c->observed[i],(const uint8_t *)fact,fact->native_error,0))retain_stop=1;
     size_t control=fact->control_length>c->error_control_capacity?
       c->error_control_capacity:(size_t)fact->control_length;
     if(fact->native_called&&control&&f7_witness_emit(c->witness,i,F7_RECEIVE_CONTROL,
-       c->error_control_capacity,control,c->observed[i],c->error_control,received,0))retain_stop=1;
+       c->error_control_capacity,control,c->observed[i],c->error_control,fact->native_error,0))retain_stop=1;
     n=fact->native_called?(ssize_t)fact->returned:-1;
     read_error=(int)fact->native_error;authenticated=received==F7_OK;
     if(!fact->native_called){result=F7_INCOMPLETE;p[i].fd=-1;active--;continue;}

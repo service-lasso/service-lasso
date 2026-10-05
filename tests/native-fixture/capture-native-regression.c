@@ -30,7 +30,7 @@ int f7_capture_native_regression(struct f7_capture *c,const struct f7_capture_re
  /* Expected native originals are immutable owner inputs. Scratch and result
     writes must not overwrite the exact bytes used for regression comparison. */
  struct span {uintptr_t address;size_t length;};
- struct span spans[11]={{(uintptr_t)c,sizeof(*c)},{(uintptr_t)reads,sizeof(*reads)},
+ struct span spans[8]={{(uintptr_t)c,sizeof(*c)},{(uintptr_t)reads,sizeof(*reads)},
   {(uintptr_t)expected,sizeof(*expected)},{(uintptr_t)scratch,capacity},
   {(uintptr_t)native,sizeof(*native)},{(uintptr_t)out,sizeof(*out)},
   {(uintptr_t)expected->witness,expected->witness_length},
