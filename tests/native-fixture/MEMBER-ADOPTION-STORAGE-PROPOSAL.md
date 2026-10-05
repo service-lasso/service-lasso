@@ -46,6 +46,98 @@ int f7_identity_read_original(
 
 Required storage fields, with no default allocation or numeric allowance:
 
+The following closes the proposed data structs for the architecture author.
+It remains pre-code: SDK-dependent sizes/alignment and authentic reservation
+issuer are ABSENT, and this is not a substitute for their source integration.
+The pointed-to held reservation is the original ROOT-owned resource boundary;
+no constructor for it, receipt-to-capability conversion or boolean callback is
+provided by U1. Every byte view remains original custody data, not authority.
+
+```c
+struct f7_original_bytes { const uint8_t *bytes; size_t length; };
+struct f7_original_held_charge_reservation; /* actual owning issuer still ABSENT */
+struct f7_original_allocator_envelope {
+    struct f7_original_bytes query_site, loaded_native_sources, call_graph;
+    struct f7_original_bytes creator_sd_domain, allocator_classes;
+    struct f7_original_bytes rounding_rules, runtime_kernel_obligations;
+    const struct f7_original_held_charge_reservation *original_reservation;
+    uint64_t returned_bound, transient_bound, internal_bound;
+    uint64_t runtime_bound, kernel_bound, call_bound, outstanding_bound;
+    uint32_t known_bounds; /* one explicit known bit per bound; zero may be real */
+};
+enum f7_original_result_abi {
+    F7_ORIGINAL_RESULT_UNKNOWN=0,
+    F7_ORIGINAL_RESULT_WIN_BOOL=1, F7_ORIGINAL_RESULT_WIN_DWORD=2,
+    F7_ORIGINAL_RESULT_WIN_HLOCAL=3,
+    F7_ORIGINAL_RESULT_POSIX_INT=4, F7_ORIGINAL_RESULT_POSIX_SSIZE=5
+};
+struct f7_original_native_call {
+    uint64_t ordinal; uint32_t original_catalog_operation;
+    enum f7_original_result_abi result_abi;
+    size_t raw_input_offset, raw_input_length;
+    size_t raw_output_offset, raw_output_length;
+    size_t known_field_mask_offset, known_field_mask_length;
+    int returned, native_error_known;
+#ifdef _WIN32
+    union { BOOL boolean; DWORD dword; HLOCAL local; } result;
+    DWORD native_error;
+#else
+    union { int integer; ssize_t count; } result;
+    int native_error;
+#endif
+};
+enum f7_original_allocation_state {
+    F7_ORIGINAL_ALLOCATION_UNKNOWN=0, F7_ORIGINAL_ALLOCATION_OWNED=1,
+    F7_ORIGINAL_ALLOCATION_RELEASED=2, F7_ORIGINAL_ALLOCATION_RELEASE_FAILED=3,
+    F7_ORIGINAL_ALLOCATION_NOT_RETURNED=4
+};
+struct f7_original_allocation_observation {
+    size_t original_query_record, original_release_record;
+    enum f7_original_allocation_state state;
+    uint64_t actual_charge; int actual_charge_known;
+    size_t logical_bytes, copied_prefix;
+#ifdef _WIN32
+    PSECURITY_DESCRIPTOR original_sd;
+    HLOCAL original_release_input, original_release_result;
+#else
+    void *original_returned_allocation; /* only selected API-owned allocation */
+#endif
+};
+struct f7_original_member_storage {
+    struct f7_original_native_call *calls; size_t call_capacity;
+    uint8_t *raw_inputs; size_t raw_input_capacity;
+    uint8_t *raw_outputs; size_t raw_output_capacity;
+    uint8_t *known_field_masks; size_t known_field_mask_capacity;
+    uint8_t *protection; size_t protection_capacity;
+    uint8_t *native_names; size_t native_name_capacity;
+    uint8_t *ancestor_records; size_t ancestor_capacity;
+    uint8_t *acl_xattr_records; size_t acl_xattr_capacity;
+    uint8_t *readback; size_t readback_capacity;
+    struct f7_original_allocation_observation *allocations;
+    size_t allocation_capacity;
+    const struct f7_original_allocator_envelope *original_allocator;
+    uint64_t original_absolute_deadline;
+};
+struct f7_original_member_observation {
+    f7_handle original_object;
+    const struct f7_original_member_storage *original_storage;
+    size_t call_count, allocation_count;
+    size_t raw_input_used, raw_output_used, known_field_mask_used;
+    size_t protection_used, native_name_used, ancestor_used, acl_xattr_used;
+    int started, complete, incomplete, pending_original_ownership;
+};
+```
+
+Selected actual SDK headers supply the native types above; the proposal never
+narrows `ssize_t`, BOOL, DWORD or HLOCAL into one generic status field. Raw query
+inputs/outputs preserve exact ABI structures and their known-field masks in
+separate caller-owned buffers. Their variable records require a closed encoding
+selected from the actual native source before implementation. Source records
+with padding or an unreturned field cannot claim all bytes were written by the
+OS. Catalog operation ordinals identify original source calls, not actors or
+grants. Bounds, ownership state and a reservation pointer cannot authenticate
+themselves. Original ROOT source must prove and bind them before the query.
+
 - Original fixed native-call record array, its entry capacity and consumed
   prefix; separately reserved raw returned-structure storage and byte capacity.
 - Original protection-byte buffer/capacity, native-name/ancestor/xattr record
