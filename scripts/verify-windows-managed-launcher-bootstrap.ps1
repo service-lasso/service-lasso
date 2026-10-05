@@ -129,7 +129,15 @@ $temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) ("service-lasso-native-boo
     ''
   ) -join "`r`n"
   [IO.File]::WriteAllText($initializePath, $initializeText, [Text.UTF8Encoding]::new($false))
-  function Invoke-RetainedNativeTool([string]$file, [string[]]$arguments, $environment, [string]$label) {
+  function Get-NativeCmdInitializerArguments([string]$path) {
+    if (-not [IO.Path]::IsPathFullyQualified($path) -or $path.IndexOfAny([char[]]'"%!^&|<>') -ge 0 -or $path.Contains("`r") -or $path.Contains("`n")) { throw "The initializer path cannot be represented in the closed CMD call grammar." }
+    $full = [IO.Path]::GetFullPath($path)
+    if ($full -notmatch '^[A-Za-z]:\\' -or $full.Contains('/')) { throw "The initializer requires an absolute Windows drive path." }
+    # CMD /s removes only the first/last outer quotes. The inner quoted batch
+    # path remains literal in call; no CRT-style ArgumentList escaping occurs.
+    return '/u /d /s /c "call "' + $full + '""'
+  }
+  function Invoke-RetainedNativeTool([string]$file, [string[]]$arguments, $environment, [string]$label, [string]$nativeArguments = $null) {
     $start = [Diagnostics.ProcessStartInfo]::new()
     $start.FileName = $file
     $start.WorkingDirectory = $temporaryRoot
@@ -138,7 +146,8 @@ $temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) ("service-lasso-native-boo
     $start.RedirectStandardError = $true
     $start.Environment.Clear()
     foreach ($entry in $environment.GetEnumerator()) { $start.Environment.Add($entry.Key, $entry.Value) }
-    foreach ($argument in $arguments) { $start.ArgumentList.Add($argument) }
+    if ([string]::IsNullOrEmpty($nativeArguments)) { foreach ($argument in $arguments) { $start.ArgumentList.Add($argument) } }
+    else { $start.Arguments = $nativeArguments }
     $key = "$temporaryRoot|$label"
     if ($script:NativeToolOwners.ContainsKey($key)) { throw "An original tool owner already exists; no retry." }
     $owner = @{ process = $null; stdoutRaw = $null; stderrRaw = $null; startAttempted = $false; startReturned = $false; started = $null; attached = $false; exitObserved = $false; exitCode = $null; settled = $false; gate = [Threading.ManualResetEventSlim]::new($false); errors = [Collections.Generic.List[object]]::new(); copies = @{ stdout = @{ source = $null; task = $null; terminal = $false; observation = $null }; stderr = @{ source = $null; task = $null; terminal = $false; observation = $null } } }
@@ -152,7 +161,7 @@ $temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) ("service-lasso-native-boo
       $copy = $owner.copies.$name
       if ($null -eq $copy.task) { return }
       $state = 'ACTUAL_COPY_COMPLETED'; $failure = $null
-      try { $copy.task.GetAwaiter().GetResult(); $copy.terminal = $true }
+      try { [void]($copy.task.GetAwaiter().GetResult()); $copy.terminal = $true }
       catch {
         $failure = $_.Exception.ToString()
         $copy.terminal = $copy.task.IsCompleted
@@ -224,11 +233,13 @@ $temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) ("service-lasso-native-boo
     if ($owner.process) { try { $owner.process.Dispose() } catch { $releaseFailed = $true; $owner.errors.Add(@{ phase = 'process-release'; exception = $_.Exception.ToString() }) } }
     if ($releaseFailed) { Retain-ActiveOriginalOwner }
     $completed = $owner.exitObserved -and $owner.copies.stdout.observation.state -eq 'ACTUAL_COPY_COMPLETED' -and $owner.copies.stderr.observation.state -eq 'ACTUAL_COPY_COMPLETED'
-    Write-OriginalToolRecord 'result' @{ recipe = $recipe; tool = $file; arguments = $arguments; startAttempted = $owner.startAttempted; startReturned = $owner.startReturned; started = $owner.started; completed = $completed; exitObserved = $owner.exitObserved; exitCode = $owner.exitCode; stdoutCopy = $owner.copies.stdout.observation; stderrCopy = $owner.copies.stderr.observation; exceptions = @($owner.errors); classification = $(if ($completed -and $owner.errors.Count -eq 0 -and $owner.exitCode -eq 0) { 'completed_success' } else { 'original_observed_failure' }) }
+    Write-OriginalToolRecord 'result' @{ recipe = $recipe; tool = $file; arguments = $arguments; nativeArguments = $nativeArguments; startAttempted = $owner.startAttempted; startReturned = $owner.startReturned; started = $owner.started; completed = $completed; exitObserved = $owner.exitObserved; exitCode = $owner.exitCode; stdoutCopy = $owner.copies.stdout.observation; stderrCopy = $owner.copies.stderr.observation; exceptions = @($owner.errors); classification = $(if ($completed -and $owner.errors.Count -eq 0 -and $owner.exitCode -eq 0) { 'completed_success' } else { 'original_observed_failure' }) }
     $null = $script:NativeToolOwners.Remove($key)
     if (-not $completed -or $owner.errors.Count -or $owner.exitCode -ne 0) { throw "The original tool/copy outcomes failed; retained without retry." }
   }
-  Invoke-RetainedNativeTool (Join-Path $env:SystemRoot "System32/cmd.exe") @('/d', '/u', '/s', '/c', ('"' + $initializePath + '"')) $childEnvironment "initialize"
+  $cmdImage = [IO.Path]::GetFullPath((Join-Path $env:SystemRoot 'System32\cmd.exe'))
+  $cmdArguments = Get-NativeCmdInitializerArguments $initializePath
+  Invoke-RetainedNativeTool $cmdImage @() $childEnvironment 'initialize' $cmdArguments
   $initialized = [Collections.Generic.Dictionary[string,string]]::new([StringComparer]::OrdinalIgnoreCase)
   $rawEnvironment = [IO.File]::ReadAllBytes((Join-Path $temporaryRoot "initialize.stdout.raw"))
   if ($rawEnvironment.Length % 2 -ne 0) { throw "The initialized environment output was not UTF16LE." }
