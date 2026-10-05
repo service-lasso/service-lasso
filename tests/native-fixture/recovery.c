@@ -3,6 +3,21 @@
 static int present(const uint8_t *bytes,size_t count){
  uint8_t value=0;for(size_t i=0;i<count;i++)value|=bytes[i];return value!=0;
 }
+static int original_bindings(const struct f7_recovery_inventory *in){
+ if(!in||!in->objects||!in->count||in->count>F7_OBJECT_MAX||
+    !present(in->invocation,16)||!present(in->attempt,32)||
+    !present(in->observer_public,32)||!present(in->recipient_public,32)||
+    !present(in->index.key,16)||!present(in->signature.key,16)||!present(in->journal.key,16))return F7_AUTH_FAILURE;
+ if(!memcmp(in->index.key,in->signature.key,16)||!memcmp(in->index.key,in->journal.key,16)||
+    !memcmp(in->signature.key,in->journal.key,16))return F7_CONFLICT;
+ for(size_t i=0;i<in->count;i++){
+  const uint8_t *key=in->objects[i].key;
+  if(!present(key,16))return F7_AUTH_FAILURE;
+  if((i&&memcmp(in->objects[i-1].key,key,16)>=0)||!memcmp(key,in->index.key,16)||
+     !memcmp(key,in->signature.key,16)||!memcmp(key,in->journal.key,16))return F7_CONFLICT;
+ }
+ return F7_OK;
+}
 int f7_recovery_storage_validate(const struct f7_recovery_inventory *v,
  const void *state,size_t state_bytes){
  if(!v||!v->parsed_journal||!v->parsed_journal->member||
@@ -26,7 +41,7 @@ int f7_recovery_storage_validate(const struct f7_recovery_inventory *v,
   for(size_t j=0;j<i;j++)if(!(spans[i].address+spans[i].length<=spans[j].address||
    spans[j].address+spans[j].length<=spans[i].address))return F7_CONFLICT;
  }
- return F7_OK;
+ return original_bindings(v);
 }
 int f7_recovery_job_input_geometry(struct f7_recovery_job **out,
  const struct f7_recovery_inventory *v,const struct f7_recovery_job_memory *m,int64_t *native){
@@ -86,10 +101,6 @@ int f7_recovery_validate_persistent(struct f7_recovery_inventory *in,int64_t *st
  int shaped=f7_recovery_storage_validate(in,status,sizeof(*status));if(shaped)return shaped;
  /* Missing original expectations reject before any native read or output
     reset. Nonzero private bytes are necessary data, never source authority. */
- if(!present(in->invocation,16)||!present(in->attempt,32)||
-    !present(in->observer_public,32)||!present(in->recipient_public,32)||
-    !present(in->index.key,16)||!present(in->signature.key,16)||!present(in->journal.key,16))return F7_AUTH_FAILURE;
- for(size_t i=0;i<in->count;i++)if(!present(in->objects[i].key,16))return F7_AUTH_FAILURE;
  *status=0;
  /* Original identities remain caller-independent custody prerequisites.
     Reading equal bytes from a newly adopted copy is not SAME validation. */
