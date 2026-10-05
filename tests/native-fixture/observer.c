@@ -3,13 +3,18 @@
 #include <stdlib.h>
 static int present(const uint8_t *bytes,size_t length){uint8_t found=0;for(size_t i=0;i<length;i++)found|=bytes[i];return found!=0;}
 static int storage_geometry(const struct f7_capture *c){
- struct span {uintptr_t address;size_t length;};struct span spans[40];size_t count=0;
-#define ADD_SPAN(pointer,bytes) do {if(!(pointer)||!(bytes)||count==40)return F7_BUDGET_ABSENT; \
+ struct span {uintptr_t address;size_t length;};struct span spans[44];size_t count=0;
+#define ADD_SPAN(pointer,bytes) do {if(!(pointer)||!(bytes)||count==44)return F7_BUDGET_ABSENT; \
  spans[count].address=(uintptr_t)(pointer);spans[count++].length=(bytes);} while(0)
  ADD_SPAN(c,sizeof(*c));ADD_SPAN(c->reservation,sizeof(*c->reservation));
  ADD_SPAN(c->witness,sizeof(*c->witness));ADD_SPAN(c->witness->member,sizeof(*c->witness->member));
  ADD_SPAN(c->witness->record_buffer,c->witness->record_capacity);
  ADD_SPAN(c->witness->emergency_member,sizeof(*c->witness->emergency_member));
+#ifndef _WIN32
+ ADD_SPAN(c->original_error_peer,sizeof(*c->original_error_peer));
+ ADD_SPAN(c->error_receive_fact,sizeof(*c->error_receive_fact));
+ ADD_SPAN(c->error_control,c->error_control_capacity);
+#endif
  if(c->error_channel){ADD_SPAN(c->error_channel,sizeof(*c->error_channel));
   ADD_SPAN(c->error_channel->payload,c->error_channel->payload_capacity);
   if(c->error_channel->partial){ADD_SPAN(c->error_channel->partial,sizeof(*c->error_channel->partial));
@@ -51,6 +56,11 @@ int f7_capture_validate(const struct f7_capture *c){
  (!c->prepared&&(c->witness->failed||c->reservation->exhausted||c->incomplete||c->child_exit_observed))||
  (c->child_created!=F7_CREATED&&c->child_created!=F7_NOT_CREATED))return F7_INVALID;
  if(c->created[F7_PRIVATE_ERRORS]!=F7_CREATED)return F7_INVALID;
+#ifndef _WIN32
+ if(!c->original_error_peer||!c->error_receive_fact||!c->error_control||
+    !c->error_control_capacity||c->error_control_capacity>F7_FRAME_MAX||
+    c->original_error_peer->socket!=c->pipe[F7_PRIVATE_ERRORS])return F7_BUDGET_ABSENT;
+#endif
  if(f7_identity_equal(&c->witness->member->identity,&c->witness->emergency_member->identity))return F7_CONFLICT;
  if((c->child_created==F7_CREATED&&c->original_child==F7_INVALID_HANDLE)||
    (c->child_created==F7_NOT_CREATED&&c->original_child!=F7_INVALID_HANDLE))return F7_INVALID;

@@ -4,12 +4,12 @@ int f7_witness_emit(struct f7_witness_sink *sink,enum f7_stream stream,
  enum f7_event event,uint64_t requested,uint64_t returned,uint64_t offset,
  const uint8_t *slice,int64_t status,int emergency){
  uint8_t *frame,digest[32];uint64_t reserved;
- int inline_payload=event==F7_CHILD_EXIT||event==F7_CHILD_WAIT_PENDING||event==F7_POLL_INVALID||event==F7_CLOCK_ERROR||
+ int inline_payload=event==F7_CHILD_EXIT||event==F7_CHILD_WAIT_PENDING||event==F7_POLL_INVALID||event==F7_CLOCK_ERROR||event==F7_RECEIVE_FACT||event==F7_RECEIVE_CONTROL||
  (event==F7_UNAVAILABLE&&returned!=0);
  if(!sink||!sink->record_buffer||sink->record_capacity<F7_WITNESS_BYTES+32+F7_FRAME_MAX||
  !sink->member||!sink->async||!sink->emergency_member||!sink->emergency_async||!sink->reservation||stream<0||stream>=F7_STREAM_COUNT||
  sink->role<F7_O||sink->role>F7_R||
- !event||event>F7_CLOCK_ERROR||sink->sequence==UINT64_MAX||
+ !event||event>F7_RECEIVE_CONTROL||sink->sequence==UINT64_MAX||
  sink->ordinal[stream]==UINT64_MAX||returned>requested||returned>SIZE_MAX||
  (!slice&&returned))return F7_INVALID;
  if(sink->pending)return F7_INCOMPLETE;

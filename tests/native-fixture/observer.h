@@ -3,6 +3,9 @@
 #include "witness.h"
 #include "error-channel.h"
 #include "child-witness.h"
+#ifndef _WIN32
+#include "error-peer-linux.h"
+#endif
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -12,6 +15,11 @@ struct f7_capture {
  struct f7_witness_sink *witness;
  struct f7_reservation *reservation;
  struct f7_error_channel *error_channel;
+#ifndef _WIN32
+ struct f7_linux_error_peer *original_error_peer;
+ struct f7_linux_receive_fact *error_receive_fact;
+ uint8_t *error_control;size_t error_control_capacity;
+#endif
  f7_handle original_child;
  enum f7_creation_decision child_created;
  int child_exit_observed;
