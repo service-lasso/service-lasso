@@ -12,10 +12,32 @@ int f7_witness_emit(struct f7_witness_sink *sink,enum f7_stream stream,
  !event||event>F7_RECEIVE_CONTROL||sink->sequence==UINT64_MAX||
  sink->ordinal[stream]==UINT64_MAX||returned>requested||returned>SIZE_MAX||
  (!slice&&returned))return F7_INVALID;
+ if(emergency!=0&&emergency!=1)return F7_INVALID;
+ if(sink->async==sink->emergency_async||sink->member==sink->emergency_member)return F7_CONFLICT;
  if(sink->pending)return F7_INCOMPLETE;
+ int shaped=f7_async_output_storage_validate(sink->async,sink->record_buffer,sink->record_capacity);
+ if(shaped)return shaped;
+ shaped=f7_async_output_storage_validate(sink->emergency_async,sink->record_buffer,sink->record_capacity);
+ if(shaped)return shaped;
+ struct span {uintptr_t address;size_t length;};
+ const struct span sources[]={{(uintptr_t)sink,sizeof(*sink)},
+  {(uintptr_t)sink->reservation,sizeof(*sink->reservation)},
+  {(uintptr_t)sink->member,sizeof(*sink->member)},
+  {(uintptr_t)sink->emergency_member,sizeof(*sink->emergency_member)}};
  uintptr_t record_start=(uintptr_t)sink->record_buffer,slice_start=(uintptr_t)slice;
  if(sink->record_capacity>UINTPTR_MAX-record_start||returned>UINTPTR_MAX-slice_start||
     (returned&&!(record_start+sink->record_capacity<=slice_start||slice_start+returned<=record_start)))return F7_INVALID;
+ for(size_t i=0;i<sizeof(sources)/sizeof(sources[0]);i++){
+  if(sources[i].length>UINTPTR_MAX-sources[i].address)return F7_INVALID;
+  if(!(record_start+sink->record_capacity<=sources[i].address||
+    sources[i].address+sources[i].length<=record_start))return F7_CONFLICT;
+  if(returned&&!(slice_start+returned<=sources[i].address||
+    sources[i].address+sources[i].length<=slice_start))return F7_CONFLICT;
+ }
+ if(returned){
+  shaped=f7_async_output_storage_validate(sink->async,slice,(size_t)returned);if(shaped)return shaped;
+  shaped=f7_async_output_storage_validate(sink->emergency_async,slice,(size_t)returned);if(shaped)return shaped;
+ }
  if(returned>F7_FRAME_MAX||f7_checked_add(F7_WITNESS_BYTES+sizeof(digest),inline_payload?returned:0,&reserved))return F7_INVALID;
  frame=sink->record_buffer;
  memset(frame,0,F7_WITNESS_BYTES);memcpy(frame,"SLF7WIT1",8);
@@ -39,8 +61,8 @@ int f7_witness_emit(struct f7_witness_sink *sink,enum f7_stream stream,
  /* Terminal records have a separately reserved object and writer. Saturation
     of ordinary witnesses must not consume their emergency queue. Sequence
     numbers bind the two inventories without concurrent writes to one file. */
- if(f7_async_submit(emergency?sink->emergency_async:sink->async,frame,(size_t)reserved)){
- sink->failed=1;return F7_NATIVE_FAILURE;}
+ shaped=f7_async_submit(emergency?sink->emergency_async:sink->async,frame,(size_t)reserved);
+ if(shaped){sink->failed=1;return shaped;}
  sink->pending=0;sink->retained_record_bytes=0;
  return F7_OK;
 }

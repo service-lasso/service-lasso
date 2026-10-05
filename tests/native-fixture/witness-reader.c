@@ -19,6 +19,18 @@ int f7_witness_validate(struct f7_witness_expectation *expected,
     expected->role<F7_O||expected->role>F7_R||
     !nonzero(expected->invocation,16)||!nonzero(expected->attempt,32)||
     !nonzero(expected->lifetime,16))return F7_INVALID;
+ /* Expectation advancement/result writes never overwrite either original
+    persistent witness bytes or the independently read original raw slice. */
+ struct span {uintptr_t address;size_t length;};
+ const struct span spans[]={{(uintptr_t)expected,sizeof(*expected)},
+  {(uintptr_t)out,sizeof(*out)},{(uintptr_t)record,length},
+  {(uintptr_t)original_slice,original_length}};
+ for(size_t i=0;i<sizeof(spans)/sizeof(spans[0]);i++){
+  if((spans[i].length&&!spans[i].address)||spans[i].length>UINTPTR_MAX-spans[i].address)return F7_INVALID;
+  for(size_t j=0;j<i;j++)if((j<2||i<2)&&spans[i].length&&spans[j].length&&
+    !(spans[i].address+spans[i].length<=spans[j].address||
+      spans[j].address+spans[j].length<=spans[i].address))return F7_CONFLICT;
+ }
  memset(&value,0,sizeof(value));
  value.stream=(enum f7_stream)record[104];value.event=(enum f7_event)record[105];
  value.requested=number(record+112);value.returned=number(record+120);
