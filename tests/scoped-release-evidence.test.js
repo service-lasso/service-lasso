@@ -176,6 +176,7 @@ function publishedEvidence(platform = "linux") {
   const expected = { platform, initialProjection, runId: "20", runAttempt: "2", workflowSha: source.commit, coreReleaseId: "10", coreTag: version, coreRevision: source.commit, coreAsset: `service-lasso-${version}-${platform}${platform === "win32" ? ".zip" : ".tar.gz"}`, coreSha256: "1".repeat(64), coreNpmVersion: version, coreNpmIntegrity: `sha512-${Buffer.from("fixture").toString("base64")}` };
   const evidence = { schema: "service-lasso.published-package-qualification.v3", retainedContent: "metadata_only", outcome: "success", platform, firstCustody: initialProjection, run: { id: 20, attempt: 2, jobId: platform === "win32" ? 101 : 102, workflowSha: source.commit }, core: { releaseId: "10", tag: version, revision: source.commit, asset: expected.coreAsset, sha256: expected.coreSha256, npm: { name: "@service-lasso/service-lasso", version, integrity: expected.coreNpmIntegrity, distTag: "latest" } }, adminHarnessRevision: ADMIN_HARNESS_REVISION, harnessRevision: source.commit, retentionDays: 90, mutationRetry: false, acquisitionRetry: false, startupRetry: false, firstFailure: null, failurePhase: null, failureCode: null, mutations: { brokerRestart: 1, providerMigrationApply: 1 }, negativeProof: Object.fromEntries(["missingProvenance", "missingChecksum", "emptyPayload", "emptyChecksum", "malformedChecksum", "duplicateChecksum", "unexpectedChecksum", "mismatchedPayload", "redirectedChecksum", "redirectedProvenance", "wrongHeadProvenance"].map(id => [id, "success"])), scenarios: Object.fromEntries(["preMutationGuards", "releaseRuntime", "npmConsumer", "productionAcquisition", "firstRun", "comprehensiveLifecycle", "adminBrowser", "runtimeDashboardServices", "brokerContinuity", "trustedLifecycle", "providerReadiness", "migrationDryRun", "migrationApply", "rollback", "persistence", "durableAudit", "noLeak", "stoppedLifecycle", "cleanupConvergence"].map(id => [id, "success"])) };
   for (const [name, release] of [["admin", ADMIN_RELEASE], ["broker", BROKER_RELEASE]]) evidence[name] = { releaseId: release.id, tag: release.tag, revision: release.revision, asset: release.platforms[platform].asset, sha256: release.platforms[platform].sha256, checksumSource: "SHA256SUMS.txt" };
+  if (platform === "win32") evidence.scenarios.localOperatorLockout = "success";
   evidence.adminTrustedUnlockReceipt = retainAdminTrustedUnlockReceipt(JSON.stringify({ schema: "service-lasso.admin-trusted-unlock-consumer.v1", outcome: "success", exitCode: 0, signal: null, trustedUnlock: { classification: "not_emitted" } }), { platform, coreRevision: source.commit, adminReleaseId: ADMIN_RELEASE.id, adminRevision: ADMIN_RELEASE.revision, adminHarnessRevision: ADMIN_HARNESS_REVISION });
   return { evidence, expected };
 }
@@ -297,13 +298,43 @@ test("whole operator3 retained reader accepts exact CLI2/TUI3 bytes while empty 
     const manifestPath = path.join(root, "operator-tools/manifest.json"); await writeFile(manifestPath, json(record));
     assert.deepEqual((await validateRetainedOperatorToolBytes({ artifactRoot: root })).manifest, record);
     await assert.rejects(verifyRetainedOperatorTools({ artifactRoot: root, requireProtected: true }), /pins absent|catalog/);
-    const mixed = clone(tuiCandidate); mixed.schemaVersion = 2; delete mixed.scope;
-    await writeFile(path.join(root, tui.candidateManifest.relativePath), json(mixed));
-    await assert.rejects(validateRetainedOperatorToolBytes({ artifactRoot: root }), /pinned release|checksum/);
+    // Preserve every other required field so each mutation reaches its own
+    // substantive boundary rather than an unintended earlier schema denial.
+    for (const [mutate, message] of [
+      [value => { value.schemaVersion = 2; }, "TUI candidate manifest does not match the pinned release identity"],
+      [value => { delete value.scope; }, "Protected candidate rejected: TUI candidate manifest has an unexpected schema."],
+      [value => { value.extra = true; }, "Protected candidate rejected: TUI candidate manifest has an unexpected schema."],
+      [value => { value.scope.policySha256 = "a".repeat(64); }, "scope: unapproved immutable policy identity"],
+      [value => { value.assets.pop(); }, "TUI candidate manifest does not match the pinned release identity"],
+      [value => { value.assets[1] = clone(value.assets[0]); }, "TUI3 candidate asset ASCII order differs"],
+      [value => { value.assets.reverse(); }, "TUI3 candidate asset ASCII order differs"],
+      [value => { value.assets[0].sha256 = "a".repeat(64); }, "TUI candidate manifest asset inventory does not match the pinned release"],
+    ]) {
+      const changed = clone(tuiCandidate); mutate(changed);
+      await writeFile(path.join(root, tui.candidateManifest.relativePath), json(changed));
+      await assert.rejects(validateRetainedOperatorToolBytes({ artifactRoot: root }), { message });
+    }
+    await writeFile(path.join(root, tui.candidateManifest.relativePath), json(tuiCandidate));
+    assert.deepEqual((await validateRetainedOperatorToolBytes({ artifactRoot: root })).manifest, record);
+    for (const asset of tui.assets) {
+      await writeFile(path.join(root, asset.relativePath), Buffer.from("substitution"));
+      await assert.rejects(validateRetainedOperatorToolBytes({ artifactRoot: root }), { message: "operator tool retained asset checksum mismatch" });
+      await writeFile(path.join(root, asset.relativePath), tuiHeld.get(asset.name));
+    }
+    // Well-shaped whitespace changes preserve JSON meaning while violating the
+    // independently retained raw manifest digest.
+    await writeFile(path.join(root, tui.candidateManifest.relativePath), Buffer.concat([tuiHeld.get("candidate-manifest.json"), Buffer.from(" \n")]));
+    await assert.rejects(validateRetainedOperatorToolBytes({ artifactRoot: root }), { message: "operator tool retained asset checksum mismatch" });
     await writeFile(path.join(root, tui.candidateManifest.relativePath), json(tuiCandidate));
     const expandedSums = Buffer.concat([sums, Buffer.from(`${digest(tuiHeld.get("candidate-manifest.json"))}  candidate-manifest.json\n`)]);
-    await writeFile(path.join(root, tui.checksumManifest.relativePath), expandedSums);
-    await assert.rejects(validateRetainedOperatorToolBytes({ artifactRoot: root }), /checksum/);
+    const sumRows = sums.toString("ascii").trimEnd().split("\n");
+    for (const changed of [expandedSums, Buffer.from(`${sumRows[0]}\n`), Buffer.from(`${sumRows[0]}\n${sumRows[0]}\n`), Buffer.from(`${sumRows[1]}\n${sumRows[0]}\n`)]) {
+      await writeFile(path.join(root, tui.checksumManifest.relativePath), changed);
+      await assert.rejects(validateRetainedOperatorToolBytes({ artifactRoot: root }), { message: "scoped TUI checksum byte/order inventory differs" });
+    }
+    await writeFile(path.join(root, tui.checksumManifest.relativePath), sums);
+    assert.deepEqual((await validateRetainedOperatorToolBytes({ artifactRoot: root })).manifest, record);
+    await assert.rejects(verifyRetainedOperatorTools({ artifactRoot: root, requireProtected: true }), /pins absent|catalog/);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 test("scoped protected CLI reader accepts exactly protected2/portable2 and denies mixed versions", () => {
@@ -479,6 +510,23 @@ test("actual published aggregate compares raw bodies then validates success or c
     CORE_NPM_VERSION: version, CORE_NPM_INTEGRITY: publishedEvidence().expected.coreNpmIntegrity,
     CORE_WIN32_SHA256: "1".repeat(64), CORE_LINUX_SHA256: "1".repeat(64) }, routes);
   await assert.doesNotReject(verifyPublishedPackageQualificationArtifacts());
+  // Rebind provider ZIP and downloaded bytes together: this reaches the real
+  // Windows scenario denial, not byte substitution or incomplete fixture data.
+  const windows = members[0], windowsName = "published-package-qualification-win32.json";
+  const windowsZip = routes.get(`${prefix}/actions/artifacts/7/zip`), windowsDigest = windows.artifact.digest;
+  for (const outcome of [undefined, "blocked", "failure"]) {
+    const changed = new Map(windows.held), wrapper = JSON.parse(changed.get(windowsName));
+    if (outcome === undefined) delete wrapper.evidence.scenarios.localOperatorLockout;
+    else wrapper.evidence.scenarios.localOperatorLockout = outcome;
+    changed.set(windowsName, json(wrapper));
+    const archive = zipMembers(changed); windows.artifact.digest = `sha256:${digest(archive)}`;
+    routes.set(`${prefix}/actions/artifacts/7/zip`, archive);
+    await writeMembers(path.join(root, windows.artifact.name), changed);
+    await assert.rejects(verifyPublishedPackageQualificationArtifacts(), { message: "Retained win32 scenario localOperatorLockout is incomplete." });
+  }
+  windows.artifact.digest = windowsDigest; routes.set(`${prefix}/actions/artifacts/7/zip`, windowsZip);
+  await writeMembers(path.join(root, windows.artifact.name), windows.held);
+  await assert.doesNotReject(verifyPublishedPackageQualificationArtifacts());
   const first = members[0], location = path.join(root, first.artifact.name, "initial-projection.json");
   const changed = Buffer.from(first.held.get("initial-projection.json")); changed[0] ^= 1;
   await writeFile(location, changed);
@@ -562,17 +610,31 @@ test("actual scoped Admin original ZIP caller retains both-platform buffers thro
   await writeMembers(path.join(root, first.artifact.name), first.held);
   // The terminal-job selector runs after all strict held-body semantics. A
   // deterministic fixture intercepts that selector to replace metadata by C.
-  const filter = Array.prototype.filter;
+  const filterDescriptor = Object.getOwnPropertyDescriptor(Array.prototype, "filter");
+  const filter = filterDescriptor.value;
   let replacedAfterValidation = false;
-  const filterMock = t.mock.method(Array.prototype, "filter", function (...args) {
+  const selectedPlatforms = new Set();
+  const observedFilter = function (...args) {
     const result = Reflect.apply(filter, this, args);
-    if (!replacedAfterValidation && this.length === 2 && this[0]?.id === 101 && this[0]?.name === "packaged-admin-lifecycle (win32)") {
-      replacedAfterValidation = true; writeFileSync(location, Buffer.alloc(first.held.get(metadataName).length, 0x43));
+    if (this.length === 2 && this[0]?.id === 101 && this[0]?.name === "packaged-admin-lifecycle (win32)") {
+      if (result.length === 1) selectedPlatforms.add(result[0].name);
+      if (!replacedAfterValidation) {
+        replacedAfterValidation = true; writeFileSync(location, Buffer.alloc(first.held.get(metadataName).length, 0x43));
+      }
     }
     return result;
-  });
-  assert.deepEqual((await invoke()).receipts, originalRefs);
-  assert.equal(replacedAfterValidation, true); filterMock.mock.restore();
+  };
+  // Node22 MockTracker.method rejects Array.prototype because it is an Array.
+  // Preserve its whole original descriptor and restore even on failed invoke.
+  const restoreFilter = () => Object.defineProperty(Array.prototype, "filter", filterDescriptor);
+  t.after(restoreFilter);
+  Object.defineProperty(Array.prototype, "filter", { ...filterDescriptor, value: observedFilter });
+  try {
+    assert.deepEqual((await invoke()).receipts, originalRefs);
+    assert.equal(replacedAfterValidation, true);
+    assert.deepEqual([...selectedPlatforms], ["packaged-admin-lifecycle (win32)", "packaged-admin-lifecycle (linux)"]);
+  } finally { restoreFilter(); }
+  assert.deepEqual(Object.getOwnPropertyDescriptor(Array.prototype, "filter"), filterDescriptor);
   await writeMembers(path.join(root, first.artifact.name), first.held);
   await writeFile(location, Buffer.from("substitution"));
   await assert.rejects(invoke(), /original metadata differs/);
