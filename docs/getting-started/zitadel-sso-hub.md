@@ -8,7 +8,8 @@ sidebar_label: Advanced — Add Zitadel SSO to Todo
 **Lesson code:** [04 — SSO](https://github.com/service-lasso/lesson-todo/tree/develop/lessons/04-sso).
 The folder contains the identity service inventory, paired App/API configuration,
 private provisioning instructions and architecture for this checkpoint.
-The commands below continue your Core demo workspace.
+Use the published checkpoint below, or continue the Core demo authoring route
+later in this article.
 
 Continue the [Go API lesson](advanced-add-go-todo-api-service.md). Keep the App,
 API and Database in the same Service Lasso inventory. Add Zitadel as another
@@ -76,7 +77,112 @@ These also run inside Service Lasso and support the application path above.
 
 </details>
 
-## Before you begin
+## Run the published lesson checkpoint
+
+Use the [lesson repository](https://github.com/service-lasso/lesson-todo)
+from the previous articles. This is the recommended route on **Intel macOS 11**.
+The qualified public assembly is
+[`0d72fc40`](https://github.com/service-lasso/lesson-todo/tree/0d72fc40fe3147786fec97642b658389bb063b63/lessons/04-sso).
+From its repository root, with host Node 22 or newer:
+
+```sh
+npm ci
+npm run setup -- 04
+npm run lesson:04 -- --management
+```
+
+Setup creates a separate `.workspace/04-sso` checkpoint and preserves existing
+manifests, acquired archives, credentials and databases on rerun. It does not
+copy the previous checkpoint's SQL data. To continue your list, stop both
+stacks and use a verified PostgreSQL backup/restore into this checkpoint before
+starting the App/API. Never copy a running database directory or overwrite an
+initialized identity database or its master key.
+
+Fresh Intel macOS 11 selects checksum-bound Broker
+[`2026.10.5-301b426`](https://github.com/service-lasso/lasso-secretsbroker/releases/tag/2026.10.5-301b426)
+and Identity
+[`2026.10.5-d7e04eb`](https://github.com/service-lasso/lasso-zitadel/releases/tag/2026.10.5-d7e04eb)
+compatibility profiles, with managed Node 22.23.3. The identity tag targets
+`d7e04ebd9489ddc8c6798e408cd8ce7992711146`; its public assets and checksums are
+verified before normal Core acquisition. Apple Silicon/default Identity and
+retained legacy Broker/Identity profiles require macOS 12; retained Node 24
+requires macOS 13.5. Setup retains those older manifests and rejects an
+incompatible launch. Use a separate fresh learning folder for the new pins.
+See the [platform prerequisites](https://github.com/service-lasso/lesson-todo#platform-prerequisites).
+Binary compatibility does not extend the OS vendor's support lifetime.
+
+The host uses published Core `2026.9.22-f3de461` and checksum-verified Admin
+`2026.8.31-f015b44`, without a sibling build. The App, API and Database pins
+remain `2026.10.4-15dc4b9`, `2026.10.4-02ef566` and `2026.10.4-1af7982`.
+Open the printed loopback Admin URL, complete **Initialize Secrets Broker**,
+privately retain and acknowledge its recovery material, and continue as
+local-root. App/API remain disabled until paired configuration is complete.
+
+Follow the checkpoint's
+[identity setup](https://github.com/service-lasso/lesson-todo/blob/develop/lessons/04-sso/SETUP.md)
+in order:
+
+1. Configure the exact identity/certificate manifests with
+   `lessons/04-sso/scripts/configure-identity.mjs`. Install Certificates,
+   PostgreSQL and Identity through Admin; keep Broker ready.
+2. Run `lessons/04-sso/scripts/provision-identity-prompt.mjs` with the
+   checkpoint's service/runtime directories and printed Core origin. Its
+   interactive password input is hidden; Ctrl+C cancels. The helper provisions
+   create-only Broker references and preserves existing secrets. Do not pass
+   passwords in command arguments or record them in source or logs.
+3. Configure Certificates and run **generate-pfx**, then **generate-key-cert**.
+   Preserve the private CA/key and generated certificate. Shut down the host
+   and restart it with the public CA supplied to Node, as shown below.
+4. Start PostgreSQL, then Identity. In the isolated Chrome profile documented
+   in SETUP, use the generated leaf certificate's exact SPKI pin. This scoped
+   browser procedure leaves macOS Keychain and everyday browser trust unchanged;
+   never use an option that ignores every certificate error.
+5. Register a Web PKCE client and a Basic API client in the same identity
+   project using Todo's actual allocated callback/logout URLs. Keep the API
+   secret in an absolute file outside the checkout and bundles, mode `600`
+   inside a private mode `700` directory on macOS/Linux.
+6. Install Todo, then run the checkpoint's `configure-pair.mjs` with the
+   **acquired** Todo `configure-sso.mjs`, actual issuer/client/project IDs,
+   private secret file path and public CA path. Refresh Admin, then install,
+   configure and start API and App. Use the same isolated browser for Todo's
+   login, callback and logout.
+
+On macOS/Linux, repeat the process-local CA setting on every host launch:
+
+```sh
+NODE_EXTRA_CA_CERTS="$(pwd)/.workspace/04-sso/services/@todo-certs/data/rootCA.pem" npm run lesson:04 -- --management
+```
+
+After pairing, shut down the management host and launch the normal checkpoint:
+
+```sh
+NODE_EXTRA_CA_CERTS="$(pwd)/.workspace/04-sso/services/@todo-certs/data/rootCA.pem" npm run lesson:04
+```
+
+PowerShell uses `$env:NODE_EXTRA_CA_CERTS` with the resolved CA path; SETUP
+contains that command too. Missing or incomplete pairing fails closed.
+Type `shutdown` or Ctrl+C in the host terminal to stop this owned checkpoint.
+Restart with the same CA setting, then start managed services in Admin,
+dependencies first. The host retains data and does not automatically start the
+application stack. Do not run two hosts against one checkpoint.
+
+The literal public checkpoint passed on Intel macOS 11.7.11: real browser PKCE
+login, authenticated Todo/SQL writes and refresh, anonymous/malformed and
+different-project API token denials, CSRF denial, provider outage/recovery,
+logout and a full Core reopen preserving identity users/projects and Todo IDs.
+See the [acceptance record](https://github.com/service-lasso/lesson-todo/issues/9#issuecomment-5999756112).
+Natural token-expiry timing remains unverified; no ARM macOS 11 or native Mac
+desktop result is claimed. The [desktop lesson](package-todo-tauri.md) builds
+its executable on Windows x64.
+
+## Core demo authoring route
+
+The steps below continue an existing Windows Core demo workspace and teach
+manual imports. Their older identity pin and operator trust procedure are
+separate from the qualified public checkpoint above. On Intel macOS 11, use
+that checkpoint; do not transplant its artifact pin into a retained manifest.
+
+### Before you begin
 
 - Finish the first three lessons and retain their inventory, workspace and data.
   Commands run from your Core checkout and use `workspace/canonical-services-root`
@@ -91,8 +197,9 @@ These also run inside Service Lasso and support the application path above.
 - Identity requests local port `18084`. Check the **allocated** endpoint before
   registering the issuer; a requested port is not an allocation guarantee.
 
-This is a local Windows learning flow. Linux/macOS native identity consumption
-and production deployment are separate qualification work.
+This manual route retains its local Windows learning boundary. The Mac
+checkpoint proof above applies to its exact public assembly and selected
+profiles; production deployment remains separate qualification work.
 
 ## 1. Add the identity and certificate services
 
