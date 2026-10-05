@@ -609,3 +609,15 @@ PR #1624 current receiving checkpoint: normal develop integration of `ce832478da
 ## #1681 entire6c R1-R4 correction (2026-10-06)
 
 AC-4DI.4 and AC-4CH.1 bind all four adopted findings to CORE1681_ENTIRE6C_R1_R4_CONTRACT.md. Full finite OPC grammar, shared once-only production job termination, original managed releases and directory-sync live-child/input custody form one source-only in_progress unit. Every prospective case UNRUN; entire6c NO_GO and old pins/private failures remain. Parent owns tracking/review/admission/landing.
+
+## #1681 ce2b ENTIRE C1-C3 correction (2026-10-06)
+
+SPEC-002 AC-4DI.4 C1-C3 binds the whole original native entrypoint child/wait,
+BCrypt/hash backing/environment-block cleanup, and managed environment/progress
+original-primary-plus-later-outcomes correction to CORE1681_CE2B_C1_C3_CONTRACT.md.
+Development SOURCE ONLY / in_progress; pre-code mapping retained on existing sole
+PR1681 owner branch after normal named develop311 integration. All prospective
+actual entrypoint/helper cases SOURCE_UNRUN. Preserve ce2b ENTIRE NO_GO, R1-R4,
+whole MSI/VSIX/OPC/native/compiler contracts, original pins/clocks/private failures.
+Different fresh ENTIRE review and NEW complete actual-input ROOT/parent admission
+precede execution. Parent owns tracking/review/admission/landing; no release claim.

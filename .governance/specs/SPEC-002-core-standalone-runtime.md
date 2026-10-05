@@ -902,3 +902,15 @@ N2 requires the entire observed ds:Transforms container to have only ds:Transfor
 
 AC-4DI.4 and AC-4CH.1 bind all four adopted findings to CORE1681_ENTIRE6C_R1_R4_CONTRACT.md. Full finite OPC grammar, shared once-only production job termination, original managed releases and directory-sync live-child/input custody form one source-only in_progress unit. Every prospective case UNRUN; entire6c NO_GO and old pins/private failures remain. Parent owns tracking/review/admission/landing.
 - `AC-4AJ.14` (#1704): The Advanced Zitadel SSO central article offers the final published lesson-host route only after the exact identity release and final literal Mac stage04 consumer have direct qualification evidence. Freeze public release/source identities, portable host prerequisites, paired App/API authentication and private provisioning instructions against that evidence. Preserve existing data, explicit continuation, the retained legacy Mac guard and the existing manual authoring route; do not infer native identity support from first-three-stage Mac proof. Keep purpose-first architecture diagrams and canonical lesson links. Stage05 Tauri executable scope remains Windows x64. Docs build/link/audit checks and fresh distinct review precede a develop PR; owner-authorized publication and exact live source receipt complete documentation acceptance separately from runtime or GA acceptance.
+
+## #1681 ce2b ENTIRE C1-C3 correction (2026-10-06)
+
+SPEC-002 AC-4DI.4 C1-C3 binds the whole original native entrypoint child/wait,
+BCrypt/hash backing/environment-block cleanup, and managed environment/progress
+original-primary-plus-later-outcomes correction to CORE1681_CE2B_C1_C3_CONTRACT.md.
+Development SOURCE ONLY / in_progress; pre-code mapping retained on existing sole
+PR1681 owner branch after normal named develop311 integration. All prospective
+actual entrypoint/helper cases SOURCE_UNRUN. Preserve ce2b ENTIRE NO_GO, R1-R4,
+whole MSI/VSIX/OPC/native/compiler contracts, original pins/clocks/private failures.
+Different fresh ENTIRE review and NEW complete actual-input ROOT/parent admission
+precede execution. Parent owns tracking/review/admission/landing; no release claim.

@@ -424,3 +424,15 @@ Development SOURCE ONLY, same exclusively owned PR1681 branch. Entire9958 review
 ## #1681 entire6c R1-R4 source correction (2026-10-06)
 
 AC-4DI.4 and AC-4CH.1: CORE1681_ENTIRE6C_R1_R4_CONTRACT.md governs all four adopted findings. Finite complete OPC grammar, shared original production job termination, managed once-only release observations and directory-sync failed-wait/input retention are authored with prospective actual production seam cases, all SOURCE_UNRUN. Normal current develop ce832478/TAR integration retained. Different fresh ENTIRE cumulative source review and NEW complete actual-input ROOT admission remain required. Entire6c NO_GO, old PE/pins, original private/native failures and whole gates stay unqualified. Parent owns tracking/landing; retained PR1681 owner branch/worktree is the bounded recovery exception.
+
+## #1681 ce2b ENTIRE C1-C3 correction (2026-10-06)
+
+SPEC-002 AC-4DI.4 C1-C3 binds the whole original native entrypoint child/wait,
+BCrypt/hash backing/environment-block cleanup, and managed environment/progress
+original-primary-plus-later-outcomes correction to CORE1681_CE2B_C1_C3_CONTRACT.md.
+Development SOURCE ONLY / in_progress; pre-code mapping retained on existing sole
+PR1681 owner branch after normal named develop311 integration. All prospective
+actual entrypoint/helper cases SOURCE_UNRUN. Preserve ce2b ENTIRE NO_GO, R1-R4,
+whole MSI/VSIX/OPC/native/compiler contracts, original pins/clocks/private failures.
+Different fresh ENTIRE review and NEW complete actual-input ROOT/parent admission
+precede execution. Parent owns tracking/review/admission/landing; no release claim.
