@@ -89,9 +89,9 @@ static int object_ready(const struct f7_crypto_object *o,const struct f7_package
 static int empty_native(struct f7_member *m,f7_handle read,int64_t *status){
  struct f7_identity write_identity,read_identity;uint64_t length;
  if(!m||m->failed||m->finalized||m->length)return F7_CONFLICT;
- if(f7_identity_read(m->handle,&write_identity,0)||
-    f7_identity_read(read,&read_identity,0)||
-    !f7_identity_equal(&write_identity,&m->identity)||
+ int identity=f7_identity_read_status(m->handle,&write_identity,0,status);if(identity)return identity;
+ identity=f7_identity_read_status(read,&read_identity,0,status);if(identity)return identity;
+ if(!f7_identity_equal(&write_identity,&m->identity)||
     !f7_identity_equal(&write_identity,&read_identity))return F7_IDENTITY_MISMATCH;
  int result=f7_handle_readonly(read,status);if(result)return result;
  result=f7_handle_size(read,&length,status);if(result)return result;
