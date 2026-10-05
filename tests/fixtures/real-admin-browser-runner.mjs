@@ -337,6 +337,9 @@ async function settleReceiptWork() {
   })();
   const bounded = new Promise((_, reject) => {
     timer = setTimeout(() => reject(new RealAdminBrowserTeardownError([
+      ...ownedReceiptFailures.map((error) => ({
+        phase: "receipt_work_settlement", code: safeFailureCode(error),
+      })),
       { phase: "receipt_work_settlement", code: "receipt_work_timeout" },
     ])), 5_000);
   });
