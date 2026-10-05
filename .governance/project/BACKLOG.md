@@ -927,3 +927,5 @@ ISS-1623 / SPEC-006 AC-6G.owning-resource-observation: [complete thirteen-path o
 
 
 PR #1624 current receiving checkpoint: normal develop integration of `ce832478da5ad6997ffcb9c82aab95cdf55b1d06` (PR #1707 TAR framing landing). The preceding b0c checkpoint is historical provenance. Complete receiving TAR/header/framing/link source and all original owning-observation contracts are preserved. Source preparation only; DIFFERENT fresh ENTIRE review and NEW complete-input ROOT admission remain required before execution.
+
+- #1710 - R2 observer fixture activation ordering; SPEC-002 AC-4BY.2. In progress source preparation; original37353281578/111915112829 failure retained. Independent entire review and new input admission pending; no runtime qualification claim.
