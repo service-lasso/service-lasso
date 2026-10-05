@@ -1,6 +1,6 @@
 # NQ1 R3: original optimized interpreter with compressed source data
 
-Status: SELECTED SOURCE CLOSURE / MATERIAL REPRESENTATION CANDIDATE. Whole accepted-input transformation and physical peak proof remain unfinished. No positive implementation, factory, execution or architecture GO. This is the same bounded NQ1 unit at draft1694; frozen01, completed independent review and amendment02 remain immutable. R2 contains the derivation history; this document gives the current route without selecting its rejected nonoptimizing proposal.
+Status: HISTORICAL UNACCEPTED COMPRESSED REPRESENTATION CANDIDATE. The conductor now selects the original V8 constructor/test backend in CORE-NATIVE-QUALIFIED-NAMESPACE-ORIGINAL-V8-BACKEND-PRECODE.md; compressed compiler/cache substitution is not selected. All source/proof/failure history is retained. Whole accepted-input transformation and physical peak proof remain unfinished. No positive implementation, factory, execution or architecture GO. This is the same bounded NQ1 unit at draft1694; frozen01, completed independent review and amendment02 remain immutable. R2 contains the derivation history; this document gives the current route without selecting its rejected nonoptimizing proposal.
 
 ## Actual reference and actor
 

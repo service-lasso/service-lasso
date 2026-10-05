@@ -897,3 +897,7 @@ NQ1 continued R3 source architecture: docs/decisions/CORE-NATIVE-QUALIFIED-NAMES
 #1698 backlog / AC-4BH, AC-4BH.2, AC-4BH.3: investigate published Core Windows stabilized-tree inspection rejection observed in the lesson verifier. Preserve the failed attempt separately from successful recovery/restart; no product repair or release authorised by this tracking entry.
 
 #1699 backlog / AC-4BK: cold endpoint cutover resolves configured identity Broker refs before retained Broker startup. Observed while transferring a stopped fixture onto changed ports; fresh unchanged-port provisioning is verified separately. Preserve custody/rollback and require a governed Core fix plus exact-candidate publication authority before updating lesson pins.
+
+
+#1643 NQ1 R4 current prospective selection: docs/decisions/CORE-NATIVE-QUALIFIED-NAMESPACE-ORIGINAL-V8-BACKEND-PRECODE.md selects ORIGINAL same-Core V8 ctor/test with genuine CommonEnvironmentSetup/thread/runtime owners, preserving original cache/width/code-size/failure order. R3 compressed compiler/cache substitution is historical unaccepted evidence. SPEC-002 AC-4CF.1b / SPEC-006 AC-6E.SA1 and CA03/CA04/CA06 remain mapped to complete native namespace/ZIP/JSON/policy semantics plus primary backend/physical joins. Blueprint37 parser/stream128MiB is unchanged; ordinary image/startup resources have separate finite SAME-owner classification. No positive code/grant/whole-fit claim; exact source backend join, actual preallocation hooks/lifetime proof and different whole architecture review precede implementation.
+

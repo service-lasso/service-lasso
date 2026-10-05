@@ -364,3 +364,7 @@ Development source-only repair bound to SPEC-002 AC-4DOC.1690 and existing SPEC-
 NQ1 R2 pending: primary CE2 original action/reference-runtime source ABI and real control/IO/physical allocation layout; different whole review of complete compact Irregexp/Unicode/count derivation before product code or execution.
 
 NQ1 continued R3 source architecture: docs/decisions/CORE-NATIVE-QUALIFIED-NAMESPACE-PORT-R3.md consolidates exact Node22.23.2 optimized jitless/ICU78 source, compressed original data custody and actual Core READ_STAGE/physical-retirement obligations. Same bounded precode unit, no positive implementation/execution/GO; full trace/target/arena proof and primary authentic source-owner association remain required.
+
+
+#1643 NQ1 R4 current prospective selection: docs/decisions/CORE-NATIVE-QUALIFIED-NAMESPACE-ORIGINAL-V8-BACKEND-PRECODE.md selects ORIGINAL same-Core V8 ctor/test with genuine CommonEnvironmentSetup/thread/runtime owners, preserving original cache/width/code-size/failure order. R3 compressed compiler/cache substitution is historical unaccepted evidence. SPEC-002 AC-4CF.1b / SPEC-006 AC-6E.SA1 and CA03/CA04/CA06 remain mapped to complete native namespace/ZIP/JSON/policy semantics plus primary backend/physical joins. Blueprint37 parser/stream128MiB is unchanged; ordinary image/startup resources have separate finite SAME-owner classification. No positive code/grant/whole-fit claim; exact source backend join, actual preallocation hooks/lifetime proof and different whole architecture review precede implementation.
+
