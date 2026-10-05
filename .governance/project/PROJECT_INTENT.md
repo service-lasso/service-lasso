@@ -552,3 +552,5 @@ PR #1624 current receiving checkpoint: normal develop integration of `ce832478da
 
 
 Issue #1562 package/tool fixture repair binds SPEC-006 AC-6G.package-tool-fixtures: current exact four-workspace package identity and genuine separately installed caller pnpm10.34.5 must be reflected by fixtures without weakening package/tool/native/private acceptance. Source-only authored regressions remain unexecuted pending different ENTIRE review and NEW complete-input ROOT admission; original natural21FAIL/87SKIP and other-owner scope remain preserved.
+
+Issue #1712 binds executable stdio EOF to original runtime stop under SPEC-006 AC-6G/#860. Direct Windows package reproduction retains EBUSY and actual launcher/service survivors; isolate the lifetime repair without changing native ownership or cleanup criteria. User-authorized direct verification is separate from fresh independent review and complete-input admission.
