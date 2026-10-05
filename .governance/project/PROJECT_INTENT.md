@@ -547,3 +547,6 @@ freeze cumulative source/dependency/history/prior failures for DIFFERENT ENTIRE 
 
 
 PR #1624 current receiving checkpoint: normal develop integration of `ce832478da5ad6997ffcb9c82aab95cdf55b1d06` (PR #1707 TAR framing landing). The preceding b0c checkpoint is historical provenance. Complete receiving TAR/header/framing/link source and all original owning-observation contracts are preserved. Source preparation only; DIFFERENT fresh ENTIRE review and NEW complete-input ROOT admission remain required before execution.
+
+
+Issue #1562 package/tool fixture repair binds SPEC-006 AC-6G.package-tool-fixtures: current exact four-workspace package identity and genuine separately installed caller pnpm10.34.5 must be reflected by fixtures without weakening package/tool/native/private acceptance. Source-only authored regressions remain unexecuted pending different ENTIRE review and NEW complete-input ROOT admission; original natural21FAIL/87SKIP and other-owner scope remain preserved.
