@@ -879,3 +879,5 @@ Prepare this coherent two-finding source correction only. Existing R1..R7/TC01..
 
 Development source-only repair bound to SPEC-002 AC-4DOC.1690 and existing SPEC-010 F7-01..F7-09 authority: replace the two owning protocol links with canonical develop repository references, retaining every protocol/actor/resource/private-custody and unqualified boundary. Strict broken-link gate and disabled image parser remain unchanged. Original Docs37229127609 and MCP37229127658 documentation failures stay failed; no build/tests/import/native/CI rerun/publication or GA claim. Different fresh ENTIRE review and NEW complete-input ROOT precede build; parent owns landing after1681 and before1676/1624/1688. Darwin is Deferred / Not applicable, never PASS. Status: in_progress source preparation.
 #1692 in_progress / AC-4AJ.11: API authentication, paired token forwarding and corrected published tutorials; producers API#5 and Todo#7.
+
+#1695 in_progress / AC-4AJ.12: lesson-todo#1 shared host and five checkpoints, corresponding live article code links.
