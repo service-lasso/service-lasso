@@ -2,12 +2,33 @@
 #include "error-graph.h"
 #include "serialization-fallback.h"
 #include <string.h>
+static int geometry(const struct f7_error_channel *c,const uint8_t *input,size_t n){
+ struct span {uintptr_t address;size_t length;};
+ struct span spans[5]={{(uintptr_t)c,sizeof(*c)},
+  {(uintptr_t)c->payload,c->payload_capacity},{(uintptr_t)input,n}};size_t count=3;
+ if(c->partial){
+  spans[count++]=(struct span){(uintptr_t)c->partial,sizeof(*c->partial)};
+  spans[count++]=(struct span){(uintptr_t)c->partial->bytes,c->partial->capacity};
+ }
+ for(size_t i=0;i<count;i++){
+  if((spans[i].length&&!spans[i].address)||spans[i].length>UINTPTR_MAX-spans[i].address)return F7_INVALID;
+  for(size_t j=0;j<i;j++)if(spans[i].length&&spans[j].length&&
+   !(spans[i].address+spans[i].length<=spans[j].address||
+     spans[j].address+spans[j].length<=spans[i].address))return F7_CONFLICT;
+ }
+ return F7_OK;
+}
 int f7_error_channel_feed(struct f7_error_channel *c,const uint8_t *input,size_t n,
  uint64_t frame_limit,uint64_t payload_limit){
  size_t offset=0;
  if(!c||(!input&&n)||!frame_limit||!payload_limit||c->failed||
     !c->payload||!c->payload_capacity||c->payload_capacity>F7_FRAME_MAX||
-    !c->graph_node_limit)return F7_INVALID;
+    !c->graph_node_limit||c->header_used>F7_FRAME_HEADER_SIZE||
+    c->payload_used>c->payload_capacity||c->remaining>c->payload_capacity-c->payload_used||
+    (c->remaining&&c->header_used!=F7_FRAME_HEADER_SIZE)||
+    (!c->remaining&&c->header_used==F7_FRAME_HEADER_SIZE)||
+    c->frames>frame_limit||c->payload_bytes>payload_limit)return F7_INVALID;
+ int shaped=geometry(c,input,n);if(shaped)return shaped;
  while(offset<n){
   if(c->remaining){
    size_t take=n-offset;if(take>c->remaining)take=c->remaining;
@@ -43,7 +64,7 @@ int f7_error_channel_feed(struct f7_error_channel *c,const uint8_t *input,size_t
      f7_sequence_accept(&c->sequence,&frame,c->invocation,c->attempt,c->role)||
      memcmp(frame.lifetime,c->lifetime,16)||
      c->ordinal==UINT64_MAX||frame.ordinal!=c->ordinal+1||
-     !frame.payload_length||frame.payload_length>c->payload_capacity||c->frames==frame_limit||
+     !frame.payload_length||frame.payload_length>c->payload_capacity||c->frames>=frame_limit||
      c->payload_bytes>payload_limit||frame.payload_length>payload_limit-c->payload_bytes){
      c->failed=1;return F7_INCOMPLETE;
    }
