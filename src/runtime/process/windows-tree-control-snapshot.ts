@@ -15,6 +15,7 @@ export async function inspectKnownWindowsTreeMembers(
 ): Promise<{
   members: ProcessFingerprint[];
   verifiedMembersOnly: boolean;
+  excludedMemberPids: ReadonlySet<number>;
   inspectProcess: (pid: number, options?: { deadlineMs?: number; signal?: AbortSignal }) => Promise<ProcessInspection>;
 }> {
   const currentTree = await (dependencies.inspectTree ?? inspectWindowsProcessTree)(rootIdentity, { deadlineMs, signal });
@@ -23,17 +24,18 @@ export async function inspectKnownWindowsTreeMembers(
     ...(dependencies.excludedMemberPids ?? []),
   ]);
   const retainedMembers = knownMembers.filter(member => !excluded.has(member.pid));
-  const currentPids = new Set(currentTree.members.map(identity => identity.pid));
+  const currentMembers = currentTree.members.filter(member => !excluded.has(member.pid));
+  const currentPids = new Set(currentMembers.map(identity => identity.pid));
   // A tree omission is not an absence receipt. Keep the prior immutable
   // fingerprint until a fresh exact-PID inspection says it is absent; a live,
   // inaccessible, changed, or terminally-unavailable PID stays fail closed.
   const retainedByPid = new Map(retainedMembers
     .filter(identity => !currentPids.has(identity.pid))
     .map(identity => [identity.pid, identity]));
-  const currentByPid = new Map(currentTree.members.map((identity) => [identity.pid, identity]));
+  const currentByPid = new Map(currentMembers.map((identity) => [identity.pid, identity]));
   const members = [
     ...retainedByPid.values(),
-    ...currentTree.members,
+    ...currentMembers,
   ];
   if (verifiedMembersOnly || currentTree.verifiedMembersOnly) {
     for (const expected of retainedMembers) {
@@ -45,7 +47,9 @@ export async function inspectKnownWindowsTreeMembers(
     return {
       members,
       verifiedMembersOnly: true,
+      excludedMemberPids: excluded,
       inspectProcess: async (pid, options) => {
+        if (excluded.has(pid)) throw new Error("Process tree control excludes this process.");
         const current = currentByPid.get(pid);
         if (current) return { status: "running", identity: current };
         return await (dependencies.inspectIdentity ?? inspectProcess)(pid, {
@@ -55,11 +59,11 @@ export async function inspectKnownWindowsTreeMembers(
       },
     };
   }
-  const inspectionByPid = new Map<number, ProcessInspection>(currentTree.members.map((identity) => [
+  const inspectionByPid = new Map<number, ProcessInspection>(currentMembers.map((identity) => [
     identity.pid,
     { status: "running", identity },
   ]));
-  for (const expected of knownMembers) {
+  for (const expected of retainedMembers) {
     const actual = currentByPid.get(expected.pid);
     if (!actual) {
       continue;
@@ -72,9 +76,14 @@ export async function inspectKnownWindowsTreeMembers(
   return {
     members,
     verifiedMembersOnly: false,
-    inspectProcess: async (pid, options) => inspectionByPid.get(pid) ?? await (dependencies.inspectIdentity ?? inspectProcess)(pid, {
-      deadlineMs: Math.min(deadlineMs, options?.deadlineMs ?? deadlineMs),
-      signal: options?.signal ?? signal,
-    }),
+    excludedMemberPids: excluded,
+    inspectProcess: async (pid, options) => {
+      // Exclusion restricts authority; it never proves physical absence.
+      if (excluded.has(pid)) throw new Error("Process tree control excludes this process.");
+      return inspectionByPid.get(pid) ?? await (dependencies.inspectIdentity ?? inspectProcess)(pid, {
+        deadlineMs: Math.min(deadlineMs, options?.deadlineMs ?? deadlineMs),
+        signal: options?.signal ?? signal,
+      });
+    },
   };
 }

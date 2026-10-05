@@ -214,7 +214,17 @@ test("AC-4BY.2 accepts only the complete observed observer close as a shipped po
       cwd: root, observerRoot, timeoutMs: 5_000,
       source: { head: "a".repeat(40), tree: "b".repeat(40) }, inputs,
     });
-    assert.equal(result.code, 7);
+    // Closed observation only: the historical null-code branch is UNOBSERVED.
+    // Do not expose receipt, process identity, file bytes or native error text.
+    const observation = {
+      exit: result.code === null ? "no_exit_code" : result.code === 7 ? "expected_exit" : "other_exit",
+      executionFailure: [null, "spawn_failed", "execution_timeout", "observer_terminal_unresolved"].includes(result.executionFailure)
+        ? result.executionFailure : "unclassified",
+      streamFailure: result.streamFailure === null ? "none" : "present",
+      trustedUnlock: ["missing", "invalid", "closed"].includes(result.trustedUnlock?.classification)
+        ? result.trustedUnlock.classification : "unclassified",
+    };
+    assert.equal(result.code, 7, JSON.stringify(observation));
     assert.equal(result.executionFailure, null);
     assert.deepEqual(result.trustedUnlock, { classification: "closed", receipt: JSON.parse(valid) });
     const close = JSON.parse(await readFile(path.join(observerRoot, "close.json"), "utf8"));

@@ -19,7 +19,9 @@ import {
   addLocalFolderToArchive,
   extractZipSafely,
 } from "../dist/runtime/files/safe-zip.js";
+import { assertScope, REQUIRED_GA_PLATFORMS } from "./ga-platform-scope-lib.mjs";
 import { SUPPORTED_RELEASE_PLATFORMS } from "./release-asset-policy.mjs";
+import { getNpmCommand } from "./npm-command-lib.mjs";
 import {
   getReleaseVersion,
   readRootPackageJson,
@@ -363,10 +365,17 @@ async function acquireBundledServices({
 
 export function runCommand(command, args, options = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
+    const { resourceObservation, ...spawnOptions } = options;
+    const observeResource = status => { try { resourceObservation?.record(status); } catch { /* Preserve original command result. */ } };
+    observeResource("creation_attempted");
+    let child;
+    try { child = spawn(command, args, {
       stdio: ["ignore", "pipe", "pipe"],
-      ...options,
-    });
+      ...spawnOptions,
+      shell: false,
+      windowsVerbatimArguments: false,
+    }); } catch (error) { observeResource("creation_rejected"); reject(error); return; }
+    observeResource("created");
 
     let stdout = "";
     let stderr = "";
@@ -379,8 +388,10 @@ export function runCommand(command, args, options = {}) {
       stderr += chunk.toString();
     });
 
-    child.on("error", reject);
+    child.on("error", error => { observeResource("creation_rejected"); reject(error); });
+    child.on("exit", () => observeResource("exit_observed"));
     child.on("close", (code) => {
+      observeResource("close_observed");
       if (code === 0) {
         resolve({ stdout, stderr });
         return;
@@ -395,25 +406,9 @@ export function runCommand(command, args, options = {}) {
   });
 }
 
-function escapeWindowsCmdArg(value) {
-  if (/^[A-Za-z0-9_./:=@-]+$/.test(value)) {
-    return value;
-  }
-
-  return `"${value.replace(/"/g, '""')}"`;
-}
-
 export function runNpmCommand(args, options = {}) {
-  const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
-
-  if (process.platform !== "win32") {
-    return runCommand(npmCommand, args, options);
-  }
-
-  const comspec = process.env.ComSpec ?? "cmd.exe";
-  const commandLine = [npmCommand, ...args].map(escapeWindowsCmdArg).join(" ");
-
-  return runCommand(comspec, ["/d", "/s", "/c", commandLine], options);
+  const descriptor = getNpmCommand(args);
+  return runCommand(descriptor.command, descriptor.args, options);
 }
 
 export async function createReleaseArchive(
@@ -592,10 +587,11 @@ export async function verifyPlatformReleaseArchive({ archivePath, artifactName, 
   }
 }
 
-export async function createPlatformReleaseArchives(outputRoot, artifactName) {
+export async function createPlatformReleaseArchives(outputRoot, artifactName, scope) {
+  if (scope) assertScope(scope);
   const archives = [];
 
-  for (const platform of SUPPORTED_RELEASE_PLATFORMS) {
+  for (const platform of scope ? REQUIRED_GA_PLATFORMS : SUPPORTED_RELEASE_PLATFORMS) {
     const archiveName =
       platform === "win32"
         ? `${artifactName}-${platform}.zip`
@@ -616,7 +612,9 @@ export async function stageReleaseArtifact({
   outputRoot = path.join(repoRoot, "artifacts"),
   version,
   releaseMetadataToken,
+  scope,
 } = {}) {
+  if (scope) assertScope(scope);
   const metadataToken = releaseMetadataToken ?? consumeReleaseMetadataToken();
   const resolvedVersion = version ?? (await getReleaseVersion(repoRoot));
   const artifactName = getArtifactName(resolvedVersion);
@@ -633,7 +631,7 @@ export async function stageReleaseArtifact({
   await runNpmCommand(["install", "--omit=dev"], {
     cwd: artifactRoot,
   });
-  await stageOperatorTools({ artifactRoot, releaseMetadataToken: metadataToken });
+  await stageOperatorTools({ artifactRoot, releaseMetadataToken: metadataToken, ...(scope ? { scope } : {}) });
 
   const manifest = await writeReleaseManifest({
     repoRoot,
@@ -653,6 +651,7 @@ export async function stageReleaseArtifact({
   const platformArchives = await createPlatformReleaseArchives(
     outputRoot,
     artifactName,
+    scope,
   );
   const archiveSBOMs = await Promise.all(
     [
@@ -677,7 +676,9 @@ export async function stageBundledReleaseArtifact({
   version,
   serviceIds = DEFAULT_BUNDLED_SERVICE_IDS,
   releaseMetadataToken,
+  scope,
 } = {}) {
+  if (scope) assertScope(scope);
   const metadataToken = releaseMetadataToken ?? consumeReleaseMetadataToken();
   const resolvedVersion = version ?? (await getReleaseVersion(repoRoot));
   const artifactName = getBundledArtifactName(resolvedVersion);
@@ -695,7 +696,7 @@ export async function stageBundledReleaseArtifact({
     cwd: artifactRoot,
   });
 
-  await stageOperatorTools({ artifactRoot, releaseMetadataToken: metadataToken });
+  await stageOperatorTools({ artifactRoot, releaseMetadataToken: metadataToken, ...(scope ? { scope } : {}) });
 
   const bundledServices = await acquireBundledServices({
     repoRoot,
@@ -738,6 +739,7 @@ export async function stageBundledReleaseArtifact({
   const platformArchives = await createPlatformReleaseArchives(
     outputRoot,
     artifactName,
+    scope,
   );
   const archiveSBOMs = await Promise.all(
     [
@@ -763,6 +765,7 @@ export async function verifyStagedArtifact({
   version,
   bootPort = 18181,
   bootTimeoutMs = 60_000,
+  scope,
 } = {}) {
   const resolvedVersion = version ?? (await getReleaseVersion(repoRoot));
   const artifactName = getArtifactName(resolvedVersion);
@@ -776,6 +779,10 @@ export async function verifyStagedArtifact({
   await stat(path.join(stagedRoot, "dist", "index.js"));
   await stat(path.join(stagedRoot, "packages", "core", "index.js"));
   await stat(path.join(stagedRoot, "packages", "core", "cli.js"));
+  if (scope) {
+    assertScope(scope);
+    if ((await verifyRetainedOperatorTools({ artifactRoot: stagedRoot, requireProtected: true })).manifest.schemaVersion !== "service-lasso.operator-tools.v3") throw new Error("scoped staged release operator3 required");
+  }
 
   const zipVerification = await verifyReleaseZipArchive({
     archivePath: path.join(
@@ -786,7 +793,7 @@ export async function verifyStagedArtifact({
   });
 
   const platformArchiveVerifications = await Promise.all(
-    SUPPORTED_RELEASE_PLATFORMS.filter((platform) => platform !== "win32").map((platform) => verifyPlatformReleaseArchive({
+    (scope ? (assertScope(scope), REQUIRED_GA_PLATFORMS) : SUPPORTED_RELEASE_PLATFORMS).filter((platform) => platform !== "win32").map((platform) => verifyPlatformReleaseArchive({
       archivePath: path.join(path.dirname(stagedArchivePath), `${artifactName}-${platform}.tar.gz`),
       artifactName,
       platform,
@@ -897,6 +904,7 @@ export async function verifyBundledStagedArtifact({
   archivePath,
   version,
   serviceIds = DEFAULT_BUNDLED_SERVICE_IDS,
+  scope,
 } = {}) {
   const resolvedVersion = version ?? (await getReleaseVersion(repoRoot));
   const artifactName = getBundledArtifactName(resolvedVersion);
@@ -906,6 +914,10 @@ export async function verifyBundledStagedArtifact({
     archivePath ?? path.join(repoRoot, "artifacts", `${artifactName}.tar.gz`);
 
   await stat(stagedArchivePath);
+  if (scope) {
+    assertScope(scope);
+    if ((await verifyRetainedOperatorTools({ artifactRoot: stagedRoot, requireProtected: true })).manifest.schemaVersion !== "service-lasso.operator-tools.v3") throw new Error("scoped bundled release operator3 required");
+  }
   const manifest = JSON.parse(
     await readFile(path.join(stagedRoot, "release-artifact.json"), "utf8"),
   );

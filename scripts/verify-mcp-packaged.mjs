@@ -1,33 +1,46 @@
 import { createHash } from "node:crypto";
-import { copyFile, lstat, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, lstat, mkdir, mkdtemp, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { stagePublishedPackage } from "./publish-package-lib.mjs";
+import { getNpmCommand } from "./npm-command-lib.mjs";
 import { takeBootstrappedReleaseMetadataToken, operatorToolFailureDiagnostic } from "./operator-tool-packaging-lib.mjs";
 import {
   MCP_PRODUCT_EVIDENCE_CONTRACT,
   parsePackagedAcceptanceFailure,
   runCommand,
+  owningResourceObservations,
+  relayOwningResourceObservations,
+  ownedCommandStderr,
   runCommandFailureKind,
   validateMcpProductEvidence,
 } from "./mcp-product-acceptance-lib.mjs";
 
 import { dependencyAcquisitionReceipt, packagedVerificationDiagnostic } from "./packaged-verification-diagnostics.mjs";
+import { ownedTempCleanupObservation, removeOwnedTempRoot } from "./owned-temp-cleanup.mjs";
 
+const allocateResource = owningResourceObservations("verifier");
+const candidateObservation = allocateResource("candidate_command");
+const provenanceObservations = Array.from({ length: 4 }, () => allocateResource("provenance_command"));
+const packObservation = allocateResource("pack_command");
+const stageLockObservation = allocateResource("stage_lock");
+const installObservation = allocateResource("install_command");
+const consumerObservation = allocateResource("consumer_command");
+let provenanceOrdinal = 0;
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const platform = process.platform;
 const releaseMetadataToken = takeBootstrappedReleaseMetadataToken();
-const configuredNpmEntrypoint = process.env.SERVICE_LASSO_NPM_ENTRYPOINT?.trim() || process.env.npm_execpath?.trim();
-const npmEntrypoint = configuredNpmEntrypoint || (process.platform === "win32"
-  ? path.join(path.dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js")
-  : path.resolve(path.dirname(process.execPath), "..", "lib", "node_modules", "npm", "bin", "npm-cli.js"));
+const npmEntrypoint = process.platform === "win32"
+  ? getNpmCommand([]).args[0]
+  : (process.env.SERVICE_LASSO_NPM_ENTRYPOINT?.trim() || process.env.npm_execpath?.trim()
+    || path.resolve(path.dirname(process.execPath), "..", "lib", "node_modules", "npm", "bin", "npm-cli.js"));
 try { await stat(npmEntrypoint); } catch { throw new Error("Packaged MCP acceptance could not resolve the governed npm entrypoint."); }
 
 async function exactCandidateSha() {
   const configured = process.env.CANDIDATE_SHA?.trim().toLowerCase();
   if (configured) return configured;
-  return (await runCommand("git", ["rev-parse", "HEAD"], { cwd: repoRoot })).stdout.trim().toLowerCase();
+  return (await runCommand("git", ["rev-parse", "HEAD"], { cwd: repoRoot, resourceObservation: candidateObservation })).stdout.trim().toLowerCase();
 }
 
 async function requirePathAbsent(candidatePath, label) {
@@ -75,7 +88,7 @@ async function runWindowsProvenanceVerifier(scriptName, label, scriptArgs = []) 
       path.join(repoRoot, "scripts", scriptName),
       ...scriptArgs,
     ],
-    { cwd: repoRoot, timeoutMs: 60_000 },
+    { cwd: repoRoot, timeoutMs: 60_000, resourceObservation: provenanceObservations[provenanceOrdinal++] },
   );
   process.stderr.write(`[mcp-package-provenance:${label}] ${verification.stdout.trim()}\n`);
 }
@@ -111,20 +124,6 @@ function isolatedConsumerEnvironment(overrides) {
     ? { PSModulePath: path.join(process.env.SystemRoot, "System32", "WindowsPowerShell", "v1.0", "Modules") }
     : {};
   return { ...environment, ...platformEnvironment, ...overrides };
-}
-
-async function removeOwnedTempRoot(tempRoot) {
-  for (let attempt = 1; attempt <= 8; attempt += 1) {
-    try {
-      await rm(tempRoot, { recursive: true, force: true });
-      return;
-    } catch (error) {
-      if (!error || typeof error !== "object" || !["EBUSY", "ENOTEMPTY", "EPERM"].includes(error.code) || attempt === 8) {
-        throw error;
-      }
-      await new Promise((resolve) => setTimeout(resolve, attempt * 100));
-    }
-  }
 }
 
 async function writeCanonicalService(servicesRoot) {
@@ -227,7 +226,7 @@ try {
   ]);
   const serviceId = await writeCanonicalService(servicesRoot);
   verificationStage = "package_staging";
-  const staged = await stagePublishedPackage({ repoRoot, outputRoot: packageOutputRoot, version, releaseMetadataToken });
+  const staged = await stagePublishedPackage({ repoRoot, outputRoot: packageOutputRoot, version, releaseMetadataToken, resourceObservation: packObservation, stageLockObservation });
   const packageArchiveBytes = await readFile(staged.packageArchivePath);
   const packageArchiveSha256 = createHash("sha256").update(packageArchiveBytes).digest("hex");
   await writeFile(path.join(consumerRoot, "package.json"), `${JSON.stringify({ private: true, type: "module" }, null, 2)}\n`);
@@ -242,7 +241,7 @@ try {
     staged.packageArchivePath,
     "@modelcontextprotocol/inspector@2.4.0",
     `@modelcontextprotocol/sdk@${pinnedSdkVersion}`,
-  ], { cwd: consumerRoot, timeoutMs: 300_000 });
+  ], { cwd: consumerRoot, timeoutMs: 300_000, resourceObservation: installObservation });
   verificationStage = "installed_package_binding";
   const installedRoot = path.join(consumerRoot, "node_modules", "@service-lasso", "service-lasso");
   const installedManifest = JSON.parse(await readFile(path.join(installedRoot, "package.json"), "utf8"));
@@ -344,6 +343,7 @@ try {
     runnerResult = await runCommand(process.execPath, [...permissionOptions, consumerRunnerPath], {
       cwd: consumerRoot,
       timeoutMs: 900_000,
+      resourceObservation: consumerObservation,
       env: isolatedConsumerEnvironment({
         NODE_OPTIONS: permissionOptions.join(" "),
         MCP_PACKAGE_ACCEPTANCE_CONFIGURATION: JSON.stringify({
@@ -360,11 +360,14 @@ try {
         MCP_PACKAGE_ACCEPTANCE_FORBIDDEN_SOURCE_ROOT: repoRoot,
       }),
     });
+    relayOwningResourceObservations(runnerResult.stderr);
     if (runnerResult.closeObserved !== true) {
       throw new Error("Fresh-consumer MCP acceptance runner did not reach a closed subprocess boundary.");
     }
   } catch (error) {
-    const runner = parsePackagedAcceptanceFailure(error?.stderr);
+    const stderr = ownedCommandStderr(error);
+    relayOwningResourceObservations(stderr);
+    const runner = parsePackagedAcceptanceFailure(stderr);
     const safe = new Error("Fresh-consumer MCP acceptance failed safely.");
     safe.packagedAcceptanceDiagnostic = {
       stage: "consumer_runner",
@@ -426,10 +429,12 @@ try {
 } finally {
   try {
     await removeOwnedTempRoot(tempRoot);
-  } catch {
+  } catch (error) {
+    const cleanup = ownedTempCleanupObservation(error);
     verificationFailure = {
       stage: "temp_cleanup",
       errorCode: "cleanup_failed",
+      ...(cleanup ? { cleanup } : {}),
       ...(verificationFailure
         ? {
             verificationStage: verificationFailure.stage,

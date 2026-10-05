@@ -19,7 +19,7 @@ async function assertPackedOperatorTools(result, fixture, snapshotRoot) {
   await tar.extract({ file: result.packageArchivePath, cwd: snapshotRoot });
   const extractedRoot = path.join(snapshotRoot, "package", "operator-tools");
   const manifest = JSON.parse(await readFile(path.join(extractedRoot, "manifest.json"), "utf8"));
-  assert.equal(manifest.schemaVersion, "service-lasso.operator-tools.v1");
+  assert.equal(manifest.schemaVersion, "service-lasso.operator-tools.v2");
   assert.equal(manifest.tools.length, 2);
   const cli = manifest.tools.find((tool) => tool.command === "service-lassoctl");
   const tui = manifest.tools.find((tool) => tool.command === "service-lasso-tui");

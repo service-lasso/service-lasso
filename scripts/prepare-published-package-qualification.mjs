@@ -1,4 +1,7 @@
 import { spawn } from "node:child_process";
+import { getNpmCommand } from "./npm-command-lib.mjs";
+import { validInitialProjection } from "./public-first-custody-projection-lib.mjs";
+import { strictJson } from "./consume-admin-trusted-unlock-receipt.mjs";
 import { createWriteStream } from "node:fs";
 import {
   access,
@@ -134,14 +137,9 @@ async function downloadReleaseAsset(asset, target, token, label) {
   );
 }
 
-function quoteWindows(value) {
-  if (/^[A-Za-z0-9_./:=@\\-]+$/u.test(value)) return value;
-  return `"${value.replaceAll('"', '""')}"`;
-}
-
 function runCommand(command, args, options = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"], ...options });
+    const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"], ...options, shell: false, windowsVerbatimArguments: false });
     let stdout = "";
     let stderr = "";
     child.stdout?.on("data", (chunk) => { stdout += chunk.toString(); });
@@ -155,9 +153,8 @@ function runCommand(command, args, options = {}) {
 }
 
 function runNpm(args, options = {}) {
-  if (process.platform !== "win32") return runCommand("npm", args, options);
-  const commandLine = ["npm.cmd", ...args].map(quoteWindows).join(" ");
-  return runCommand(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", commandLine], options);
+  const descriptor = getNpmCommand(args);
+  return runCommand(descriptor.command, descriptor.args, options);
 }
 
 /**
@@ -637,6 +634,12 @@ const privateStatePath = path.resolve(requiredEnv("QUALIFICATION_PRIVATE_STATE_P
 const runId = requiredEnv("GITHUB_RUN_ID", /^[1-9][0-9]*$/u);
 const runAttempt = requiredEnv("GITHUB_RUN_ATTEMPT", /^[1-9][0-9]*$/u);
 const workflowSha = requireSha(requiredEnv("GITHUB_SHA"), "GITHUB_SHA");
+const candidateSha = requireSha(requiredEnv("QUALIFICATION_CANDIDATE_SHA"), "QUALIFICATION_CANDIDATE_SHA");
+const initialProjectionSource = await readFile(path.resolve(requiredEnv("QUALIFICATION_INITIAL_PROJECTION_PATH")), "utf8").catch(() => null);
+const initialProjection = initialProjectionSource && strictJson(initialProjectionSource) ? JSON.parse(initialProjectionSource) : null;
+if (candidateSha !== workflowSha || !validInitialProjection(initialProjection, platform, runId, runAttempt, workflowSha)) {
+  fail("initial_projection_custody_invalid", "Initial qualification projection custody is invalid.");
+}
 
 if (coreNpmVersion !== coreTag || !coreTag.endsWith(coreRevision.slice(0, 7))) {
   fail("core_publication_identity_mismatch", "Core release, npm version, and target revision are not one identity.");
@@ -652,6 +655,7 @@ const safeState = {
   retainedContent: "metadata_only",
   outcome: "failure",
   platform,
+  firstCustody: initialProjection,
   core: {
     releaseId: coreReleaseId,
     tag: coreTag,

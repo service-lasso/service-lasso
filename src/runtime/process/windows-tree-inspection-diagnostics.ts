@@ -32,7 +32,20 @@ const depthBuckets = new Set(["one", "two_to_four", "five_plus"]);
 const commandQueryHeldHandleStates = new Set(["still_active_or_259", "exit_query_failed"]);
 const commandQueryArchitectureRelations = new Set(["same", "cross", "unknown"]);
 
-export type WindowsTreeInspectionMetadata = Record<string, string | number | boolean | null>;
+// SPEC-002 AC-4BH.3: common fourteen keys plus exactly one reason-bound group.
+// The output type is closed as well as the runtime projection: new fields require
+// explicit contract review rather than an unrestricted string index signature.
+type WindowsTreeInspectionMetadataKey =
+  | "windowsTreeInspectionPhase" | "windowsTreeInspectionAttempts" | "windowsTreeInspectionRetries"
+  | "windowsTreeInspectionQueueMs" | "windowsTreeInspectionNativeMs" | "windowsTreeInspectionLastRetry"
+  | "windowsTreeInspectionNativeHelperSpawned" | "windowsTreeInspectionNativeHelperExited"
+  | "windowsTreeInspectionNativeHelperStdioClosed" | "windowsTreeInspectionNativeResultCompleted"
+  | "windowsTreeInspectionNativeSpawnWaitMs" | "windowsTreeInspectionNativeWorkMs"
+  | "windowsTreeInspectionNativeStdioCloseMs" | "windowsTreeInspectionNativeResultCompletionMs"
+  | "windowsTreeInspectionParentBirthRelation" | "windowsTreeInspectionChildBirthRelation"
+  | "windowsTreeInspectionRootFingerprintMatch" | "windowsTreeInspectionAncestryDepthBucket"
+  | "windowsTreeInspectionCommandQueryHeldHandleState" | "windowsTreeInspectionCommandQueryArchitectureRelation";
+export type WindowsTreeInspectionMetadata = Partial<Record<WindowsTreeInspectionMetadataKey, string | number | boolean | null>>;
 
 const boundedInteger = (value: unknown, maximum: number): number | null =>
   typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= maximum ? value : null;
@@ -81,6 +94,8 @@ export function projectWindowsTreeInspectionMetadata(value: unknown): WindowsTre
     }
     const commandQueryHeldHandleState = metadata.windowsTreeInspectionCommandQueryHeldHandleState;
     const commandQueryArchitectureRelation = metadata.windowsTreeInspectionCommandQueryArchitectureRelation;
+    // Optional as a pair: the producer omits stale receipts. Reprojection must
+    // never reconstruct them from a historical last-retry category.
     if (
       (reason === "root_command_partial_copy" || reason === "descendant_command_partial_copy") &&
       typeof commandQueryHeldHandleState === "string" && commandQueryHeldHandleStates.has(commandQueryHeldHandleState) &&

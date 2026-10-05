@@ -1,3 +1,4 @@
+import { observeFixtureStartupPath } from "../startup/fixture-path-observation.js";
 import path from "node:path";
 import { inspectKnownWindowsTreeMembers } from "../process/windows-tree-control-snapshot.js";
 import {
@@ -211,6 +212,9 @@ interface ManagedProcessRecord {
   rootIdentity: ProcessFingerprint | null;
   processGroup: ProcessOwnershipEntry["processGroup"];
   knownTreeMembers: ProcessFingerprint[];
+  fixtureCustodyMembers?: ProcessFingerprint[];
+  fixtureExcludedMemberPids?: Set<number>;
+  fixtureAcceptedMembers?: ProcessFingerprint[];
   verifiedMembersOnly?: boolean;
   excludedTreeMemberPids: Set<number>;
   treeMonitorPromise: Promise<void>;
@@ -236,6 +240,9 @@ interface AdoptedProcessRecord {
   rootIdentity: ProcessFingerprint;
   processGroup: ProcessOwnershipEntry["processGroup"];
   knownTreeMembers: ProcessFingerprint[];
+  fixtureCustodyMembers?: ProcessFingerprint[];
+  fixtureExcludedMemberPids?: Set<number>;
+  fixtureAcceptedMembers?: ProcessFingerprint[];
   verifiedMembersOnly?: boolean;
   excludedTreeMemberPids: Set<number>;
   monitorAbortController: AbortController;
@@ -353,7 +360,9 @@ let managedProcessRootInspector: (
 ) => Promise<ProcessInspection> = inspectProcess;
 let managedWindowsTreeInspector = inspectWindowsProcessTree;
 let managedProcessEnrollmentHook:
-  ((child: ChildProcess) => Promise<void> | void) | null = null;
+  { enroll: ((child: ChildProcess) => Promise<void> | void) | null;
+    custody?: (serviceId: string, read: () => ProcessFingerprint[]) => void;
+    custodyFailure?: () => void } | null = null;
 let managedProcessFilesBoundHook: (() => Promise<void> | void) | null = null;
 let managedProcessAfterReleaseHook: (() => Promise<void> | void) | null = null;
 let managedProcessLaunchStateRemover = removeWindowsManagedLaunchStateDirectory;
@@ -414,13 +423,18 @@ export function setManagedProcessRootInspectorForTests(
 
 export function setManagedProcessEnrollmentHookForTests(
   hook: ((child: ChildProcess) => Promise<void> | void) | null,
+  custody?: (serviceId: string, read: () => ProcessFingerprint[]) => void,
+  custodyFailure?: () => void,
 ): void {
   if (process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS !== "1") {
     throw new Error(
       "Managed process-enrollment test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.",
     );
   }
-  managedProcessEnrollmentHook = hook;
+  if (custody && !custodyFailure) {
+    throw new Error("Fixture custody observers require a closed failure recorder.");
+  }
+  managedProcessEnrollmentHook = hook || custody ? { enroll: hook, custody, custodyFailure } : null;
 }
 
 export function setManagedProcessFilesBoundHookForTests(
@@ -1894,7 +1908,7 @@ async function verifyNativeAcknowledgementFinalContainment(
   // The final tree is a receipt for this acknowledgement, not a refresh of an
   // earlier snapshot.  Its root result and the retained ChildProcess handle
   // must independently agree that the managed wrapper exited.
-  const finalTree = await managedWindowsTreeInspector(rootIdentity, {
+  const finalTree = await inspectFixtureTree(record, rootIdentity, {
     deadlineMs,
     signal,
   });
@@ -1911,7 +1925,8 @@ async function verifyNativeAcknowledgementFinalContainment(
     record.knownTreeMembers,
     finalTree.members,
   );
-  record.knownTreeMembers = members;
+  retainFixtureMembers(record, members);
+  record.knownTreeMembers = restrictControlMembers(record, members);
   for (const member of members) {
     const inspection = await managedProcessRootInspector(member.pid, {
       deadlineMs,
@@ -1945,6 +1960,7 @@ async function terminateManagedProcessTree(
   rootExitObserved = false,
   retryAfterSharedFailure = false,
   deadlineMs = record.stopDeadlineMs ?? processControlDeadline(timeoutMs),
+  options: { newWindowsInspectionEpisode?: boolean } = {},
 ): Promise<ProcessTreeTerminationResult> {
   let retryAvailable = retryAfterSharedFailure;
   while (true) {
@@ -1977,10 +1993,14 @@ async function terminateManagedProcessTree(
           >[2] = { deadlineMs, signal };
           if (
             process.platform === "win32" &&
-            (rootExitObserved || record.verifiedMembersOnly) &&
             record.rootIdentity &&
-            record.knownTreeMembers.length > 0
+            (options.newWindowsInspectionEpisode ||
+              ((rootExitObserved || record.verifiedMembersOnly) &&
+                record.knownTreeMembers.length > 0))
           ) {
+            // Explicit operator/request-context stops need a fresh shared
+            // receipt even for a live unfiltered record. Snapshot acquisition
+            // and control share this caller's original deadline and signal.
             const snapshot = await inspectKnownWindowsTreeMembers(
               record.rootIdentity,
               record.knownTreeMembers,
@@ -1988,12 +2008,13 @@ async function terminateManagedProcessTree(
               signal,
               record.verifiedMembersOnly,
               {
-                inspectTree: managedWindowsTreeInspector,
+                inspectTree: (root, options) => inspectFixtureTree(record, root, options),
                 excludedMemberPids: record.excludedTreeMemberPids,
               },
             );
             record.verifiedMembersOnly ||= snapshot.verifiedMembersOnly;
-            record.knownTreeMembers = snapshot.members;
+            retainFixtureMembers(record, snapshot.members);
+            record.knownTreeMembers = restrictControlMembers(record, snapshot.members);
             dependencies.inspectProcess = snapshot.inspectProcess;
           }
           return await managedProcessTreeTerminator(
@@ -2063,7 +2084,7 @@ async function refreshAdoptedProcessTreeMembers(
   options: { deadlineMs?: number; signal?: AbortSignal } = {},
 ): Promise<void> {
   if (process.platform === "win32") {
-    const inspection = await managedWindowsTreeInspector(
+    const inspection = await inspectFixtureTree(record,
       record.rootIdentity,
       options,
     );
@@ -2076,7 +2097,8 @@ async function refreshAdoptedProcessTreeMembers(
     for (const pid of inspection.excludedMemberPids ?? []) {
       record.excludedTreeMemberPids.add(pid);
     }
-    record.knownTreeMembers = inspection.members.filter((member) => !record.excludedTreeMemberPids.has(member.pid));
+    retainFixtureMembers(record, inspection.members.filter((member) => !record.excludedTreeMemberPids.has(member.pid)));
+    record.knownTreeMembers = restrictControlMembers(record, inspection.members);
     return;
   }
   const members = await captureOwnedProcessTreeMembers(
@@ -2088,7 +2110,8 @@ async function refreshAdoptedProcessTreeMembers(
     options,
   );
   if (members.length > 0) {
-    record.knownTreeMembers = members;
+    retainFixtureMembers(record, members);
+    record.knownTreeMembers = restrictControlMembers(record, members);
   }
 }
 
@@ -2125,7 +2148,7 @@ async function monitorManagedProcessTree(
           `Managed process "${serviceId}" has no verified root identity.`,
         );
       }
-      const inspection = await managedWindowsTreeInspector(
+      const inspection = await inspectFixtureTree(record,
         record.rootIdentity,
         {
           deadlineMs: Date.now() + WINDOWS_TREE_MONITOR_INSPECTION_TIMEOUT_MS,
@@ -2137,7 +2160,10 @@ async function monitorManagedProcessTree(
         record.excludedTreeMemberPids.add(pid);
       }
       if (inspection.members.length > 0) {
-        record.knownTreeMembers = inspection.members.filter((member) => !record.excludedTreeMemberPids.has(member.pid));
+        if (inspection.rootStatus === "owned" && probeManagedChildHandle(record.child) === "owned") {
+          retainFixtureMembers(record, inspection.members.filter((member) => !record.excludedTreeMemberPids.has(member.pid)));
+        }
+        record.knownTreeMembers = restrictControlMembers(record, inspection.members);
       }
     } catch {
       // Process inspection can fail transiently; retain the last verified snapshot.
@@ -2176,10 +2202,14 @@ async function finalizeAdoptedProcessExit(
             deadlineMs,
             signal,
             record.verifiedMembersOnly,
-            { inspectTree: managedWindowsTreeInspector },
+            {
+              inspectTree: (root, options) => inspectFixtureTree(record, root, options),
+              excludedMemberPids: record.excludedTreeMemberPids,
+            },
           );
           record.verifiedMembersOnly ||= snapshot.verifiedMembersOnly;
-          record.knownTreeMembers = snapshot.members;
+          retainFixtureMembers(record, snapshot.members);
+          record.knownTreeMembers = restrictControlMembers(record, snapshot.members);
           dependencies.inspectProcess = snapshot.inspectProcess;
         }
         return await managedProcessTreeTerminator(
@@ -2363,6 +2393,18 @@ export async function beginManagedProcessStop(
 export async function adoptManagedProcess(
   options: AdoptManagedProcessOptions,
 ): Promise<ManagedProcessHandle> {
+  observeFixtureStartupPath("action", "adopt", options.service.manifest.id);
+  try {
+    const result = await adoptManagedProcessInternal(options);
+    observeFixtureStartupPath("outcome", "adopted", options.service.manifest.id);
+    return result;
+  } catch (error) {
+    observeFixtureStartupPath("outcome", "failed", options.service.manifest.id);
+    throw error;
+  }
+}
+
+async function adoptManagedProcessInternal(options: AdoptManagedProcessOptions): Promise<ManagedProcessHandle> {
   const { service, pid, startedAt, command, workspaceRoot } = options;
   const serviceId = service.manifest.id;
 
@@ -2410,6 +2452,8 @@ export async function adoptManagedProcess(
     excludedTreeMemberPids: new Set<number>(),
     monitorAbortController: new AbortController(),
   };
+  observeFixtureStartupPath("enrollment", "adopted", serviceId);
+  observeFixtureRecord(record);
   await refreshAdoptedProcessTreeMembers(record);
   adoptedProcesses.set(serviceId, record);
   trackManagedProcessFinalizer(
@@ -2638,6 +2682,8 @@ export async function startManagedProcess(
     logCapturePromise: Promise.resolve(),
     finalizePromise: Promise.resolve(),
   };
+  observeFixtureStartupPath("enrollment", "managed", serviceId);
+  observeFixtureRecord(record);
   attachRuntimeLogCapture(record);
 
   let managedRecordActivated = false;
@@ -2724,7 +2770,7 @@ export async function startManagedProcess(
       "ownership_enrollment";
     try {
       startFailurePhase = "ownership_enrollment";
-      await managedProcessEnrollmentHook?.(child);
+      await managedProcessEnrollmentHook?.enroll?.(child);
       const network = buildServiceNetwork(
         service,
         sharedGlobalEnv,
@@ -2756,6 +2802,7 @@ export async function startManagedProcess(
           }
           rootIdentity = identity;
           record.rootIdentity = identity;
+          retainFixtureMembers(record, [identity]);
           return true;
         },
       });
@@ -2766,16 +2813,19 @@ export async function startManagedProcess(
       }
       rootIdentity = ownership.identity;
       record.rootIdentity = ownership.identity;
+      if (process.platform !== "win32" || probeManagedChildHandle(child) === "owned") {
+        retainFixtureMembers(record, [ownership.identity]);
+      }
       if (process.platform === "win32") {
         startFailurePhase = "initial_tree_inspection";
-        const initialTree = await managedWindowsTreeInspector(
+        const initialTree = await inspectFixtureTree(record,
           ownership.identity,
           {
             deadlineMs: Date.now() + WINDOWS_TREE_MONITOR_INSPECTION_TIMEOUT_MS,
           },
         );
         record.verifiedMembersOnly ||= initialTree.verifiedMembersOnly;
-        record.knownTreeMembers = initialTree.members;
+        record.knownTreeMembers = restrictControlMembers(record, initialTree.members);
         if (
           initialTree.rootStatus !== "owned" ||
           probeManagedChildHandle(child) !== "owned"
@@ -2784,6 +2834,7 @@ export async function startManagedProcess(
             `Cannot start managed process "${serviceId}": root exited during ownership enrollment.`,
           );
         }
+        retainFixtureMembers(record, initialTree.members);
         if (windowsManagedLaunchState) {
           startFailurePhase = "launch_file_binding";
           try {
@@ -2852,18 +2903,18 @@ export async function startManagedProcess(
         startFailurePhase = "stabilization_delay";
         await adoptedProcessPollDelay(undefined);
         startFailurePhase = "stabilized_tree_inspection";
-        const stabilizedTree = await managedWindowsTreeInspector(
+        const stabilizedTree = await inspectFixtureTree(record,
           ownership.identity,
           {
             deadlineMs: Date.now() + WINDOWS_TREE_MONITOR_INSPECTION_TIMEOUT_MS,
           },
         );
         record.verifiedMembersOnly ||= stabilizedTree.verifiedMembersOnly;
-        const excluded = new Set(stabilizedTree.excludedMemberPids ?? []);
-        record.knownTreeMembers = mergeProcessFingerprints(
+        const excluded = record.excludedTreeMemberPids;
+        record.knownTreeMembers = restrictControlMembers(record, mergeProcessFingerprints(
           initialTree.members,
           stabilizedTree.members,
-        ).filter((member) => !excluded.has(member.pid));
+        ).filter((member) => !excluded.has(member.pid)));
         if (
           stabilizedTree.rootStatus !== "owned" ||
           probeManagedChildHandle(child) !== "owned"
@@ -2872,6 +2923,7 @@ export async function startManagedProcess(
             `Cannot start managed process "${serviceId}": root exited during ownership enrollment.`,
           );
         }
+        retainFixtureMembers(record, record.knownTreeMembers);
         startFailurePhase = "launch_state_cleanup";
         await removeWindowsManagedLaunchState(windowsManagedLaunchState);
         windowsManagedLaunchState = null;
@@ -2898,7 +2950,7 @@ export async function startManagedProcess(
           process.platform === "win32" &&
           record.knownTreeMembers.length === 0
         ) {
-          const emergencyTree = await managedWindowsTreeInspector(
+          const emergencyTree = await inspectFixtureTree(record,
             verifiedRootIdentity,
             {
               deadlineMs:
@@ -2907,7 +2959,10 @@ export async function startManagedProcess(
           ).catch(() => null);
           if (emergencyTree) {
             record.verifiedMembersOnly ||= emergencyTree.verifiedMembersOnly;
-            record.knownTreeMembers = emergencyTree.members;
+            if (emergencyTree.rootStatus === "owned" && probeManagedChildHandle(child) === "owned") {
+              retainFixtureMembers(record, emergencyTree.members);
+            }
+            record.knownTreeMembers = restrictControlMembers(record, emergencyTree.members);
           }
         }
         const rootStatus = probeManagedChildHandle(child);
@@ -2931,10 +2986,14 @@ export async function startManagedProcess(
                   containmentDeadlineMs,
                   signal,
                   record.verifiedMembersOnly,
-                  { inspectTree: managedWindowsTreeInspector },
+                  {
+                    inspectTree: (root, options) => inspectFixtureTree(record, root, options),
+                    excludedMemberPids: record.excludedTreeMemberPids,
+                  },
                 );
                 record.verifiedMembersOnly ||= snapshot.verifiedMembersOnly;
-                record.knownTreeMembers = snapshot.members;
+                retainFixtureMembers(record, snapshot.members);
+                record.knownTreeMembers = restrictControlMembers(record, snapshot.members);
                 dependencies.inspectProcess = snapshot.inspectProcess;
               }
               const target: Parameters<typeof managedProcessTreeTerminator>[0] =
@@ -3062,6 +3121,98 @@ export async function startManagedProcess(
   };
 }
 
+async function inspectFixtureTree(
+  record: ManagedProcessRecord | AdoptedProcessRecord,
+  ...args: Parameters<typeof inspectWindowsProcessTree>
+): Promise<Awaited<ReturnType<typeof inspectWindowsProcessTree>>> {
+  // Inspection is provisional. Only the caller's accepted assignment may
+  // augment fixture authority, after native/root/held-child/lifetime checks.
+  const inspection = await managedWindowsTreeInspector(...args);
+  record.verifiedMembersOnly ||= inspection.verifiedMembersOnly;
+  // These are native control restrictions, independent of fixture observers.
+  // Persist them before every caller can assign or assemble a control target.
+  for (const pid of inspection.excludedMemberPids ?? []) record.excludedTreeMemberPids.add(pid);
+  record.knownTreeMembers = record.knownTreeMembers.filter(member => !record.excludedTreeMemberPids.has(member.pid));
+  const allowedMembers = inspection.members.filter(member => !record.excludedTreeMemberPids.has(member.pid));
+  if (process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS === "1" || record.fixtureCustodyMembers) {
+    record.fixtureExcludedMemberPids ??= new Set();
+    for (const pid of inspection.excludedMemberPids ?? []) record.fixtureExcludedMemberPids.add(pid);
+  }
+  return { ...inspection, members: allowedMembers,
+    excludedMemberPids: [...record.excludedTreeMemberPids] };
+}
+
+function restrictControlMembers(
+  record: ManagedProcessRecord | AdoptedProcessRecord,
+  members: ProcessFingerprint[],
+): ProcessFingerprint[] {
+  if (process.platform !== "win32") return members;
+  return members.filter(member => !record.excludedTreeMemberPids.has(member.pid)).map(member => {
+    const expected = record.knownTreeMembers.find(prior => prior.pid === member.pid);
+    // Reject replacement authority for a conflicting lifetime. Keep the prior
+    // expected fingerprint so the next actual signal-time probe must refuse a
+    // recycled PID. This is control expectation, never a fresh running receipt.
+    return expected && classifyProcessIdentity(expected, { status: "running", identity: member }, process.platform) !== "owned"
+      ? expected : member;
+  });
+}
+
+function retainFixtureMembers(
+  record: ManagedProcessRecord | AdoptedProcessRecord,
+  members: ProcessFingerprint[],
+): void {
+  if (process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS === "1" || record.fixtureCustodyMembers) {
+    const accepted = members.filter((member) => !record.excludedTreeMemberPids.has(member.pid) &&
+      !record.fixtureExcludedMemberPids?.has(member.pid));
+    const prior = unionProcessFingerprints(record.fixtureCustodyMembers ?? record.fixtureAcceptedMembers ?? [],
+      record.rootIdentity ? [record.rootIdentity] : []);
+    // A rejected fingerprint never acquires authority. Earlier accepted
+    // lifetimes survive both production exclusion and record deletion.
+    const nonconflicting = accepted.filter((member) => !prior.some((expected) => expected.pid === member.pid &&
+      classifyProcessIdentity(expected, { status: "running", identity: member }, process.platform) !== "owned"));
+    // A conflicting A cannot discard independently accepted B. Earlier A stays
+    // in private history; the rejected new A never acquires authority.
+    record.fixtureAcceptedMembers = unionProcessFingerprints(prior, nonconflicting).map((member) => ({ ...member }));
+    if (record.fixtureCustodyMembers) {
+      record.fixtureCustodyMembers = unionProcessFingerprints(record.fixtureCustodyMembers, nonconflicting)
+        .map((member) => ({ ...member }));
+    }
+  }
+}
+
+function observeFixtureRecord(record: ManagedProcessRecord | AdoptedProcessRecord): void {
+  const observer = managedProcessEnrollmentHook?.custody;
+  if (process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS !== "1" || !observer) return;
+  record.fixtureCustodyMembers = record.rootIdentity ? [{ ...record.rootIdentity }] : [];
+  // Observers must not change enrollment, compensation or production control.
+  // The fixture's failure callback makes teardown fail closed without exposing
+  // the observer exception or interrupting production compensation.
+  try {
+    observer(record.service.manifest.id,
+      () => (record.fixtureCustodyMembers ?? []).map((member) => ({ ...member })));
+  } catch {
+    try { managedProcessEnrollmentHook?.custodyFailure?.(); } catch {
+      // Both callbacks are observational; runtime enrollment continues.
+    }
+  }
+}
+
+// Test-only private history. Each authoritative assignment has already appended
+// to this union; the reader retains that history across replacement/deletion.
+export function retainManagedProcessCustodyForTest(serviceId: string): () => ProcessFingerprint[] {
+  if (process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS !== "1") {
+    throw new Error("Managed custody test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
+  }
+  const record = managedProcesses.get(serviceId) ?? adoptedProcesses.get(serviceId);
+  if (record) {
+    record.fixtureCustodyMembers ??= [];
+    // A late reader can activate the last accepted fixture snapshot, never a
+    // provisional production assignment that a caller later rejected.
+    retainFixtureMembers(record, record.fixtureAcceptedMembers ?? []);
+  }
+  return () => record ? (record.fixtureCustodyMembers ?? []).map((member) => ({ ...member })) : [];
+}
+
 export async function stopManagedProcess(
   serviceId: string,
   timeoutMs = DEFAULT_MANAGED_PROCESS_STOP_TIMEOUT_MS,
@@ -3080,6 +3231,7 @@ export async function stopManagedProcess(
     false,
     false,
     deadlineMs,
+    options,
   );
   const result = await withProcessControlDeadline(
     async () => await record.exitPromise,
@@ -3171,10 +3323,14 @@ async function stopAdoptedProcess(
           deadlineMs,
           signal,
           record.verifiedMembersOnly,
-          { inspectTree: managedWindowsTreeInspector },
+          {
+            inspectTree: (root, options) => inspectFixtureTree(record, root, options),
+            excludedMemberPids: record.excludedTreeMemberPids,
+          },
         );
         record.verifiedMembersOnly ||= snapshot.verifiedMembersOnly;
-        record.knownTreeMembers = snapshot.members;
+        retainFixtureMembers(record, snapshot.members);
+        record.knownTreeMembers = restrictControlMembers(record, snapshot.members);
         terminationTarget = adoptedProcessTreeTarget(record);
         terminationDependencies.signal = signal;
         terminationDependencies.inspectProcess = snapshot.inspectProcess;

@@ -245,9 +245,11 @@ test("Release Qualification runs the Windows ConPTY probe without publication", 
 
 test("Windows ConPTY probe holds a controlled unavailable endpoint and continues cleanup after a stop failure", async () => {
   const source = await readFile(path.join(repoRoot, "scripts", "verify-operator-tui-conpty.mjs"), "utf8");
-  assert.match(source, /createServer\(/u);
-  assert.match(source, /response\.statusCode = 503/u);
-  assert.match(source, /"--mode", "unavailable", "--api-url", unavailableEndpoint\.url/u);
+  const endpoint = await readFile(path.join(repoRoot, "scripts", "operator-tui-conpty-endpoint.mjs"), "utf8");
+  assert.match(source, /import \{ createOwnedUnavailableEndpoint \} from "\.\/operator-tui-conpty-endpoint\.mjs"/u);
+  assert.match(endpoint, /createServer\(\(_request, response\) => response\.destroy\(\)\)/u);
+  assert.match(endpoint, /server\.listen\(0, "127\.0\.0\.1"/u);
+  assert.match(source, /runConptyHelper\(\{ helperPath, executable: tuiExecutable, mode: "unavailable", apiUrl: unavailableUrl, apiToken: unavailableToken \}\)/u);
   assert.match(source, /\(\) => apiServer\?\.stop\(\)/u);
   assert.match(source, /\(\) => rm\(tempRoot, \{ recursive: true, force: true \}\)/u);
   assert.match(source, /cleanupFailures\.length && !primaryFailure/u);
