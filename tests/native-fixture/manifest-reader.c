@@ -100,6 +100,7 @@ int f7_decode_manifest(const uint8_t *bytes,size_t length,struct f7_decoded_mani
  if(!bytes||!length||length>F7_SEGMENT_MAX||!o||!o->members||!o->member_capacity||
     o->member_capacity>F7_OBJECT_MAX||!o->segments||!o->segment_capacity||o->segment_capacity>=F7_OBJECT_MAX||
     (o->unavailable_capacity&&!o->unavailable)||o->unavailable_capacity>F7_OBJECT_MAX)return F7_INVALID;
+ if(o->parse_started||o->member_count||o->segment_count||o->unavailable_count)return F7_CONFLICT;
  /* Reject overlap before resetting any parsed prefix or writing a table. */
  struct span {uintptr_t address;size_t length;};
  struct span spans[]={{(uintptr_t)bytes,length},{(uintptr_t)o,sizeof(*o)},
@@ -111,7 +112,7 @@ int f7_decode_manifest(const uint8_t *bytes,size_t length,struct f7_decoded_mani
   for(size_t j=0;j<i;j++)if(!separate(spans[i].address,spans[i].length,
     spans[j].address,spans[j].length))return F7_CONFLICT;
  }
- o->member_count=0;o->segment_count=0;o->unavailable_count=0;
+ o->parse_started=1;
  literal(&c,"{\"admission_sha256\":");hex(&c,o->admission,32,1);literal(&c,",\"attempt\":");hex(&c,o->attempt,32,1);
  literal(&c,",\"attempt_ordinal\":");o->attempt_ordinal=number(&c);
  literal(&c,",\"budgets\":{\"derivation_sha256\":");hex(&c,o->budgets.derivation_sha256,32,1);

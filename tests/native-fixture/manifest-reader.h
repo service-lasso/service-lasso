@@ -22,6 +22,8 @@ struct f7_decoded_manifest {
  struct f7_decoded_member *members;size_t member_capacity,member_count;
  struct f7_manifest_segment *segments;size_t segment_capacity,segment_count;
  struct f7_manifest_unavailable *unavailable;size_t unavailable_capacity,unavailable_count;
+ /* Fresh caller-owned state is consumed once, including failed parsing. */
+ int parse_started;
 };
 int f7_decode_manifest(const uint8_t *bytes,size_t length,struct f7_decoded_manifest *out);
 #ifdef __cplusplus
