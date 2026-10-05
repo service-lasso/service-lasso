@@ -52,6 +52,13 @@ typedef struct ConptyWriteOwner {
   unsigned observations;
   ConptyObservation ledger[10];
 } ConptyWriteOwner;
+typedef struct BootstrapObservation {
+  struct BootstrapObservation* next;
+  const char* site;
+  ULONG_PTR original;
+  DWORD ordinal, result, status;
+  int kind, failure;
+} BootstrapObservation;
 typedef struct {
   HANDLE pipe;
   HANDLE job;
@@ -82,8 +89,10 @@ typedef struct {
   int releaseFailed;
   /* Enclosing bootstrap ownership exists with or without ConPTY opt-in.
    * Return value and error are separate: NTSTATUS never uses GetLastError. */
-  struct { const char* site; ULONG_PTR original; DWORD ordinal, result, status;
-    int kind, failure; } bootstrap[256];
+  BootstrapObservation* bootstrapHead;
+  BootstrapObservation* bootstrapTail;
+  BootstrapObservation pendingBootstrap;
+  int pendingBootstrapOwned, bootstrapAllocationFailed;
   unsigned bootstrapCount;
   BCRYPT_ALG_HANDLE hashProvider;
   BCRYPT_HASH_HANDLE hashHandle;
@@ -101,12 +110,27 @@ enum { BOOTSTRAP_RESULT_WIN32 = 1, BOOTSTRAP_RESULT_NTSTATUS = 2,
   BOOTSTRAP_RESULT_VALUE = 3, BOOTSTRAP_RESULT_HEAP = 4 };
 static void ObserveBootstrap(ConptyControl* control, const char* site, ULONG_PTR original,
     DWORD result, DWORD status, int kind, int failure) {
-  if (control->bootstrapCount >= _countof(control->bootstrap)) { for (;;) Sleep(INFINITE); }
-  unsigned index = control->bootstrapCount++;
-  control->bootstrap[index].site = site; control->bootstrap[index].original = original;
-  control->bootstrap[index].ordinal = index; control->bootstrap[index].result = result;
-  control->bootstrap[index].status = status; control->bootstrap[index].kind = kind;
-  control->bootstrap[index].failure = failure;
+  /* Process-lifetime observation owners follow the existing read/write ledger
+   * architecture. No arbitrary roster cap restricts ordinary environment or
+   * partial-file-read success. Before allocation the original result itself is
+   * already held in the invocation, so allocation failure cannot erase it. */
+  BootstrapObservation* pending = &control->pendingBootstrap;
+  pending->next = NULL; pending->site = site; pending->original = original;
+  pending->ordinal = control->bootstrapCount; pending->result = result;
+  pending->status = status; pending->kind = kind; pending->failure = failure;
+  control->pendingBootstrapOwned = 1;
+  BootstrapObservation* record = (BootstrapObservation*)HeapAlloc(GetProcessHeap(),HEAP_ZERO_MEMORY,sizeof(*record));
+  if (record == NULL) {
+    /* HeapAlloc has no GetLastError contract. Strong original pending owner
+     * and every existing resource remain live; do not retry or start cleanup. */
+    control->bootstrapAllocationFailed = 1;
+    for (;;) Sleep(INFINITE);
+  }
+  *record = *pending;
+  if (control->bootstrapTail) control->bootstrapTail->next = record;
+  else control->bootstrapHead = record;
+  control->bootstrapTail = record; ++control->bootstrapCount;
+  control->pendingBootstrapOwned = 0;
   if (failure) InterlockedExchange(&control->failed,1);
 }
 

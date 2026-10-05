@@ -10,13 +10,13 @@
 #undef wmain
 static int CountOriginalBootstrapSite(ConptyControl* owner, const char* site) {
   int count = 0;
-  for (unsigned i = 0; i < owner->bootstrapCount; i++)
-    if (strcmp(owner->bootstrap[i].site,site) == 0) ++count;
+  for (BootstrapObservation* row = owner->bootstrapHead; row; row = row->next)
+    if (strcmp(row->site,site) == 0) ++count;
   return count;
 }
 static int OriginalBootstrapSiteFailed(ConptyControl* owner, const char* site) {
-  for (unsigned i = 0; i < owner->bootstrapCount; i++)
-    if (strcmp(owner->bootstrap[i].site,site) == 0) return owner->bootstrap[i].failure;
+  for (BootstrapObservation* row = owner->bootstrapHead; row; row = row->next)
+    if (strcmp(row->site,site) == 0) return row->failure;
   return 0;
 }
 /* Actual wmain delegates its entire body here, without injected handles or

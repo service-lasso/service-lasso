@@ -98,3 +98,12 @@ Author source inspection and Git diff --check are source hygiene only. No parser
 syntax/compiler/crypto/environment/helper/native/test execution has occurred.
 Source corrections await DIFFERENT ENTIRE cumulative review and NEW full ROOT
 admission, preserving old images/pins and every direct-qualification limit.
+
+Author self-review correction: original native observations use linked strong
+process-lifetime owners, matching existing read/write ledgers, instead of imposing
+an arbitrary environment/partial-read observation count cap. Before HeapAlloc,
+the original API result/site/status/ordinal/object is retained in the invocation's
+pending slot; allocation failure has explicit non-GetLastError disposition and
+retains that same pending original plus every resource without retry/cleanup.
+Successful records remain strongly owned until original bootstrap process exit;
+no new per-record HeapFree or early evidence retirement is introduced.
