@@ -98,6 +98,9 @@ struct f7_original_allocation_observation {
     uint64_t actual_charge; int actual_charge_known;
     size_t allocation_extent; int allocation_extent_known;
     size_t logical_bytes, copied_prefix; int logical_bytes_known;
+    uint64_t protection_copy_offset, protection_copy_length;
+    size_t release_readback_fact_begin, release_readback_fact_end;
+    int release_readback_complete, release_transition_attempted;
 #ifdef _WIN32
     PSECURITY_DESCRIPTOR original_sd;
     HLOCAL original_release_input, original_release_result;
@@ -119,8 +122,18 @@ struct f7_original_member_storage {
     size_t allocation_capacity;
     struct f7_member *original_protection_copy_member;
     f7_handle original_protection_copy_read;
+    struct f7_original_bytes original_held_release_binding;
     const struct f7_original_allocator_envelope *original_allocator;
     uint64_t original_absolute_deadline;
+};
+enum f7_original_member_phase {
+    F7_ORIGINAL_MEMBER_NOT_STARTED=0, F7_ORIGINAL_MEMBER_OBSERVING=1,
+    F7_ORIGINAL_MEMBER_ADOPTED_OBSERVATION_COMPLETE_RELEASE_PENDING=2,
+    F7_ORIGINAL_MEMBER_PROTECTION_PERSISTING=3,
+    F7_ORIGINAL_MEMBER_RELEASE_READBACK_COMPLETE_PENDING=4,
+    F7_ORIGINAL_MEMBER_RELEASE_FAILED_RETAINED=5,
+    F7_ORIGINAL_MEMBER_RELEASE_COMPLETE=6,
+    F7_ORIGINAL_MEMBER_INCOMPLETE_RETAINED=7
 };
 struct f7_original_member_observation {
     f7_handle original_object;
@@ -128,7 +141,9 @@ struct f7_original_member_observation {
     size_t call_count, allocation_count;
     size_t raw_input_used, raw_output_used, known_field_mask_used;
     size_t protection_used, native_name_used, ancestor_used, acl_xattr_used;
-    int started, complete, incomplete, pending_original_ownership;
+    enum f7_original_member_phase phase;
+    int started, observation_complete, incomplete, pending_original_ownership;
+    int release_transition_attempted, release_complete;
     size_t original_protection_persisted, original_protection_readback;
     int protection_persistence_complete, protection_readback_complete;
 };
@@ -209,15 +224,34 @@ or release; failed/unknown native return does not authorize either. A failing
 length/descriptor/copy/persistence/readback/free keeps the original pointer and
 all prior raw results. No-call/success/failure release remain distinct forever.
 
-The original protection-copy member/read companion are incoming originals, not
-new resources or an activation path. Their source/creation/adoption owner must be
-mapped by the same existing ROOT/O bootstrap before implementation. This is a
-specific initialization dependency: requiring an already admitted protection
-sink while recursively requiring this constructor to create that same sink
-would be circular. A second O initializer, hidden bootstrap spool or unobserved
-SD free is not a resolution. The architecture author must explicitly reconcile
-the original sink bootstrap/ownership with the one O activation owner; current
-authentic constructor/allocator/sink catalogs remain ABSENT.
+The external amendment04 author's proposed nonrecursive phase can be represented
+by these data structs, pending the NEW whole architecture decision. Constructor
+may return ADOPTED_OBSERVATION_COMPLETE_RELEASE_PENDING: complete actual typed
+observation/raw-copy into original precharged ROOT buffers, with successful SD
+still original-owned. That phase does not require live O, an already adopted
+protection sink, persistence/readback or LocalFree. The incoming protection-copy
+member and RO companion are original reserved objects, possibly themselves
+awaiting adoption/readiness; they are not new resources or an activation path.
+
+Original ROOT adopts all initial members/RO companions under that phase, then
+the sole O begin/readiness owner starts. O persists the finite original SD batch
+into the EXISTING protection-copy member. A separate terminal release-proof reads
+that fixed original byte range via the already held original RO companion and
+checks exact bytes/hash plus original held identity/protection/mutator custody.
+It must not call member_adopt/GetSecurityInfo or another security query: that
+would create a new SD allocation needed to prove release of the previous one.
+Only that original proof permits the sole LocalFree transition. No-call,
+failed/unknown read or failed/unknown release retains SD and original facts.
+
+Ordinary finalization and readback identity/protection queries remain distinct
+original observations; their returned SDs enter finite later protection-copy
+batches. They do not overwrite the initial batch or recursively issue release
+proof. All terminal native reads/errors and still-owned allocations are included
+in original finite reservations and all-nine-row charge derivation. The held
+release-binding bytes are original custody data, not a self-issued authority.
+Actual constructor/allocator/sink/held-mutator catalogs remain ABSENT, and no
+phase is implemented or observed here. There is no second O initializer, hidden
+bootstrap spool, fresh W workaround, new source grant or unobserved SD free.
 
 All call records and output buffers must be available before step 1. The
 constructor cannot clear the original member or a supplied observation to make
