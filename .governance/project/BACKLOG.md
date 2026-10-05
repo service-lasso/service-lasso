@@ -891,3 +891,10 @@ Development SOURCE ONLY under AC-4CF.1b / AC-6E.SA1 and CA03/CA04/CA06. [NQ1-R1]
 NQ1 R2 maps to CORE-NATIVE-QUALIFIED-NAMESPACE-PORT-R2.md: exact grammar/table equivalence and derived AST/graph/program/stack bounds; pending primary original realm/control physical layout completes the whole128MiB proof. All prospective vectors UNRUN.
 
 NQ1 continued R3 source architecture: docs/decisions/CORE-NATIVE-QUALIFIED-NAMESPACE-PORT-R3.md consolidates exact Node22.23.2 optimized jitless/ICU78 source, compressed original data custody and actual Core READ_STAGE/physical-retirement obligations. Same bounded precode unit, no positive implementation/execution/GO; full trace/target/arena proof and primary authentic source-owner association remain required.
+
+#1695 in_review / AC-4AJ.12: lesson-todo#1 shared host and five checkpoints, corresponding live article code links.
+
+#1698 backlog / AC-4BH, AC-4BH.2, AC-4BH.3: investigate published Core Windows stabilized-tree inspection rejection observed in the lesson verifier. Preserve the failed attempt separately from successful recovery/restart; no product repair or release authorised by this tracking entry.
+
+#1699 backlog / AC-4BK: cold endpoint cutover resolves configured identity Broker refs before retained Broker startup. Observed while transferring a stopped fixture onto changed ports; fresh unchanged-port provisioning is verified separately. Preserve custody/rollback and require a governed Core fix plus exact-candidate publication authority before updating lesson pins.
+
