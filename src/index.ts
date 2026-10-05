@@ -9,12 +9,7 @@ async function main(): Promise<void> {
     inputEnded = true;
     void stopRuntime?.();
   };
-  if (stdioMcp) {
-    process.stdin.once("end", onInputEnd);
-    // The SDK may send SIGTERM while EOF shutdown is still settling managed
-    // children. Preserve that same shutdown rather than abandoning it.
-    process.on("SIGTERM", onInputEnd);
-  }
+  if (stdioMcp) process.stdin.once("end", onInputEnd);
   const noAutostart = process.argv.includes("--noautostart");
   const app = await startRuntimeApp({
     port: Number(process.env.SERVICE_LASSO_PORT ?? 18080),
