@@ -186,3 +186,7 @@ Issue #1386 requires closed packaged-verifier phase diagnostics that distinguish
 Issue #1326 confirmed exit-during-query handling requires successful termination evidence from the same held native handle; live/unknown/259 statuses stay fail closed. Preserve native query rights, ancestry, retries, deadlines and original failed observations. Bind native safety tests and exact-head qualification before delivery claims.
 
 Issue #1326 parent-edge lifetime diagnostic follow-up binds AC-4BH: retain the 079eb33 startup rejection and classify only whether the rejected edge crosses before expected-root creation. No process details or membership/deadline relaxation; require bounded rejection and privacy tests plus exact-head qualification.
+
+
+## #1643 bounded original clock-domain custody source
+SPEC002 AC-4CF.1b / SPEC006 AC-6E.SA1 / all CA01..CA08 and accepted ENTIRE D1 govern [bounded custody source](../../docs/decisions/CORE-ORIGINAL-CLOCK-DOMAIN-PRECODE.md). Actual current process/task/native namespace and Windows process/thread/QPC observations retain SAME finite owner and fail unavailable on missing original association. SOURCE ONLY dormant header; physical128MiB/full64MiB/native rights/clock/realm qualification remain incomplete. Different fresh ENTIRE review and NEW complete-input ROOT precede execution.

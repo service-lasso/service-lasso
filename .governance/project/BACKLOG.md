@@ -626,3 +626,7 @@ Issue #1326 parent-edge lifetime diagnostic follow-up binds AC-4BH: retain the 0
 | Status | Issue | Requirement / next action | Evidence boundary |
 | --- | --- | --- | --- |
 | In progress | [#1582](https://github.com/service-lasso/service-lasso/issues/1582) | Deliver `SPEC-009` Core-owned authenticated durable job transaction and the CLI PR #32 compiled client contract. | Fresh Core/CLI source branches, preserved failed native CI output, custody-gated direct compiled-client proof; no host activation, deployment, publication, or promotion. |
+
+
+## #1643 bounded original clock-domain custody source
+SPEC002 AC-4CF.1b / SPEC006 AC-6E.SA1 / all CA01..CA08 and accepted ENTIRE D1 govern [bounded custody source](../../docs/decisions/CORE-ORIGINAL-CLOCK-DOMAIN-PRECODE.md). Actual current process/task/native namespace and Windows process/thread/QPC observations retain SAME finite owner and fail unavailable on missing original association. SOURCE ONLY dormant header; physical128MiB/full64MiB/native rights/clock/realm qualification remain incomplete. Different fresh ENTIRE review and NEW complete-input ROOT precede execution.

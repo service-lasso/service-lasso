@@ -99,3 +99,5 @@ This file tracks bootstrap/adoption/remediation work required before product imp
   naming without retrying or weakening the primary gate.
 - [ ] Before any dependency install, build, test, or Core import, retain the
   required isolated external runtime custody record and obtain parent readback.
+
+#1643 original-clock-domain custody source is governed by docs/decisions/CORE-ORIGINAL-CLOCK-DOMAIN-PRECODE.md; dormant/unexecuted pending different ENTIRE review and NEW ROOT admission. No bootstrap or native acceptance claim.
