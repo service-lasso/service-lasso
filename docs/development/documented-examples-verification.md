@@ -114,9 +114,7 @@ before enabling App sign-in. Both services must be stopped during changes.
 New tests cover source middleware rejection and configuration, signed HTTPS
 OIDC forwarding, access-token expiry and extracted-archive execution. The
 proxy fixture uses a simulated API and does not establish Go enforcement or
-real Zitadel acceptance. Existing protected tests were not edited. Independent
-Windows execution and exact corrective release identities are recorded below
-after the actual managed provider and released consumer checks complete.
+real Zitadel acceptance. Existing protected tests were not edited.
 
 The first corrective publication, Todo `2026.10.4-9c6567f` and API
 `2026.10.4-3e560cc`, passed package pipelines but failed the literal Core import
@@ -127,6 +125,43 @@ failure, not released acceptance. The subsequent correction publishes the
 non-secret capability in `env.TODO_API_AUTH_CONTRACT`, which import preserves,
 and tests the paired helper against a manifest with no metadata. Runtime
 startup uses the same capability and still requires matching secured settings.
+
+On **5 October 2026**, independent Windows execution passed with literal Core
+imports, actual checksum acquisition, the acquired paired configuration helper
+and managed launch of these final development consumers:
+
+| Consumer | Exact published identity | Windows archive SHA-256 |
+| --- | --- | --- |
+| App | [Todo `2026.10.4-15dc4b9`](https://github.com/service-lasso/lasso-todo/releases/tag/2026.10.4-15dc4b9), source `15dc4b906224a360d91f0478acace04633fee70c` | `f8c1ce5247d5118e939598b27b40ed44da9531743a304b026be99d2d71a86ebf` |
+| API | [API `2026.10.4-02ef566`](https://github.com/service-lasso/lasso-todo-api/releases/tag/2026.10.4-02ef566), source `02ef5663a16a04dab1769bb33f0d5a168c525f81` | `00d84ca8c04d701c44f228111e3196633a91c139b2a41f717ea58f4b441cbdb6` |
+
+[Todo publication run 37245621423](https://github.com/service-lasso/lasso-todo/actions/runs/37245621423)
+and [API publication run 37245603210](https://github.com/service-lasso/lasso-todo-api/actions/runs/37245603210)
+passed all three platform package gates; the API also passed held Linux archive
+execution against real PostgreSQL. The independent managed identity boundary
+below was executed on Windows, separately from those hosted package gates.
+
+| Managed boundary | Direct result |
+| --- | --- |
+| Literal release import | Preserved environment capability; no metadata repair or local archive substitution |
+| Direct API GET/POST without a token or with an invalid bearer | 401; exact SQL rows unchanged |
+| Real Zitadel password + PKCE browser login | Session established; access-token-forwarded create 201 and list 200 |
+| Persistence and managed App/API restart | Eight SQL rows, all previous IDs/titles retained; old session invalidated |
+| Identity stopped with an authenticated session | Read and CSRF-authorized write returned 503; SQL rows unchanged |
+| Identity recovery | Authenticated list recovered with retained data |
+| Logout | Old cookie and anonymous App data requests returned 401 |
+
+An earlier local-package integration also tested a real token for the wrong
+audience. Source TLS middleware fixtures cover expired/revoked/incorrect
+issuer/client/scope tokens and malformed/provider responses. Those are separate
+from the final released browser/API observations above. A test harness initially
+omitted the App's CSRF header and received the expected 403; the corrected
+positive write used the actual session CSRF token. Transient GitHub 500 responses
+during release checksum acquisition were retained; a later actual Core install
+succeeded without substituting local payloads. Private credentials, databases,
+certificates and failed attempts remain retained; inherited fixtures and host
+trust were not changed. No per-user list, native WebView SSO, production or GA
+qualification follows from this correction.
 
 ## Corrected PostgreSQL producer release
 
