@@ -133,6 +133,18 @@ static void signature_buffers(void){
  assert(f7_signature_message(F7_INDEX_DOMAIN,original,2,index,1,&in)==F7_BUDGET_ABSENT);
  assert(f7_signature_message(F7_INDEX_DOMAIN,index,2,index,sizeof(index),&in)==F7_INVALID);
  assert(f7_signature_message((enum f7_signature_domain)0,original,2,index,sizeof(index),&in)==F7_INVALID);
+ size_t needed=0;assert(f7_signature_message_size(F7_INDEX_DOMAIN,2,&needed)==F7_OK);
+ assert(needed==in);
+ needed=777;assert(f7_signature_message_size((enum f7_signature_domain)0,2,&needed)==F7_INVALID);
+ assert(needed==777);
+ union {size_t value;uint8_t bytes[128];} reserved;
+ reserved.value=777;
+ assert(f7_signature_message(F7_INDEX_DOMAIN,original,2,reserved.bytes,sizeof(reserved.bytes),&reserved.value)==F7_INVALID);
+ assert(reserved.value==777);
+ union {size_t value;uint8_t bytes[sizeof(size_t)];} immutable;
+ immutable.value=888;
+ assert(f7_signature_message(F7_INDEX_DOMAIN,immutable.bytes,sizeof(immutable.bytes),index,sizeof(index),&immutable.value)==F7_INVALID);
+ assert(immutable.value==888);
  assert(original[0]=='{'&&original[1]=='}');
 }
 static void witness_records(void){
