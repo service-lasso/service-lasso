@@ -176,6 +176,7 @@ export async function teardownRealAdminBrowserFixture({
   tempRoot,
   removeTempRoot = rm,
   settleOwnedWork = async () => {},
+  beforeTempRemoval = async () => {},
   timeouts: timeoutOverrides = {},
 }) {
   const timeouts = {
@@ -271,9 +272,10 @@ export async function teardownRealAdminBrowserFixture({
     brokerIPCClosed &&
     vaultServerClosed &&
     vaultProviderServerClosed &&
-    ownedWorkSettled
+    ownedWorkSettled && failures.length === 0
   ) {
     try {
+      await beforeTempRemoval();
       await removeTempRootBoundedly(
         tempRoot,
         timeouts.tempCleanupTimeoutMs,

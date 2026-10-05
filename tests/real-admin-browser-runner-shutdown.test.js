@@ -1,3 +1,4 @@
+import { performance } from "node:perf_hooks";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
@@ -255,7 +256,7 @@ function hasListener(port) {
   });
 }
 
-async function startActualRealBrowserRunner({ prelaunchOnly = false, initialOnly = false, recoverySink = null } = {}) {
+async function startActualRealBrowserRunner({ prelaunchOnly = false, initialOnly = false, recoverySink = null, closureSink = null, supportSink = null } = {}) {
   const fixtureRoot = await mkdtemp(
     path.join(os.tmpdir(), "service-lasso-real-admin-signal-"),
   );
@@ -278,10 +279,12 @@ async function startActualRealBrowserRunner({ prelaunchOnly = false, initialOnly
     "process.on('SIGTERM', stop)",
   ].join("\n"));
   const runnerArgs = [];
-  if (recoverySink) {
+  if (recoverySink || closureSink) {
     // Explicit child-only sink adversary. This exercises the original runner
     // HTTP handler and shutdown, but is surrogate sink scheduling/error proof,
     // never native production custody or operator acceptance.
+    const sink = closureSink ?? recoverySink;
+    const sinkName = closureSink ? "live-closure-receipt.json" : "live-provider-control-recovery-receipt.json";
     const preloadPath = path.join(supportRoot, "recovery-sink-adversary.mjs");
     await writeFile(preloadPath, [
       "import fs from 'node:fs'",
@@ -289,16 +292,36 @@ async function startActualRealBrowserRunner({ prelaunchOnly = false, initialOnly
       "import path from 'node:path'",
       "const originalWrite = fs.promises.writeFile",
       "fs.promises.writeFile = async (file, bytes, options) => {",
-      "  if (path.basename(String(file)) !== 'live-provider-control-recovery-receipt.json') return originalWrite(file, bytes, options)",
+      `  if (path.basename(String(file)) !== '${sinkName}') return originalWrite(file, bytes, options)`,
       "  await new Promise((resolve) => {",
       "    const release = (message) => { if (message?.type === 'release-recovery-sink') { process.off('message', release); resolve() } }",
       "    process.on('message', release)",
       "    process.send({ type: 'recovery-write-pending' })",
       "  })",
-      ...(recoverySink === "partial-failure" ? [
+      ...(sink === "partial-failure" ? [
         "  await originalWrite(file, String(bytes).slice(0, 17), options)",
         "  const error = new Error('Injected recovery sink failure'); error.code = 'EIO'; throw error",
       ] : ["  return originalWrite(file, bytes, options)"]),
+      "}",
+      "syncBuiltinESMExports()",
+    ].join("\n"));
+    runnerArgs.push("--import", pathToFileURL(preloadPath).href);
+  }
+  if (supportSink) {
+    const preloadPath = path.join(supportRoot, "support-copy-adversary.mjs");
+    await writeFile(preloadPath, [
+      "import fs from 'node:fs'",
+      "import { syncBuiltinESMExports } from 'node:module'",
+      "import path from 'node:path'",
+      `const operation = '${supportSink.startsWith("retirement") ? "rm" : "mkdir"}'`,
+      "const original = fs.promises[operation]",
+      "fs.promises[operation] = async (file, ...args) => {",
+      "  if (path.basename(String(file)) !== 'closure-support-copy') return original(file, ...args)",
+      "  process.send({ type: 'support-operation-pending' })",
+      ...(supportSink === "copy-failure" ? [
+        "  await original(file, ...args)",
+        "  throw Object.assign(new Error('Injected copy error'), { code: 'EIO' })",
+      ] : ["  return new Promise(() => {})"]),
       "}",
       "syncBuiltinESMExports()",
     ].join("\n"));
@@ -332,6 +355,21 @@ async function startActualRealBrowserRunner({ prelaunchOnly = false, initialOnly
   return { child, fixtureRoot, evidenceRoot, supportRoot };
 }
 
+function boundedProviderRequest(address, ca, token = "browser-vault-token-sentinel-2026-08-14") {
+  return new Promise((resolve, reject) => {
+    const request = https.get(`${address}/v1/secret/data/browser/provider-control`, {
+      ca, headers: { "x-vault-token": token },
+    }, (response) => {
+      response.resume();
+      response.once("end", () => resolve(response.statusCode));
+      response.once("error", reject);
+      response.once("aborted", () => reject(Object.assign(new Error("Provider response aborted"), { code: "ECONNRESET" })));
+    });
+    const timer = setTimeout(() => request.destroy(Object.assign(new Error("Provider request timed out"), { code: "ETIMEDOUT" })), 5_000);
+    request.once("close", () => clearTimeout(timer));
+    request.once("error", reject);
+  });
+}
 test("actual provider handler owns recovery persistence, concurrent readers and immediate shutdown", async (t) => {
   for (const scenario of ["real-shutdown", "slow-shutdown", "partial-failure", "pending-timeout", "concurrent-readers"]) {
     await t.test(scenario, async (subtest) => {
@@ -342,28 +380,20 @@ test("actual provider handler owns recovery persistence, concurrent readers and 
       const stdoutText = captureBoundedText(child.stdout);
       let closed = null;
       let passed = false;
+      let primaryFailure;
       try {
         const { ready } = await waitForRealBrowserReady(child, 60_000);
         const sources = JSON.parse(await readFile(path.join(supportRoot, "broker-sources.json"), "utf8"));
         const address = sources.sources.find(({ sourceId }) => sourceId === "vault-browser").address;
         const ca = await readFile(path.join(ready.tempRoot, "vault-test-ca.pem"));
-        const providerRequest = (token = "browser-vault-token-sentinel-2026-08-14") => new Promise((resolve, reject) => {
-          const request = https.get(`${address}/v1/secret/data/browser/provider-control`, {
-            ca, headers: { "x-vault-token": token },
-          }, (response) => {
-            response.resume();
-            response.once("end", () => resolve(response.statusCode));
-            response.once("error", reject);
-          });
-          request.once("error", reject);
-        });
+        const providerRequest = (token) => boundedProviderRequest(address, ca, token);
         const headers = { "x-service-lasso-provider-control-nonce": providerControlNonce };
         // Match the original fixture's successful-token branch. A denied
         // request cannot establish the authenticated baseline or its receipt.
         assert.equal(await providerRequest("invalid-token"), 403);
         await assert.rejects(access(path.join(evidenceRoot, "live-provider-control-receipt.json")), (error) => error?.code === "ENOENT");
         assert.equal(await providerRequest(), 404);
-        assert.equal((await fetch(`${ready.controlUrl}/fail-next-provider-request`, { method: "POST", headers })).status, 200);
+        assert.equal((await fetch(`${ready.controlUrl}/fail-next-provider-request`, { method: "POST", headers, signal: AbortSignal.timeout(5_000) })).status, 200);
         const armedBytes = await readFile(path.join(evidenceRoot, "live-provider-control-receipt.json"));
         assert.equal(await providerRequest(), 503);
         const consumedBytes = await readFile(path.join(evidenceRoot, "live-provider-control-consumed-receipt.json"));
@@ -371,14 +401,14 @@ test("actual provider handler owns recovery persistence, concurrent readers and 
         const recoveryPath = path.join(evidenceRoot, "live-provider-control-recovery-receipt.json");
         const pending = scenario === "real-shutdown" ? null : waitForRunnerMessage(child, "recovery-write-pending");
         // No extra receipt GET between actual409 and the immediate owning stop.
-        assert.equal((await fetch(`${ready.controlUrl}/fail-next-provider-request`, { method: "POST", headers })).status, 409);
+        assert.equal((await fetch(`${ready.controlUrl}/fail-next-provider-request`, { method: "POST", headers, signal: AbortSignal.timeout(5_000) })).status, 409);
         if (pending) {
           await pending;
           await assert.rejects(access(recoveryPath), (error) => error?.code === "ENOENT");
         }
         if (scenario === "concurrent-readers") {
           assert.equal((await fetch(`${ready.controlUrl}/provider-fault-receipt?wait=recovery`, {
-            headers: { "x-service-lasso-provider-control-nonce": "0".repeat(64) },
+            headers: { "x-service-lasso-provider-control-nonce": "0".repeat(64) }, signal: AbortSignal.timeout(5_000),
           })).status, 403);
           let readersCompleted = 0;
           const readers = Array.from({ length: 3 }, () => fetch(
@@ -414,13 +444,16 @@ test("actual provider handler owns recovery persistence, concurrent readers and 
           if (scenario !== "pending-timeout") child.send({ type: "release-recovery-sink" });
         }
         closed = await waitForExit(child, 30_000);
-        const closure = JSON.parse(await readFile(path.join(evidenceRoot, "live-closure-receipt.json"), "utf8"));
+        const closure = scenario === "pending-timeout" ? null : JSON.parse(await readFile(path.join(evidenceRoot, "live-closure-receipt.json"), "utf8"));
         const negative = scenario === "partial-failure" || scenario === "pending-timeout";
         assert.equal(closed.code, negative ? 1 : 0, stderrText());
         assert.equal(closed.signal, null);
-        assert.equal(closure.outcome, negative ? "unresolved" : "closed");
+        if (scenario === "pending-timeout") {
+          await assert.rejects(access(path.join(evidenceRoot, "live-closure-receipt.json")), (error) => error?.code === "ENOENT");
+          assert.match(stderrText(), /receipt_work_timeout/);
+        } else assert.equal(closure.outcome, negative ? "unresolved" : "closed");
         if (negative) {
-          assert.ok(closure.failure.failures.some(({ phase, code }) =>
+          if (closure) assert.ok(closure.failure.failures.some(({ phase, code }) =>
             phase === "receipt_work_settlement" && code === (scenario === "partial-failure" ? "eio" : "receipt_work_timeout")));
           await access(ready.tempRoot);
           if (scenario === "partial-failure") {
@@ -452,10 +485,13 @@ test("actual provider handler owns recovery persistence, concurrent readers and 
         assert.deepEqual(await readFile(path.join(evidenceRoot, "live-provider-control-consumed-receipt.json")), consumedBytes);
         assert.doesNotMatch(`${stderrText()}${stdoutText()}`, /unhandled|browser-vault-token-sentinel/i);
         passed = true;
+      } catch (error) {
+        primaryFailure = error; throw error;
       } finally {
         if (!closed && child.exitCode === null && child.signalCode === null) {
           child.send({ type: "service-lasso-real-admin-shutdown" });
-          closed = await waitForExit(child, 30_000);
+          try { closed = await waitForExit(child, 30_000); }
+          catch (error) { if (!primaryFailure) throw error; subtest.diagnostic("Owning shutdown also failed; original failure preserved."); }
         }
         // Failed attempts, partial files and pending-timeout originals remain.
         if (passed && (scenario === "real-shutdown" || scenario === "slow-shutdown" || scenario === "concurrent-readers")) {
@@ -466,6 +502,143 @@ test("actual provider handler owns recovery persistence, concurrent readers and 
   }
 });
 
+test("actual runner final closure sink preserves honest cleanup and copied support", async (t) => {
+  for (const scenario of ["honest-positive", "partial-failure", "pending-timeout"]) {
+    await t.test(scenario, async (subtest) => {
+      const { child, fixtureRoot, evidenceRoot } = await startActualRealBrowserRunner({
+        closureSink: scenario === "honest-positive" ? null : scenario === "partial-failure" ? "partial-failure" : "slow",
+      });
+      const stderr = captureBoundedText(child.stderr);
+      let closed;
+      let primaryFailure;
+      let passed = false;
+      try {
+        const { ready } = await waitForRealBrowserReady(child, 60_000);
+        const supportBytes = await readFile(path.join(ready.tempRoot, "broker-sources.json"));
+        const pending = scenario === "honest-positive" ? null : waitForRunnerMessage(child, "recovery-write-pending");
+        const started = performance.now();
+        child.send({ type: "service-lasso-real-admin-shutdown" });
+        if (pending) {
+          await pending;
+          await assert.rejects(access(ready.tempRoot), (error) => error?.code === "ENOENT");
+          assert.deepEqual(await readFile(path.join(evidenceRoot, "closure-support-copy", "broker-sources.json")), supportBytes);
+          if (scenario === "partial-failure") child.send({ type: "release-recovery-sink" });
+        }
+        closed = await waitForExit(child, 10_000);
+        assert.equal(closed.signal, null);
+        assert.equal(closed.code, scenario === "honest-positive" ? 0 : 1, stderr());
+        assert.ok(performance.now() - started < 10_000, "terminal exit has no second shutdown budget");
+        const finalPath = path.join(evidenceRoot, "live-closure-receipt.json");
+        await assert.rejects(access(ready.tempRoot), (error) => error?.code === "ENOENT");
+        if (scenario === "honest-positive") {
+          const closure = JSON.parse(await readFile(finalPath, "utf8"));
+          assert.equal(closure.outcome, "closed");
+          assert.equal(closure.teardown.admin.exited, true);
+          await assert.rejects(access(path.join(evidenceRoot, "closure-support-copy")), (error) => error?.code === "ENOENT");
+        } else {
+          assert.deepEqual(await readFile(path.join(evidenceRoot, "closure-support-copy", "broker-sources.json")), supportBytes);
+          if (scenario === "partial-failure") {
+            const partial = await readFile(finalPath);
+            assert.equal(partial.length, 17);
+            assert.throws(() => JSON.parse(partial.toString("utf8")));
+            assert.match(stderr(), /eio/);
+          } else {
+            await assert.rejects(access(finalPath), (error) => error?.code === "ENOENT");
+            assert.match(stderr(), /receipt_work_timeout/);
+          }
+        }
+        passed = true;
+      } catch (error) { primaryFailure = error; throw error; }
+      finally {
+        if (!closed && child.exitCode === null && child.signalCode === null) {
+          child.send({ type: "service-lasso-real-admin-shutdown" });
+          try { closed = await waitForExit(child, 10_000); }
+          catch (error) { if (!primaryFailure) throw error; subtest.diagnostic("Secondary shutdown failure; original failure preserved."); }
+        }
+        if (passed && scenario === "honest-positive") await rm(fixtureRoot, { recursive: true, force: false });
+        else subtest.diagnostic(`Retained actual final-sink evidence: ${fixtureRoot}`);
+      }
+    });
+  }
+});
+test("actual runner bounds support preservation and retirement without fake cleanup", async (t) => {
+  for (const scenario of ["copy-failure", "copy-pending", "retirement-pending"]) {
+    await t.test(scenario, async (subtest) => {
+      const { child, fixtureRoot, evidenceRoot } = await startActualRealBrowserRunner({ supportSink: scenario });
+      const stderr = captureBoundedText(child.stderr);
+      let closed;
+      let primaryFailure;
+      try {
+        const { ready } = await waitForRealBrowserReady(child, 60_000);
+        const pending = waitForRunnerMessage(child, "support-operation-pending");
+        child.send({ type: "service-lasso-real-admin-shutdown" });
+        await pending;
+        closed = await waitForExit(child, 10_000);
+        assert.equal(closed.code, 1, "failed/unknown cleanup never qualifies runner acceptance");
+        assert.equal(closed.signal, null);
+        if (scenario === "retirement-pending") {
+          await assert.rejects(access(ready.tempRoot), (error) => error?.code === "ENOENT");
+          await access(path.join(evidenceRoot, "closure-support-copy", "broker-sources.json"));
+          const closure = JSON.parse(await readFile(path.join(evidenceRoot, "live-closure-receipt.json"), "utf8"));
+          assert.equal(closure.outcome, "closed", "receipt describes genuinely completed original teardown only");
+          assert.match(stderr(), /receipt_work_timeout/);
+        } else {
+          await access(ready.tempRoot);
+          if (scenario === "copy-pending") {
+            await assert.rejects(access(path.join(evidenceRoot, "live-closure-receipt.json")), (error) => error?.code === "ENOENT");
+            assert.match(stderr(), /receipt_work_timeout/);
+          } else {
+            await access(path.join(evidenceRoot, "closure-support-copy"));
+            const closure = JSON.parse(await readFile(path.join(evidenceRoot, "live-closure-receipt.json"), "utf8"));
+            assert.equal(closure.outcome, "unresolved");
+            assert.match(stderr(), /eio/);
+          }
+        }
+      } catch (error) { primaryFailure = error; throw error; }
+      finally {
+        if (!closed && child.exitCode === null && child.signalCode === null) {
+          child.send({ type: "service-lasso-real-admin-shutdown" });
+          try { closed = await waitForExit(child, 10_000); }
+          catch (error) { if (!primaryFailure) throw error; subtest.diagnostic("Secondary shutdown failure; first error retained."); }
+        }
+        subtest.diagnostic(`Retained support-copy failure evidence: ${fixtureRoot}`);
+      }
+    });
+  }
+});
+test("original five-second network exits still reach actual owning shutdown", async (t) => {
+  for (const scenario of ["provider-stalled-handshake", "control-stalled-response"]) {
+    await t.test(scenario, async (subtest) => {
+      const { child, fixtureRoot } = await startActualRealBrowserRunner();
+      const sockets = new Set();
+      const stalled = net.createServer((socket) => { sockets.add(socket); socket.on("close", () => sockets.delete(socket)); });
+      let closed;
+      let primaryFailure;
+      try {
+        const { ready } = await waitForRealBrowserReady(child, 60_000);
+        await new Promise((resolve, reject) => { stalled.once("error", reject); stalled.listen(0, "127.0.0.1", resolve); });
+        const address = `127.0.0.1:${stalled.address().port}`;
+        const started = performance.now();
+        await assert.rejects(scenario === "provider-stalled-handshake"
+          ? boundedProviderRequest(`https://${address}`, await readFile(path.join(ready.tempRoot, "vault-test-ca.pem")))
+          : fetch(`http://${address}/fail-next-provider-request`, { method: "POST", signal: AbortSignal.timeout(5_000) }),
+        (error) => scenario === "provider-stalled-handshake" ? error?.code === "ETIMEDOUT" : error?.name === "TimeoutError");
+        assert.ok(performance.now() - started < 10_000, "request failure does not wait for later child-exit deadline");
+      } catch (error) { primaryFailure = error; throw error; }
+      finally {
+        for (const socket of sockets) socket.destroy();
+        await new Promise((resolve) => stalled.close(resolve));
+        if (child.exitCode === null && child.signalCode === null) {
+          child.send({ type: "service-lasso-real-admin-shutdown" });
+          try { closed = await waitForExit(child, 10_000); }
+          catch (error) { if (!primaryFailure) throw error; subtest.diagnostic("Secondary shutdown failure; first network error retained."); }
+        }
+        if (!primaryFailure) assert.equal(closed?.code, 0, "actual owner closes after the finite network adversary");
+        subtest.diagnostic(`Retained network-bound evidence: ${fixtureRoot}`);
+      }
+    });
+  }
+});
 test("external observer retains hard-interrupt custody after the runner cannot handle the OS signal", async (t) => {
   await t.test("SIGKILL", async () => {
       const { child, fixtureRoot, evidenceRoot } = await startActualRealBrowserRunner({

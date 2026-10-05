@@ -5,6 +5,8 @@ import {
   lstat,
   mkdir,
   readFile,
+  readdir,
+  rm,
   realpath,
   rename,
   writeFile,
@@ -12,6 +14,7 @@ import {
 import http from "node:http";
 import https from "node:https";
 import os from "node:os";
+import { performance } from "node:perf_hooks";
 import path from "node:path";
 import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
@@ -326,27 +329,33 @@ function ownReceiptWork(promise) {
 }
 
 async function settleReceiptWork() {
-  let timer;
-  const drained = (async () => {
-    while (ownedReceiptWork.size) await Promise.allSettled([...ownedReceiptWork]);
-    if (ownedReceiptFailures.length) {
-      throw new RealAdminBrowserTeardownError(ownedReceiptFailures.map((error) => ({
-        phase: "receipt_work_settlement", code: safeFailureCode(error),
-      })));
-    }
-  })();
-  const bounded = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new RealAdminBrowserTeardownError([
-      ...ownedReceiptFailures.map((error) => ({
-        phase: "receipt_work_settlement", code: safeFailureCode(error),
-      })),
-      { phase: "receipt_work_settlement", code: "receipt_work_timeout" },
-    ])), 5_000);
-  });
-  try { await Promise.race([drained, bounded]); }
-  finally { clearTimeout(timer); }
+  while (ownedReceiptWork.size) await Promise.allSettled([...ownedReceiptWork]);
+  if (ownedReceiptFailures.length) {
+    throw new RealAdminBrowserTeardownError(ownedReceiptFailures.map((error) => ({
+      phase: "receipt_work_settlement", code: safeFailureCode(error),
+    })));
+  }
 }
 
+// Distinct private support bytes, never original/native object custody. All
+// creation and readback awaits are owned by the single shutdown deadline.
+async function preserveClosureSupport(source, destination, requireTime) {
+  requireTime();
+  const metadata = await lstat(source);
+  if (metadata.isSymbolicLink()) throw Object.assign(new Error("Unsafe support entry"), { code: "support_copy_unsafe" });
+  if (metadata.isDirectory()) {
+    await mkdir(destination, { mode: 0o700 });
+    for (const entry of await readdir(source)) {
+      await preserveClosureSupport(path.join(source, entry), path.join(destination, entry), requireTime);
+    }
+  } else if (metadata.isFile()) {
+    const bytes = await readFile(source);
+    await writeFile(destination, bytes, { flag: "wx", mode: 0o600 });
+    requireTime();
+    const copied = await readFile(destination);
+    if (!bytes.equals(copied)) throw Object.assign(new Error("Support copy differs"), { code: "support_copy_mismatch" });
+  } else throw Object.assign(new Error("Unsafe support entry"), { code: "support_copy_unsafe" });
+}
 function createPrivateReceipt(filePath, receipt) {
   return ownReceiptWork(writeFile(filePath, JSON.stringify(receipt), {
     encoding: "utf8",
@@ -363,6 +372,7 @@ for (const receiptPath of [
   providerReceiptPath,
   providerConsumedReceiptPath,
   providerRecoveryReceiptPath,
+  path.join(evidenceRoot, "closure-support-copy"),
 ]) {
   await requireAbsentPrivateReceipt(receiptPath);
 }
@@ -645,12 +655,32 @@ async function waitFor(url, timeoutMs = 30_000) {
 function shutdown({ exitCode = 0, trigger = "ipc", signal = null } = {}) {
   if (shutdownPromise) return shutdownPromise;
   providerWorkClosing = true;
-  // Start one settlement clock now. The teardown consumes this SAME outcome;
-  // it must not restart a timeout after stopping servers or retry a failed sink.
-  const settlement = settleReceiptWork().then(
-    () => null, (error) => error,
-  );
-  shutdownPromise = (async () => {
+  // One clock covers resource shutdown, receipt settlement, support preservation,
+  // genuine original deletion, exclusive final write and copy retirement.
+  const deadline = performance.now() + 5_000;
+  let deadlineTimer;
+  let terminal = false;
+  let firstFailure = null;
+  let activePhase = "receipt_work_settlement";
+  const retainFailure = (error) => { firstFailure ??= error; return firstFailure; };
+  const settlement = settleReceiptWork().then(() => null, retainFailure);
+  const deadlineExpired = new Promise((_, reject) => {
+    deadlineTimer = setTimeout(() => {
+      reject(retainFailure(new RealAdminBrowserTeardownError([
+        ...ownedReceiptFailures.map((error) => ({ phase: "receipt_work_settlement", code: safeFailureCode(error) })),
+        { phase: activePhase, code: "receipt_work_timeout" },
+      ])));
+    }, Math.max(0, deadline - performance.now()));
+  });
+  const requireTime = () => {
+    if (terminal || performance.now() >= deadline) {
+      throw retainFailure(new RealAdminBrowserTeardownError([
+        { phase: activePhase, code: "receipt_work_timeout" },
+      ]));
+    }
+  };
+  const supportCopy = path.join(evidenceRoot, "closure-support-copy");
+  const work = (async () => {
     let resolvedExitCode = exitCode;
     let closure;
     let failure = null;
@@ -664,6 +694,12 @@ function shutdown({ exitCode = 0, trigger = "ipc", signal = null } = {}) {
         vaultProviderServer,
         resetLifecycle: resetLifecycleState,
         tempRoot,
+        beforeTempRemoval: async () => {
+          activePhase = "receipt_work_settlement";
+          await preserveClosureSupport(tempRoot, supportCopy, requireTime);
+          requireTime();
+          activePhase = "temp_root_cleanup";
+        },
         settleOwnedWork: async () => {
           const error = await settlement;
           if (error) throw error;
@@ -685,6 +721,7 @@ function shutdown({ exitCode = 0, trigger = "ipc", signal = null } = {}) {
         };
     } catch (error) {
       resolvedExitCode = 1;
+      retainFailure(error);
       failure = createSafeRealAdminBrowserTeardownFailure(error);
       closure = {
           schema: "service-lasso.real-admin-browser-live-closure.v1",
@@ -704,21 +741,42 @@ function shutdown({ exitCode = 0, trigger = "ipc", signal = null } = {}) {
     try {
       // One exclusive attempt only: a failed/partial closure file is retained,
       // never overwritten or retried as a second success-shaped receipt.
+      requireTime();
+      activePhase = "receipt_work_settlement";
       await createPrivateReceipt(closureReceiptPath, closure);
+      requireTime();
+      // Delete copied support only on completely observed success. Any failed
+      // teardown/write keeps available original/copy/partial evidence.
+      if (!failure) {
+        activePhase = "temp_root_cleanup";
+        await rm(supportCopy, { recursive: true, force: false, maxRetries: 0 });
+        await lstat(supportCopy).then(() => {
+          throw Object.assign(new Error("Support copy remains"), { code: "support_copy_still_present" });
+        }, (error) => { if (error?.code !== "ENOENT") throw error; });
+      }
     } catch (error) {
       resolvedExitCode = 1;
+      retainFailure(error);
       failure = createSafeRealAdminBrowserTeardownFailure(new RealAdminBrowserTeardownError([
         ...(failure?.failures ?? []),
         { phase: "receipt_work_settlement", code: safeFailureCode(error) },
       ]));
     }
-    if (failure) {
-      await new Promise((resolve) => {
-        process.stderr.write(`${JSON.stringify(failure)}\n`, resolve);
-      });
-    }
-    process.exit(resolvedExitCode);
+    if (!failure) requireTime();
+    return { resolvedExitCode, failure };
   })();
+  // Observe the losing promise too: pending syscall/handler work cannot grant
+  // a fresh budget or run subsequent cleanup after terminal expiry.
+  work.catch(retainFailure);
+  shutdownPromise = Promise.race([work, deadlineExpired]).then(
+    (result) => result,
+    (error) => ({ resolvedExitCode: 1, failure: createSafeRealAdminBrowserTeardownFailure(error) }),
+  ).then(({ resolvedExitCode, failure }) => {
+    terminal = true;
+    clearTimeout(deadlineTimer);
+    if (failure) process.stderr.write(`${JSON.stringify(failure)}\n`);
+    process.exit(resolvedExitCode);
+  });
   return shutdownPromise;
 }
 
