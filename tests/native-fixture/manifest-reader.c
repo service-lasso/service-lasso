@@ -66,7 +66,9 @@ static int semantics(struct f7_decoded_manifest *o){
   if(found!=(size_t)(o->streams[stream].creation==F7_CREATED))return F7_CONFLICT;
  }
  for(unsigned kind=F7_RECORD_WITNESS;kind<=F7_RECORD_EMERGENCY_WITNESS;kind++){
-  size_t found=0;for(size_t i=0;i<o->member_count;i++)if(o->members[i].kind==(enum f7_record_kind)kind)found++;
+  size_t found=0;for(size_t i=0;i<o->member_count;i++)if(o->members[i].kind==(enum f7_record_kind)kind){
+   found++;if(o->members[i].length>(kind==F7_RECORD_WITNESS?o->budgets.witness_bytes:o->budgets.emergency_bytes))return F7_CONFLICT;
+  }
   if(found!=1)return F7_CONFLICT;
  }
  for(size_t i=0;i<o->unavailable_count;i++){

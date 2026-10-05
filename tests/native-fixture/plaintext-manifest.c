@@ -43,12 +43,20 @@ static int output_geometry(const struct f7_manifest_input *in,uint8_t *out,size_
     !output_separate(out,capacity,length,c,sizeof(*c))||
     !output_separate(out,capacity,length,c->witness,sizeof(*c->witness))||
     !output_separate(out,capacity,length,c->reservation,sizeof(*c->reservation))||
+    !output_separate(out,capacity,length,c->native_drain_storage,c->native_drain_storage_bytes)||
     !output_separate(out,capacity,length,in->members,in->member_count*sizeof(*in->members))||
     !output_separate(out,capacity,length,in->segments,in->segment_count*sizeof(*in->segments))||
     !output_separate(out,capacity,length,in->unavailable,in->unavailable_count*sizeof(*in->unavailable))||
     !output_separate(out,capacity,length,c->witness->record_buffer,c->witness->record_capacity)||
     !output_memory(out,capacity,length,&c->witness_memory)||
     !output_memory(out,capacity,length,&c->emergency_memory))return F7_CONFLICT;
+ if(c->error_channel){
+  if(!output_separate(out,capacity,length,c->error_channel,sizeof(*c->error_channel))||
+     !output_separate(out,capacity,length,c->error_channel->payload,c->error_channel->payload_capacity))return F7_CONFLICT;
+  if(c->error_channel->partial&&
+     (!output_separate(out,capacity,length,c->error_channel->partial,sizeof(*c->error_channel->partial))||
+      !output_separate(out,capacity,length,c->error_channel->partial->bytes,c->error_channel->partial->capacity)))return F7_CONFLICT;
+ }
  for(unsigned i=0;i<F7_STREAM_COUNT;i++)if(
     !output_memory(out,capacity,length,c->raw_memory+i)||
     !output_separate(out,capacity,length,c->drain_buffer[i],c->drain_capacity[i]))return F7_CONFLICT;
@@ -149,6 +157,7 @@ int f7_canonical_manifest(const struct f7_manifest_input *in,uint8_t *out,size_t
  for(unsigned i=0;i<2;i++){
   if(original_member(in,(enum f7_record_kind)(F7_RECORD_WITNESS+i),witness_members[i],1))return F7_CONFLICT;
   if(retained_queue(witness_queues[i],witness_members[i],c->incomplete))return F7_INCOMPLETE;
+  if(witness_members[i]->length>(i?r->input.emergency_bytes:r->input.witness_bytes))return F7_INCOMPLETE;
  }
  for(unsigned i=0;i<F7_STREAM_COUNT;i++){
   if(c->created[i]!=F7_CREATED&&c->created[i]!=F7_NOT_CREATED)return F7_INCOMPLETE;
