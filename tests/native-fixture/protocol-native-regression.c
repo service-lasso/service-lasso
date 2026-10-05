@@ -9,6 +9,7 @@
 #include "segment-record.h"
 #include "error-graph.h"
 #include "manifest-reader.h"
+#include "recovery.h"
 #include <assert.h>
 #include <string.h>
 #include <stdint.h>
@@ -203,4 +204,26 @@ static void manifest_decode_lifetime(void){
  assert(f7_decode_manifest(malformed,sizeof(malformed),&decoded)==F7_CONFLICT);
  assert(decoded.parse_started&&!decoded.member_count&&!decoded.segment_count);
 }
-int main(void){framing();budgets();states();index_records();error_records();unknown_creation();segment_records();error_graphs();signature_buffers();witness_records();child_records();native_graph_storage();manifest_decode_lifetime();return 0;}
+static void recovery_absent_before_effect(void){
+ /* Missing original source data must reject before reading any native handle.
+    This is not a fixture, worker invocation or authenticated SAME successor. */
+ struct f7_retained_object object={0};struct f7_member member={0};
+ struct f7_attempt_journal journal={0};struct f7_journal_entry entry[1];
+ struct f7_index_object decoded[1];struct f7_recovery_inventory inventory={0};
+ uint8_t index[1],canonical[1],hash[1],signature_workspace[1];int64_t native=777;
+ journal.member=&member;journal.entries=entry;journal.capacity=1;
+ inventory.objects=&object;inventory.count=1;inventory.parsed_journal=&journal;
+ inventory.decoded_objects=decoded;inventory.decoded_capacity=1;
+ inventory.index_bytes=index;inventory.index_capacity=1;inventory.index.length=1;
+ inventory.canonical_scratch=canonical;inventory.canonical_capacity=1;
+ inventory.hash_scratch=hash;inventory.hash_capacity=1;
+ inventory.signature_workspace=signature_workspace;inventory.signature_workspace_capacity=1;
+ inventory.signature.length=crypto_sign_BYTES;
+ assert(f7_recovery_validate_persistent(&inventory,&native)==F7_AUTH_FAILURE);
+ assert(native==777&&!journal.parse_started&&!journal.count);
+ struct f7_recovery_job *job=NULL;struct f7_recovery_job_memory memory={0};uint8_t state[1];
+ memory.state=state;memory.state_bytes=1;
+ assert(f7_recovery_job_input_geometry(&job,&inventory,&memory,&native)==F7_AUTH_FAILURE);
+ assert(!job&&native==777&&!journal.parse_started&&!journal.count);
+}
+int main(void){framing();budgets();states();index_records();error_records();unknown_creation();segment_records();error_graphs();signature_buffers();witness_records();child_records();native_graph_storage();manifest_decode_lifetime();recovery_absent_before_effect();return 0;}
