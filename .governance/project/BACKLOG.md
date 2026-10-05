@@ -916,3 +916,11 @@ every ignored-entry rejection and complete held-original effective-size framing,
 GNU/PAX positives and missing/partial/nonzero/after-EOF negatives. Retained prior
 whole-reader SOURCE NO-GO remains historical authority; corrected source still
 requires new different entire review and fresh complete execution-input ROOT.
+
+
+## PR #1624 original contribution reconciliation
+
+ISS-1623 / SPEC-006 AC-6G.owning-resource-observation: [complete thirteen-path original contribution and receiving source provenance](PR-1624-RECONCILIATION.md). All receiving code/spec/fixtures retained; fresh ENTIRE source review and NEW ROOT remain required. Source reconciliation is pending parent PR disposition, not native acceptance or delivery completion.
+
+
+PR #1624 current receiving checkpoint: normal develop integration of `ce832478da5ad6997ffcb9c82aab95cdf55b1d06` (PR #1707 TAR framing landing). The preceding b0c checkpoint is historical provenance. Complete receiving TAR/header/framing/link source and all original owning-observation contracts are preserved. Source preparation only; DIFFERENT fresh ENTIRE review and NEW complete-input ROOT admission remain required before execution.
