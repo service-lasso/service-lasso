@@ -67,11 +67,13 @@ static int output_geometry(const struct f7_manifest_input *in,uint8_t *out,size_
  }
  return F7_OK;
 }
-static int retained_queue(struct f7_async_spool *queue,const struct f7_member *member,int incomplete){
+static int retained_queue(struct f7_async_spool *queue,const struct f7_member *member,
+ uint64_t submitted_limit,uint64_t queue_limit,int incomplete){
  struct f7_async_status status;
  if(!queue||!member||f7_async_snapshot(queue,&status)||!status.finished||
     !status.joined||status.worker_created!=1||!status.worker_entered||
-    status.persisted!=member->length||status.persisted>status.submitted||
+    status.persisted!=member->length||status.persisted>status.submitted||status.submitted>submitted_limit||
+    status.queued>queue_limit||status.high_water>queue_limit||
     status.in_flight_persisted>status.in_flight)return F7_INCOMPLETE;
  if(!incomplete&&(status.failed||status.queued||status.in_flight||
     status.persisted!=status.submitted))return F7_INCOMPLETE;
@@ -147,23 +149,31 @@ int f7_canonical_manifest(const struct f7_manifest_input *in,uint8_t *out,size_t
  const struct f7_capture *c=in->capture;const struct f7_reservation *r=c->reservation;
  struct f7_reservation arithmetic;
  if(f7_budget_derive(&arithmetic,&r->input)||
+    arithmetic.local_bytes!=r->local_bytes||arithmetic.encrypted_bytes!=r->encrypted_bytes||
+    arithmetic.segment_objects!=r->segment_objects||
     (in->unavailable_count&&!c->incomplete)||
     (c->child_created==F7_NOT_CREATED&&c->child_exit_observed)||
     (!c->incomplete&&c->child_created==F7_CREATED&&!c->child_exit_observed))return F7_INCOMPLETE;
  if(!c->prepared||c->native_drains||
     (c->child_created!=F7_CREATED&&c->child_created!=F7_NOT_CREATED))return F7_INCOMPLETE;
+ if(!c->incomplete&&(r->exhausted||c->witness->pending||c->witness->failed||
+    !c->error_channel||c->error_channel->failed||c->error_channel->incomplete))return F7_INCOMPLETE;
  struct f7_async_spool *witness_queues[2]={c->witness->async,c->witness->emergency_async};
  const struct f7_member *witness_members[2]={c->witness->member,c->witness->emergency_member};
  for(unsigned i=0;i<2;i++){
   if(original_member(in,(enum f7_record_kind)(F7_RECORD_WITNESS+i),witness_members[i],1))return F7_CONFLICT;
-  if(retained_queue(witness_queues[i],witness_members[i],c->incomplete))return F7_INCOMPLETE;
-  if(witness_members[i]->length>(i?r->input.emergency_bytes:r->input.witness_bytes))return F7_INCOMPLETE;
+  uint64_t used=i?r->emergency_used:r->witness_used;
+  uint64_t limit=i?r->input.emergency_bytes:r->input.witness_bytes;
+  if(used>limit||retained_queue(witness_queues[i],witness_members[i],used,
+     i?r->input.emergency_queue_bytes:r->input.witness_queue_bytes,c->incomplete)||
+     (!c->incomplete&&witness_members[i]->length!=used))return F7_INCOMPLETE;
  }
  for(unsigned i=0;i<F7_STREAM_COUNT;i++){
   if(c->created[i]!=F7_CREATED&&c->created[i]!=F7_NOT_CREATED)return F7_INCOMPLETE;
   if(original_member(in,(enum f7_record_kind)(F7_RECORD_RAW_STDOUT+i),c->raw[i],c->created[i]==F7_CREATED))return F7_CONFLICT;
   if(c->created[i]==F7_NOT_CREATED&&(c->natural_eof[i]||c->observed[i]))return F7_INCOMPLETE;
-  if(c->created[i]==F7_CREATED&&retained_queue(c->raw_async[i],c->raw[i],c->incomplete))return F7_INCOMPLETE;
+  if(c->created[i]==F7_CREATED&&(r->captured[i]>r->input.original[i]||r->captured[i]>c->observed[i]||
+     retained_queue(c->raw_async[i],c->raw[i],r->captured[i],r->input.queue_bytes[i],c->incomplete)))return F7_INCOMPLETE;
   if(c->created[i]==F7_CREATED&&(!c->raw[i]||!c->raw[i]->readback_complete))return F7_INCOMPLETE;
   if(c->created[i]==F7_CREATED&&(c->raw[i]->length>c->observed[i]||
      c->raw[i]->length>r->input.original[i]||(!c->incomplete&&c->raw[i]->length!=c->observed[i])))return F7_INCOMPLETE;
