@@ -1,8 +1,7 @@
-import { Parser } from "tar";
 import { gunzipSync } from "node:zlib";
 import { digest } from "./ga-platform-scope-lib.mjs";
 import { assertNames } from "./scoped-release-evidence-lib.mjs";
-import { assertScopedTarFraming } from "./scoped-tar-framing-lib.mjs";
+import { assertScopedTarFraming, readScopedTarEntries } from "./scoped-tar-framing-lib.mjs";
 
 // Read the registry's original package tarball without materialization, imports,
 // lifecycle scripts or native execution. Tool bytes remain opaque retained files.
@@ -15,8 +14,7 @@ export async function verifyNpmOriginalToolBytes(tarball, manifestBytes, origina
   wanted.set("package/operator-tools/manifest.json", manifestBytes);
   const observed = new Map(), seen = new Set();
   let expanded = 0, count = 0, failure;
-  await new Promise((resolve, reject) => {
-    const parser = new Parser({ strict: true, onReadEntry(entry) {
+  await readScopedTarEntries(archiveBytes, ordinaryEntries, entry => {
       const authority = ordinaryEntries[count];
       const name = authority?.path, effectiveSize = authority?.size;
       count++;
@@ -40,15 +38,10 @@ export async function verifyNpmOriginalToolBytes(tarball, manifestBytes, origina
         }
       });
       entry.resume();
-    } });
-    parser.on("ignoredEntry", entry => {
+    }, entry => {
       failure ??= new Error("npm archive ignored member/metadata differs");
       entry.resume();
-    });
-    parser.on("error", error => { failure ??= error; reject(failure); });
-    parser.once("end", () => failure ? reject(failure) : resolve());
-    parser.end(archiveBytes);
-  });
+    }).catch(error => { throw failure ?? error; });
   if (failure) throw failure;
   if (count !== ordinaryEntries.length) throw new Error("npm archive framing/member count differs");
   assertNames([...observed.keys()], [...wanted.keys()]);

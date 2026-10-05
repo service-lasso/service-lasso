@@ -529,3 +529,13 @@ path/linkpath are excluded as in locked Header, while global size remains.
 Core link validation uses local-or-raw targets with every existing safety check.
 Local/global field overlap and unsafe target/alias/size fixtures remain UNRUN;
 the conservative scoped contract does not claim native metadata equivalence.
+
+## Issue #1562 scoped TAR entire-review R5/R6 corrective source unit
+Continuation of clean PR #1707 head 3b5065200c04c57cd7ab42bc9445e0dd200e4b5d
+on retained fix/1562-scoped-npm-tar-compatibility is the bounded custody exception.
+SPEC-007 AC-7G.scoped-tar-parser.R5/R6 maps the latest entire SOURCE NO_GO to
+physical framing-driven public decoder dispatch and observed link-target equality.
+Preserve all earlier framing/budget/opaque-byte/path/link/alias controls and locked
+dependencies/protected originals. Fresh actual-reader additive cases are SOURCE_UNRUN;
+no target execution, native equivalence, merge or release claim. Parent owns tracking;
+freeze cumulative source/dependency/history/prior failures for DIFFERENT ENTIRE review.

@@ -398,3 +398,19 @@ replace earlier local fields. Add local-over-global legitimate links and unsafe
 local/raw traversal/alias/size-interaction regressions. This is the conservative
 scoped source contract; native metadata equivalence still requires qualified
 execution and is not established by source review or these UNEXECUTED fixtures.
+
+`AC-7G.scoped-tar-parser.R5/R6`: supersedes the Parser-dispatch requirement
+and R4.fields acceptance of emitted target disagreement. Shared validated physical
+framing drives the locked public Header/Pax/ReadEntry decoder directly, so pending
+ordinary fields cannot control intermediary metadata consumption. Preserve every
+strict Header validation predicate, unknown/ignored-entry denial, physical 1 MiB
+metadata cap, effective size/body quotas, local-once/global-persistent semantics,
+complete EOF and original opaque bodies. Neither translated extraction bytes nor
+private Parser symbols are permitted. Core compares actual ReadEntry linkpath to
+the validated local/raw linkpath and fails closed on every disagreement, including
+unsafe or safe-but-different global aliases/cycles/dangling targets. Original
+compressed extraction input remains unchanged; source agreement is not native
+qualification. Add actual-reader positives for pending global zero and 1 MiB+1
+before bounded local/GNU/PAX, pending local zero before bounded GNU/PAX and a
+following size override. All additions remain SOURCE_UNRUN pending DIFFERENT
+ENTIRE review and NEW complete execution-input ROOT admission.

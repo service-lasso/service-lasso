@@ -127,15 +127,14 @@ test("#1562 effective ordinary member budget cannot be reduced by conflicting gl
   }
 });
 
-test("#1562 Core local link targets override misleading global targets under unchanged safety policy", async () => {
+test("#1562 Core rejects misleading emitted global targets under unchanged safety policy", async () => {
   for (const type of ["1", "2"]) {
     const target = type === "1" ? "core/data" : "data";
     for (const localType of ["x", "K"]) {
       const global = member("PaxHeader/global", pax({ path: "other-root/ignored", linkpath: "../outside", size: 4 }), "g");
       const localTarget = member("PaxHeader/target", localType === "x" ? pax({ linkpath: target }) : Buffer.from(`${target}\0`), localType);
       const localSize = member("PaxHeader/size", pax({ size: 0 }), "x");
-      const rows = await coreRead(Buffer.concat([coreRaw(), global, localTarget, localSize, member("core/alias", undefined, type, 0, "fallback"), eof]));
-      assert.deepEqual(rows.get("core/alias"), { type: type === "1" ? "Link" : "SymbolicLink", target: "core/data" });
+      await assert.rejects(coreRead(Buffer.concat([coreRaw(), global, localTarget, localSize, member("core/alias", undefined, type, 0, "fallback"), eof])), /emitted link target interpretation/);
     }
     const safeGlobal = member("PaxHeader/global", pax({ linkpath: target, size: 4 }), "g");
     for (const unsafe of ["../outside", "/outside", "core/../outside", "bad\\target", "bad:target"]) {
@@ -147,14 +146,67 @@ test("#1562 Core local link targets override misleading global targets under unc
     await assert.rejects(coreRead(Buffer.concat([coreRaw(), globalTargetOnly, member("core/alias", undefined, type, 0, "../outside"), eof])));
     // A global zero cannot conceal the effective local nonzero link body.
     const globalZero = member("PaxHeader/global", pax({ size: 0, linkpath: target }), "g");
-    // Install the local body size first: zero pending size would otherwise
-    // prevent Parser from consuming an intervening nonempty metadata entry.
+    // Original ordering is retained; R5 additionally covers global-zero first.
     const localBody = member("PaxHeader/local", pax({ size: 4, linkpath: target }), "x");
     await assert.rejects(coreRead(Buffer.concat([coreRaw(), localBody, globalZero, member("core/alias", tool, type, 0, target), eof])), /link unsafe/);
   }
   const globalSafe = member("PaxHeader/global", pax({ linkpath: "data" }), "g");
   const self = member("PaxHeader/local", pax({ linkpath: "alias" }), "x");
-  await assert.rejects(coreRead(Buffer.concat([coreRaw(), globalSafe, self, member("core/alias", undefined, "2", 0, "data"), eof])), /cycle/);
+  await assert.rejects(coreRead(Buffer.concat([coreRaw(), globalSafe, self, member("core/alias", undefined, "2", 0, "data"), eof])), /emitted link target interpretation/);
   const dataTarget = member("PaxHeader/local", pax({ linkpath: "data" }), "x");
   await assert.rejects(coreRead(Buffer.concat([coreRaw(), globalSafe, dataTarget, member("core/alias", undefined, "2", 0, "data"), member("core/alias/child", tool), eof])), /descends through/);
+});
+
+// R5/R6 additional actual-reader cases, SOURCE_UNRUN. No native equivalence.
+test("#1562 pending zero or large ordinary sizes cannot control bounded intermediary dispatch", async () => {
+  for (const [read, prefix, name] of [[npmRead, member(manifestName, manifest), toolName], [coreRead, member("core/", undefined, "5"), "core/data"]]) {
+    for (const pendingType of ["g", "x"]) for (const pendingSize of [0, 1024 * 1024 + 1]) {
+      for (const metadataType of ["L", "N", "x", "X"]) {
+        const pending = member("PaxHeader/pending", pax({ size: pendingSize }), pendingType);
+        const nameMetadata = member("PaxHeader/name", ["L", "N"].includes(metadataType) ? Buffer.from(`${name}\0`) : pax({ path: name }), metadataType);
+        const finalSize = member("PaxHeader/final-size", pax({ size: tool.length }), "x");
+        await read(Buffer.concat([prefix, pending, nameMetadata, finalSize, member("short", tool, "0", 0), eof]));
+        const wrong = Buffer.from(tool); wrong[0] ^= 1;
+        if (read === npmRead) await assert.rejects(read(Buffer.concat([prefix, pending, nameMetadata, finalSize, member("short", wrong, "0", 0), eof])), /original operator bytes/);
+      }
+    }
+  }
+  for (const pendingSize of [0, 1024 * 1024 + 1]) for (const metadataType of ["K", "x"]) {
+    const pending = member("PaxHeader/pending", pax({ size: pendingSize }), "x");
+    const link = member("PaxHeader/target", metadataType === "K" ? Buffer.from("data\0") : pax({ linkpath: "data" }), metadataType);
+    const finalSize = member("PaxHeader/final", pax({ size: 0 }), "x");
+    const rows = await coreRead(Buffer.concat([coreRaw(), pending, link, finalSize, member("core/alias", undefined, "2", 0, "fallback"), eof]));
+    assert.deepEqual(rows.get("core/alias"), { type: "SymbolicLink", target: "core/data" });
+  }
+});
+
+test("#1562 Core rejects every known emitted target disagreement before original extraction", async () => {
+  for (const type of ["1", "2"]) {
+    const target = type === "1" ? "core/data" : "data";
+    for (const alternate of ["../outside", "/outside", type === "1" ? "core/second" : "second", type === "1" ? "core/alias" : "alias", type === "1" ? "core/absent" : "absent"]) {
+      const global = member("PaxHeader/global", pax({ linkpath: alternate, size: 0 }), "g");
+      for (const localType of [null, "x", "K"]) {
+        const local = localType === null ? Buffer.alloc(0) : member("PaxHeader/local", localType === "K" ? Buffer.from(`${target}\0`) : pax({ linkpath: target, size: 0 }), localType);
+        await assert.rejects(coreRead(Buffer.concat([coreRaw(), member("core/second", tool), global, local, member("core/alias", undefined, type, 0, target), eof])), /emitted link target interpretation/);
+      }
+    }
+    // Matching actual/local interpretations retain legitimate bounded metadata.
+    const global = member("PaxHeader/global", pax({ linkpath: target, size: 0 }), "g");
+    const local = member("PaxHeader/local", pax({ linkpath: target, size: 0 }), "x");
+    const rows = await coreRead(Buffer.concat([coreRaw(), global, local, member("core/alias", undefined, type, 0, target), eof]));
+    assert.equal(rows.get("core/alias").target, "core/data");
+  }
+  // With agreement, existing graph rejection remains independently exercised.
+  for (const target of ["alias", "absent"]) {
+    const local = member("PaxHeader/local", pax({ linkpath: target }), "x");
+    await assert.rejects(coreRead(Buffer.concat([coreRaw(), local, member("core/alias", undefined, "2", 0, target), eof])), target === "alias" ? /cycle/ : /target absent/);
+  }
+});
+
+test("#1562 framing-driven decoder retains strict invalid-header rejection", async () => {
+  for (const [read, prefix, name] of [[npmRead, npmRaw(), "package/extra"], [coreRead, coreRaw(), "core/extra"]]) {
+    const invalid = [member("", tool), member(name, tool, "0", tool.length, "forbidden"), member(name, undefined, "2", 0, "")];
+    const checksum = member(name, tool); checksum[148] ^= 1; invalid.push(checksum);
+    for (const entry of invalid) await assert.rejects(read(Buffer.concat([prefix, entry, eof])), /framing\/EOF/);
+  }
 });

@@ -1,11 +1,10 @@
-import { Parser } from "tar";
 import path from "node:path";
 import { lstat, readdir } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { gunzipSync } from "node:zlib";
 import { extractZipSafely } from "../dist/runtime/files/safe-zip.js";
 import { digest } from "./ga-platform-scope-lib.mjs";
-import { assertScopedTarFraming } from "./scoped-tar-framing-lib.mjs";
+import { assertScopedTarFraming, readScopedTarEntries } from "./scoped-tar-framing-lib.mjs";
 
 // This is Core outer archive preflight, not staged-service transport or CLI
 // native TAR grammar. Effective GNU/PAX names are checked before extraction.
@@ -22,8 +21,7 @@ export async function preflightScopedCoreTar(bytes, rootName) {
     if (raw !== rootName && !raw.startsWith(`${rootName}/`)) throw new Error("Core outer TAR root differs");
     return raw;
   };
-  await new Promise((resolve, reject) => {
-    const parser = new Parser({ strict: true, onReadEntry(entry) {
+  await readScopedTarEntries(expanded, ordinaryEntries, entry => {
       const authority = ordinaryEntries[count++], effectiveSize = authority?.size;
       let observedSize = 0;
       entry.on("data", chunk => {
@@ -43,21 +41,17 @@ export async function preflightScopedCoreTar(bytes, rootName) {
         let target = null;
         if (["SymbolicLink", "Link"].includes(entry.type)) {
           const linkpath = authority.linkpath;
+          if (entry.linkpath !== linkpath) throw new Error("Core outer TAR emitted link target interpretation differs");
           if (typeof linkpath !== "string" || !linkpath || /[\\:\x00-\x1f\x7f]/u.test(linkpath) || linkpath.startsWith("/") || effectiveSize !== 0) throw new Error("Core outer TAR link unsafe");
           target = entry.type === "Link" ? safe(linkpath) : safe(path.posix.normalize(path.posix.join(path.posix.dirname(name), linkpath)));
         }
         rows.set(name, { type: entry.type, target }); folded.add(key);
       } catch (error) { failure ??= error; }
       entry.resume();
-    } });
-    parser.on("ignoredEntry", entry => {
+    }, entry => {
       failure ??= new Error("Core outer TAR ignored member/metadata differs");
       entry.resume();
-    });
-    parser.on("error", error => { failure ??= error; reject(failure); });
-    parser.once("end", () => failure ? reject(failure) : resolve());
-    parser.end(expanded);
-  });
+    }).catch(error => { throw failure ?? error; });
   if (failure) throw failure;
   if (count !== ordinaryEntries.length) throw new Error("Core outer TAR framing/member count differs");
   if (rows.size === 0 || rows.get(rootName)?.type !== "Directory") throw new Error("Core outer TAR complete root directory missing");
