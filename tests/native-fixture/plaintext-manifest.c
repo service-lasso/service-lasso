@@ -23,6 +23,25 @@ static void values(struct output *o,const uint64_t *values,size_t count){
  text(o,"[");for(size_t i=0;i<count;i++){if(i)text(o,",");integer(o,values[i]);}text(o,"]");
 }
 static int present(const uint8_t *p,size_t n){uint8_t found=0;for(size_t i=0;i<n;i++)found|=p[i];return found!=0;}
+static int retained_queue(struct f7_async_spool *queue,const struct f7_member *member,int incomplete){
+ struct f7_async_status status;
+ if(!queue||!member||f7_async_snapshot(queue,&status)||!status.finished||
+    !status.joined||status.worker_created!=1||!status.worker_entered||
+    status.persisted!=member->length||status.persisted>status.submitted||
+    status.in_flight_persisted>status.in_flight)return F7_INCOMPLETE;
+ if(!incomplete&&(status.failed||status.queued||status.in_flight||
+    status.persisted!=status.submitted))return F7_INCOMPLETE;
+ return F7_OK;
+}
+static int original_member(const struct f7_manifest_input *in,enum f7_record_kind kind,
+ const struct f7_member *original,int required){
+ size_t found=0;
+ for(size_t i=0;i<in->member_count;i++)if(in->members[i].kind==kind){
+  if(!required||in->members[i].persisted!=original)return F7_CONFLICT;
+  found++;
+ }
+ return found==(size_t)required?F7_OK:F7_CONFLICT;
+}
 int f7_canonical_manifest(const struct f7_manifest_input *in,uint8_t *out,size_t capacity,size_t *length){
  struct output o={out,capacity,0,0};uint32_t classes=0;
  if(!in||!out||!length||!in->capture||!in->capture->witness||!in->capture->reservation||
@@ -89,17 +108,19 @@ int f7_canonical_manifest(const struct f7_manifest_input *in,uint8_t *out,size_t
  if(!c->prepared||c->native_drains||
     (c->child_created!=F7_CREATED&&c->child_created!=F7_NOT_CREATED))return F7_INCOMPLETE;
  struct f7_async_spool *witness_queues[2]={c->witness->async,c->witness->emergency_async};
- for(unsigned i=0;i<2;i++)if(witness_queues[i]){
-  struct f7_async_status status;
-  if(f7_async_snapshot(witness_queues[i],&status)||!status.joined||!c->incomplete)return F7_INCOMPLETE;
+ const struct f7_member *witness_members[2]={c->witness->member,c->witness->emergency_member};
+ for(unsigned i=0;i<2;i++){
+  if(original_member(in,(enum f7_record_kind)(F7_RECORD_WITNESS+i),witness_members[i],1))return F7_CONFLICT;
+  if(retained_queue(witness_queues[i],witness_members[i],c->incomplete))return F7_INCOMPLETE;
  }
  for(unsigned i=0;i<F7_STREAM_COUNT;i++){
   if(c->created[i]!=F7_CREATED&&c->created[i]!=F7_NOT_CREATED)return F7_INCOMPLETE;
-  if(c->raw_async[i]){
-   struct f7_async_status status;
-   if(f7_async_snapshot(c->raw_async[i],&status)||!status.joined||!c->incomplete)return F7_INCOMPLETE;
-  }
+  if(original_member(in,(enum f7_record_kind)(F7_RECORD_RAW_STDOUT+i),c->raw[i],c->created[i]==F7_CREATED))return F7_CONFLICT;
+  if(c->created[i]==F7_NOT_CREATED&&(c->natural_eof[i]||c->observed[i]))return F7_INCOMPLETE;
+  if(c->created[i]==F7_CREATED&&retained_queue(c->raw_async[i],c->raw[i],c->incomplete))return F7_INCOMPLETE;
   if(c->created[i]==F7_CREATED&&(!c->raw[i]||!c->raw[i]->readback_complete))return F7_INCOMPLETE;
+  if(c->created[i]==F7_CREATED&&(c->raw[i]->length>c->observed[i]||
+     c->raw[i]->length>r->input.original[i]||(!c->incomplete&&c->raw[i]->length!=c->observed[i])))return F7_INCOMPLETE;
   if(!c->incomplete&&c->created[i]==F7_CREATED&&(!c->natural_eof[i]||c->raw_lost[i]))return F7_INCOMPLETE;
  }
  for(size_t i=0;i<in->member_count;i++)if(in->members[i].persisted->failed&&!c->incomplete)return F7_INCOMPLETE;

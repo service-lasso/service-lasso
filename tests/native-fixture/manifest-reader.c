@@ -50,6 +50,21 @@ static int semantics(struct f7_decoded_manifest *o){
  }
  uint32_t prerequisites=((UINT32_C(1)<<11)-1)|(UINT32_C(1)<<(F7_RECORD_ORIGINAL_ADMISSION-1));
  if((classes&prerequisites)!=prerequisites)return F7_AUTH_FAILURE;
+ /* Bind the decoded graph to its declared capture. This checks bytes only;
+    these classifications cannot authenticate an original endpoint or actor. */
+ for(unsigned stream=0;stream<F7_STREAM_COUNT;stream++){
+  size_t found=0;
+  for(size_t i=0;i<o->member_count;i++)if(o->members[i].kind==(enum f7_record_kind)(F7_RECORD_RAW_STDOUT+stream)){
+   const struct f7_decoded_member *m=o->members+i;found++;
+   if(o->streams[stream].creation!=F7_CREATED||m->length>o->streams[stream].observed||
+      m->length>o->budgets.original[stream]||(!o->incomplete&&m->length!=o->streams[stream].observed))return F7_CONFLICT;
+  }
+  if(found!=(size_t)(o->streams[stream].creation==F7_CREATED))return F7_CONFLICT;
+ }
+ for(unsigned kind=F7_RECORD_WITNESS;kind<=F7_RECORD_EMERGENCY_WITNESS;kind++){
+  size_t found=0;for(size_t i=0;i<o->member_count;i++)if(o->members[i].kind==(enum f7_record_kind)kind)found++;
+  if(found!=1)return F7_CONFLICT;
+ }
  for(size_t i=0;i<o->unavailable_count;i++){
   const struct f7_manifest_unavailable *u=o->unavailable+i;
   if(!kind(u->kind)||(i&&memcmp(o->unavailable[i-1].key,u->key,16)>=0)||!o->incomplete)return F7_INVALID;
