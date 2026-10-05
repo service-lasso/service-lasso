@@ -12,7 +12,8 @@ operator login and Todo's user login are separate.
 
 ## Outcome
 
-**Stage 4: Add identity.** Sign in before reading or adding todos. The API and
+**Stage 4: Add identity.** Both the App and API require authentication before
+reading or adding todos. The API and
 database retain the original shared list; this lesson does not split data by user.
 
 <div className="tutorial-architecture">
@@ -21,7 +22,7 @@ database retain the original shared list; this lesson does not split data by use
 %%{init: {"flowchart": {"nodeSpacing": 24, "rankSpacing": 28, "padding": 18, "subGraphTitleMargin": {"top": 10, "bottom": 20}}, "themeVariables": {"fontFamily": "system-ui, sans-serif"}}}%%
 flowchart TB
   accTitle: Stage 4: Add identity to Todo
-  accDescr: Browser reaches the App. The App uses Identity for sign-in and the API for todos. Identity and API use separate databases within the same Database service. All four services are managed inside Service Lasso.
+  accDescr: Browser reaches the App. The App uses Identity for sign-in and sends the user's access token to the API. The API validates that token with Identity before reading or writing Database. All four services are managed inside Service Lasso.
   browser(["Browser"])
   subgraph lasso["Service Lasso"]
     todo("<b>App</b><br/><small>(lasso-todo)</small>")
@@ -30,6 +31,7 @@ flowchart TB
     db[("<b>Database</b><br/><small>(lasso-postgres)</small>")]
     todo --> identity
     todo --> api
+    api -.-> identity
     identity --> db
     api --> db
   end
@@ -44,11 +46,13 @@ flowchart TB
 
 Identity is the new highlighted service. During sign-in the browser follows
 the App's redirect to Identity and returns to the App's registered callback.
+The dashed API → Identity link validates each access token. Direct API calls
+must pass the same check as requests forwarded by the App.
 
 | Purpose | Service | Responsibility / data path |
 | --- | --- | --- |
 | App | `lasso-todo` (`todo`) | Sign-in callback, server-side session, shared Todo UI and protected `/todos` proxy. |
-| API | `lasso-todo-api` (`todo-api`) | Existing private loopback API; reads/writes the original Todo database. |
+| API | `lasso-todo-api` (`todo-api`) | Validate access tokens with Identity, then read/write the original Todo database. |
 | Database | `lasso-postgres` (`postgres`) | Retain Todo data plus a separate `zitadel_todo` identity database under `${SERVICE_ROOT}/runtime/data`. |
 | Identity | `lasso-zitadel` (`zitadel`) | User accounts, login, signed identity tokens and logout over trusted local HTTPS. |
 
@@ -195,55 +199,94 @@ and application **Todo**:
    `http://127.0.0.1:18552/auth/callback` and post-logout `http://127.0.0.1:18552/`.
 3. Enable development mode for this local HTTP registration. Use `127.0.0.1`
    consistently; `localhost` is a different callback origin.
-4. Save the client ID and create a verified local test user with a private
+4. Save the **Web client ID** and the **project ID**. In the same project,
+   create another application named **Todo API**, type **API**, authentication
+   method **Basic**. Save its **API client ID** and client secret privately.
+   The App requests this project's audience; the API accepts tokens issued
+   to the registered Todo Web client for that audience.
+5. Create a verified local test user with a private
    password. Use the **login name shown in that user's details**, which may
    include an organization suffix, rather than assuming its email is a login
    name. Use that user for the app rather than the identity administrator.
 
 This follows [Zitadel's code + PKCE flow](https://zitadel.com/docs/guides/integrate/login/oidc/login-users).
+The separate API registration follows
+[Zitadel's Basic token introspection guide](https://zitadel.com/docs/guides/integrate/token-introspection/basic-auth).
+Save the API secret as one line in a private file outside the repository,
+service seed and application bundle. Restrict its Windows ACL to your runtime
+user and SYSTEM. The next helper receives its absolute **path**, never the
+secret itself. Neither the browser nor Todo needs this secret.
 
 ## 5. Upgrade and configure the managed Todo consumer
 
-The earlier pinned Todo release has no sign-in implementation. With Todo
-stopped, update **only** its manifest version/artifact tag to `2026.10.4-6f47534`,
-retain environment, dependencies, endpoints and data, then refresh Admin and
-install the new archive. Provider-backed launch and checksums remain the same.
+Stop **both Todo and the API**. Import the corrected release manifests into a
+staging inventory:
+
+```powershell
+node dist/cli.js services import service-lasso/lasso-todo --tag 2026.10.4-15dc4b9 --services-root workspace/todo-auth-imports --workspace-root workspace/demo-instance
+node dist/cli.js services import service-lasso/lasso-todo-api --tag 2026.10.4-02ef566 --services-root workspace/todo-auth-imports --workspace-root workspace/demo-instance
+```
+
+Back up both existing service manifests. Copy each new producer's `version`
+and complete `artifact` block into its existing manifest, including the new
+checksums. Preserve your environment, dependencies, endpoints and data paths.
+Also copy the API producer's `env.TODO_API_AUTH_CONTRACT` value
+`"zitadel-introspection-v1"` and its explicit `TODO_API_AUTH_MODE=anonymous`
+setting for this stopped upgrade. The next helper switches that mode to
+Zitadel. Do not claim the capability on an old archive.
+
+Refresh Admin and install both new archives. The paired helper rejects older
+API manifests; changing only a tag cannot upgrade a checksum-bound artifact.
 
 The acquired archive includes `configure-sso.mjs` at its root. Read that actual
 directory from the install receipt; do not start a second app process.
-Replace the client ID with the public ID you just registered:
+Use the three IDs you registered and the private secret file's absolute path:
 
 ```powershell
 $todoArtifact = (Get-Content workspace/canonical-services-root/todo/.state/install.json -Raw | ConvertFrom-Json).artifact.extractedPath
-node "$todoArtifact/configure-sso.mjs" workspace/canonical-services-root/todo enable https://localhost:18084 '<Todo client ID>'
+node "$todoArtifact/configure-sso.mjs" workspace/canonical-services-root/todo enable https://localhost:18084 '<Web client ID>' '<Project ID>' '<API client ID>' '<absolute private secret file path>' (Resolve-Path workspace/canonical-services-root/@todo-certs/data/rootCA.pem).Path
 ```
 
-The helper adds `zitadel` to the existing dependencies and these non-secret
-settings, preserving API mode and data:
+The helper adds `zitadel` to the existing dependencies and configures both
+services, preserving API mode and data. Todo receives these non-secret settings:
 
 ```json
 {
   "TODO_OIDC_ISSUER": "https://localhost:18084",
-  "TODO_OIDC_CLIENT_ID": "<Todo client ID>",
+  "TODO_OIDC_CLIENT_ID": "<Web client ID>",
+  "TODO_OIDC_AUDIENCE": "<Project ID>",
   "TODO_ORIGIN": "http://127.0.0.1:${endpoint.web.port}"
 }
 ```
+
+The API receives `TODO_API_AUTH_MODE=zitadel`, the same issuer, Web client ID
+and project audience, plus `TODO_API_CLIENT_ID`,
+`TODO_API_CLIENT_SECRET_FILE` and `TODO_API_CA_FILE`. These contain identifiers
+or paths. The helper does not copy credentials into either manifest.
 
 Refresh discovery. Start the API, then Todo through Admin. Failed discovery,
 untrusted HTTPS or incomplete configuration must stop startup; there is no
 anonymous fallback.
 
 Todo handles code + S256 PKCE server-side, verifies state/nonce and signed
-ID-token claims, and retains a bounded opaque session. Browser JavaScript gets
+ID-token claims, and retains a bounded opaque session. It keeps the access token
+in server memory and forwards it to the API. Browser JavaScript gets
 the display name and session CSRF token, not identity/access tokens. Its cookie
 is HttpOnly/SameSite for this explicitly local HTTP origin. Remote deployment
-needs HTTPS, Secure cookies and API authorization; do not expose the private
-Go API or Database as a way around app login.
+needs HTTPS and Secure cookies. The API uses HTTPS token introspection and
+checks issuer, audience, issuing Web client, expiry and active status before
+accessing Todo data. Invalid tokens receive 401; unavailable Identity receives
+503 without accessing the list. `/healthz` remains public for managed health.
+Session lifetime is bounded by token expiry; expired sessions require sign-in
+again. These lessons still use one shared list, not per-user authorization.
 
 ## 6. Prove sign-in works in Todo
 
 1. In a fresh browser session, open Todo. It shows **Sign in with Zitadel**;
    `/todos` returns 401 before login.
+   Read the API's allocated endpoint in Admin and call its `/todos` directly,
+   without an Authorization header: both GET and POST must return **401**.
+   A made-up bearer token must also return 401. Confirm no row was created.
 2. Sign in as the test user. The browser reaches Identity's login and returns
    to the exact callback. Todo shows the signed-in name.
 3. Confirm the original todos remain, add a todo, then refresh and confirm the
@@ -254,21 +297,29 @@ Go API or Database as a way around app login.
    failure without creating an authenticated session.
 6. Stop/start Todo through Admin and sign in again. Sessions are deliberately
    lost on restart while rows/IDs remain. An identity outage must not admit a
-   new anonymous session.
+   new anonymous session. With a still-valid logged-in session, stop Identity
+   and try reading/adding a todo: the API must fail closed with 503. Restart
+   Identity, sign in again if needed, and confirm recovery with unchanged rows.
 
-**Pass:** managed Identity and Todo complete actual browser login, protected
-reads/writes, logout and data-preserving restart. Identity health, protocol
+**Pass:** managed Identity, Todo and API complete actual browser login,
+authenticated reads/writes, direct API denials, provider-outage denial, logout
+and data-preserving restart. Identity health, protocol
 fixtures and documentation builds alone do not prove this.
 
 ## Disable sign-in without deleting data
 
-Stop Todo, run the acquired helper with `disable`, refresh discovery and start:
+Stop **both Todo and the API**, run the acquired helper with `disable`, refresh
+discovery and start the API, then Todo:
 
 ```powershell
 node "$todoArtifact/configure-sso.mjs" workspace/canonical-services-root/todo disable
 ```
 
-This intentionally restores the anonymous local lesson. Preserve Identity's
+This intentionally restores the anonymous local lesson **on both services**.
+Earlier stages explicitly use `TODO_API_AUTH_MODE=anonymous`; loopback alone
+does not prevent other local programs from reading or writing that API.
+Missing/partial security settings must fail startup, not silently restore it.
+Preserve Identity's
 database/master key, Broker custody and certificates if you stop its services.
 See the [execution record](../development/documented-examples-verification.md)
 and [consumer contracts](../reference/zitadel-consumer-integration.md).

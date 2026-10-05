@@ -46,7 +46,7 @@ archive against real PostgreSQL. Full managed/Admin integration above was
 executed on Windows with the explicit PostgreSQL adapter. It does not qualify
 macOS PostgreSQL, whole-demo shutdown, upstream template admission or GA.
 
-## Todo identity stage (#1673)
+## Earlier App-only identity stage (#1673)
 
 The [fourth tutorial](../getting-started/zitadel-sso-hub.md) now adds Zitadel
 sign-in to the managed Todo app, rather than leaving the consuming application
@@ -77,7 +77,7 @@ literal Core CLI import/install and verified SHA256
 `a8297a6f16e13cc283ef80ccc0a5187e1c276fdbb176d21f0e6faa3d32b8d5e6`.
 A fresh owned Core loaded that exact artifact; an earlier in-memory held-artifact
 attempt was retained and excluded from released acceptance. Actual Zitadel test
-user login, protected Go API proxy reads/writes/reload, native confirmed Todo
+user login, App-protected Go API proxy reads/writes/reload, native confirmed Todo
 restart, re-login and logout passed. PostgreSQL retained all four original JSON
 IDs/titles, and the released Go API list matched the SQL rows.
 
@@ -87,6 +87,46 @@ machine-wide trust claim. Public `/healthz` stayed available; anonymous `/todos`
 was denied, and restart invalidated sessions while retaining data. Local sessions
 authorize the shared list, not per-user rows or direct remote API access. No
 Linux/macOS native identity, production deployment or GA claim follows.
+
+**Correction (#1692):** that release protected Todo's front door only. The Go
+API still accepted direct anonymous reads and writes. The previous browser
+checks established App session enforcement, not API authorization. That gap
+was a defect in the SSO lesson, even though the API listened on loopback. The
+corrective release below adds API token validation; the earlier results remain
+recorded with this narrower scope.
+
+## Todo API authentication correction (#1692)
+
+The API now requires an explicit mode: anonymous for the preceding local
+lessons, or Zitadel for SSO. Missing or partial identity configuration fails
+startup. The secured API introspects each bearer access token over trusted
+HTTPS with a separate registered Basic API client and a private secret file.
+It checks active status, issuer, project audience, issuing Todo Web client,
+subject, token type and lifetime before accessing the database. Public health
+does not authorize Todo reads or writes.
+
+Todo requests the project audience and keeps the access token only in its
+bounded server session. The proxy forwards that token, ignores browser-supplied
+Authorization headers and never falls back after API rejection. The paired
+configuration helper rejects older API manifests and configures API protection
+before enabling App sign-in. Both services must be stopped during changes.
+
+New tests cover source middleware rejection and configuration, signed HTTPS
+OIDC forwarding, access-token expiry and extracted-archive execution. The
+proxy fixture uses a simulated API and does not establish Go enforcement or
+real Zitadel acceptance. Existing protected tests were not edited. Independent
+Windows execution and exact corrective release identities are recorded below
+after the actual managed provider and released consumer checks complete.
+
+The first corrective publication, Todo `2026.10.4-9c6567f` and API
+`2026.10.4-3e560cc`, passed package pipelines but failed the literal Core import
+configuration check: Core's schema projection removes `meta`, including the
+API capability marker. The acquired archives were correct; the released helper
+refused to enable SSO on the imported manifest. That attempt is retained as a
+failure, not released acceptance. The subsequent correction publishes the
+non-secret capability in `env.TODO_API_AUTH_CONTRACT`, which import preserves,
+and tests the paired helper against a manifest with no metadata. Runtime
+startup uses the same capability and still requires matching secured settings.
 
 ## Corrected PostgreSQL producer release
 

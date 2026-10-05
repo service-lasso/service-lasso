@@ -14,6 +14,11 @@ managed API recovery.
 
 **Stage 3: Add the API.** The App calls the API, which reads and writes the Database.
 
+This stage deliberately uses `TODO_API_AUTH_MODE=anonymous` for the local
+learning workspace. Other local programs can call its API. The next
+[SSO lesson](zitadel-sso-hub.md) secures **both** the App and API with Zitadel;
+keep this anonymous stage confined to your tutorial environment.
+
 <div className="tutorial-architecture">
 
 ```mermaid
@@ -94,7 +99,7 @@ Local verification checks native archive structure. Real SQL verification uses <
 Stop Todo in Admin, preserving data. From Core:
 
 ```powershell
-node dist/cli.js services import service-lasso/lasso-todo-api --tag 2026.10.4-9b45f09 --services-root workspace/canonical-services-root --workspace-root workspace/demo-instance
+node dist/cli.js services import service-lasso/lasso-todo-api --tag 2026.10.4-02ef566 --services-root workspace/canonical-services-root --workspace-root workspace/demo-instance
 node ../lasso-todo/scripts/configure-stage.mjs workspace/canonical-services-root/todo api
 ```
 
