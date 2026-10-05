@@ -121,13 +121,7 @@ static int FinishOwner(FixtureOwner* o) {
   /* Child containment precedes reader join, and both original observations are independent. */
   if (o->child) {
     if (o->assigned && !o->productionTerminal) {
-      if (!TerminateJobObject(o->control.job,BOOTSTRAP_FAILURE_WAIT)) { NativeFailure(o,"original-job-terminate"); jobKnown = 0; }
-      if (jobKnown) for (;;) {
-        JOBOBJECT_BASIC_ACCOUNTING_INFORMATION a;
-        if (!QueryInformationJobObject(o->control.job,JobObjectBasicAccountingInformation,&a,sizeof(a),NULL)) { NativeFailure(o,"original-job-accounting"); jobKnown = 0; break; }
-        if (a.ActiveProcesses == 0) break;
-        Sleep(1);
-      }
+      jobKnown = DrainConptyJob(&o->control); // same once-only original disposition
     } else if (!o->assigned && !TerminateProcess(o->child,BOOTSTRAP_FAILURE_WAIT)) NativeFailure(o,"original-unassigned-child-terminate");
     if (WaitForSingleObject(o->child,INFINITE) == WAIT_OBJECT_0) o->childTerminal = 1;
     else NativeFailure(o,"original-child-wait");
@@ -238,18 +232,27 @@ static int ActualDrainError(void) {
   FixtureOwner* o = NewOwner(); if (!o) return 0;
   o->control.job = CreateJobObjectW(NULL,NULL);
   if (!o->control.job) { NativeFailure(o,"error-case-job-create"); FinishOwner(o); return 0; }
+  HANDLE originalJob = o->control.job;
   if (!CloseOriginal(o,&o->control.job,"error-case-job-close")) { FinishOwner(o); return 0; }
+  o->control.job = originalJob; // artificial original closed number, with reuse caveat
   int drained = DrainConptyJob(&o->control);
+  int second = TerminateOriginalConptyJob(&o->control,"must-not-be-issued");
+  o->control.job = NULL; // borrowed closed value, never close/retry
   /* Another genuine API after the failed seam cannot replace its origin. */
   HANDLE later = CreateEventW(NULL,TRUE,FALSE,NULL);
   if (!later) { NativeFailure(o,"error-case-later-event"); FinishOwner(o); return 0; }
   BOOL laterClosed = CloseHandle(later);
   if (!laterClosed) { NativeFailure(o,"error-case-later-event-close"); RetainOriginal(o,"error-case-later-release-unknown"); }
-  int matched = !drained && o->failures == 1 && o->ledger[0].native &&
+  int matched = !drained && o->failures == 2 && o->ledger[0].native &&
     o->ledger[0].code == ERROR_INVALID_HANDLE && strcmp(o->ledger[0].site,"containment-job-terminate") == 0 &&
-    o->control.containmentCount == 1 && o->control.containment[0].failure;
+    o->control.terminationCount == 1 && o->control.termination[0].failure &&
+    o->control.terminationOrdinal == 1 && o->control.terminationDisposition == 2 &&
+    o->control.containmentCount == 1 && o->control.containment[0].failure &&
+    strcmp(o->control.containment[0].site,"containment-job-accounting") == 0;
+  // A second caller reads the original outcome, never retries its failed call.
+  matched = matched && !second && o->control.terminationCount == 1 && o->failures == 2;
   int finished = FinishOwner(o);
-  return matched && !finished && o->closed && o->failures == 1;
+  return matched && !finished && o->closed && o->failures == 2;
 }
 static int ActualWriteError(void) {
   FixtureOwner* o = NewOwner(); if (!o) return 0;
@@ -335,6 +338,53 @@ static int ActualWriteRetentionCase(int closeEvent) {
   Failure(o,"retention-case-unexpected-return",0,0); RetainOriginal(o,"retention-case-failed-contract"); return 0;
 }
 static DWORD WINAPI CompletedBootstrapReader(LPVOID parameter) { (void)parameter; return 0; }
+/* Actual production reader, original acquired job/child/pipe, followed by the
+ * actual finisher. No substituted reader or native result. All cases UNRUN. */
+static int ProductionCancelReaderCase(int kind) {
+  FixtureOwner* o = NewOwner(); if (!o) return 0;
+  if (!OpenFixture(o,0)) { FinishOwner(o); return 0; }
+  for (unsigned i = 0; i < 64; i++) o->control.token[i] = L'a';
+  o->control.job = CreateJobObjectW(NULL,NULL);
+  if (!o->control.job) { NativeFailure(o,"cancel-case-job-create"); FinishOwner(o); return 0; }
+  wchar_t image[32768], command[32770];
+  DWORD length = GetModuleFileNameW(NULL,image,_countof(image));
+  if (!length || length >= _countof(image)) RetainOriginal(o,"cancel-case-image");
+  if (_snwprintf_s(command,_countof(command),_TRUNCATE,L"\"%s\" --hold",image) < 0) RetainOriginal(o,"cancel-case-command");
+  STARTUPINFOW startup; PROCESS_INFORMATION process; ZeroMemory(&startup,sizeof(startup)); startup.cb = sizeof(startup);
+  if (!CreateProcessW(image,command,NULL,NULL,FALSE,CREATE_SUSPENDED,NULL,NULL,&startup,&process)) {
+    NativeFailure(o,"cancel-case-child-create"); FinishOwner(o); return 0;
+  }
+  o->child = process.hProcess; o->childThread = process.hThread;
+  if (!AssignProcessToJobObject(o->control.job,o->child)) { NativeFailure(o,"cancel-case-child-assign"); FinishOwner(o); return 0; }
+  o->assigned = 1;
+  o->reader = CreateThread(NULL,0,ConptyCancelReader,&o->control,0,NULL);
+  if (!o->reader) { NativeFailure(o,"cancel-case-reader-create"); FinishOwner(o); return 0; }
+  o->readerResumed = 1;
+  if (kind == 1) {
+    if (!CloseOriginal(o,&o->server,"cancel-case-lost-channel")) RetainOriginal(o,"cancel-case-lost-close");
+  } else if (kind != 2) {
+    const char* cancel = "cancel:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n";
+    if (!WriteFixture(o,cancel,(DWORD)strlen(cancel),0)) RetainOriginal(o,"cancel-case-write-failed");
+  }
+  if (kind < 2) {
+    DWORD waited = WaitForSingleObject(o->reader,5000);
+    if (waited != WAIT_OBJECT_0) Failure(o,"cancel-case-original-reader-5s",waited,0);
+  }
+  o->stopIssued = 1;
+  if (!FinishConptyContainment(&o->control,o->child,o->reader)) RetainOriginal(o,"cancel-case-containment-unknown");
+  o->productionTerminal = o->control.containmentDrain; o->stopKnown = o->control.containmentStop;
+  o->readerTerminal = o->control.containmentReader; o->childTerminal = o->control.containmentProcess;
+  int matched = o->control.terminationCount == 1 && o->control.terminationOrdinal == 1 &&
+    o->control.terminationDisposition == 2 && o->control.terminationOriginal == o->control.job &&
+    o->control.terminationSucceeded && !o->control.termination[0].failure &&
+    (kind == 3 ? (!strcmp(o->control.termination[0].site,"cancel-reader-job-terminate") ||
+      !strcmp(o->control.termination[0].site,"containment-job-terminate")) :
+      !strcmp(o->control.termination[0].site,kind < 2 ? "cancel-reader-job-terminate" : "containment-job-terminate")) &&
+    (kind == 3 ? 1 : kind == 0 ? o->control.cancelled == 1 : o->control.cancelled == 0) &&
+    (kind == 1 ? o->control.failed == 1 : o->control.failed == 0);
+  int finished = FinishOwner(o);
+  return matched && finished && o->closed;
+}
 /* Actual production release helper with real acquired file/directory/process/
  * thread/job/owner/event/pipe handles. Negative cases need a separate original
  * observer of the SAME owner ledger and nonreturning invocation; no timeout or
@@ -393,6 +443,10 @@ int wmain(int argc, wchar_t** argv) {
   if (argc == 2 && wcscmp(argv[1],L"--hold") == 0) { for (;;) Sleep(INFINITE); }
   if (argc == 2 && wcscmp(argv[1],L"--actual-write-closed-completion") == 0) return ActualWriteRetentionCase(0);
   if (argc == 2 && wcscmp(argv[1],L"--actual-write-closed-event") == 0) return ActualWriteRetentionCase(1);
+  if (argc == 3 && wcscmp(argv[1],L"--production-cancel-reader") == 0) {
+    int kind = _wtoi(argv[2]); if (kind < 0 || kind > 3) return 1;
+    return ProductionCancelReaderCase(kind) ? 0 : 1;
+  }
   if (argc == 3 && wcscmp(argv[1],L"--production-release-closed-handle") == 0) {
     int slot = _wtoi(argv[2]); if (slot < 1 || slot > 10) return 1;
     return ProductionReleaseCase(slot);
@@ -404,5 +458,6 @@ int wmain(int argc, wchar_t** argv) {
   if (!ActualReadError(0) || !ActualReadError(1) || !ActualDrainError() || !ActualWriteError()) ok = 0;
   if (!NaturalControlWrites()) ok = 0;
   if (!ProductionReleaseCase(0)) ok = 0;
+  for (int kind = 0; kind <= 3; kind++) if (!ProductionCancelReaderCase(kind)) ok = 0;
   return ok ? 0 : 1;
 }

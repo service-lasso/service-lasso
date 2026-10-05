@@ -68,6 +68,14 @@ typedef struct {
   ConptyObservation containment[8];
   unsigned containmentCount;
   int containmentStop, containmentDrain, containmentReader, containmentProcess;
+  /* 0 unissued, 1 one original call in progress, 2 original outcome published.
+   * This dedicated ledger has one writer; finisher reads only after publication. */
+  volatile LONG terminationDisposition;
+  HANDLE terminationOriginal;
+  DWORD terminationOrdinal;
+  int terminationSucceeded;
+  ConptyObservation termination[1];
+  unsigned terminationCount;
   struct { HANDLE original; const char* site; DWORD ordinal, status; int attempted, closed; }
     releases[PACKAGE_DIRECTORY_HANDLE_CAPACITY + 16];
   unsigned releaseCount;
@@ -230,6 +238,22 @@ static int ReadControlCommand(ConptyControl* control, const char* kind) {
   return ReadControlLine(control, line, sizeof(line)) == 1 && strcmp(line, expected) == 0;
 }
 
+static int TerminateOriginalConptyJob(ConptyControl* control, const char* site) {
+  if (InterlockedCompareExchange(&control->terminationDisposition,1,0) == 0) {
+    control->terminationOriginal = control->job;
+    control->terminationOrdinal = 1;
+    BOOL terminated = TerminateJobObject(control->terminationOriginal,BOOTSTRAP_FAILURE_WAIT);
+    DWORD error = terminated ? 0 : GetLastError();
+    control->terminationSucceeded = terminated;
+    ObserveConpty(control,control->termination,&control->terminationCount,
+      _countof(control->termination),site,error,1,!terminated);
+    InterlockedExchange(&control->terminationDisposition,2);
+  } else {
+    while (InterlockedCompareExchange(&control->terminationDisposition,0,0) != 2) Sleep(0);
+  }
+  return control->terminationSucceeded;
+}
+
 static DWORD WINAPI ConptyCancelReader(LPVOID parameter) {
   ConptyControl* control = (ConptyControl*)parameter;
   if (!ReadControlCommand(control, "cancel")) {
@@ -239,7 +263,7 @@ static DWORD WINAPI ConptyCancelReader(LPVOID parameter) {
     InterlockedExchange(&control->cancelled, 1);
   }
   /* A lost private channel is failure and containment, never launch success. */
-  if (!TerminateJobObject(control->job, BOOTSTRAP_FAILURE_WAIT)) InterlockedExchange(&control->failed, 1);
+  TerminateOriginalConptyJob(control,"cancel-reader-job-terminate");
   return 0;
 }
 
@@ -282,17 +306,14 @@ static int OpenConptyControl(ConptyControl* control) {
 
 #define CONTAIN_OBSERVE(site,status,native,failure) ObserveConpty(control,control->containment,&control->containmentCount,_countof(control->containment),site,status,native,failure)
 static int DrainConptyJob(ConptyControl* control) {
-  BOOL terminated = TerminateJobObject(control->job, BOOTSTRAP_FAILURE_WAIT);
-  DWORD terminateError = terminated ? 0 : GetLastError();
-  CONTAIN_OBSERVE("containment-job-terminate",terminateError,1,!terminated);
-  if (!terminated) return 0;
+  int terminated = TerminateOriginalConptyJob(control,"containment-job-terminate");
   for (;;) {
     JOBOBJECT_BASIC_ACCOUNTING_INFORMATION accounting;
     BOOL queried = QueryInformationJobObject(control->job, JobObjectBasicAccountingInformation, &accounting, sizeof(accounting), NULL);
     DWORD queryError = queried ? 0 : GetLastError();
     if (!queried || accounting.ActiveProcesses == 0) {
       CONTAIN_OBSERVE("containment-job-accounting",queryError,1,!queried);
-      return queried;
+      return queried && terminated;
     }
     Sleep(1); /* observation only; never a new caller success deadline */
   }

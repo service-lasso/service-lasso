@@ -159,6 +159,23 @@ namespace ServiceLasso.SourceAcquisition
             return true;
         }
         private static bool Hex(char c) { return c >= '0' && c <= '9' || c >= 'A' && c <= 'F'; }
+        // Complete finite projection grammar. XML namespace declarations, comments
+        // and whitespace carry no parameters here; PI/CDATA/foreign structures do.
+        private static bool Attributes(XElement node, params string[] allowed)
+        {
+            return node.Attributes().All(a => a.IsNamespaceDeclaration ||
+                allowed.Any(name => a.Name == XName.Get(name)));
+        }
+        private static bool Content(XElement node, bool text, params XName[] children)
+        {
+            return node.Nodes().All(n => n is XComment ||
+                n is XText && !(n is XCData) && (text || String.IsNullOrWhiteSpace(((XText)n).Value)) ||
+                n is XElement && children.Contains(((XElement)n).Name));
+        }
+        private static bool Parameterless(XElement node)
+        {
+            return Attributes(node, "Algorithm") && Content(node, false);
+        }
         internal static bool ReferenceUri(string uri, string originalContentType, out string part)
         {
             part = null;
@@ -194,13 +211,22 @@ namespace ServiceLasso.SourceAcquisition
             var signedInfos = document.Root.Elements(Ds + "SignedInfo").ToArray();
             if (signedInfos.Length != 1) { result.State = "AMBIGUOUS_SIGNED_INFO"; return result; }
             var signed = signedInfos[0];
+            if (!Attributes(signed, "Id") || !Content(signed, false, Ds + "CanonicalizationMethod", Ds + "SignatureMethod", Ds + "Reference"))
+            { result.State = "UNSUPPORTED_SIGNED_INFO_STRUCTURE"; return result; }
             var canonical = signed.Elements(Ds + "CanonicalizationMethod").ToArray();
             var signature = signed.Elements(Ds + "SignatureMethod").ToArray();
             if (canonical.Length != 1 || signature.Length != 1) { result.State = "AMBIGUOUS_ALGORITHMS"; return result; }
             result.Canonicalization = (string)canonical[0].Attribute("Algorithm");
             result.SignatureAlgorithm = (string)signature[0].Attribute("Algorithm");
-            if (result.Canonicalization != Canonical || canonical[0].HasElements || result.SignatureAlgorithm != Signature || signature[0].HasElements)
+            if (result.Canonicalization != Canonical || !Parameterless(canonical[0]) || result.SignatureAlgorithm != Signature || !Parameterless(signature[0]))
             { result.State = "UNSUPPORTED_SIGNATURE_ALGORITHM_OR_CANONICALIZATION"; return result; }
+            var signedChildren = signed.Elements().ToArray();
+            if (signedChildren.Length < 3 || signedChildren[0] != canonical[0] || signedChildren[1] != signature[0] ||
+                signedChildren.Skip(2).Any(e => e.Name != Ds + "Reference"))
+            { result.State = "UNSUPPORTED_SIGNED_INFO_ORDER"; return result; }
+            foreach (var manifest in document.Descendants(Ds + "Manifest"))
+                if (!Attributes(manifest, "Id") || !Content(manifest, false, Ds + "Reference") || !manifest.HasElements)
+                { result.State = "UNSUPPORTED_MANIFEST_STRUCTURE"; return result; }
             var references = signed.Elements(Ds + "Reference").Concat(document.Descendants(Ds + "Manifest").Elements(Ds + "Reference")).ToArray();
             if (references.Length == 0 || references.Length > 100000) { result.State = "UNSUPPORTED_REFERENCE_COUNT"; return result; }
             foreach (var reference in references)
@@ -208,15 +234,30 @@ namespace ServiceLasso.SourceAcquisition
                 var digest = reference.Elements(Ds + "DigestMethod").ToArray();
                 var values = reference.Elements(Ds + "DigestValue").ToArray();
                 var transformContainers = reference.Elements(Ds + "Transforms").ToArray();
-                if (digest.Length != 1 || values.Length != 1 || transformContainers.Length > 1 || digest[0].HasElements)
+                if (digest.Length != 1 || values.Length != 1 || transformContainers.Length > 1)
                 { result.State = "AMBIGUOUS_REFERENCE_STRUCTURE"; return result; }
+                if (!Attributes(reference, "URI", "Id", "Type") ||
+                    !Content(reference, false, Ds + "Transforms", Ds + "DigestMethod", Ds + "DigestValue"))
+                { result.State = "UNSUPPORTED_REFERENCE_STRUCTURE"; return result; }
+                var referenceChildren = reference.Elements().ToArray();
+                if (referenceChildren.Length != 2 + transformContainers.Length ||
+                    referenceChildren[referenceChildren.Length - 2] != digest[0] || referenceChildren.Last() != values[0] ||
+                    transformContainers.Length == 1 && referenceChildren[0] != transformContainers[0])
+                { result.State = "UNSUPPORTED_REFERENCE_ORDER"; return result; }
+                if (!Parameterless(digest[0]))
+                { result.State = "UNSUPPORTED_DIGEST_PARAMETERS"; return result; }
+                if (!Attributes(values[0]) || !Content(values[0], true))
+                { result.State = "UNSUPPORTED_DIGEST_VALUE_STRUCTURE"; return result; }
                 // Validate the whole observed container before projecting its roster.
-                if (transformContainers.Any(t => t.Attributes().Any(a => !a.IsNamespaceDeclaration) ||
-                    t.Elements().Any(e => e.Name != Ds + "Transform") ||
-                    t.Nodes().Any(n => !(n is XElement) && !(n is XText) && !(n is XComment)) ||
-                    t.Nodes().OfType<XText>().Any(n => !String.IsNullOrWhiteSpace(n.Value))))
+                if (transformContainers.Any(t => !Attributes(t) || !Content(t, false, Ds + "Transform")))
                 { result.State = "UNSUPPORTED_TRANSFORM_CONTAINER"; return result; }
                 var transforms = transformContainers.SelectMany(t => t.Elements(Ds + "Transform")).ToArray();
+                if (transforms.Any(t => (string)t.Attribute("Algorithm") == Canonical ? !Parameterless(t) :
+                    (string)t.Attribute("Algorithm") != Relationships || !Attributes(t, "Algorithm") ||
+                    !Content(t, false, Opc + "RelationshipReference", Opc + "RelationshipsGroupReference") || t.Elements().Any(child =>
+                        !Content(child, false) || child.Attributes().Count(a => !a.IsNamespaceDeclaration) != 1 ||
+                        !Attributes(child, child.Name == Opc + "RelationshipReference" ? "SourceId" : "SourceType"))))
+                { result.State = "UNSUPPORTED_TRANSFORM_PARAMETERS"; return result; }
                 var row = new OpcReference { Uri = (string)reference.Attribute("URI"), DigestAlgorithm = (string)digest[0].Attribute("Algorithm"),
                     DigestValue = values[0].Value, Transforms = transforms.Select(t => (string)t.Attribute("Algorithm")).ToArray(),
                     SourceIds = transforms.Where(t => (string)t.Attribute("Algorithm") == Relationships).Elements(Opc + "RelationshipReference").Select(t => (string)t.Attribute("SourceId")).ToArray(),
@@ -229,13 +270,6 @@ namespace ServiceLasso.SourceAcquisition
                 bool relation = row.Transforms.SequenceEqual(new[] { Relationships, Canonical });
                 if (row.Transforms.Length != 0 && !row.Transforms.SequenceEqual(new[] { Canonical }) && !relation)
                 { result.State = "UNSUPPORTED_TRANSFORM_ORDER"; return result; }
-                if (transforms.Any(t => (string)t.Attribute("Algorithm") == Canonical ? t.HasElements :
-                    (string)t.Attribute("Algorithm") != Relationships || t.Elements().Any(child =>
-                        child.Name != Opc + "RelationshipReference" && child.Name != Opc + "RelationshipsGroupReference" ||
-                        child.HasElements || child.Attributes().Count(a => !a.IsNamespaceDeclaration) != 1 ||
-                        child.Attributes().Any(a => !a.IsNamespaceDeclaration && a.Name !=
-                            (child.Name == Opc + "RelationshipReference" ? "SourceId" : "SourceType")))))
-                { result.State = "UNSUPPORTED_TRANSFORM_PARAMETERS"; return result; }
                 if (relation && (row.SourceIds.Length + row.SourceTypes.Length == 0 || row.SourceIds.Any(String.IsNullOrEmpty) ||
                     row.SourceTypes.Any(String.IsNullOrEmpty) || row.SourceIds.Distinct().Count() != row.SourceIds.Length ||
                     row.SourceTypes.Distinct().Count() != row.SourceTypes.Length))

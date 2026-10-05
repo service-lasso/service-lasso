@@ -48,3 +48,33 @@ every historical failure, private packet, native141824/managed39936/all32 pin an
 compiler22ENV recipe; full product/F7/operator/published-byte gates remain open.
 Darwin Deferred is never PASS. Entire final source/history/develop/runtime/failed
 packet freeze and independent byte readback precede fresh review and new admission.
+
+## Authored prospective matrix and source boundary
+
+R1 additive original-byte cases cover method text/attributes/PI/elements, Canonical
+text/attributes/PI/CDATA, relationship mixed text/attributes/PI, both selector
+kinds with text/attributes/PI/elements, SignedInfo/Reference/Manifest omitted
+structure and order, nested/attributed/PI/CDATA DigestValue, optional Id/Type and
+inert namespace/whitespace/comments, no-transform/Canonical/relationship/group/
+Manifest positives and unqualified SignatureValue/KeyInfo/Object extensions.
+The earlier moved-selector case now requires zero projected rows because the
+complete transform grammar rejects before projection; its rejection remains.
+
+R2 keeps all five positives/twelve checkpoints/5s assertions and adds actual
+ConptyCancelReader with original acquired assigned suspended child, ordinary
+finisher stop, cancel, lost-channel and cancellation/finisher scheduling overlap.
+Assigned fixture cleanup shares the production termination disposition. The
+original acquired-then-closed job negative now retains independent termination
+AND accounting failures, plus second-caller non-reissue, rather than expecting
+one projected failure. Numeric closed-slot cases retain reuse caveats.
+
+R3/R4 add original managed production release/wait/finalizer seam cases supplied
+with separately acquired genuine handles/FileStreams; positive complete rosters,
+no second release, closed-numeric-slot retention, directory-sync failed original
+wait with live child custody, all safe later release observations and external
+same-owner FileStream failure inspection. No failure-generating FileStream
+subclass/native shim/timeout success is supplied. These authored source cases
+are not a self-contained installed fixture or proof of actual native outcomes.
+Main and directory-sync entrypoints call those exact seams. New managed source
+needs new source/image/runtime/reference/native-input review and admission;
+old39936 bootstrap pin stays unchanged and unqualified. Every case is UNRUN.

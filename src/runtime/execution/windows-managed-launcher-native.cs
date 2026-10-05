@@ -272,6 +272,75 @@ public static class ServiceLassoManagedLauncherNative
         public string directory { get; set; }
     }
 
+    // Same-invocation original observations, never a durable receipt standing in
+    // for live ownership. Failed/unknown releases retain their original objects.
+    internal sealed class OriginalObservation
+    {
+        internal string Site;
+        internal int Ordinal;
+        internal IntPtr Handle;
+        internal FileStream File;
+        internal bool Attempted, Closed, Failed;
+        internal int NativeStatus;
+        internal Exception Exception;
+    }
+    internal sealed class ManagedInvocation
+    {
+        internal readonly List<OriginalObservation> Outcomes = new List<OriginalObservation>();
+        internal readonly List<FileStream> Files;
+        internal IntPtr Job, Process, Thread, Directory;
+        internal Exception Primary;
+        internal int PrimaryResult;
+        internal bool Failed;
+        internal ManagedInvocation(List<FileStream> files) { Files = files; }
+        internal void Observe(string site, int status, bool failed, Exception exception)
+        {
+            Outcomes.Add(new OriginalObservation { Site = site, Ordinal = Outcomes.Count,
+                NativeStatus = status, Failed = failed, Exception = exception });
+            Failed |= failed;
+        }
+        internal bool Release(ref IntPtr handle, string site, int ordinal)
+        {
+            OriginalObservation previous = Outcomes.Find(o => o.Site == site && o.Ordinal == ordinal && o.Attempted);
+            if (previous != null) return previous.Closed; // no retry, including unknown return
+            if (handle == IntPtr.Zero) return true;
+            OriginalObservation original = new OriginalObservation { Site = site, Ordinal = ordinal,
+                Handle = handle, Attempted = true };
+            Outcomes.Add(original);
+            try
+            {
+                original.Closed = CloseHandle(original.Handle);
+                original.NativeStatus = original.Closed ? 0 : Marshal.GetLastWin32Error();
+                original.Failed = !original.Closed;
+            }
+            catch (Exception failure) { original.Exception = failure; original.Failed = true; }
+            Failed |= original.Failed;
+            if (original.Closed) handle = IntPtr.Zero;
+            return original.Closed;
+        }
+        internal bool ReleaseFile(FileStream file, int ordinal)
+        {
+            OriginalObservation previous = Outcomes.Find(o => o.Site == "bound-file-release" && o.Ordinal == ordinal && o.Attempted);
+            if (previous != null) return previous.Closed;
+            OriginalObservation original = new OriginalObservation { Site = "bound-file-release", Ordinal = ordinal,
+                File = file, Attempted = true };
+            Outcomes.Add(original);
+            try { file.Dispose(); original.Closed = true; }
+            catch (Exception failure) { original.Exception = failure; original.Failed = true; }
+            Failed |= original.Failed;
+            return original.Closed;
+        }
+    }
+    internal static void RetainManagedInvocation(ManagedInvocation owner)
+    {
+        for (;;)
+        {
+            try { Thread.Sleep(Timeout.Infinite); }
+            catch (Exception failure) { owner.Observe("retention-interrupted", 0, true, failure); }
+            GC.KeepAlive(owner);
+        }
+    }
+
     public static int Main()
     {
         // Check this before either launch mode consumes a payload.  The
@@ -289,6 +358,7 @@ public static class ServiceLassoManagedLauncherNative
         IntPtr threadHandle = IntPtr.Zero;
         bool targetAssignedToJob = false;
         List<FileStream> boundFiles = new List<FileStream>();
+        ManagedInvocation invocation = new ManagedInvocation(boundFiles);
         int failureExitCode = FailureExitCodeUnknown;
 
         try
@@ -523,29 +593,36 @@ public static class ServiceLassoManagedLauncherNative
                 Thread.Sleep(payload.postResumeDelayMilliseconds);
             }
             failureExitCode = FailureExitCodeTargetThreadClose;
-            if (!CloseHandle(threadHandle))
+            if (!invocation.Release(ref threadHandle, "target-thread-release", 0))
             {
-                throw new Win32Exception(Marshal.GetLastWin32Error(), "Managed target thread handle close failed.");
+                OriginalObservation original = invocation.Outcomes.Find(o => o.Site == "target-thread-release" && o.Attempted);
+                if (original.Exception != null) throw original.Exception;
+                throw new Win32Exception(original.NativeStatus, "Managed target thread handle close failed.");
             }
-            threadHandle = IntPtr.Zero;
             failureExitCode = FailureExitCodeAcknowledgmentWrite;
             string acknowledgment = "{\"token\":\"" + payload.ackToken + "\",\"pid\":" +
                 processInformation.dwProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture) + "}";
             File.WriteAllText(payload.ackPath, acknowledgment, StrictUtf8);
 
-            if (WaitForSingleObject(processHandle, Infinite) != WaitObject0)
+            uint targetWait = WaitForSingleObject(processHandle, Infinite);
+            int targetWaitError = targetWait == UInt32.MaxValue ? Marshal.GetLastWin32Error() : unchecked((int)targetWait);
+            invocation.Observe("target-primary-wait", targetWaitError, targetWait != WaitObject0, null);
+            if (targetWait != WaitObject0)
             {
-                throw new InvalidOperationException("Managed target wait failed.");
+                throw new Win32Exception(targetWaitError, "Managed target wait failed.");
             }
             uint exitCode;
             if (!GetExitCodeProcess(processHandle, out exitCode))
             {
                 throw new Win32Exception(Marshal.GetLastWin32Error(), "Managed target exit-code query failed.");
             }
-            return unchecked((int)exitCode);
+            invocation.PrimaryResult = unchecked((int)exitCode);
+            return invocation.PrimaryResult;
         }
-        catch
+        catch (Exception primary)
         {
+            invocation.Primary = primary;
+            invocation.PrimaryResult = failureExitCode;
             return failureExitCode;
         }
         finally
@@ -554,34 +631,32 @@ public static class ServiceLassoManagedLauncherNative
             {
                 ClearLaunchEnvironment();
             }
-            catch
+            catch (Exception failure)
             {
-                // Cleanup continues through handle closure even if environment retirement fails.
+                invocation.Observe("launch-environment-retirement", 0, true, failure);
             }
-            RetireProgress();
-            if (threadHandle != IntPtr.Zero)
+            try { RetireProgress(); }
+            catch (Exception failure) { invocation.Observe("progress-retirement", 0, true, failure); }
+            invocation.Job = jobHandle; invocation.Process = processHandle; invocation.Thread = threadHandle;
+            // Retain on unknown child closure before any file release. Once actual
+            // closure is known, a failed original release does not hide later safe ones.
+            try { ContainManagedJobBeforeFileRelease(ref jobHandle, processHandle, targetAssignedToJob, invocation); }
+            catch (Exception failure)
             {
-                CloseHandle(threadHandle);
-                threadHandle = IntPtr.Zero;
+                invocation.Observe("managed-containment-unknown-return", 0, true, failure);
+                RetainManagedInvocation(invocation);
             }
-            ContainManagedJobBeforeFileRelease(ref jobHandle, processHandle, targetAssignedToJob);
-            if (processHandle != IntPtr.Zero)
-            {
-                CloseHandle(processHandle);
-                processHandle = IntPtr.Zero;
-            }
-            foreach (FileStream boundFile in boundFiles)
-            {
-                try
-                {
-                    boundFile.Dispose();
-                }
-                catch
-                {
-                    // Handle and Job cleanup remain authoritative.
-                }
-            }
+            FinishManagedReleases(invocation, ref threadHandle, ref processHandle);
         }
+    }
+
+    // Caller establishes genuine original child/job closure before this seam.
+    internal static void FinishManagedReleases(ManagedInvocation invocation, ref IntPtr thread, ref IntPtr process)
+    {
+        invocation.Release(ref thread, "target-thread-release", 0);
+        invocation.Release(ref process, "target-process-release", 0);
+        for (int ordinal = 0; ordinal < invocation.Files.Count; ordinal++) invocation.ReleaseFile(invocation.Files[ordinal], ordinal);
+        if (invocation.Failed) RetainManagedInvocation(invocation);
     }
 
     private static int TargetCreationFailureExitCode(int errorCode)
@@ -1313,23 +1388,27 @@ public static class ServiceLassoManagedLauncherNative
     private static void ContainManagedJobBeforeFileRelease(
         ref IntPtr jobHandle,
         IntPtr processHandle,
-        bool targetAssignedToJob)
+        bool targetAssignedToJob,
+        ManagedInvocation invocation)
     {
         if (!targetAssignedToJob && processHandle != IntPtr.Zero)
         {
-            if (!TerminateProcess(processHandle, 1) || WaitForSingleObject(processHandle, Infinite) != WaitObject0)
-            {
-                FailClosedWithLaunchFilesHeld();
-            }
+            bool terminated = TerminateProcess(processHandle, 1);
+            int terminateError = terminated ? 0 : Marshal.GetLastWin32Error();
+            invocation.Observe("unassigned-process-terminate", terminateError, !terminated, null);
+            uint waited = WaitForSingleObject(processHandle, Infinite);
+            int waitError = waited == UInt32.MaxValue ? Marshal.GetLastWin32Error() : unchecked((int)waited);
+            invocation.Observe("unassigned-process-wait", waitError, waited != WaitObject0, null);
+            if (!terminated || waited != WaitObject0) RetainManagedInvocation(invocation);
         }
         if (jobHandle == IntPtr.Zero)
         {
             return;
         }
-        if (!TerminateJobObject(jobHandle, 1))
-        {
-            FailClosedWithLaunchFilesHeld();
-        }
+        bool jobTerminated = TerminateJobObject(jobHandle, 1);
+        int jobError = jobTerminated ? 0 : Marshal.GetLastWin32Error();
+        invocation.Observe("managed-job-terminate", jobError, !jobTerminated, null);
+        if (!jobTerminated) RetainManagedInvocation(invocation);
         while (true)
         {
             JobObjectBasicAccountingInformation accounting;
@@ -1340,7 +1419,9 @@ public static class ServiceLassoManagedLauncherNative
                 (uint)Marshal.SizeOf(typeof(JobObjectBasicAccountingInformation)),
                 IntPtr.Zero))
             {
-                FailClosedWithLaunchFilesHeld();
+                int accountingError = Marshal.GetLastWin32Error();
+                invocation.Observe("managed-job-accounting", accountingError, true, null);
+                RetainManagedInvocation(invocation);
             }
             if (accounting.ActiveProcesses == 0)
             {
@@ -1348,15 +1429,14 @@ public static class ServiceLassoManagedLauncherNative
             }
             Thread.Sleep(10);
         }
-        if (processHandle != IntPtr.Zero && WaitForSingleObject(processHandle, Infinite) != WaitObject0)
+        if (processHandle != IntPtr.Zero)
         {
-            FailClosedWithLaunchFilesHeld();
+            uint waited = WaitForSingleObject(processHandle, Infinite);
+            int waitError = waited == UInt32.MaxValue ? Marshal.GetLastWin32Error() : unchecked((int)waited);
+            invocation.Observe("managed-process-wait", waitError, waited != WaitObject0, null);
+            if (waited != WaitObject0) RetainManagedInvocation(invocation);
         }
-        if (!CloseHandle(jobHandle))
-        {
-            FailClosedWithLaunchFilesHeld();
-        }
-        jobHandle = IntPtr.Zero;
+        invocation.Release(ref jobHandle, "managed-job-release", 0);
     }
 
     private static void FailClosedWithLaunchFilesHeld()
@@ -1475,6 +1555,8 @@ public static class ServiceLassoManagedLauncherNative
         IntPtr directoryHandle = IntPtr.Zero;
         IntPtr childProcess = IntPtr.Zero;
         IntPtr childThread = IntPtr.Zero;
+        ManagedInvocation invocation = new ManagedInvocation(new List<FileStream>());
+        bool childClosed = false;
         try
         {
             byte[] payloadBytes = Convert.FromBase64String(encodedPayload);
@@ -1492,6 +1574,7 @@ public static class ServiceLassoManagedLauncherNative
             string requestedDirectory = Path.GetFullPath(payload.directory);
             if ((File.GetAttributes(requestedHelper) & FileAttributes.ReparsePoint) != 0) return DirectorySyncLaunchBindingInvalid;
             helperHandle = new FileStream(requestedHelper, FileMode.Open, FileAccess.Read, FileShare.Read);
+            invocation.Files.Add(helperHandle);
             if (helperHandle.Length != DirectorySyncHelperByteLength) return DirectorySyncLaunchBindingInvalid;
             string helperDigest;
             using (SHA256 sha256 = SHA256.Create()) { helperDigest = ToLowerHex(sha256.ComputeHash(helperHandle)); }
@@ -1513,19 +1596,46 @@ public static class ServiceLassoManagedLauncherNative
             if (!CreateProcessW(helperFinalPath, commandLine, IntPtr.Zero, IntPtr.Zero, false, 0, IntPtr.Zero, null, ref startupInfo, out processInformation)) return DirectorySyncLaunchCreateFailed;
             childProcess = processInformation.hProcess;
             childThread = processInformation.hThread;
-            if (WaitForSingleObject(childProcess, Infinite) != WaitObject0) return DirectorySyncLaunchChildFailed;
+            childClosed = ObserveDirectorySyncChildWait(invocation, childProcess);
+            if (!childClosed) { invocation.PrimaryResult = DirectorySyncLaunchChildFailed; return DirectorySyncLaunchChildFailed; }
             uint exitCode;
-            if (!GetExitCodeProcess(childProcess, out exitCode) || exitCode != 0) return DirectorySyncLaunchChildFailed;
+            bool exitKnown = GetExitCodeProcess(childProcess, out exitCode);
+            int exitError = exitKnown ? 0 : Marshal.GetLastWin32Error();
+            invocation.Observe("directory-sync-child-exit-query", exitError, !exitKnown, null);
+            if (!exitKnown || exitCode != 0) { invocation.PrimaryResult = DirectorySyncLaunchChildFailed; return DirectorySyncLaunchChildFailed; }
+            invocation.PrimaryResult = 0;
             return 0;
         }
-        catch { return DirectorySyncLaunchBindingInvalid; }
+        catch (Exception primary)
+        {
+            invocation.Primary = primary; invocation.PrimaryResult = DirectorySyncLaunchBindingInvalid;
+            return DirectorySyncLaunchBindingInvalid;
+        }
         finally
         {
-            if (childThread != IntPtr.Zero) CloseHandle(childThread);
-            if (childProcess != IntPtr.Zero) CloseHandle(childProcess);
-            if (directoryHandle != IntPtr.Zero) CloseHandle(directoryHandle);
-            if (helperHandle != null) helperHandle.Dispose();
+            invocation.Process = childProcess; invocation.Thread = childThread; invocation.Directory = directoryHandle;
+            FinishDirectorySyncInvocation(invocation, childClosed, ref childThread, ref childProcess, ref directoryHandle);
         }
+    }
+
+    internal static bool ObserveDirectorySyncChildWait(ManagedInvocation invocation, IntPtr childProcess)
+    {
+        uint waited = WaitForSingleObject(childProcess, Infinite);
+        int status = waited == UInt32.MaxValue ? Marshal.GetLastWin32Error() : unchecked((int)waited);
+        invocation.Observe("directory-sync-child-wait", status, waited != WaitObject0, null);
+        return waited == WaitObject0;
+    }
+    internal static void FinishDirectorySyncInvocation(ManagedInvocation invocation, bool childClosed,
+        ref IntPtr childThread, ref IntPtr childProcess, ref IntPtr directory)
+    {
+        // Failed/unknown original wait is not child closure. Hold all original
+        // inputs and handles on this same live stack; no wait/kill retry.
+        if (childProcess != IntPtr.Zero && !childClosed) RetainManagedInvocation(invocation);
+        invocation.Release(ref childThread, "directory-sync-thread-release", 0);
+        invocation.Release(ref childProcess, "directory-sync-process-release", 0);
+        invocation.Release(ref directory, "directory-sync-directory-release", 0);
+        for (int ordinal = 0; ordinal < invocation.Files.Count; ordinal++) invocation.ReleaseFile(invocation.Files[ordinal], ordinal);
+        if (invocation.Failed) RetainManagedInvocation(invocation);
     }
 
     private static DirectorySyncLaunchPayload ParseDirectorySyncLaunchPayload(string payloadJson)

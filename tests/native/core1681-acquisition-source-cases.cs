@@ -181,8 +181,8 @@ internal static class Core1681AcquisitionSourceCases
             var result = OpcCoverage.Inspect(Encoding.UTF8.GetBytes(prefix + bodies[i] + suffix), qualifiedXmlRuntime);
             Expect(result.State == (i == 0 ? "FORMAT_OBSERVED_XML_CRYPTO_UNQUALIFIED" : "UNSUPPORTED_TRANSFORM_PARAMETERS"),
                 "OPC_transform_position_parameter_case:" + i);
-            if (i == 1) Expect(result.References.Single().SourceIds.Length == 0,
-                "OPC_canonical_selectors_never_collected");
+            if (i == 1) Expect(result.References.Count == 0,
+                "OPC_invalid_transform_never_projected");
         }
         string[] containers = { "<XPath>unsupported</XPath>",
             "<f:Transform xmlns:f='urn:foreign' Algorithm='" + OpcCoverage.Canonical + "'/>",
@@ -200,5 +200,91 @@ internal static class Core1681AcquisitionSourceCases
             var result = OpcCoverage.Inspect(Encoding.UTF8.GetBytes(prefix + body + suffix), qualifiedXmlRuntime);
             Expect(result.State == "FORMAT_OBSERVED_XML_CRYPTO_UNQUALIFIED", "OPC_natural_container_positive");
         }
+        string valid = prefix + relation + selector + "</Transform>" + canonical + "</Transform>" + suffix;
+        string canonicalNode = canonical + "</Transform>";
+        string[] unsupportedTransforms = {
+            canonical + "unsupported parameter</Transform>",
+            canonical.Replace("Algorithm=", "Unsupported='parameter' Algorithm=") + "</Transform>",
+            canonical + "<?parameter unsupported?></Transform>",
+            canonical + "<![CDATA[parameter]]></Transform>"
+        };
+        foreach (string changed in unsupportedTransforms)
+            ExpectUnsupportedXml(valid.Replace(canonicalNode, changed), "UNSUPPORTED_TRANSFORM_PARAMETERS", qualifiedXmlRuntime);
+        foreach (string changed in new[] {
+            relation + "mixed parameter" + selector + "</Transform>",
+            relation.Replace("Algorithm=", "Unsupported='parameter' Algorithm=") + selector + "</Transform>",
+            relation + "<?parameter unsupported?>" + selector + "</Transform>",
+            relation + selector.Replace("/>", ">parameter</o:RelationshipReference>") + "</Transform>",
+            relation + selector.Replace("/>", "><?parameter unsupported?></o:RelationshipReference>") + "</Transform>"
+        }) ExpectUnsupportedXml(valid.Replace(relation + selector + "</Transform>", changed), "UNSUPPORTED_TRANSFORM_PARAMETERS", qualifiedXmlRuntime);
+        foreach (string method in new[] { "CanonicalizationMethod", "SignatureMethod", "DigestMethod" })
+        {
+            string algorithm = method == "CanonicalizationMethod" ? OpcCoverage.Canonical : method == "SignatureMethod" ? OpcCoverage.Signature : OpcCoverage.Digest;
+            string original = "<" + method + " Algorithm='" + algorithm + "'/>";
+            string state = method == "DigestMethod" ? "UNSUPPORTED_DIGEST_PARAMETERS" : "UNSUPPORTED_SIGNATURE_ALGORITHM_OR_CANONICALIZATION";
+            foreach (string replacement in new[] {
+                original.Replace("/>", ">parameter</" + method + ">"),
+                original.Replace("Algorithm=", "Unsupported='parameter' Algorithm="),
+                original.Replace("/>", "><?parameter unsupported?></" + method + ">"),
+                original.Replace("/>", "><foreign/></" + method + ">")
+            }) ExpectUnsupportedXml(valid.Replace(original, replacement), state, qualifiedXmlRuntime);
+        }
+        foreach (string node in new[] { "SignedInfo", "Reference" })
+        {
+            string state = node == "SignedInfo" ? "UNSUPPORTED_SIGNED_INFO_STRUCTURE" : "UNSUPPORTED_REFERENCE_STRUCTURE";
+            foreach (string body in new[] { "<Transform Algorithm='unsupported-XPath'/>", "mixed parameter", "<?parameter unsupported?>", "<foreign/>" })
+                ExpectUnsupportedXml(valid.Replace("</" + node + ">", body + "</" + node + ">"), state, qualifiedXmlRuntime);
+        }
+        string digestText = Convert.ToBase64String(new byte[32]);
+        foreach (string body in new[] { "<foreign>" + digestText + "</foreign>", "<?parameter unsupported?>" + digestText,
+            "<![CDATA[" + digestText + "]]>" })
+            ExpectUnsupportedXml(valid.Replace("<DigestValue>" + digestText, "<DigestValue>" + body), "UNSUPPORTED_DIGEST_VALUE_STRUCTURE", qualifiedXmlRuntime);
+        ExpectUnsupportedXml(valid.Replace("<DigestValue>", "<DigestValue Unsupported='parameter'>"), "UNSUPPORTED_DIGEST_VALUE_STRUCTURE", qualifiedXmlRuntime);
+        ExpectUnsupportedXml(valid.Replace("<SignedInfo>", "<SignedInfo Unsupported='parameter'>"), "UNSUPPORTED_SIGNED_INFO_STRUCTURE", qualifiedXmlRuntime);
+        ExpectUnsupportedXml(valid.Replace("<Reference URI=", "<Reference Unsupported='parameter' URI="), "UNSUPPORTED_REFERENCE_STRUCTURE", qualifiedXmlRuntime);
+        string inert = valid.Replace("<SignedInfo>", "<SignedInfo Id='signed' xmlns:inert='urn:inert'> \n<!--inert-->")
+            .Replace("<Reference URI=", "<Reference Id='reference' Type='urn:legitimate-type' URI=")
+            .Replace(selector, "<o:RelationshipReference xmlns:inert='urn:selector' SourceId='r1'> \n<!--inert--></o:RelationshipReference>")
+            .Replace(canonicalNode, canonical + " \n<!--inert--></Transform>")
+            .Replace(digestText, " \n" + digestText + "<!--inert-->")
+            .Replace("</Signature>", "<SignatureValue Id='value'>unqualified</SignatureValue><KeyInfo><foreign xmlns='urn:foreign'/></KeyInfo><Object><foreign xmlns='urn:foreign'/></Object></Signature>");
+        Expect(OpcCoverage.Inspect(Encoding.UTF8.GetBytes(inert), qualifiedXmlRuntime).State == "FORMAT_OBSERVED_XML_CRYPTO_UNQUALIFIED",
+            "OPC_optional_Id_Type_namespace_whitespace_comments_and_unqualified_extensions_positive");
+        string noTransform = prefix.Replace("<Transforms>", "") + suffix.Replace("</Transforms>", "");
+        Expect(OpcCoverage.Inspect(Encoding.UTF8.GetBytes(noTransform), qualifiedXmlRuntime).State == "FORMAT_OBSERVED_XML_CRYPTO_UNQUALIFIED",
+            "OPC_natural_no_transform_positive");
+        string group = "<o:RelationshipsGroupReference SourceType='urn:legitimate-group'/>";
+        Expect(OpcCoverage.Inspect(Encoding.UTF8.GetBytes(valid.Replace(selector, group)), qualifiedXmlRuntime).State ==
+            "FORMAT_OBSERVED_XML_CRYPTO_UNQUALIFIED", "OPC_natural_relationship_group_positive");
+        foreach (string replacement in new[] {
+            group.Replace("/>", ">parameter</o:RelationshipsGroupReference>"),
+            group.Replace("SourceType=", "Unsupported='parameter' SourceType="),
+            group.Replace("/>", "><foreign/></o:RelationshipsGroupReference>"),
+            group.Replace("/>", "><?parameter unsupported?></o:RelationshipsGroupReference>")
+        }) ExpectUnsupportedXml(valid.Replace(selector, replacement), "UNSUPPORTED_TRANSFORM_PARAMETERS", qualifiedXmlRuntime);
+        string methods = "<CanonicalizationMethod Algorithm='" + OpcCoverage.Canonical + "'/><SignatureMethod Algorithm='" + OpcCoverage.Signature + "'/>";
+        string reversed = "<SignatureMethod Algorithm='" + OpcCoverage.Signature + "'/><CanonicalizationMethod Algorithm='" + OpcCoverage.Canonical + "'/>";
+        ExpectUnsupportedXml(valid.Replace(methods, reversed), "UNSUPPORTED_SIGNED_INFO_ORDER", qualifiedXmlRuntime);
+        string digestNode = "<DigestMethod Algorithm='" + OpcCoverage.Digest + "'/><DigestValue>" + digestText + "</DigestValue>";
+        ExpectUnsupportedXml(noTransform.Replace(digestNode, "<DigestValue>" + digestText + "</DigestValue><DigestMethod Algorithm='" + OpcCoverage.Digest + "'/>"),
+            "UNSUPPORTED_REFERENCE_ORDER", qualifiedXmlRuntime);
+        string reference = noTransform.Substring(noTransform.IndexOf("<Reference", StringComparison.Ordinal));
+        reference = reference.Substring(0, reference.IndexOf("</Reference>", StringComparison.Ordinal) + "</Reference>".Length);
+        string manifest = "<Object><Manifest Id='manifest'> \n<!--inert-->" + reference + "</Manifest></Object>";
+        string manifestPositive = valid.Replace("</Signature>", manifest + "</Signature>");
+        Expect(OpcCoverage.Inspect(Encoding.UTF8.GetBytes(manifestPositive), qualifiedXmlRuntime).State ==
+            "FORMAT_OBSERVED_XML_CRYPTO_UNQUALIFIED", "OPC_natural_manifest_positive");
+        foreach (string body in new[] { "mixed parameter", "<Transform Algorithm='unsupported'/>", "<?parameter unsupported?>" })
+            ExpectUnsupportedXml(manifestPositive.Replace("</Manifest>", body + "</Manifest>"), "UNSUPPORTED_MANIFEST_STRUCTURE", qualifiedXmlRuntime);
+        ExpectUnsupportedXml(manifestPositive.Replace("<Manifest Id=", "<Manifest Unsupported='parameter' Id="),
+            "UNSUPPORTED_MANIFEST_STRUCTURE", qualifiedXmlRuntime);
+    }
+    private static void ExpectUnsupportedXml(string xml, string state, IOriginalNativeModule qualifiedXmlRuntime)
+    {
+        byte[] original = Encoding.UTF8.GetBytes(xml);
+        var result = OpcCoverage.Inspect(original, qualifiedXmlRuntime);
+        Expect(result.State == state && result.OriginalXml.SequenceEqual(original), "OPC_complete_grammar:" + state);
+        Expect(OpcCoverage.Coverage(result, new Dictionary<string, string>(), new string[0],
+            new Dictionary<string, KeyValuePair<string, string>[]>()) == "UNQUALIFIED_COVERAGE_INPUT", "OPC_unsupported_cannot_supply_coverage");
     }
 }
