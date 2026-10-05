@@ -5,6 +5,12 @@ sidebar_label: Advanced — Package Todo as a desktop app
 
 # Advanced — Package Todo as a Tauri Desktop App
 
+**Lesson code:** [05 — Desktop](https://github.com/service-lasso/lesson-todo/tree/develop/lessons/05-desktop).
+The folder contains the pinned desktop template, service inventory, architecture
+and build instructions for this checkpoint. Browse
+[all five checkpoints](https://github.com/service-lasso/lesson-todo/tree/develop/lessons)
+to compare each addition.
+
 Turn your Todo application and its Service Lasso inventory into a Windows
 desktop application using the
 [Tauri app template](https://github.com/service-lasso/service-lasso-app-tauri).
