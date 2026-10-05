@@ -147,6 +147,22 @@ int f7_error_queue_output_storage_validate(const struct f7_error_queue *q,
  if(!q||!out||!bytes)return F7_INVALID;
  return output_apart(q,out,bytes)?F7_OK:F7_CONFLICT;
 }
+int f7_error_queue_original_graph_storage_validate(const struct f7_error_queue *q,
+ const struct f7_error_graph *graph){
+ if(!q||!graph)return F7_INVALID;
+ /* Every referenced original record must survive the mutable queue lifetime,
+    including a writer progressing concurrently in its retained buffers. */
+ struct span {const void *bytes;size_t length;};
+ const struct span spans[]={{q,sizeof(*q)},
+  {q->normal.bytes,q->normal.capacity},{q->emergency.bytes,q->emergency.capacity},
+  {q->write_buffer,q->write_capacity},{q->native_history,q->native_history_capacity}};
+ for(size_t i=0;i<sizeof(spans)/sizeof(spans[0]);i++){
+  if(!spans[i].bytes||!spans[i].length)return F7_INCOMPLETE;
+  int result=f7_error_graph_output_validate(graph,spans[i].bytes,spans[i].length);
+  if(result)return result;
+ }
+ return F7_OK;
+}
 static int geometry(const struct f7_error_queue_memory *memory,const struct f7_error_queue_binding *binding,
  struct f7_error_queue **out,int64_t *native){
  struct span {uintptr_t address;size_t length;};

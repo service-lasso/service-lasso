@@ -34,6 +34,7 @@ struct f7_error_queue_status {
  struct f7_producer_native_fact native_fact,construction_fact;
 };
 struct f7_error_queue;
+struct f7_error_graph;
 /* Exact source-owned storage requirement, not allocation/admission/authority.
    Caller reserves all storage/stack/guard and original endpoint before READY.
    This private library cannot manufacture the authentic ROOT entry/binding. */
@@ -42,6 +43,8 @@ size_t f7_error_queue_state_bytes(void);
    storage graph and never starts, admits, settles or authenticates a queue. */
 int f7_error_queue_output_storage_validate(const struct f7_error_queue *queue,
  const void *output,size_t output_bytes);
+int f7_error_queue_original_graph_storage_validate(const struct f7_error_queue *queue,
+ const struct f7_error_graph *original_graph);
 uint16_t f7_error_queue_expected_role(const struct f7_error_queue *queue);
 int f7_error_queue_start(struct f7_error_queue **out,const struct f7_error_queue_memory *memory,
  const struct f7_error_queue_binding *original_binding,int64_t *native_status);
