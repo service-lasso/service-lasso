@@ -924,7 +924,10 @@ The next original-error contract records bounded ordered initiating/inner/aggreg
 
 Whole producer/consumer design, prospective UNRUN protected cases and concrete unresolved installed equivalence cells are tracked in `.governance/project/NATIVE_SEARCH_CUSTODY_1681.md`; no native implementation or execution is authorized by this documentation amendment.
 
-#1702 in_progress / AC-4AJ.13: published App/Database/API route and retained Mac profile guards; exact final lesson source confirmation, docs verification and fresh review pending.
+#1702 done / AC-4AJ.13: App/Database/API article route landed through PR #1703 at `22b6647f7a074a2bb3803c88f361a56396b83c9f`; Docs Site publication run `37274829122` completed successfully. Issue closed; parent holds live publication proof. This does not qualify stage04 SSO.
+
+#1704 in_progress / AC-4AJ.14: final article uses public Identity2026.10.5-d7e04eb and lesson0d72fc40 with literal IntelMac11 stage04 paired App/API/full-Core reopen proof. Manual Windows route/legacy guard and Windows-only stage05 remain explicit. Docs validation, fresh distinct review and parent-owned merge/publication/live verification remain pending. See `DOCS-1704-PLAN.md`.
+
 
 
 #1681 / AC-4DI.4 next package/trust/MSI/native graph source acquisition: preserve authentic original685 load02 outcome C0559BFE (18/42/four841/full869) separately from normal receiving0a273f source tuple. Select bounded memory-only OPC part source, readonly MSI metadata source, independent trust/coverage/catalog boundary and complete native request/PE/provenance design in NATIVE_SEARCH_CUSTODY_1681.md; all new parser/API/compiler/load actions require DIFFERENT whole source/image/input review and exact separate admission. No auth/actor/memory/native/product/oldPE gate passes from metadata; originals/private failures/two unavailable files remain. Source precode only.
