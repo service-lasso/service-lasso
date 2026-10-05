@@ -193,6 +193,8 @@ int f7_error_queue_start(struct f7_error_queue **out,const struct f7_error_queue
     memory->normal_bytes<memory->write_capacity+16||memory->emergency_bytes<memory->write_capacity+16||
     memory->normal_bytes>SIZE_MAX/2||memory->emergency_bytes>SIZE_MAX/2||!memory->stack_bytes||
     !binding->frame_count||binding->frame_count>F7_JSON_INTEGER_MAX||
+    binding->frame_count>SIZE_MAX/(48+F7_PRODUCER_NATIVE_CALLS*32)||
+    memory->native_history_bytes<binding->frame_count*(48+F7_PRODUCER_NATIVE_CALLS*32)||
     !binding->payload_bytes||binding->payload_bytes>F7_JSON_INTEGER_MAX||
     !binding->graph_node_limit||binding->graph_node_limit>(F7_FRAME_MAX-24)/32||
     binding->role<F7_O||binding->role>F7_R||!nonzero(binding->invocation,16)||
