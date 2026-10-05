@@ -219,3 +219,6 @@ Prepare receiving argv, Windows-legal root/hostile child-only environment, real 
 ## AC-6G.owning-resource-observation original PR reconciliation
 
 The [PR #1624 reconciliation record](../project/PR-1624-RECONCILIATION.md) maps all thirteen original contribution paths into receiving develop b0c98b1079ee1763ce869ead3485c13e52b78305, preserving the complete owning contract and separately repaired scoped coverage. This adds source provenance only; all existing requirements, protected source/fixtures, resource/capture/deadline/cleanup limits and Windows/Linux native gates remain unchanged. Fresh ENTIRE cumulative review and NEW complete-input ROOT admission are required for the reconciled head; merge/native acceptance/GA are not claimed.
+
+
+PR #1624 current receiving checkpoint: normal develop integration of `ce832478da5ad6997ffcb9c82aab95cdf55b1d06` (PR #1707 TAR framing landing). The preceding b0c checkpoint is historical provenance. Complete receiving TAR/header/framing/link source and all original owning-observation contracts are preserved. Source preparation only; DIFFERENT fresh ENTIRE review and NEW complete-input ROOT admission remain required before execution.

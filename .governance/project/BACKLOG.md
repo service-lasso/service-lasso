@@ -889,7 +889,38 @@ Development source-only repair bound to SPEC-002 AC-4DOC.1690 and existing SPEC-
 
 #1702 in_progress / AC-4AJ.13: published App/Database/API route and retained Mac profile guards; exact final lesson source confirmation, docs verification and fresh review pending.
 
+## #1562 scoped TAR source gate (2026-10-06)
+
+R3/R4 follow-up in the same owned PR #1707: SPEC-007
+AC-7G.scoped-tar-parser.R3/R4 binds physical metadata-size denial despite pending
+local/global PAX controls and authoritative ordinary Header sizes with local
+over global precedence. Preserve R1/R2 and original byte/quota/native controls;
+actual-reader overlap and budget fixtures remain UNEXECUTED. Second entire
+SOURCE NO-GO is retained; different fresh entire review and new complete input
+ROOT admission remain pending.
+
+R4.fields extends this same bounded whole-interpretation repair to authoritative
+type/path/linkpath as well as size, local GNU/PAX precedence and excluded global
+path/linkpath authority. Existing Core target safety/alias/cycle controls remain;
+actual-reader field-overlap and target negatives are source UNRUN. Native
+metadata equivalence requires separate qualified proof.
+
+In progress: SPEC-007 AC-7G.scoped-tar-parser binds the natural PR #1681 obsolete
+Parse import failure to both actual archive readers. Isolated current-develop
+repair; dependency pins/protected tests unchanged. Whole-source review and new
+input admission required before execution. Other nineteen natural failures,
+native custody, empty catalogs and publication qualification remain separate.
+
+R1/R2 follow-up in the same owned PR #1707: AC-7G.scoped-tar-parser.R1/R2 binds
+every ignored-entry rejection and complete held-original effective-size framing,
+GNU/PAX positives and missing/partial/nonzero/after-EOF negatives. Retained prior
+whole-reader SOURCE NO-GO remains historical authority; corrected source still
+requires new different entire review and fresh complete execution-input ROOT.
+
 
 ## PR #1624 original contribution reconciliation
 
 ISS-1623 / SPEC-006 AC-6G.owning-resource-observation: [complete thirteen-path original contribution and receiving source provenance](PR-1624-RECONCILIATION.md). All receiving code/spec/fixtures retained; fresh ENTIRE source review and NEW ROOT remain required. Source reconciliation is pending parent PR disposition, not native acceptance or delivery completion.
+
+
+PR #1624 current receiving checkpoint: normal develop integration of `ce832478da5ad6997ffcb9c82aab95cdf55b1d06` (PR #1707 TAR framing landing). The preceding b0c checkpoint is historical provenance. Complete receiving TAR/header/framing/link source and all original owning-observation contracts are preserved. Source preparation only; DIFFERENT fresh ENTIRE review and NEW complete-input ROOT admission remain required before execution.

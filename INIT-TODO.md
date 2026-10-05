@@ -366,3 +366,6 @@ Development source-only repair bound to SPEC-002 AC-4DOC.1690 and existing SPEC-
 ## PR #1624 original source reconciliation
 
 - [ ] #1623 / SPEC-006 AC-6G.owning-resource-observation: independently review the [complete original contribution reconciliation](.governance/project/PR-1624-RECONCILIATION.md), then parent completes the same pending PR disposition. Receiving code/spec/fixtures retained; NEW ROOT and direct Windows/Linux qualification remain separate requirements.
+
+
+PR #1624 current receiving checkpoint: normal develop integration of `ce832478da5ad6997ffcb9c82aab95cdf55b1d06` (PR #1707 TAR framing landing). The preceding b0c checkpoint is historical provenance. Complete receiving TAR/header/framing/link source and all original owning-observation contracts are preserved. Source preparation only; DIFFERENT fresh ENTIRE review and NEW complete-input ROOT admission remain required before execution.
