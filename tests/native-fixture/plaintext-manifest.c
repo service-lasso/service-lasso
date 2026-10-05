@@ -23,6 +23,42 @@ static void values(struct output *o,const uint64_t *values,size_t count){
  text(o,"[");for(size_t i=0;i<count;i++){if(i)text(o,",");integer(o,values[i]);}text(o,"]");
 }
 static int present(const uint8_t *p,size_t n){uint8_t found=0;for(size_t i=0;i<n;i++)found|=p[i];return found!=0;}
+static int disjoint(const void *a,size_t an,const void *b,size_t bn){
+ uintptr_t x=(uintptr_t)a,y=(uintptr_t)b;
+ if((an&&!x)||(bn&&!y)||an>UINTPTR_MAX-x||bn>UINTPTR_MAX-y)return 0;
+ return !an||!bn||x+an<=y||y+bn<=x;
+}
+static int output_separate(uint8_t *out,size_t capacity,size_t *length,const void *source,size_t bytes){
+ return disjoint(out,capacity,source,bytes)&&disjoint(length,sizeof(*length),source,bytes);
+}
+static int output_memory(uint8_t *out,size_t capacity,size_t *length,const struct f7_async_memory *memory){
+ return output_separate(out,capacity,length,memory->state,memory->state_bytes)&&
+  output_separate(out,capacity,length,memory->ring,memory->ring_bytes)&&
+  output_separate(out,capacity,length,memory->write_buffer,memory->write_bytes);
+}
+static int output_geometry(const struct f7_manifest_input *in,uint8_t *out,size_t capacity,size_t *length){
+ const struct f7_capture *c=in->capture;
+ if(!disjoint(out,capacity,length,sizeof(*length))||
+    !output_separate(out,capacity,length,in,sizeof(*in))||
+    !output_separate(out,capacity,length,c,sizeof(*c))||
+    !output_separate(out,capacity,length,c->witness,sizeof(*c->witness))||
+    !output_separate(out,capacity,length,c->reservation,sizeof(*c->reservation))||
+    !output_separate(out,capacity,length,in->members,in->member_count*sizeof(*in->members))||
+    !output_separate(out,capacity,length,in->segments,in->segment_count*sizeof(*in->segments))||
+    !output_separate(out,capacity,length,in->unavailable,in->unavailable_count*sizeof(*in->unavailable))||
+    !output_separate(out,capacity,length,c->witness->record_buffer,c->witness->record_capacity)||
+    !output_memory(out,capacity,length,&c->witness_memory)||
+    !output_memory(out,capacity,length,&c->emergency_memory))return F7_CONFLICT;
+ for(unsigned i=0;i<F7_STREAM_COUNT;i++)if(
+    !output_memory(out,capacity,length,c->raw_memory+i)||
+    !output_separate(out,capacity,length,c->drain_buffer[i],c->drain_capacity[i]))return F7_CONFLICT;
+ for(size_t i=0;i<in->member_count;i++){
+  const struct f7_member *m=in->members[i].persisted;
+  if(!m||!output_separate(out,capacity,length,m,sizeof(*m))||
+     !output_separate(out,capacity,length,m->readback_storage,m->readback_capacity))return F7_CONFLICT;
+ }
+ return F7_OK;
+}
 static int retained_queue(struct f7_async_spool *queue,const struct f7_member *member,int incomplete){
  struct f7_async_status status;
  if(!queue||!member||f7_async_snapshot(queue,&status)||!status.finished||
@@ -51,6 +87,7 @@ int f7_canonical_manifest(const struct f7_manifest_input *in,uint8_t *out,size_t
     in->row>=9||(in->platform!=F7_PLATFORM_WINDOWS&&in->platform!=F7_PLATFORM_LINUX)||
     !present(in->candidate_head,20)||!present(in->candidate_tree,20)||
     !present(in->candidate_base,20)||!present(in->admission_sha256,32))return F7_INVALID;
+ int geometry=output_geometry(in,out,capacity,length);if(geometry)return geometry;
  *length=0;
  for(size_t i=0;i<in->member_count;i++){
   const struct f7_manifest_member *m=in->members+i;
