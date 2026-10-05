@@ -528,3 +528,5 @@ This definition must be reconciled across future closed graph/topology/byte/resu
 The next original-error contract records bounded ordered initiating/inner/aggregate exception relationships, type/message/HResult, original operation/path and actual Win32Exception.NativeErrorCode when present. Missing native code remains unknown. No post-hoc probe/retry or rewriting source14 failures. Public projections preserve private input confidentiality.
 
 Whole producer/consumer design, prospective UNRUN protected cases and concrete unresolved installed equivalence cells are tracked in `.governance/project/NATIVE_SEARCH_CUSTODY_1681.md`; no native implementation or execution is authorized by this documentation amendment.
+
+Core #1702 / AC-4AJ.13 adds the concise published lesson path to the first three tutorials. Keep checkpoint state isolated and retained legacy pins intact; parent orchestration owns exact lesson source acceptance, review, merge and Pages/live publication.
