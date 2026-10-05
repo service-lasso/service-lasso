@@ -496,3 +496,46 @@ Released consumer discovery added API#7 / API-AUTH-6 and Todo#9 / SSO-10: Core i
 Core #1695 / AC-4AJ.12 delivers the approved single lesson-todo repository with five runnable checkpoints, exact article/code links and verified publication. Preserve inherited primary package deletions and evidence; author this slice only in its dedicated current-develop worktree.
 
 Core #1702 / AC-4AJ.13 adds the concise published lesson path to the first three tutorials. Keep checkpoint state isolated and retained legacy pins intact; parent orchestration owns exact lesson source acceptance, review, merge and Pages/live publication.
+
+## #1562 scoped TAR API compatibility (2026-10-06)
+
+Development source-only repair of the original natural PR #1681 CI module-load
+failure: both scoped readers use tar 7.5.22's public Parser export under
+SPEC-007 AC-7G.scoped-tar-parser. Preserve dependency lock, custody, EOF/draining,
+privacy, budgets, extraction/readback and protected gates. New finite regressions
+remain SOURCE UNEXECUTED pending distinct whole-source review and new complete
+input admission. Other natural failures and native/pin/publication gates remain.
+
+The retained distinct whole-reader NO-GO requires AC-7G.scoped-tar-parser.R1/R2:
+reject every ignored entry and prove finite original expanded TAR framing/EOF
+before acceptance in both readers. Shared effective-size framing preserves
+bounded GNU/PAX metadata, raw original custody and all reader/native limits.
+Two zero EOF blocks and only complete zero-block trailing padding are required;
+permissive missing-EOF recovery is outside this scoped producer contract.
+Additive actual-reader fixtures remain UNEXECUTED pending new entire review and
+fresh complete execution-input admission. No native acceptance is asserted.
+
+The second retained whole-reader NO-GO binds R3/R4: metadata's physical header
+size must independently satisfy the 1 MiB bound even with pending PAX size;
+ordinary sizes must follow validated Header global-then-local precedence rather
+than ReadEntry's later overwritten size. Both readers retain observed body-size
+checks and quotas; npm retains exact opaque bytes. Additive overlap and budget
+regressions remain UNEXECUTED pending a different whole review and fresh input
+admission. Existing R1/R2, dependency and native boundaries remain required.
+
+The same whole-interpretation correction retains ordered authoritative ordinary
+type/path/linkpath/size: local GNU/PAX names/targets override raw fields; global
+path/linkpath are excluded as in locked Header, while global size remains.
+Core link validation uses local-or-raw targets with every existing safety check.
+Local/global field overlap and unsafe target/alias/size fixtures remain UNRUN;
+the conservative scoped contract does not claim native metadata equivalence.
+
+## Issue #1562 scoped TAR entire-review R5/R6 corrective source unit
+Continuation of clean PR #1707 head 3b5065200c04c57cd7ab42bc9445e0dd200e4b5d
+on retained fix/1562-scoped-npm-tar-compatibility is the bounded custody exception.
+SPEC-007 AC-7G.scoped-tar-parser.R5/R6 maps the latest entire SOURCE NO_GO to
+physical framing-driven public decoder dispatch and observed link-target equality.
+Preserve all earlier framing/budget/opaque-byte/path/link/alias controls and locked
+dependencies/protected originals. Fresh actual-reader additive cases are SOURCE_UNRUN;
+no target execution, native equivalence, merge or release claim. Parent owns tracking;
+freeze cumulative source/dependency/history/prior failures for DIFFERENT ENTIRE review.
