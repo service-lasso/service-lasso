@@ -1,5 +1,21 @@
 #include "capture-native-regression.h"
 #include <string.h>
+static int separate(const void *a,size_t an,const void *b,size_t bn){
+ uintptr_t x=(uintptr_t)a,y=(uintptr_t)b;
+ if((an&&!x)||(bn&&!y)||an>UINTPTR_MAX-x||bn>UINTPTR_MAX-y)return 0;
+ return !an||!bn||x+an<=y||y+bn<=x;
+}
+static int source_preserved(uint8_t *scratch,size_t capacity,int64_t *native,
+ struct f7_native_capture_regression_result *out,const void *source,size_t bytes){
+ return separate(scratch,capacity,source,bytes)&&separate(native,sizeof(*native),source,bytes)&&
+  separate(out,sizeof(*out),source,bytes);
+}
+static int memory_preserved(uint8_t *scratch,size_t capacity,int64_t *native,
+ struct f7_native_capture_regression_result *out,const struct f7_async_memory *memory){
+ return source_preserved(scratch,capacity,native,out,memory->state,memory->state_bytes)&&
+  source_preserved(scratch,capacity,native,out,memory->ring,memory->ring_bytes)&&
+  source_preserved(scratch,capacity,native,out,memory->write_buffer,memory->write_bytes);
+}
 static int actual_prefix(struct f7_member *member,f7_handle read,
  const uint8_t *original,size_t length,uint8_t *scratch,size_t capacity,int64_t *native){
  if(!member||(!original&&length)||!scratch||!capacity||capacity>F7_FRAME_MAX||member->length!=length)return F7_CONFLICT;
@@ -27,6 +43,27 @@ int f7_capture_native_regression(struct f7_capture *c,const struct f7_capture_re
  }
  if((!expected->witness&&expected->witness_length)||
     (!expected->emergency&&expected->emergency_length))return F7_BUDGET_ABSENT;
+ if(!c->witness||!c->reservation||!c->error_channel)return F7_BUDGET_ABSENT;
+ if(!source_preserved(scratch,capacity,native,out,c->witness,sizeof(*c->witness))||
+    !source_preserved(scratch,capacity,native,out,c->reservation,sizeof(*c->reservation))||
+    !source_preserved(scratch,capacity,native,out,c->error_channel,sizeof(*c->error_channel))||
+    !source_preserved(scratch,capacity,native,out,c->error_channel->payload,c->error_channel->payload_capacity)||
+    !source_preserved(scratch,capacity,native,out,c->witness->record_buffer,c->witness->record_capacity)||
+    !source_preserved(scratch,capacity,native,out,c->native_drain_storage,c->native_drain_storage_bytes)||
+    !memory_preserved(scratch,capacity,native,out,&c->witness_memory)||
+    !memory_preserved(scratch,capacity,native,out,&c->emergency_memory))return F7_CONFLICT;
+ if(c->error_channel->partial&&
+    (!source_preserved(scratch,capacity,native,out,c->error_channel->partial,sizeof(*c->error_channel->partial))||
+     !source_preserved(scratch,capacity,native,out,c->error_channel->partial->bytes,c->error_channel->partial->capacity)))return F7_CONFLICT;
+ for(unsigned i=0;i<F7_STREAM_COUNT+2;i++){
+  struct f7_member *member=i<F7_STREAM_COUNT?c->raw[i]:
+    i==F7_STREAM_COUNT?c->witness->member:c->witness->emergency_member;
+  if(!member||(i<F7_STREAM_COUNT&&
+     (!memory_preserved(scratch,capacity,native,out,c->raw_memory+i)||
+      !source_preserved(scratch,capacity,native,out,c->drain_buffer[i],c->drain_capacity[i])))||
+     !source_preserved(scratch,capacity,native,out,member,sizeof(*member))||
+     !source_preserved(scratch,capacity,native,out,member->readback_storage,member->readback_capacity))return F7_CONFLICT;
+ }
  /* Expected native originals are immutable owner inputs. Scratch and result
     writes must not overwrite the exact bytes used for regression comparison. */
  struct span {uintptr_t address;size_t length;};
@@ -63,7 +100,11 @@ int f7_capture_native_regression(struct f7_capture *c,const struct f7_capture_re
   else q=i==F7_STREAM_COUNT?c->witness->async:c->witness->emergency_async;
   struct f7_async_status status;if(!q)return F7_BUDGET_ABSENT;
   result=f7_async_snapshot(q,&status);if(result)return result;
-  if(!status.finished||!status.joined||status.worker_created!=1)return F7_INCOMPLETE;
+  struct f7_member *member=i<F7_STREAM_COUNT?c->raw[i]:
+    i==F7_STREAM_COUNT?c->witness->member:c->witness->emergency_member;
+  if(!status.finished||!status.joined||status.worker_created!=1||!status.worker_entered||
+     status.persisted!=member->length||status.persisted>status.submitted||
+     status.in_flight_persisted>status.in_flight)return F7_INCOMPLETE;
   if(expected->capture_result==F7_OK&&(status.failed||status.queued||status.in_flight||status.persisted!=status.submitted))return F7_CONFLICT;
  }
  for(unsigned i=0;i<F7_STREAM_COUNT;i++)if(c->created[i]==F7_CREATED){
