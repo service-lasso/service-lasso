@@ -30,6 +30,16 @@ int f7_decode_index(const uint8_t *input,size_t length,struct f7_index_input *ou
  struct cursor c={input,length,0,0};struct f7_index_input decoded;
  uint8_t manifest[16],inventory_digest[32];size_t encoded_n=0,manifest_count=0;
  if(!input||!length||!out||!objects||!capacity||capacity>F7_OBJECT_MAX||!scratch)return F7_INVALID;
+ struct span {uintptr_t address;size_t length;};
+ struct span spans[]={{(uintptr_t)input,length},{(uintptr_t)out,sizeof(*out)},
+  {(uintptr_t)objects,capacity*sizeof(*objects)},{(uintptr_t)scratch,scratch_capacity}};
+ /* Keep original index and each output region intact until geometry is
+    checked. Decoder bytes and parsed claims never authenticate an actor. */
+ for(size_t i=0;i<sizeof(spans)/sizeof(spans[0]);i++){
+  if(!spans[i].address||!spans[i].length||spans[i].length>UINTPTR_MAX-spans[i].address)return F7_INVALID;
+  for(size_t j=0;j<i;j++)if(!(spans[i].address+spans[i].length<=spans[j].address||
+    spans[j].address+spans[j].length<=spans[i].address))return F7_CONFLICT;
+ }
  memset(&decoded,0,sizeof(decoded));decoded.objects=objects;
  literal(&c,"{\"attempt\":");hex(&c,decoded.attempt,32);
  literal(&c,",\"encrypted_manifest\":");hex(&c,manifest,16);
