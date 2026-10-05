@@ -13,6 +13,21 @@ static int readback_reserved(struct f7_crypto_object *o,const uint8_t *input,siz
  const struct f7_signing_pin *pins,int64_t *status){
  struct f7_member *members[]={o->write,o->journal->member};
  if(!o->journal->entries||!o->journal->capacity||o->journal->capacity>F7_OUTER_OBJECT_MAX)return F7_BUDGET_ABSENT;
+ struct span {const void *address;size_t length;};
+ struct span mutable[]={{o,sizeof(*o)},{o->write,sizeof(*o->write)},
+  {o->workspace,o->workspace_capacity},{status,sizeof(*status)},
+  {o->journal,sizeof(*o->journal)},{o->journal->member,sizeof(*o->journal->member)},
+  {o->journal->entries,o->journal->capacity*sizeof(*o->journal->entries)}};
+ struct span immutable[]={{input,length},{pins,sizeof(*pins)},
+  {pins->signer_secret,pins->signer_secret?crypto_sign_SECRETKEYBYTES:0}};
+ for(size_t i=0;i<sizeof(mutable)/sizeof(mutable[0]);i++){
+  if(!mutable[i].address||!mutable[i].length||
+     mutable[i].length>UINTPTR_MAX-(uintptr_t)mutable[i].address)return F7_INVALID;
+  for(size_t j=0;j<i;j++)if(!disjoint(mutable[i].address,mutable[i].length,
+    mutable[j].address,mutable[j].length))return F7_CONFLICT;
+  for(size_t j=0;j<sizeof(immutable)/sizeof(immutable[0]);j++)if(immutable[j].length&&
+    !disjoint(mutable[i].address,mutable[i].length,immutable[j].address,immutable[j].length))return F7_CONFLICT;
+ }
  for(size_t i=0;i<2;i++){
   if(!members[i]||!members[i]->readback_storage||!members[i]->readback_capacity||
      members[i]->readback_capacity>F7_FRAME_MAX)return F7_BUDGET_ABSENT;
