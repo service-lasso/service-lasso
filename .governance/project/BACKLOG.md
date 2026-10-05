@@ -891,6 +891,20 @@ Development source-only repair bound to SPEC-002 AC-4DOC.1690 and existing SPEC-
 
 ## #1562 scoped TAR source gate (2026-10-06)
 
+R3/R4 follow-up in the same owned PR #1707: SPEC-007
+AC-7G.scoped-tar-parser.R3/R4 binds physical metadata-size denial despite pending
+local/global PAX controls and authoritative ordinary Header sizes with local
+over global precedence. Preserve R1/R2 and original byte/quota/native controls;
+actual-reader overlap and budget fixtures remain UNEXECUTED. Second entire
+SOURCE NO-GO is retained; different fresh entire review and new complete input
+ROOT admission remain pending.
+
+R4.fields extends this same bounded whole-interpretation repair to authoritative
+type/path/linkpath as well as size, local GNU/PAX precedence and excluded global
+path/linkpath authority. Existing Core target safety/alias/cycle controls remain;
+actual-reader field-overlap and target negatives are source UNRUN. Native
+metadata equivalence requires separate qualified proof.
+
 In progress: SPEC-007 AC-7G.scoped-tar-parser binds the natural PR #1681 obsolete
 Parse import failure to both actual archive readers. Isolated current-develop
 repair; dependency pins/protected tests unchanged. Whole-source review and new

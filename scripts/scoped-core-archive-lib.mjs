@@ -12,11 +12,11 @@ import { assertScopedTarFraming } from "./scoped-tar-framing-lib.mjs";
 export async function preflightScopedCoreTar(bytes, rootName) {
   if (!Buffer.isBuffer(bytes) || bytes.length < 1 || bytes.length > 256 * 1024 * 1024 || !/^[A-Za-z0-9._-]+$/u.test(rootName)) throw new Error("Core outer TAR original byte/root budget differs");
   const rows = new Map(), folded = new Set();
-  let size = 0, failure;
+  let size = 0, count = 0, failure;
   let expanded;
   try { expanded = gunzipSync(bytes, { maxOutputLength: 512 * 1024 * 1024 }); }
   catch { throw new Error("Core outer TAR gzip/expanded byte budget differs"); }
-  assertScopedTarFraming(expanded);
+  const ordinaryEntries = assertScopedTarFraming(expanded);
   const safe = raw => {
     if (typeof raw !== "string" || raw !== raw.normalize("NFC") || Buffer.byteLength(raw) > 4096 || /[\\:\x00-\x1f\x7f]/u.test(raw) || raw.startsWith("/") || raw.split("/").some(part => part === "." || part === ".." || !part)) throw new Error("Core outer TAR path unsafe");
     if (raw !== rootName && !raw.startsWith(`${rootName}/`)) throw new Error("Core outer TAR root differs");
@@ -24,16 +24,27 @@ export async function preflightScopedCoreTar(bytes, rootName) {
   };
   await new Promise((resolve, reject) => {
     const parser = new Parser({ strict: true, onReadEntry(entry) {
+      const authority = ordinaryEntries[count++], effectiveSize = authority?.size;
+      let observedSize = 0;
+      entry.on("data", chunk => {
+        observedSize += chunk.length;
+        if (observedSize > 256 * 1024 * 1024) failure ??= new Error("Core outer TAR member byte budget exceeded");
+      });
+      entry.on("end", () => {
+        if (observedSize !== effectiveSize) failure ??= new Error("Core outer TAR observed member byte count differs");
+      });
       try {
-        const name = safe(entry.type === "Directory" ? entry.path.replace(/\/$/u, "") : entry.path);
+        if (!authority || authority.type !== entry.type || authority.path !== entry.path) throw new Error("Core outer TAR framing/member identity differs");
+        const name = safe(authority.type === "Directory" ? authority.path.replace(/\/$/u, "") : authority.path);
         const key = name.toLowerCase();
-        if (rows.has(name) || folded.has(key) || !["File", "Directory", "SymbolicLink", "Link"].includes(entry.type) || !Number.isSafeInteger(entry.size) || entry.size < 0 || entry.size > 256 * 1024 * 1024 || rows.size >= 100_000) throw new Error("Core outer TAR member inventory differs");
-        size += entry.size;
+        if (rows.has(name) || folded.has(key) || !["File", "Directory", "SymbolicLink", "Link"].includes(entry.type) || !Number.isSafeInteger(effectiveSize) || effectiveSize < 0 || effectiveSize > 256 * 1024 * 1024 || entry.header.size !== effectiveSize || rows.size >= 100_000) throw new Error("Core outer TAR member inventory differs");
+        size += effectiveSize;
         if (size > 512 * 1024 * 1024) throw new Error("Core outer TAR expanded byte budget exceeded");
         let target = null;
         if (["SymbolicLink", "Link"].includes(entry.type)) {
-          if (typeof entry.linkpath !== "string" || !entry.linkpath || /[\\:\x00-\x1f\x7f]/u.test(entry.linkpath) || entry.linkpath.startsWith("/") || entry.size !== 0) throw new Error("Core outer TAR link unsafe");
-          target = entry.type === "Link" ? safe(entry.linkpath) : safe(path.posix.normalize(path.posix.join(path.posix.dirname(name), entry.linkpath)));
+          const linkpath = authority.linkpath;
+          if (typeof linkpath !== "string" || !linkpath || /[\\:\x00-\x1f\x7f]/u.test(linkpath) || linkpath.startsWith("/") || effectiveSize !== 0) throw new Error("Core outer TAR link unsafe");
+          target = entry.type === "Link" ? safe(linkpath) : safe(path.posix.normalize(path.posix.join(path.posix.dirname(name), linkpath)));
         }
         rows.set(name, { type: entry.type, target }); folded.add(key);
       } catch (error) { failure ??= error; }
@@ -48,6 +59,7 @@ export async function preflightScopedCoreTar(bytes, rootName) {
     parser.end(expanded);
   });
   if (failure) throw failure;
+  if (count !== ordinaryEntries.length) throw new Error("Core outer TAR framing/member count differs");
   if (rows.size === 0 || rows.get(rootName)?.type !== "Directory") throw new Error("Core outer TAR complete root directory missing");
   for (const name of rows.keys()) {
     const parts = name.split("/");

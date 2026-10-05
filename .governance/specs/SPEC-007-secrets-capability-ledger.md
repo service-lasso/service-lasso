@@ -371,3 +371,30 @@ data and a member after EOF. Existing active-body truncation tests stay intact.
 All new source remains UNEXECUTED until new distinct entire-source GO and exact
 fresh complete execution-input ROOT admission; original native extraction and
 publication authority are unchanged.
+
+`AC-7G.scoped-tar-parser.R3/R4`: enforce the 1 MiB metadata bound against
+each intermediary header's physical size before decoding or invoking either
+actual reader. Pending local/global PAX size cannot reduce that physical bound.
+The framing pass retains ordinary effective Header sizes, applying global then
+local overrides and directory zero-size semantics. Both actual readers bind
+each ordinary entry to that validated size and use it for member/expanded quotas
+and observed body-length equality; mutable ReadEntry.size is not size authority.
+Npm still compares the complete opaque original bytes. Retain all R1/R2 controls.
+Additive actual-reader regressions cover pending local and global size before
+oversized GNU/PAX metadata, conflicting local-over-global ordinary sizes, and
+effective member-budget violations. They remain UNEXECUTED pending a different
+fresh entire-source review and new complete execution-input admission.
+
+`AC-7G.scoped-tar-parser.R4.fields`: retain ordinary authoritative type/path/
+linkpath with size in the framing pass. Header controls type and effective size;
+local GNU/PAX path and linkpath override the raw header. Global path/linkpath
+are excluded from authority, matching locked Header's scoped interpretation;
+global size remains applicable unless locally overridden. Both actual readers
+bind emitted type/path to the ordered framing inventory. Core resolves only the
+authoritative local-or-raw linkpath and requires zero authoritative link size,
+then applies all existing path/root/traversal/alias/cycle/target checks. Pending
+local fields are consumed once, globals persist, and later GNU/PAX local fields
+replace earlier local fields. Add local-over-global legitimate links and unsafe
+local/raw traversal/alias/size-interaction regressions. This is the conservative
+scoped source contract; native metadata equivalence still requires qualified
+execution and is not established by source review or these UNEXECUTED fixtures.

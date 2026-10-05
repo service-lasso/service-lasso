@@ -514,3 +514,18 @@ Two zero EOF blocks and only complete zero-block trailing padding are required;
 permissive missing-EOF recovery is outside this scoped producer contract.
 Additive actual-reader fixtures remain UNEXECUTED pending new entire review and
 fresh complete execution-input admission. No native acceptance is asserted.
+
+The second retained whole-reader NO-GO binds R3/R4: metadata's physical header
+size must independently satisfy the 1 MiB bound even with pending PAX size;
+ordinary sizes must follow validated Header global-then-local precedence rather
+than ReadEntry's later overwritten size. Both readers retain observed body-size
+checks and quotas; npm retains exact opaque bytes. Additive overlap and budget
+regressions remain UNEXECUTED pending a different whole review and fresh input
+admission. Existing R1/R2, dependency and native boundaries remain required.
+
+The same whole-interpretation correction retains ordered authoritative ordinary
+type/path/linkpath/size: local GNU/PAX names/targets override raw fields; global
+path/linkpath are excluded as in locked Header, while global size remains.
+Core link validation uses local-or-raw targets with every existing safety check.
+Local/global field overlap and unsafe target/alias/size fixtures remain UNRUN;
+the conservative scoped contract does not claim native metadata equivalence.

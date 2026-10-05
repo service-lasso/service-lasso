@@ -83,3 +83,78 @@ test("#1562 actual npm/Core readers preserve GNU and PAX effective names and siz
     assert.deepEqual(links.get("core/alias"), { type: "SymbolicLink", target: "core/data" });
   }
 });
+
+test("#1562 physical metadata bound survives pending local and global PAX size in both actual readers", async () => {
+  for (const [read, prefix, name] of [[npmRead, member(manifestName, manifest), toolName], [coreRead, member("core/", undefined, "5"), "core/data"]]) {
+    for (const pendingType of ["x", "g"]) {
+      const pending = member("PaxHeader/pending", pax({ size: tool.length }), pendingType);
+      for (const type of ["L", "N", "K", "x", "X", "g"]) {
+        const content = ["L", "N", "K"].includes(type) ? Buffer.from(`${name}\0`) : pax({ path: name });
+        const oversized = Buffer.concat([content, Buffer.alloc(1024 * 1024 + 1 - content.length, 97)]);
+        await assert.rejects(read(Buffer.concat([prefix, pending, member("PaxHeader/oversized", oversized, type), member(name, tool), eof])), /physical byte budget/);
+      }
+      // Exact physical bound is supported, including a pending small size.
+      const nameBody = Buffer.from(`${name}\0`);
+      const bounded = Buffer.concat([nameBody, Buffer.alloc(1024 * 1024 - nameBody.length, 97)]);
+      await read(Buffer.concat([prefix, pending, member("././@LongLink", bounded, "L"), member("short", tool, "0", 0), eof]));
+    }
+  }
+});
+
+test("#1562 local PAX size overrides global in both actual readers without losing original byte checks", async () => {
+  for (const globalSize of [4, 1024 * 1024]) {
+    const global = member("PaxHeader/global", pax({ size: globalSize }), "g");
+    const local = (name, body) => Buffer.concat([member("PaxHeader/local", pax({ size: body.length, path: name }), "x"), member("short", body, "0", 0)]);
+    const npm = await npmRead(Buffer.concat([global, local(manifestName, manifest), local(toolName, tool), eof]));
+    assert.deepEqual([...npm.keys()].sort(), [manifestName, toolName].sort());
+    const rows = await coreRead(Buffer.concat([member("core/", undefined, "5"), global, local("core/data", manifest), local("core/second", tool), eof]));
+    assert.equal(rows.get("core/data").type, "File");
+    assert.equal(rows.get("core/second").type, "File");
+    const substituted = Buffer.from(manifest); substituted[0] ^= 1;
+    await assert.rejects(npmRead(Buffer.concat([global, local(manifestName, substituted), local(toolName, tool), eof])), /original operator bytes/);
+  }
+});
+
+test("#1562 effective ordinary member budget cannot be reduced by conflicting global PAX size", async () => {
+  for (const [read, prefix, name] of [[npmRead, member(manifestName, manifest), toolName], [coreRead, member("core/", undefined, "5"), "core/data"]]) {
+    const global = member("PaxHeader/global", pax({ size: 4 }), "g");
+    const oversized = member("PaxHeader/local", pax({ size: 256 * 1024 * 1024 + 1 }), "x");
+    await assert.rejects(read(Buffer.concat([prefix, global, oversized, member(name, tool), eof])), /framing\/EOF/);
+    // Local state is consumed once; the following member again uses global.
+    const smallLocal = member("PaxHeader/local", pax({ size: 4 }), "x");
+    const largeGlobal = member("PaxHeader/global", pax({ size: 256 * 1024 * 1024 + 1 }), "g");
+    await assert.rejects(read(Buffer.concat([prefix, largeGlobal, smallLocal, member(name, tool), member(`${name}-second`, tool), eof])), /framing\/EOF/);
+  }
+});
+
+test("#1562 Core local link targets override misleading global targets under unchanged safety policy", async () => {
+  for (const type of ["1", "2"]) {
+    const target = type === "1" ? "core/data" : "data";
+    for (const localType of ["x", "K"]) {
+      const global = member("PaxHeader/global", pax({ path: "other-root/ignored", linkpath: "../outside", size: 4 }), "g");
+      const localTarget = member("PaxHeader/target", localType === "x" ? pax({ linkpath: target }) : Buffer.from(`${target}\0`), localType);
+      const localSize = member("PaxHeader/size", pax({ size: 0 }), "x");
+      const rows = await coreRead(Buffer.concat([coreRaw(), global, localTarget, localSize, member("core/alias", undefined, type, 0, "fallback"), eof]));
+      assert.deepEqual(rows.get("core/alias"), { type: type === "1" ? "Link" : "SymbolicLink", target: "core/data" });
+    }
+    const safeGlobal = member("PaxHeader/global", pax({ linkpath: target, size: 4 }), "g");
+    for (const unsafe of ["../outside", "/outside", "core/../outside", "bad\\target", "bad:target"]) {
+      const local = member("PaxHeader/local", pax({ linkpath: unsafe, size: 0 }), "x");
+      await assert.rejects(coreRead(Buffer.concat([coreRaw(), safeGlobal, local, member("core/alias", undefined, type, 0, target), eof])));
+    }
+    // A safe global target cannot hide an unsafe authoritative raw target.
+    const globalTargetOnly = member("PaxHeader/global", pax({ linkpath: target }), "g");
+    await assert.rejects(coreRead(Buffer.concat([coreRaw(), globalTargetOnly, member("core/alias", undefined, type, 0, "../outside"), eof])));
+    // A global zero cannot conceal the effective local nonzero link body.
+    const globalZero = member("PaxHeader/global", pax({ size: 0, linkpath: target }), "g");
+    // Install the local body size first: zero pending size would otherwise
+    // prevent Parser from consuming an intervening nonempty metadata entry.
+    const localBody = member("PaxHeader/local", pax({ size: 4, linkpath: target }), "x");
+    await assert.rejects(coreRead(Buffer.concat([coreRaw(), localBody, globalZero, member("core/alias", tool, type, 0, target), eof])), /link unsafe/);
+  }
+  const globalSafe = member("PaxHeader/global", pax({ linkpath: "data" }), "g");
+  const self = member("PaxHeader/local", pax({ linkpath: "alias" }), "x");
+  await assert.rejects(coreRead(Buffer.concat([coreRaw(), globalSafe, self, member("core/alias", undefined, "2", 0, "data"), eof])), /cycle/);
+  const dataTarget = member("PaxHeader/local", pax({ linkpath: "data" }), "x");
+  await assert.rejects(coreRead(Buffer.concat([coreRaw(), globalSafe, dataTarget, member("core/alias", undefined, "2", 0, "data"), member("core/alias/child", tool), eof])), /descends through/);
+});
