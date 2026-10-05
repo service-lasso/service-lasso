@@ -102,11 +102,6 @@ int f7_capture_linux(struct f7_capture *c,uint64_t deadline){
     read_error=(int)fact->native_error;authenticated=received==F7_OK;
     if(!fact->native_called){result=F7_INCOMPLETE;p[i].fd=-1;active--;continue;}
     if(n>0&&(size_t)n>want){n=(ssize_t)want;authenticated=0;}
-    if(authenticated){
-     struct f7_frame frame;
-     if((size_t)n<F7_FRAME_HEADER_SIZE||f7_frame_decode(&frame,c->drain_buffer[i])||
-        (size_t)n!=F7_FRAME_HEADER_SIZE+(size_t)frame.payload_length)authenticated=0;
-    }
     /* Zero-length datagram/closure is never pipe EOF. No authentic original
        closure/control binding has been supplied, so terminal stays INCOMPLETE. */
     if(!n){result=F7_INCOMPLETE;p[i].fd=-1;active--;continue;}
@@ -125,8 +120,6 @@ int f7_capture_linux(struct f7_capture *c,uint64_t deadline){
     if(f7_witness_emit(c->witness,i,F7_NATURAL_EOF,want,0,c->observed[i],NULL,0,1))result=F7_INCOMPLETE;
     p[i].fd=-1;active--;continue;}
    uint64_t accepted=0;
-   if(i==F7_PRIVATE_ERRORS&&authenticated&&!retain_stop&&f7_error_channel_feed(c->error_channel,c->drain_buffer[i],(size_t)n,
-      c->reservation->input.frame_count,c->reservation->input.original[F7_PRIVATE_ERRORS]))result=F7_INCOMPLETE;
    if(f7_budget_queue(c->reservation,i,(uint64_t)n)||
       f7_witness_emit(c->witness,i,F7_READ,want,(uint64_t)n,c->observed[i],c->drain_buffer[i],0,0))result=F7_INCOMPLETE;
    if((uint64_t)n>UINT64_MAX-c->observed[i]){result=F7_OVERFLOWED;goto end;}
@@ -139,6 +132,15 @@ int f7_capture_linux(struct f7_capture *c,uint64_t deadline){
     f7_witness_emit(c->witness,i,F7_OVERFLOW,accepted,0,c->observed[i]-n,NULL,0,1);}
    if(budget){result=F7_INCOMPLETE;
     f7_witness_emit(c->witness,i,F7_OVERFLOW,n,accepted,c->observed[i]-n,c->drain_buffer[i],0,1);}
+   if(i==F7_PRIVATE_ERRORS&&authenticated&&!retain_stop&&!c->raw_lost[i]&&!budget){
+    /* Raw original bytes have entered the owning private persistence queue
+       before any frame decoder/graph interpretation can fail. */
+    struct f7_frame frame;
+    if((size_t)n<F7_FRAME_HEADER_SIZE||f7_frame_decode(&frame,c->drain_buffer[i])||
+       (size_t)n!=F7_FRAME_HEADER_SIZE+(size_t)frame.payload_length)authenticated=0;
+    else if(f7_error_channel_feed(c->error_channel,c->drain_buffer[i],(size_t)n,
+       c->reservation->input.frame_count,c->reservation->input.original[F7_PRIVATE_ERRORS]))result=F7_INCOMPLETE;
+   }
    if(i==F7_PRIVATE_ERRORS&&(!authenticated||retain_stop||c->raw_lost[i]||budget)){
     /* No next recvmsg overwrites a failed native fact, ancillary capability,
        retained raw prefix or failed witness workspace. Other raw streams drain. */
