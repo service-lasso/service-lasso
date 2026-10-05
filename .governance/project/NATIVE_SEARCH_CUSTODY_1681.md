@@ -1,0 +1,26 @@
+# #1681 native search custody: adopted definition and pre-code integration
+
+Active spec: SPEC-002 AC-4DI.4. Review48 permits definition adoption only. Parent adoption CC8A04301DEEFCEDA4C5CE194B85DD23B0796B57AF830AC1EFCEBC1600B84950 does not admit a changed implementation, generated load, ENV or compiler.
+
+## Coherent future schema and caller contract
+
+Separate CLOSED typed records are required, with no arbitrary additional properties:
+- Topology: exact environment binding, original literal/index/namespace/CWD, directory identity and all member names/types/attributes/aliases, enumeration completeness and negative-name evidence.
+- Request: exact originating source/image binding, function/line or native manifest entry, branch guard and actual selected state, original request token, API/flags/policy, CWD/environment and ordered resolution edges.
+- Candidate: request association, ordered search index, negative/positive/shadow state, topology member association and genuine held file identity/bytes/aliases; suffix is never an exclusion.
+- Graph: all originating request families, unresolved cells and source-equivalence evidence. Completion requires no unresolved affected request, every ordered candidate bound, full required namespace and a viable positive original compile route.
+- Result: original admitted graph/topology/candidate union and original process/task/resource closure; errors never become acceptance. Old source14 all-member v1 result cannot be relabeled as the new result.
+
+Future ENV producer must first retain complete topology, derive and validate the admitted request graph and bind all reachable candidate bytes without weakening original no-follow/alias custody. Shared CompletedResult/EnterStage and retained compiler consumers must reject missing/unknown/mismatched graph, candidate, image, policy or original closure. Compiler consumes the unchanged exact ENV/flags/CWD and holds the same required inputs through EACH actual raw-copy and original exit. No observer-only pass or eventual rejection can establish pre-dispatch graph completeness. Generated interop compile/load and registry association remain separate stages with exact current source/receipt binding.
+
+Directory handles and pre/post topology comparisons must not be claimed to prevent creation of new entries. The selected graph must account for namespace mutation/shadowing under actual native policy; if existing ownership cannot establish that boundary, affected dispatch remains denied and the exact mutation cell is reported.
+
+## Prospective protected cases — UNRUN
+
+Positive: complete original selected batch/request/loader/compiler route resolves all shadows/support/config/response/header/library/dynamic requests under exact original flags and produces eligible graph, without silently changing recipe. Negative: suffixless and .dat requests require bytes; unrelated member remains in full topology and is not excluded by suffix; earlier shadow and missing negative-name evidence reject; CWD/namespace/API-flag mismatch rejects; unknown dynamic request/opaque source-equivalence rejects BEFORE dispatch; COM/delay/APIset/SxS/KnownDLL/redirection policy missing rejects; alias/reparse/object mutation rejects; missing result graph union or old-v1 receipt rejects. Known failed process/copy still requires genuine original closure; unknown original ownership retains inputs. Original inner Win32 exception preserves actual code/HResult; wrapper-only exception preserves unknown. All cases require later admitted execution, none run here.
+
+## Specific unresolved evidence capabilities
+
+Installed cmd.exe external-command grammar and dynamic loader behavior: static byte import/delay/embedded-manifest extraction is possible with an inert reader, but does not alone close dynamic requests. Exact installed Process.Start/CLR implementation equivalence: pinned public runtime source is context; actual runtime source/version provenance association is needed. Installed vswhere and Setup COM: bound public source and exact installed bytes exist, but reproducible/source provenance equivalence and dynamic request policy remain unresolved. Installed cl/link: source/options identify explicit C includes and bcrypt.lib, but compiler support/config/default-library/dynamic request closure requires genuine installed tool manifests/source evidence, not a guessed inventory. A conservative source-justified complete candidate superset is allowed only with evidence no request escapes it.
+
+The concrete next read-only capability is complete branch-conditioned transcription of all eighteen actual installed batch bodies plus inert import/delay/manifest/source evidence extraction for each real tool edge. Where proprietary source/provenance does not exist in retained inputs, report that exact image/request cell and evaluate a genuine documented closed tool manifest capability. Do not substitute extension filtering, general permission questions or universally denied compilation.
