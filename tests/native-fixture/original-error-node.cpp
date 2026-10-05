@@ -263,10 +263,18 @@ static void preserve_exception(napi_env env,f7_original_error_workspace *w,f7_or
  }
 }
 static int geometry(f7_original_error_workspace *w,uint8_t *payload,size_t capacity,
- const napi_value *secondary,size_t secondary_count,f7_original_error_result *out){
+ const napi_value *secondary,size_t secondary_count,void *out,size_t output_bytes,
+ const void *owner,size_t owner_bytes){
+ if(!w||!out||!output_bytes||
+   w->node_capacity>SIZE_MAX/sizeof(*w->originals)||w->node_capacity>SIZE_MAX/sizeof(*w->nodes)||
+   w->text_capacity>SIZE_MAX/sizeof(*w->text)||w->text_getter_capacity>SIZE_MAX/sizeof(*w->text_getter)||
+   w->reference_capacity>SIZE_MAX/sizeof(*w->references)||w->bigint_word_capacity>SIZE_MAX/sizeof(*w->bigint_words)||
+   w->read_capacity>SIZE_MAX/sizeof(*w->reads)||w->held_capacity>SIZE_MAX/sizeof(*w->held)||
+   secondary_count>SIZE_MAX/sizeof(*secondary))return F7_INVALID;
  struct span {uintptr_t address;size_t length;};
  span spans[]={
-  {(uintptr_t)w,sizeof(*w)},{(uintptr_t)out,sizeof(*out)},
+  {(uintptr_t)w,sizeof(*w)},{(uintptr_t)out,output_bytes},
+  {(uintptr_t)owner,owner_bytes},
   {(uintptr_t)payload,capacity},{(uintptr_t)secondary,secondary_count*sizeof(*secondary)},
   {(uintptr_t)w->originals,w->node_capacity*sizeof(*w->originals)},
   {(uintptr_t)w->nodes,w->node_capacity*sizeof(*w->nodes)},
@@ -281,7 +289,7 @@ static int geometry(f7_original_error_workspace *w,uint8_t *payload,size_t capac
   {(uintptr_t)w->partial_snapshot,w->partial_capacity},{(uintptr_t)w->partial_fragment,w->fragment_capacity}
  };
  for(size_t i=0;i<sizeof(spans)/sizeof(spans[0]);i++){
-  if(spans[i].length>UINTPTR_MAX-spans[i].address)return F7_INVALID;
+  if((spans[i].length&&!spans[i].address)||spans[i].length>UINTPTR_MAX-spans[i].address)return F7_INVALID;
   if(!spans[i].length)continue;
   for(size_t j=0;j<i;j++){
    if(!spans[j].length)continue;
@@ -292,10 +300,16 @@ static int geometry(f7_original_error_workspace *w,uint8_t *payload,size_t capac
  return F7_OK;
 }
 }
+extern "C" int f7_original_error_storage_validate(f7_original_error_workspace *w,
+ uint8_t *payload,size_t capacity,const napi_value *secondary,size_t secondary_count,
+ void *out,size_t output_bytes,const void *owner,size_t owner_bytes){
+ return geometry(w,payload,capacity,secondary,secondary_count,out,output_bytes,owner,owner_bytes);
+}
 extern "C" int f7_original_error_encode(napi_env env,napi_value primary,napi_value expected,
  const napi_value *secondary,size_t secondary_count,f7_original_error_workspace *w,
  uint8_t *payload,size_t capacity,f7_original_error_result *out){
  if(!out)return F7_INVALID;
+ if(w){int shape=geometry(w,payload,capacity,secondary,secondary_count,out,sizeof(*out),NULL,0);if(shape)return shape;}
  if(!env||!primary||!w||!payload||!capacity||capacity>F7_FRAME_MAX||
     !w->originals||!w->nodes||!w->node_capacity||w->node_capacity>(F7_FRAME_MAX-24)/32||
     w->original_env!=env||!w->held||!w->held_capacity||w->held_capacity>F7_OBJECT_MAX||w->held_count>w->held_capacity||
@@ -312,7 +326,6 @@ extern "C" int f7_original_error_encode(napi_env env,napi_value primary,napi_val
     (secondary_count&&!secondary)||secondary_count>w->reference_capacity){
   memset(out,0,sizeof(*out));out->original_primary=primary;return F7_BUDGET_ABSENT;
  }
- int shape=geometry(w,payload,capacity,secondary,secondary_count,out);if(shape)return shape;
  if(w->retained_incomplete)return F7_CONFLICT;
  memset(out,0,sizeof(*out));out->original_primary=primary;
  w->node_count=1;w->originals[0]=primary;memset(w->nodes,0,sizeof(*w->nodes));

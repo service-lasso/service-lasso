@@ -3,7 +3,10 @@
 extern "C" int f7_original_error_produce(napi_env env,napi_value primary,napi_value expected,
  const napi_value *secondary,size_t secondary_count,f7_original_error_workspace *workspace,
  uint8_t *payload,size_t capacity,f7_error_queue *queue,f7_original_error_delivery *out){
- if(!out)return F7_INVALID;memset(out,0,sizeof(*out));out->original.original_primary=primary;
+ if(!out||!workspace||!queue)return F7_INVALID;
+ int shape=f7_original_error_storage_validate(workspace,payload,capacity,secondary,secondary_count,
+   out,sizeof(*out),queue,f7_error_queue_state_bytes());if(shape)return shape;
+ memset(out,0,sizeof(*out));out->original.original_primary=primary;
  if(workspace&&workspace->retained_incomplete){out->serialization_result=F7_CONFLICT;return F7_CONFLICT;}
  if(!queue||capacity>F7_FRAME_MAX-F7_FRAME_HEADER_SIZE)return F7_BUDGET_ABSENT;
  if(f7_error_queue_expected_role(queue)!=F7_W)return F7_AUTH_FAILURE;

@@ -50,6 +50,11 @@ struct f7_original_error_result {
 int f7_original_error_encode(napi_env env,napi_value primary,napi_value expected_original,
  const napi_value *secondary,size_t secondary_count,struct f7_original_error_workspace *workspace,
  uint8_t *payload,size_t capacity,struct f7_original_error_result *out);
+/* Pure source-storage preflight before the larger producer result is reset.
+   No Node-API call, original handle access or authority issuance occurs. */
+int f7_original_error_storage_validate(struct f7_original_error_workspace *workspace,
+ uint8_t *payload,size_t capacity,const napi_value *secondary,size_t secondary_count,
+ void *output,size_t output_bytes,const void *native_owner,size_t native_owner_bytes);
 #ifdef __cplusplus
 }
 #endif
