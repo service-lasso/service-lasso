@@ -4,6 +4,11 @@ title: Intermediate — Add PostgreSQL to the Todo service
 
 # Intermediate — Add PostgreSQL to the Todo service
 
+**Lesson code:** [02 — Database](https://github.com/service-lasso/lesson-todo/tree/develop/lessons/02-database).
+The folder contains this stage's complete service inventory, architecture and
+standalone run instructions, with the changes from the App checkpoint.
+The commands below continue your Core demo workspace.
+
 Continue the [managed Todo app lesson](beginner-todo-app.md). Add a second service,
 PostgreSQL, to the same Lasso inventory and make the Todo service depend on it.
 You will learn release import, install, dependency startup, runtime allocation,
