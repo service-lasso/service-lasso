@@ -10,6 +10,14 @@ int f7_producer_regression_submit(struct f7_error_queue *queue,
  result=f7_error_queue_output_storage_validate(queue,queue,f7_error_queue_state_bytes());
  if(result!=F7_CONFLICT)return F7_CONFLICT;
  result=f7_error_queue_output_storage_validate(queue,&after,sizeof(after));if(result)return result;
+ /* Deliberately invalid geometry only: a queue byte cannot stand in for an
+    original native record. The guard must reject without dereferencing it. */
+ struct f7_error_node invalid_node={0};
+ invalid_node.kind=F7_GRAPH_NATIVE;invalid_node.original_native=(const uint8_t *)queue;
+ invalid_node.original_native_length=1;
+ struct f7_error_graph invalid_graph={&invalid_node,1,1,NULL,0};
+ result=f7_error_queue_original_graph_storage_validate(queue,&invalid_graph);
+ if(result!=F7_CONFLICT)return F7_CONFLICT;
  /* An output located in the live queue must reject before a status write or
     native settlement call. This uses the eventual owning fixture's original
     queue; it never creates an endpoint, actor or synthetic ROOT receipt. */
