@@ -44,6 +44,37 @@ function region(all, signature) {
   return group(all, found[0]).body;
 }
 function method(all, signature) { return parse(region(all, signature)); }
+function members(body) {
+  const result = [];
+  let start = 0, depth = 0;
+  for (let at = 0; at < body.length; at += 1) {
+    if (body[at] === "(") depth += 1;
+    if (body[at] === ")") depth -= 1;
+    if (!depth && body[at] === ";") {
+      result.push({ header: body.slice(start, at), body: null }); start = at + 1;
+    } else if (!depth && body[at] === "{") {
+      const value = group(body, at);
+      result.push({ header: body.slice(start, at), body: value.body });
+      at = value.end - 1; start = value.end;
+    }
+  }
+  if (start !== body.length) fail("unconsumed owner declaration");
+  return result;
+}
+function fieldSet(actual, expected) {
+  if (actual.length !== expected.length || actual.some((value) => value.body !== null)) fail("field/property ownership");
+  const names = actual.map((value) => value.header.join(" ")).sort();
+  const wanted = expected.map((value) => tokens(value).join(" ")).sort();
+  if (!names.every((value, at) => value === wanted[at])) fail("original declared field/type binding");
+}
+function initializer(node, prefix, fields, suffix = "}") {
+  if (node?.kind !== "leaf") fail("original observation initializer");
+  const before = tokens(prefix), after = tokens(suffix), expression = node.expression;
+  if (!same(expression.slice(0, before.length), before) || !same(expression.slice(-after.length), after)) fail("original observation declaration");
+  const actual = expression.slice(before.length, -after.length).join(" ").split(" , ").sort();
+  const want = fields.map((value) => tokens(value).join(" ")).sort();
+  if (actual.length !== want.length || !actual.every((value, at) => value === want[at])) fail("original observation field identity");
+}
 
 // Only these statement categories exist in the accepted subset. In particular,
 // labels/goto/switch/return inside finally/local functions/lock/delegates/unsafe
@@ -168,6 +199,60 @@ function retention(nodes) {
   count(loop.body, 2);
   caught(loop.body[0], ["Thread.Sleep(Timeout.Infinite)"], "Exception failure", ['owner.Observe("retention-interrupted", 0, true, failure)']);
   requireLeaf(loop.body[1], "GC.KeepAlive(owner)");
+}
+function invocationBindings(body) {
+  const declared = members(body), fields = declared.filter((value) => value.body === null), methods = declared.filter((value) => value.body !== null);
+  fieldSet(fields, ["internal readonly List<OriginalObservation> Outcomes = new List<OriginalObservation>()", "internal readonly List<FileStream> Files",
+    "internal IntPtr Job, Process, Thread, Directory", "internal Exception Primary", "internal int PrimaryResult", "internal bool Failed",
+    "internal HMACSHA256 Progress", "internal readonly List<EnvironmentOverride> EnvironmentOwners = new List<EnvironmentOverride>()"]);
+  if (methods.length !== 4 || !["internal ManagedInvocation(List<FileStream> files)", "internal void Observe(string site, int status, bool failed, Exception exception)", "internal bool Release(ref IntPtr handle, string site, int ordinal)", "internal bool ReleaseFile(FileStream file, int ordinal)"].every((header) => methods.filter((value) => same(value.header, header)).length === 1)) fail("original invocation callee/member bindings");
+  const constructor = method(body, "internal ManagedInvocation(List<FileStream> files)");
+  count(constructor, 1); requireLeaf(constructor[0], "Files = files");
+  const observe = method(body, "internal void Observe(string site, int status, bool failed, Exception exception)");
+  count(observe, 2);
+  initializer(observe[0], "Outcomes.Add(new OriginalObservation {", ["Site = site", "Ordinal = Outcomes.Count", "NativeStatus = status", "Failed = failed", "Exception = exception"], "})");
+  requireLeaf(observe[1], "Failed |= failed");
+  const release = method(body, "internal bool Release(ref IntPtr handle, string site, int ordinal)");
+  count(release, 9);
+  requireLeaf(release[0], "OriginalObservation previous = Outcomes.Find(o => o.Site == site && o.Ordinal == ordinal && o.Attempted)");
+  branch(release[1], "previous != null", ["return previous.Closed"]);
+  branch(release[2], "handle == IntPtr.Zero", ["return true"]);
+  initializer(release[3], "OriginalObservation original = new OriginalObservation {", ["Site = site", "Ordinal = ordinal", "Handle = handle", "Attempted = true"]);
+  requireLeaf(release[4], "Outcomes.Add(original)");
+  caught(release[5], ["original.Closed = CloseHandle(original.Handle)", "original.NativeStatus = original.Closed ? 0 : Marshal.GetLastWin32Error()", "original.Failed = !original.Closed"], "Exception failure", ["original.Exception = failure", "original.Failed = true"]);
+  requireLeaf(release[6], "Failed |= original.Failed");
+  branch(release[7], "original.Closed", ["handle = IntPtr.Zero"]);
+  requireLeaf(release[8], "return original.Closed");
+}
+
+function typeBindings(all, launcher) {
+  const rootHeader = tokens("public static class ServiceLassoManagedLauncherNative");
+  let rootAt = -1;
+  for (let at = 0; at <= all.length - rootHeader.length; at += 1) if (same(all.slice(at, at + rootHeader.length), rootHeader)) { if (rootAt !== -1) fail("outer type ambiguity"); rootAt = at; }
+  if (rootAt < 0 || group(all, rootAt + rootHeader.length).end !== all.length) fail("outer source/type boundary");
+  // Imports are namespace-only. No using/extern alias can change CLR identities.
+  const imports = all.slice(0, rootAt).join(" ").split(" ; ");
+  if (imports.at(-1) === "") imports.pop();
+  // The final semicolon has no following token in the prefix.
+  if (imports.at(-1)?.endsWith(" ;")) imports[imports.length - 1] = imports.at(-1).slice(0, -2);
+  const namespaces = ["System", "System.Collections", "System.Collections.Generic", "System.ComponentModel", "System.IO", "System.Runtime.InteropServices", "System.Security.Cryptography", "System.Text", "System.Threading", "System.Web.Script.Serialization"];
+  const expected = namespaces.map((value) => tokens(`using ${value}`).join(" ")).sort();
+  imports.sort();
+  if (imports.length !== expected.length || !imports.every((value, at) => value === expected[at])) fail("CLR import/type alias");
+  const clr = new Set(["System", "List", "FileStream", "Exception", "IntPtr", "Thread", "GC", "Timeout", "Marshal", "Environment", "File", "Directory", "String", "StringComparison", "EnvironmentVariableTarget", "UInt32", "SHA256", "HMACSHA256", "UTF8Encoding", "FileMode", "FileAccess", "FileShare", "StringBuilder", "Win32Exception", "InvalidOperationException"]);
+  for (let at = 0; at < launcher.length - 1; at += 1) if (["class", "struct", "enum", "interface"].includes(launcher[at]) && clr.has(launcher[at + 1])) fail("source shadows original CLR type/callee");
+  fieldSet(members(region(launcher, "internal sealed class OriginalObservation")), ["internal string Site", "internal int Ordinal", "internal IntPtr Handle", "internal FileStream File", "internal object Resource", "internal bool Attempted, Closed, Failed", "internal int NativeStatus", "internal Exception Exception"]);
+  fieldSet(members(region(launcher, "private struct ProcessInformation")), ["public IntPtr hProcess", "public IntPtr hThread", "public uint dwProcessId", "public uint dwThreadId"]);
+  const nativeClose = tokens('[DllImport("kernel32.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool CloseHandle(IntPtr handle);');
+  let found = 0, depth = 0;
+  for (let at = 0; at <= launcher.length - nativeClose.length; at += 1) {
+    if (!depth && same(launcher.slice(at, at + nativeClose.length), nativeClose)) found += 1;
+    if (!depth && clr.has(launcher[at]) && ["=", "=>", ";", "{", "("].includes(launcher[at + 1]) && launcher[at - 1] !== "new") fail("member shadows original CLR receiver");
+    if (launcher[at] === "{") depth += 1;
+    if (launcher[at] === "}") depth -= 1;
+  }
+  if (found !== 1) fail("original native CloseHandle declaration");
+  for (const declaration of ["private static void ContainManagedJobBeforeFileRelease(ref IntPtr jobHandle, IntPtr processHandle, bool targetAssignedToJob, ManagedInvocation invocation)", "private static void ClearLaunchEnvironment(ManagedInvocation invocation)", "internal static void RetireProgress(ManagedInvocation invocation)"]) region(launcher, declaration);
 }
 
 // The caller's non-retirement expressions have a closed call/assignment universe.
@@ -393,6 +478,8 @@ export function assertManagedClosureSourceConformance(source) {
   const all = tokens(source);
   const launcher = region(all, "public static class ServiceLassoManagedLauncherNative");
   const invocation = region(launcher, "internal sealed class ManagedInvocation");
+  typeBindings(all, launcher);
+  invocationBindings(invocation);
   // A real method in an unrelated/nested class cannot supply an owning role.
   const entry = method(launcher, "public static int Main()");
   count(entry, 4);

@@ -198,6 +198,25 @@ test("#1681 AC-4DI.4 G1 actual-source closure guard rejects ownership and orderi
     }
     public static int Main()`);
   assert.throws(() => assertManagedClosureSourceConformance(wrongOwner), /managed closure/u, "real unrelated method decoy");
+  const bindingMutants = [
+    ["outcome exception setter silently discards original", "internal Exception Exception;", "internal Exception Exception { get { return null; } set { } }"],
+    ["roster getter supplies a replacement alias", "internal readonly List<FileStream> Files;", "internal List<FileStream> Files { get { return new List<FileStream>(); } set { } }"],
+    ["ledger getter loses original observations", "internal readonly List<OriginalObservation> Outcomes = new List<OriginalObservation>();", "internal List<OriginalObservation> Outcomes { get { return new List<OriginalObservation>(); } }"],
+    ["constructor clears original acquired roster", "internal ManagedInvocation(List<FileStream> files) { Files = files; }", "internal ManagedInvocation(List<FileStream> files) { Files = files; files.Clear(); }"],
+    ["observation callee destroys original roster", "Failed |= failed;", "Files.Clear(); Failed |= failed;"],
+    ["native retirement callee loses original ledger", "original.Closed = CloseHandle(original.Handle);", "Outcomes.Clear(); original.Closed = CloseHandle(original.Handle);"],
+    ["source CLR alias changes original Thread binding", "using System;", "using System; using Thread = HiddenThread;"],
+    ["source member shadows CLR retention receiver", "public static int Main()", "private static HiddenThread Thread; public static int Main()"],
+    ["native release binding calls another entry point", '[DllImport("kernel32.dll", SetLastError = true)]\r\n    [return: MarshalAs(UnmanagedType.Bool)]\r\n    private static extern bool CloseHandle', '[DllImport("kernel32.dll", EntryPoint = "AnotherClose", SetLastError = true)]\r\n    [return: MarshalAs(UnmanagedType.Bool)]\r\n    private static extern bool CloseHandle'],
+  ];
+  for (const [label, crlfNeedle, crlfReplacement] of bindingMutants) {
+    const needle = source.includes("\r\n") ? crlfNeedle : crlfNeedle.replaceAll("\r\n", "\n");
+    const replacement = source.includes("\r\n") ? crlfReplacement : crlfReplacement.replaceAll("\r\n", "\n");
+    assert.ok(source.includes(needle), `${label}: actual declaration/callee anchor`);
+    const mutant = source.replace(needle, replacement);
+    assert.throws(() => assertManagedClosureSourceConformance(mutant), /managed closure/u, label);
+    assert.throws(() => assertManagedClosureSourceConformance(`${mutant}\n/* original binding: ${needle} */\n`), /managed closure/u, `${label}: outside-owner declaration decoy`);
+  }
 });
 
 test("#864 packaged failure diagnostics admit one strict bounded record and discard captured process detail", () => {
