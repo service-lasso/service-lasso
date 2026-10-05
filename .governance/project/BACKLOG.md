@@ -936,3 +936,30 @@ Whole producer/consumer design, prospective UNRUN protected cases and concrete u
 #1681 AC-4DI.4 next source acquisition deliverable: CORE1681_ACQUISITION_SOURCE_DELIVERABLE.md selects fixed MSI/native VERIFY-CLOSE/OPC selection and source validators with concrete source/module/request/constructor/root interfaces, before implementation. SOURCE ONLY, UNRUN; independent native authority/root/installed/request evidence absent, all original gates retained. Entire fresh review and NEW complete-input admission precede execution.
 
 #1681 AC-4DI.4 corrective readonly schema amendment (parent approved 2026-10-06): _Columns has Table/Number/Name only. Add MsiViewGetColumnInfo names/types with original owned info records and independent MsiCloseHandle, exact ordinal/name join, finite closed descriptors and UNRESOLVED_SCHEMA. Update API/constructor/request/resource/error coverage; no execution/trust/install authority. Primary Microsoft _Columns/MsiViewGetColumnInfo/column-definition-format references are recorded in the acquisition deliverable.
+## #1562 scoped TAR source gate (2026-10-06)
+
+R3/R4 follow-up in the same owned PR #1707: SPEC-007
+AC-7G.scoped-tar-parser.R3/R4 binds physical metadata-size denial despite pending
+local/global PAX controls and authoritative ordinary Header sizes with local
+over global precedence. Preserve R1/R2 and original byte/quota/native controls;
+actual-reader overlap and budget fixtures remain UNEXECUTED. Second entire
+SOURCE NO-GO is retained; different fresh entire review and new complete input
+ROOT admission remain pending.
+
+R4.fields extends this same bounded whole-interpretation repair to authoritative
+type/path/linkpath as well as size, local GNU/PAX precedence and excluded global
+path/linkpath authority. Existing Core target safety/alias/cycle controls remain;
+actual-reader field-overlap and target negatives are source UNRUN. Native
+metadata equivalence requires separate qualified proof.
+
+In progress: SPEC-007 AC-7G.scoped-tar-parser binds the natural PR #1681 obsolete
+Parse import failure to both actual archive readers. Isolated current-develop
+repair; dependency pins/protected tests unchanged. Whole-source review and new
+input admission required before execution. Other nineteen natural failures,
+native custody, empty catalogs and publication qualification remain separate.
+
+R1/R2 follow-up in the same owned PR #1707: AC-7G.scoped-tar-parser.R1/R2 binds
+every ignored-entry rejection and complete held-original effective-size framing,
+GNU/PAX positives and missing/partial/nonzero/after-EOF negatives. Retained prior
+whole-reader SOURCE NO-GO remains historical authority; corrected source still
+requires new different entire review and fresh complete execution-input ROOT.

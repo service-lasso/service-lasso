@@ -553,3 +553,45 @@ Development SOURCE ONLY, same exclusively owned PR1681 branch. Entire9958 review
 Development SOURCE ONLY, same exclusively owned existing PR1681 branch; parent owns provider tracking/landing/admission. The independent entire0ce782 NO_GO and five sealed members remain immutable. N1 requires immediate ordered original CloseHandle observations for every independently safe production reader/thread/process/stop/job/owner/held-file/directory release, including binding-error paths. Preserve numeric original handle, site, directory ordinal, attempted/closed disposition and original native status; no retry or clear after failure. After genuine containment, release all safe non-pipe resources before terminal; retain SAME invocation on any failed/unknown release, preserving all safe release observations. Terminal remains provisional; close pipe last, observe it independently and retain invocation on failure so original child closure cannot qualify cleanup. Preserve drain-before-reader, protocols, clocks, original errors, F1-F4 and every whole protected gate. The actual production release helper is used by prospective natural acquired-resource and nonreturning acquired-then-closed handle cases for every resource slot; external original observations, not process exit/deadline, must prove retention. Saved closed numeric handles are artificial acquired-resource regressions with handle-reuse caveats, not evidence that an ordinary safe original release naturally fails.
 
 N2 requires the entire observed ds:Transforms container to have only ds:Transform element children, no unsupported attributes or non-whitespace text; reject unsupported-only, foreign Transform, unsupported sibling, direct selector and mixed text before projecting transforms. Preserve original XML, emit UNSUPPORTED_TRANSFORM_CONTAINER, and prevent coverage eligibility. Natural no-transform, Canonical and RelationshipTransform+Canonical source positives remain; prospective grammar cases stay SOURCE_UNRUN. actualWriteError passes its saved original closed numeric pipe rather than the cleared NULL and retires the artificial borrowed value before fixture cleanup without retry. All parser/compiler/test/native/Node/ENV/ACL actions remain unadmitted. A complete cumulative source/raw-Git/history/input freeze, independently read back, and DIFFERENT entire review precede any new execution admission. Native old PE/pins, MSI/trust/installed/root/request/crypto/full Windows/Linux/F7/operator/published-byte gates remain unqualified; Darwin Deferred never PASS. This paragraph supplies local issue/backlog/spec traceability before implementation and intentionally retains existing PR ownership until governed landing.
+## #1562 scoped TAR API compatibility (2026-10-06)
+
+Development source-only repair of the original natural PR #1681 CI module-load
+failure: both scoped readers use tar 7.5.22's public Parser export under
+SPEC-007 AC-7G.scoped-tar-parser. Preserve dependency lock, custody, EOF/draining,
+privacy, budgets, extraction/readback and protected gates. New finite regressions
+remain SOURCE UNEXECUTED pending distinct whole-source review and new complete
+input admission. Other natural failures and native/pin/publication gates remain.
+
+The retained distinct whole-reader NO-GO requires AC-7G.scoped-tar-parser.R1/R2:
+reject every ignored entry and prove finite original expanded TAR framing/EOF
+before acceptance in both readers. Shared effective-size framing preserves
+bounded GNU/PAX metadata, raw original custody and all reader/native limits.
+Two zero EOF blocks and only complete zero-block trailing padding are required;
+permissive missing-EOF recovery is outside this scoped producer contract.
+Additive actual-reader fixtures remain UNEXECUTED pending new entire review and
+fresh complete execution-input admission. No native acceptance is asserted.
+
+The second retained whole-reader NO-GO binds R3/R4: metadata's physical header
+size must independently satisfy the 1 MiB bound even with pending PAX size;
+ordinary sizes must follow validated Header global-then-local precedence rather
+than ReadEntry's later overwritten size. Both readers retain observed body-size
+checks and quotas; npm retains exact opaque bytes. Additive overlap and budget
+regressions remain UNEXECUTED pending a different whole review and fresh input
+admission. Existing R1/R2, dependency and native boundaries remain required.
+
+The same whole-interpretation correction retains ordered authoritative ordinary
+type/path/linkpath/size: local GNU/PAX names/targets override raw fields; global
+path/linkpath are excluded as in locked Header, while global size remains.
+Core link validation uses local-or-raw targets with every existing safety check.
+Local/global field overlap and unsafe target/alias/size fixtures remain UNRUN;
+the conservative scoped contract does not claim native metadata equivalence.
+
+## Issue #1562 scoped TAR entire-review R5/R6 corrective source unit
+Continuation of clean PR #1707 head 3b5065200c04c57cd7ab42bc9445e0dd200e4b5d
+on retained fix/1562-scoped-npm-tar-compatibility is the bounded custody exception.
+SPEC-007 AC-7G.scoped-tar-parser.R5/R6 maps the latest entire SOURCE NO_GO to
+physical framing-driven public decoder dispatch and observed link-target equality.
+Preserve all earlier framing/budget/opaque-byte/path/link/alias controls and locked
+dependencies/protected originals. Fresh actual-reader additive cases are SOURCE_UNRUN;
+no target execution, native equivalence, merge or release claim. Parent owns tracking;
+freeze cumulative source/dependency/history/prior failures for DIFFERENT ENTIRE review.

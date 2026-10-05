@@ -333,3 +333,84 @@ Development source preparation for SPEC-007 AC-7G.windows-npm-argv and SPEC-006 
 Published preparation routes getNpmCommand through its original local Promise runner, with shell:false/windowsVerbatimArguments:false after options. Preserve original synchronous/asynchronous Error identity, output through close, nonzero message, cwd/env/stdio/windowsHide/signal/timeout/killSignal, exact integrity-bound tarball and first failure/one pre-mutation retry. Source harness imports never replace or rebuild published Core bytes. MCP300000ms, original native15s/product/published gates, eight cleanup attempts/delays/privacy and all protected assertions remain unchanged.
 
 Prepare receiving argv, Windows-legal root/hostile child-only environment, real exact npm fixture install through both original launch seams, options/errors/close/nonzero, non-Windows routing and first-failure/no-third-attempt regressions. SOURCE UNEXECUTED: different fresh ENTIRE cumulative source review and NEW complete-input ROOT admission precede imports/parser/compiler/build/tests/npm/native. No provider dispatch/settings/merge or release authority. Backlog status: in_progress source authoring; review/qualification remains open. Existing primary retained state and other worktree ownership remain preserved.
+### `AC-7G.scoped-tar-parser` — #1562 scoped original archive compatibility
+
+The public npm original-tool byte verifier and Core outer TAR preflight must use
+`Parser`, the public parser class exported by the declared and locked tar 7.5.22
+ESM package. Both readers must admit complete finite archives while retaining
+strict parser errors, entry draining/end settlement, original-buffer comparison,
+member/path/link/inventory limits, compressed/expanded budgets and publication
+readback. No extraction, tool import, lifecycle or native execution is permitted
+by npm byte verification. Dependency pins and existing protected evidence remain
+unchanged. Additive source regressions exercise both actual readers with valid
+finite archives and invalid/truncated/traversal/substitution input. Source tests
+are UNEXECUTED until distinct whole-source review and new input admission;
+source compatibility does not establish publication or native acceptance.
+
+`AC-7G.scoped-tar-parser.R1/R2`: both actual readers reject every `ignoredEntry`
+(including unsupported types and metadata exceeding tar's 1 MiB limit), retaining
+the first error and draining entries. Before reader acceptance, the same held
+expanded original buffer must pass shared finite framing: complete 512-byte
+headers and rounded-up effective payload blocks, at most 100,000 physical
+headers, safe nonnegative effective sizes within existing 256 MiB member and
+512 MiB total expanded budgets, and two consecutive entirely zero 512-byte EOF
+blocks. After the first EOF block only complete zero blocks are permitted;
+missing EOF, a single zero block, partial headers/padding, or any nonzero byte
+after EOF denies. This deliberately requires finite producer completeness rather
+than permissive TAR-tool recovery; normal npm/Core producers terminate with zero
+blocks. Payload padding remains opaque. GNU long-name/long-link and local/global
+PAX metadata remain supported under the existing 1 MiB bound; framing uses tar's
+public Header/Pax interpretation of effective sizes, applying pending metadata
+only to ordinary members and consuming local metadata once. Pending local
+metadata at EOF denies. Ordinary reader path/root/link/duplicate/inventory checks
+still govern effective names, and strict parser errors remain mandatory. Additive
+actual-reader positives include GNU/PAX names, local/global size overrides and
+zero-block trailing padding; negatives include unknown types, oversized GNU
+metadata, complete-payload missing EOF/partial header/single EOF/nonzero trailing
+data and a member after EOF. Existing active-body truncation tests stay intact.
+All new source remains UNEXECUTED until new distinct entire-source GO and exact
+fresh complete execution-input ROOT admission; original native extraction and
+publication authority are unchanged.
+
+`AC-7G.scoped-tar-parser.R3/R4`: enforce the 1 MiB metadata bound against
+each intermediary header's physical size before decoding or invoking either
+actual reader. Pending local/global PAX size cannot reduce that physical bound.
+The framing pass retains ordinary effective Header sizes, applying global then
+local overrides and directory zero-size semantics. Both actual readers bind
+each ordinary entry to that validated size and use it for member/expanded quotas
+and observed body-length equality; mutable ReadEntry.size is not size authority.
+Npm still compares the complete opaque original bytes. Retain all R1/R2 controls.
+Additive actual-reader regressions cover pending local and global size before
+oversized GNU/PAX metadata, conflicting local-over-global ordinary sizes, and
+effective member-budget violations. They remain UNEXECUTED pending a different
+fresh entire-source review and new complete execution-input admission.
+
+`AC-7G.scoped-tar-parser.R4.fields`: retain ordinary authoritative type/path/
+linkpath with size in the framing pass. Header controls type and effective size;
+local GNU/PAX path and linkpath override the raw header. Global path/linkpath
+are excluded from authority, matching locked Header's scoped interpretation;
+global size remains applicable unless locally overridden. Both actual readers
+bind emitted type/path to the ordered framing inventory. Core resolves only the
+authoritative local-or-raw linkpath and requires zero authoritative link size,
+then applies all existing path/root/traversal/alias/cycle/target checks. Pending
+local fields are consumed once, globals persist, and later GNU/PAX local fields
+replace earlier local fields. Add local-over-global legitimate links and unsafe
+local/raw traversal/alias/size-interaction regressions. This is the conservative
+scoped source contract; native metadata equivalence still requires qualified
+execution and is not established by source review or these UNEXECUTED fixtures.
+
+`AC-7G.scoped-tar-parser.R5/R6`: supersedes the Parser-dispatch requirement
+and R4.fields acceptance of emitted target disagreement. Shared validated physical
+framing drives the locked public Header/Pax/ReadEntry decoder directly, so pending
+ordinary fields cannot control intermediary metadata consumption. Preserve every
+strict Header validation predicate, unknown/ignored-entry denial, physical 1 MiB
+metadata cap, effective size/body quotas, local-once/global-persistent semantics,
+complete EOF and original opaque bodies. Neither translated extraction bytes nor
+private Parser symbols are permitted. Core compares actual ReadEntry linkpath to
+the validated local/raw linkpath and fails closed on every disagreement, including
+unsafe or safe-but-different global aliases/cycles/dangling targets. Original
+compressed extraction input remains unchanged; source agreement is not native
+qualification. Add actual-reader positives for pending global zero and 1 MiB+1
+before bounded local/GNU/PAX, pending local zero before bounded GNU/PAX and a
+following size override. All additions remain SOURCE_UNRUN pending DIFFERENT
+ENTIRE review and NEW complete execution-input ROOT admission.
