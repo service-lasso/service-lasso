@@ -17,12 +17,12 @@ struct FixtureOwner {
   int readerResumed, assigned, childTerminal, readerTerminal, closed;
   int stopIssued, stopKnown, productionTerminal;
   unsigned closeAttempted;
-  unsigned failures;
+  unsigned failures; int ledgerOverflow;
   FixtureFailure ledger[64];
 };
 static FixtureOwner* originalOwners;
 static void Failure(FixtureOwner* o, const char* site, DWORD code, int native) {
-  if (o->failures == _countof(o->ledger)) { Sleep(INFINITE); abort(); }
+  if (o->failures == _countof(o->ledger)) { o->ledgerOverflow = 1; for (;;) Sleep(INFINITE); }
   o->ledger[o->failures].site = site; o->ledger[o->failures].code = code;
   o->ledger[o->failures++].native = native;
 }
@@ -31,7 +31,7 @@ static void RetainOriginal(FixtureOwner* o, const char* site) {
   Failure(o, site, ERROR_IO_INCOMPLETE, 0);
   /* originalOwners keeps stable control/arguments/operations/handles/ledger.
    * This SAME invocation never returns, closes, retries or reports success. */
-  Sleep(INFINITE); abort();
+  for (;;) Sleep(INFINITE);
 }
 static FixtureOwner* NewOwner(void) {
   FixtureOwner* o = (FixtureOwner*)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(*o));
@@ -209,7 +209,7 @@ finish:
   { int result = FinishOwner(o); return selected ? (!result && o->closed && o->failures == 1 && o->ledger[0].code == (DWORD)selected && !o->ledger[0].native) : result; }
 }
 int wmain(int argc, wchar_t** argv) {
-  if (argc == 2 && wcscmp(argv[1],L"--hold") == 0) { Sleep(INFINITE); return 1; }
+  if (argc == 2 && wcscmp(argv[1],L"--hold") == 0) { for (;;) Sleep(INFINITE); }
   int ok = StoppedRead(0,0) && StoppedRead(1,0) && NaturalOrLostRead(0) && NaturalOrLostRead(1) && SuspendedResumeFailure(0);
   /* Independent native counterparts; no fake API, handle, completion or zero. */
   for (int point = 1; point <= 7; point++) if (!StoppedRead(1,point)) ok = 0;
