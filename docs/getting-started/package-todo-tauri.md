@@ -5,6 +5,12 @@ sidebar_label: Advanced — Package Todo as a desktop app
 
 # Advanced — Package Todo as a Tauri Desktop App
 
+**Lesson code:** [05 — Desktop](https://github.com/service-lasso/lesson-todo/tree/develop/lessons/05-desktop).
+The folder contains the pinned desktop template, service inventory, architecture
+and build instructions for this checkpoint. Browse
+[all five checkpoints](https://github.com/service-lasso/lesson-todo/tree/develop/lessons)
+to compare each addition.
+
 Turn your Todo application and its Service Lasso inventory into a Windows
 desktop application using the
 [Tauri app template](https://github.com/service-lasso/service-lasso-app-tauri).
@@ -35,6 +41,7 @@ flowchart TB
       todo --> api
       api --> db
       todo -.-> identity
+      api -.-> identity
       identity -.-> db
     end
   window --> todo
@@ -52,7 +59,10 @@ The highlighted Window is the new addition. Dashed Identity is the optional
 SSO layer from the preceding lesson; a fresh installer does not contain your
 existing tenant, passwords or keys. The executable path below first proves the
 App → API → Database stack. Keep SSO enabled when adopting an existing app, or
-configure a new identity workspace explicitly after installation.
+configure a new identity workspace explicitly after installation. That includes
+the API's separate registration and access-token validation from the SSO lesson.
+A fresh seed explicitly uses anonymous local API mode; packaging does not add
+authentication by itself.
 
 | Purpose | Implementation | What it owns |
 | --- | --- | --- |
@@ -60,7 +70,7 @@ configure a new identity workspace explicitly after installation.
 | App | `lasso-todo` | Todo UI and `/todos` proxy. |
 | API | `lasso-todo-api` | Go API and database access. |
 | Database | `lasso-postgres` | Persistent Todo rows in its workspace service directory. |
-| Identity | `lasso-zitadel`, optional | Accounts and SSO; provision separately from application installation. |
+| Identity | `lasso-zitadel`, optional | Sign-in and API access-token validation; provision separately from installation. |
 | Management | `lasso-serviceadmin` | First-run setup and service lifecycle controls. |
 | Secrets | `lasso-secretsbroker` | Protected local operator and service secret custody. |
 
@@ -116,8 +126,8 @@ to overwrite existing Todo service folders.
 
 | Service | Pinned release |
 | --- | --- |
-| App | `2026.10.4-6f47534` |
-| API | `2026.10.4-9b45f09` |
+| App | `2026.10.4-15dc4b9` |
+| API | `2026.10.4-02ef566` |
 | Database | `2026.10.4-1af7982` |
 
 Review the manifests before committing them to your app repository. Keep

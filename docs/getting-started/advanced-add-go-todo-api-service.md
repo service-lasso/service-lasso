@@ -4,6 +4,11 @@ title: Advanced — Add a Go Todo API service
 
 # Advanced — Add a Go Todo API service
 
+**Lesson code:** [03 — API](https://github.com/service-lasso/lesson-todo/tree/develop/lessons/03-api).
+The folder contains the managed App → API → Database inventory, architecture,
+standalone run instructions and changes from the Database checkpoint.
+Use the runnable checkpoint below, or continue the Core demo authoring route later in this article.
+
 Continue the managed [Todo](beginner-todo-app.md) and
 [PostgreSQL](intermediate-make-todo-app-durable.md) lessons. Add a Go API as the
 third application service in the same Service Lasso inventory. Keep the Todo UI
@@ -13,6 +18,11 @@ managed API recovery.
 ## Outcome
 
 **Stage 3: Add the API.** The App calls the API, which reads and writes the Database.
+
+This stage deliberately uses `TODO_API_AUTH_MODE=anonymous` for the local
+learning workspace. Other local programs can call its API. The next
+[SSO lesson](zitadel-sso-hub.md) secures **both** the App and API with Zitadel;
+keep this anonymous stage confined to your tutorial environment.
 
 <div className="tutorial-architecture">
 
@@ -61,6 +71,47 @@ These services also run inside Service Lasso. They support the application path 
 </details>
 
 
+## Run the published lesson checkpoint
+
+In the lesson repository from the previous article, prepare this separate checkpoint:
+
+```sh
+npm ci
+npm run setup -- 03
+npm run lesson:03
+```
+
+The host uses published Core and Admin and acquires the pinned service archives;
+no sibling build is needed. Open the printed loopback Admin URL, complete
+**Initialize Secrets Broker**, privately save and acknowledge its recovery
+material, and continue as local-root. Install/configure/start the application
+services in Admin, dependencies first, then open Todo's allocated Network URL.
+
+Fresh Intel macOS 11 checkpoints automatically select compatible Broker and
+managed Node 22 profiles for the machine's OS and CPU. Apple Silicon is a separate
+compatibility case; consult the [lesson platform prerequisites](https://github.com/service-lasso/lesson-todo#platform-prerequisites).
+Setup preserves existing manifests and data: retained Node 24 requires macOS
+13.5 or newer, and the older Broker requires macOS 12. Use a separate fresh
+learning folder for the new pins; do not overwrite a retained workspace.
+
+To carry SQL history forward, stop both checkpoint stacks and use a verified PostgreSQL backup/restore into the new checkpoint before starting the API. Never copy a running database directory. Start PostgreSQL, then the API, then Todo. Confirm your items, add and refresh an item, then stop only the API: Todo must report an unavailable API without saving a new row. Restart the API and confirm recovery.
+
+Type `shutdown` in the host terminal to stop this owned checkpoint. Restart
+with `npm run lesson:03`, then start managed services in Admin again,
+dependencies first. Host restart preserves data and does not automatically
+start the application stack. Do not run two hosts against one checkpoint.
+Checkpoints have separate state and do not copy data automatically.
+
+The first three stages use local learning access. [SSO](zitadel-sso-hub.md)
+has separate identity and platform prerequisites; this route does not establish
+Mac SSO support. The [desktop stage](package-todo-tauri.md) builds on Windows x64.
+
+## Core demo authoring route
+
+The steps below teach source packaging and manual imports in the Core demo.
+Their existing provider pins are separate from the fresh lesson checkpoint's
+Mac-compatible selection. On Intel macOS 11, use the checkpoint above.
+
 ## 1. Inspect and package another template-derived service
 
 Use Go1.22+ and Node22+. In your Core checkout terminal:
@@ -94,7 +145,7 @@ Local verification checks native archive structure. Real SQL verification uses <
 Stop Todo in Admin, preserving data. From Core:
 
 ```powershell
-node dist/cli.js services import service-lasso/lasso-todo-api --tag 2026.10.4-9b45f09 --services-root workspace/canonical-services-root --workspace-root workspace/demo-instance
+node dist/cli.js services import service-lasso/lasso-todo-api --tag 2026.10.4-02ef566 --services-root workspace/canonical-services-root --workspace-root workspace/demo-instance
 node ../lasso-todo/scripts/configure-stage.mjs workspace/canonical-services-root/todo api
 ```
 

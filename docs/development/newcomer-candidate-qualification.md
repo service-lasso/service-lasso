@@ -7,7 +7,9 @@ title: Newcomer candidate qualification
 This is an evidence matrix for Core issue #1323. It is not a release approval
 or a substitute for the release owner's exact-candidate GA decision. Independent review is optional unless explicitly mandated with a named reviewer; see [release authority](https://github.com/service-lasso/service-lasso/blob/develop/.governance/rules/gov-09-release-authority.mdc).
 
-## Current matched candidate: d0f68e3
+For current Mac work, use the [Mac readiness activities](macos-readiness.md) and #1330's supported-browser prerequisites. The matched candidate below is a historical September 2026 evidence record; a new candidate needs its own exact evidence.
+
+## Historical matched candidate: d0f68e3
 
 Windows and Linux full paired newcomer proofs are Verified at exact Core source
 `d0f68e3fc47b0bebc22a0cb55bf63c672b589637`. PR #1396 merged into `develop`

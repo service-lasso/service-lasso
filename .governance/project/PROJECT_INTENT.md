@@ -1,5 +1,8 @@
 # Project Intent
 
+## Mac readiness follow-up (2026-10-05, #1675)
+
+The owner requested native Mac testing, demonstrated-defect fixes and a review of Mac GA activities. [Mac readiness activities](../../docs/development/macos-readiness.md) maps SPEC-006 AC-6E and SPEC-007 AC-7F/7G/7H to the bounded source experiment, existing packaged/operator investigations and deferred #1330 paired browser proof. The guarded lifecycle scenario passed unchanged after premature diagnostic limits; no product patch is justified by those interruptions. The legacy macOS 11 host does not meet current Playwright's macOS 14+ browser prerequisite. This follow-up does not revise the current Windows/Linux GA scope, weaken executable evidence, or authorize publication or an OS upgrade.
 PR1638 scoped npm argv correction (#1626, 85ca successor) is Development source-only under SPEC-008 R3/R5/R6. Sole author accepts the clean retained feature/1626-two-os-core-release-evidence branch as the bounded open-PR recovery exception. Preserve the verified archive as data argv using the landed canonical npm descriptor and force shell:false/windowsVerbatimArguments:false after options; retain original scoped command/error/output/close/retry/first-failure semantics and all protected consumer gates. Authored regressions are UNEXECUTED pending a different fresh ENTIRE cumulative review and NEW complete-input ROOT admission. All R1-R7/F1/F2/F3/R5, EMPTY catalogs, prior failed/private evidence and owner exact-candidate GA authority remain required; parent owns provider CodeQL19 conversation disposition and tracking/landing.
 
 
@@ -494,3 +497,57 @@ F1 terminal-lifetime correction: the runner owns every private receipt write and
 F2 actual-scenario authentication correction (2026-10-06): the five owning-runner shutdown vectors must use the original fixture token browser-vault-token-sentinel-2026-08-14, with an explicit invalid-token403 and absent armed receipt before authenticated baseline404. Preserve original successful-token equality and the same404/controlled503/recovery404/authenticated rejected409 finish chain, sink adversaries, immutable receipts, deadlines and terminal retention assertions. Their source definitions remain UNEXECUTED; no native ownership or acceptance follows. Preserve the e76/Admin1150 paired SOURCE_NO_GO checkpoint; a different whole corrected-pair review and NEW complete-input admission precede execution.
 
 F3/F4 final-closure correction (2026-10-06): all shutdown-owned work, support-copy creation/readback, original cleanup, the one exclusive final write, and success-copy cleanup share one original 5000ms monotonic clock with no extension. Before genuine original deletion, preserve a distinct exclusive private closure-support-copy under the caller-owned evidence root, rejecting symlinks and verifying copied bytes. This is copied support evidence, never original object identity or native custody. Copy failure/pending retains the original; later final write failure/pending retains the identified copy and any partial final bytes. A closed.v1 receipt is written only after genuine original cleanup; no predicting cleanup, overwrite or retry. Nonzero/deadline terminal status prohibits acceptance even if final bytes exist; unknown cleanup never establishes leak-free closure. At deadline an unresolved safe terminal diagnostic and retained available evidence replace an impossible post-deadline receipt write; no synthetic closed receipt. Positive completion removes the support copy only after the genuine one-wx write and observed owner results. Actual-runner final sink partial EIO/pending/honest positive and support-copy adversaries are SOURCE_ONLY_UNRUN. All five recovery scenarios apply original 5000ms provider socket/control fetch limits and preserve the first error through owning finally shutdown. Keep every private guard, public grammar, authentication/caller chain, immutable Admin pin and historical failure. Different ENTIRE paired source review and NEW complete-input ROOT admission remain mandatory before any target execution.
+
+## Published governance reference repair (#1690; parent #1562)
+
+Development source-only repair bound to SPEC-002 AC-4DOC.1690 and existing SPEC-010 F7-01..F7-09 authority: replace the two owning protocol links with canonical develop repository references, retaining every protocol/actor/resource/private-custody and unqualified boundary. Strict broken-link gate and disabled image parser remain unchanged. Original Docs37229127609 and MCP37229127658 documentation failures stay failed; no build/tests/import/native/CI rerun/publication or GA claim. Different fresh ENTIRE review and NEW complete-input ROOT precede build; parent owns landing after1681 and before1676/1624/1688. Darwin is Deferred / Not applicable, never PASS. Status: in_progress source preparation.
+Core #1692 / AC-4AJ.11 closes the direct API bypass with API#5 / API-AUTH-1–5 and Todo#7 / SSO-6–9. Prior app-only SSO claims are scoped incomplete until resource-server proof.
+
+Released consumer discovery added API#7 / API-AUTH-6 and Todo#9 / SSO-10: Core import removes metadata, so the paired capability now travels in preserved non-secret env. Tauri#30 updates exact consumer seeds. Keep that failed acquisition/configuration attempt separate from final released acceptance.
+
+Core #1695 / AC-4AJ.12 delivers the approved single lesson-todo repository with five runnable checkpoints, exact article/code links and verified publication. Preserve inherited primary package deletions and evidence; author this slice only in its dedicated current-develop worktree.
+
+Core #1702 / AC-4AJ.13 adds the concise published lesson path to the first three tutorials. Keep checkpoint state isolated and retained legacy pins intact; parent orchestration owns exact lesson source acceptance, review, merge and Pages/live publication.
+
+## #1562 scoped TAR API compatibility (2026-10-06)
+
+Development source-only repair of the original natural PR #1681 CI module-load
+failure: both scoped readers use tar 7.5.22's public Parser export under
+SPEC-007 AC-7G.scoped-tar-parser. Preserve dependency lock, custody, EOF/draining,
+privacy, budgets, extraction/readback and protected gates. New finite regressions
+remain SOURCE UNEXECUTED pending distinct whole-source review and new complete
+input admission. Other natural failures and native/pin/publication gates remain.
+
+The retained distinct whole-reader NO-GO requires AC-7G.scoped-tar-parser.R1/R2:
+reject every ignored entry and prove finite original expanded TAR framing/EOF
+before acceptance in both readers. Shared effective-size framing preserves
+bounded GNU/PAX metadata, raw original custody and all reader/native limits.
+Two zero EOF blocks and only complete zero-block trailing padding are required;
+permissive missing-EOF recovery is outside this scoped producer contract.
+Additive actual-reader fixtures remain UNEXECUTED pending new entire review and
+fresh complete execution-input admission. No native acceptance is asserted.
+
+The second retained whole-reader NO-GO binds R3/R4: metadata's physical header
+size must independently satisfy the 1 MiB bound even with pending PAX size;
+ordinary sizes must follow validated Header global-then-local precedence rather
+than ReadEntry's later overwritten size. Both readers retain observed body-size
+checks and quotas; npm retains exact opaque bytes. Additive overlap and budget
+regressions remain UNEXECUTED pending a different whole review and fresh input
+admission. Existing R1/R2, dependency and native boundaries remain required.
+
+The same whole-interpretation correction retains ordered authoritative ordinary
+type/path/linkpath/size: local GNU/PAX names/targets override raw fields; global
+path/linkpath are excluded as in locked Header, while global size remains.
+Core link validation uses local-or-raw targets with every existing safety check.
+Local/global field overlap and unsafe target/alias/size fixtures remain UNRUN;
+the conservative scoped contract does not claim native metadata equivalence.
+
+## Issue #1562 scoped TAR entire-review R5/R6 corrective source unit
+Continuation of clean PR #1707 head 3b5065200c04c57cd7ab42bc9445e0dd200e4b5d
+on retained fix/1562-scoped-npm-tar-compatibility is the bounded custody exception.
+SPEC-007 AC-7G.scoped-tar-parser.R5/R6 maps the latest entire SOURCE NO_GO to
+physical framing-driven public decoder dispatch and observed link-target equality.
+Preserve all earlier framing/budget/opaque-byte/path/link/alias controls and locked
+dependencies/protected originals. Fresh actual-reader additive cases are SOURCE_UNRUN;
+no target execution, native equivalence, merge or release claim. Parent owns tracking;
+freeze cumulative source/dependency/history/prior failures for DIFFERENT ENTIRE review.
