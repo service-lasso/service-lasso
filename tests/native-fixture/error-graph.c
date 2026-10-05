@@ -51,11 +51,35 @@ static int text_valid(const struct f7_error_text *text){
 static void utf16(uint8_t *out,const struct f7_error_text *text){
  for(uint32_t i=0;i<text->count;i++){out[2*(size_t)i]=(uint8_t)(text->units[i]>>8);out[2*(size_t)i+1]=(uint8_t)text->units[i];}
 }
+static int separate(const void *a,size_t an,const void *b,uint64_t bn){
+ uintptr_t x=(uintptr_t)a,y=(uintptr_t)b;
+ if((an&&!x)||(bn&&!y)||an>UINTPTR_MAX-x||bn>SIZE_MAX||bn>UINTPTR_MAX-y)return 0;
+ return !an||!bn||x+an<=y||y+(size_t)bn<=x;
+}
+int f7_error_graph_output_validate(const struct f7_error_graph *g,const void *out,size_t capacity){
+ if(!g||!out||!capacity||!g->nodes||!g->count||g->count>(F7_FRAME_MAX-24)/32||
+    g->secondary_count>(F7_FRAME_MAX-24)/4||(g->secondary_count&&!g->secondary))return F7_INVALID;
+ if(!separate(out,capacity,g,sizeof(*g))||
+    !separate(out,capacity,g->nodes,(uint64_t)g->count*sizeof(*g->nodes))||
+    !separate(out,capacity,g->secondary,(uint64_t)g->secondary_count*4))return F7_CONFLICT;
+ for(uint32_t i=0;i<g->count;i++){
+  const struct f7_error_node *n=g->nodes+i;
+  if(!separate(out,capacity,n->name.units,(uint64_t)n->name.count*2)||
+     !separate(out,capacity,n->message.units,(uint64_t)n->message.count*2)||
+     !separate(out,capacity,n->stack.units,(uint64_t)n->stack.count*2)||
+     !separate(out,capacity,n->aggregate,(uint64_t)n->aggregate_count*4)||
+     !separate(out,capacity,n->original_native,n->original_native_length))return F7_CONFLICT;
+ }
+ return F7_OK;
+}
 int f7_error_graph_encode(const struct f7_error_graph *g,uint8_t *out,size_t capacity,size_t *length){
  uint64_t total=24;
  if(!g||!out||!length||!g->nodes||!g->count||!ref(g->primary,g->count)||
     (g->secondary_count&&!g->secondary)||g->count>(F7_FRAME_MAX-24)/32||
     g->secondary_count>(F7_FRAME_MAX-24)/4)return F7_INVALID;
+ if(!separate(out,capacity,length,sizeof(*length)))return F7_CONFLICT;
+ int geometry=f7_error_graph_output_validate(g,out,capacity);if(geometry)return geometry;
+ geometry=f7_error_graph_output_validate(g,length,sizeof(*length));if(geometry)return geometry;
  *length=0;
  total+=(uint64_t)g->secondary_count*4;
  for(uint32_t i=0;i<g->secondary_count;i++)if(!ref(g->secondary[i],g->count))return F7_INVALID;

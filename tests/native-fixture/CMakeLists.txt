@@ -36,7 +36,7 @@ add_library(f7_u1_native STATIC
   observer-linux.c observer-windows.cpp child-witness.c
   child-witness-linux.c child-witness-windows.cpp
   error-channel.c error-graph.c error-producer-endpoint.c error-producer-queue.c
-  serialization-fallback.c partial-error.c original-error-node.cpp original-error-producer.cpp
+  serialization-fallback.c partial-error.c original-error-node.cpp original-error-producer.cpp original-native-error-producer.c
   original-error-node-regression.cpp error-producer-native-regression.c capture-native-regression.c
   error-peer-linux.c canonical-index.c canonical-index-reader.c
   segment-record.c plaintext-manifest.c manifest-reader.c attempt-journal.c

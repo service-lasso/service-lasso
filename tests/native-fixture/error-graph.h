@@ -26,6 +26,9 @@ struct f7_error_graph {
    records. Cycles/repeated objects are permitted; aggregate order is exact. */
 int f7_error_graph_encode(const struct f7_error_graph *graph,uint8_t *out,
  size_t capacity,size_t *length);
+/* Pure overlap preflight. This never writes original graph or native bytes. */
+int f7_error_graph_output_validate(const struct f7_error_graph *graph,
+ const void *output,size_t output_bytes);
 int f7_error_graph_validate(const uint8_t *payload,size_t length,uint32_t node_limit);
 int f7_error_properties_validate(const uint8_t *payload,size_t length,uint32_t node_count);
 #ifdef __cplusplus
