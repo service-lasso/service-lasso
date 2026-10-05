@@ -550,6 +550,9 @@ freeze cumulative source/dependency/history/prior failures for DIFFERENT ENTIRE 
 
 PR #1624 current receiving checkpoint: normal develop integration of `ce832478da5ad6997ffcb9c82aab95cdf55b1d06` (PR #1707 TAR framing landing). The preceding b0c checkpoint is historical provenance. Complete receiving TAR/header/framing/link source and all original owning-observation contracts are preserved. Source preparation only; DIFFERENT fresh ENTIRE review and NEW complete-input ROOT admission remain required before execution.
 
+Issue #1710 repairs actual R2 observer fixture ordering under SPEC-002 AC-4BY.2. Wait for genuine activation before corruption or timed exit; preserve production/native validators, every protected assertion and all existing deadlines. Source-only preparation; distinct entire review and NEW complete-input ROOT admission precede execution. Windows EBUSY and hard-crash custody remain separate blockers.
+
+#1710 direct verification identifies the terminal polling/observer-exit race as a production defect. Recheck original terminal leaves after exit; retain strict validation and missing when absent. Original failed direct run and captured private generated-fixture evidence are preserved.
 
 Issue #1562 package/tool fixture repair binds SPEC-006 AC-6G.package-tool-fixtures: current exact four-workspace package identity and genuine separately installed caller pnpm10.34.5 must be reflected by fixtures without weakening package/tool/native/private acceptance. Source-only authored regressions remain unexecuted pending different ENTIRE review and NEW complete-input ROOT admission; original natural21FAIL/87SKIP and other-owner scope remain preserved.
 
