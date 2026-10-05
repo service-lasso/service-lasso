@@ -497,6 +497,8 @@ Core #1695 / AC-4AJ.12 delivers the approved single lesson-todo repository with 
 
 Core #1702 / AC-4AJ.13 adds the concise published lesson path to the first three tutorials. Keep checkpoint state isolated and retained legacy pins intact; parent orchestration owns exact lesson source acceptance, review, merge and Pages/live publication.
 
+Core #1704 / AC-4AJ.14 binds the final portable Mac stage04 SSO article to qualified public Identity2026.10.5-d7e04eb and lesson0d72fc40, with literal IntelMac11 paired App/API/full-Core reopen proof. Preserve the retained legacy guard, manual route, data continuation and purpose-first diagrams. Natural token expiry remains unverified; Stage05 native executable scope remains Windows x64. Final docs validation/review, merge and Pages/live receipt belong to parent orchestration.
+
 ## #1562 scoped TAR API compatibility (2026-10-06)
 
 Development source-only repair of the original natural PR #1681 CI module-load
