@@ -51,9 +51,14 @@ static int semantics(struct f7_decoded_manifest *o){
   classes|=UINT32_C(1)<<(m->kind-1);
   if(m->kind==F7_RECORD_ORIGINAL_ADMISSION&&sodium_memcmp(m->digest,o->admission,32))return F7_AUTH_FAILURE;
   if((m->kind<=F7_RECORD_ROW_RESERVATION||m->kind==F7_RECORD_ORIGINAL_ADMISSION)&&m->failed)return F7_AUTH_FAILURE;
+  for(size_t j=0;j<i;j++)if(!memcmp(o->members[j].asserted_identity.object,m->asserted_identity.object,
+     sizeof(m->asserted_identity.object)))return F7_CONFLICT;
  }
  uint32_t prerequisites=((UINT32_C(1)<<11)-1)|(UINT32_C(1)<<(F7_RECORD_ORIGINAL_ADMISSION-1));
  if((classes&prerequisites)!=prerequisites)return F7_AUTH_FAILURE;
+ size_t admission_count=0;
+ for(size_t i=0;i<o->member_count;i++)if(o->members[i].kind==F7_RECORD_ORIGINAL_ADMISSION)admission_count++;
+ if(admission_count!=1)return F7_AUTH_FAILURE;
  /* Bind the decoded graph to its declared capture. This checks bytes only;
     these classifications cannot authenticate an original endpoint or actor. */
  for(unsigned stream=0;stream<F7_STREAM_COUNT;stream++){

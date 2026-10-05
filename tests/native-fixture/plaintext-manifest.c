@@ -114,6 +114,9 @@ int f7_canonical_manifest(const struct f7_manifest_input *in,uint8_t *out,size_t
      (i&&memcmp(in->members[i-1].key,m->key,16)>=0))return F7_INCOMPLETE;
   if(m->kind==F7_RECORD_ORIGINAL_ADMISSION&&
      sodium_memcmp(m->persisted->digest,in->admission_sha256,32))return F7_AUTH_FAILURE;
+  for(size_t j=0;j<i;j++)if(in->members[j].persisted==m->persisted||
+     !memcmp(in->members[j].persisted->identity.object,m->persisted->identity.object,
+       sizeof(m->persisted->identity.object)))return F7_CONFLICT;
   classes|=UINT32_C(1)<<(m->kind-1);
  }
  /* O cannot bootstrap capture from a missing source/tool/ENV/native/actor/
@@ -121,6 +124,9 @@ int f7_canonical_manifest(const struct f7_manifest_input *in,uint8_t *out,size_t
     merely asserted in the candidate digest or replaced by public booleans. */
  uint32_t prerequisite=((UINT32_C(1)<<11)-1)|(UINT32_C(1)<<(F7_RECORD_ORIGINAL_ADMISSION-1));
  if((classes&prerequisite)!=prerequisite)return F7_AUTH_FAILURE;
+ size_t admission_count=0;
+ for(size_t i=0;i<in->member_count;i++)if(in->members[i].kind==F7_RECORD_ORIGINAL_ADMISSION)admission_count++;
+ if(admission_count!=1)return F7_AUTH_FAILURE;
  for(size_t i=0;i<in->member_count;i++)if((in->members[i].kind<=F7_RECORD_ROW_RESERVATION||
     in->members[i].kind==F7_RECORD_ORIGINAL_ADMISSION)&&in->members[i].persisted->failed)return F7_AUTH_FAILURE;
  for(size_t i=0;i<in->unavailable_count;i++){
