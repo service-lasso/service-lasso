@@ -45,6 +45,10 @@ struct f7_capture {
 int f7_capture_linux(struct f7_capture *capture,uint64_t absolute_monotonic_ms);
 int f7_capture_windows(struct f7_capture *capture,uint64_t absolute_tick_ms);
 int f7_capture_validate(const struct f7_capture *capture);
+/* Pure source-storage check for owning package/regression output. No actor
+   admission, native observation or resource reservation is established. */
+int f7_capture_output_storage_validate(const struct f7_capture *capture,
+ const void *output,size_t output_bytes);
 /* Prepare is called and successfully acknowledged BEFORE downstream launch.
    Capture refuses unprepared contexts; it never silently allocates on launch. */
 int f7_capture_prepare(struct f7_capture *capture);

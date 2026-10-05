@@ -2,9 +2,9 @@
 #include <string.h>
 #include <stdlib.h>
 static int present(const uint8_t *bytes,size_t length){uint8_t found=0;for(size_t i=0;i<length;i++)found|=bytes[i];return found!=0;}
-static int storage_geometry(const struct f7_capture *c){
- struct span {uintptr_t address;size_t length;};struct span spans[48];size_t count=0;
-#define ADD_SPAN(pointer,bytes) do {if(!(pointer)||!(bytes)||count==48)return F7_BUDGET_ABSENT; \
+static int storage_geometry(const struct f7_capture *c,const void *output,size_t output_bytes){
+ struct span {uintptr_t address;size_t length;};struct span spans[49];size_t count=0;
+#define ADD_SPAN(pointer,bytes) do {if(!(pointer)||!(bytes)||count==49)return F7_BUDGET_ABSENT; \
  spans[count].address=(uintptr_t)(pointer);spans[count++].length=(bytes);} while(0)
  ADD_SPAN(c,sizeof(*c));ADD_SPAN(c->reservation,sizeof(*c->reservation));
  ADD_SPAN(c->witness,sizeof(*c->witness));ADD_SPAN(c->witness->member,sizeof(*c->witness->member));
@@ -19,6 +19,7 @@ static int storage_geometry(const struct f7_capture *c){
  ADD_SPAN(c->error_receive_fact,sizeof(*c->error_receive_fact));
  ADD_SPAN(c->error_control,c->error_control_capacity);
 #endif
+ if(output||output_bytes){ADD_SPAN(output,output_bytes);}
  if(c->error_channel){ADD_SPAN(c->error_channel,sizeof(*c->error_channel));
   ADD_SPAN(c->error_channel->payload,c->error_channel->payload_capacity);
   if(c->error_channel->partial){ADD_SPAN(c->error_channel->partial,sizeof(*c->error_channel->partial));
@@ -31,6 +32,11 @@ static int storage_geometry(const struct f7_capture *c){
    if(c->raw[i]->readback_capacity>F7_FRAME_MAX)return F7_BUDGET_ABSENT;
    ADD_SPAN(c->drain_buffer[i],c->drain_capacity[i]);m=&c->raw_memory[i];}
   else m=i==F7_STREAM_COUNT?&c->witness_memory:&c->emergency_memory;
+  if(c->prepared){
+   const struct f7_async_spool *queue=i<F7_STREAM_COUNT?c->raw_async[i]:
+    i==F7_STREAM_COUNT?c->witness->async:c->witness->emergency_async;
+   if((const void *)queue!=m->state)return F7_CONFLICT;
+  }
   if(m->state_bytes<f7_async_state_bytes()||!m->stack_bytes)return F7_BUDGET_ABSENT;
   ADD_SPAN(m->state,m->state_bytes);ADD_SPAN(m->ring,m->ring_bytes);ADD_SPAN(m->write_buffer,m->write_bytes);
  }
@@ -98,10 +104,15 @@ int f7_capture_validate(const struct f7_capture *c){
  }
  return F7_OK;
 }
+int f7_capture_output_storage_validate(const struct f7_capture *c,const void *output,size_t output_bytes){
+ if(!output||!output_bytes)return F7_INVALID;
+ int result=f7_capture_validate(c);if(result)return result;
+ return storage_geometry(c,output,output_bytes);
+}
 int f7_capture_prepare(struct f7_capture *c){
  unsigned i;
  if(f7_capture_validate(c)||c->prepared||c->child_created!=F7_NOT_CREATED)return F7_INVALID;
- int shaped=storage_geometry(c);if(shaped)return shaped;
+ int shaped=storage_geometry(c,NULL,0);if(shaped)return shaped;
  /* Separate queue/buffer allocation is complete before READY. Partial
     construction failure retains every already-created writer/context. */
  for(i=0;i<F7_STREAM_COUNT;i++)if(c->created[i]==F7_CREATED){

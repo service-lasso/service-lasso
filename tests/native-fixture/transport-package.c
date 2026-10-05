@@ -47,6 +47,10 @@ static int package_geometry(const struct f7_package *p,int64_t *status){
  for(size_t i=0;i<count;i++){
   if(i==count-1&&!fixed[i].length)continue;
   if(!span_valid(fixed[i]))return F7_INVALID;
+  if(i!=6&&i!=11&&i!=20&&i!=21&&i!=22&&i!=23&&i!=24){
+   int preserved=f7_capture_output_storage_validate(capture,(const void *)fixed[i].address,fixed[i].length);
+   if(preserved)return preserved;
+  }
   for(size_t j=0;j<i;j++)if(fixed[j].length&&span_overlap(fixed[i],fixed[j]))return F7_CONFLICT;
  }
  /* Validate every destination before the first read/hash/key operation. No
@@ -61,6 +65,8 @@ static int package_geometry(const struct f7_package *p,int64_t *status){
   if(object->write->readback_capacity>F7_FRAME_MAX)return F7_BUDGET_ABSENT;
   for(size_t s=0;s<4;s++){
    if(!span_valid(current[s]))return F7_INVALID;
+   int preserved=f7_capture_output_storage_validate(capture,(const void *)current[s].address,current[s].length);
+   if(preserved)return preserved;
    for(size_t t=0;t<s;t++)if(span_overlap(current[s],current[t]))return F7_CONFLICT;
    for(size_t j=0;j<count;j++)if(fixed[j].length&&span_overlap(current[s],fixed[j]))return F7_CONFLICT;
    for(size_t m=0;m<p->member_count;m++){
