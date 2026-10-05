@@ -503,4 +503,3 @@ NQ1 R2 retains the derivation history, including the rejected nonoptimizing repr
 NQ1 continued R3 source architecture: docs/decisions/CORE-NATIVE-QUALIFIED-NAMESPACE-PORT-R3.md consolidates exact Node22.23.2 optimized jitless/ICU78 source, compressed original data custody and actual Core READ_STAGE/physical-retirement obligations. Same bounded precode unit, no positive implementation/execution/GO; full trace/target/arena proof and primary authentic source-owner association remain required.
 
 Core #1695 / AC-4AJ.12 delivers the approved single lesson-todo repository with five runnable checkpoints, exact article/code links and verified publication. Preserve inherited primary package deletions and evidence; author this slice only in its dedicated current-develop worktree.
-

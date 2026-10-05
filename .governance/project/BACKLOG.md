@@ -897,4 +897,3 @@ NQ1 continued R3 source architecture: docs/decisions/CORE-NATIVE-QUALIFIED-NAMES
 #1698 backlog / AC-4BH, AC-4BH.2, AC-4BH.3: investigate published Core Windows stabilized-tree inspection rejection observed in the lesson verifier. Preserve the failed attempt separately from successful recovery/restart; no product repair or release authorised by this tracking entry.
 
 #1699 backlog / AC-4BK: cold endpoint cutover resolves configured identity Broker refs before retained Broker startup. Observed while transferring a stopped fixture onto changed ports; fresh unchanged-port provisioning is verified separately. Preserve custody/rollback and require a governed Core fix plus exact-candidate publication authority before updating lesson pins.
-
