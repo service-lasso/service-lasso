@@ -10,7 +10,9 @@ static int nonzero(const uint8_t *p,size_t n){size_t i;uint8_t v=0;for(i=0;i<n;i
 int f7_budget_derive(struct f7_reservation *out,const struct f7_budget_input *in){
   uint64_t raw=0,objects=0,overhead,encrypted,local;unsigned i;
   if(!out||!in)return F7_INVALID;
-  memset(out,0,sizeof(*out));
+  uintptr_t output=(uintptr_t)out,input=(uintptr_t)in;
+  if(sizeof(*out)>UINTPTR_MAX-output||sizeof(*in)>UINTPTR_MAX-input)return F7_INVALID;
+  if(!(output+sizeof(*out)<=input||input+sizeof(*in)<=output))return F7_CONFLICT;
   if(!nonzero(in->row_input_sha256,32)||!nonzero(in->derivation_sha256,32)||
      !in->witness_bytes||!in->manifest_bytes||!in->inventory_entries||
      !in->emergency_bytes||!in->frame_count||!in->transfer_milliseconds||
@@ -44,12 +46,17 @@ int f7_budget_derive(struct f7_reservation *out,const struct f7_budget_input *in
      f7_checked_add(local,in->witness_bytes,&local)||
      f7_checked_add(local,in->manifest_bytes,&local)||
      f7_checked_add(local,in->emergency_bytes,&local))return F7_OVERFLOWED;
-  out->input=*in;out->local_bytes=local;out->encrypted_bytes=encrypted;
+  /* Failed derivation never erases a prior retained reservation or input.
+     Only a completely checked closed derivation initializes fresh output. */
+  memset(out,0,sizeof(*out));out->input=*in;out->local_bytes=local;out->encrypted_bytes=encrypted;
   out->segment_objects=objects;return F7_OK;
 }
 int f7_budget_take(struct f7_reservation *r,enum f7_stream stream,uint64_t n,uint64_t *accepted){
   uint64_t remaining;
   if(!r||!accepted||stream<0||stream>=F7_STREAM_COUNT)return F7_INVALID;
+  uintptr_t reservation=(uintptr_t)r,output=(uintptr_t)accepted;
+  if(sizeof(*r)>UINTPTR_MAX-reservation||sizeof(*accepted)>UINTPTR_MAX-output)return F7_INVALID;
+  if(!(reservation+sizeof(*r)<=output||output+sizeof(*accepted)<=reservation))return F7_CONFLICT;
   if(r->captured[stream]>r->input.original[stream])return F7_INVALID;
   remaining=r->input.original[stream]-r->captured[stream];
   *accepted=n<remaining?n:remaining;r->captured[stream]+=*accepted;
