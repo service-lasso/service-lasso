@@ -1,5 +1,8 @@
 # Bootstrap Adoption TODO
 
+## Mac readiness documentation remediation (2026-10-05, #1675)
+
+- [ ] Land the linked [Mac readiness inventory](docs/development/macos-readiness.md), reconcile the stale #1504 backlog landing status, and record the uninstrumented native source-test result. SPEC-006 AC-6E / SPEC-007 AC-7F/7G/7H; no product patch is established by the premature diagnostic interruptions. #1330 retains the supported current-browser host prerequisite and separate direct paired acceptance.
 PR1638 #1626 scoped npm argv correction (85ca successor), SPEC-008 R3/R5/R6: active source-only remediation on the clean retained issue branch. Canonical npm descriptor and post-options shell:false/windowsVerbatimArguments:false must preserve the actual integrity-verified archive argument and original scoped command/retry/first-failure contract. Regression sources are UNEXECUTED; different ENTIRE cumulative review and NEW complete-input ROOT admission precede any execution. Preserve R1-R7/F1/F2/F3/R5, EMPTY catalogs, all original failures/private evidence and release authority. Parent owns CodeQL19 conversation and provider disposition; no settings, dispatch, merge, main access or cleanup.
 
 
@@ -358,3 +361,11 @@ Prepare this coherent two-finding source correction only. Existing R1..R7/TC01..
 
 Development source-only repair bound to SPEC-002 AC-4DOC.1690 and existing SPEC-010 F7-01..F7-09 authority: replace the two owning protocol links with canonical develop repository references, retaining every protocol/actor/resource/private-custody and unqualified boundary. Strict broken-link gate and disabled image parser remain unchanged. Original Docs37229127609 and MCP37229127658 documentation failures stay failed; no build/tests/import/native/CI rerun/publication or GA claim. Different fresh ENTIRE review and NEW complete-input ROOT precede build; parent owns landing after1681 and before1676/1624/1688. Darwin is Deferred / Not applicable, never PASS. Status: in_progress source preparation.
 - [ ] #1702 / AC-4AJ.13: reconcile first3 articles with published lesson-host Mac path; isolated docs branch; final source, docs build, review and publication evidence pending.
+
+
+## PR #1624 original source reconciliation
+
+- [ ] #1623 / SPEC-006 AC-6G.owning-resource-observation: independently review the [complete original contribution reconciliation](.governance/project/PR-1624-RECONCILIATION.md), then parent completes the same pending PR disposition. Receiving code/spec/fixtures retained; NEW ROOT and direct Windows/Linux qualification remain separate requirements.
+
+
+PR #1624 current receiving checkpoint: normal develop integration of `ce832478da5ad6997ffcb9c82aab95cdf55b1d06` (PR #1707 TAR framing landing). The preceding b0c checkpoint is historical provenance. Complete receiving TAR/header/framing/link source and all original owning-observation contracts are preserved. Source preparation only; DIFFERENT fresh ENTIRE review and NEW complete-input ROOT admission remain required before execution.
