@@ -6,6 +6,7 @@ extern "C" {
 #endif
 struct f7_original_capture_expectation {
  const uint8_t *raw[F7_STREAM_COUNT];size_t raw_length[F7_STREAM_COUNT];
+ const uint8_t *witness,*emergency;size_t witness_length,emergency_length;
  int natural_eof[F7_STREAM_COUNT],capture_result;
 };
 struct f7_native_capture_regression_result {
