@@ -883,3 +883,5 @@ Development source-only repair bound to SPEC-002 AC-4DOC.1690 and existing SPEC-
 #1695 in_review / AC-4AJ.12: lesson-todo#1 shared host and five checkpoints, corresponding live article code links.
 
 #1698 backlog / AC-4BH, AC-4BH.2, AC-4BH.3: investigate published Core Windows stabilized-tree inspection rejection observed in the lesson verifier. Preserve the failed attempt separately from successful recovery/restart; no product repair or release authorised by this tracking entry.
+
+#1699 backlog / AC-4BK: cold endpoint cutover resolves configured identity Broker refs before retained Broker startup. Observed while transferring a stopped fixture onto changed ports; fresh unchanged-port provisioning is verified separately. Preserve custody/rollback and require a governed Core fix plus exact-candidate publication authority before updating lesson pins.
