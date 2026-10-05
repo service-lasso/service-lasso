@@ -240,6 +240,7 @@ static void recovery_absent_before_effect(void){
  struct f7_index_object decoded[1];struct f7_recovery_inventory inventory={0};
  uint8_t index[1],canonical[1],hash[1],signature_workspace[1];int64_t native=777;
  uint8_t journal_record_scratch[2*F7_JOURNAL_RECORD_BYTES];
+ memset(journal_record_scratch,0xa5,sizeof(journal_record_scratch));
  member.readback_storage=journal_record_scratch;member.readback_capacity=sizeof(journal_record_scratch);
  journal.member=&member;journal.entries=entry;journal.capacity=1;
  inventory.objects=&object;inventory.count=1;inventory.parsed_journal=&journal;
@@ -249,6 +250,11 @@ static void recovery_absent_before_effect(void){
  inventory.hash_scratch=hash;inventory.hash_capacity=1;
  inventory.signature_workspace=signature_workspace;inventory.signature_workspace_capacity=1;
  inventory.signature.length=crypto_sign_BYTES;
+ member.readback_capacity=sizeof(journal_record_scratch)-1;
+ assert(f7_recovery_validate_persistent(&inventory,&native)==F7_BUDGET_ABSENT);
+ assert(native==777&&!journal.parse_started&&!journal.count);
+ for(size_t i=0;i<sizeof(journal_record_scratch);i++)assert(journal_record_scratch[i]==0xa5);
+ member.readback_capacity=sizeof(journal_record_scratch);
  assert(f7_recovery_validate_persistent(&inventory,&native)==F7_AUTH_FAILURE);
  assert(native==777&&!journal.parse_started&&!journal.count);
  struct f7_recovery_job *job=NULL;struct f7_recovery_job_memory memory={0};uint8_t state[1];
