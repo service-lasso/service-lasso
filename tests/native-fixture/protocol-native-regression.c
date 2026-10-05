@@ -167,4 +167,28 @@ static void child_records(void){
  f7_u64be(bytes+40,0);f7_u64be(bytes+48,8);
  assert(f7_child_exit_decode(bytes,sizeof(bytes),&child)==F7_INVALID);
 }
-int main(void){framing();budgets();states();index_records();error_records();unknown_creation();segment_records();error_graphs();signature_buffers();witness_records();child_records();return 0;}
+static void native_graph_storage(void){
+ /* Format regression data only, never asserted to be an original OS record,
+    PowerShell failure, admitted actor, or one of the nine native rows. */
+ uint8_t raw[8]={0,255,0,128,13,10,0,7},saved[8],payload[128];
+ struct f7_error_node nodes[2]={0};uint32_t secondary[2]={2,2};
+ memcpy(saved,raw,sizeof(raw));
+ for(unsigned i=0;i<2;i++){
+  nodes[i].kind=F7_GRAPH_NATIVE;nodes[i].cause_kind=F7_CAUSE_REFERENCE;
+  nodes[i].cause=i?1:2;nodes[i].name.state=F7_TEXT_ABSENT;
+  nodes[i].message.state=F7_TEXT_ABSENT;nodes[i].stack.state=F7_TEXT_ABSENT;
+  nodes[i].original_native=raw;nodes[i].original_native_length=sizeof(raw);
+ }
+ struct f7_error_graph graph={nodes,2,1,secondary,2};size_t length=777;
+ assert(f7_error_graph_encode(&graph,raw,sizeof(raw),&length)==F7_CONFLICT);
+ assert(length==777&&!memcmp(raw,saved,sizeof(raw)));
+ assert(f7_error_graph_encode(&graph,payload,sizeof(payload),&length)==F7_OK);
+ assert(length==112&&f7_error_graph_validate(payload,length,2)==F7_OK);
+ assert(payload[27]==2&&payload[31]==2&&payload[43]==2&&payload[83]==1);
+ assert(!memcmp(payload+64,raw,sizeof(raw))&&!memcmp(payload+104,raw,sizeof(raw)));
+ assert(!memcmp(raw,saved,sizeof(raw)));
+ /* A result-length write must not erase an original graph reference field. */
+ assert(f7_error_graph_output_validate(&graph,secondary,sizeof(secondary))==F7_CONFLICT);
+ assert(secondary[0]==2&&secondary[1]==2);
+}
+int main(void){framing();budgets();states();index_records();error_records();unknown_creation();segment_records();error_graphs();signature_buffers();witness_records();child_records();native_graph_storage();return 0;}
