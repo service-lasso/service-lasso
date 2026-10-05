@@ -24,6 +24,7 @@ struct f7_member {
   uint64_t length;
   uint8_t digest[32];
   int finalized, failed, readback_complete;
+  uint8_t *readback_storage;size_t readback_capacity;
 };
 /* Admitted held native objects, never named/path opening. identity is captured
    from the actual handle, not accepted from a caller JSON receipt. */

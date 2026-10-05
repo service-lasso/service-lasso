@@ -3,13 +3,17 @@
 #include <stdlib.h>
 static int present(const uint8_t *bytes,size_t length){uint8_t found=0;for(size_t i=0;i<length;i++)found|=bytes[i];return found!=0;}
 static int storage_geometry(const struct f7_capture *c){
- struct span {uintptr_t address;size_t length;};struct span spans[44];size_t count=0;
-#define ADD_SPAN(pointer,bytes) do {if(!(pointer)||!(bytes)||count==44)return F7_BUDGET_ABSENT; \
+ struct span {uintptr_t address;size_t length;};struct span spans[48];size_t count=0;
+#define ADD_SPAN(pointer,bytes) do {if(!(pointer)||!(bytes)||count==48)return F7_BUDGET_ABSENT; \
  spans[count].address=(uintptr_t)(pointer);spans[count++].length=(bytes);} while(0)
  ADD_SPAN(c,sizeof(*c));ADD_SPAN(c->reservation,sizeof(*c->reservation));
  ADD_SPAN(c->witness,sizeof(*c->witness));ADD_SPAN(c->witness->member,sizeof(*c->witness->member));
  ADD_SPAN(c->witness->record_buffer,c->witness->record_capacity);
  ADD_SPAN(c->witness->emergency_member,sizeof(*c->witness->emergency_member));
+ ADD_SPAN(c->witness->member->readback_storage,c->witness->member->readback_capacity);
+ ADD_SPAN(c->witness->emergency_member->readback_storage,c->witness->emergency_member->readback_capacity);
+ if(c->witness->member->readback_capacity>F7_FRAME_MAX||
+    c->witness->emergency_member->readback_capacity>F7_FRAME_MAX)return F7_BUDGET_ABSENT;
 #ifndef _WIN32
  ADD_SPAN(c->original_error_peer,sizeof(*c->original_error_peer));
  ADD_SPAN(c->error_receive_fact,sizeof(*c->error_receive_fact));
@@ -22,7 +26,10 @@ static int storage_geometry(const struct f7_capture *c){
  for(unsigned i=0;i<F7_STREAM_COUNT+2;i++){
   const struct f7_async_memory *m;
   if(i<F7_STREAM_COUNT){if(c->created[i]!=F7_CREATED)continue;
-   ADD_SPAN(c->raw[i],sizeof(*c->raw[i]));ADD_SPAN(c->drain_buffer[i],c->drain_capacity[i]);m=&c->raw_memory[i];}
+   ADD_SPAN(c->raw[i],sizeof(*c->raw[i]));
+   ADD_SPAN(c->raw[i]->readback_storage,c->raw[i]->readback_capacity);
+   if(c->raw[i]->readback_capacity>F7_FRAME_MAX)return F7_BUDGET_ABSENT;
+   ADD_SPAN(c->drain_buffer[i],c->drain_capacity[i]);m=&c->raw_memory[i];}
   else m=i==F7_STREAM_COUNT?&c->witness_memory:&c->emergency_memory;
   if(m->state_bytes<f7_async_state_bytes()||!m->stack_bytes)return F7_BUDGET_ABSENT;
   ADD_SPAN(m->state,m->state_bytes);ADD_SPAN(m->ring,m->ring_bytes);ADD_SPAN(m->write_buffer,m->write_bytes);

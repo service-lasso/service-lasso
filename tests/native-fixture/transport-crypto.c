@@ -9,12 +9,34 @@ static int disjoint(const void *a,size_t an,const void *b,size_t bn){
 static int empty_object(struct f7_crypto_object *o){
  return o&&o->journal&&!o->started&&o->write&&!o->write->length&&!o->write->finalized&&!o->write->failed;
 }
+static int readback_reserved(struct f7_crypto_object *o,const uint8_t *input,size_t length,
+ const struct f7_signing_pin *pins,int64_t *status){
+ struct f7_member *members[]={o->write,o->journal->member};
+ if(!o->journal->entries||!o->journal->capacity||o->journal->capacity>F7_OUTER_OBJECT_MAX)return F7_BUDGET_ABSENT;
+ for(size_t i=0;i<2;i++){
+  if(!members[i]||!members[i]->readback_storage||!members[i]->readback_capacity||
+     members[i]->readback_capacity>F7_FRAME_MAX)return F7_BUDGET_ABSENT;
+  uint8_t *scratch=members[i]->readback_storage;size_t capacity=members[i]->readback_capacity;
+  if(!disjoint(scratch,capacity,input,length)||!disjoint(scratch,capacity,pins,sizeof(*pins))||
+     (pins->signer_secret&&!disjoint(scratch,capacity,pins->signer_secret,crypto_sign_SECRETKEYBYTES))||
+     !disjoint(scratch,capacity,status,sizeof(*status))||!disjoint(scratch,capacity,o,sizeof(*o))||
+     !disjoint(scratch,capacity,o->workspace,o->workspace_capacity)||
+     !disjoint(scratch,capacity,o->write,sizeof(*o->write))||
+     !disjoint(scratch,capacity,o->journal,sizeof(*o->journal))||
+     !disjoint(scratch,capacity,o->journal->member,sizeof(*o->journal->member))||
+     !disjoint(scratch,capacity,o->journal->entries,o->journal->capacity*sizeof(*o->journal->entries)))return F7_CONFLICT;
+ }
+ if(!disjoint(members[0]->readback_storage,members[0]->readback_capacity,
+    members[1]->readback_storage,members[1]->readback_capacity))return F7_CONFLICT;
+ return F7_OK;
+}
 int f7_encrypt_object_once(struct f7_crypto_object *o,const uint8_t *plain,
  size_t n,const struct f7_signing_pin *pins,int64_t *status){
  uint8_t *cipher;uint64_t persisted;size_t cipher_n;int result;
  if(!empty_object(o)||!plain||!pins||!status||n>F7_SEGMENT_MAX+F7_FRAME_MAX+8||
  n>SIZE_MAX-crypto_box_SEALBYTES||!o->workspace||
  n+crypto_box_SEALBYTES>o->workspace_capacity)return F7_INVALID;
+ result=readback_reserved(o,plain,n,pins,status);if(result)return result;
  if(!disjoint(o->workspace,n+crypto_box_SEALBYTES,plain,n)||
     !disjoint(o->workspace,n+crypto_box_SEALBYTES,pins,sizeof(*pins))||
     (pins->signer_secret&&!disjoint(o->workspace,n+crypto_box_SEALBYTES,pins->signer_secret,crypto_sign_SECRETKEYBYTES))||
@@ -51,6 +73,7 @@ int f7_sign_index_once(struct f7_crypto_object *o,const uint8_t *canonical,
  uint8_t signature[crypto_sign_BYTES],*message=NULL,actual_public[32];
  size_t message_n=0;uint64_t persisted;int result;
  if(!empty_object(o)||!pins||!pins->signer_secret||!status||!o->workspace)return F7_INVALID;
+ result=readback_reserved(o,canonical,n,pins,status);if(result)return result;
  if(!disjoint(o->workspace,o->workspace_capacity,pins,sizeof(*pins))||
     !disjoint(o->workspace,o->workspace_capacity,pins->signer_secret,crypto_sign_SECRETKEYBYTES))return F7_INVALID;
  if(crypto_sign_ed25519_sk_to_pk(actual_public,pins->signer_secret)||

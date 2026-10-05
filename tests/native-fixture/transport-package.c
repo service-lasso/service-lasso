@@ -19,7 +19,9 @@ static int package_geometry(const struct f7_package *p,int64_t *status){
     journal->capacity>F7_OUTER_OBJECT_MAX||!capture->reservation||!capture->witness||
     !capture->witness->record_buffer||!capture->witness->record_capacity||
     p->manifest_input->unavailable_count>F7_OBJECT_MAX||
-    (p->manifest_input->unavailable_count&&!p->manifest_input->unavailable))return F7_BUDGET_ABSENT;
+    (p->manifest_input->unavailable_count&&!p->manifest_input->unavailable)||
+    p->index->readback_capacity>F7_FRAME_MAX||p->plaintext_manifest->readback_capacity>F7_FRAME_MAX||
+    journal->member->readback_capacity>F7_FRAME_MAX)return F7_BUDGET_ABSENT;
  struct package_span fixed[]={
   {(uintptr_t)p,sizeof(*p)},{(uintptr_t)status,sizeof(*status)},
   {(uintptr_t)p->manifest,p->manifest_capacity},{(uintptr_t)p->plaintext,p->plaintext_capacity},
@@ -31,8 +33,11 @@ static int package_geometry(const struct f7_package *p,int64_t *status){
   {(uintptr_t)p->segments,p->segment_count*sizeof(*p->segments)},
   {(uintptr_t)p->manifest_input->members,p->member_count*sizeof(*p->manifest_input->members)},
   {(uintptr_t)p->index,sizeof(*p->index)},{(uintptr_t)p->plaintext_manifest,sizeof(*p->plaintext_manifest)},
+  {(uintptr_t)p->index->readback_storage,p->index->readback_capacity},
+  {(uintptr_t)p->plaintext_manifest->readback_storage,p->plaintext_manifest->readback_capacity},
   {(uintptr_t)journal,sizeof(*journal)},{(uintptr_t)journal->member,sizeof(*journal->member)},
   {(uintptr_t)journal->entries,journal->capacity*sizeof(*journal->entries)},
+  {(uintptr_t)journal->member->readback_storage,journal->member->readback_capacity},
   {(uintptr_t)capture,sizeof(*capture)},{(uintptr_t)capture->reservation,sizeof(*capture->reservation)},
   {(uintptr_t)capture->witness,sizeof(*capture->witness)},
   {(uintptr_t)capture->witness->record_buffer,capture->witness->record_capacity},
@@ -51,31 +56,44 @@ static int package_geometry(const struct f7_package *p,int64_t *status){
   if(!object||!object->write||!object->workspace||!object->workspace_capacity)return F7_BUDGET_ABSENT;
   struct package_span current[]={{(uintptr_t)object,sizeof(*object)},
    {(uintptr_t)object->write,sizeof(*object->write)},
-   {(uintptr_t)object->workspace,object->workspace_capacity}};
-  for(size_t s=0;s<3;s++){
+   {(uintptr_t)object->workspace,object->workspace_capacity},
+   {(uintptr_t)object->write->readback_storage,object->write->readback_capacity}};
+  if(object->write->readback_capacity>F7_FRAME_MAX)return F7_BUDGET_ABSENT;
+  for(size_t s=0;s<4;s++){
    if(!span_valid(current[s]))return F7_INVALID;
    for(size_t t=0;t<s;t++)if(span_overlap(current[s],current[t]))return F7_CONFLICT;
    for(size_t j=0;j<count;j++)if(fixed[j].length&&span_overlap(current[s],fixed[j]))return F7_CONFLICT;
    for(size_t m=0;m<p->member_count;m++){
     struct package_span original={(uintptr_t)p->members[m].original,sizeof(struct f7_member)};
     if(!span_valid(original)||span_overlap(current[s],original))return F7_CONFLICT;
+    struct package_span scratch={(uintptr_t)p->members[m].original->readback_storage,
+      p->members[m].original->readback_capacity};
+    if(!span_valid(scratch)||scratch.length>F7_FRAME_MAX||span_overlap(current[s],scratch))return F7_CONFLICT;
    }
    for(size_t prior=0;prior<i;prior++){
     const struct f7_crypto_object *other=package_object(p,prior);
     struct package_span previous[]={{(uintptr_t)other,sizeof(*other)},
      {(uintptr_t)other->write,sizeof(*other->write)},
-     {(uintptr_t)other->workspace,other->workspace_capacity}};
-    for(size_t t=0;t<3;t++)if(span_overlap(current[s],previous[t]))return F7_CONFLICT;
+     {(uintptr_t)other->workspace,other->workspace_capacity},
+     {(uintptr_t)other->write->readback_storage,other->write->readback_capacity}};
+    for(size_t t=0;t<4;t++)if(span_overlap(current[s],previous[t]))return F7_CONFLICT;
    }
   }
  }
  for(size_t m=0;m<p->member_count;m++){
   struct package_span original={(uintptr_t)p->members[m].original,sizeof(struct f7_member)};
   if(!span_valid(original))return F7_INVALID;
+  struct package_span scratch={(uintptr_t)p->members[m].original->readback_storage,
+    p->members[m].original->readback_capacity};
+  if(!span_valid(scratch)||scratch.length>F7_FRAME_MAX||span_overlap(original,scratch))return F7_BUDGET_ABSENT;
   for(size_t j=0;j<count;j++)if(fixed[j].length&&span_overlap(original,fixed[j]))return F7_CONFLICT;
+  for(size_t j=0;j<count;j++)if(fixed[j].length&&span_overlap(scratch,fixed[j]))return F7_CONFLICT;
   for(size_t prior=0;prior<m;prior++){
    struct package_span other={(uintptr_t)p->members[prior].original,sizeof(struct f7_member)};
    if(span_overlap(original,other))return F7_CONFLICT;
+   struct package_span other_scratch={(uintptr_t)p->members[prior].original->readback_storage,
+     p->members[prior].original->readback_capacity};
+   if(span_overlap(scratch,other)||span_overlap(original,other_scratch)||span_overlap(scratch,other_scratch))return F7_CONFLICT;
   }
  }
  return F7_OK;

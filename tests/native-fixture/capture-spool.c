@@ -146,27 +146,34 @@ int f7_member_read_at(const struct f7_member *m,uint64_t offset,uint8_t *out,siz
  }return F7_OK;
 }
 int f7_member_readback(struct f7_member *m,f7_handle read_handle,int64_t *status){
- struct f7_identity id;struct f7_member reader;uint8_t buffer[65536],digest[32];
+ struct f7_identity id;struct f7_member reader;uint8_t digest[32];
  crypto_hash_sha256_state hash;uint64_t offset=0;
- if(m)m->readback_complete=0;
  if(!m||!status||!m->finalized)return F7_INCOMPLETE;
+ if(!m->readback_storage||!m->readback_capacity||m->readback_capacity>F7_FRAME_MAX)return F7_BUDGET_ABSENT;
+ struct span {uintptr_t address;size_t length;};
+ struct span spans[]={{(uintptr_t)m,sizeof(*m)},{(uintptr_t)status,sizeof(*status)},
+   {(uintptr_t)m->readback_storage,m->readback_capacity}};
+ for(size_t i=0;i<3;i++){
+  if(spans[i].length>UINTPTR_MAX-spans[i].address)return F7_INVALID;
+  for(size_t j=0;j<i;j++)if(!(spans[i].address+spans[i].length<=spans[j].address||
+    spans[j].address+spans[j].length<=spans[i].address))return F7_CONFLICT;
+ }
+ m->readback_complete=0;
  int rights=f7_handle_readonly(read_handle,status);if(rights)return rights;
- if(f7_identity_read_status(read_handle,&id,0,status)||!f7_identity_equal(&m->identity,&id))return F7_IDENTITY_MISMATCH;
-#ifdef _WIN32
- LARGE_INTEGER size;if(!GetFileSizeEx(read_handle,&size)||size.QuadPart<0||(uint64_t)size.QuadPart!=m->length)return F7_CONFLICT;
-#else
- struct stat st;if(fstat(read_handle,&st)<0||st.st_size<0||(uint64_t)st.st_size!=m->length||
-   (fcntl(read_handle,F_GETFL)&O_ACCMODE)!=O_RDONLY)return F7_CONFLICT;
-#endif
+ int queried=f7_identity_read_status(read_handle,&id,0,status);if(queried)return queried;
+ if(!f7_identity_equal(&m->identity,&id))return F7_IDENTITY_MISMATCH;
+ uint64_t size;queried=f7_handle_size(read_handle,&size,status);if(queried)return queried;
+ if(size!=m->length)return F7_CONFLICT;
  memset(&reader,0,sizeof(reader));reader.handle=read_handle;crypto_hash_sha256_init(&hash);
- while(offset<m->length){size_t n=(size_t)((m->length-offset)>sizeof(buffer)?sizeof(buffer):m->length-offset);
-   if(f7_member_read_at(&reader,offset,buffer,n,status))return F7_NATIVE_FAILURE;
-   crypto_hash_sha256_update(&hash,buffer,n);offset+=n;}
+ while(offset<m->length){size_t n=(size_t)((m->length-offset)>m->readback_capacity?m->readback_capacity:m->length-offset);
+   int read=f7_member_read_at(&reader,offset,m->readback_storage,n,status);if(read)return read;
+   crypto_hash_sha256_update(&hash,m->readback_storage,n);offset+=n;}
  crypto_hash_sha256_final(&hash,digest);
  uint64_t final_size;
- if(f7_handle_size(read_handle,&final_size,status)||final_size!=m->length||
-   sodium_memcmp(digest,m->digest,32)||f7_identity_read_status(read_handle,&id,0,status)||
-   !f7_identity_equal(&m->identity,&id))return F7_CONFLICT;
+ queried=f7_handle_size(read_handle,&final_size,status);if(queried)return queried;
+ if(final_size!=m->length||sodium_memcmp(digest,m->digest,32))return F7_CONFLICT;
+ queried=f7_identity_read_status(read_handle,&id,0,status);if(queried)return queried;
+ if(!f7_identity_equal(&m->identity,&id))return F7_CONFLICT;
  m->readback_complete=1;
  return F7_OK;
 }
