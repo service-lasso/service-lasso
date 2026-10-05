@@ -50,3 +50,51 @@ No main/rebase/force/settings/rerun/cleanup/deadline widening/pin replacement.
 Complete cumulative source/history/member/direct-binding/genuine-Git-frame freeze
 and raw readback precede STOP for a different ENTIRE reviewer. Original installed
 Windows/Linux/F7/operator/published-byte gates remain unmet; Darwin Deferred never PASS.
+
+## Implemented source and prospective observation matrix
+
+Native wmain now calls RunBootstrapInvocation with its original zeroed owner.
+Both modes preserve original create/assign/reader-create/resume/termination/wait/
+exit observations, separate return/status kinds and original handle/site/sequence.
+Ordinary failed wait and unassigned failed wait retain immediately without another
+wait or kill; unassigned original closure is checked independently before job
+containment. A genuinely observed original wait is reused without a new API call
+or fabricated second observation. All safe original releases remain once-only.
+
+Native loader sanitization retains its original block and release BOOL/error;
+hash acquisition/read/binding/NTSTATUS and hash/provider/heap release dispositions
+stay in that owner. Failed destruction withholds backing-memory/provider cleanup;
+qualified destruction permits independent provider/heap releases, even when one
+fails. Original hash/storage/provider remain held on failed release. Matching
+digest does not publish valid after any release failure; caller releases safe
+held file/directories before SAME-owner allocation retention. All32 pins unchanged.
+
+Managed Main delegates its unchanged launch body to RunManagedInvocation with
+its actual owner. Original false CreateProcess error or throw is stored before
+per-name cleanup. Application failures own original row/exception and rollback
+outcomes; later clear/unknown-return cannot replace that primary. Launch-name and
+override-name clears are per-site/per-ordinal once-only. Actual HMAC Dispose owns
+the genuine object and exception; failed original remains nonnull and no retry
+occurs. Every retirement failure gates success through existing final containment,
+safe release and same-owner retention. Diagnostic emission remains observational.
+
+New tests/native/core1681-bootstrap-entrypoint-source-cases.c includes the entire
+actual native source and calls its actual entrypoint body, hash binder and loader
+sanitizer; it supplies independent observations for ordinary failed wait,
+unassigned assignment/termination/wait failure, resume failure, exit-query failure,
+actual positive closure, hash dependency retention and environment block retention.
+The independent host/module/acquisition/error/retention mechanisms remain required,
+not supplied as invented native statuses. It is NOT a complete installed fixture.
+Managed source cases call the actual managed launch body, genuine acquired HMAC
+retirement and actual environment application/clear helpers. Invalid-name rollback
+is actual CLR helper behavior only: validated Main rejects that fixture payload
+before application, so it does NOT establish a Main/native negative. Actual Main
+create-primary-plus-later-clear and genuine Dispose failure need separately acquired
+original outcomes and independent SAME-owner observation. No failing subclass,
+closed numeric or fake native result was added. All old numeric cases retain their
+existing caveats; every new and old prospective case remains SOURCE_UNRUN.
+
+Author source inspection and Git diff --check are source hygiene only. No parser,
+syntax/compiler/crypto/environment/helper/native/test execution has occurred.
+Source corrections await DIFFERENT ENTIRE cumulative review and NEW full ROOT
+admission, preserving old images/pins and every direct-qualification limit.

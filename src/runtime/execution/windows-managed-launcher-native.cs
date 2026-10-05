@@ -261,7 +261,7 @@ public static class ServiceLassoManagedLauncherNative
         public int bindingIndex { get; set; }
     }
 
-    private sealed class EnvironmentOverride
+    internal sealed class EnvironmentOverride
     {
         public string name { get; set; }
         public string value { get; set; }
@@ -280,6 +280,7 @@ public static class ServiceLassoManagedLauncherNative
         internal int Ordinal;
         internal IntPtr Handle;
         internal FileStream File;
+        internal object Resource;
         internal bool Attempted, Closed, Failed;
         internal int NativeStatus;
         internal Exception Exception;
@@ -292,6 +293,8 @@ public static class ServiceLassoManagedLauncherNative
         internal Exception Primary;
         internal int PrimaryResult;
         internal bool Failed;
+        internal HMACSHA256 Progress;
+        internal readonly List<EnvironmentOverride> EnvironmentOwners = new List<EnvironmentOverride>();
         internal ManagedInvocation(List<FileStream> files) { Files = files; }
         internal void Observe(string site, int status, bool failed, Exception exception)
         {
@@ -353,12 +356,18 @@ public static class ServiceLassoManagedLauncherNative
         {
             return RunDirectorySyncLaunch(directorySyncPayload);
         }
+        return RunManagedInvocation(new ManagedInvocation(new List<FileStream>()));
+    }
+
+    // The actual managed Main route, with the same invocation available to an
+    // independently admitted fixture owner rather than a global inspection slot.
+    internal static int RunManagedInvocation(ManagedInvocation invocation)
+    {
         IntPtr jobHandle = IntPtr.Zero;
         IntPtr processHandle = IntPtr.Zero;
         IntPtr threadHandle = IntPtr.Zero;
         bool targetAssignedToJob = false;
-        List<FileStream> boundFiles = new List<FileStream>();
-        ManagedInvocation invocation = new ManagedInvocation(boundFiles);
+        List<FileStream> boundFiles = invocation.Files;
         int failureExitCode = FailureExitCodeUnknown;
 
         try
@@ -432,7 +441,8 @@ public static class ServiceLassoManagedLauncherNative
                 SetProgress("launcher_payload_validation", "semantic_payload");
                 throw;
             }
-            ClearLaunchEnvironment();
+            ClearLaunchEnvironment(invocation);
+            if (invocation.Failed) ThrowOriginalRetirementFailure(invocation);
 
             SetProgress("launcher_gate_observation");
             WaitForGate(gatePath, payload.releaseToken, TimeSpan.FromSeconds(45));
@@ -506,7 +516,8 @@ public static class ServiceLassoManagedLauncherNative
             }
 
             SetProgress("launcher_binding_publication");
-            RetireProgress();
+            RetireProgress(invocation);
+            if (invocation.Failed) ThrowOriginalRetirementFailure(invocation);
             File.WriteAllText(payload.filesBoundPath, payload.filesBoundToken, StrictUtf8);
             WaitForGate(payload.continuePath, payload.continueToken, TimeSpan.FromSeconds(45));
 
@@ -540,7 +551,7 @@ public static class ServiceLassoManagedLauncherNative
                 failureExitCode = FailureExitCodeWorkingDirectoryMissing;
                 throw new InvalidOperationException("Managed target working directory disappeared before creation.");
             }
-            ApplyTargetEnvironmentOverrides(payload.targetEnvironmentOverrides);
+            ApplyTargetEnvironmentOverrides(payload.targetEnvironmentOverrides, invocation);
             try
             {
                 targetCreated = CreateProcessW(
@@ -558,21 +569,33 @@ public static class ServiceLassoManagedLauncherNative
                 {
                     targetCreationError = Marshal.GetLastWin32Error();
                     failureExitCode = TargetCreationFailureExitCode(targetCreationError);
+                    Win32Exception original = new Win32Exception(targetCreationError, "Managed target creation failed.");
+                    invocation.Primary = original;
+                    invocation.Observe("target-original-create", targetCreationError, true, original);
+                    throw original;
                 }
                 if (targetCreated)
                 {
                     processHandle = processInformation.hProcess;
                     threadHandle = processInformation.hThread;
+                    invocation.Observe("target-original-create", 0, false, null);
                 }
+            }
+            catch (Exception original)
+            {
+                if (invocation.Primary == null)
+                {
+                    invocation.Primary = original;
+                    invocation.Observe("target-original-create-throw", 0, true, original);
+                }
+                throw;
             }
             finally
             {
-                ClearTargetEnvironmentOverrides(payload.targetEnvironmentOverrides);
+                try { ClearTargetEnvironmentOverrides(payload.targetEnvironmentOverrides, invocation, payload.targetEnvironmentOverrides.Length); }
+                catch (Exception later) { invocation.Observe("target-environment-retirement-unknown-return", 0, true, later); }
             }
-            if (!targetCreated)
-            {
-                throw new Win32Exception(targetCreationError, "Managed target creation failed.");
-            }
+            if (invocation.Failed) ThrowOriginalRetirementFailure(invocation);
             if (processHandle == IntPtr.Zero || threadHandle == IntPtr.Zero || processInformation.dwProcessId == 0)
             {
                 throw new InvalidOperationException("Managed target process evidence was invalid.");
@@ -621,7 +644,7 @@ public static class ServiceLassoManagedLauncherNative
         }
         catch (Exception primary)
         {
-            invocation.Primary = primary;
+            if (invocation.Primary == null) invocation.Primary = primary;
             invocation.PrimaryResult = failureExitCode;
             return failureExitCode;
         }
@@ -629,13 +652,13 @@ public static class ServiceLassoManagedLauncherNative
         {
             try
             {
-                ClearLaunchEnvironment();
+                ClearLaunchEnvironment(invocation);
             }
             catch (Exception failure)
             {
                 invocation.Observe("launch-environment-retirement", 0, true, failure);
             }
-            try { RetireProgress(); }
+            try { RetireProgress(invocation); }
             catch (Exception failure) { invocation.Observe("progress-retirement", 0, true, failure); }
             invocation.Job = jobHandle; invocation.Process = processHandle; invocation.Thread = threadHandle;
             // Retain on unknown child closure before any file release. Once actual
@@ -1295,61 +1318,94 @@ public static class ServiceLassoManagedLauncherNative
         }
     }
 
-    private static void ApplyTargetEnvironmentOverrides(EnvironmentOverride[] environmentOverrides)
+    internal static void ApplyTargetEnvironmentOverrides(EnvironmentOverride[] environmentOverrides, ManagedInvocation invocation)
     {
         int appliedCount = 0;
         try
         {
             foreach (EnvironmentOverride environmentOverride in environmentOverrides)
             {
+                invocation.EnvironmentOwners.Add(environmentOverride);
                 Environment.SetEnvironmentVariable(
                     environmentOverride.name,
                     environmentOverride.value,
                     EnvironmentVariableTarget.Process);
                 appliedCount += 1;
+                invocation.Outcomes.Add(new OriginalObservation { Site = "target-environment-apply", Ordinal = appliedCount - 1,
+                    Resource = environmentOverride, Attempted = true, Closed = true });
             }
         }
-        catch
+        catch (Exception primary)
         {
-            for (int index = 0; index < appliedCount; index += 1)
-            {
-                try
-                {
-                    Environment.SetEnvironmentVariable(
-                        environmentOverrides[index].name,
-                        null,
-                        EnvironmentVariableTarget.Process);
-                }
-                catch
-                {
-                    // The launch remains failed closed; outer Job cleanup is authoritative.
-                }
-            }
+            invocation.Primary = primary;
+            invocation.Outcomes.Add(new OriginalObservation { Site = "target-environment-apply", Ordinal = appliedCount,
+                Resource = environmentOverrides[appliedCount], Attempted = true, Failed = true, Exception = primary });
+            invocation.Failed = true;
+            // Include the attempted original name even when its application
+            // outcome is unknown. Each safe rollback has its own disposition.
+            try { ClearTargetEnvironmentOverrides(environmentOverrides, invocation, appliedCount + 1); }
+            catch (Exception later) { invocation.Observe("target-environment-rollback-unknown-return", 0, true, later); }
             throw;
         }
     }
 
-    private static void ClearTargetEnvironmentOverrides(EnvironmentOverride[] environmentOverrides)
+    internal static void ClearTargetEnvironmentOverrides(EnvironmentOverride[] environmentOverrides, ManagedInvocation invocation, int count)
     {
-        List<Exception> failures = new List<Exception>();
-        foreach (EnvironmentOverride environmentOverride in environmentOverrides)
+        for (int index = 0; index < count; index++)
         {
-            try
-            {
-                Environment.SetEnvironmentVariable(
-                    environmentOverride.name,
-                    null,
-                    EnvironmentVariableTarget.Process);
-            }
-            catch (Exception error)
-            {
-                failures.Add(error);
-            }
+            EnvironmentOverride environmentOverride = environmentOverrides[index];
+            RetireEnvironmentName(invocation, environmentOverride.name, environmentOverride, "target-environment-clear", index);
         }
-        if (failures.Count > 0)
+    }
+
+    private static void RetireEnvironmentName(ManagedInvocation invocation, string name, object resource, string site, int ordinal)
+    {
+        if (invocation.Outcomes.Exists(o => o.Site == site && o.Ordinal == ordinal && o.Attempted)) return;
+        OriginalObservation original = new OriginalObservation { Site = site, Ordinal = ordinal, Resource = resource, Attempted = true };
+        invocation.Outcomes.Add(original);
+        try
         {
-            throw new AggregateException("Managed target environment cleanup failed.", failures);
+            Environment.SetEnvironmentVariable(name, null, EnvironmentVariableTarget.Process);
+            original.Closed = true;
         }
+        catch (Exception failure)
+        {
+            original.Exception = failure; original.Failed = true; invocation.Failed = true;
+        }
+    }
+
+    internal static void RetireProgress(ManagedInvocation invocation)
+    {
+        progressToken = null;
+        RetireProgressOwned(invocation, ref progressHmac);
+    }
+    internal static void RetireProgressOwned(ManagedInvocation invocation, ref HMACSHA256 originalHmac)
+    {
+        if (invocation.Outcomes.Exists(o => o.Site == "progress-retirement" && o.Attempted)) return;
+        if (originalHmac == null) return;
+        invocation.Progress = originalHmac;
+        OriginalObservation original = new OriginalObservation { Site = "progress-retirement", Ordinal = 0,
+            Resource = originalHmac, Attempted = true };
+        invocation.Outcomes.Add(original);
+        try { invocation.Progress.Dispose(); original.Closed = true; originalHmac = null; }
+        catch (Exception failure)
+        {
+            original.Exception = failure; original.Failed = true; invocation.Failed = true;
+        }
+    }
+
+    private static void ClearLaunchEnvironment(ManagedInvocation invocation)
+    {
+        string[] names = { PayloadEnvironmentName, GateEnvironmentName, ProgressEnvironmentName };
+        for (int index = 0; index < names.Length; index++)
+            RetireEnvironmentName(invocation, names[index], names[index], "launch-environment-clear", index);
+    }
+
+    private static void ThrowOriginalRetirementFailure(ManagedInvocation invocation)
+    {
+        OriginalObservation original = invocation.Outcomes.Find(o => o.Failed && o.Exception != null);
+        if (original != null) throw original.Exception;
+        throw new InvalidOperationException("Managed original retirement failed.");
     }
 
     private static string BoundPathAt(string[] boundFilePaths, int index)
@@ -1790,32 +1846,6 @@ public static class ServiceLassoManagedLauncherNative
         }
     }
 
-    private static void RetireProgress()
-    {
-        progressToken = null;
-        try
-        {
-            if (progressHmac != null)
-            {
-                progressHmac.Dispose();
-            }
-        }
-        catch
-        {
-            // Diagnostic cleanup cannot change launch or containment behavior.
-        }
-        finally
-        {
-            progressHmac = null;
-        }
-    }
-
-    private static void ClearLaunchEnvironment()
-    {
-        Environment.SetEnvironmentVariable(PayloadEnvironmentName, null, EnvironmentVariableTarget.Process);
-        Environment.SetEnvironmentVariable(GateEnvironmentName, null, EnvironmentVariableTarget.Process);
-        Environment.SetEnvironmentVariable(ProgressEnvironmentName, null, EnvironmentVariableTarget.Process);
-    }
 
     private static bool IsProgressPhase(string phase)
     {
