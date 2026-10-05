@@ -8,6 +8,7 @@
 #include "observer.h"
 #include "segment-record.h"
 #include "error-graph.h"
+#include "manifest-reader.h"
 #include <assert.h>
 #include <string.h>
 #include <stdint.h>
@@ -191,4 +192,15 @@ static void native_graph_storage(void){
  assert(f7_error_graph_output_validate(&graph,secondary,sizeof(secondary))==F7_CONFLICT);
  assert(secondary[0]==2&&secondary[1]==2);
 }
-int main(void){framing();budgets();states();index_records();error_records();unknown_creation();segment_records();error_graphs();signature_buffers();witness_records();child_records();native_graph_storage();return 0;}
+static void manifest_decode_lifetime(void){
+ struct f7_decoded_member members[1];struct f7_manifest_segment segments[1];
+ struct f7_decoded_manifest decoded={0};const uint8_t malformed[]={'{'};
+ decoded.members=members;decoded.member_capacity=1;decoded.segments=segments;decoded.segment_capacity=1;
+ assert(f7_decode_manifest((const uint8_t *)&decoded,sizeof(decoded),&decoded)==F7_CONFLICT);
+ assert(!decoded.parse_started&&!decoded.member_count&&!decoded.segment_count);
+ assert(f7_decode_manifest(malformed,sizeof(malformed),&decoded)==F7_INVALID);
+ assert(decoded.parse_started&&!decoded.member_count&&!decoded.segment_count);
+ assert(f7_decode_manifest(malformed,sizeof(malformed),&decoded)==F7_CONFLICT);
+ assert(decoded.parse_started&&!decoded.member_count&&!decoded.segment_count);
+}
+int main(void){framing();budgets();states();index_records();error_records();unknown_creation();segment_records();error_graphs();signature_buffers();witness_records();child_records();native_graph_storage();manifest_decode_lifetime();return 0;}
