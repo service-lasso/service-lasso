@@ -885,3 +885,5 @@ Development source-only repair bound to SPEC-002 AC-4DOC.1690 and existing SPEC-
 #1698 backlog / AC-4BH, AC-4BH.2, AC-4BH.3: investigate published Core Windows stabilized-tree inspection rejection observed in the lesson verifier. Preserve the failed attempt separately from successful recovery/restart; no product repair or release authorised by this tracking entry.
 
 #1699 backlog / AC-4BK: cold endpoint cutover resolves configured identity Broker refs before retained Broker startup. Observed while transferring a stopped fixture onto changed ports; fresh unchanged-port provisioning is verified separately. Preserve custody/rollback and require a governed Core fix plus exact-candidate publication authority before updating lesson pins.
+
+#1702 in_progress / AC-4AJ.13: published App/Database/API route and retained Mac profile guards; exact final lesson source confirmation, docs verification and fresh review pending.
