@@ -1,5 +1,6 @@
 #include "error-producer-native-regression.h"
 #include "error-graph.h"
+#include "error-producer-endpoint.h"
 #include <string.h>
 int f7_producer_regression_submit(struct f7_error_queue *queue,
  const uint8_t *graph,size_t length,uint64_t *ticket){
@@ -47,6 +48,13 @@ int f7_producer_regression_observed(struct f7_error_queue *queue,
     memcmp(frame.invocation,binding->invocation,16)||memcmp(frame.attempt,binding->attempt,32)||
     memcmp(frame.lifetime,binding->lifetime,16)||memcmp(frame.correlation,correlation,16)||
     memcmp(read+F7_FRAME_HEADER_SIZE,graph,length))return F7_CONFLICT;
+ /* The original owning fixture supplies the endpoint and received frame.
+    Deliberate output alias must reject before clearing bytes or native calls;
+    no substitute handle or endpoint is constructed for this regression. */
+ result=f7_error_endpoint_write(&binding->endpoint,read,read_length,
+  (struct f7_producer_native_fact *)(uintptr_t)read);
+ if(result!=F7_CONFLICT)return F7_CONFLICT;
+ if(memcmp(read+F7_FRAME_HEADER_SIZE,graph,length))return F7_CONFLICT;
  result=f7_error_queue_snapshot(queue,&status);if(result)return result;
  if(status.failed||status.delivered<ticket||status.submitted<ticket)return F7_INCOMPLETE;
  /* Exact original receive and successful native write are separate facts.
