@@ -19,6 +19,17 @@ static int geometry(struct f7_attempt_journal *j,int64_t *status){
  }
  return F7_OK;
 }
+static int key_geometry(struct f7_attempt_journal *j,const uint8_t key[16],int64_t *status){
+ uintptr_t address=(uintptr_t)key;uint8_t present=0;
+ if(!key||16>UINTPTR_MAX-address)return F7_INVALID;
+ struct span {uintptr_t address;size_t length;};
+ struct span spans[]={{(uintptr_t)j,sizeof(*j)},{(uintptr_t)j->member,sizeof(*j->member)},
+  {(uintptr_t)j->entries,j->capacity*sizeof(*j->entries)},{(uintptr_t)status,sizeof(*status)}};
+ for(size_t i=0;i<4;i++)if(!(address+16<=spans[i].address||
+    spans[i].address+spans[i].length<=address))return F7_CONFLICT;
+ for(size_t i=0;i<16;i++)present|=key[i];
+ return present?F7_OK:F7_INVALID;
+}
 static int inventory_hash(struct f7_attempt_journal *j,uint8_t digest[32]){
  crypto_hash_sha256_state hash;uint8_t length[8];
  if(!j->count)return F7_INCOMPLETE;
@@ -58,6 +69,7 @@ int f7_journal_reserve(struct f7_attempt_journal *j,const uint8_t key[16],int64_
  struct f7_journal_entry *entry;
  if(!valid(j)||!key||!status)return F7_INVALID;
  int shaped=geometry(j,status);if(shaped)return shaped;
+ shaped=key_geometry(j,key,status);if(shaped)return shaped;
  if(find(j,key))return F7_CONFLICT;
  if(j->count==j->capacity)return F7_OVERFLOWED;
  /* Even failed reservation consumes this process-local entry. Persistent
@@ -70,6 +82,11 @@ int f7_journal_persisted(struct f7_attempt_journal *j,const uint8_t key[16],
  struct f7_journal_entry *entry;
  if(!valid(j)||!key||!object||!status||!object->finalized||object->failed)return F7_INVALID;
  int shaped=geometry(j,status);if(shaped)return shaped;
+ shaped=key_geometry(j,key,status);if(shaped)return shaped;
+ uintptr_t object_address=(uintptr_t)object,status_address=(uintptr_t)status;
+ if(sizeof(*object)>UINTPTR_MAX-object_address)return F7_INVALID;
+ if(object==j->member||!(object_address+sizeof(*object)<=status_address||
+    status_address+sizeof(*status)<=object_address))return F7_CONFLICT;
  entry=find(j,key);if(!entry||!entry->reserved||entry->persisted)return F7_CONFLICT;
  int result=append(j,key,F7_OBJECT_PERSISTED,object->length,object->digest,status);
  if(result)return result;
@@ -126,6 +143,8 @@ int f7_journal_freeze(struct f7_attempt_journal *j,const uint8_t index_key[16],
  uint8_t digest[32];
  if(!valid(j)||!index_key||!signature_key||!status||!memcmp(index_key,signature_key,16))return F7_INVALID;
  int shaped=geometry(j,status);if(shaped)return shaped;
+ shaped=key_geometry(j,index_key,status);if(shaped)return shaped;
+ shaped=key_geometry(j,signature_key,status);if(shaped)return shaped;
  struct f7_journal_entry *index=find(j,index_key),*signature=find(j,signature_key);
  if(!index||!signature||!index->persisted||!signature->persisted||!index->length||
     signature->length!=crypto_sign_BYTES||inventory_hash(j,digest))return F7_INCOMPLETE;
