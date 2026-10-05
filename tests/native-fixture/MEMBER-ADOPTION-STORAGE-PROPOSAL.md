@@ -93,9 +93,11 @@ enum f7_original_allocation_state {
 };
 struct f7_original_allocation_observation {
     size_t original_query_record, original_release_record;
+    size_t original_extent_record;
     enum f7_original_allocation_state state;
     uint64_t actual_charge; int actual_charge_known;
-    size_t logical_bytes, copied_prefix;
+    size_t allocation_extent; int allocation_extent_known;
+    size_t logical_bytes, copied_prefix; int logical_bytes_known;
 #ifdef _WIN32
     PSECURITY_DESCRIPTOR original_sd;
     HLOCAL original_release_input, original_release_result;
@@ -115,6 +117,8 @@ struct f7_original_member_storage {
     uint8_t *readback; size_t readback_capacity;
     struct f7_original_allocation_observation *allocations;
     size_t allocation_capacity;
+    struct f7_member *original_protection_copy_member;
+    f7_handle original_protection_copy_read;
     const struct f7_original_allocator_envelope *original_allocator;
     uint64_t original_absolute_deadline;
 };
@@ -125,6 +129,8 @@ struct f7_original_member_observation {
     size_t raw_input_used, raw_output_used, known_field_mask_used;
     size_t protection_used, native_name_used, ancestor_used, acl_xattr_used;
     int started, complete, incomplete, pending_original_ownership;
+    size_t original_protection_persisted, original_protection_readback;
+    int protection_persistence_complete, protection_readback_complete;
 };
 ```
 
@@ -190,6 +196,28 @@ The closed observation sequence must retain individually:
    `HLOCAL`, returned `HLOCAL`, known error status and original allocation
    retained on failure/unknown result. Null-success, failure-return and no-call
    are distinct. No free result supplies D1, member/spool deletion or W reset.
+
+The exact proposed allocation transition is: original native return -> retain
+the returned pointer/result without interpretation -> validate original ownership
+and allocation extent from the selected allocator source -> descriptor calls and
+checked slices wholly inside that original extent -> full logical raw SD copy ->
+O's own original protection-copy member persistence and ALL independently held
+RO readback against those same original bytes -> one sole source-owned LocalFree
+transition. Allocation extent, logical SD size, copied prefix and physical charge
+are separate fields. Unknown extent/ownership stops before descriptor dereference
+or release; failed/unknown native return does not authorize either. A failing
+length/descriptor/copy/persistence/readback/free keeps the original pointer and
+all prior raw results. No-call/success/failure release remain distinct forever.
+
+The original protection-copy member/read companion are incoming originals, not
+new resources or an activation path. Their source/creation/adoption owner must be
+mapped by the same existing ROOT/O bootstrap before implementation. This is a
+specific initialization dependency: requiring an already admitted protection
+sink while recursively requiring this constructor to create that same sink
+would be circular. A second O initializer, hidden bootstrap spool or unobserved
+SD free is not a resolution. The architecture author must explicitly reconcile
+the original sink bootstrap/ownership with the one O activation owner; current
+authentic constructor/allocator/sink catalogs remain ABSENT.
 
 All call records and output buffers must be available before step 1. The
 constructor cannot clear the original member or a supplied observation to make
