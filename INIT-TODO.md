@@ -401,6 +401,13 @@ Whole producer/consumer design, prospective UNRUN protected cases and concrete u
 - [ ] #1702 / AC-4AJ.13: reconcile first3 articles with published lesson-host Mac path; isolated docs branch; final source, docs build, review and publication evidence pending.
 
 
+## PR #1624 original source reconciliation
+
+- [ ] #1623 / SPEC-006 AC-6G.owning-resource-observation: independently review the [complete original contribution reconciliation](.governance/project/PR-1624-RECONCILIATION.md), then parent completes the same pending PR disposition. Receiving code/spec/fixtures retained; NEW ROOT and direct Windows/Linux qualification remain separate requirements.
+
+
+PR #1624 current receiving checkpoint: normal develop integration of `ce832478da5ad6997ffcb9c82aab95cdf55b1d06` (PR #1707 TAR framing landing). The preceding b0c checkpoint is historical provenance. Complete receiving TAR/header/framing/link source and all original owning-observation contracts are preserved. Source preparation only; DIFFERENT fresh ENTIRE review and NEW complete-input ROOT admission remain required before execution.
+
 #1681 / AC-4DI.4 next package/trust/MSI/native graph source acquisition: preserve authentic original685 load02 outcome C0559BFE (18/42/four841/full869) separately from normal receiving0a273f source tuple. Select bounded memory-only OPC part source, readonly MSI metadata source, independent trust/coverage/catalog boundary and complete native request/PE/provenance design in NATIVE_SEARCH_CUSTODY_1681.md; all new parser/API/compiler/load actions require DIFFERENT whole source/image/input review and exact separate admission. No auth/actor/memory/native/product/oldPE gate passes from metadata; originals/private failures/two unavailable files remain. Source precode only.
 
 
