@@ -371,3 +371,8 @@ Development source-only repair bound to SPEC-002 AC-4DOC.1690 and existing SPEC-
 PR #1624 current receiving checkpoint: normal develop integration of `ce832478da5ad6997ffcb9c82aab95cdf55b1d06` (PR #1707 TAR framing landing). The preceding b0c checkpoint is historical provenance. Complete receiving TAR/header/framing/link source and all original owning-observation contracts are preserved. Source preparation only; DIFFERENT fresh ENTIRE review and NEW complete-input ROOT admission remain required before execution.
 
 - [ ] #1710: repair R2 activation ordering, retain original classification/channel assertions, obtain distinct entire review and new complete-input ROOT admission before execution; then prove the original observer gate.
+
+
+## Core #1714 whole ownership blueprint (2026-10-06)
+
+Development SOURCE-ONLY proposal [Core ownership blueprint](.governance/project/CORE1714_OWNERSHIP_BLUEPRINT.md) binds SPEC-002 AC-4BH / AC-4DI.4 and SPEC-006 AC-6F / AC-6G to entire workspace authority, actual native creator/source capability, before-run enrollment, original owner-death/resource/status protocol and all N1-N5/#1576/#1681 criteria. It is UNSELECTED / UNQUALIFIED. Parent owns issue/Project/selection/landing; a DIFFERENT fresh ENTIRE review and later NEW complete actual-input ROOT precede implementation/execution. No product/native change, test, compiler, pin update, cleanup or release authority. Retained #1576 owners, separately owned EOF/#1681 work, original eight failures, global T/S/source-provider dependencies, finite Node N2 and F7 remain preserved and required.

@@ -555,3 +555,8 @@ Issue #1710 repairs actual R2 observer fixture ordering under SPEC-002 AC-4BY.2.
 #1710 direct verification identifies the terminal polling/observer-exit race as a production defect. Recheck original terminal leaves after exit; retain strict validation and missing when absent. Original failed direct run and captured private generated-fixture evidence are preserved.
 
 Issue #1562 package/tool fixture repair binds SPEC-006 AC-6G.package-tool-fixtures: current exact four-workspace package identity and genuine separately installed caller pnpm10.34.5 must be reflected by fixtures without weakening package/tool/native/private acceptance. Source-only authored regressions remain unexecuted pending different ENTIRE review and NEW complete-input ROOT admission; original natural21FAIL/87SKIP and other-owner scope remain preserved.
+
+
+## Core #1714 whole ownership blueprint (2026-10-06)
+
+Development SOURCE-ONLY proposal [Core ownership blueprint](CORE1714_OWNERSHIP_BLUEPRINT.md) binds SPEC-002 AC-4BH / AC-4DI.4 and SPEC-006 AC-6F / AC-6G to entire workspace authority, actual native creator/source capability, before-run enrollment, original owner-death/resource/status protocol and all N1-N5/#1576/#1681 criteria. It is UNSELECTED / UNQUALIFIED. Parent owns issue/Project/selection/landing; a DIFFERENT fresh ENTIRE review and later NEW complete actual-input ROOT precede implementation/execution. No product/native change, test, compiler, pin update, cleanup or release authority. Retained #1576 owners, separately owned EOF/#1681 work, original eight failures, global T/S/source-provider dependencies, finite Node N2 and F7 remain preserved and required.
