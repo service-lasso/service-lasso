@@ -56,6 +56,7 @@ int f7_capture_native_regression(struct f7_capture *c,const struct f7_capture_re
     (!source_preserved(scratch,capacity,native,out,c->error_channel->partial,sizeof(*c->error_channel->partial))||
      !source_preserved(scratch,capacity,native,out,c->error_channel->partial->bytes,c->error_channel->partial->capacity)))return F7_CONFLICT;
  for(unsigned i=0;i<F7_STREAM_COUNT+2;i++){
+  if(i<F7_STREAM_COUNT&&c->created[i]==F7_NOT_CREATED)continue;
   struct f7_member *member=i<F7_STREAM_COUNT?c->raw[i]:
     i==F7_STREAM_COUNT?c->witness->member:c->witness->emergency_member;
   if(!member||(i<F7_STREAM_COUNT&&
