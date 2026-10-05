@@ -350,6 +350,18 @@ function caller(nodes) {
     const row = lookup(expression)[0];
     if (row.ancestors.length !== 2 || row.ancestors[0].kind !== "try" || row.ancestors[1].kind !== "if" || !same(row.ancestors[1].condition, "targetCreated")) fail("original created handle aliases");
   }
+  const create = lookup("targetCreated = CreateProcessW(resolvedExecutable, commandLine, IntPtr.Zero, IntPtr.Zero, true, CreateSuspended, IntPtr.Zero, payload.workingDirectory, ref startupInfo, out processInformation)")[0];
+  const creation = create.ancestors[0];
+  if (create.ancestors.length !== 1 || creation.kind !== "try" || creation.catches.length !== 1 || !same(creation.catches[0].binding, "Exception original") || creation.final === null) fail("original creation enclosure");
+  count(creation.body, 3);
+  if (creation.body[0] !== create.node) fail("creation precedes original handle publication");
+  branch(creation.body[1], "!targetCreated", ["targetCreationError = Marshal.GetLastWin32Error()", "failureExitCode = TargetCreationFailureExitCode(targetCreationError)", 'Win32Exception original = new Win32Exception(targetCreationError, "Managed target creation failed.")', "invocation.Primary = original", 'invocation.Observe("target-original-create", targetCreationError, true, original)', "throw original"]);
+  branch(creation.body[2], "targetCreated", ["processHandle = processInformation.hProcess", "threadHandle = processInformation.hThread", 'invocation.Observe("target-original-create", 0, false, null)']);
+  count(creation.catches[0].body, 2);
+  branch(creation.catches[0].body[0], "invocation.Primary == null", ["invocation.Primary = original", 'invocation.Observe("target-original-create-throw", 0, true, original)']);
+  requireLeaf(creation.catches[0].body[1], "throw");
+  count(creation.final, 1);
+  caught(creation.final[0], ["ClearTargetEnvironmentOverrides(payload.targetEnvironmentOverrides, invocation, payload.targetEnvironmentOverrides.Length)"], "Exception later", ['invocation.Observe("target-environment-retirement-unknown-return", 0, true, later)']);
 }
 
 export function assertManagedClosureSourceConformance(source) {
