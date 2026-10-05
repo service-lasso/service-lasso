@@ -1,9 +1,18 @@
 #define _GNU_SOURCE
 #include "error-producer-endpoint.h"
 #include <string.h>
+static int fact_storage(const struct f7_error_endpoint *endpoint,const uint8_t *bytes,
+ size_t length,const struct f7_producer_native_fact *fact){
+ uintptr_t output=(uintptr_t)fact,source=(uintptr_t)bytes,binding=(uintptr_t)endpoint;
+ if(sizeof(*fact)>UINTPTR_MAX-output||length>UINTPTR_MAX-source||
+    sizeof(*endpoint)>UINTPTR_MAX-binding)return F7_INVALID;
+ if(!((output+sizeof(*fact)<=source||source+length<=output)&&
+      (output+sizeof(*fact)<=binding||binding+sizeof(*endpoint)<=output)))return F7_CONFLICT;
+ return F7_OK;
+}
 int f7_error_endpoint_call(struct f7_producer_native_fact *fact,uint64_t operation,
  uint64_t argument,int64_t result,int64_t error){
- if(!fact||fact->count==F7_PRODUCER_NATIVE_CALLS){if(fact)fact->exhausted=1;return F7_OVERFLOWED;}
+ if(!fact||fact->count>=F7_PRODUCER_NATIVE_CALLS){if(fact)fact->exhausted=1;return F7_OVERFLOWED;}
  fact->calls[fact->count++]=(struct f7_producer_native_call){operation,argument,result,error};return F7_OK;
 }
 #ifndef _WIN32
@@ -46,7 +55,8 @@ int f7_error_endpoint_write(const struct f7_error_endpoint *endpoint,
  if(!endpoint||!bytes||!length||length>F7_FRAME_MAX||!fact||endpoint->kind!=F7_LINUX_ERROR_SOCKET||
     endpoint->write<0||endpoint->original_peer<0||endpoint->original_object_reference<0||endpoint->original_peer_pid<=0||
     endpoint->original_peer_pid>INT_MAX||endpoint->original_peer_uid>UINT_MAX||endpoint->original_peer_gid>UINT_MAX)return F7_INVALID;
- memset(fact,0,sizeof(*fact));int result=original(endpoint,fact);if(result)return result;
+ int result=fact_storage(endpoint,bytes,length,fact);if(result)return result;
+ memset(fact,0,sizeof(*fact));result=original(endpoint,fact);if(result)return result;
  ssize_t sent=send(endpoint->write,bytes,length,MSG_DONTWAIT|MSG_NOSIGNAL);int error=sent<0?errno:0;
  f7_error_endpoint_call(fact,6,length,sent,error);if(sent>0)fact->transferred=(uint64_t)sent;
  if(sent<0)return F7_NATIVE_FAILURE;
@@ -83,7 +93,8 @@ int f7_error_endpoint_write(const struct f7_error_endpoint *endpoint,
     !endpoint->write||endpoint->write==INVALID_HANDLE_VALUE||!endpoint->original_peer||
     endpoint->original_peer==INVALID_HANDLE_VALUE||!endpoint->original_object_reference||
     endpoint->original_object_reference==INVALID_HANDLE_VALUE||endpoint->original_peer_pid<=0||endpoint->original_peer_pid>MAXDWORD)return F7_INVALID;
- memset(fact,0,sizeof(*fact));int result=original(endpoint,fact);if(result)return result;
+ int result=fact_storage(endpoint,bytes,length,fact);if(result)return result;
+ memset(fact,0,sizeof(*fact));result=original(endpoint,fact);if(result)return result;
  while(fact->transferred<length){
   if(fact->count==F7_PRODUCER_NATIVE_CALLS){fact->exhausted=1;return F7_OVERFLOWED;}
   DWORD written=0;DWORD requested=(DWORD)(length-fact->transferred);
