@@ -1,6 +1,6 @@
 # Final public Todo SSO documentation (#1704)
 
-Development, docs-only; requirement SPEC-002 AC-4AJ.14. Preparation is active.
+Development, docs-only; requirement SPEC-002 AC-4AJ.14. Final article implementation is active.
 
 ## Baseline and ownership
 
@@ -49,8 +49,22 @@ author commit is pushed immediately; PR targets `develop`. Parent owns merge,
 `docs-site.yml` develop publication with `publish=true`, terminal deploy proof
 and live source receipt/readback. No GA or product release claim is made here.
 
-## Current next action
+## Supplied final evidence and current next action
 
-Await the parent's final public release and literal Mac lesson evidence, then
-implement the article against those frozen identities. Keep this issue/worktree
-active and retained; preparation does not close #1704.
+Public Identity `2026.10.5-d7e04eb` targets
+`d7e04ebd9489ddc8c6798e408cd8ce7992711146`; terminal producer `37327998201`
+passed eight full source/actual binary scans and five hosted native gates.
+Parent verified all thirteen public assets, twelve checksum entries and seven
+staged/public byte matches. Literal public lesson stage04 passed on Intel
+macOS 11.7.11, including real PKCE/paired API/SQL, denials, outage/recovery,
+logout and full Core reopen preserving users/projects and Todo IDs.
+[Lesson #9 evidence](https://github.com/service-lasso/lesson-todo/issues/9#issuecomment-5999756112)
+binds frozen author `d9d27754b17db6e0e6ad6534548668ed35f7c9ff`, landed public
+lesson `0d72fc40fe3147786fec97642b658389bb063b63`, hosted test `37347837393`
+and Windows desktop `37347837387`. Natural token expiry is unverified; isolated
+provider settings were restored. ARM macOS 11/native Mac desktop/GA remain
+outside the proven boundary.
+
+Next: validate the final article and freeze/push the exact docs head for a fresh
+distinct review. Parent owns merge, explicit Pages publication and exact live
+source receipt. Neither article implementation nor docs build closes #1704.

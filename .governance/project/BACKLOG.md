@@ -888,4 +888,4 @@ Development source-only repair bound to SPEC-002 AC-4DOC.1690 and existing SPEC-
 
 #1702 done / AC-4AJ.13: App/Database/API article route landed through PR #1703 at `22b6647f7a074a2bb3803c88f361a56396b83c9f`; Docs Site publication run `37274829122` completed successfully. Issue closed; parent holds live publication proof. This does not qualify stage04 SSO.
 
-#1704 in_progress / AC-4AJ.14: prepare final portable Mac stage04 SSO article and exact public lesson/identity pins. Article mutation awaits parent-supplied public identity qualification and final literal Mac paired App/API proof; docs validation, fresh distinct review, develop PR and parent-owned publication/live verification remain pending. See `DOCS-1704-PLAN.md`.
+#1704 in_progress / AC-4AJ.14: final article uses public Identity2026.10.5-d7e04eb and lesson0d72fc40 with literal IntelMac11 stage04 paired App/API/full-Core reopen proof. Manual Windows route/legacy guard and Windows-only stage05 remain explicit. Docs validation, fresh distinct review and parent-owned merge/publication/live verification remain pending. See `DOCS-1704-PLAN.md`.
