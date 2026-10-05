@@ -1,9 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { access, cp, mkdir, mkdtemp, readFile } from "node:fs/promises";
+import { access, lstat, mkdir, mkdtemp, readFile, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 const resolver = fileURLToPath(new URL("../scripts/resolve-pnpm-action-entrypoint.mjs", import.meta.url));
@@ -23,8 +24,6 @@ async function fixture() {
   const prefix = path.join(root, "admin-trusted-unlock-pnpm-10.34.5");
   const entrypoint = path.join(prefix, "node_modules", "pnpm", "bin", "pnpm.cjs");
   await mkdir(actionHome, { recursive: true });
-  await mkdir(path.join(prefix, "node_modules"), { recursive: true });
-  await cp(path.join(process.cwd(), "node_modules", "pnpm"), path.join(prefix, "node_modules", "pnpm"), { recursive: true });
   const npm = await npmCli();
   const npmArgs = ["install", "--prefix", actionRoot, "--ignore-scripts", "--no-save", "--package-lock=false", "--no-audit", "--no-fund", "pnpm@11.25.0"];
   const installed = process.platform === "win32"
@@ -33,6 +32,25 @@ async function fixture() {
   assert.equal(installed.status, 0, installed.stderr);
   const updated = spawnSync(process.execPath, [path.join(actionRoot, "node_modules", "pnpm", "bin", "pnpm.mjs"), "self-update", "10.34.5"], { encoding: "utf8", shell: false, env: { ...process.env, PNPM_HOME: actionHome } });
   assert.equal(updated.status, 0, updated.stderr);
+  // Match establish-admin-trusted-unlock-receipt-caller.mjs: the caller is a
+  // separately installed package, never the ambient repository pnpm package.
+  await assert.rejects(lstat(prefix), { code: "ENOENT" });
+  const callerArgs = ["install", "--prefix", prefix, "--ignore-scripts", "--no-save", "--package-lock=false", "--no-audit", "--no-fund", "pnpm@10.34.5"];
+  const caller = process.platform === "win32"
+    ? spawnSync(process.execPath, [npm, ...callerArgs], { encoding: "utf8", shell: false, windowsHide: true, env: process.env })
+    : spawnSync(npm, callerArgs, { encoding: "utf8", shell: false, windowsHide: true, env: process.env });
+  assert.equal(caller.error, undefined);
+  assert.equal(caller.signal, null);
+  assert.equal(caller.status, 0, caller.stderr);
+  const manifest = JSON.parse(await readFile(path.join(prefix, "node_modules", "pnpm", "package.json"), "utf8"));
+  assert.equal(manifest.name, "pnpm");
+  assert.equal(manifest.version, "10.34.5");
+  assert.equal(manifest.bin.pnpm, "bin/pnpm.cjs");
+  const entrypointInfo = await lstat(entrypoint);
+  assert.equal(entrypointInfo.isFile(), true);
+  assert.equal(entrypointInfo.isSymbolicLink(), false);
+  const relative = path.relative(await realpath(root), await realpath(entrypoint));
+  assert.ok(relative && relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
   return { root, bin, prefix, entrypoint };
 }
 
@@ -59,6 +77,10 @@ test("proves an actual isolated pnpm package manifest, regular CJS entrypoint, d
   assert.match(evidence.caller.node, process.platform === "win32" ? /node\.exe$/i : /node$/i);
   assert.match(evidence.caller.manifestSha256, /^[0-9a-f]{64}$/);
   assert.match(evidence.caller.entrypointSha256, /^[0-9a-f]{64}$/);
+  assert.equal(evidence.caller.entrypoint, await realpath(entrypoint));
+  assert.equal(evidence.caller.node, await realpath(process.execPath));
+  assert.equal(evidence.caller.manifestSha256, createHash("sha256").update(await readFile(path.join(prefix, "node_modules", "pnpm", "package.json"))).digest("hex"));
+  assert.equal(evidence.caller.entrypointSha256, createHash("sha256").update(await readFile(entrypoint)).digest("hex"));
 });
 
 test("Windows action binding executes only the realpath-normalized spaced-path pnpm.cmd selected from the action output", { skip: process.platform !== "win32" }, async () => {
