@@ -123,6 +123,7 @@ struct f7_original_member_storage {
     struct f7_member *original_protection_copy_member;
     f7_handle original_protection_copy_read;
     struct f7_original_bytes original_held_release_binding;
+    struct f7_original_bytes original_protection_mutator_domain;
     const struct f7_original_allocator_envelope *original_allocator;
     uint64_t original_absolute_deadline;
 };
@@ -252,6 +253,42 @@ release-binding bytes are original custody data, not a self-issued authority.
 Actual constructor/allocator/sink/held-mutator catalogs remain ABSENT, and no
 phase is implemented or observed here. There is no second O initializer, hidden
 bootstrap spool, fresh W workaround, new source grant or unobserved SD free.
+
+Amendment04 also proposes a material dedicated terminal path for the EXISTING
+`managed_witness_v2` protection-copy member. Its last SD observation occurs while
+appendable and joins the final finite batch. After that observation, its own
+terminal finalization/readback cannot use legacy `f7_member_finish` or
+`f7_member_readback`, which query GetSecurityInfo. Proposed signatures for the
+whole architecture decision are:
+
+```c
+int f7_member_finish_protection_original(
+    struct f7_member *original_protection_copy_member,
+    const struct f7_original_member_storage *original_storage,
+    struct f7_original_member_observation *terminal_observation);
+int f7_member_readback_protection_original(
+    struct f7_member *original_protection_copy_member,
+    f7_handle original_protection_copy_read,
+    const struct f7_original_member_storage *original_storage,
+    struct f7_original_member_observation *terminal_observation);
+```
+
+They require a genuine original immutable protection-mutator-domain and original
+held writer/RO binding. Missing that proof refuses. They retain native flush,
+size, FileInfo (Linux original fstat/statx) and bounded byte/hash read results in
+the precharged caller slots, without a new security query or rerun. This is not
+a generic boolean bypass of identity/protection. Ordinary other-member queries
+continue to retain their own SDs and finite batches. Actual immutable-domain
+creator/source/grant/kernel proofs remain ABSENT, and no terminal path is coded.
+
+The exact member/frame/role/validator/manifest compatibility is also a required
+whole-decision input. Existing U1 native witness bytes are `SLF7WIT1` with strict
+160-byte metadata, 32-byte hash and closed optional event payloads. Original raw
+native error records separately use F7_ERROR_GRAPH/F7_GRAPH_NATIVE. Amendment04's
+managed_witness_v2/type11 cannot silently substitute for either, omit original O
+witnesses, reinterpret bytes or manufacture a new ROOT/W role. The architecture
+author must bind its exact existing member and closed catalogue encoding to the
+current original-producer, native witness and canonical manifest call graph.
 
 All call records and output buffers must be available before step 1. The
 constructor cannot clear the original member or a supplied observation to make
