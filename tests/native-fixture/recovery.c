@@ -1,5 +1,8 @@
 #include "recovery.h"
 #include <string.h>
+static int present(const uint8_t *bytes,size_t count){
+ uint8_t value=0;for(size_t i=0;i<count;i++)value|=bytes[i];return value!=0;
+}
 int f7_recovery_storage_validate(const struct f7_recovery_inventory *v,
  const void *state,size_t state_bytes){
  if(!v||!v->parsed_journal||!v->parsed_journal->member||
@@ -45,8 +48,8 @@ static int read_object(const struct f7_retained_object *o,uint8_t *buffer,size_t
  if(!o||!buffer||!capacity||capacity>F7_FRAME_MAX||
     o->length>F7_JSON_INTEGER_MAX||(body&&o->length>body_capacity))return F7_INVALID;
  int result=f7_handle_readonly(o->read_only,status);if(result)return result;
- if(f7_identity_read_status(o->read_only,&identity,0,status)||
-    !f7_identity_equal(&identity,&o->original_identity))return F7_IDENTITY_MISMATCH;
+ result=f7_identity_read_status(o->read_only,&identity,0,status);if(result)return result;
+ if(!f7_identity_equal(&identity,&o->original_identity))return F7_IDENTITY_MISMATCH;
  result=f7_handle_size(o->read_only,&size,status);if(result)return result;
  if(size!=o->length)return F7_CONFLICT;
  memset(&reader,0,sizeof(reader));reader.handle=o->read_only;
@@ -60,8 +63,9 @@ static int read_object(const struct f7_retained_object *o,uint8_t *buffer,size_t
  crypto_hash_sha256_final(&hash,digest);
  if(sodium_memcmp(digest,o->digest,32))return F7_CONFLICT;
  result=f7_handle_size(o->read_only,&size,status);if(result)return result;
- if(size!=o->length||f7_identity_read_status(o->read_only,&identity,0,status)||
-    !f7_identity_equal(&identity,&o->original_identity))return F7_IDENTITY_MISMATCH;
+ if(size!=o->length)return F7_CONFLICT;
+ result=f7_identity_read_status(o->read_only,&identity,0,status);if(result)return result;
+ if(!f7_identity_equal(&identity,&o->original_identity))return F7_IDENTITY_MISMATCH;
  return F7_OK;
 }
 static const struct f7_journal_entry *entry(const struct f7_attempt_journal *j,const uint8_t key[16]){
@@ -80,6 +84,12 @@ int f7_recovery_validate_persistent(struct f7_recovery_inventory *in,int64_t *st
     !in->decoded_objects||in->decoded_capacity<in->count||
     !in->index.length||in->index.length>in->index_capacity||in->signature.length!=sizeof(signature))return F7_INVALID;
  int shaped=f7_recovery_storage_validate(in,status,sizeof(*status));if(shaped)return shaped;
+ /* Missing original expectations reject before any native read or output
+    reset. Nonzero private bytes are necessary data, never source authority. */
+ if(!present(in->invocation,16)||!present(in->attempt,32)||
+    !present(in->observer_public,32)||!present(in->recipient_public,32)||
+    !present(in->index.key,16)||!present(in->signature.key,16)||!present(in->journal.key,16))return F7_AUTH_FAILURE;
+ for(size_t i=0;i<in->count;i++)if(!present(in->objects[i].key,16))return F7_AUTH_FAILURE;
  *status=0;
  /* Original identities remain caller-independent custody prerequisites.
     Reading equal bytes from a newly adopted copy is not SAME validation. */
@@ -103,6 +113,7 @@ int f7_recovery_validate_persistent(struct f7_recovery_inventory *in,int64_t *st
  if(!journal->frozen||journal->count!=in->count+2||memcmp(journal->frozen_index,in->index.key,16)||
     !bound(journal,&in->index)||!bound(journal,&in->signature))return F7_CONFLICT;
  if(!memcmp(in->index.key,in->signature.key,16)||
+    !memcmp(in->index.key,in->journal.key,16)||!memcmp(in->signature.key,in->journal.key,16)||
     f7_identity_equal(&in->index.original_identity,&in->signature.original_identity)||
     f7_identity_equal(&in->index.original_identity,&in->journal.original_identity)||
     f7_identity_equal(&in->signature.original_identity,&in->journal.original_identity))return F7_CONFLICT;
@@ -110,7 +121,7 @@ int f7_recovery_validate_persistent(struct f7_recovery_inventory *in,int64_t *st
   const struct f7_retained_object *o=in->objects+i;const struct f7_index_object *expected=index.objects+i;
   if((i&&memcmp(in->objects[i-1].key,o->key,16)>=0)||memcmp(o->key,expected->key,16)||
      o->length!=expected->length||sodium_memcmp(o->digest,expected->sha256,32)||!bound(journal,o)||
-     !memcmp(o->key,in->index.key,16)||!memcmp(o->key,in->signature.key,16)||
+     !memcmp(o->key,in->index.key,16)||!memcmp(o->key,in->signature.key,16)||!memcmp(o->key,in->journal.key,16)||
      f7_identity_equal(&o->original_identity,&in->index.original_identity)||
      f7_identity_equal(&o->original_identity,&in->signature.original_identity)||
      f7_identity_equal(&o->original_identity,&in->journal.original_identity))return F7_CONFLICT;
