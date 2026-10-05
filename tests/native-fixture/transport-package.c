@@ -1,6 +1,85 @@
 #include "transport-package.h"
 #include "segment-record.h"
 #include <string.h>
+struct package_span {uintptr_t address;size_t length;};
+static int span_valid(struct package_span span){
+ return span.length&&span.address&&span.length<=UINTPTR_MAX-span.address;
+}
+static int span_overlap(struct package_span a,struct package_span b){
+ return !(a.address+a.length<=b.address||b.address+b.length<=a.address);
+}
+static const struct f7_crypto_object *package_object(const struct f7_package *p,size_t index){
+ return index<p->segment_count?p->segments[index].object:
+   index==p->segment_count?p->encrypted_manifest:p->signature;
+}
+static int package_geometry(const struct f7_package *p,int64_t *status){
+ const struct f7_capture *capture=p->manifest_input->capture;
+ const struct f7_attempt_journal *journal=p->encrypted_manifest->journal;
+ if(!journal||!journal->member||!journal->entries||!journal->capacity||
+    journal->capacity>F7_OUTER_OBJECT_MAX||!capture->reservation||!capture->witness||
+    !capture->witness->record_buffer||!capture->witness->record_capacity||
+    p->manifest_input->unavailable_count>F7_OBJECT_MAX||
+    (p->manifest_input->unavailable_count&&!p->manifest_input->unavailable))return F7_BUDGET_ABSENT;
+ struct package_span fixed[]={
+  {(uintptr_t)p,sizeof(*p)},{(uintptr_t)status,sizeof(*status)},
+  {(uintptr_t)p->manifest,p->manifest_capacity},{(uintptr_t)p->plaintext,p->plaintext_capacity},
+  {(uintptr_t)p->canonical,p->canonical_capacity},{(uintptr_t)p->pins.signer_secret,crypto_sign_SECRETKEYBYTES},
+  {(uintptr_t)p->manifest_input,sizeof(*p->manifest_input)},
+  {(uintptr_t)p->manifest_segments,p->manifest_segment_capacity*sizeof(*p->manifest_segments)},
+  {(uintptr_t)p->roster,p->roster_capacity*sizeof(*p->roster)},
+  {(uintptr_t)p->members,p->member_count*sizeof(*p->members)},
+  {(uintptr_t)p->segments,p->segment_count*sizeof(*p->segments)},
+  {(uintptr_t)p->manifest_input->members,p->member_count*sizeof(*p->manifest_input->members)},
+  {(uintptr_t)p->index,sizeof(*p->index)},{(uintptr_t)p->plaintext_manifest,sizeof(*p->plaintext_manifest)},
+  {(uintptr_t)journal,sizeof(*journal)},{(uintptr_t)journal->member,sizeof(*journal->member)},
+  {(uintptr_t)journal->entries,journal->capacity*sizeof(*journal->entries)},
+  {(uintptr_t)capture,sizeof(*capture)},{(uintptr_t)capture->reservation,sizeof(*capture->reservation)},
+  {(uintptr_t)capture->witness,sizeof(*capture->witness)},
+  {(uintptr_t)capture->witness->record_buffer,capture->witness->record_capacity},
+  {(uintptr_t)p->manifest_input->unavailable,p->manifest_input->unavailable_count*sizeof(*p->manifest_input->unavailable)}
+ };
+ size_t count=sizeof(fixed)/sizeof(fixed[0]);
+ for(size_t i=0;i<count;i++){
+  if(i==count-1&&!fixed[i].length)continue;
+  if(!span_valid(fixed[i]))return F7_INVALID;
+  for(size_t j=0;j<i;j++)if(fixed[j].length&&span_overlap(fixed[i],fixed[j]))return F7_CONFLICT;
+ }
+ /* Validate every destination before the first read/hash/key operation. No
+    heap or object-count-sized automatic array is created by this preflight. */
+ for(size_t i=0;i<p->segment_count+2;i++){
+  const struct f7_crypto_object *object=package_object(p,i);
+  if(!object||!object->write||!object->workspace||!object->workspace_capacity)return F7_BUDGET_ABSENT;
+  struct package_span current[]={{(uintptr_t)object,sizeof(*object)},
+   {(uintptr_t)object->write,sizeof(*object->write)},
+   {(uintptr_t)object->workspace,object->workspace_capacity}};
+  for(size_t s=0;s<3;s++){
+   if(!span_valid(current[s]))return F7_INVALID;
+   for(size_t t=0;t<s;t++)if(span_overlap(current[s],current[t]))return F7_CONFLICT;
+   for(size_t j=0;j<count;j++)if(fixed[j].length&&span_overlap(current[s],fixed[j]))return F7_CONFLICT;
+   for(size_t m=0;m<p->member_count;m++){
+    struct package_span original={(uintptr_t)p->members[m].original,sizeof(struct f7_member)};
+    if(!span_valid(original)||span_overlap(current[s],original))return F7_CONFLICT;
+   }
+   for(size_t prior=0;prior<i;prior++){
+    const struct f7_crypto_object *other=package_object(p,prior);
+    struct package_span previous[]={{(uintptr_t)other,sizeof(*other)},
+     {(uintptr_t)other->write,sizeof(*other->write)},
+     {(uintptr_t)other->workspace,other->workspace_capacity}};
+    for(size_t t=0;t<3;t++)if(span_overlap(current[s],previous[t]))return F7_CONFLICT;
+   }
+  }
+ }
+ for(size_t m=0;m<p->member_count;m++){
+  struct package_span original={(uintptr_t)p->members[m].original,sizeof(struct f7_member)};
+  if(!span_valid(original))return F7_INVALID;
+  for(size_t j=0;j<count;j++)if(fixed[j].length&&span_overlap(original,fixed[j]))return F7_CONFLICT;
+  for(size_t prior=0;prior<m;prior++){
+   struct package_span other={(uintptr_t)p->members[prior].original,sizeof(struct f7_member)};
+   if(span_overlap(original,other))return F7_CONFLICT;
+  }
+ }
+ return F7_OK;
+}
 static int object_ready(const struct f7_crypto_object *o,const struct f7_package *p){
  return o&&o->write&&o->workspace&&o->workspace_capacity&&o->journal&&o->journal->member&&o->journal==p->encrypted_manifest->journal&&
   !o->started&&!o->write->length&&!o->write->failed&&!o->write->finalized&&
@@ -32,15 +111,16 @@ static void inventory(struct f7_index_object *out,const struct f7_crypto_object 
 }
 int f7_package_once(struct f7_package *p,int64_t *status){
  size_t i,j,manifest_slot=SIZE_MAX;uint64_t persisted;size_t canonical_length;
- if(!p||!status||p->started||!p->members||!p->member_count||
+ if(!p||!status||p->started||!p->members||!p->member_count||p->member_count>F7_OBJECT_MAX||
     !p->segments||!p->segment_count||p->segment_count>=F7_OBJECT_MAX||
     !p->manifest||p->manifest_length||!p->manifest_capacity||p->manifest_capacity>F7_SEGMENT_MAX||
     !p->manifest_input||!p->manifest_input->capture||!p->manifest_segments||
-    p->manifest_segment_capacity<p->segment_count||
+    p->manifest_segment_capacity<p->segment_count||p->manifest_segment_capacity>F7_OBJECT_MAX||
     !p->encrypted_manifest||!p->signature||!p->plaintext_manifest||!p->index||p->index->length||
     p->index->failed||p->index->finalized||!p->roster||
-    p->roster_capacity<p->segment_count+1||!p->plaintext||
+    p->roster_capacity<p->segment_count+1||p->roster_capacity>F7_OBJECT_MAX||!p->plaintext||
     p->plaintext_capacity<F7_SEGMENT_MAX+F7_SEGMENT_HEADER_BYTES||!p->canonical)return F7_INVALID;
+ int shaped=package_geometry(p,status);if(shaped)return shaped;
  *status=0;
  if(p->manifest_input->member_count!=p->member_count||!p->manifest_input->members||
     !p->manifest_input->capture->witness||
