@@ -209,7 +209,24 @@ async function browserCheck(buildResult, expected) {
   assert.ok(elkModules.length > 0, 'actual ELK lazy renderer must be emitted');
 
   const mime = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.woff2': 'font/woff2' };
-  const server = createServer(async (request, response) => {
+  const describeError = (error) => ({ message: String(error?.message ?? error), stack: error?.stack });
+  const captureErrors = [], cleanupErrors = [], scenarioResults = [], serverRequests = [], serverTasks = [];
+  let primaryError;
+  async function attempt(stage, action, errors) {
+    try { return await action(); }
+    catch (error) { errors.push({ stage, ...describeError(error) }); }
+  }
+  // These are private observations, not an alternative browser-byte authority.
+  await mkdir(path.join(root, 'server-responses'));
+  const server = createServer((request, response) => {
+    const record = { id: String(serverRequests.length + 1), method: request.method,
+      url: request.url, headers: request.headers, rawHeaders: request.rawHeaders, errors: [] };
+    serverRequests.push(record);
+    request.on('error', (error) => record.errors.push({ stage: 'request', ...describeError(error) }));
+    response.on('error', (error) => record.errors.push({ stage: 'response', ...describeError(error) }));
+    response.on('finish', () => { record.finished = true; record.status = response.statusCode; });
+    response.on('close', () => { record.closed = true; record.writableFinished = response.writableFinished; });
+    const task = (async () => {
     try {
       const pathname = decodeURIComponent(new URL(request.url, 'http://localhost').pathname);
       assert.ok(pathname.startsWith('/service-lasso/'));
@@ -219,39 +236,82 @@ async function browserCheck(buildResult, expected) {
       else if (!path.extname(relative)) relative += '.html';
       const file = path.join(buildResult.out, relative);
       const bytes = await readFile(file);
-      response.writeHead(200, { 'Content-Type': mime[path.extname(file)] ?? 'application/octet-stream' });
+      record.path = relative; record.readBytes = bytes.length; record.readSha256 = sha256(bytes);
+      record.savedBody = `server-responses/${record.id}.body`;
+      await writeFile(path.join(root, record.savedBody), bytes, { flag: 'wx' });
+      record.savedSha256 = sha256(await readFile(path.join(root, record.savedBody)));
+      assert.equal(record.savedSha256, record.readSha256);
+      response.writeHead(200, { 'Content-Type': mime[path.extname(file)] ?? 'application/octet-stream',
+        'X-Qualification-Request-Id': record.id });
       response.end(bytes);
-    } catch {
-      response.writeHead(404); response.end('Not found');
+    } catch (error) {
+      record.errors.push({ stage: 'serve', ...describeError(error) });
+      if (!response.headersSent) response.writeHead(404, { 'X-Qualification-Request-Id': record.id });
+      response.end('Not found');
     }
+    })();
+    task.catch(() => {}); serverTasks.push(task);
   });
-  server.listen(0, '127.0.0.1');
-  await once(server, 'listening');
-  const origin = `http://127.0.0.1:${server.address().port}`;
   let browser;
   try {
+    server.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    const origin = `http://127.0.0.1:${server.address().port}`;
     browser = await chromium.launch();
     for (const scenario of ['native-math', 'legacy-math', 'invalid-mermaid']) {
-      const context = await browser.newContext();
-      const page = await context.newPage();
-      const responses = [], failures = [], pageErrors = [], pending = [];
+      let context, page;
+      const responses = [], failures = [], pageErrors = [], pending = [], requests = [], transport = [];
+      const scenarioCaptureErrors = [], scenarioCleanupErrors = [], validationErrors = [];
       const observations = {};
-      let scenarioError;
+      let scenarioError, htmlSha256;
+      const requestIds = new WeakMap();
+      const requestIdentity = (request) => {
+        if (!requestIds.has(request)) {
+          const id = String(requests.length + 1); requestIds.set(request, id);
+          const record = { id, url: request.url(), method: request.method(), resourceType: request.resourceType(),
+            headers: request.headers() };
+          requests.push(record);
+          record.redirectedFrom = request.redirectedFrom() ? requestIdentity(request.redirectedFrom()) : null;
+        }
+        return requestIds.get(request);
+      };
+      async function drainResponses() {
+        let count;
+        do { count = pending.length; await Promise.allSettled(pending.slice()); } while (count !== pending.length);
+      }
+      try {
+      context = await browser.newContext();
+      page = await context.newPage();
+      const session = await context.newCDPSession(page);
+      for (const event of ['requestWillBeSent', 'responseReceived', 'requestServedFromCache', 'loadingFinished', 'loadingFailed']) {
+        session.on(`Network.${event}`, (data) => transport.push({ event, ...data }));
+      }
+      // Observation only: do not override methods, cache, service workers or responses.
+      await session.send('Network.enable');
+      page.on('request', requestIdentity);
       page.on('pageerror', (error) => pageErrors.push(error.message));
-      page.on('requestfailed', (request) => failures.push({ url: request.url(), error: request.failure() }));
+      page.on('requestfailed', (request) => failures.push({ id: requestIdentity(request), url: request.url(),
+        method: request.method(), resourceType: request.resourceType(), error: request.failure() }));
       page.on('response', (response) => {
+        const request = response.request();
+        const record = { requestId: requestIdentity(request), url: response.url(), status: response.status(),
+          method: request.method(), resourceType: request.resourceType(), requestHeaders: request.headers(),
+          responseHeaders: response.headers(), fromServiceWorker: response.fromServiceWorker() };
+        responses.push(record);
         const task = (async () => {
+          try {
           const url = new URL(response.url());
           assert.equal(url.origin, origin, 'the qualification consumer must use only its local built assets');
           const body = await response.body();
           const relative = decodeURIComponent(url.pathname.slice('/service-lasso/'.length));
-          responses.push({ url: response.url(), path: relative, status: response.status(), sha256: sha256(body) });
+          record.path = relative; record.bodyBytes = body.length; record.sha256 = sha256(body);
+          record.sizes = await request.sizes(); record.timing = request.timing();
+          } catch (error) { record.error = describeError(error); throw error; }
         })();
         // Attach a handler immediately, while preserving rejection for the assertion below.
         task.catch(() => {});
         pending.push(task);
       });
-      try {
         await page.goto(`${origin}/service-lasso/__qualification/${scenario}`, { waitUntil: 'networkidle' });
         const containers = page.locator('.docusaurus-mermaid-container');
         if (scenario === 'invalid-mermaid') {
@@ -285,11 +345,39 @@ async function browserCheck(buildResult, expected) {
             observations.css = computed; observations.font = font;
             assert.match(font, /KaTeX_Math/);
           }
-          assert.deepEqual(pageErrors, [], 'valid consumer pages must not crash');
         }
         await page.evaluate(() => document.fonts.ready);
         await page.waitForLoadState('networkidle');
-        await Promise.all(pending);
+      } catch (error) {
+        scenarioError = error;
+      } finally {
+        if (page) {
+          await attempt('content', async () => {
+            const html = await page.content(); htmlSha256 = sha256(html);
+            await writeFile(path.join(root, `${scenario}-browser.html`), html);
+          }, scenarioCaptureErrors);
+          await attempt('screenshot', () => page.screenshot({ path: path.join(root, `${scenario}.png`), fullPage: true }), scenarioCaptureErrors);
+          await drainResponses();
+        }
+        if (context) await attempt('context.close', () => context.close(), scenarioCleanupErrors);
+        await drainResponses();
+      }
+      const pendingResults = await Promise.allSettled(pending);
+      const responseErrors = pendingResults.filter((result) => result.status === 'rejected').map((result) => describeError(result.reason));
+      const diagnostic = { scenario, responses, requests, transport, failures, pageErrors, observations,
+        error: scenarioError ? describeError(scenarioError) : null, responseErrors, htmlSha256,
+        captureErrors: scenarioCaptureErrors, cleanupErrors: scenarioCleanupErrors, validationErrors };
+      // Save original observations before the unchanged compiler-byte assertion.
+      await attempt('pre-assertion-browser-diagnostic', () => writeFile(path.join(root, `${scenario}-browser.json`), JSON.stringify(diagnostic, null, 2)), scenarioCaptureErrors);
+      try {
+        assert.deepEqual(responseErrors, [], 'late browser response capture must not hide asset errors');
+        if (scenario !== 'invalid-mermaid') assert.deepEqual(pageErrors, [], 'valid consumer pages must not crash');
+        else {
+          // Only the deliberately malformed flowchart parse error is expected.
+          const expectedErrors = pageErrors.filter((message) => /^Parse error on line \d+:[\s\S]*A -->\[[\s\S]*Expecting /i.test(message));
+          diagnostic.expectedPageErrors = expectedErrors;
+          assert.deepEqual(pageErrors, expectedErrors, 'invalid Mermaid must not conceal unrelated page crashes');
+        }
         assert.deepEqual(failures, [], 'built assets must load successfully');
         assert.ok(responses.every((response) => response.status === 200), 'no missing consumer assets');
         for (const response of responses.filter((item) => /\.(?:js|css|woff2?|ttf)$/.test(item.path))) {
@@ -306,25 +394,50 @@ async function browserCheck(buildResult, expected) {
           assert.ok(responses.some((response) => fonts.some((font) => response.sha256 === font.sha256)),
             'actual legacy render must download an official selected KaTeX font');
         }
-        receipt.checks.push({ kind: 'actual-built-browser-consumer', scenario });
       } catch (error) {
-        scenarioError = { message: error.message, stack: error.stack }; throw error;
-      } finally {
-        const pendingResults = await Promise.allSettled(pending);
-        const responseErrors = pendingResults.filter((result) => result.status === 'rejected').map((result) => String(result.reason));
-        const html = await page.content();
-        await writeFile(path.join(root, `${scenario}-browser.html`), html);
-        await writeFile(path.join(root, `${scenario}-browser.json`), JSON.stringify({ scenario, responses,
-          failures, pageErrors, observations, error: scenarioError, responseErrors, htmlSha256: sha256(html) }, null, 2));
-        await page.screenshot({ path: path.join(root, `${scenario}.png`), fullPage: true });
-        await context.close();
-        if (!scenarioError) assert.deepEqual(responseErrors, [], 'late browser response capture must not hide asset errors');
+        if (!scenarioError) scenarioError = error;
+        else validationErrors.push(describeError(error));
       }
+      diagnostic.error = scenarioError ? describeError(scenarioError) : null;
+      diagnostic.status = scenarioError || scenarioCaptureErrors.length || scenarioCleanupErrors.length ? 'failed' : 'provisional';
+      await attempt('terminal-browser-diagnostic', () => writeFile(path.join(root, `${scenario}-browser.json`), JSON.stringify(diagnostic, null, 2)), scenarioCaptureErrors);
+      captureErrors.push(...scenarioCaptureErrors.map((error) => ({ scenario, ...error })));
+      cleanupErrors.push(...scenarioCleanupErrors.map((error) => ({ scenario, ...error })));
+      scenarioResults.push(diagnostic);
+      if (scenarioError) throw scenarioError;
+      if (scenarioCaptureErrors.length || scenarioCleanupErrors.length) throw new Error(`browser evidence/cleanup failed: ${scenario}`);
     }
+  } catch (error) {
+    primaryError = error;
   } finally {
-    await browser?.close();
-    await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    // Initiate independent closes before waiting: a browser rejection cannot skip the server.
+    await Promise.allSettled([
+      attempt('browser.close', async () => { if (browser) await browser.close(); }, cleanupErrors),
+      attempt('server.close', () => new Promise((resolve, reject) => {
+        server.close((error) => error ? reject(error) : resolve());
+        // Owned HTTP connections must settle even if browser.close rejects.
+        server.closeAllConnections();
+      }), cleanupErrors),
+    ]);
+    const serverResults = await Promise.allSettled(serverTasks);
+    for (const result of serverResults) if (result.status === 'rejected') {
+      cleanupErrors.push({ stage: 'server-task', ...describeError(result.reason) });
+    }
+    await attempt('server-diagnostic', () => writeFile(path.join(root, 'browser-server.json'), JSON.stringify({
+      requests: serverRequests, error: primaryError ? describeError(primaryError) : null, captureErrors, cleanupErrors }, null, 2)), captureErrors);
+    receipt.browserOutcome = { error: primaryError ? describeError(primaryError) : null, captureErrors, cleanupErrors,
+      scenarios: scenarioResults.map(({ scenario, status }) => ({ scenario, status })) };
   }
+  if (primaryError) throw primaryError;
+  assert.deepEqual(captureErrors, [], 'browser evidence capture must succeed');
+  assert.deepEqual(cleanupErrors, [], 'every browser/context/server cleanup must succeed');
+  assert.deepEqual(serverRequests.flatMap((request) => request.errors), [], 'server observations must have no errors');
+  for (const result of scenarioResults) {
+    result.status = 'passed';
+    await writeFile(path.join(root, `${result.scenario}-browser.json`), JSON.stringify(result, null, 2));
+    receipt.checks.push({ kind: 'actual-built-browser-consumer', scenario: result.scenario });
+  }
+  receipt.browserOutcome.scenarios = scenarioResults.map(({ scenario, status }) => ({ scenario, status }));
 }
 
 try {
