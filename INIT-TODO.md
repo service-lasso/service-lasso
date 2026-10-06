@@ -475,4 +475,5 @@ ENTIRE cumulative review + NEW complete actual-input ROOT + parent admission
 precede all target execution. Sole retained PR1681 recovery owner exception;
 parent owns tracking/landing/qualification, no release authority.
 
+- [ ] #1712: implement entrypoint-owned EOF shutdown; prove genuine child/API closure and actual Windows packaged cleanup, preserve prior failures and independent review/admission limits.
 - [ ] #1710: repair R2 activation ordering, retain original classification/channel assertions, obtain distinct entire review and new complete-input ROOT admission before execution; then prove the original observer gate.

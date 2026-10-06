@@ -1034,3 +1034,4 @@ Normal named develop integration precedes final whole freeze. DIFFERENT fresh
 ENTIRE cumulative review + NEW complete actual-input ROOT + parent admission
 precede all target execution. Sole retained PR1681 recovery owner exception;
 parent owns tracking/landing/qualification, no release authority.
+- #1712 - executable stdio EOF shutdown; SPEC-006 AC-6G/#860. In progress; preserve exact prior failed cleanup and private direct lineage evidence. #1640 native fixture isolation remains incomplete/separately owned.

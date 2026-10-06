@@ -665,3 +665,4 @@ Normal named develop integration precedes final whole freeze. DIFFERENT fresh
 ENTIRE cumulative review + NEW complete actual-input ROOT + parent admission
 precede all target execution. Sole retained PR1681 recovery owner exception;
 parent owns tracking/landing/qualification, no release authority.
+Issue #1712 binds executable stdio EOF to original runtime stop under SPEC-006 AC-6G/#860. Direct Windows package reproduction retains EBUSY and actual launcher/service survivors; isolate the lifetime repair without changing native ownership or cleanup criteria. User-authorized direct verification is separate from fresh independent review and complete-input admission.
