@@ -11,6 +11,14 @@ and thirteen unqualified native/product assertions remain separate evidence.
 `scripts/qualify-docs-consumers.mjs` uses the current installed Docusaurus CLI
 and complete copies of the current docs, config, theme, loader and sidebars.
 It never replaces Docusaurus's executor, renderer, worker or Mermaid loader.
+Each private root now retains the entire clean, stage-zero tracked source
+topology and physical bytes, including repository-relative artifacts outside
+docs. Tracked symlinks/submodules, missing/nonregular files, source ancestry
+links and head/index/physical source drift fail closed. Untracked/ignored
+files, Git metadata and retained/generated runtime state are never copied.
+This standalone job is Linux consumer evidence. Windows execution fails
+closed because Node's portable file API does not expose every Windows
+reparse attribute; it does not replace or alter any Windows release gate.
 The ordinary build uses the unchanged config. The pooled config enables only
 `future.faster.ssgWorkerThreads` and its required
 `future.v4.removeLegacyPostBuildHeadAttribute` flag. Child-only published
@@ -88,3 +96,9 @@ Full published package archives and source files, current docs, actual SSG
 executor/worker/environment/logger, default theme loader/component and their
 metadata are retained in the complete external source packet. Public pages
 are supporting documentation; exact published source bytes govern the runner.
+
+### #1718 / PR #1722 first actual docs failure and topology correction
+
+Original source90de5322a012e20b11ab9c2d2c11022ac43ced68 / tree ed2e2c51b56ed8229dcde9dba3c7510c707d7e0d remains immutable. Natural run37420183923 attempt1/job112127568885 executes only the ordinary private Docusaurus build, started05:46:57.795Z ended05:48:18.247Z exit1: unchanged host-runner-service-owner-package ../../scripts/host-runner-service/contract-v1.json target is missing from the private docs-only topology. Preserve original fatal log449-483, prior image-size-safe warnings430/438 and full first actual receipt/artifact; pooled SSG, route parity and every browser case are NOT_REACHED. Separate ordinary Docs success is not consumer qualification.
+
+Before correction, whole-source-checkpoint-root-v1 SOURCE_CHECKPOINT90_NOT_FINAL_KNOWN_UNIT ROOTe029db2617b30d35852c7341ac486e01f92596d3258f4d061b0ec425ce19acb3 preserves complete90base/head/physical/rawGit, all original6137/review8/final32/CI494 bindings and884 first failed consumer originals/artifact members. Parent selects a materially new source-topology repair: copy ENTIRE tracked regular physical source tree into private ordinary/pooled roots; preserve repository-relative artifacts, original docs/link policy/loader and all consumer checks. Reject missing paths, symlinks/reparse ancestry, nonregular tracked entries, dirty source or head/source drift; copy no untracked, ignored, retained or generated runtime state. Source-owned tracked templates/assets remain actual source inputs. No public docs edits, link suppression, fixture stubs, lock/dependency change, manual rerun or local target execution. Corrected source remains UNRUN locally until final complete input freeze, DIFFERENT entire review and parent admission. Existing thirteen native/product failures and all original protected policies stay preserved.

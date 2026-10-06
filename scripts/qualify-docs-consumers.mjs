@@ -1,13 +1,14 @@
 // SPEC-007 AC-7F/AC-7G.docs-consumers. Separate evidence, never a release-gate substitute.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { spawn } from 'node:child_process';
-import { cp, mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
+import { spawn, execFile } from 'node:child_process';
+import { cp, lstat, mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 import { chromium } from '@playwright/test';
 
 const repo = fileURLToPath(new URL('../', import.meta.url));
@@ -21,6 +22,60 @@ const save = () => writeFile(path.join(root, 'receipt.json'), JSON.stringify(rec
 const json = async (file) => JSON.parse(await readFile(file, 'utf8'));
 const fixtures = path.join(repo, 'tests/fixtures/docs-consumers');
 const cli = path.join(repo, 'node_modules/@docusaurus/core/bin/docusaurus.mjs');
+const execFileAsync = promisify(execFile);
+async function gitRead(args) {
+  const { stdout } = await execFileAsync('git', args, { cwd: repo, encoding: 'buffer', maxBuffer: 8 * 1024 * 1024 });
+  return stdout;
+}
+
+async function copyTrackedSource(mode) {
+  assert.notEqual(process.platform, 'win32',
+    'this standalone Linux consumer job does not admit Windows filesystems without complete reparse-attribute verification');
+  assert.equal((await gitRead(['status', '--porcelain=v1', '-z'])).length, 0,
+    'qualification source must be a clean committed checkout');
+  const head = (await gitRead(['rev-parse', 'HEAD'])).toString('utf8').trim();
+  const index = await gitRead(['ls-files', '--stage', '-z']);
+  const source = path.join(root, mode, 'source');
+  const inventory = [];
+  const sourceStat = await lstat(repo);
+  assert.ok(sourceStat.isDirectory() && !sourceStat.isSymbolicLink(), 'source root must be a regular directory');
+  async function regularPath(parts, relative) {
+    for (let count = 1; count <= parts.length; count++) {
+      const stat = await lstat(path.join(repo, ...parts.slice(0, count)));
+      assert.ok(!stat.isSymbolicLink(), `source links/reparse ancestry are forbidden: ${relative}`);
+      assert.ok(count === parts.length ? stat.isFile() : stat.isDirectory(), `missing/nonregular source: ${relative}`);
+    }
+  }
+  for (const entry of index.toString('utf8').split('\0').filter(Boolean)) {
+    const match = /^(100644|100755) ([a-f0-9]{40}) 0\t(.+)$/.exec(entry);
+    assert.ok(match, 'tracked inputs must be regular stage-zero source files, never links or submodules');
+    const relative = match[3];
+    assert.ok(!path.isAbsolute(relative) && relative.split('/').every((part) => part && part !== '..' && part !== '.'),
+      'tracked source path must remain inside its private root');
+    const parts = relative.split('/');
+    await regularPath(parts, relative);
+    const original = path.join(repo, relative);
+    const bytes = await readFile(original);
+    const digest = sha256(bytes);
+    const destination = path.join(source, relative);
+    await mkdir(path.dirname(destination), { recursive: true });
+    await writeFile(destination, bytes, { flag: 'wx' });
+    assert.equal(sha256(await readFile(destination)), digest, relative);
+    assert.equal(sha256(await readFile(original)), digest, `source drift while copying: ${relative}`);
+    await regularPath(parts, relative);
+    inventory.push({ path: relative, trackedBlob: match[2], mode: match[1], bytes: bytes.length, sha256: digest });
+  }
+  assert.equal((await gitRead(['status', '--porcelain=v1', '-z'])).length, 0, 'source drift after copy');
+  assert.equal((await gitRead(['rev-parse', 'HEAD'])).toString('utf8').trim(), head, 'source head drift');
+  assert.deepEqual(await gitRead(['ls-files', '--stage', '-z']), index, 'tracked source inventory drift');
+  await writeFile(path.join(root, `${mode}-tracked-source-inventory.json`), JSON.stringify({ head, inventory }, null, 2));
+  receipt.sourceHead ??= head;
+  assert.equal(receipt.sourceHead, head, 'ordinary and pooled builds must consume identical tracked source');
+  const inventoryDigest = sha256(Buffer.from(JSON.stringify(inventory)));
+  receipt.sourceInventorySha256 ??= inventoryDigest;
+  assert.equal(receipt.sourceInventorySha256, inventoryDigest, 'ordinary/pooled physical source bytes must be identical');
+  return path.join(source, 'docs');
+}
 
 async function command(label, args, extraEnv = {}) {
   const log = path.join(root, `${label}.log`);
@@ -65,9 +120,7 @@ async function htmlInventory(dir, prefix = '') {
 }
 
 async function build(mode) {
-  const site = path.join(root, mode, 'docs');
-  await cp(path.join(repo, 'docs'), site, { recursive: true,
-    filter: (source) => !['build', '.docusaurus', 'node_modules'].includes(path.basename(source)) });
+  const site = await copyTrackedSource(mode);
   const out = path.join(root, mode, 'build');
   if (mode === 'pooled') {
     await cp(fixtures, path.join(site, 'qualification-fixtures'), { recursive: true });
@@ -200,6 +253,8 @@ async function browserCheck(buildResult, expected) {
           }
           assert.deepEqual(pageErrors, [], 'valid consumer pages must not crash');
         }
+        await page.evaluate(() => document.fonts.ready);
+        await page.waitForLoadState('networkidle');
         await Promise.all(pending);
         assert.deepEqual(failures, [], 'built assets must load successfully');
         assert.ok(responses.every((response) => response.status === 200), 'no missing consumer assets');
@@ -229,6 +284,7 @@ async function browserCheck(buildResult, expected) {
           failures, pageErrors, observations, error: scenarioError, responseErrors, htmlSha256: sha256(html) }, null, 2));
         await page.screenshot({ path: path.join(root, `${scenario}.png`), fullPage: true });
         await context.close();
+        if (!scenarioError) assert.deepEqual(responseErrors, [], 'late browser response capture must not hide asset errors');
       }
     }
   } finally {
