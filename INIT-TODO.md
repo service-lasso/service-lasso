@@ -1,5 +1,7 @@
 # Bootstrap Adoption TODO
 
+- #1716 active source remediation: SPEC-002 AC-4CG.1716 sequential artifact/package versioning caller retains one consumed private metadata credential. Preserve original assertions and auth policy; deterministic regression and original live gate remain UNRUN pending NEW complete actual-input ROOT, different fresh ENTIRE review and parent admission. Provider403 cause remains UNKNOWN.
+
 ## Mac readiness documentation remediation (2026-10-05, #1675)
 
 - [ ] Land the linked [Mac readiness inventory](docs/development/macos-readiness.md), reconcile the stale #1504 backlog landing status, and record the uninstrumented native source-test result. SPEC-006 AC-6E / SPEC-007 AC-7F/7G/7H; no product patch is established by the premature diagnostic interruptions. #1330 retains the supported current-browser host prerequisite and separate direct paired acceptance.
