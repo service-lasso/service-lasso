@@ -106,3 +106,31 @@ original fixture actor/module; that actor/qualification remains a known gap.
 Manual source/diff inspection and git diff --check only. No guard, vectors,
 native adapter, parser, compiler or test was executed. This author does not claim
 source GO, observed interrupt retention, native equivalence or any passed gate.
+
+
+## Normal receiving checkpoint: develop3a526 (2026-10-06)
+
+The earlier receiving32a98 basis above is historical and preserved verbatim.
+A fresh sole receiver normally merged exact develop
+3a52650b548c018c03c5bdd2e858f2b8263031d7 into the same retained PR1681
+branch and immediately pushed merge eb0d21a3. The incoming six-file #1716/PR1717
+credential caller/regression/governance change is retained; no Core1681 product
+body, protected acceptance byte, native fixture or binary/provenance pin was
+changed by receiving. This is branch integration only, not PR landing authority.
+
+All distinct06 predicate/effect cardinality/order, actual owning-callee closure,
+uninterruptible original acquisition/pending trust input retention and genuine
+G1 classification fixes remain. Natural358 original source guard passed, but
+strict managed provenance still fails: current branch source80859 SHA68134028
+versus declared develop source69946 SHA2f79fdb9 and old39936 binary. Windows
+actual managed-launcher native normalized binary length also fails. These
+original diagnostics and earlier noROOT/private/native failures remain unchanged;
+no hash laundering, repin, source-image equivalence or native qualification.
+
+Development SOURCE ONLY, target execution and prospective cases UNRUN; SOURCE
+GO false. The new entire cumulative source/current/develop/history/physical/tool
+input freeze is core1681-358-receiving3a526-whole-oct06-01 under the shared audit
+root. Parent adoption, then a DIFFERENT fresh ENTIRE reviewer, then exact new
+complete actual-input ROOT/admission precede target import/parser/test/build/
+compiler/MSI/crypto/native effects. Retain the original branch/worktree as the
+bounded recovery exception; parent owns tracking, landing and qualification.
