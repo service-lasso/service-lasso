@@ -700,3 +700,57 @@ SPEC-002 AC-4BH/AC-4DI.4 and SPEC-006 AC-6F/AC-6G retain the entire N1–N5/#157
 ### Core #1714 second ENTIRE review F1/F2 protocol reconciliation
 
 The b4a719af distinct entire architecture review remains WHOLE_ARCHITECTURE_NO_GO; documentation-only landing safety is separate. This source-only amendment binds every compensation path to the irreversible B-local NO_TERMINATE_M publication in its original phase/effect ledger before any ACK native write; committed-unacknowledged pending/failed/lost ACK, death and interruption cannot restore termination. H's authenticated ACK controls admission only. The unchanged64-byte CHILD_CREATED grammar now closes Windows original process/thread values and Linux exact B-local original pidfd correlation metadata, thread=0, exactly one associated original SCM_RIGHTS FD, atomic MSG_CMSG_CLOEXEC and same-live original partial/unknown receive retention. No Linux thread object, PID reopen or numeric descriptor authority is introduced. Every added H/C/B/M resource requires actual source/owner/lifetime/domain attribution before fit; service1MiB/store4MiB/Core128MiB cannot migrate into UNKNOWN measured Node B0/B2 or qualification-only32GiB Q0/Q2. Entire original workspace/eight-failure/native1681/public/private/full-Node/rollback/matrix boundaries remain required and unqualified. Different fresh ENTIRE review and parent selection remain next; no implementation, provider selection, execution or acceptance follows.
+
+## #1681 distinct07 declaration/result closure disposition (2026-10-06)
+
+SPEC-002 AC-4DI.4 / R3 / C3, Development SOURCE ONLY, stable G1 LOCAL_MINIMUM.
+The sole recovery author inherited clean pushed98843f8f001cb355dbbf20172b5b053c99a05bd5,
+treeb45fd078c1ef02ec3141009788076a1c50f20b32 and named develop73b02a01904800713d1f3f34a3384ca872ab1518.
+The durable parent conductor disposition core1681-g1-distinct07-conductor-disposition-oct06-01.md
+was read before mutation. Distinct05/06/07 NO_GO stay one stable failure lineage;
+fresh ownership does not reset it. Entire review ROOTd6c35615fefa7315d4cc412cca6afcbc2a0c44c7a8838b7cd5704a044f9d84b8
+and full31755 member bindings remain immutable. Full author29457 bindings/root
+a1c3668e03e5bac79928b34d0ecb007b7e6eb1aeb1a1be39cca1811c9130ec74 remain historical inputs.
+
+The authorized coherent strategy requires every class declaration and initializer
+role consumed or denied, actual transitive predicates/branches/return provenance,
+layout/command-line/JSON/payload validators and original non-success result mappings.
+Actual source diagnosis additionally maps Main's reachable RunDirectorySyncLaunch:
+ObserveDirectorySyncChildWait, FinishDirectorySyncInvocation,
+ParseDirectorySyncLaunchPayload, CanonicalJsonString, FinalPathForHandle,
+SameWindowsPath and WaitForDirectorySyncTestGate are outside current selected
+callee checks. A preserve-body nonnull-owner return true in the original wait
+helper would relabel an unknown original wait as closure. This is static diagnosis,
+not an observed guard pass, compilation or native result. No witness executes.
+
+The current statement parser deliberately rejects else, switch and continue,
+which occur in genuine transitive value helpers. Feeding all existing helpers
+into it would regress the clean-source positive. Replacing these missing roles
+with a selected-name whitelist, copied whole-body/AST template, hash or mirrored
+runtime cannot substantiate the required contract. No complete supported semantic
+role implementation was produced in this attempt. Under GOV-02/GOV-13 preserve
+LOCAL_MINIMUM rather than mutate only three reported witnesses. Product, guard,
+protected acceptance, native sources/assets, old141824/39936 images and all32
+pins remain byte-identical to988; no product/test/source-validator patch is claimed.
+
+Next bounded recovery must first supply a reviewable complete structural role
+strategy for the entire reached graph, including initializer resource construction,
+JSON dispatch/mutation/index bounds, branch-dependent return provenance, quoting,
+layout/path checks and directory native result/retention closure. This does not
+select a native ownership blueprint or require new human release authority.
+Existing F1/F2/F3 and all earlier predicate/effect/cardinality/callee/native/CLR/
+import/pending-trust/MSI-interruption/C1-C3/R1-R4 mechanisms remain required.
+Preserve grouping/braces/initializer positive variants and all original assertions.
+Prospective initializer/early-result/value-constant negatives and genuine positives
+remain required but were not authored or run in this blocked disposition.
+
+Retain original managed source80859 SHA6813402856953c7171ec306772db121c99fe96d3f21e0dd93cfe420a8a12f1a8
+versus provenance69946 SHA2f79fdb9652d3aa2fb3a8de5169d889cf0943b6baf76bdf4329ceff7925d065b;
+original native compiler length failure remains separate. Current73 proxy audit
+failed before TAP; original13 failures and all historical/private/raw887MB inputs
+remain unresolved. PR1719 dependency owner remains independent and untouched.
+No target Node/import/helper/parser/test/npm/build/compiler/XML/MSI/crypto/native/
+ENV/ACL effect occurred. A NEW complete input ROOT, DIFFERENT ENTIRE source GO
+and parent admission still precede target effects. Parent owns provider tracking,
+landing and qualification. Same open-PR recovery branch/worktree remains retained;
+no cleanup, rerun, force/rebase, merge, publication, deployment or GA claim.
