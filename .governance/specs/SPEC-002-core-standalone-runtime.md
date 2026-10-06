@@ -1,5 +1,11 @@
 # Core Standalone Runtime
 
+## AC-4CG.1716 sequential versioning credential custody (#1716; parent #1562)
+
+The release-versioning artifact-then-package caller consumes the step-scoped metadata credential once before child work and passes the same private local explicitly to both stagers. Preserve the original live staging and every version assertion. A separate deterministic closed-response regression exercises the real sequential stagers with a synthetic credential, rejects missing bearer at every fixed metadata read, proves synchronous environment removal and keeps downloads unauthenticated. Existing protected operator identity, byte validation, metadata route restrictions and production auth policy remain unchanged; no GITHUB_TOKEN fallback or retry expansion.
+
+Historical PR37392084646 test1478 HTTP403, same-source push37392078704 variance and all original failure evidence remain preserved. Static missing local-token reuse is confirmed; GitHub's historical refusal cause is UNKNOWN. Source preparation and new vectors are UNRUN pending a NEW complete actual-input ROOT, a different fresh ENTIRE cumulative source review and parent admission before any target execution. No merge, qualification, readiness, GA, promotion, publication, deployment or provider-setting authority follows.
+
 ## #1592 MCP native launcher conformance clarification
 
 Existing `AC-4BH` / `AC-4BJ` launcher admission requires awaited, deadline-bound
