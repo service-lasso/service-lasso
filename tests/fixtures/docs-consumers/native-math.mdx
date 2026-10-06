@@ -1,0 +1,21 @@
+---
+title: Native math consumer
+slug: /__qualification/native-math
+---
+
+```mermaid
+flowchart LR
+  A["$$x^2 + 1$$"] --> B["Native destination"]
+```
+
+```mermaid
+---
+config:
+  layout: elk
+---
+flowchart TD
+  Input --> Left
+  Input --> Right
+  Left --> Output
+  Right --> Output
+```

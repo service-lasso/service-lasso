@@ -1,0 +1,18 @@
+---
+title: Legacy math consumer
+slug: /__qualification/legacy-math
+---
+
+import 'katex/dist/katex.css';
+import './consumer.css';
+
+```mermaid
+---
+config:
+  forceLegacyMathML: true
+---
+flowchart LR
+  A["$$x^2 + 1$$"] --> B["Legacy destination"]
+```
+
+<div className="consumer-css"><span data-consumer="a">CSS consumer</span><span>Second child</span></div>
