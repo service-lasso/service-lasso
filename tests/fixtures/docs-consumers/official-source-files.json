@@ -27,6 +27,14 @@
     {
       "version": "3.10.2",
       "name": "@docusaurus/logger"
+    },
+    {
+      "name": "mini-css-extract-plugin",
+      "version": "2.10.2"
+    },
+    {
+      "name": "webpack",
+      "version": "5.109.2"
     }
   ],
   "files": [
@@ -6953,6 +6961,70 @@
     {
       "path": "@docusaurus/logger/src/__mocks__/chalk.js",
       "sha256": "54969f7b7bcb6922d2c100197acd23e5ffbccf37d28ed1b10564e2b9e4c7c84f"
+    },
+    {
+      "path": "mini-css-extract-plugin/LICENSE",
+      "sha256": "9068a8782d2fb4c6e432cfa25334efa56f722822180570802bf86e71b6003b1e"
+    },
+    {
+      "path": "mini-css-extract-plugin/dist/hmr/hotModuleReplacement.js",
+      "sha256": "55adf2672a096f2ff523a762ff4cabafb82e9f5b50fc2505f47608e126c0df3a"
+    },
+    {
+      "path": "mini-css-extract-plugin/dist/index.js",
+      "sha256": "02aa63a7e51a29f14a73cc6d61e38c17f6fe147dc42522c80d4b1e7170720714"
+    },
+    {
+      "path": "mini-css-extract-plugin/dist/loader.js",
+      "sha256": "cf0c67541c894042f8fd0fb637b1c64d9ff1ad608fb986ebdf185cb3ce2ecc78"
+    },
+    {
+      "path": "mini-css-extract-plugin/dist/hmr/normalize-url.js",
+      "sha256": "a03fcba0b383d7f8b240dc84e8522263878b07b5b7eddfe338dbbf991acc972c"
+    },
+    {
+      "path": "mini-css-extract-plugin/dist/utils.js",
+      "sha256": "d95d2395f2b495cefc0399936fae4c7cbcd2d0b72e2dd0b2a9a940a1d49ba1ba"
+    },
+    {
+      "path": "mini-css-extract-plugin/dist/loader-options.json",
+      "sha256": "21b8a44ea7cdcf4fde35d6d6e07a64feab533f433686be4287f180173df6500c"
+    },
+    {
+      "path": "mini-css-extract-plugin/package.json",
+      "sha256": "544828c385ef04c5ba7416a5b1d1b05b8964808bd2a0c5efe4f1a99a7d7c7eef"
+    },
+    {
+      "path": "mini-css-extract-plugin/dist/plugin-options.json",
+      "sha256": "b22b1077b51ab2b8531e819313b40811a2eefe93284ba585f28bffe2c92eb50a"
+    },
+    {
+      "path": "mini-css-extract-plugin/README.md",
+      "sha256": "671309a4caa06573b41168f3ff4695b388d897efc5883daffe8d32d932350999"
+    },
+    {
+      "path": "mini-css-extract-plugin/types/hooks.d.ts",
+      "sha256": "f332782cec80dfc6fbc1c9832c94a213d619f391a9c18124b6456afff939d1df"
+    },
+    {
+      "path": "mini-css-extract-plugin/types/hmr/hotModuleReplacement.d.ts",
+      "sha256": "c53cc989015f158942d6ba2918b253391f6b102cf77850361cfa504ec1ae9964"
+    },
+    {
+      "path": "mini-css-extract-plugin/types/index.d.ts",
+      "sha256": "9004da6a9b86ac6e176acfa946546abfe7bfb225a5deabd227711dcfff371419"
+    },
+    {
+      "path": "mini-css-extract-plugin/types/loader.d.ts",
+      "sha256": "fd1ca3f8c45213b79ef357a607e31be7a46892f8cbee6c1852538ec8cea47c51"
+    },
+    {
+      "path": "mini-css-extract-plugin/types/hmr/normalize-url.d.ts",
+      "sha256": "cf2588de91602f9e57f6e043abe6d16d6fe7f649d3d9d1c53c8096c8662b12c7"
+    },
+    {
+      "path": "mini-css-extract-plugin/types/utils.d.ts",
+      "sha256": "4750bf35dee39eff1284006b3256ac2437e2eea01b62ea7e83727838573899ba"
     }
   ]
 }
