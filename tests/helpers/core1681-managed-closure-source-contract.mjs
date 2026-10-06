@@ -89,7 +89,7 @@ function parse(body) {
     const kind = body[at];
     if (kind === ";") { at += 1; return { kind: "empty" }; }
     if (kind === "{") return { kind: "block", body: parse(enclosed("{", "}")) };
-    if (["if", "for", "foreach", "using"].includes(kind)) {
+    if (["if", "for", "foreach", "using", "while"].includes(kind)) {
       at += 1; const condition = enclosed("(", ")"), child = statement();
       if (body[at] === "else") fail("unsupported else");
       return { kind, condition, body: flatten([child]) };
@@ -113,7 +113,7 @@ function parse(body) {
       if (!catches.length && !final) fail("unhandled try");
       return { kind, body: flatten(child.body), catches, final };
     }
-    if (["goto", "while", "do", "switch", "break", "continue", "lock", "fixed", "unsafe", "yield"].includes(kind)) fail("unsupported flow");
+    if (["goto", "do", "switch", "continue", "lock", "fixed", "unsafe", "yield"].includes(kind)) fail("unsupported flow");
     const start = at;
     let parentheses = 0, brackets = 0, initializer = 0;
     while (at < body.length) {
@@ -225,6 +225,187 @@ function invocationBindings(body) {
   requireLeaf(release[8], "return original.Closed");
 }
 
+// Consume the actual reachable owning callees by resource roles. Statement
+// grouping and effect-free initializer field order are independent of these
+// relations; bodies are neither hashed nor compared to production snapshots.
+function owningCallees(launcher) {
+  const containment = method(launcher, "private static void ContainManagedJobBeforeFileRelease(ref IntPtr jobHandle, IntPtr processHandle, bool targetAssignedToJob, ManagedInvocation invocation)");
+  count(containment, 9);
+  const unassigned = containment[0];
+  if (unassigned.kind !== "if" || !same(unassigned.condition, "!targetAssignedToJob && processHandle != IntPtr.Zero")) fail("unassigned original process owner");
+  count(unassigned.body, 7);
+  ["bool terminated = TerminateProcess(processHandle, 1)", "int terminateError = terminated ? 0 : Marshal.GetLastWin32Error()",
+    'invocation.Observe("unassigned-process-terminate", terminateError, !terminated, null)',
+    "uint waited = WaitForSingleObject(processHandle, Infinite)", "int waitError = waited == UInt32.MaxValue ? Marshal.GetLastWin32Error() : unchecked((int)waited)",
+    'invocation.Observe("unassigned-process-wait", waitError, waited != WaitObject0, null)'].forEach((effect, at) => requireLeaf(unassigned.body[at], effect));
+  branch(unassigned.body[6], "!terminated || waited != WaitObject0", ["RetainManagedInvocation(invocation)"]);
+  branch(containment[1], "jobHandle == IntPtr.Zero", ["return"]);
+  requireLeaf(containment[2], "bool jobTerminated = TerminateJobObject(jobHandle, 1)");
+  requireLeaf(containment[3], "int jobError = jobTerminated ? 0 : Marshal.GetLastWin32Error()");
+  requireLeaf(containment[4], 'invocation.Observe("managed-job-terminate", jobError, !jobTerminated, null)');
+  branch(containment[5], "!jobTerminated", ["RetainManagedInvocation(invocation)"]);
+  const drain = containment[6];
+  if (drain.kind !== "while" || !same(drain.condition, "true")) fail("original job drain loop");
+  count(drain.body, 4);
+  requireLeaf(drain.body[0], "JobObjectBasicAccountingInformation accounting");
+  branch(drain.body[1], "!QueryInformationJobObject(jobHandle, 1, out accounting, (uint)Marshal.SizeOf(typeof(JobObjectBasicAccountingInformation)), IntPtr.Zero)", [
+    "int accountingError = Marshal.GetLastWin32Error()", 'invocation.Observe("managed-job-accounting", accountingError, true, null)', "RetainManagedInvocation(invocation)"]);
+  branch(drain.body[2], "accounting.ActiveProcesses == 0", ["break"]);
+  requireLeaf(drain.body[3], "Thread.Sleep(10)");
+  const process = containment[7];
+  if (process.kind !== "if" || !same(process.condition, "processHandle != IntPtr.Zero")) fail("original process closure owner");
+  count(process.body, 4);
+  requireLeaf(process.body[0], "uint waited = WaitForSingleObject(processHandle, Infinite)");
+  requireLeaf(process.body[1], "int waitError = waited == UInt32.MaxValue ? Marshal.GetLastWin32Error() : unchecked((int)waited)");
+  requireLeaf(process.body[2], 'invocation.Observe("managed-process-wait", waitError, waited != WaitObject0, null)');
+  branch(process.body[3], "waited != WaitObject0", ["RetainManagedInvocation(invocation)"]);
+  requireLeaf(containment[8], 'invocation.Release(ref jobHandle, "managed-job-release", 0)');
+
+  const launch = method(launcher, "private static void ClearLaunchEnvironment(ManagedInvocation invocation)");
+  count(launch, 2);
+  requireLeaf(launch[0], "string[] names = { PayloadEnvironmentName, GateEnvironmentName, ProgressEnvironmentName }");
+  branch(launch[1], "int index = 0; index < names.Length; index++", ['RetireEnvironmentName(invocation, names[index], names[index], "launch-environment-clear", index)'], "for");
+  const clear = method(launcher, "internal static void ClearTargetEnvironmentOverrides(EnvironmentOverride[] environmentOverrides, ManagedInvocation invocation, int count)");
+  count(clear, 1);
+  branch(clear[0], "int index = 0; index < count; index++", ["EnvironmentOverride environmentOverride = environmentOverrides[index]",
+    'RetireEnvironmentName(invocation, environmentOverride.name, environmentOverride, "target-environment-clear", index)'], "for");
+  const name = method(launcher, "private static void RetireEnvironmentName(ManagedInvocation invocation, string name, object resource, string site, int ordinal)");
+  count(name, 4);
+  branch(name[0], "invocation.Outcomes.Exists(o => o.Site == site && o.Ordinal == ordinal && o.Attempted)", ["return"]);
+  initializer(name[1], "OriginalObservation original = new OriginalObservation {", ["Site = site", "Ordinal = ordinal", "Resource = resource", "Attempted = true"]);
+  requireLeaf(name[2], "invocation.Outcomes.Add(original)");
+  caught(name[3], ["Environment.SetEnvironmentVariable(name, null, EnvironmentVariableTarget.Process)", "original.Closed = true"], "Exception failure",
+    ["original.Exception = failure", "original.Failed = true", "invocation.Failed = true"]);
+  const progress = method(launcher, "internal static void RetireProgress(ManagedInvocation invocation)");
+  count(progress, 2); requireLeaf(progress[0], "progressToken = null"); requireLeaf(progress[1], "RetireProgressOwned(invocation, ref progressHmac)");
+  const hmac = method(launcher, "internal static void RetireProgressOwned(ManagedInvocation invocation, ref HMACSHA256 originalHmac)");
+  count(hmac, 6);
+  branch(hmac[0], 'invocation.Outcomes.Exists(o => o.Site == "progress-retirement" && o.Attempted)', ["return"]);
+  branch(hmac[1], "originalHmac == null", ["return"]);
+  requireLeaf(hmac[2], "invocation.Progress = originalHmac");
+  initializer(hmac[3], "OriginalObservation original = new OriginalObservation {", ['Site = "progress-retirement"', "Ordinal = 0", "Resource = originalHmac", "Attempted = true"]);
+  requireLeaf(hmac[4], "invocation.Outcomes.Add(original)");
+  caught(hmac[5], ["invocation.Progress.Dispose()", "original.Closed = true", "originalHmac = null"], "Exception failure",
+    ["original.Exception = failure", "original.Failed = true", "invocation.Failed = true"]);
+  const apply = method(launcher, "internal static void ApplyTargetEnvironmentOverrides(EnvironmentOverride[] environmentOverrides, ManagedInvocation invocation)");
+  count(apply, 2); requireLeaf(apply[0], "int appliedCount = 0");
+  const attempt = apply[1];
+  if (attempt.kind !== "try" || attempt.final !== null || attempt.catches.length !== 1 || !same(attempt.catches[0].binding, "Exception primary")) fail("original environment application exception region");
+  count(attempt.body, 1);
+  const each = attempt.body[0];
+  if (each.kind !== "foreach" || !same(each.condition, "EnvironmentOverride environmentOverride in environmentOverrides")) fail("original environment application roster");
+  count(each.body, 4);
+  requireLeaf(each.body[0], "invocation.EnvironmentOwners.Add(environmentOverride)");
+  requireLeaf(each.body[1], "Environment.SetEnvironmentVariable(environmentOverride.name, environmentOverride.value, EnvironmentVariableTarget.Process)");
+  requireLeaf(each.body[2], "appliedCount += 1");
+  initializer(each.body[3], "invocation.Outcomes.Add(new OriginalObservation {", ['Site = "target-environment-apply"', "Ordinal = appliedCount - 1", "Resource = environmentOverride", "Attempted = true", "Closed = true"], "})");
+  const failed = attempt.catches[0].body;
+  count(failed, 5); requireLeaf(failed[0], "invocation.Primary = primary");
+  initializer(failed[1], "invocation.Outcomes.Add(new OriginalObservation {", ['Site = "target-environment-apply"', "Ordinal = appliedCount", "Resource = environmentOverrides[appliedCount]", "Attempted = true", "Failed = true", "Exception = primary"], "})");
+  requireLeaf(failed[2], "invocation.Failed = true");
+  caught(failed[3], ["ClearTargetEnvironmentOverrides(environmentOverrides, invocation, appliedCount + 1)"], "Exception later", ['invocation.Observe("target-environment-rollback-unknown-return", 0, true, later)']);
+  requireLeaf(failed[4], "throw");
+  const originalFailure = method(launcher, "private static void ThrowOriginalRetirementFailure(ManagedInvocation invocation)");
+  count(originalFailure, 3);
+  requireLeaf(originalFailure[0], "OriginalObservation original = invocation.Outcomes.Find(o => o.Failed && o.Exception != null)");
+  branch(originalFailure[1], "original != null", ["throw original.Exception"]);
+  requireLeaf(originalFailure[2], 'throw new InvalidOperationException("Managed original retirement failed.")');
+  const configure = method(launcher, "private static void ConfigureKillOnClose(IntPtr jobHandle)");
+  count(configure, 5);
+  ["JobObjectExtendedLimitInformation information = new JobObjectExtendedLimitInformation()", "information.BasicLimitInformation.LimitFlags = JobObjectLimitKillOnJobClose",
+    "int informationSize = Marshal.SizeOf(typeof(JobObjectExtendedLimitInformation))", "IntPtr informationPointer = Marshal.AllocHGlobal(informationSize)"].forEach((role, at) => requireLeaf(configure[at], role));
+  const configured = configure[4];
+  if (configured.kind !== "try" || configured.catches.length || configured.final === null) fail("original job configuration input enclosure");
+  count(configured.body, 2); count(configured.final, 1);
+  requireLeaf(configured.body[0], "Marshal.StructureToPtr(information, informationPointer, false)");
+  branch(configured.body[1], "!SetInformationJobObject(jobHandle, JobObjectExtendedLimitInformationClass, informationPointer, (uint)informationSize)", ['throw new Win32Exception(Marshal.GetLastWin32Error(), "Managed launch job configuration failed.")']);
+  requireLeaf(configured.final[0], "Marshal.FreeHGlobal(informationPointer)");
+  const initialize = method(launcher, "private static void InitializeProgress()");
+  count(initialize, 4);
+  requireLeaf(initialize[0], "progressToken = Environment.GetEnvironmentVariable(ProgressEnvironmentName, EnvironmentVariableTarget.Process)");
+  branch(initialize[1], "!IsLowerHex64(progressToken)", ["progressToken = null", "return"]);
+  requireLeaf(initialize[2], "byte[] key = StrictUtf8.GetBytes(progressToken)");
+  const keyOwner = initialize[3];
+  if (keyOwner.kind !== "try" || keyOwner.catches.length !== 1 || keyOwner.catches[0].binding.length || keyOwner.final === null) fail("original progress constructor/input enclosure");
+  count(keyOwner.body, 1); count(keyOwner.catches[0].body, 1); count(keyOwner.final, 1);
+  requireLeaf(keyOwner.body[0], "progressHmac = new HMACSHA256(key)");
+  requireLeaf(keyOwner.catches[0].body[0], "progressHmac = null");
+  requireLeaf(keyOwner.final[0], "Array.Clear(key, 0, key.Length)");
+  const progressWrite = method(launcher, "private static void SetProgress(string phase, string payloadFailureBoundary = null)");
+  count(progressWrite, 1);
+  const diagnostic = progressWrite[0];
+  if (diagnostic.kind !== "try" || diagnostic.final !== null || diagnostic.catches.length !== 1 || diagnostic.catches[0].binding.length) fail("observational progress exception boundary");
+  count(diagnostic.catches[0].body, 0); count(diagnostic.body, 6);
+  branch(diagnostic.body[0], 'progressHmac == null || !IsProgressPhase(phase) || (payloadFailureBoundary != null && (!String.Equals(phase, "launcher_payload_validation", StringComparison.Ordinal) || !IsPayloadFailureBoundary(payloadFailureBoundary)))', ["return"]);
+  requireLeaf(diagnostic.body[1], 'string authenticatedRecord = payloadFailureBoundary == null ? phase : phase + ":" + payloadFailureBoundary');
+  requireLeaf(diagnostic.body[2], "byte[] phaseBytes = StrictUtf8.GetBytes(authenticatedRecord)");
+  requireLeaf(diagnostic.body[3], "byte[] digest");
+  const hash = diagnostic.body[4], write = diagnostic.body[5];
+  for (const region of [hash, write]) if (region.kind !== "try" || region.catches.length || region.final === null) fail("original progress transient buffer enclosure");
+  count(hash.body, 1); count(hash.final, 1); count(write.body, 1); count(write.final, 1);
+  requireLeaf(hash.body[0], "digest = progressHmac.ComputeHash(phaseBytes)");
+  requireLeaf(hash.final[0], "Array.Clear(phaseBytes, 0, phaseBytes.Length)");
+  requireLeaf(write.body[0], 'Console.Error.WriteLine(ProgressPrefix + authenticatedRecord + ":" + ToLowerHex(digest))');
+  requireLeaf(write.final[0], "Array.Clear(digest, 0, digest.Length)");
+  const gate = method(launcher, "private static void WaitForGate(string path, string expectedToken, TimeSpan timeout)");
+  count(gate, 2); requireLeaf(gate[0], "DateTime deadline = DateTime.UtcNow.Add(timeout)");
+  if (gate[1].kind !== "while" || !same(gate[1].condition, "!GateMatches(path, expectedToken)")) fail("original gate observation loop");
+  count(gate[1].body, 2);
+  branch(gate[1].body[0], "DateTime.UtcNow >= deadline", ['throw new TimeoutException("Managed launch gate timed out.")']);
+  requireLeaf(gate[1].body[1], "Thread.Sleep(25)");
+}
+
+// Transitive helpers with no live-resource parameters may parse/validate values
+// and allocate their own strings/collections. They cannot reach a native effect,
+// an owning retirement seam, a new receiver/property or a static owner alias.
+// The grammar constrains effects; it does not snapshot their validation logic.
+function valueCalleeClosure(launcher) {
+  const declared = members(launcher);
+  const names = new Set([
+    "ParseLaunchPayload", "ValidateStrictJsonSyntax", "ParseJsonValue", "ParseJsonObject", "ParseJsonArray", "ParseJsonString", "ParseJsonNumber",
+    "ConsumeJsonLiteral", "SkipJsonWhitespace", "HexDigitValue", "RequireObject", "RequireArray", "RequireString", "RequireInt", "RequireLong", "RequireBoolean", "RequireExactKeys",
+    "ValidatePayload", "ValidateNativeLayouts", "ValidateApprovedFile", "IsFullyQualifiedWindowsPath", "IsDirectorySeparator", "IndexOfDirectorySeparator", "IsLoaderSensitiveEnvironmentName",
+    "AssertBootstrapEnvironmentSanitized", "BoundPathAt", "GateMatches", "BuildCommandLine", "QuoteCommandLineArgument", "RequiresCommandLineQuoting", "NormalizeFinalPath",
+    "IsProgressPhase", "IsPayloadFailureBoundary", "IsLowerHex64", "ToLowerHex", "TargetCreationFailureExitCode",
+  ]);
+  const constructors = new Set(["InvalidOperationException", "JavaScriptSerializer", "LaunchPayload", "ApprovedFile", "ArgumentBinding", "EnvironmentOverride", "StringBuilder", "HashSet"]);
+  const calls = new Set(["String.IsNullOrWhiteSpace", "String.Equals", "Char.IsLetter", "Marshal.SizeOf", "Environment.GetEnvironmentVariables", "File.Exists", "File.ReadAllText", "BitConverter.ToString",
+    "json.Substring", "value.Substring", "value.IndexOf", "value.StartsWith", "name.StartsWith", "environmentOverride.name.IndexOf", "environmentOverride.value.IndexOf", "text.IndexOf",
+    "keys.Add", "argumentIndexes.Add", "environmentNames.Add", "record.ContainsKey", "value.Append", "value.ToString", "commandLine.Append", "commandLine.ToString", "result.Append", "result.ToString",
+    // Chained string calls below are still restricted to declared value identities.
+    "DeserializeObject", "Trim", "Replace", "ToLowerInvariant", "typeof", "if", "for", "foreach", "while", "switch", "catch", "return"]);
+  const identifiers = new Set([
+    ...names, ...constructors, ...[...calls].flatMap((value) => value.split(".")),
+    "private", "static", "string", "char", "int", "long", "uint", "bool", "object", "void", "ref", "new", "return", "throw", "true", "false", "null", "else", "case", "default", "break", "continue", "try", "finally", "in", "as", "is",
+    "IDictionary", "DictionaryEntry", "StringComparer", "StringComparison", "Ordinal", "OrdinalIgnoreCase", "StrictUtf8", "File", "Path", "Char", "Marshal", "IntPtr", "Size", "System", "EnvironmentVariableTarget", "Process",
+    "payloadJson", "parsed", "root", "rawArgs", "args", "index", "rawApprovedFiles", "approvedFiles", "rawApprovedFile", "rawArgumentBindings", "argumentBindings", "rawBinding", "rawEnvironmentOverrides", "targetEnvironmentOverrides", "rawEnvironmentOverride",
+    "payload", "binding", "approvedFile", "environmentOverride", "tokens", "argumentIndexes", "environmentNames", "entry", "Key", "record", "expectedKeys", "key", "label", "value", "items", "maximumLength", "text", "allowEmpty", "json", "depth", "marker", "character", "escape", "codeUnit", "offset", "digit", "integerStart", "fractionStart", "exponentStart", "literal",
+    "expectedStartupInfoSize", "expectedProcessInformationSize", "expectedJobInformationSize", "expectedJobAccountingSize", "StartupInfo", "ProcessInformation", "JobObjectExtendedLimitInformation", "JobObjectBasicAccountingInformation", "serverEnd", "shareEnd", "startIndex", "name", "boundFilePaths", "path", "actualToken", "expectedToken", "IOException", "UnauthorizedAccessException", "executable", "argument", "commandLine", "result", "backslashes", "phase", "boundary", "bytes", "errorCode",
+    "Length", "Count", "executable", "workingDirectory", "ackPath", "filesBoundPath", "continuePath", "releaseToken", "filesBoundToken", "continueToken", "ackToken", "file", "sha256", "size", "bindingIndex", "prefix", "executableBindingIndex", "requireExecutableBinding", "targetEnvironmentOverrides", "postResumeDelayMilliseconds", "Empty", "x20",
+  ]);
+  // A declared C# const is value-only. No arbitrary field/getter may supply it.
+  for (const member of declared) {
+    if (same(member.header.slice(0, 2), "private const")) identifiers.add(member.header[3]);
+    if (member.body !== null && !member.header.includes("(") && !["class", "struct"].some((kind) => member.header.includes(kind))) fail("unbound static property receiver");
+  }
+  for (const name of names) {
+    const candidates = declared.filter((member) => member.header.some((value, at) => value === name && member.header[at + 1] === "("));
+    if (candidates.length !== 1 || candidates[0].body === null) fail(`unique actual value callee ${name}`);
+    const body = candidates[0].body;
+    for (let at = 0; at < body.length; at += 1) {
+      const value = body[at];
+      if (/^[A-Za-z_][A-Za-z_0-9]*$/u.test(value) && !identifiers.has(value)) fail(`unbound value callee identity ${name}:${value}`);
+      if (value === "new" && !constructors.has(body[at + 1]) && !["string", "ApprovedFile", "ArgumentBinding", "EnvironmentOverride"].includes(body[at + 1])) fail(`unbound value constructor ${name}`);
+      if (body[at + 1] !== "(" || !/^[A-Za-z_]/u.test(value)) continue;
+      let start = at;
+      while (start >= 2 && body[start - 1] === "." && /^[A-Za-z_]/u.test(body[start - 2])) start -= 2;
+      const call = body.slice(start, at + 1).join("");
+      if (body[start - 1] === "new" && constructors.has(call)) continue;
+      if (!names.has(call) && !calls.has(call)) fail(`unbound value callee effect ${name}:${call}`);
+    }
+  }
+}
+
 function typeBindings(all, launcher) {
   const rootHeader = tokens("public static class ServiceLassoManagedLauncherNative");
   let rootAt = -1;
@@ -239,20 +420,82 @@ function typeBindings(all, launcher) {
   const expected = namespaces.map((value) => tokens(`using ${value}`).join(" ")).sort();
   imports.sort();
   if (imports.length !== expected.length || !imports.every((value, at) => value === expected[at])) fail("CLR import/type alias");
-  const clr = new Set(["System", "List", "FileStream", "Exception", "IntPtr", "Thread", "GC", "Timeout", "Marshal", "Environment", "File", "Directory", "String", "StringComparison", "EnvironmentVariableTarget", "UInt32", "SHA256", "HMACSHA256", "UTF8Encoding", "FileMode", "FileAccess", "FileShare", "StringBuilder", "Win32Exception", "InvalidOperationException"]);
+  const clr = new Set(["System", "List", "FileStream", "Exception", "IntPtr", "UIntPtr", "Thread", "GC", "Timeout", "Marshal", "Environment", "File", "Directory", "String", "StringComparison", "EnvironmentVariableTarget", "UInt32", "SHA256", "HMACSHA256", "UTF8Encoding", "FileMode", "FileAccess", "FileShare", "StringBuilder", "Win32Exception", "InvalidOperationException", "TimeoutException", "IOException", "UnauthorizedAccessException", "HashSet", "IDictionary", "DictionaryEntry", "JavaScriptSerializer", "Char", "Path", "Array", "Convert", "StringComparer", "BitConverter", "DateTime", "TimeSpan", "Console"]);
   for (let at = 0; at < launcher.length - 1; at += 1) if (["class", "struct", "enum", "interface"].includes(launcher[at]) && clr.has(launcher[at + 1])) fail("source shadows original CLR type/callee");
   fieldSet(members(region(launcher, "internal sealed class OriginalObservation")), ["internal string Site", "internal int Ordinal", "internal IntPtr Handle", "internal FileStream File", "internal object Resource", "internal bool Attempted, Closed, Failed", "internal int NativeStatus", "internal Exception Exception"]);
   fieldSet(members(region(launcher, "private struct ProcessInformation")), ["public IntPtr hProcess", "public IntPtr hThread", "public uint dwProcessId", "public uint dwThreadId"]);
   const nativeClose = tokens('[DllImport("kernel32.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool CloseHandle(IntPtr handle);');
   let found = 0, depth = 0;
-  for (let at = 0; at <= launcher.length - nativeClose.length; at += 1) {
+  for (let at = 0; at < launcher.length; at += 1) {
     if (!depth && same(launcher.slice(at, at + nativeClose.length), nativeClose)) found += 1;
     if (!depth && clr.has(launcher[at]) && ["=", "=>", ";", "{", "("].includes(launcher[at + 1]) && launcher[at - 1] !== "new") fail("member shadows original CLR receiver");
     if (launcher[at] === "{") depth += 1;
     if (launcher[at] === "}") depth -= 1;
   }
   if (found !== 1) fail("original native CloseHandle declaration");
-  for (const declaration of ["private static void ContainManagedJobBeforeFileRelease(ref IntPtr jobHandle, IntPtr processHandle, bool targetAssignedToJob, ManagedInvocation invocation)", "private static void ClearLaunchEnvironment(ManagedInvocation invocation)", "internal static void RetireProgress(ManagedInvocation invocation)"]) region(launcher, declaration);
+  const declared = members(launcher);
+  const properties = {
+    'private sealed class LaunchPayload': ["string executable", "string[] args", "string workingDirectory", "string ackPath", "string filesBoundPath", "string continuePath", "string releaseToken", "string filesBoundToken", "string continueToken", "string ackToken", "ApprovedFile[] approvedFiles", "int executableBindingIndex", "bool requireExecutableBinding", "ArgumentBinding[] argumentBindings", "EnvironmentOverride[] targetEnvironmentOverrides", "int postResumeDelayMilliseconds"],
+    'private sealed class ApprovedFile': ["string file", "string sha256", "long size"],
+    'private sealed class ArgumentBinding': ["int index", "string prefix", "int bindingIndex"],
+    'internal sealed class EnvironmentOverride': ["string name", "string value"],
+  };
+  for (const [signature, fields] of Object.entries(properties)) {
+    const actual = members(region(launcher, signature));
+    count(actual, fields.length);
+    for (const field of fields) {
+      const rows = actual.filter((member) => same(member.header, `public ${field}`));
+      if (rows.length !== 1 || rows[0].body === null || !same(rows[0].body, "get; set;")) fail(`value receiver property ${field}`);
+    }
+  }
+  const native = [
+    ['IntPtr CreateJobObjectW(IntPtr jobAttributes, string name)', true, false],
+    ['bool SetInformationJobObject(IntPtr job, int informationClass, IntPtr information, uint informationLength)', false, true],
+    ['bool QueryInformationJobObject(IntPtr job, int informationClass, out JobObjectBasicAccountingInformation information, uint informationLength, IntPtr returnLength)', false, true],
+    ['bool TerminateJobObject(IntPtr job, uint exitCode)', false, true],
+    ['bool AssignProcessToJobObject(IntPtr job, IntPtr process)', false, true],
+    ['uint ResumeThread(IntPtr thread)', false, false],
+    ['uint WaitForSingleObject(IntPtr handle, uint milliseconds)', false, false],
+    ['bool GetExitCodeProcess(IntPtr process, out uint exitCode)', false, true],
+    ['bool TerminateProcess(IntPtr process, uint exitCode)', false, true],
+    ['bool CloseHandle(IntPtr handle)', false, true],
+    ['IntPtr GetStdHandle(int standardHandle)', false, false],
+    ['uint GetFinalPathNameByHandleW(IntPtr file, StringBuilder filePath, uint filePathLength, uint flags)', true, false],
+    ['bool CreateProcessW(string applicationName, StringBuilder commandLine, IntPtr processAttributes, IntPtr threadAttributes, [MarshalAs(UnmanagedType.Bool)] bool inheritHandles, uint creationFlags, IntPtr environment, string currentDirectory, ref StartupInfo startupInfo, out ProcessInformation processInformation)', true, true],
+  ];
+  for (const [signature, unicode, boolean] of native) {
+    const name = tokens(signature)[1];
+    const candidates = declared.filter((member) => member.header.some((token, at) => token === name && member.header[at + 1] === "("));
+    const header = `[DllImport("kernel32.dll", ${unicode ? "CharSet = CharSet.Unicode, " : ""}SetLastError = true)] ${boolean ? "[return: MarshalAs(UnmanagedType.Bool)] " : ""}private static extern ${signature}`;
+    if (candidates.length !== 1 || candidates[0].body !== null || !same(candidates[0].header, header)) fail(`original native effect binding ${name}`);
+  }
+  for (const constant of ["private const uint CreateSuspended = 0x00000004", "private const uint Infinite = 0xFFFFFFFF", "private const uint WaitObject0 = 0",
+    "private const uint JobObjectLimitKillOnJobClose = 0x00002000", "private const int JobObjectExtendedLimitInformationClass = 9",
+    'private const string PayloadEnvironmentName = "SERVICE_LASSO_MANAGED_LAUNCH_PAYLOAD"', 'private const string GateEnvironmentName = "SERVICE_LASSO_MANAGED_LAUNCH_GATE"',
+    'private const string ProgressEnvironmentName = "SERVICE_LASSO_MANAGED_LAUNCH_PROGRESS_TOKEN"', "private static string progressToken", "private static HMACSHA256 progressHmac"])
+    if (declared.filter((member) => member.body === null && same(member.header, constant)).length !== 1) fail("original lifecycle constant/field binding");
+  const layouts = {
+    JobObjectBasicAccountingInformation: ["public long TotalUserTime", "public long TotalKernelTime", "public long ThisPeriodTotalUserTime", "public long ThisPeriodTotalKernelTime", "public uint TotalPageFaultCount", "public uint TotalProcesses", "public uint ActiveProcesses", "public uint TotalTerminatedProcesses"],
+    JobObjectBasicLimitInformation: ["public long PerProcessUserTimeLimit", "public long PerJobUserTimeLimit", "public uint LimitFlags", "public UIntPtr MinimumWorkingSetSize", "public UIntPtr MaximumWorkingSetSize", "public uint ActiveProcessLimit", "public UIntPtr Affinity", "public uint PriorityClass", "public uint SchedulingClass"],
+    IoCounters: ["public ulong ReadOperationCount", "public ulong WriteOperationCount", "public ulong OtherOperationCount", "public ulong ReadTransferCount", "public ulong WriteTransferCount", "public ulong OtherTransferCount"],
+    JobObjectExtendedLimitInformation: ["public JobObjectBasicLimitInformation BasicLimitInformation", "public IoCounters IoInfo", "public UIntPtr ProcessMemoryLimit", "public UIntPtr JobMemoryLimit", "public UIntPtr PeakProcessMemoryUsed", "public UIntPtr PeakJobMemoryUsed"],
+    ProcessInformation: ["public IntPtr hProcess", "public IntPtr hThread", "public uint dwProcessId", "public uint dwThreadId"],
+  };
+  for (const [name, fields] of Object.entries(layouts)) {
+    const candidates = declared.filter((member) => member.header.includes(name) && member.header.includes("struct"));
+    if (candidates.length !== 1 || !same(candidates[0].header, `[StructLayout(LayoutKind.Sequential)] private struct ${name}`)) fail(`native layout header ${name}`);
+    const actual = members(candidates[0].body);
+    count(actual, fields.length);
+    // Native layout field order is significant, unlike a managed initializer.
+    fields.forEach((field, at) => { if (actual[at].body !== null || !same(actual[at].header, field)) fail(`native layout field ${name}`); });
+  }
+  const startup = declared.filter((member) => member.header.includes("struct") && member.header.includes("StartupInfo"));
+  if (startup.length !== 1 || !same(startup[0].header, "[StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)] private struct StartupInfo")) fail("original StartupInfo layout header");
+  const startupFields = ["int cb", "string lpReserved", "string lpDesktop", "string lpTitle", "int dwX", "int dwY", "int dwXSize", "int dwYSize", "int dwXCountChars", "int dwYCountChars", "int dwFillAttribute", "int dwFlags", "short wShowWindow", "short cbReserved2", "IntPtr lpReserved2", "IntPtr hStdInput", "IntPtr hStdOutput", "IntPtr hStdError"];
+  const startupMembers = members(startup[0].body); count(startupMembers, startupFields.length);
+  startupFields.forEach((field, at) => { if (startupMembers[at].body !== null || !same(startupMembers[at].header, `public ${field}`)) fail("original StartupInfo layout field"); });
+  owningCallees(launcher);
+  valueCalleeClosure(launcher);
 }
 
 // The caller's non-retirement expressions have a closed call/assignment universe.
@@ -289,6 +532,7 @@ const callerIdentifiers = new Set([
   "argumentBindings", "bindingIndex", "prefix", "Empty", "Capacity", "ToString", "cb", "dwFlags", "wShowWindow",
   "hStdInput", "hStdOutput", "hStdError", "StartfUseShowWindow", "StartfUseStdHandles", "StdInputHandle", "StdOutputHandle", "StdErrorHandle",
   "UInt32", "MaxValue", "FailureExitCodeJobCreation", "FailureExitCodeTargetCreation", "FailureExitCodeResolvedExecutableMissing",
+  "InvalidOperationException",
   "FailureExitCodeWorkingDirectoryMissing", "FailureExitCodeJobAssignment", "FailureExitCodeTargetResume", "FailureExitCodeTargetThreadClose",
   "FailureExitCodeAcknowledgmentWrite",
 ]);
@@ -406,7 +650,7 @@ function caller(nodes) {
   requireLeaf(handler[1], "invocation.PrimaryResult = failureExitCode"); requireLeaf(handler[2], "return failureExitCode");
   finalizer(outer.final);
 
-  const seen = new Map(), loops = [], returns = [];
+  const seen = new Map(), loops = [], returns = [], predicates = new Map(), events = [];
   function walk(body, ancestors = []) {
     for (const node of body) {
       if (node.kind === "leaf") {
@@ -414,9 +658,16 @@ function caller(nodes) {
         const key = node.expression.join(" ");
         if (!seen.has(key)) seen.set(key, []);
         seen.get(key).push({ node, ancestors, body });
+        events.push(node);
         if (node.expression[0] === "return") returns.push(node);
       } else if (node.kind === "if") {
         if (!controls.has(node.condition.join(" "))) fail("unknown branch condition");
+        const key = node.condition.join(" ");
+        if (!predicates.has(key)) predicates.set(key, []);
+        predicates.get(key).push({ node, ancestors, body });
+        // The predicate is evaluated before the branch body, including when
+        // that body is empty. Consume its effect role as an event in that order.
+        events.push(node);
         walk(node.body, [...ancestors, node]);
       } else if (["for", "foreach", "using"].includes(node.kind)) {
         loops.push(node);
@@ -441,6 +692,53 @@ function caller(nodes) {
     if (found.length !== number) fail(`once-only caller role ${expression}`);
     return found;
   };
+  const predicate = (condition, number = 1) => {
+    const found = predicates.get(tokens(condition).join(" ")) ?? [];
+    if (found.length !== number) fail(`once-only predicate role ${condition}`);
+    return found;
+  };
+  // Every control is consumed with original multiplicity. This also prevents
+  // accepted pure branch text from enclosing/making an original effect optional.
+  for (const condition of controls) predicate(condition, same(tokens(condition), "invocation.Failed") ? 3 : 1);
+  const assignment = predicate("!AssignProcessToJobObject(jobHandle, processHandle)")[0];
+  const resume = predicate("ResumeThread(threadHandle) == UInt32.MaxValue")[0];
+  const release = predicate('!invocation.Release(ref threadHandle, "target-thread-release", 0)')[0];
+  const exit = predicate("!GetExitCodeProcess(processHandle, out exitCode)")[0];
+  for (const row of [assignment, resume, release, exit]) if (row.ancestors.length) fail("conditional original predicate effect");
+  branch(assignment.node, "!AssignProcessToJobObject(jobHandle, processHandle)", ['throw new Win32Exception(Marshal.GetLastWin32Error(), "Managed target job assignment failed.")']);
+  branch(resume.node, "ResumeThread(threadHandle) == UInt32.MaxValue", ['throw new Win32Exception(Marshal.GetLastWin32Error(), "Managed target resume failed.")']);
+  count(release.node.body, 3);
+  requireLeaf(release.node.body[0], 'OriginalObservation original = invocation.Outcomes.Find(o => o.Site == "target-thread-release" && o.Attempted)');
+  branch(release.node.body[1], "original.Exception != null", ["throw original.Exception"]);
+  requireLeaf(release.node.body[2], 'throw new Win32Exception(original.NativeStatus, "Managed target thread handle close failed.")');
+  branch(exit.node, "!GetExitCodeProcess(processHandle, out exitCode)", ['throw new Win32Exception(Marshal.GetLastWin32Error(), "Managed target exit-code query failed.")']);
+  const ordered = [
+    lookup("ValidateNativeLayouts()")[0].node, lookup("InitializeProgress()")[0].node,
+    lookup("ClearLaunchEnvironment(invocation)")[0].node,
+    lookup("WaitForGate(gatePath, payload.releaseToken, TimeSpan.FromSeconds(45))")[0].node,
+    lookup("FileStream boundFile = new FileStream(approvedFile.file, FileMode.Open, FileAccess.Read, FileShare.Read)")[0].node,
+    lookup("boundFiles.Add(boundFile)")[0].node,
+    lookup("actualSha256 = ToLowerHex(sha256.ComputeHash(boundFile))")[0].node,
+    lookup("RetireProgress(invocation)")[0].node,
+    lookup("File.WriteAllText(payload.filesBoundPath, payload.filesBoundToken, StrictUtf8)")[0].node,
+    lookup("WaitForGate(payload.continuePath, payload.continueToken, TimeSpan.FromSeconds(45))")[0].node,
+    lookup("jobHandle = CreateJobObjectW(IntPtr.Zero, null)")[0].node,
+    lookup("ConfigureKillOnClose(jobHandle)")[0].node,
+    lookup("ApplyTargetEnvironmentOverrides(payload.targetEnvironmentOverrides, invocation)")[0].node,
+    lookup("targetCreated = CreateProcessW(resolvedExecutable, commandLine, IntPtr.Zero, IntPtr.Zero, true, CreateSuspended, IntPtr.Zero, payload.workingDirectory, ref startupInfo, out processInformation)")[0].node,
+    lookup("processHandle = processInformation.hProcess")[0].node,
+    lookup("threadHandle = processInformation.hThread")[0].node,
+    lookup("ClearTargetEnvironmentOverrides(payload.targetEnvironmentOverrides, invocation, payload.targetEnvironmentOverrides.Length)")[0].node,
+    predicate("processHandle == IntPtr.Zero || threadHandle == IntPtr.Zero || processInformation.dwProcessId == 0")[0].node,
+    assignment.node, lookup("targetAssignedToJob = true")[0].node, resume.node,
+    lookup("Thread.Sleep(payload.postResumeDelayMilliseconds)")[0].node, release.node,
+    lookup("File.WriteAllText(payload.ackPath, acknowledgment, StrictUtf8)")[0].node,
+    lookup("uint targetWait = WaitForSingleObject(processHandle, Infinite)")[0].node,
+    lookup('invocation.Observe("target-primary-wait", targetWaitError, targetWait != WaitObject0, null)')[0].node,
+    predicate("targetWait != WaitObject0")[0].node, exit.node,
+    lookup("invocation.PrimaryResult = unchecked((int)exitCode)")[0].node, returns[0],
+  ].map((node) => events.indexOf(node));
+  if (ordered.some((position, at) => position < 0 || (at && position <= ordered[at - 1]))) fail("original lifecycle effect order");
   // Cardinality excludes additional accepted-looking calls/writes as well as
   // indirect aliases. Location excludes unreachable/conditional original roles.
   for (const effect of ownershipEffects) {

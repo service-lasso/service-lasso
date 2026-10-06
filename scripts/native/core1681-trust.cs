@@ -100,8 +100,17 @@ namespace ServiceLasso.SourceAcquisition
         private readonly TrustReceipt receipt = new TrustReceipt();
         private IntPtr path, file, signature, data;
         private bool entered;
+        private bool providerClosurePending;
         private SignatureObservation current;
         internal SignatureObservation CurrentObservation { get { return current; } }
+        internal bool ProviderClosurePending { get { return providerClosurePending; } }
+        internal IntPtr[] OriginalInputPointers { get { return new[] { path, file, signature, data }; } }
+        internal RetentionState CurrentRetention { get; private set; }
+        private void Retain(string reason)
+        {
+            CurrentRetention = new RetentionState(this, reason);
+            Lifetime.Retain(api.Module, CurrentRetention);
+        }
         private void ReportException(string operation, Exception original)
         { try { api.Module.ObserveOriginalException(operation, original); } catch { /* Original remains in owner. */ } }
         internal OfflineAuthenticode(WintrustExports exports, IHeldInput held, RootPolicyInput rootPolicy,
@@ -130,6 +139,7 @@ namespace ServiceLasso.SourceAcquisition
             {
                 api.Module.BeforeCall("OfflineAuthenticode.One", "WinVerifyTrust", count ? "COUNT:VERIFY" : "INDEX:" + index + ":VERIFY");
                 invoked = true;
+                providerClosurePending = true;
                 row.VerifyStatus = api.WinVerifyTrust(new IntPtr(-1), ref action, data); returned = true;
                 original = (TrustData)Marshal.PtrToStructure(data, typeof(TrustData));
                 row.OriginalProviderState = original.State;
@@ -144,7 +154,7 @@ namespace ServiceLasso.SourceAcquisition
             { row.OriginalException = originalError; ReportException("WinVerifyTrust:VERIFY", originalError); }
             finally
             {
-                if (invoked && !returned) Lifetime.Retain(api.Module, this, "UNKNOWN_ORIGINAL_VERIFY_STATE");
+                if (invoked && !returned) Retain("UNKNOWN_ORIGINAL_VERIFY_STATE");
                 if (returned)
                 {
                     try
@@ -154,11 +164,12 @@ namespace ServiceLasso.SourceAcquisition
                         Marshal.StructureToPtr(original, data, false);
                         api.Module.BeforeCall("OfflineAuthenticode.One", "WinVerifyTrust", "ORIGINAL_STATE:CLOSE");
                         row.CloseStatus = api.WinVerifyTrust(new IntPtr(-1), ref action, data); closeReturned = true;
+                        if (row.CloseStatus == 0) providerClosurePending = false;
                         api.Module.ObserveOriginalCall("WinVerifyTrust:CLOSE", row.CloseStatus);
                     }
                     catch (Exception originalCloseError)
                     { row.OriginalCloseException = originalCloseError; ReportException("WinVerifyTrust:CLOSE", originalCloseError); }
-                    if (!closeReturned || row.CloseStatus != 0) Lifetime.Retain(api.Module, this, "UNKNOWN_OR_FAILED_ORIGINAL_PROVIDER_CLOSE");
+                    if (!closeReturned || row.CloseStatus != 0) Retain("UNKNOWN_OR_FAILED_ORIGINAL_PROVIDER_CLOSE");
                 }
             }
             return row;
@@ -190,9 +201,12 @@ namespace ServiceLasso.SourceAcquisition
             }
             finally
             {
+                // No independent chain release or original input free may run
+                // while an entered VERIFY lacks its same-state successful CLOSE.
+                if (providerClosurePending) Retain("PENDING_ORIGINAL_PROVIDER_INPUTS");
                 try { if (chains != null) chains.ReleaseAfterOriginalProviderClose(); }
                 catch (Exception original) { ReportException("private-chain-release", original);
-                    Lifetime.Retain(api.Module, this, "UNKNOWN_PRIVATE_CHAIN_RELEASE"); }
+                    Retain("UNKNOWN_PRIVATE_CHAIN_RELEASE"); }
                 if (data != IntPtr.Zero) Marshal.FreeHGlobal(data);
                 if (signature != IntPtr.Zero) Marshal.FreeHGlobal(signature);
                 if (file != IntPtr.Zero) Marshal.FreeHGlobal(file);

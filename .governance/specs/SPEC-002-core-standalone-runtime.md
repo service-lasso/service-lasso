@@ -959,3 +959,17 @@ The invalid-initial and timeout providers must remain alive until the actual obs
 This explicit fixture-only correction preserves every original R2 failure classification, channel digest/byte readback and absent consumer-terminal assertion. Production validators, native identity and all existing observer/consumer/fixture deadlines remain unchanged. The activation wait is bounded by the existing 5000ms invalid-initial fixture allowance and may not mint a successful receipt or native identity. Failure to activate must fail the fixture, never relax the expected invalid result. Exact original natural failure remains retained: develop31164176d45522f46dbbaec292b244f70714bd47, Release Qualification37353281578, job111915112829. Separate fresh ENTIRE source review and NEW complete-input ROOT admission precede imports, tests or any target execution. SOURCE_UNRUN is not native or GA acceptance.
 
 #1710 verification correction: direct Windows execution captured genuine activation, corrupted initial, close.json and observer channel close, yet the consumer returned missing. waitForPrivateObserver must scan its original fixed terminal names once after actual observer exit before returning absent; an exit notification can win the polling race after the terminal was published. Preserve close/unresolved validation, original deadlines, genuine observer/channel witnesses and absent-record missing classification. No exit notification itself establishes a valid terminal. User explicitly requested verification on this unit; direct scoped results remain distinct from independent review, complete-input admission and native/release qualification.
+
+## #1681 distinct06 whole-source recovery (2026-10-06)
+
+SPEC-002 AC-4DI.4 / R3 / C3, Development SOURCE ONLY. The pre-mutation baseline,
+GOV-02 stable G1 failure lineage and materially new F1 predicate/F2 actual callee/
+F3 acquisition-interruption diagnoses are recorded in
+CORE1681_DISTINCT06_RECOVERY.md. Consume actual predicate AND statement effects,
+original lifecycle order/cardinality and reachable owning callee closure; retain
+same original trust/MSI owner and every callback/interruption observation without
+native-input cleanup or receipt escape. Add actual-source preserve-token negatives
+and pure structural positives; original protected evidence and all pins remain.
+Different fresh ENTIRE review plus NEW complete actual-input ROOT and parent
+admission precede execution. Sole retained PR1681 recovery owner; parent owns
+tracking/landing/qualification. Every prospective case remains SOURCE_UNRUN.

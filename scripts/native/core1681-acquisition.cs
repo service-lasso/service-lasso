@@ -233,13 +233,47 @@ namespace ServiceLasso.SourceAcquisition
         internal void Stream(int bytes)
         { if (bytes < 0 || bytes > 268435456 - StreamBytes) throw new Quota("STREAM_TOTAL"); StreamBytes += bytes; Charge(bytes * 2L + 128); }
     }
+    // Invocation-private evidence. The originating owner keeps this object;
+    // observation failure cannot replace its primary VERIFY/MSI disposition.
+    internal sealed class RetentionInterruption
+    {
+        internal readonly RetentionInterruption Previous;
+        internal readonly Exception OriginalException;
+        internal readonly int Ordinal;
+        internal RetentionInterruption(RetentionInterruption previous, Exception original)
+        { Previous = previous; OriginalException = original; Ordinal = previous == null ? 1 : previous.Ordinal + 1; }
+    }
+    internal sealed class RetentionState
+    {
+        internal readonly object Owner;
+        internal readonly string Reason;
+        internal Exception CallbackFailure;
+        internal volatile bool CallbackCompleted;
+        private RetentionInterruption interruptions;
+        internal RetentionInterruption Interruptions { get { return Volatile.Read(ref interruptions); } }
+        internal RetentionState(object owner, string reason) { Owner = owner; Reason = reason; }
+        internal void Interrupted(Exception original)
+        {
+            // One original writer, immutable nodes, release/acquire publication.
+            // No interruptible lock, wait or external observer callback is used
+            // while retaining the exception from the original sleep.
+            Volatile.Write(ref interruptions, new RetentionInterruption(interruptions, original));
+        }
+    }
     internal static class Lifetime
     {
-        internal static void Retain(IOriginalNativeModule module, object owner, string reason)
+        internal static void Retain(IOriginalNativeModule module, RetentionState retained)
         {
             // SAME live invocation; callback failure cannot unwind unknown native ownership.
-            try { module.RetainUnknownOriginalOwner(owner, reason); } catch { }
-            for (;;) { GC.KeepAlive(owner); Thread.Sleep(1000); }
+            try { module.RetainUnknownOriginalOwner(retained.Owner, retained.Reason); }
+            catch (Exception original) { retained.CallbackFailure = original; }
+            finally { retained.CallbackCompleted = true; }
+            for (;;)
+            {
+                try { Thread.Sleep(1000); }
+                catch (Exception original) { retained.Interrupted(original); }
+                GC.KeepAlive(retained.Owner); GC.KeepAlive(retained); GC.KeepAlive(module);
+            }
         }
     }
 }

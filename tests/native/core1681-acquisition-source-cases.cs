@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading;
 using ServiceLasso.SourceAcquisition;
 
 internal static class Core1681AcquisitionSourceCases
@@ -134,11 +135,16 @@ internal static class Core1681AcquisitionSourceCases
     internal static void ObserveOriginalNative(MsiExports msi, WintrustExports trust, IHeldInput original,
         RootPolicyInput roots, IIndependentChainObserver chains)
     {
-        var rows = new MsiReadOnly(msi, original).Read();
+        var msiOwner = new MsiReadOnly(msi, original);
+        var rows = msiOwner.Read();
+        Expect(msiOwner.CurrentRetention == null, "MSI_normal_genuine_closure_no_retention");
         Expect(rows.Tables.Count == 20 && rows.Tables.Any(t => t.Name == "Property" && t.State == "ROWS_OBSERVED"), "MSI_original_native_positive");
         Expect(rows.Resources.All(resource => resource.CloseStatus == 0), "MSI_actual_original_resource_close");
         Expect(rows.InstalledContext == "UNRESOLVED_INSTALL_BRANCH" && rows.Eligibility != "AUTHENTICATED_DISTRIBUTION", "MSI_no_invented_installed_join");
-        var signature = new OfflineAuthenticode(trust, original, roots, chains).Read();
+        var trustOwner = new OfflineAuthenticode(trust, original, roots, chains);
+        var signature = trustOwner.Read();
+        Expect(trustOwner.CurrentRetention == null && !trustOwner.ProviderClosurePending,
+            "TRUST_normal_genuine_provider_closure_no_retention");
         Expect(signature.CountObservation != null && signature.Signatures.Count > 0 && signature.Signatures.Count <= 32,
             "TRUST_original_finite_signature_roster");
         Expect(signature.Signatures.All(row => row.CloseStatus == 0), "TRUST_each_original_VERIFY_CLOSE");
@@ -160,6 +166,80 @@ internal static class Core1681AcquisitionSourceCases
             o.Status == originalStatus && o.ExtendedFields != null) &&
             receipt.Observations.Last(o => o.Operation == "MsiCloseHandle").Status == errorCloseStatus,
             "MSI_nested_close_original_status_fields_and_cleanup_status");
+    }
+    // Independently admitted fixture observes the ACTUAL original Read thread
+    // after its genuine native failure reaches the production retention callback.
+    // No delegate, provider status, resource handle or replacement owner is made
+    // here. The retained thread must be hosted in its own original fixture actor;
+    // this observer never closes it, retries native close or reports eligibility.
+    private static void InterruptOriginalRetainedThread(Thread originalThread, RetentionState retained,
+        object originalOwner, Exception callbackFailure, Action assertOriginalStillHeld)
+    {
+        Expect(originalThread != null && originalThread != Thread.CurrentThread && originalThread.IsAlive,
+            "RETENTION_actual_separate_original_read_thread");
+        Expect(retained != null && Object.ReferenceEquals(retained.Owner, originalOwner), "RETENTION_same_original_owner");
+        Expect(SpinWait.SpinUntil(() => retained.CallbackCompleted, 5000), "RETENTION_actual_callback_completed");
+        // Separate genuine callback-success and callback-failure vectors. For
+        // failure, the fixture supplies the exact thrown exception; null does
+        // not substitute for an expected failure.
+        Expect(Object.ReferenceEquals(retained.CallbackFailure, callbackFailure), "RETENTION_original_callback_disposition_retained");
+        for (int attempt = 0; attempt < 3; attempt++)
+        {
+            var previous = retained.Interruptions;
+            int before = previous == null ? 0 : previous.Ordinal;
+            originalThread.Interrupt();
+            Expect(SpinWait.SpinUntil(() => {
+                var latest = retained.Interruptions; return latest != null && latest.Ordinal > before;
+            }, 5000), "RETENTION_original_interrupt_observed");
+            var observed = retained.Interruptions;
+            Expect(observed.Ordinal == before + 1 && observed.OriginalException is ThreadInterruptedException &&
+                Object.ReferenceEquals(observed.Previous, previous), "RETENTION_each_original_interrupt_appended_once");
+            Expect(originalThread.IsAlive && Object.ReferenceEquals(retained.Owner, originalOwner) &&
+                Object.ReferenceEquals(retained.CallbackFailure, callbackFailure), "RETENTION_no_original_owner_or_failure_replacement");
+            assertOriginalStillHeld();
+        }
+    }
+    internal static void ObserveOriginalTrustInterruptedRetention(Thread originalThread, OfflineAuthenticode owner,
+        Exception originalFailure, Exception callbackFailure, Func<bool> originalReadReturned,
+        Func<int> actualChainReleaseCalls, Func<int> actualHeldAfterClosureCalls)
+    {
+        Expect(owner != null && owner.ProviderClosurePending, "TRUST_actual_pending_native_provider");
+        var row = owner.CurrentObservation;
+        Expect(row != null && (row.OriginalException != null || row.OriginalCloseException != null || row.CloseStatus != 0),
+            "TRUST_actual_original_VERIFY_or_CLOSE_failure");
+        if (originalFailure != null) Expect(Object.ReferenceEquals(row.OriginalException, originalFailure) ||
+            Object.ReferenceEquals(row.OriginalCloseException, originalFailure), "TRUST_original_exception_identity");
+        IntPtr[] pointers = owner.OriginalInputPointers;
+        Expect(pointers.All(p => p != IntPtr.Zero), "TRUST_original_acquired_native_inputs");
+        var retained = owner.CurrentRetention;
+        InterruptOriginalRetainedThread(originalThread, retained, owner, callbackFailure, () => {
+            Expect(!originalReadReturned() && actualChainReleaseCalls() == 0 && actualHeldAfterClosureCalls() == 0,
+                "TRUST_no_caller_receipt_chain_or_subject_cleanup_after_interrupt");
+            Expect(owner.ProviderClosurePending && owner.OriginalInputPointers.SequenceEqual(pointers) &&
+                Object.ReferenceEquals(owner.CurrentObservation, row) && Object.ReferenceEquals(owner.CurrentRetention, retained),
+                "TRUST_same_native_inputs_row_and_retention_after_interrupt");
+            if (originalFailure != null) Expect(Object.ReferenceEquals(row.OriginalException, originalFailure) ||
+                Object.ReferenceEquals(row.OriginalCloseException, originalFailure), "TRUST_primary_preserved_after_interrupt");
+        });
+    }
+    internal static void ObserveOriginalMsiInterruptedRetention(Thread originalThread, MsiReadOnly owner,
+        Exception callbackFailure, Func<bool> originalReadReturned, Func<int> actualHeldAfterClosureCalls)
+    {
+        Expect(owner != null && owner.CurrentRetention != null, "MSI_actual_retained_read_owner");
+        var receipt = owner.CurrentReceipt;
+        var resources = receipt.Resources.ToArray();
+        var observations = receipt.Observations.ToArray();
+        Expect(resources.Length > 0 && observations.Any(o => o.OriginalException != null || o.Status != 0),
+            "MSI_actual_acquired_resources_and_original_failure");
+        var statuses = resources.Select(r => r.CloseStatus).ToArray();
+        var retained = owner.CurrentRetention;
+        InterruptOriginalRetainedThread(originalThread, retained, owner, callbackFailure, () => {
+            Expect(!originalReadReturned() && actualHeldAfterClosureCalls() == 0,
+                "MSI_no_caller_receipt_or_subject_cleanup_after_interrupt");
+            Expect(receipt.Resources.SequenceEqual(resources) && receipt.Observations.SequenceEqual(observations) &&
+                resources.Select(r => r.CloseStatus).SequenceEqual(statuses) && Object.ReferenceEquals(owner.CurrentRetention, retained),
+                "MSI_no_native_retry_new_resource_or_replaced_original_observation");
+        });
     }
     internal static void ObserveOriginalXmlGrammar(IOriginalNativeModule qualifiedXmlRuntime)
     {

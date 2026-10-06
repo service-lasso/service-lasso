@@ -124,6 +124,12 @@ namespace ServiceLasso.SourceAcquisition
         private bool capturingExtendedError;
         private object pendingCall;
         internal MsiReceipt CurrentReceipt { get { return receipt; } }
+        internal RetentionState CurrentRetention { get; private set; }
+        private void Retain(string reason)
+        {
+            CurrentRetention = new RetentionState(this, reason);
+            Lifetime.Retain(api.Module, CurrentRetention);
+        }
         internal MsiReadOnly(MsiExports exports, IHeldInput input)
         {
             if (exports == null || input == null || input.OriginalBytes == null || input.OriginalReadableHandle == IntPtr.Zero ||
@@ -142,7 +148,7 @@ namespace ServiceLasso.SourceAcquisition
                 receipt.Observations.Add(new NativeObservation(receipt.Observations.Count + 1, operation + ":unknown-return", -1, null, original));
                 // A marshaling/interop exception is not evidence that the native call acquired nothing.
                 GC.KeepAlive(pendingCall);
-                Lifetime.Retain(api.Module, this, "UNKNOWN_ORIGINAL_MSI_CALL_RETURN"); throw;
+                Retain("UNKNOWN_ORIGINAL_MSI_CALL_RETURN"); throw;
             }
         }
         private NativeResource Own(string kind, uint handle, bool view = false)
@@ -304,19 +310,19 @@ namespace ServiceLasso.SourceAcquisition
                     Before("MsiViewClose", resource.Ordinal.ToString());
                     uint viewStatus = Call("MsiViewClose", () => api.ViewClose(resource.Handle));
                     Observe("MsiViewClose", viewStatus);
-                    if (viewStatus != 0) Lifetime.Retain(api.Module, this, "FAILED_ORIGINAL_VIEW_CLOSE");
+                    if (viewStatus != 0) Retain("FAILED_ORIGINAL_VIEW_CLOSE");
                 }
                 Before("MsiCloseHandle", resource.Ordinal.ToString());
                 uint status = Call("MsiCloseHandle", () => api.HandleClose(resource.Handle));
                 resource.CloseStatus = status;
                 Observe("MsiCloseHandle", status);
-                if (status != 0) Lifetime.Retain(api.Module, this, "FAILED_ORIGINAL_HANDLE_CLOSE");
+                if (status != 0) Retain("FAILED_ORIGINAL_HANDLE_CLOSE");
             }
             catch (Exception original)
             {
                 receipt.Observations.Add(new NativeObservation(receipt.Observations.Count + 1,
                     "resource-close-exception", -1, null, original));
-                Lifetime.Retain(api.Module, this, "UNKNOWN_ORIGINAL_HANDLE_CLOSE");
+                Retain("UNKNOWN_ORIGINAL_HANDLE_CLOSE");
             }
         }
         private void ReadTable(uint database, string name)

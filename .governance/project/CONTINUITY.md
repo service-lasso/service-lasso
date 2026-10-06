@@ -128,3 +128,24 @@ Current terminal8189 full qualification reports1562 tests/1476 pass/17 fail/69 s
 Acceptance adds independent real two-commit Git source -> depth1 acquisition, actual ordinary and aliased-parent strict checkout positives, valid wrong-tree and wrong-head/failed-source negatives reaching actual fetch/tree boundaries. Both complete workflow ordinary/alias native Core/separate-Admin positives and workflow negatives use an explicitly exact shallow source before unchanged native assertions. All31 independent adversaries, native mandatory vectors, private/public authority and earlier8+3/finite-timeout/normal-publication repairs remain required. The other11 full-suite failures stay with their separate owners (#1591/#1593/#1595/#1596/#1599/#1601 and parent routing); no source is copied from those lanes.
 
 No source execution/import/parser/compiler/test/helper/npm/install/native ACL/lifecycle is authorized locally. Authored regressions are UNEXECUTED. Different fresh ENTIRE cumulative SOURCE GO and NEW complete-input ROOT admission precede any local execution; full three-OS/compiler/native/operator/product/natural-CI/publication/same-byte gates remain unmet. Parent owns tracking; no main access, nested agents, deadline/concurrency/skip/permission weakening, rerun/dispatch/cancel/settings, merge/publication or cleanup.
+## Core PR #1681 distinct06 recovery author checkpoint (2026-10-06)
+
+SPEC-002 AC-4DI.4/R3/C3, Development SOURCE ONLY. Sole retained 78a5 successor
+records baseline/material recovery in CORE1681_DISTINCT06_RECOVERY.md. Corrects
+F1 actual predicate lifecycle roles, F2 actual owning callee/native/value closure,
+F3 shared acquisition interrupt retention and the natural78 clean-positive CLR
+exception-classification regression together. Original managed/native launcher
+source, binaries/pins, protected full acceptance and earlier C1-C3/R1-R4 survive.
+New guard and acquired-owner interruption observer cases are UNRUN. The required
+independently admitted original native fixture actor remains absent; no native
+status/handle/module is fabricated. Callback failure and original primary stay
+on the same live owner; trust pending-provider inputs guard its enclosing finally.
+
+Manual source/Git checks only. Push the complete source to the same retained
+PR1681/develop, freeze cumulative current/base/original historical bindings,
+then author STOP for a different fresh ENTIRE reviewer and NEW actual-input ROOT
+plus parent admission. No target imports/parsers/tests/build/compiler/native/ENV/
+ACL, no main/rebase/force/settings/rerun/cancel/cleanup/merge/publication/GA.
+All old private/native/compiler/sharing failures, ad82/noROOT and natural78
+source/product failures remain failed history. Worktree/branch remains retained
+for the bounded review/landing path; parent owns tracking and qualification.

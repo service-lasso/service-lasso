@@ -477,3 +477,17 @@ parent owns tracking/landing/qualification, no release authority.
 
 - [ ] #1712: implement entrypoint-owned EOF shutdown; prove genuine child/API closure and actual Windows packaged cleanup, preserve prior failures and independent review/admission limits.
 - [ ] #1710: repair R2 activation ordering, retain original classification/channel assertions, obtain distinct entire review and new complete-input ROOT admission before execution; then prove the original observer gate.
+
+## #1681 distinct06 whole-source recovery (2026-10-06)
+
+SPEC-002 AC-4DI.4 / R3 / C3, Development SOURCE ONLY. The pre-mutation baseline,
+GOV-02 stable G1 failure lineage and materially new F1 predicate/F2 actual callee/
+F3 acquisition-interruption diagnoses are recorded in
+CORE1681_DISTINCT06_RECOVERY.md. Consume actual predicate AND statement effects,
+original lifecycle order/cardinality and reachable owning callee closure; retain
+same original trust/MSI owner and every callback/interruption observation without
+native-input cleanup or receipt escape. Add actual-source preserve-token negatives
+and pure structural positives; original protected evidence and all pins remain.
+Different fresh ENTIRE review plus NEW complete actual-input ROOT and parent
+admission precede execution. Sole retained PR1681 recovery owner; parent owns
+tracking/landing/qualification. Every prospective case remains SOURCE_UNRUN.
