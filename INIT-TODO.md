@@ -370,4 +370,5 @@ Development source-only repair bound to SPEC-002 AC-4DOC.1690 and existing SPEC-
 
 PR #1624 current receiving checkpoint: normal develop integration of `ce832478da5ad6997ffcb9c82aab95cdf55b1d06` (PR #1707 TAR framing landing). The preceding b0c checkpoint is historical provenance. Complete receiving TAR/header/framing/link source and all original owning-observation contracts are preserved. Source preparation only; DIFFERENT fresh ENTIRE review and NEW complete-input ROOT admission remain required before execution.
 
+- [ ] #1712: implement entrypoint-owned EOF shutdown; prove genuine child/API closure and actual Windows packaged cleanup, preserve prior failures and independent review/admission limits.
 - [ ] #1710: repair R2 activation ordering, retain original classification/channel assertions, obtain distinct entire review and new complete-input ROOT admission before execution; then prove the original observer gate.
