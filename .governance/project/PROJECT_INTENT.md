@@ -1,5 +1,9 @@
 # Project Intent
 
+## Sequential release-versioning credential custody (#1716)
+
+Source-only repair under SPEC-002 AC-4CG.1716 retains the original artifact/package version gate and captures the step metadata credential once before child staging, reusing the private local explicitly across both stagers. A separate closed-response regression must prove artifact-to-package reuse, environment removal and headerless downloads. Historical PR37392084646 test1478 HTTP403 and same-source push37392078704 remain preserved; the provider refusal cause is UNKNOWN. No production auth policy, permissions, retries, identities or publication authority changes. Execution remains UNRUN until a NEW complete actual-input ROOT, a different fresh ENTIRE cumulative review and parent admission.
+
 ## Mac readiness follow-up (2026-10-05, #1675)
 
 The owner requested native Mac testing, demonstrated-defect fixes and a review of Mac GA activities. [Mac readiness activities](../../docs/development/macos-readiness.md) maps SPEC-006 AC-6E and SPEC-007 AC-7F/7G/7H to the bounded source experiment, existing packaged/operator investigations and deferred #1330 paired browser proof. The guarded lifecycle scenario passed unchanged after premature diagnostic limits; no product patch is justified by those interruptions. The legacy macOS 11 host does not meet current Playwright's macOS 14+ browser prerequisite. This follow-up does not revise the current Windows/Linux GA scope, weaken executable evidence, or authorize publication or an OS upgrade.

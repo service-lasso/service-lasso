@@ -224,6 +224,65 @@ test("workflow-projected metadata token stages package, normal, and bundled arti
   }
 });
 
+test("one consumed metadata credential survives artifact then package staging without environment reacquisition", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "operator-tool-versioning-"));
+  const metadataAuthorization = [];
+  const assetAuthorization = [];
+  const originalFetch = globalThis.fetch;
+  const originalToken = process.env.SERVICE_LASSO_RELEASE_METADATA_TOKEN;
+  const originalOffline = process.env.npm_config_offline;
+  const expectedToken = "versioning-fixture-token";
+  try {
+    const fixtureFetch = fixtureReleaseFetch({ metadataAuthorization, assetAuthorization });
+    globalThis.fetch = async (url, options = {}) => {
+      if (new URL(url).hostname === "api.github.com") {
+        assert.ok(options.headers?.authorization === `Bearer ${expectedToken}`, "both stagers must authenticate every metadata read with the retained local");
+      } else {
+        assert.equal(options.headers?.authorization, undefined);
+      }
+      return fixtureFetch(url, options);
+    };
+    process.env.npm_config_offline = "true";
+    const { stageReleaseArtifact, stagePublishedPackage } = await importFixtureStagers(root);
+    process.env.SERVICE_LASSO_RELEASE_METADATA_TOKEN = ` ${expectedToken} `;
+    const releaseMetadataToken = consumeReleaseMetadataToken();
+    assert.equal(process.env.SERVICE_LASSO_RELEASE_METADATA_TOKEN, undefined);
+
+    const released = stageReleaseArtifact({
+      repoRoot: path.resolve(),
+      outputRoot: path.join(root, "release"),
+      version: "0.1.0-versioning.fixture",
+      releaseMetadataToken,
+    });
+    assert.equal(process.env.SERVICE_LASSO_RELEASE_METADATA_TOKEN, undefined);
+    const stagedRelease = await released;
+    assert.equal(stagedRelease.manifest.operatorToolsManifest, "operator-tools/manifest.json");
+    const firstStageMetadataCount = metadataAuthorization.length;
+    assert.equal(firstStageMetadataCount, 4);
+
+    const published = stagePublishedPackage({
+      repoRoot: path.resolve(),
+      outputRoot: path.join(root, "package"),
+      version: "0.1.0-versioning.fixture",
+      releaseMetadataToken,
+    });
+    assert.equal(process.env.SERVICE_LASSO_RELEASE_METADATA_TOKEN, undefined);
+    const stagedPackage = await published;
+    assert.equal(stagedPackage.manifest.operatorToolsManifest, "operator-tools/manifest.json");
+    assert.equal(metadataAuthorization.length - firstStageMetadataCount, 4);
+    assert.ok(assetAuthorization.length > 0);
+    assert.ok(assetAuthorization.every(authorization => authorization === undefined));
+    assert.equal(process.env.SERVICE_LASSO_RELEASE_METADATA_TOKEN, undefined);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalToken === undefined) delete process.env.SERVICE_LASSO_RELEASE_METADATA_TOKEN;
+    else process.env.SERVICE_LASSO_RELEASE_METADATA_TOKEN = originalToken;
+    if (originalOffline === undefined) delete process.env.npm_config_offline;
+    else process.env.npm_config_offline = originalOffline;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("operator tools stage only checksum-verified release bytes", async () => {
   const sums = tuiSums;
   const root = await mkdtemp(path.join(os.tmpdir(), "operator-tools-"));
