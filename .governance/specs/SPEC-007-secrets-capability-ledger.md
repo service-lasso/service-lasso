@@ -414,3 +414,6 @@ qualification. Add actual-reader positives for pending global zero and 1 MiB+1
 before bounded local/GNU/PAX, pending local zero before bounded GNU/PAX and a
 following size override. All additions remain SOURCE_UNRUN pending DIFFERENT
 ENTIRE review and NEW complete execution-input ROOT admission.
+
+
+Issue #1718 / SPEC-007 AC-7F, AC-7G: resolve the official proxy-addr 2.0.8 patch for GHSA-jqcg-44mw-7w3h without weakening audits, overrides, consumer ranges or protected qualification. Source-only until fresh whole review and parent execution admission; thirteen native/product gates remain unqualified.
