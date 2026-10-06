@@ -31,10 +31,44 @@ async function gitRead(args) {
 async function copyTrackedSource(mode) {
   assert.notEqual(process.platform, 'win32',
     'this standalone Linux consumer job does not admit Windows filesystems without complete reparse-attribute verification');
-  assert.equal((await gitRead(['status', '--porcelain=v1', '-z'])).length, 0,
-    'qualification source must be a clean committed checkout');
+  const status = await gitRead(['status', '--porcelain=v1', '-z']);
   const head = (await gitRead(['rev-parse', 'HEAD'])).toString('utf8').trim();
+  const tree = (await gitRead(['rev-parse', 'HEAD^{tree}'])).toString('utf8').trim();
   const index = await gitRead(['ls-files', '--stage', '-z']);
+  await writeFile(path.join(root, `${mode}-source-status.raw`), status);
+  await writeFile(path.join(root, `${mode}-source-index.raw`), index);
+  await writeFile(path.join(root, `${mode}-source-head.txt`), `${head}\n${tree}\n`);
+  const diagnostic = { mode, head, tree, statusBytes: status.length,
+    statusSha256: sha256(status), indexSha256: sha256(index), changedTracked: [] };
+  if (status.length) {
+    const diff = await gitRead(['diff', '--no-ext-diff', '--no-textconv', '--binary', 'HEAD', '--']);
+    await writeFile(path.join(root, `${mode}-source-tracked.diff`), diff);
+    diagnostic.trackedDiffSha256 = sha256(diff);
+    const changed = await gitRead(['diff', '--no-ext-diff', '--no-textconv', '--name-only', '-z', 'HEAD', '--']);
+    await writeFile(path.join(root, `${mode}-source-tracked-changed.raw`), changed);
+    for (const relative of changed.toString('utf8').split('\0').filter(Boolean)) {
+      const metadata = { path: relative };
+      try {
+        assert.ok(!path.isAbsolute(relative) && relative.split('/').every((part) => part && part !== '..' && part !== '.'));
+        const parts = relative.split('/');
+        for (let count = 1; count <= parts.length; count++) {
+          const stat = await lstat(path.join(repo, ...parts.slice(0, count)));
+          assert.ok(!stat.isSymbolicLink());
+          assert.ok(count === parts.length ? stat.isFile() : stat.isDirectory());
+        }
+        const bytes = await readFile(path.join(repo, relative));
+        metadata.bytes = bytes.length; metadata.sha256 = sha256(bytes);
+      } catch (error) {
+        metadata.readRefused = error.message;
+      }
+      diagnostic.changedTracked.push(metadata);
+    }
+  }
+  await writeFile(path.join(root, `${mode}-source-diagnostic.json`), JSON.stringify(diagnostic, null, 2));
+  receipt.sourceDiagnostics ??= [];
+  receipt.sourceDiagnostics.push(diagnostic);
+  await save();
+  assert.equal(status.length, 0, 'qualification source must be a clean committed checkout');
   const source = path.join(root, mode, 'source');
   const inventory = [];
   const sourceStat = await lstat(repo);
