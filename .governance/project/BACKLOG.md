@@ -1,5 +1,7 @@
 # Backlog
 
+- #1716 (parent #1562), in_progress: SPEC-002 AC-4CG.1716 / SPEC-007 AC-7G. Repair only sequential release-versioning caller credential reuse; preserve original live gate and add closed-response artifact-to-package regression. New vectors UNRUN pending complete-input freeze, different fresh ENTIRE review and parent admission. Historical provider403 cause UNKNOWN; no auth-policy, provider settings, retry, release or cleanup change.
+
 PR1638 #1626 scoped npm argv correction (85ca successor): in_progress, SPEC-008 R3/R5/R6. Replace only the owned scoped preparer's cmd-string npm boundary with the landed canonical descriptor; preserve caller options, original Error/output/close behavior, one pre-mutation retry and first failure. Add actual receiving-child/legal-hostile-root/env override/integrity/installed-fixture and failure regressions without weakening protected gates. Sources UNEXECUTED; different ENTIRE cumulative review and NEW complete-input ROOT admission remain pending. R1-R7/F1/F2/F3/R5, EMPTY catalogs, prior failures/private evidence/native and owner GA gates remain required. Parent retains CodeQL19 conversation disposition and tracking/landing.
 
 
