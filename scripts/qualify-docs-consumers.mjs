@@ -241,8 +241,16 @@ async function browserCheck(buildResult, expected) {
       await writeFile(path.join(root, record.savedBody), bytes, { flag: 'wx' });
       record.savedSha256 = sha256(await readFile(path.join(root, record.savedBody)));
       assert.equal(record.savedSha256, record.readSha256);
-      response.writeHead(200, { 'Content-Type': mime[path.extname(file)] ?? 'application/octet-stream',
-        'X-Qualification-Request-Id': record.id });
+      response.setHeader('Content-Type', mime[path.extname(file)] ?? 'application/octet-stream');
+      response.setHeader('Content-Length', String(bytes.length));
+      response.setHeader('X-Qualification-Request-Id', record.id);
+      record.responseHeaders = response.getHeaders();
+      record.writtenBytes = bytes.length; record.writtenSha256 = sha256(bytes);
+      assert.equal(record.responseHeaders['content-length'], String(record.writtenBytes));
+      assert.equal(record.writtenBytes, record.readBytes);
+      assert.equal(record.writtenSha256, record.readSha256);
+      assert.equal(record.writtenSha256, record.savedSha256);
+      response.writeHead(200);
       response.end(bytes);
     } catch (error) {
       record.errors.push({ stage: 'serve', ...describeError(error) });
