@@ -1,5 +1,11 @@
 # Core Standalone Runtime
 
+## AC-4BJ.9c.row-isolation (#1720; parent #1562)
+
+Each of the seven formal startup crash rows and both recovered-compensation rows runs in a fresh Node test-file process. A retained failure must not leave process-global lifecycle state visible to a subsequent row with a different workspace. Keep the original row bodies, Error identity assertions within their owning process, native ownership/enrollment, generation/allocation/residue/absence, unrelated-process survival, deadlines, privacy and fail-closed removal/reset assertions unchanged. Do not reset earlier retained failures or replace the native isolation boundary to satisfy this requirement.
+
+The original matrix metadata entrypoint remains present; nine separate row entrypoints call the shared protected row bodies. Complete-suite discovery and the selected-phase workflow include every entrypoint. Existing phase selection remains unchanged. Separate review of the complete protected-evidence move precedes acceptance; validate exact row-body preservation and actual fresh-process execution. Container prerequisite fixes and source fixture corrections already landed in #1708 are separate checks. Positive removal/reset remains blocked by #1640; F7 remains owned by #1687. Local test results cannot satisfy those native gates.
+
 ## AC-4CG.1716 sequential versioning credential custody (#1716; parent #1562)
 
 The release-versioning artifact-then-package caller consumes the step-scoped metadata credential once before child work and passes the same private local explicitly to both stagers. Preserve the original live staging and every version assertion. A separate deterministic closed-response regression exercises the real sequential stagers with a synthetic credential, rejects missing bearer at every fixed metadata read, proves synchronous environment removal and keeps downloads unauthenticated. Existing protected operator identity, byte validation, metadata route restrictions and production auth policy remain unchanged; no GITHUB_TOKEN fallback or retry expansion.
