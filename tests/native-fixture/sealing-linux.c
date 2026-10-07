@@ -177,6 +177,8 @@ int lf_sealing_begin(struct lf_sealing *seal, struct lf_thread_history *history,
   for (size_t i = 0; i < history->record_count; i++)
     if (history->records[i].awaiting_creator_event)
       return failed(seal, history, 0, EPROTO);
+  if (lf_close_return_check(history, &seal->original_close_returns) < 0)
+    return failed(seal, history, 0, errno);
   if (lf_task_census_check(history->entry_gate.held_pidfd, in->held_proc_directory,
       in->held_workload_cgroup, history->root_tid, seal->tids, seal->tid_count,
       &seal->before_tasks) < 0)

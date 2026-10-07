@@ -200,6 +200,8 @@ int lf_thread_history_next(struct lf_thread_history *history) {
     record->awaiting_creator_event = true;
     return 1;
   }
+  record->causal_entry_ordinal = record->actual.stop == LF_TRACE_SYSCALL_ENTRY ?
+      history->record_count : (thread->syscall_pending ? thread->entry_ordinal : 0);
   if (accept(history, thread, &record->actual, history->record_count) < 0)
     return -1;
   return 1;

@@ -4,6 +4,7 @@
 #include "thread-history-linux.h"
 #include "filter-inspection-linux.h"
 #include "task-census-linux.h"
+#include "close-return-linux.h"
 
 struct lf_seal_memory_read {
   uintptr_t address;
@@ -49,6 +50,7 @@ struct lf_sealing {
   struct lf_filter_inspection after_filters;
   struct lf_task_census before_tasks;
   struct lf_task_census after_tasks;
+  struct lf_close_return original_close_returns;
 };
 
 /* Internal trusted S, once-zero-initialized state and continuously held inputs.

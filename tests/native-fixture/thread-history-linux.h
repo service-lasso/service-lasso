@@ -28,6 +28,7 @@ struct lf_thread_history_entry {
 };
 struct lf_thread_history_record {
   struct lf_trace_observation actual;
+  uint64_t causal_entry_ordinal;
   bool awaiting_creator_event;
   bool gate_checked;
   bool gate_closed_during_memory_wait;
