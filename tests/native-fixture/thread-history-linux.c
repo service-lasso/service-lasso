@@ -66,6 +66,10 @@ static int accept(struct lf_thread_history *history,
           (actual->syscall_is_error ||
            actual->syscall_result != thread->pending_clone_tid))
         return fail(history, 0, EPROTO);
+      if (thread->inherited_clone_return_pending &&
+          (actual->syscall_is_error || actual->syscall_result != 0))
+        return fail(history, 0, EPROTO);
+      thread->inherited_clone_return_pending = false;
       thread->syscall_pending = false;
       thread->exit_ordinal = ordinal;
       if (restart_result(actual->syscall_result)) {
@@ -95,6 +99,15 @@ static int accept(struct lf_thread_history *history,
       memset(born, 0, sizeof(*born));
       born->tid = child; born->creator_tid = thread->tid;
       born->awaiting_birth_stop = true;
+      /* The child is born INSIDE this genuinely observed parent clone. Its
+       * tracing birth stop precedes returning from the same kernel call with
+       * retval0. Do not invent an independent child entry stop or reject its
+       * real first exit as an orphan. Preserve the actual causal ordinal. */
+      born->syscall_pending = true;
+      born->syscall_number = thread->syscall_number;
+      memcpy(born->arguments, thread->arguments, sizeof(born->arguments));
+      born->entry_ordinal = thread->entry_ordinal;
+      born->inherited_clone_return_pending = true;
       size_t matches = 0;
       for (size_t i = 0; i < history->record_count; i++) {
         struct lf_thread_history_record *record = &history->records[i];

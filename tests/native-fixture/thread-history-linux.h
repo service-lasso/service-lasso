@@ -13,6 +13,7 @@ struct lf_thread_history_entry {
   bool actually_exited;
   bool currently_stopped;
   pid_t pending_clone_tid;
+  bool inherited_clone_return_pending;
   uint64_t syscall_number;
   uint64_t arguments[6];
   uint64_t entry_ordinal;
