@@ -1,5 +1,7 @@
 # Linux original-isolate removal repair — #1724
 
+Current selection: ADR-003 selects the complete 171473fd reviewed design/protocol for Linux source preparation. Proposal wording below retains the frozen review chronology; it no longer blocks source authoring. Implementation/native qualification remain incomplete.
+
 Status: whole architecture revision for independent review, not selected implementation or native qualification. Owner: the current Linux repair chat, directly instructed by the user on 2026-10-07 to perform this repair itself. Existing #1640/#1687 branch custody remains unchanged. This child starts from develop ce56f59245821eefd2232cdec05e2cb42bd044e4. No main input, merge, release or resource activation authority.
 
 ## Required outcome and inherited design

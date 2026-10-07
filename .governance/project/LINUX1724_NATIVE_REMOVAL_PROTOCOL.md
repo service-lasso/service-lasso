@@ -1,5 +1,7 @@
 # Linux #1724 barrier and protected-operation protocol
 
+Current selection: ADR-003 selects this complete protocol after architecture GO at171473fd. Source preparation is active; proposal-status chronology below does not grant implementation acceptance or executable admission.
+
 Status: proposed complete algorithm for a DIFFERENT whole review; not an ADR selection, source implementation or native admission. This closes the choices named by the073e2902 review. It is read with LINUX1724_NATIVE_REMOVAL_DESIGN.md, the complete inherited D1-D8 blueprint/review, ADR-002 and the ONE canonical F7 inventory. Unknown runtime inputs retain failure; source design completeness is separate from later direct qualification.
 
 ## Admission and irreversible state machine

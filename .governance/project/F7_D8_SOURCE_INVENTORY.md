@@ -6,8 +6,11 @@ Status: planned source contract awaiting distinct entire canonical review. Every
 
 ## Source ownership map
 
+Linux #1724 / ADR-003 supersedes the historical U4 D1 NO_GO for source authoring only. Its Linux source is being prepared on fix/1724-linux-native-fixture-removal without changing existing #1640/#1687 branches. Local terminal-policy-linux.c/.h implement classic-BPF construction and actual TSYNC dispatch as a U4 internal component; the full supervisor/drain/inspection/launcher/native client and U1-U3 dependencies remain incomplete. No actual resource, final SOURCE GO or execution claim follows.
+
 | Planned path / existing target | Sole implementation unit | Actor and boundary | Current fact |
 | --- | --- | --- | --- |
+| tests/native-fixture/terminal-policy-linux.c/.h | U4 #1724 Linux terminal-policy component | Exact native-x86_64 syscall/argument/held-FD catalog, checked BPF construction, actual TSYNC result; no census or credential authority from caller numbers | AUTHORED / UNEXECUTED; complete U4 integration and final review pending |
 | tests/native-fixture/protocol.h; protocol.md; custody-schema.md | U1 shared native custody | Closed versions/enums/direction/state/correlation/sequence/ordinal/raw-name encoding; no caller pathname authority | ABSENT |
 | tests/native-fixture/observer-linux.c; observer-windows.cpp; capture-spool.c/.h; witness.c/.h | U1 complete O capture | O precedes all S/addon/compiler/privacy/provision/guardian/Core actions; independent concurrent drain, original native EOF, held persistent raw/error/witness bytes | ABSENT |
 | tests/native-fixture/transport-crypto.c/.h; canonical-index.c/.h; recovery-linux.c; recovery-windows.cpp | U1 complete O capture and durable successor | O encryption/signature once, ALL independent persisted readback; recovery custodian issues SAME read-only objects to separately admitted T successor | ABSENT |
