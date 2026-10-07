@@ -1,0 +1,26 @@
+diff --git a/src/node_main.cc b/src/node_main.cc
+--- a/src/node_main.cc
++++ b/src/node_main.cc
+@@ -20,6 +20,10 @@
+ 
+ #include "node.h"
+ #include <cstdio>
++#if defined(__linux__) && defined(SERVICE_LASSO_F7_ORIGINAL_ENTRY)
++#include "f7-w-original-entry-linux.h"
++#endif
++
+ 
+ #ifdef _WIN32
+ #include <windows.h>
+@@ -91,6 +95,11 @@
+ // UNIX
+ 
+ int main(int argc, char* argv[]) {
++#if defined(__linux__) && defined(SERVICE_LASSO_F7_ORIGINAL_ENTRY)
++  if (f7_w_original_entry_before_node(argc, argv) != F7_W_ENTRY_RELEASED) {
++    return 71;
++  }
++#endif
+   return node::Start(argc, argv);
+ }
+ #endif
