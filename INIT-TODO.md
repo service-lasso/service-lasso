@@ -1,5 +1,7 @@
 # Bootstrap Adoption TODO
 
+- [ ] #1728 / PR #1729: review the complete original Linux ROOT creator receiving profile, then implement the opaque creator and once-only connected caller under SPEC-010 F7-01..F7-09. Dependency PR #1725 contains selected whole Alternative A; pending landing does not supply its source in this checkout. Preserve original protected tests and all eleven failures. Different complete final-source review and NEW complete-input ROOT precede any compiler/import/build/test/native action; actual resources and all-nine/four-custody numeric catalogs remain absent.
+
 - #1716 active source remediation: SPEC-002 AC-4CG.1716 sequential artifact/package versioning caller retains one consumed private metadata credential. Preserve original assertions and auth policy; deterministic regression and original live gate remain UNRUN pending NEW complete actual-input ROOT, different fresh ENTIRE review and parent admission. Provider403 cause remains UNKNOWN.
 
 ## Mac readiness documentation remediation (2026-10-05, #1675)
