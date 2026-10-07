@@ -109,6 +109,7 @@ namespace ServiceLasso.SourceAcquisition
         internal string Eligibility = "UNQUALIFIED_INPUT";
         internal Exception OriginalException;
         internal Exception RecordingFailure, ObserverFailure;
+        internal bool CloseObservationFailed;
         internal string LastOriginalOperation;
         internal long LastOriginalStatus;
     }
@@ -330,6 +331,19 @@ namespace ServiceLasso.SourceAcquisition
                 throw new Quota("STREAM_CHUNKS");
             }
         }
+        private void ObserveCloseResult(string operation, uint status)
+        {
+            // The actual primitive result is already in its original resource.
+            // A post-call diagnostic failure cannot unclose it or prevent the
+            // remaining independently safe original releases.
+            try { Observe(operation, status); }
+            catch (Exception recording)
+            {
+                receipt.CloseObservationFailed = true;
+                receipt.RecordingFailure = recording;
+                receipt.Eligibility = "UNQUALIFIED_INPUT";
+            }
+        }
         private void Release(NativeResource resource)
         {
             if (pendingCall != null) Retain("PENDING_ORIGINAL_MSI_CALL");
@@ -340,13 +354,14 @@ namespace ServiceLasso.SourceAcquisition
                 {
                     Before("MsiViewClose", resource.Ordinal.ToString());
                     uint viewStatus = Call("MsiViewClose", () => api.ViewClose(resource.Handle));
-                    Observe("MsiViewClose", viewStatus);
+                    resource.ViewCloseStatus = viewStatus;
+                    ObserveCloseResult("MsiViewClose", viewStatus);
                     if (viewStatus != 0) Retain("FAILED_ORIGINAL_VIEW_CLOSE");
                 }
                 Before("MsiCloseHandle", resource.Ordinal.ToString());
                 uint status = Call("MsiCloseHandle", () => api.HandleClose(resource.Handle));
                 resource.CloseStatus = status;
-                Observe("MsiCloseHandle", status);
+                ObserveCloseResult("MsiCloseHandle", status);
                 if (status != 0) Retain("FAILED_ORIGINAL_HANDLE_CLOSE");
             }
             catch (Exception original)
@@ -480,12 +495,13 @@ namespace ServiceLasso.SourceAcquisition
                 foreach (string table in Tables) ReadTable(database, table);
                 JoinSchema(); ReadSummary(database);
                 // Installed context/cabinet/source/association are not supplied by these table observations.
-                receipt.Eligibility = "FORMAT_OBSERVED_JOIN_UNQUALIFIED";
+                if (!receipt.CloseObservationFailed) receipt.Eligibility = "FORMAT_OBSERVED_JOIN_UNQUALIFIED";
                 return receipt;
             }
             catch (Exception original)
             {
-                receipt.OriginalException = original; receipt.Eligibility = "UNQUALIFIED_INPUT";
+                if (receipt.OriginalException == null) receipt.OriginalException = original;
+                receipt.Eligibility = "UNQUALIFIED_INPUT";
                 try { api.Module.ObserveOriginalException("MsiReadOnly.Read", original); }
                 catch (Exception observer) { receipt.ObserverFailure = observer; }
                 return receipt;

@@ -275,7 +275,7 @@ function retention(nodes) {
 function invocationBindings(body) {
   const declared = members(body), fields = declared.filter((value) => value.body === null), methods = declared.filter((value) => value.body !== null);
   fieldSet(fields, ["internal readonly List<OriginalObservation> Outcomes = new List<OriginalObservation>()", "internal readonly List<FileStream> Files",
-    "internal IntPtr Job, Process, Thread, Directory", "internal Exception Primary", "internal Exception RecordingFailure", "internal Exception UnrecordedException", "internal int PrimaryResult", "internal bool Failed",
+    "internal IntPtr Job, Process, Thread, Directory", "internal Exception Primary", "internal Exception RecordingFailure", "internal Exception UnrecordedException", "internal int PrimaryResult", "internal int PrimaryNativeStatus", "internal bool KnownPrimaryFailure", "internal bool Failed",
     "internal bool ChildIssuanceUnresolved", "internal bool PrimaryWaitPending", "internal bool PrimaryWaitFailed", "internal HMACSHA256 Progress", "internal readonly List<EnvironmentOverride> EnvironmentOwners = new List<EnvironmentOverride>()"]);
   if (methods.length !== 5 || !["internal ManagedInvocation(List<FileStream> files)", "internal void Observe(string site, int status, bool failed, Exception exception)", "internal void ObservePrimary(string site, int status, bool failed, Exception exception)", "internal bool Release(ref IntPtr handle, string site, int ordinal)", "internal bool ReleaseFile(FileStream file, int ordinal)"].every((header) => methods.filter((value) => same(value.header, header)).length === 1)) fail("original invocation callee/member bindings");
   const constructor = method(body, "internal ManagedInvocation(List<FileStream> files)");
@@ -605,7 +605,7 @@ const callerWrites = new Set([
   "actualSha256", "finalPathBuffer", "finalPathLength", "finalPath", "resolvedExecutable", "resolvedArgs", "boundPath",
   "failureExitCode", "startupInfo", "startupInfo.cb", "startupInfo.dwFlags", "startupInfo.wShowWindow",
   "startupInfo.hStdInput", "startupInfo.hStdOutput", "startupInfo.hStdError", "commandLine", "targetCreated",
-  "targetCreationError", "original", "acknowledgment", "targetWait", "targetWaitError",
+  "targetCreationError", "targetExitError", "original", "acknowledgment", "targetWait", "targetWaitError",
 ]);
 const declarations = new Set(["string", "byte", "LaunchPayload", "ApprovedFile", "FileStream", "StringBuilder", "uint", "bool", "int", "StartupInfo", "ProcessInformation", "Win32Exception", "OriginalObservation"]);
 // Reads are closed as well as calls/writes. An unknown receiver could be a
@@ -633,13 +633,13 @@ const controls = new Set([
   "payload.requireExecutableBinding && payload.executableBindingIndex < 0", "payload.executableBindingIndex >= 0",
   "argumentBinding == null || argumentBinding.index < 0 || argumentBinding.index >= resolvedArgs.Length",
   "jobHandle == IntPtr.Zero", "!File.Exists(resolvedExecutable)", "!Directory.Exists(payload.workingDirectory)",
-  "!targetCreated", "targetCreated", "invocation.Primary == null",
+  "!targetCreated", "targetCreated", "!invocation.KnownPrimaryFailure && invocation.Primary == null",
   "processHandle == IntPtr.Zero || threadHandle == IntPtr.Zero || processInformation.dwProcessId == 0",
   "!AssignProcessToJobObject(jobHandle, processHandle)", "ResumeThread(threadHandle) == UInt32.MaxValue",
   "payload.postResumeDelayMilliseconds > 0", '!invocation.Release(ref threadHandle, "target-thread-release", 0)',
   "original.Exception != null", "targetWait != WaitObject0", "!GetExitCodeProcess(processHandle, out exitCode)",
 ].map((value) => tokens(value).join(" ")));
-const protectedNames = new Set(["invocation", "boundFiles", "boundFile", "jobHandle", "processHandle", "threadHandle", "targetAssignedToJob", "targetCreated", "processInformation", "original", "Outcomes", "Files", "Primary", "PrimaryResult", "Failed", "Exception"]);
+const protectedNames = new Set(["invocation", "boundFiles", "boundFile", "jobHandle", "processHandle", "threadHandle", "targetAssignedToJob", "targetCreated", "processInformation", "original", "Outcomes", "Files", "Primary", "PrimaryResult", "PrimaryNativeStatus", "KnownPrimaryFailure", "Failed", "Exception"]);
 const ownershipEffects = [
   "ClearLaunchEnvironment(invocation)", "ThrowOriginalRetirementFailure(invocation)",
   "ValidateNativeLayouts()", "InitializeProgress()",
@@ -669,6 +669,9 @@ const ownershipEffects = [
   'invocation.Observe("target-primary-wait", targetWaitError, targetWait != WaitObject0, null)',
   "invocation.PrimaryResult = unchecked((int)exitCode)", "return invocation.PrimaryResult",
   "invocation.Primary = primary", "invocation.PrimaryResult = failureExitCode",
+  "invocation.PrimaryNativeStatus = targetCreationError", "invocation.PrimaryNativeStatus = targetExitError",
+  "invocation.KnownPrimaryFailure = true",
+  'Win32Exception original = new Win32Exception(targetExitError, "Managed target exit-code query failed.")',
   "Thread.Sleep(payload.postResumeDelayMilliseconds)",
   "WaitForGate(gatePath, payload.releaseToken, TimeSpan.FromSeconds(45))",
   "WaitForGate(payload.continuePath, payload.continueToken, TimeSpan.FromSeconds(45))",
@@ -737,11 +740,12 @@ function caller(nodes) {
   const outer = nodes[6];
   if (outer.kind !== "try" || outer.catches.length !== 1 || !same(outer.catches[0].binding, "Exception primary") || outer.final === null) fail("whole caller exception enclosure");
   const handler = outer.catches[0].body;
-  count(handler, 4);
-  branch(handler[0], "invocation.Primary == null", ["invocation.Primary = primary"]);
-  requireLeaf(handler[1], "invocation.PrimaryResult = failureExitCode");
-  branch(handler[2], "invocation.PrimaryWaitPending", ['invocation.Observe("target-primary-wait-unavailable", 0, true, primary)']);
-  requireLeaf(handler[3], "return failureExitCode");
+  count(handler, 5);
+  branch(handler[0], "!invocation.KnownPrimaryFailure && invocation.Primary == null", ["invocation.Primary = primary"]);
+  branch(handler[1], "!invocation.KnownPrimaryFailure", ["invocation.PrimaryResult = failureExitCode"]);
+  branch(handler[2], "invocation.KnownPrimaryFailure && invocation.Primary != primary", ["invocation.RecordingFailure = primary"]);
+  branch(handler[3], "invocation.PrimaryWaitPending", ['invocation.Observe("target-primary-wait-unavailable", 0, true, primary)']);
+  requireLeaf(handler[4], "return invocation.PrimaryResult");
   finalizer(outer.final);
 
   const seen = new Map(), loops = [], returns = [], predicates = new Map(), events = [];
@@ -805,7 +809,7 @@ function caller(nodes) {
   requireLeaf(release.node.body[0], 'OriginalObservation original = invocation.Outcomes.Find(o => o.Site == "target-thread-release" && o.Attempted)');
   branch(release.node.body[1], "original.Exception != null", ["throw original.Exception"]);
   requireLeaf(release.node.body[2], 'throw new Win32Exception(original.NativeStatus, "Managed target thread handle close failed.")');
-  branch(exit.node, "!GetExitCodeProcess(processHandle, out exitCode)", ['throw new Win32Exception(Marshal.GetLastWin32Error(), "Managed target exit-code query failed.")']);
+  branch(exit.node, "!GetExitCodeProcess(processHandle, out exitCode)", ['int targetExitError = Marshal.GetLastWin32Error()', 'invocation.PrimaryNativeStatus = targetExitError', 'invocation.PrimaryResult = failureExitCode', 'invocation.KnownPrimaryFailure = true', 'Win32Exception original = new Win32Exception(targetExitError, "Managed target exit-code query failed.")', 'invocation.Primary = original', 'throw original']);
   const ordered = [
     lookup("ValidateNativeLayouts()")[0].node, lookup("InitializeProgress()")[0].node,
     lookup("ClearLaunchEnvironment(invocation)")[0].node,
@@ -851,7 +855,7 @@ function caller(nodes) {
   // indirect aliases. Location excludes unreachable/conditional original roles.
   for (const effect of ownershipEffects) {
     if (["invocation.Primary = primary", "invocation.PrimaryResult = failureExitCode"].some((value) => same(effect, value))) continue;
-    lookup(effect.join(" "), same(effect, "ThrowOriginalRetirementFailure(invocation)") ? 3 : same(effect, "invocation.Primary = original") || same(effect, "invocation.ChildIssuanceUnresolved = false") ? 2 : 1);
+    lookup(effect.join(" "), same(effect, "ThrowOriginalRetirementFailure(invocation)") || same(effect, "invocation.Primary = original") ? 3 : ["invocation.ChildIssuanceUnresolved = false", "invocation.KnownPrimaryFailure = true", "throw original"].some(value => same(effect, value)) ? 2 : 1);
   }
   const acquired = lookup("FileStream boundFile = new FileStream(approvedFile.file, FileMode.Open, FileAccess.Read, FileShare.Read)")[0];
   const roster = lookup("boundFiles.Add(boundFile)")[0];
@@ -874,10 +878,10 @@ function caller(nodes) {
   count(creation.body, 4);
   requireLeaf(creation.body[0], "invocation.ChildIssuanceUnresolved = true");
   if (creation.body[1] !== create.node) fail("creation precedes original handle publication");
-  branch(creation.body[2], "!targetCreated", ["targetCreationError = Marshal.GetLastWin32Error()", "failureExitCode = TargetCreationFailureExitCode(targetCreationError)", 'Win32Exception original = new Win32Exception(targetCreationError, "Managed target creation failed.")', "invocation.Primary = original", "invocation.ChildIssuanceUnresolved = false", 'invocation.ObservePrimary("target-original-create", targetCreationError, true, original)', "throw original"]);
+  branch(creation.body[2], "!targetCreated", ["targetCreationError = Marshal.GetLastWin32Error()", "failureExitCode = TargetCreationFailureExitCode(targetCreationError)", "invocation.PrimaryNativeStatus = targetCreationError", "invocation.PrimaryResult = failureExitCode", "invocation.KnownPrimaryFailure = true", "invocation.ChildIssuanceUnresolved = false", 'Win32Exception original = new Win32Exception(targetCreationError, "Managed target creation failed.")', "invocation.Primary = original", 'invocation.ObservePrimary("target-original-create", targetCreationError, true, original)', "throw original"]);
   branch(creation.body[3], "targetCreated", ["processHandle = processInformation.hProcess", "threadHandle = processInformation.hThread", 'invocation.Observe("target-original-create", 0, false, null)']);
   count(creation.catches[0].body, 2);
-  branch(creation.catches[0].body[0], "invocation.Primary == null", ["invocation.Primary = original", 'invocation.Observe("target-original-create-throw", 0, true, original)']);
+  branch(creation.catches[0].body[0], "!invocation.KnownPrimaryFailure && invocation.Primary == null", ["invocation.Primary = original", 'invocation.Observe("target-original-create-throw", 0, true, original)']);
   requireLeaf(creation.catches[0].body[1], "throw");
   const resolved = lookup("invocation.ChildIssuanceUnresolved = false", 2);
   if (resolved.filter(row => row.ancestors.length === 0).length !== 1 ||
@@ -897,13 +901,14 @@ function directorySettlement(launcher) {
     'invocation.Observe("directory-sync-child-wait", status, waited != WaitObject0, null)',
     'return waited == WaitObject0'].forEach((role, at) => requireLeaf(wait[at], role));
   const query = method(launcher, "internal static bool ObserveDirectorySyncChildExit(ManagedInvocation invocation, IntPtr childProcess, out uint exitCode)");
-  count(query, 6);
+  count(query, 7);
   requireLeaf(query[0], 'bool exitKnown = GetExitCodeProcess(childProcess, out exitCode)');
   requireLeaf(query[1], 'int exitError = exitKnown ? 0 : Marshal.GetLastWin32Error()');
-  requireLeaf(query[2], 'Win32Exception original = exitKnown ? null : new Win32Exception(exitError, "Directory sync child exit-code query failed.")');
-  branch(query[3], '!exitKnown', ['invocation.Primary = original']);
-  requireLeaf(query[4], 'invocation.ObservePrimary("directory-sync-child-exit-query", exitError, !exitKnown, original)');
-  requireLeaf(query[5], 'return exitKnown');
+  branch(query[2], '!exitKnown', ['invocation.PrimaryNativeStatus = exitError', 'invocation.PrimaryResult = DirectorySyncLaunchChildFailed', 'invocation.KnownPrimaryFailure = true']);
+  requireLeaf(query[3], 'Win32Exception original = exitKnown ? null : new Win32Exception(exitError, "Directory sync child exit-code query failed.")');
+  branch(query[4], '!exitKnown', ['invocation.Primary = original']);
+  requireLeaf(query[5], 'invocation.ObservePrimary("directory-sync-child-exit-query", exitError, !exitKnown, original)');
+  requireLeaf(query[6], 'return exitKnown');
   const finish = method(launcher, 'internal static void FinishDirectorySyncInvocation(ManagedInvocation invocation, bool childClosed, ref IntPtr childThread, ref IntPtr childProcess, ref IntPtr directory)');
   count(finish, 6);
   branch(finish[0], 'invocation.ChildIssuanceUnresolved || (childProcess != IntPtr.Zero && !childClosed)', ['RetainManagedInvocation(invocation)']);
@@ -921,11 +926,14 @@ function directorySettlement(launcher) {
     'bool childClosed = false'].forEach((role, at) => requireLeaf(route[at], role));
   const owned = route[6];
   if (owned.kind !== 'try' || owned.catches.length !== 1 || !same(owned.catches[0].binding, 'Exception primary') || !owned.final) fail('original directory invocation enclosure');
-  count(owned.body, 41); count(owned.catches[0].body, 3); count(owned.final, 4);
+  count(owned.body, 41); count(owned.catches[0].body, 4); count(owned.final, 4);
   requireLeaf(owned.body[8], 'invocation.Files.Capacity = 1');
   // Consume the sole pre-acquisition reservation before the unchanged roles.
   owned.body.splice(8, 1);
-  ['invocation.Primary = primary', 'invocation.PrimaryResult = DirectorySyncLaunchBindingInvalid', 'return DirectorySyncLaunchBindingInvalid'].forEach((role, at) => requireLeaf(owned.catches[0].body[at], role));
+  branch(owned.catches[0].body[0], '!invocation.KnownPrimaryFailure && invocation.Primary == null', ['invocation.Primary = primary']);
+  branch(owned.catches[0].body[1], '!invocation.KnownPrimaryFailure', ['invocation.PrimaryResult = DirectorySyncLaunchBindingInvalid']);
+  branch(owned.catches[0].body[2], 'invocation.KnownPrimaryFailure && invocation.Primary != primary', ['invocation.RecordingFailure = primary']);
+  requireLeaf(owned.catches[0].body[3], 'return invocation.PrimaryResult');
   ['invocation.Process = childProcess', 'invocation.Thread = childThread', 'invocation.Directory = directoryHandle',
     'FinishDirectorySyncInvocation(invocation, childClosed, ref childThread, ref childProcess, ref directoryHandle)'].forEach((role, at) => requireLeaf(owned.final[at], role));
   const effects = new Map([
@@ -962,9 +970,10 @@ function directorySettlement(launcher) {
   branch(owned.body[17], 'directoryHandle == new IntPtr(-1)', ['directoryHandle = IntPtr.Zero', 'return DirectorySyncLaunchBindingInvalid']);
   branch(owned.body[19], '!SameWindowsPath(directoryFinalPath, requestedDirectory)', ['return DirectorySyncLaunchBindingInvalid']);
   branch(owned.body[27], '!childCreated', ['int createError = Marshal.GetLastWin32Error()',
+    'invocation.PrimaryNativeStatus = createError', 'invocation.PrimaryResult = DirectorySyncLaunchCreateFailed',
+    'invocation.KnownPrimaryFailure = true', 'invocation.ChildIssuanceUnresolved = false',
     'Win32Exception original = new Win32Exception(createError, "Directory sync child creation failed.")', 'invocation.Primary = original',
-    'invocation.PrimaryResult = DirectorySyncLaunchCreateFailed', 'invocation.ObservePrimary("directory-sync-child-create", createError, true, original)',
-    'invocation.ChildIssuanceUnresolved = false', 'return DirectorySyncLaunchCreateFailed']);
+    'invocation.ObservePrimary("directory-sync-child-create", createError, true, original)', 'return DirectorySyncLaunchCreateFailed']);
   branch(owned.body[31], 'childProcess == IntPtr.Zero || childThread == IntPtr.Zero || processInformation.dwProcessId == 0', ['throw new InvalidOperationException("Directory sync child process evidence was invalid.")']);
   branch(owned.body[34], '!childClosed', ['invocation.PrimaryResult = DirectorySyncLaunchChildFailed', 'return DirectorySyncLaunchChildFailed']);
   branch(owned.body[37], '!exitKnown || exitCode != 0', ['invocation.PrimaryResult = DirectorySyncLaunchChildFailed', 'return DirectorySyncLaunchChildFailed']);
@@ -997,6 +1006,18 @@ export function assertAcquisitionRecordingSourceConformance(acquisitionSource, m
   const namespace = source => region(tokens(source), 'namespace ServiceLasso.SourceAcquisition');
   const acquisition = namespace(acquisitionSource), msi = region(namespace(msiSource), 'internal sealed class MsiReadOnly');
   const trust = region(namespace(trustSource), 'internal sealed class OfflineAuthenticode');
+  const resource = region(acquisition, 'internal sealed class NativeResource');
+  fieldSet(members(resource).filter(row => row.body === null), ['internal readonly int Ordinal', 'internal readonly string Kind',
+    'internal uint Handle', 'internal long AcquisitionResult', 'internal bool AcquisitionReturned', 'internal uint? CloseStatus',
+    'internal uint? ViewCloseStatus', 'internal bool View']);
+  const receipt = region(namespace(msiSource), 'internal sealed class MsiReceipt');
+  fieldSet(members(receipt).filter(row => row.body === null), ['internal readonly string Recipe = "MSI-READONLY-ROWS-1"',
+    'internal readonly List<MsiTable> Tables = new List<MsiTable>()', 'internal readonly List<SummaryCell> Summary = new List<SummaryCell>()',
+    'internal readonly List<NativeResource> Resources = new List<NativeResource>()', 'internal readonly List<NativeObservation> Observations = new List<NativeObservation>()',
+    'internal Binding HeldMsi', 'internal string DatabaseAssociation = "DATABASE_OBJECT_ASSOCIATION_UNQUALIFIED"',
+    'internal string InstalledContext = "UNRESOLVED_INSTALL_BRANCH"', 'internal string Eligibility = "UNQUALIFIED_INPUT"',
+    'internal Exception OriginalException', 'internal Exception RecordingFailure, ObserverFailure', 'internal bool CloseObservationFailed',
+    'internal string LastOriginalOperation', 'internal long LastOriginalStatus']);
   const retained = region(acquisition, 'internal sealed class RetentionState');
   const interrupted = method(retained, 'internal void Interrupted(Exception original)');
   count(interrupted, 2); requireLeaf(interrupted[0], 'LastInterruptionException = original');
@@ -1094,17 +1115,26 @@ export function assertAcquisitionRecordingSourceConformance(acquisitionSource, m
   if (close.kind !== 'try' || close.final !== null || close.catches.length !== 1 || !same(close.catches[0].binding, 'Exception original')) fail('original release pending enclosure');
   count(close.body, 6);
   if (close.body[0].kind !== 'if' || !same(close.body[0].condition, 'resource.View')) fail('original view close');
-  count(close.body[0].body, 4);
-  ['Before("MsiViewClose", resource.Ordinal.ToString())', 'uint viewStatus = Call("MsiViewClose", () => api.ViewClose(resource.Handle))', 'Observe("MsiViewClose", viewStatus)'].forEach((effect, at) => requireLeaf(close.body[0].body[at], effect));
-  branch(close.body[0].body[3], 'viewStatus != 0', ['Retain("FAILED_ORIGINAL_VIEW_CLOSE")']);
+  count(close.body[0].body, 5);
+  ['Before("MsiViewClose", resource.Ordinal.ToString())', 'uint viewStatus = Call("MsiViewClose", () => api.ViewClose(resource.Handle))', 'resource.ViewCloseStatus = viewStatus', 'ObserveCloseResult("MsiViewClose", viewStatus)'].forEach((effect, at) => requireLeaf(close.body[0].body[at], effect));
+  branch(close.body[0].body[4], 'viewStatus != 0', ['Retain("FAILED_ORIGINAL_VIEW_CLOSE")']);
   ['Before("MsiCloseHandle", resource.Ordinal.ToString())', 'uint status = Call("MsiCloseHandle", () => api.HandleClose(resource.Handle))',
-    'resource.CloseStatus = status', 'Observe("MsiCloseHandle", status)'].forEach((effect, at) => requireLeaf(close.body[at + 1], effect));
+    'resource.CloseStatus = status', 'ObserveCloseResult("MsiCloseHandle", status)'].forEach((effect, at) => requireLeaf(close.body[at + 1], effect));
   branch(close.body[5], 'status != 0', ['Retain("FAILED_ORIGINAL_HANDLE_CLOSE")']);
   const closingFailure = close.catches[0].body; count(closingFailure, 3);
   requireLeaf(closingFailure[0], 'pendingException = original');
   caught(closingFailure[1], ['receipt.Observations.Add(new NativeObservation(receipt.Observations.Count + 1, "resource-close-exception", -1, null, original))'],
     'Exception recording', ['receipt.RecordingFailure = recording']);
   requireLeaf(closingFailure[2], 'Retain("UNKNOWN_ORIGINAL_HANDLE_CLOSE")');
+  const closeObservation = method(msi, 'private void ObserveCloseResult(string operation, uint status)');
+  count(closeObservation, 1);
+  const closeBoundary = closeObservation[0];
+  if (closeBoundary.kind !== 'try' || closeBoundary.final !== null || closeBoundary.catches.length !== 1 || !same(closeBoundary.catches[0].binding, 'Exception recording')) fail('post-result observation independently contained');
+  count(closeBoundary.body, 1); requireLeaf(closeBoundary.body[0], 'Observe(operation, status)');
+  const closeHandler = closeBoundary.catches[0].body; count(closeHandler, 3);
+  requireLeaf(closeHandler[0], 'receipt.CloseObservationFailed = true');
+  requireLeaf(closeHandler[1], 'receipt.RecordingFailure = recording');
+  requireLeaf(closeHandler[2], 'receipt.Eligibility = "UNQUALIFIED_INPUT"');
   const observation = method(msi, 'private void Observe(string operation, uint status, bool error = true)');
   count(observation, 7);
   ['receipt.LastOriginalOperation = operation', 'receipt.LastOriginalStatus = status',
@@ -1117,7 +1147,10 @@ export function assertAcquisitionRecordingSourceConformance(acquisitionSource, m
   const readBoundary = read[5];
   if (readBoundary.kind !== 'try' || readBoundary.catches.length !== 1 || !same(readBoundary.catches[0].binding, 'Exception original') || readBoundary.final === null) fail('original database held dependency enclosure');
   const handler = readBoundary.catches[0].body; count(handler, 4);
-  requireLeaf(handler[0], 'receipt.OriginalException = original'); requireLeaf(handler[1], 'receipt.Eligibility = "UNQUALIFIED_INPUT"');
+  branch(handler[0], 'receipt.OriginalException == null', ['receipt.OriginalException = original']); requireLeaf(handler[1], 'receipt.Eligibility = "UNQUALIFIED_INPUT"');
+  const qualification = readBoundary.body.filter(node => node.kind === 'if' && same(node.condition, '!receipt.CloseObservationFailed'));
+  if (qualification.length !== 1) fail('failed close observation cannot be qualified later');
+  branch(qualification[0], '!receipt.CloseObservationFailed', ['receipt.Eligibility = "FORMAT_OBSERVED_JOIN_UNQUALIFIED"']);
   caught(handler[2], ['api.Module.ObserveOriginalException("MsiReadOnly.Read", original)'], 'Exception observer', ['receipt.ObserverFailure = observer']);
   requireLeaf(handler[3], 'return receipt');
   const final = readBoundary.final; count(final, 5);

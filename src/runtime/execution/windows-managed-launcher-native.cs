@@ -294,6 +294,8 @@ public static class ServiceLassoManagedLauncherNative
         internal Exception RecordingFailure;
         internal Exception UnrecordedException;
         internal int PrimaryResult;
+        internal int PrimaryNativeStatus;
+        internal bool KnownPrimaryFailure;
         // Failed governs unresolved closure/retirement/release, not an ordinary
         // known failed initiating operation. Its original observation survives.
         internal bool Failed;
@@ -587,9 +589,12 @@ public static class ServiceLassoManagedLauncherNative
                 {
                     targetCreationError = Marshal.GetLastWin32Error();
                     failureExitCode = TargetCreationFailureExitCode(targetCreationError);
+                    invocation.PrimaryNativeStatus = targetCreationError;
+                    invocation.PrimaryResult = failureExitCode;
+                    invocation.KnownPrimaryFailure = true;
+                    invocation.ChildIssuanceUnresolved = false;
                     Win32Exception original = new Win32Exception(targetCreationError, "Managed target creation failed.");
                     invocation.Primary = original;
-                    invocation.ChildIssuanceUnresolved = false;
                     invocation.ObservePrimary("target-original-create", targetCreationError, true, original);
                     throw original;
                 }
@@ -602,7 +607,7 @@ public static class ServiceLassoManagedLauncherNative
             }
             catch (Exception original)
             {
-                if (invocation.Primary == null)
+                if (!invocation.KnownPrimaryFailure && invocation.Primary == null)
                 {
                     invocation.Primary = original;
                     invocation.Observe("target-original-create-throw", 0, true, original);
@@ -660,18 +665,25 @@ public static class ServiceLassoManagedLauncherNative
             uint exitCode;
             if (!GetExitCodeProcess(processHandle, out exitCode))
             {
-                throw new Win32Exception(Marshal.GetLastWin32Error(), "Managed target exit-code query failed.");
+                int targetExitError = Marshal.GetLastWin32Error();
+                invocation.PrimaryNativeStatus = targetExitError;
+                invocation.PrimaryResult = failureExitCode;
+                invocation.KnownPrimaryFailure = true;
+                Win32Exception original = new Win32Exception(targetExitError, "Managed target exit-code query failed.");
+                invocation.Primary = original;
+                throw original;
             }
             invocation.PrimaryResult = unchecked((int)exitCode);
             return invocation.PrimaryResult;
         }
         catch (Exception primary)
         {
-            if (invocation.Primary == null) invocation.Primary = primary;
-            invocation.PrimaryResult = failureExitCode;
+            if (!invocation.KnownPrimaryFailure && invocation.Primary == null) invocation.Primary = primary;
+            if (!invocation.KnownPrimaryFailure) invocation.PrimaryResult = failureExitCode;
+            if (invocation.KnownPrimaryFailure && invocation.Primary != primary) invocation.RecordingFailure = primary;
             if (invocation.PrimaryWaitPending)
                 invocation.Observe("target-primary-wait-unavailable", 0, true, primary);
-            return failureExitCode;
+            return invocation.PrimaryResult;
         }
         finally
         {
@@ -1697,10 +1709,13 @@ public static class ServiceLassoManagedLauncherNative
             if (!childCreated)
             {
                 int createError = Marshal.GetLastWin32Error();
-                Win32Exception original = new Win32Exception(createError, "Directory sync child creation failed.");
-                invocation.Primary = original; invocation.PrimaryResult = DirectorySyncLaunchCreateFailed;
-                invocation.ObservePrimary("directory-sync-child-create", createError, true, original);
+                invocation.PrimaryNativeStatus = createError;
+                invocation.PrimaryResult = DirectorySyncLaunchCreateFailed;
+                invocation.KnownPrimaryFailure = true;
                 invocation.ChildIssuanceUnresolved = false;
+                Win32Exception original = new Win32Exception(createError, "Directory sync child creation failed.");
+                invocation.Primary = original;
+                invocation.ObservePrimary("directory-sync-child-create", createError, true, original);
                 return DirectorySyncLaunchCreateFailed;
             }
             childProcess = processInformation.hProcess;
@@ -1719,8 +1734,10 @@ public static class ServiceLassoManagedLauncherNative
         }
         catch (Exception primary)
         {
-            invocation.Primary = primary; invocation.PrimaryResult = DirectorySyncLaunchBindingInvalid;
-            return DirectorySyncLaunchBindingInvalid;
+            if (!invocation.KnownPrimaryFailure && invocation.Primary == null) invocation.Primary = primary;
+            if (!invocation.KnownPrimaryFailure) invocation.PrimaryResult = DirectorySyncLaunchBindingInvalid;
+            if (invocation.KnownPrimaryFailure && invocation.Primary != primary) invocation.RecordingFailure = primary;
+            return invocation.PrimaryResult;
         }
         finally
         {
@@ -1740,6 +1757,12 @@ public static class ServiceLassoManagedLauncherNative
     {
         bool exitKnown = GetExitCodeProcess(childProcess, out exitCode);
         int exitError = exitKnown ? 0 : Marshal.GetLastWin32Error();
+        if (!exitKnown)
+        {
+            invocation.PrimaryNativeStatus = exitError;
+            invocation.PrimaryResult = DirectorySyncLaunchChildFailed;
+            invocation.KnownPrimaryFailure = true;
+        }
         Win32Exception original = exitKnown ? null : new Win32Exception(exitError, "Directory sync child exit-code query failed.");
         if (!exitKnown) invocation.Primary = original;
         invocation.ObservePrimary("directory-sync-child-exit-query", exitError, !exitKnown, original);

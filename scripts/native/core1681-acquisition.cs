@@ -196,6 +196,7 @@ namespace ServiceLasso.SourceAcquisition
         internal long AcquisitionResult;
         internal bool AcquisitionReturned;
         internal uint? CloseStatus;
+        internal uint? ViewCloseStatus;
         internal bool View;
         internal NativeResource(int ordinal, string kind, uint handle, bool view)
         { Ordinal = ordinal; Kind = kind; Handle = handle; View = view; }
