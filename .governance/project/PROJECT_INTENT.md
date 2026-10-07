@@ -2,6 +2,10 @@
 
 ## Original F7 ROOT creator (#1728, parent #1724)
 
+Current 2026-10-08 state: BLOCKED / LOCAL_MINIMUM under the required execution
+circuit breaker; see [incident and resume conditions](1728-LINUX-CLEANUP-LOCAL-MINIMUM.md).
+The selected source architecture below remains preserved, incomplete and unqualified.
+
 Development source preparation owns the original native creator and once-only connected collector caller under SPEC-010 F7-01..F7-09. [Linux source contract](F7_ROOT_CREATOR_LINUX_SOURCE_CONTRACT.md) defines the current candidate, including independent native live views and source-derived reservations. Whole Alternative A was selected and its canonical integration independently reviewed in dependency PR #1725 at 465d6b58; that source is pending develop landing and is not silently supplied by this branch. ADR-005 now selects the whole Linux receiving profile after different WHOLE PROPOSAL / RECEIVING-CONTRACT GO at 5c980205; the original native entry header/Node source patch are preparation only, with creator/entry/U1 bodies still absent. Actual source/issuer/resource/native allocator inputs and new exact-input admission remain distinct prerequisites before execution. All eleven Linux failures, original protected assertions and retained private evidence remain unresolved and preserved. Existing #1640/#1687 ownership remains unchanged.
 
 ## Sequential release-versioning credential custody (#1716)

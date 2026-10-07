@@ -1,6 +1,6 @@
 # Backlog
 
-| ISS-1728 | in_progress, source preparation only | Original native F7 ROOT creator and once-only connected collector caller; draft PR #1729 | SPEC-010 F7-01..F7-09; parent #1724 | Whole Alternative A dependency PR #1725 canonical integration independently reviewed at 465d6b58, pending landing. ADR-005 selects the whole Linux receiving profile after different whole GO at 5c980205. Native entry header/source patch are prepared; creator/entry/U1 implementation remains absent. Actual resources/admission and all eleven natural Linux positives remain unmet. Existing #1640/#1687 owners retained. |
+| ISS-1728 | blocked, LOCAL_MINIMUM | Original native F7 ROOT creator and once-only connected collector caller; draft PR #1729 | SPEC-010 F7-01..F7-09; parent #1724 | [Circuit breaker and concrete resume conditions](1728-LINUX-CLEANUP-LOCAL-MINIMUM.md): growing design/header diff has not improved verified behavior. Creator/entry/U1 implementation and actual resources/admission remain absent. All eleven Linux failures remain unresolved. Reviewed ADR-004/005 and existing #1640/#1687 owners are preserved. |
 
 - #1716 (parent #1562), in_progress: SPEC-002 AC-4CG.1716 / SPEC-007 AC-7G. Repair only sequential release-versioning caller credential reuse; preserve original live gate and add closed-response artifact-to-package regression. New vectors UNRUN pending complete-input freeze, different fresh ENTIRE review and parent admission. Historical provider403 cause UNKNOWN; no auth-policy, provider settings, retry, release or cleanup change.
 

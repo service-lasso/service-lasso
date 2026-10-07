@@ -1,5 +1,9 @@
 # Bootstrap Adoption TODO
 
+Current #1728 disposition is BLOCKED / LOCAL_MINIMUM; the historical task below
+remains incomplete and cannot resume without the material changes recorded in
+[the circuit-breaker incident](.governance/project/1728-LINUX-CLEANUP-LOCAL-MINIMUM.md).
+
 - [ ] #1728 / PR #1729: implement the ADR-005-selected whole original Linux ROOT creator receiving profile after different whole GO at 5c980205; complete the prepared entry header/source patch with the actual creator/entry/U1 source, then verify the opaque creator and once-only connected caller under SPEC-010 F7-01..F7-09. Dependency PR #1725 contains selected whole Alternative A; pending landing does not supply its source in this checkout. Preserve original protected tests and all eleven failures. Different complete final-source review and NEW complete-input ROOT precede any compiler/import/build/test/native action; actual resources and all-nine/four-custody numeric catalogs remain absent.
 
 - #1716 active source remediation: SPEC-002 AC-4CG.1716 sequential artifact/package versioning caller retains one consumed private metadata credential. Preserve original assertions and auth policy; deterministic regression and original live gate remain UNRUN pending NEW complete actual-input ROOT, different fresh ENTIRE review and parent admission. Provider403 cause remains UNKNOWN.
