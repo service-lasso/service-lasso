@@ -8,6 +8,10 @@
 
 struct lf_inventory_entry {
   struct lf_removal_binding binding;
+  struct stat actual_parent;
+  struct stat actual_held_object;
+  struct stat actual_named_object;
+  struct stat actual_enumeration_directory;
   size_t parent_index; /* SIZE_MAX for root, whose outside parent stays held. */
   unsigned int depth;
   bool owns_object_fd;
@@ -35,7 +39,9 @@ struct lf_inventory_observation {
 
 /* S supplies its actual inception-created, still exclusively held root/name
  * binding AFTER complete no-writer proof. Root must have private0700 mode and
- * unchanged owner; the approved parent's no-redirection proof is upstream.
+ * unchanged creator inode/device/owner/mode; the approved parent's
+ * no-redirection proof is upstream. Current root/parent size/timestamps/link
+ * counts are captured after drain, allowing genuine pre-barrier fixture work.
  * Every descendant is genuinely enumerated/opened relative to held parents,
  * then name/held metadata is compared. No links, special objects, mount/device
  * changes, other owners, hardlink aliases, duplicate identities or truncation.

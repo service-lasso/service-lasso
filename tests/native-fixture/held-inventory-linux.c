@@ -7,6 +7,11 @@
 #include <string.h>
 #include <unistd.h>
 
+static bool same_identity(const struct stat *a, const struct stat *b) {
+  return a->st_dev == b->st_dev && a->st_ino == b->st_ino &&
+      a->st_uid == b->st_uid && a->st_gid == b->st_gid &&
+      a->st_mode == b->st_mode;
+}
 static bool same(const struct stat *a, const struct stat *b) {
   return a->st_dev == b->st_dev && a->st_ino == b->st_ino &&
       a->st_uid == b->st_uid && a->st_gid == b->st_gid &&
@@ -53,11 +58,11 @@ static int enumerate(size_t parent_index, struct lf_inventory_entry *entries,
   int fd = openat(parent->binding.held_object, ".",
       O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
   if (fd < 0) return failure(observation, errno, errno);
-  struct stat enumeration_identity;
   int primary_native = 0, primary_rejection = 0;
-  if (fstat(fd, &enumeration_identity) < 0) {
+  if (fstat(fd, &parent->actual_enumeration_directory) < 0) {
     primary_native = primary_rejection = errno;
-  } else if (!same(&enumeration_identity, &parent->binding.bound_object)) {
+  } else if (!same(&parent->actual_enumeration_directory,
+                   &parent->binding.bound_object)) {
     primary_rejection = ESTALE;
   }
   DIR *directory = NULL;
@@ -94,11 +99,12 @@ static int enumerate(size_t parent_index, struct lf_inventory_entry *entries,
     memcpy(entry->binding.component, item->d_name, strlen(item->d_name) + 1);
     observation->current_entry = index;
     observation->stage = LF_INVENTORY_ENTRY;
-    if (fstat(entry->binding.held_parent, &entry->binding.bound_parent) < 0 ||
+    if (fstat(entry->binding.held_parent, &entry->actual_parent) < 0 ||
         fstatat(entry->binding.held_parent, entry->binding.component,
                 &entry->binding.bound_object, AT_SYMLINK_NOFOLLOW) < 0) {
       primary_native = primary_rejection = errno; break;
     }
+    entry->binding.bound_parent = entry->actual_parent;
     const struct stat *original = &entries[0].binding.bound_object;
     const struct stat *bound = &entry->binding.bound_object;
     if (!same(&entry->binding.bound_parent, &parent->binding.bound_object) ||
@@ -131,13 +137,14 @@ static int enumerate(size_t parent_index, struct lf_inventory_entry *entries,
       primary_native = primary_rejection = errno; break;
     }
     entry->owns_object_fd = true;
-    struct stat held, named;
-    if (fstat(entry->binding.held_object, &held) < 0 ||
-        fstatat(entry->binding.held_parent, entry->binding.component, &named,
+    if (fstat(entry->binding.held_object, &entry->actual_held_object) < 0 ||
+        fstatat(entry->binding.held_parent, entry->binding.component,
+                &entry->actual_named_object,
                 AT_SYMLINK_NOFOLLOW) < 0) {
       primary_native = primary_rejection = errno; break;
     }
-    if (!same(&held, bound) || !same(&named, bound)) {
+    if (!same(&entry->actual_held_object, bound) ||
+        !same(&entry->actual_named_object, bound)) {
       primary_rejection = ESTALE; break;
     }
     if (mounts(entry, entries[0].held_mount_id, observation) < 0) {
@@ -152,13 +159,13 @@ static int enumerate(size_t parent_index, struct lf_inventory_entry *entries,
     }
   }
   if (!primary_rejection) {
-    struct stat held, named;
-    if (fstat(parent->binding.held_object, &held) < 0 ||
-        fstatat(parent->binding.held_parent, parent->binding.component, &named,
+    if (fstat(parent->binding.held_object, &parent->actual_held_object) < 0 ||
+        fstatat(parent->binding.held_parent, parent->binding.component,
+                &parent->actual_named_object,
                 AT_SYMLINK_NOFOLLOW) < 0) {
       primary_native = primary_rejection = errno;
-    } else if (!same(&held, &parent->binding.bound_object) ||
-               !same(&named, &parent->binding.bound_object)) {
+    } else if (!same(&parent->actual_held_object, &parent->binding.bound_object) ||
+               !same(&parent->actual_named_object, &parent->binding.bound_object)) {
       primary_rejection = ESTALE;
     } else if (mounts(parent, entries[0].held_mount_id, observation) < 0) {
       primary_native = observation->native_error;
@@ -196,15 +203,20 @@ int lf_held_inventory(const struct lf_removal_binding *root,
   entries[0].parent_index = SIZE_MAX;
   observation->entry_count = 1;
   observation->stage = LF_INVENTORY_ROOT;
-  struct stat parent, held, named;
-  if (fstat(root->held_parent, &parent) < 0 ||
-      fstat(root->held_object, &held) < 0 ||
-      fstatat(root->held_parent, root->component, &named,
+  struct lf_inventory_entry *entry = &entries[0];
+  if (fstat(root->held_parent, &entry->actual_parent) < 0 ||
+      fstat(root->held_object, &entry->actual_held_object) < 0 ||
+      fstatat(root->held_parent, root->component, &entry->actual_named_object,
               AT_SYMLINK_NOFOLLOW) < 0)
     return failure(observation, errno, errno);
-  if (!same(&parent, &root->bound_parent) || !same(&held, &root->bound_object) ||
-      !same(&named, &root->bound_object))
+  if (!same_identity(&entry->actual_parent, &root->bound_parent) ||
+      !same_identity(&entry->actual_held_object, &root->bound_object) ||
+      !same(&entry->actual_named_object, &entry->actual_held_object))
     return failure(observation, 0, ESTALE);
+  /* Creator object identity remains fixed. Capture genuine current inventory
+   * metadata after drain; normal fixture writes changed root metadata. */
+  entry->binding.bound_parent = entry->actual_parent;
+  entry->binding.bound_object = entry->actual_held_object;
   if (mounts(&entries[0], 0, observation) < 0) return -1;
   if (enumerate(0, entries, capacity, observation) < 0) return -1;
   observation->stage = LF_INVENTORY_COMPLETE;
