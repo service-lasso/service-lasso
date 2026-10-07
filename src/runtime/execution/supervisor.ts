@@ -19,7 +19,8 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { constants, createWriteStream, type WriteStream } from "node:fs";
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn } from "node:child_process";
+import type { ManagedChildHandle, ManagedProcessSpawner } from "./managed-child.js";
 import { fileURLToPath } from "node:url";
 import type { DiscoveredService } from "../../contracts/service.js";
 import { observeNativeAcknowledgementContainment } from "./native-ack-containment.js";
@@ -183,7 +184,7 @@ function managedLauncherPayloadDiagnostic(
 }
 
 interface ManagedProcessRecord {
-  child: ChildProcess;
+  child: ManagedChildHandle;
   service: DiscoveredService;
   startedAt: string;
   command: string;
@@ -360,7 +361,7 @@ let managedProcessRootInspector: (
 ) => Promise<ProcessInspection> = inspectProcess;
 let managedWindowsTreeInspector = inspectWindowsProcessTree;
 let managedProcessEnrollmentHook:
-  { enroll: ((child: ChildProcess) => Promise<void> | void) | null;
+  { enroll: ((child: ManagedChildHandle) => Promise<void> | void) | null;
     custody?: (serviceId: string, read: () => ProcessFingerprint[]) => void;
     custodyFailure?: () => void } | null = null;
 let managedProcessFilesBoundHook: (() => Promise<void> | void) | null = null;
@@ -369,7 +370,7 @@ let managedProcessLaunchStateRemover = removeWindowsManagedLaunchStateDirectory;
 let managedProcessLaunchStateCreatedHook: (() => Promise<void> | void) | null =
   null;
 let managedProcessPostResumeDelayMs = 0;
-let managedProcessSpawner: typeof spawn = spawn;
+let managedProcessSpawner: ManagedProcessSpawner = spawn;
 let managedProcessSpawnTimeoutMs = MANAGED_PROCESS_SPAWN_TIMEOUT_MS;
 
 export function setManagedProcessTreeTerminatorForTests(
@@ -422,7 +423,7 @@ export function setManagedProcessRootInspectorForTests(
 }
 
 export function setManagedProcessEnrollmentHookForTests(
-  hook: ((child: ChildProcess) => Promise<void> | void) | null,
+  hook: ((child: ManagedChildHandle) => Promise<void> | void) | null,
   custody?: (serviceId: string, read: () => ProcessFingerprint[]) => void,
   custodyFailure?: () => void,
 ): void {
@@ -515,7 +516,7 @@ export function setManagedProcessPostResumeDelayForTests(
 }
 
 export function setManagedProcessSpawnerForTests(
-  spawner: typeof spawn | null,
+  spawner: ManagedProcessSpawner | null,
 ): void {
   if (process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS !== "1") {
     throw new Error(
@@ -891,7 +892,7 @@ export function filterWindowsManagedLauncherProgressLineForTests(
 
 function attachRuntimeLogCapture(record: ManagedProcessRecord): void {
   const waitForOutputEnd = (
-    stream: NonNullable<ChildProcess["stdout"]>,
+    stream: NonNullable<ManagedChildHandle["stdout"]>,
   ): Promise<void> =>
     new Promise((resolve) => {
       // Subscribe before inspecting terminal state. A launcher can exit before
@@ -1418,7 +1419,7 @@ const WINDOWS_MANAGED_LAUNCHER_PAYLOAD_FAILURE_BOUNDARIES = new Set<
 ]);
 
 async function bindWindowsManagedLauncherFiles(
-  child: ChildProcess,
+  child: ManagedChildHandle,
   state: WindowsManagedLaunchState,
   launcherProgressPhase: (deadlineMs: number) =>
     | {
@@ -1469,7 +1470,7 @@ async function bindWindowsManagedLauncherFiles(
 }
 
 async function settleWindowsManagedLauncherStderr(
-  child: ChildProcess,
+  child: ManagedChildHandle,
   deadlineMs: number,
 ): Promise<void> {
   const stderr = child.stderr;
@@ -1511,7 +1512,7 @@ async function settleWindowsManagedLauncherStderr(
 }
 
 async function continueWindowsManagedLauncher(
-  child: ChildProcess,
+  child: ManagedChildHandle,
   state: WindowsManagedLaunchState,
 ): Promise<void> {
   const deadlineMs = processControlDeadline(WINDOWS_MANAGED_LAUNCH_TIMEOUT_MS);
@@ -1564,7 +1565,7 @@ async function continueWindowsManagedLauncher(
 }
 
 async function observeManagedLauncherExitCode(
-  child: ChildProcess,
+  child: ManagedChildHandle,
   signal: AbortSignal,
 ): Promise<number | null> {
   if (child.exitCode !== null) return child.exitCode;
@@ -1782,7 +1783,7 @@ function serviceEnablesStdin(service: DiscoveredService): boolean {
   return service.manifest.stdin?.enabled === true;
 }
 
-async function waitForManagedProcessSpawn(child: ChildProcess): Promise<void> {
+async function waitForManagedProcessSpawn(child: ManagedChildHandle): Promise<void> {
   const deadlineMs = processControlDeadline(managedProcessSpawnTimeoutMs);
   await withProcessControlDeadline(
     async (signal) =>
@@ -1818,7 +1819,7 @@ async function waitForManagedProcessSpawn(child: ChildProcess): Promise<void> {
 }
 
 async function containUnenrolledManagedProcessWrapper(
-  child: ChildProcess | null,
+  child: ManagedChildHandle | null,
   exitPromise: Promise<{
     exitCode: number | null;
     signal: NodeJS.Signals | null;
@@ -1846,7 +1847,7 @@ async function containUnenrolledManagedProcessWrapper(
 }
 
 function probeManagedChildHandle(
-  child: ChildProcess,
+  child: ManagedChildHandle,
 ): "owned" | "exited" | "unverifiable" {
   if (child.exitCode !== null || child.signalCode !== null) {
     return "exited";
@@ -1857,8 +1858,9 @@ function probeManagedChildHandle(
   };
   child.prependOnceListener("error", captureProbeError);
   try {
-    // ChildProcess.kill(0) probes the exact native process handle retained by
-    // Node, so a reused numeric PID cannot authorize ownership or taskkill.
+    // kill(0) probes the exact retained native lifetime synchronously. The
+    // ordinary adapter uses Node's process handle; a PID alone cannot authorize
+    // ownership or taskkill.
     const alive = child.kill(0);
     return probeError ? "unverifiable" : alive ? "owned" : "exited";
   } catch {
@@ -1906,7 +1908,7 @@ async function verifyNativeAcknowledgementFinalContainment(
   signal: AbortSignal,
 ): Promise<void> {
   // The final tree is a receipt for this acknowledgement, not a refresh of an
-  // earlier snapshot.  Its root result and the retained ChildProcess handle
+  // earlier snapshot.  Its root result and the retained native child handle
   // must independently agree that the managed wrapper exited.
   const finalTree = await inspectFixtureTree(record, rootIdentity, {
     deadlineMs,
@@ -2561,7 +2563,7 @@ export async function startManagedProcess(
     await closeRuntimeLogStreams(logStreams);
     throw new ManagedProcessStartError("launch_state_creation", error);
   }
-  let child: ChildProcess | null = null;
+  let child: ManagedChildHandle | null = null;
   let exitPromise: Promise<{
     exitCode: number | null;
     signal: NodeJS.Signals | null;
