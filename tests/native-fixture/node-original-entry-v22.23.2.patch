@@ -1,7 +1,7 @@
 diff --git a/src/node_main.cc b/src/node_main.cc
 --- a/src/node_main.cc
 +++ b/src/node_main.cc
-@@ -20,6 +20,10 @@
+@@ -21,6 +21,10 @@
  
  #include "node.h"
  #include <cstdio>
@@ -12,7 +12,7 @@ diff --git a/src/node_main.cc b/src/node_main.cc
  
  #ifdef _WIN32
  #include <windows.h>
-@@ -91,6 +95,11 @@
+@@ -94,6 +98,11 @@
  // UNIX
  
  int main(int argc, char* argv[]) {
