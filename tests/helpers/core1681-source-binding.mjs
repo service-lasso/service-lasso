@@ -445,7 +445,7 @@ export function bindSource(rawBytes, identity, catalogueInputs = []) {
     const constructorType = node.kind === 'constructor' ? node.owner
       : ['instanceConstructor', 'typeInitializer'].includes(node.slot?.role) ? node.slot.anchor : null;
     const generatedInitializers = constructorType ? constructorType.children
-      .filter(child => (child.kind === 'field' || child.kind === 'property' && child.children.every(accessor => accessor.auto)) &&
+      .filter(child => (child.kind === 'field' || child.kind === 'property' && child.children.length > 0 && child.children.every(accessor => accessor.auto)) &&
         child.initializer && child.static === node.static && !child.modifiers.includes('const'))
       .map(child => ({ declaration: child.declId, originalExpression: cleanSyntax(child.initializer) })) : [];
     const baseConstructor = constructorType?.category === 'class' && !node.static

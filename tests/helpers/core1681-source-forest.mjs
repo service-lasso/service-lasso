@@ -2,17 +2,22 @@ import { decodeOriginal, lexOriginal, deny } from './core1681-source-input.mjs';
 
 const modifiers = new Set(['public', 'private', 'internal', 'protected', 'static', 'readonly',
   'const', 'sealed', 'abstract', 'virtual', 'override', 'extern', 'new', 'partial', 'unsafe']);
-const precedence = new Map([['=', 1], ['+=', 1], ['-=', 1], ['??', 2], ['||', 3], ['&&', 4],
-  ['|', 5], ['^', 6], ['&', 7], ['==', 8], ['!=', 8], ['===', 8], ['!==', 8],
-  ['<', 9], ['>', 9], ['<=', 9], ['>=', 9], ['in', 9], ['<<', 10], ['>>', 10],
-  ['+', 11], ['-', 11], ['*', 12], ['/', 12], ['%', 12]]);
+// Assignment < conditional < coalescing < logical; level 2 belongs to ?:.
+// These finite dialect tables do not advertise unimplemented operators.
+const csPrecedence = new Map([['=', 1], ['+=', 1], ['-=', 1], ['??', 3], ['||', 4], ['&&', 5],
+  ['|', 6], ['^', 7], ['&', 8], ['==', 9], ['!=', 9],
+  ['<', 10], ['>', 10], ['<=', 10], ['>=', 10], ['<<', 11], ['>>', 11],
+  ['+', 12], ['-', 12], ['*', 13], ['/', 13], ['%', 13]]);
+const jsPrecedence = new Map([...csPrecedence, ['===', 9], ['!==', 9], ['in', 10]]);
 const dynamicType = () => ({ kind: 'dynamic', profile: 'CE-JS-2', sort: 'Any' });
-const reserved = new Set(['return', 'throw', 'new', 'if', 'else', 'while', 'for', 'foreach', 'switch',
-  'case', 'break', 'continue', 'try', 'catch', 'finally', 'class', 'struct', 'enum', 'interface',
-  'namespace', 'using', 'function', 'const', 'let', 'var', 'import', 'export', 'default', 'true',
-  'false', 'null', 'await', 'yield', 'static', 'public', 'private', 'protected']);
-const csReserved = new Set(['void', 'bool', 'int', 'string', 'object', 'uint', 'long', 'ulong',
-  'short', 'ushort', 'byte', 'sbyte', 'char', 'float', 'double', 'decimal', 'ref', 'out', 'in', 'params']);
+// C# lexical keywords, not contextual keywords (async/await/var/get/set/etc.).
+const csReserved = new Set(('abstract as base bool break byte case catch char checked class const continue decimal default '
+  + 'delegate do double else enum event explicit extern false finally fixed float for foreach goto if implicit in int '
+  + 'interface internal is lock long namespace new null object operator out override params private protected public '
+  + 'readonly ref return sbyte sealed short sizeof stackalloc static string struct switch this throw true try typeof '
+  + 'uint ulong unchecked unsafe ushort using virtual void volatile while').split(' '));
+const csPredefinedTypes = new Set(['void', 'bool', 'int', 'string', 'object', 'uint', 'long', 'ulong',
+  'short', 'ushort', 'byte', 'sbyte', 'char', 'float', 'double', 'decimal']);
 // The supported JS Unit uses strict/module identifier rules, including await and
 // strict future-reserved words. Contextual async/of/as/from/get/set remain names.
 const jsReserved = new Set(['await', 'break', 'case', 'catch', 'class', 'const', 'continue',
@@ -39,13 +44,15 @@ class Parser {
   identifier(token, binding = true, property = false) {
     const forbidden = this.language === 'javascript'
       ? !property && (jsReserved.has(token.value) || binding && ['eval', 'arguments'].includes(token.value))
-      : reserved.has(token.value) || csReserved.has(token.value);
+      : csReserved.has(token.value);
     if (token.kind !== 'identifier' || forbidden) deny('INVALID_SYNTAX', 'identifier forbidden in selected language/context', token.origin);
     return token;
   }
   id(typePosition = false, property = false) {
     const token = this.current();
-    if (this.language === 'csharp' && typePosition) { if (token.kind !== 'identifier') deny('INVALID_SYNTAX', 'type identifier required', token.origin); }
+    if (this.language === 'csharp' && typePosition && csPredefinedTypes.has(token.value)) {
+      if (token.kind !== 'identifier') deny('INVALID_SYNTAX', 'type identifier required', token.origin);
+    }
     else this.identifier(token, !property, property);
     this.at++; return token;
   }
@@ -90,6 +97,8 @@ class Parser {
   }
   typeRef() {
     const first = this.id(true); const path = [first.value];
+    if (this.language === 'csharp' && csPredefinedTypes.has(first.value) && ['.', '<'].includes(this.value()))
+      deny('INVALID_SYNTAX', 'predefined type is not a qualified/generic name', first.origin);
     while (this.take('.')) path.push(this.id().value);
     const args = [];
     if (this.take('<')) { do { args.push(this.typeRef()); } while (this.take(',')); this.need('>'); }
@@ -119,7 +128,7 @@ class Parser {
         const name = this.id(), param = this.node('parameter', name.value, start, { type, attributes, direction, params: variadic });
         if (this.take('=')) {
           if (this.language === 'javascript') deny('UNSUPPORTED_SYNTAX', 'default formal initialization scope/lowering', name.origin);
-          param.defaultValue = this.expression(2);
+          param.defaultValue = this.expression();
         }
         param.origin = this.span(start); node.parameters.push(param);
       } while (this.take(','));
@@ -132,7 +141,7 @@ class Parser {
     while (this.take('[')) {
       const start = this.tokens[this.at - 1];
       do { const type = this.typeRef(), args = [];
-        if (this.take('(')) { if (this.value() !== ')') do { args.push(this.expression(2)); } while (this.take(',')); this.need(')'); }
+        if (this.take('(')) { if (this.value() !== ')') do { args.push(this.expression()); } while (this.take(',')); this.need(')'); }
         rows.push({ type, arguments: args, direction: 'declaration', origin: this.span(start) });
       } while (this.take(','));
       this.need(']');
@@ -141,18 +150,18 @@ class Parser {
   }
   expression(minimum = 1) {
     const start = this.current(); let left;
-    // These shared callers historically use 2 to delimit comma-separated C#
-    // expressions. JS uses AssignmentExpression in those positions, admitting
-    // both assignments and arrows (comma itself is not in this subgrammar).
-    if (this.language === 'javascript' && minimum === 2) minimum = 1;
+    // Callers admit assignment expressions; comma is a delimiter, never an
+    // operator in this finite profile. Recursive levels retain dialect grammar.
     const arrowContext = minimum <= 2;
-    if (this.value() === 'await') deny('UNSUPPORTED_SYNTAX', 'async/module-await context typing', start.origin);
+    if (this.language === 'javascript' && this.value() === 'await') deny('UNSUPPORTED_SYNTAX', 'async/module-await context typing', start.origin);
+    if (this.language === 'csharp' && ['typeof', 'sizeof', 'checked', 'unchecked'].includes(this.value()))
+      deny('UNSUPPORTED_SYNTAX', 'C# type/checked expression production', start.origin);
     if (['++', '--'].includes(this.value())) {
-      const op = this.tokens[this.at++].value, operand = this.expression(13);
+      const op = this.tokens[this.at++].value, operand = this.expression(14);
       this.requireAssignmentTarget(operand, start);
       left = { kind: 'prefix', op, operand };
-    } else if (['!', '~', '+', '-', 'typeof', 'void'].includes(this.value())) {
-      const op = this.tokens[this.at++].value; left = { kind: 'unary', op, operand: this.expression(13) };
+    } else if ((this.language === 'javascript' ? ['!', '~', '+', '-', 'typeof', 'void'] : ['!', '~', '+', '-']).includes(this.value())) {
+      const op = this.tokens[this.at++].value; left = { kind: 'unary', op, operand: this.expression(14) };
     } else if (this.take('new')) {
       if (this.language === 'javascript') {
         const name = this.id(); this.scope.references.push({ name: name.value, origin: name.origin, role: 'value' });
@@ -189,7 +198,7 @@ class Parser {
       }
     } else if (this.take('[')) {
       if (this.language !== 'javascript') deny('UNSUPPORTED_SYNTAX', 'array expression', start.origin);
-      const items = []; if (this.value() !== ']') do { items.push(this.expression(2)); } while (this.take(','));
+      const items = []; if (this.value() !== ']') do { items.push(this.expression()); } while (this.take(','));
       this.need(']'); left = { kind: 'array', items };
     } else if (this.take('{')) {
       if (this.language !== 'javascript') deny('UNSUPPORTED_SYNTAX', 'object expression', start.origin);
@@ -197,7 +206,7 @@ class Parser {
       if (this.value() !== '}') do {
         const key = this.current(); if (!['identifier', 'string', 'number'].includes(key.kind)) deny('UNSUPPORTED_SYNTAX', 'object property/spread', key.origin);
         this.at++; let value;
-        if (this.take(':')) value = this.expression(2);
+        if (this.take(':')) value = this.expression();
         else { if (key.kind !== 'identifier') deny('INVALID_SYNTAX', 'shorthand property requires identifier', key.origin);
           this.identifier(key, false);
           value = { kind: 'name', name: key.value, origin: key.origin }; this.scope.references.push({ name: key.value, origin: key.origin, role: 'value' }); }
@@ -206,7 +215,7 @@ class Parser {
       this.need('}'); left = { kind: 'object', properties };
     } else if (['string', 'number'].includes(start.kind) || ['true', 'false', 'null'].includes(start.value)) {
       this.at++; left = { kind: 'literal', spelling: start.value, literalKind: start.kind };
-    } else if (start.kind === 'identifier' && !(this.language === 'javascript' ? jsReserved : reserved).has(start.value)) {
+    } else if (start.kind === 'identifier' && !(this.language === 'javascript' ? jsReserved : csReserved).has(start.value)) {
       this.identifier(start, false);
       this.at++;
       if (this.take('=>')) {
@@ -232,13 +241,14 @@ class Parser {
         left = { kind: 'postfix', op: this.tokens[this.at++].value, operand: left, origin: this.span(start) }; continue;
       }
       if (this.value() === '?' && minimum <= 2) {
-        this.at++; const whenTrue = this.expression(); this.need(':'); const whenFalse = this.expression(2);
+        this.at++; const whenTrue = this.expression(); this.need(':'); const whenFalse = this.expression();
         left = { kind: 'conditional', test: left, whenTrue, whenFalse, origin: this.span(start) }; continue;
       }
-      const level = precedence.get(this.value()); if (level === undefined || level < minimum) break;
+      const level = (this.language === 'javascript' ? jsPrecedence : csPrecedence).get(this.value());
+      if (level === undefined || level < minimum) break;
       const token = this.tokens[this.at++], op = token.value;
       if (level === 1) this.requireAssignmentTarget(left, token);
-      const right = this.expression(level === 1 ? level : level + 1);
+      const right = this.expression(level === 1 || this.language === 'csharp' && op === '??' ? level : level + 1);
       if (this.language === 'javascript' && ['??', '||', '&&'].includes(op)) {
         const incompatible = op === '??' ? new Set(['||', '&&']) : new Set(['??']);
         if (this.hasUngroupedOperator(left, incompatible) || this.hasUngroupedOperator(right, incompatible))
@@ -274,14 +284,14 @@ class Parser {
     if (this.language !== 'javascript') deny('UNSUPPORTED_SYNTAX', 'C# contextual lambda typing', start.origin);
     this.inScope(node, () => { for (const token of names) { this.identifier(token); const param = this.node('parameter', token.value, token);
       param.origin = token.origin; node.parameters.push(param); } });
-    node.body = this.inScope(node, () => this.value() === '{' ? this.block() : this.expression(2));
+    node.body = this.inScope(node, () => this.value() === '{' ? this.block() : this.expression());
     node.origin = this.span(start); return { kind: 'lambda', declaration: node, origin: node.origin };
   }
   arguments() {
     this.need('('); const args = [];
     if (this.value() !== ')') do {
       let direction = 'value'; if (this.language === 'csharp' && ['ref', 'out', 'in'].includes(this.value())) direction = this.tokens[this.at++].value;
-      args.push({ direction, expression: this.expression(2) });
+      args.push({ direction, expression: this.expression() });
     } while (this.take(','));
     this.need(')'); return args;
   }
@@ -289,7 +299,7 @@ class Parser {
     const declarations = [];
     do {
       const name = this.id(), node = this.node(kind, name.value, name, { type, ...metadata });
-      if (this.take('=')) node.initializer = this.expression(2);
+      if (this.take('=')) node.initializer = this.expression();
       if (metadata.modifiers?.includes('const') && !node.initializer) deny('INVALID_SYNTAX', 'const initializer required', name.origin);
       node.origin = this.span(name); declarations.push(node);
     } while (this.take(','));
@@ -319,8 +329,8 @@ class Parser {
       if (word === 'throw' && !value) deny('UNSUPPORTED_SYNTAX', 'rethrow requires exception binding', start.origin);
       return { kind: word, value, origin: this.span(start) };
     }
-    if (['for', 'foreach', 'switch', 'try', 'using', 'lock', 'yield', 'break', 'continue', 'class', 'export'].includes(word) ||
-        this.language === 'csharp' && word === 'async') {
+    if (['for', 'foreach', 'switch', 'try', 'using', 'lock', 'break', 'continue', 'class', 'export'].includes(word) ||
+        word === 'yield' && (this.language === 'javascript' || ['return', 'break'].includes(this.tokens[this.at + 1].value))) {
       deny('UNSUPPORTED_SYNTAX', `${word} lowering is not implemented in foundation subgrammar`, start.origin);
     }
     if (this.language === 'csharp') {
@@ -329,7 +339,10 @@ class Parser {
       if (type && this.current().kind === 'identifier') return this.variable('local', type, start);
       this.at = saved;
     }
-    const expression = this.expression(); this.need(';');
+    const expression = this.expression();
+    if (this.language === 'csharp' && !['assignment', 'call', 'new', 'prefix', 'postfix'].includes(expression.kind))
+      deny('INVALID_SYNTAX', 'C# statement_expression category required', start.origin);
+    this.need(';');
     return { kind: 'expression', expression, origin: this.span(start) };
   }
   jsFunction() {
@@ -363,6 +376,48 @@ class Parser {
     this.inScope(namespace, () => { while (this.value() !== '}') { if (this.current().kind === 'eof') deny('INCOMPLETE_INPUT', 'unclosed namespace'); this.csDeclaration(); } });
     this.need('}'); namespace.origin = this.span(start); this.structural = prior;
   }
+  csModifiers(category, mods, start, owner = this.types.at(-1)) {
+    const access = ['public', 'private', 'internal', 'protected'];
+    const allowed = {
+      class: [...access, 'new', 'static', 'abstract', 'sealed'],
+      struct: [...access, 'new', 'readonly'], interface: [...access, 'new'], enum: [...access, 'new'],
+      field: [...access, 'new', 'static', 'readonly', 'const'],
+      method: [...access, 'new', 'static', 'virtual', 'sealed', 'override', 'abstract', 'extern'],
+      property: [...access, 'new', 'static', 'virtual', 'sealed', 'override', 'abstract', 'extern'],
+    }[category];
+    const invalid = detail => deny('INVALID_SYNTAX', detail, start.origin);
+    if (mods.some(mod => !allowed.includes(mod))) invalid(`modifier outside ${category} production`);
+    const has = mod => mods.includes(mod);
+    const pair = (first, others) => { if (has(first) && others.some(has)) invalid(`incompatible ${category} ${first} modifiers`); };
+    if (['class', 'struct', 'interface', 'enum'].includes(category)) {
+      if (!owner && mods.some(mod => ['private', 'protected', 'new'].includes(mod))) invalid('namespace type modifier');
+      if (owner?.category === 'struct' && has('protected')) invalid('struct nested type accessibility');
+      if (owner?.modifiers.includes('static') && has('protected')) invalid('static type nested accessibility');
+      pair('static', ['abstract', 'sealed']); pair('abstract', ['sealed']);
+      return;
+    }
+    if (owner.category === 'struct' && has('protected')) invalid('struct member accessibility');
+    if (owner.modifiers.includes('static') && !has('static') && !has('const')) invalid('static type requires static members');
+    if (owner.modifiers.includes('static') && has('protected')) invalid('static type protected member');
+    if (category === 'field') {
+      pair('const', ['static', 'readonly']);
+      if (owner.category === 'struct' && owner.modifiers.includes('readonly') && !has('static') && !has('const') && !has('readonly'))
+        invalid('readonly struct instance field requires readonly');
+      if (owner.category === 'interface') deny('UNSUPPORTED_SYNTAX', 'interface field lowering', start.origin);
+      return;
+    }
+    pair('abstract', ['static', 'virtual', 'sealed', 'extern', 'private']);
+    pair('virtual', ['static', 'override', 'private']);
+    pair('override', ['static', 'new', 'private']);
+    if (owner.category !== 'interface' && ['abstract', 'virtual', 'override'].some(has) && !access.some(has))
+      invalid('polymorphic member cannot have implicit private accessibility');
+    if (has('sealed') && !has('override')) invalid('sealed member requires override');
+    if (owner.category === 'struct' && (has('abstract') || has('virtual'))) invalid('struct abstract/virtual member');
+    if (owner.category === 'class' && has('abstract') && !owner.modifiers.includes('abstract')) invalid('abstract member requires abstract class');
+    if (owner.modifiers.includes('sealed') && (has('abstract') || has('virtual'))) invalid('sealed type abstract/virtual member');
+    if (owner.category === 'interface' && mods.some(mod => mod !== 'new'))
+      deny('UNSUPPORTED_SYNTAX', 'explicit interface member modifiers outside foundation profile', start.origin);
+  }
   csDeclaration() {
     const start = this.current();
     if (this.value() === 'namespace') { this.csNamespace(); return; }
@@ -378,6 +433,7 @@ class Parser {
     if (mods.includes('partial') || mods.includes('unsafe')) deny('UNSUPPORTED_SYNTAX', 'partial/unsafe declarations', start.origin);
     if (['class', 'struct', 'interface', 'enum'].includes(this.value())) {
       const category = this.tokens[this.at++].value, name = this.id();
+      this.csModifiers(category, mods, start);
       const node = this.node('type', name.value, start, { type: { kind: 'sourceType', declaration: null }, category, modifiers: mods, attributes });
       this.genericParameters(node);
       if (this.take(':')) { do { node.bases.push(this.typeRef()); } while (this.take(',')); }
@@ -386,7 +442,7 @@ class Parser {
       this.inScope(node, () => {
         if (category === 'enum') {
           if (this.value() !== '}') do { const token = this.id(), member = this.node('enumMember', token.value, token, { type: node.type });
-            if (this.take('=')) member.initializer = this.expression(2); member.origin = this.span(token);
+            if (this.take('=')) member.initializer = this.expression(); member.origin = this.span(token);
           } while (this.take(',') && this.value() !== '}');
         } else while (this.value() !== '}') { if (this.current().kind === 'eof') deny('INCOMPLETE_INPUT', 'unclosed type', start.origin); this.csDeclaration(); }
       });
@@ -411,6 +467,7 @@ class Parser {
     const type = constructor ? { kind: 'sourceType', declaration: ownerType } : this.typeRef();
     const name = constructor ? this.id() : this.id();
     if (this.value() === '(' || this.value() === '<') {
+      if (!constructor) this.csModifiers('method', mods, start, ownerType);
       const node = this.node(constructor ? 'constructor' : 'method', name.value, start,
         { type: null, returnType: constructor ? { kind: 'void' } : type, attributes, modifiers: mods, static: mods.includes('static'), receiver: mods.includes('static') ? 'none' : 'instance' });
       this.genericParameters(node); this.formals(node);
@@ -419,36 +476,56 @@ class Parser {
         deny('INVALID_SYNTAX', 'parameterless struct constructor requires public accessibility', start.origin);
       if (this.value() === ':' || this.value() === 'where') deny('UNSUPPORTED_SYNTAX', 'constructor chain/generic constraints', this.current().origin);
       if (this.take(';')) { if (!mods.includes('extern') && ownerType.category !== 'interface' && !mods.includes('abstract')) deny('INVALID_SYNTAX', 'body required', start.origin); }
-      else node.body = this.inScope(node, () => this.block());
+      else {
+        if (mods.includes('abstract') || mods.includes('extern')) deny('INVALID_SYNTAX', 'abstract/extern member cannot have body', start.origin);
+        if (!constructor && ownerType.category === 'interface') deny('UNSUPPORTED_SYNTAX', 'default interface method body lowering', start.origin);
+        node.body = this.inScope(node, () => this.block());
+      }
       node.origin = this.span(start); return;
     }
     if (this.value() === '{') {
+      this.csModifiers('property', mods, start, ownerType);
+      if (this.tokens[this.at + 1].value === '}') deny('INVALID_SYNTAX', 'property requires accessor declarations', start.origin);
       const node = this.node('property', name.value, start, { type, attributes, modifiers: mods, static: mods.includes('static'), receiver: mods.includes('static') ? 'none' : 'instance' });
+      const bodyless = ownerType.category === 'interface' || mods.includes('abstract') || mods.includes('extern');
       this.at++; this.inScope(node, () => {
         while (this.value() !== '}') {
           const token = this.current(); if (!['get', 'set'].includes(token.value)) deny('UNSUPPORTED_SYNTAX', 'property accessor', token.origin);
+          if (node.children.some(child => child.accessor === token.value)) deny('INVALID_SYNTAX', 'duplicate property accessor', token.origin);
           this.at++; const accessor = this.node('accessor', token.value, token, { returnType: token.value === 'get' ? type : { kind: 'void' }, accessor: token.value,
             static: node.static, receiver: node.receiver });
           if (this.take(';')) accessor.auto = true;
-          else accessor.body = this.inScope(accessor, () => this.block());
-          accessor.origin = this.span(token);
-          if (token.value === 'set') {
-            const value = this.synthetic('valueStorage', accessor, 0, { type, name: 'value' });
-            accessor.synthetics.push(value); accessor.parameters.push(value);
+          else {
+            if (bodyless) deny('INVALID_SYNTAX', 'abstract/extern/interface accessor cannot have body', token.origin);
+            accessor.body = this.inScope(accessor, () => this.block());
           }
+          accessor.origin = this.span(token);
         }
       });
-      this.need('}'); if (this.take('=')) { node.initializer = this.expression(2); this.need(';'); }
+      this.need('}');
+      if (node.children.some(child => child.auto) && node.children.some(child => !child.auto))
+        deny('INVALID_SYNTAX', 'mixed auto/explicit property accessors', start.origin);
+      if (ownerType.category === 'struct' && ownerType.modifiers.includes('readonly') && !node.static &&
+          node.children.some(child => child.auto && child.accessor === 'set'))
+        deny('INVALID_SYNTAX', 'readonly struct cannot have mutable auto property', start.origin);
+      if (this.take('=')) {
+        if (bodyless || node.children.some(child => !child.auto)) deny('INVALID_SYNTAX', 'initializer requires concrete auto property', start.origin);
+        node.initializer = this.expression(); this.need(';');
+      }
       node.origin = this.span(start);
+      for (const accessor of node.children.filter(child => child.accessor === 'set')) {
+        const value = this.synthetic('valueStorage', accessor, 0, { type, name: 'value' });
+        accessor.synthetics.push(value); accessor.parameters.push(value);
+      }
       if (node.children.some(child => child.auto)) {
-        if (ownerType.category !== 'interface') node.synthetics.unshift(this.synthetic('backingStorage', node, 0, { type, static: node.static }));
-        if (node.children.some(child => !child.auto)) deny('INVALID_SYNTAX', 'mixed auto/explicit property accessors', node.origin);
+        if (!bodyless) node.synthetics.unshift(this.synthetic('backingStorage', node, 0, { type, static: node.static }));
       }
       return;
     }
     // The name was already read; rewind only that token, then parse each actual
     // declarator separately. No comma field is collapsed into one declaration.
     this.at--;
+    this.csModifiers('field', mods, start, ownerType);
     this.variable('field', type, start, { attributes, modifiers: mods, static: mods.includes('static') || mods.includes('const'), receiver: mods.includes('static') || mods.includes('const') ? 'none' : 'instance' });
   }
   synthetic(role, anchor, ordinal, extra = {}) {

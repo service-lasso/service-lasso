@@ -706,3 +706,132 @@ test('F11 grouped block arrows preserve actual formal, lexical block and capture
     if (head !== '()') assert.equal(boundLambda.captures.some(row => assertIdentity(row.declaration, binding(result, 'x', 'parameter').declId)), false);
   }
 });
+// Review26 coherent dialect/declaration repair; authored ALL UNRUN.
+function denyCsSyntax(source) {
+  const raw = bytes(source);
+  denies(() => parseSourceForest(raw, 'csharp'));
+  denies(() => bindSource(raw, identity('csharp'), [clr()]));
+  denies(() => checkFoundationBindings(raw, identity('csharp'), [clr()], { bindings: [] }));
+}
+function checkedCsSyntax(source) {
+  const raw = bytes(source), result = cs(source);
+  assert.equal(checkFoundationBindings(raw, identity('csharp'), [clr()], result).checkedDeclarations, result.bindings.length);
+  return { parsed: parseSourceForest(raw, 'csharp'), result };
+}
+
+test('F12 Csharp rejects JS operators/unary and non-statement-expression categories', () => {
+  for (const expression of ['true === false', 'true !== false', '1 in 2', 'typeof x', 'void x', 'typeof(int)'])
+    denyCsSyntax(`class C { int x; object Value = ${expression}; }`);
+  for (const expression of ['1 + 2', '1', 'true', 'x', 'x == 1', '!true', '(x = 1)', '(F())', 'x ? 1 : 2'])
+    denyCsSyntax(`class C { int x; int F() { return 1; } void Run() { ${expression}; } }`);
+  const { parsed } = checkedCsSyntax('class C { int x; void F() {} void Run() { x = 1; x += 2; x -= 1; F(); new C(); ++x; x--; } }');
+  const statements = parsed.root.children[0].children.find(row => row.name === 'Run').body.statements;
+  assert.deepEqual(statements.map(row => row.expression.kind), ['assignment', 'assignment', 'assignment', 'call', 'new', 'prefix', 'postfix']);
+  const jsForms = checkedJsSyntax('let x = 1; 1 + 2; 1; true; x; typeof x; void x; const a = true === false; const b = true !== false; const c = 1 in 2;');
+  assert.deepEqual(jsForms.parsed.root.statements.slice(1, 7).map(row => row.expression.kind), ['binary', 'literal', 'literal', 'name', 'unary', 'unary']);
+});
+
+test('F12 coalescing association and conditional assignment caller boundaries are dialect specific', () => {
+  const csTree = text => checkedCsSyntax(`class C { object Value = ${text}; }`).parsed.root.children[0].children.find(row => row.name === 'Value').initializer;
+  const right = csTree('null ?? null ?? null ?? null');
+  assert.equal(right.left.spelling, 'null'); assert.equal(right.right.op, '??'); assert.equal(right.right.right.op, '??');
+  const left = checkedJsSyntax('const value = null ?? null ?? null;').parsed.root.statements[0].declarations[0].initializer;
+  assert.equal(left.left.op, '??'); assert.equal(left.right.spelling, 'null');
+  const conditional = csTree('null ?? null ? null : null ?? null');
+  assert.equal(conditional.kind, 'conditional'); assert.equal(conditional.test.op, '??'); assert.equal(conditional.whenFalse.op, '??');
+  const grouped = csTree('(null ?? null) ?? (true ? null : null)');
+  assert.equal(grouped.left.kind, 'group'); assert.equal(grouped.right.expression.kind, 'conditional');
+  const mixed = csTree('null ?? true || false && true');
+  assert.equal(mixed.op, '??'); assert.equal(mixed.right.op, '||'); assert.equal(mixed.right.right.op, '&&');
+  const equality = csTree('!true == false'); assert.equal(equality.op, '=='); assert.equal(equality.left.kind, 'unary');
+  const source = 'class C { object slot; object Other; object Value = slot = null ?? null ? null : Other = null; object F(object x) { return x; } object Run() { return F(slot = null); } }';
+  const { parsed, result } = checkedCsSyntax(source), type = parsed.root.children[0];
+  const assigned = type.children.find(row => row.name === 'Value').initializer;
+  assert.equal(assigned.kind, 'assignment'); assert.equal(assigned.right.kind, 'conditional');
+  assert.equal(assigned.right.whenFalse.kind, 'assignment');
+  const argument = type.children.find(row => row.name === 'Run').body.statements[0].value.arguments[0].expression;
+  assert.equal(argument.kind, 'assignment'); assert.equal(argument.left.name, 'slot');
+  assert.equal(binding(result, 'Value').initializer.right.test.op, '??');
+});
+
+test('F12 every finite Csharp reserved identifier denies supported binding value and type positions', () => {
+  const keywords = ('abstract as base bool break byte case catch char checked class const continue decimal default delegate do double else enum event explicit extern false finally fixed float for foreach goto if implicit in int interface internal is lock long namespace new null object operator out override params private protected public readonly ref return sbyte sealed short sizeof stackalloc static string struct switch this throw true try typeof uint ulong unchecked unsafe ushort using virtual void volatile while').split(' ');
+  for (const name of keywords) {
+    for (const source of [`class ${name} {}`, `namespace ${name} { class C {} }`, `class C<${name}> {}`,
+      `class C { int ${name}; }`, `class C { int ${name}() { return 1; } }`,
+      `class C { int P { get; set; } int F(int ${name}) { return 1; } }`,
+      `class C { void F() { int ${name}; } }`, `enum C { ${name} }`,
+      `class C { C.${name} field; }`, `class C { int.${name} field; }`]) denyCsSyntax(source);
+    // Primitive types and literal productions have their own genuine roles.
+    if (!['void', 'bool', 'byte', 'char', 'decimal', 'double', 'float', 'int', 'long', 'object', 'sbyte', 'short', 'string', 'uint', 'ulong', 'ushort'].includes(name))
+      denyCsSyntax(`class C { ${name} field; }`);
+    if (!['true', 'false', 'null'].includes(name)) denyCsSyntax(`class C { object Value = ${name}; }`);
+  }
+  denyCsSyntax('class C { int @this; }');
+  const source = 'class C { int async; int await; int yield; int var; int get; int set; int F(int value) { async = value; await = async; yield = await; var = yield; return var; } }';
+  const { result } = checkedCsSyntax(source);
+  assert.deepEqual(result.bindings.filter(row => row.kind === 'field').map(row => row.name), ['async', 'await', 'yield', 'var', 'get', 'set']);
+  assert.equal(binding(result, 'value').semanticOwner.declaration.index, binding(result, 'F').declId.index);
+  const contextualType = checkedCsSyntax('class await {} class C { await field; }');
+  assert.deepEqual(binding(contextualType.result, 'field').type.declaration, binding(contextualType.result, 'await').declId);
+});
+
+test('F13 empty duplicate mixed and invalid initialized property forms deny before storage', () => {
+  for (const declaration of ['int P {}', 'int P {} = 1;', 'static int P {}', 'static int P {} = 1;',
+    'int P { get; get; }', 'int P { set; set; }', 'int P { get; set {} }',
+    'int P { get { return 1; } set; }', 'int P { get { return 1; } } = 1;'])
+    denyCsSyntax(`class C { ${declaration} }`);
+});
+
+test('F13 concrete property accessors retain value ownership backing and initializer order', () => {
+  const source = 'class C { int a = 1; int G { get; } = 2; int S { set; } = 3; int Both { set; get; } = 4; int Explicit { get { return a; } set { a = value; } } static int Q { get; set; } = 5; }';
+  const { parsed, result } = checkedCsSyntax(source);
+  for (const name of ['G', 'S', 'Both', 'Q']) assert.equal(binding(result, name).backing.length, 1);
+  assert.equal(binding(result, 'Explicit').backing.length, 0);
+  const explicit = parsed.root.children[0].children.find(row => row.name === 'Explicit');
+  const setter = explicit.children.find(row => row.name === 'set');
+  assert.equal(setter.parameters[0].owner, setter); assert.equal(setter.parameters[0].slot.anchor, setter);
+  assert.equal(setter.body.statements[0].expression.right.name, 'value');
+  const boundSetter = result.bindings.find(row => row.kind === 'accessor' && row.name === 'set' && assertIdentity(row.semanticOwner.declaration, binding(result, 'Explicit').declId));
+  const value = result.bindings.find(row => row.name === 'value' && assertIdentity(row.semanticOwner.declaration, boundSetter.declId));
+  assert.deepEqual(boundSetter.parameters[0].declaration, value.declId);
+  assert.deepEqual(result.bindings.find(row => row.origin.role === 'instanceConstructor').generatedInitializerOrder.map(row => row.declaration), ['a', 'G', 'S', 'Both'].map(name => binding(result, name).declId));
+  assert.deepEqual(result.bindings.find(row => row.origin.role === 'typeInitializer').generatedInitializerOrder.map(row => row.declaration), [binding(result, 'Q').declId]);
+  for (const accessors of ['get { return 1; }', 'set {}', 'get { return 1; } set {}']) checkedCsSyntax(`class C { int P { ${accessors} } }`);
+});
+
+test('F14 modifier category owner and combination negatives enter all three grammar paths', () => {
+  for (const modifier of ['const', 'readonly', 'virtual', 'override', 'extern']) denyCsSyntax(`${modifier} class C {}`);
+  for (const declaration of ['abstract int x;', 'virtual int x;', 'override int x;', 'sealed int x;', 'extern int x;',
+    'static const int x = 1;', 'readonly const int x = 1;', 'const int F() { return 1; }',
+    'readonly int F() { return 1; }', 'const int P { get; }', 'readonly int P { get; }',
+    'abstract int F();', 'sealed int F() { return 1; }', 'private virtual int F() { return 1; }',
+    'static virtual int F() { return 1; }', 'new override int F() { return 1; }',
+    'static override int P { get; }', 'sealed int P { get; }', 'private abstract int P { get; }'])
+    denyCsSyntax(`class C { ${declaration} }`);
+  for (const type of ['static abstract class C {}', 'static sealed class C {}', 'abstract sealed class C {}',
+    'private class C {}', 'protected enum C {}', 'new struct C {}', 'abstract struct C {}', 'sealed interface C {}',
+    'struct C { protected int x; }', 'struct C { protected class N {} }',
+    'struct C { virtual int F() { return 1; } }', 'static class C { int x; }',
+    'static class C { void F() {} }', 'static class C { int P { get; } }', 'static class C { protected static int x; }',
+    'sealed class C { virtual int F() { return 1; } }', 'readonly struct C { int x; }', 'readonly struct C { int P { get; set; } }', 'class C { virtual int F() { return 1; } }', 'class C { private override int F() { return 1; } }']) denyCsSyntax(type);
+  for (const declaration of ['abstract int F() { return 1; }', 'extern int F() { return 1; }',
+    'abstract extern int F();', 'abstract int P { get { return 1; } }', 'extern int P { set {} }',
+    'abstract int P { get; } = 1;', 'extern int P { get; } = 1;']) denyCsSyntax(`abstract class C { ${declaration} }`);
+});
+
+test('F14 valid type field method property forms preserve metadata and synthetic associations', () => {
+  const source = 'public abstract class C { readonly int a = 1; static readonly int s = 2; public const int K = 3; public abstract int F(); public extern int E(); public virtual int V() { return a; } public override int O() { return a; } public sealed override int Z() { return a; } public abstract int P { get; set; } public extern int Q { get; } int Auto { get; set; } = 4; public class N {} }';
+  const { parsed, result } = checkedCsSyntax(source);
+  assert.deepEqual(binding(result, 'C', 'type').modifiers, ['public', 'abstract']);
+  assert.deepEqual(binding(result, 'K').modifiers, ['public', 'const']); assert.equal(binding(result, 'K').static, true);
+  assert.equal(binding(result, 'P').backing.length, 0); assert.equal(binding(result, 'Q').backing.length, 0);
+  assert.equal(binding(result, 'Auto').backing.length, 1);
+  assert.deepEqual(result.bindings.find(row => row.origin.role === 'instanceConstructor' && assertIdentity(row.origin.anchor, binding(result, 'C', 'type').declId)).generatedInitializerOrder.map(row => row.declaration), [binding(result, 'a').declId, binding(result, 'Auto').declId]);
+  assert.deepEqual(result.bindings.find(row => row.origin.role === 'typeInitializer').generatedInitializerOrder.map(row => row.declaration), [binding(result, 's').declId]);
+  assert.equal(parsed.root.children[0].children.find(row => row.name === 'F').body, undefined);
+  for (const source of ['public static class C { public static int F() { return 1; } static int P { get; } = 1; }',
+    'public sealed class C { public int F() { return 1; } }', 'readonly struct C { public int F() { return 1; } }',
+    'public interface C { int F(); int P { get; set; } }', 'public enum C { A }',
+    'class C { public new class N {} public new int x; public new virtual int F() { return 1; } }']) checkedCsSyntax(source);
+});
