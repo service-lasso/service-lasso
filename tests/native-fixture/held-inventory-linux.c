@@ -45,6 +45,8 @@ static int mounts(struct lf_inventory_entry *entry, uint64_t root_mount,
   entry->named_mount_id = named.stx_mnt_id;
   if (!(held.stx_mask & STATX_MNT_ID) || !(named.stx_mask & STATX_MNT_ID))
     return failure(observation, 0, EOPNOTSUPP);
+  if (!held.stx_mnt_id || !named.stx_mnt_id)
+    return failure(observation, 0, EPROTO);
   if (held.stx_mnt_id != named.stx_mnt_id ||
       (root_mount && held.stx_mnt_id != root_mount))
     return failure(observation, 0, ESTALE);
@@ -247,6 +249,8 @@ int lf_inventory_release(struct lf_inventory_entry *entries, size_t count) {
   int first_error = 0;
   for (size_t i = count; i > 0; i--) {
     struct lf_inventory_entry *entry = &entries[i - 1];
+    if (entry->object_close_error && !first_error)
+      first_error = entry->object_close_error;
     if (!entry->owns_object_fd) continue;
     entry->owns_object_fd = false;
     int actual = close(entry->binding.held_object);
