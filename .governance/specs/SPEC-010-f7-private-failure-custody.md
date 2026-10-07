@@ -6,6 +6,8 @@ This spec incorporates the ENTIRE selected architecture below. Proposal-phase st
 
 ## Normative requirement map
 
+Current bounded unit #1728 / draft PR #1729 owns original native ROOT preparation and the once-only connected collector caller under all F7-01..F7-09. Its [Linux receiving contract](../project/F7_ROOT_CREATOR_LINUX_SOURCE_CONTRACT.md) is a SOURCE CONTRACT CANDIDATE, awaiting different whole native view/inception/caller/allocator review before implementation against it. Dependency PR #1725 selects whole Alternative A through ADR-004 and byte-identical amendment06 contracts, canonically reviewed at 465d6b58; it is pending develop landing, not present product source in this unit. Its selected durable-prefix versus independently held live-terminal disposition supersedes historical full-terminal-persistence wording only through that complete dependency. No source grant, resource, original observer adapter, all-nine numeric catalog, native acceptance or execution admission is supplied by this paragraph. All original F7 requirements, protected rows, four custody callbacks and failed/private evidence remain required; existing #1640/#1687 ownership remains preserved.
+
 | ID | Required contract and acceptance |
 | --- | --- |
 | F7-01 | O admission and persistent private channels precede EVERY downstream initialization; raw capture, natural original EOF and all primary/secondary error witnesses remain exact. |
