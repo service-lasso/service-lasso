@@ -3,6 +3,7 @@
 
 #include "trace-observation-linux.h"
 #include "terminal-policy-linux.h"
+#include "entry-gate-linux.h"
 
 struct lf_thread_history_entry {
   pid_t tid;
@@ -25,6 +26,8 @@ struct lf_thread_history_entry {
 struct lf_thread_history_record {
   struct lf_trace_observation actual;
   bool awaiting_creator_event;
+  bool gate_checked;
+  struct lf_gate_observation gate_observation;
 };
 struct lf_thread_history {
   pid_t root_tid;
@@ -35,6 +38,8 @@ struct lf_thread_history {
   struct lf_thread_history_record *records;
   size_t record_count;
   size_t record_capacity;
+  bool initialized;
+  struct lf_entry_gate entry_gate;
   bool failed;
   int native_error;
   int rejection_error;
@@ -50,6 +55,7 @@ struct lf_thread_history {
  * descriptor/runtime/namespace/filter admission is a separate mandatory gate.
  * Root is the only initial thread; every later birth needs a real clone event.
  * Records are reserved before capture and never overwritten on exhaustion.
+ * Zero-initialize once; begin cannot reset a live or failed history/gate.
  */
 int lf_thread_history_begin(struct lf_thread_history *, pid_t root_tid,
     pid_t held_process_group, uint64_t admitted_pthread_flags,
@@ -70,6 +76,20 @@ int lf_thread_history_next(struct lf_thread_history *);
  * original-signal rule. No registers, syscall results or user signals change.
  */
 int lf_thread_history_resume(struct lf_thread_history *, pid_t tid);
+
+/* One-way integration of the trusted S acquisition gate. This conservative
+ * entry-only closure requires every living correlated thread at a genuine
+ * entry and rejects pending births and unresolved restart history. It does
+ * not label interrupt/blocked threads as settled. Complete SETTLED, actual
+ * creator/pidfd identity, original bindings and prior effect/source proofs
+ * remain S prerequisites. No caller packet authorizes this transition.
+ * Once closed, resume checks each genuine entry and retains its independent
+ * original-close inspection alongside the immutable original trace record.
+ * No TSYNC exception is granted here; sealing integration is still separate.
+ */
+int lf_thread_history_close_acquisition(struct lf_thread_history *,
+    int held_pidfd, const struct lf_terminal_catalog *,
+    const struct lf_fd_binding *originals, size_t original_count);
 
 /* This module records actual lifecycle/syscall chronology only. It cannot
  * authorize drain, PARKED/TSYNC, deletion or reset. Original FD/effect/restart

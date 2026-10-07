@@ -147,7 +147,10 @@ int lf_thread_history_begin(struct lf_thread_history *history, pid_t root_tid,
     pid_t held_process_group, uint64_t admitted_pthread_flags,
     struct lf_thread_history_record *records, size_t capacity) {
   if (!history) { errno = EINVAL; return -1; }
+  if (history->failed) { errno = history->rejection_error; return -1; }
+  if (history->initialized) return fail(history, 0, EPROTO);
   memset(history, 0, sizeof(*history));
+  history->initialized = true;
   uint64_t required = CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND |
       CLONE_THREAD | CLONE_SYSVSEM | CLONE_SETTLS;
   uint64_t allowed = required | CLONE_PARENT_SETTID | CLONE_CHILD_SETTID |
@@ -210,6 +213,27 @@ int lf_thread_history_resume(struct lf_thread_history *history, pid_t tid) {
       thread->last_observation.tid != tid)
     return fail(history, 0, EPROTO);
   const struct lf_trace_observation *actual = &thread->last_observation;
+  if (history->entry_gate.closed && thread->syscall_pending &&
+      actual->stop != LF_TRACE_SYSCALL_ENTRY) {
+    if (!thread->entry_ordinal || thread->entry_ordinal > history->record_count ||
+        !history->records[thread->entry_ordinal - 1].gate_checked)
+      return fail(history, 0, EPROTO);
+  }
+  if (history->entry_gate.closed && actual->stop == LF_TRACE_SYSCALL_ENTRY) {
+    if (!thread->entry_ordinal || thread->entry_ordinal > history->record_count)
+      return fail(history, 0, EPROTO);
+    struct lf_thread_history_record *record =
+        &history->records[thread->entry_ordinal - 1];
+    if (record->gate_checked || record->actual.tid != tid ||
+        record->actual.stop != LF_TRACE_SYSCALL_ENTRY)
+      return fail(history, 0, EPROTO);
+    int permitted = lf_entry_gate_check(&history->entry_gate, actual);
+    record->gate_checked = true;
+    record->gate_observation = history->entry_gate.last_observation;
+    if (permitted < 0)
+      return fail(history, record->gate_observation.native_error,
+                  record->gate_observation.rejection_error);
+  }
   int result;
   if (thread->awaiting_birth_stop) {
     if (!birth_stop(actual)) return fail(history, 0, EPROTO);
@@ -226,5 +250,40 @@ int lf_thread_history_resume(struct lf_thread_history *history, pid_t tid) {
   }
   if (result < 0) return fail(history, errno, errno);
   thread->currently_stopped = false;
+  return 0;
+}
+
+int lf_thread_history_close_acquisition(struct lf_thread_history *history,
+    int pidfd, const struct lf_terminal_catalog *catalog,
+    const struct lf_fd_binding *originals, size_t original_count) {
+  if (!history) { errno = EINVAL; return -1; }
+  if (history->failed) { errno = history->rejection_error; return -1; }
+  if (!history->initialized || history->entry_gate.closed || !catalog ||
+      catalog->tgid != history->root_tid || !catalog->tids ||
+      !catalog->tid_count || catalog->tid_count > LF_POLICY_THREADS)
+    return fail(history, 0, EPROTO);
+  for (size_t i = 0; i < history->record_count; i++)
+    if (history->records[i].awaiting_creator_event)
+      return fail(history, 0, EPROTO);
+  size_t living = 0;
+  for (size_t i = 0; i < history->thread_count; i++) {
+    const struct lf_thread_history_entry *thread = &history->threads[i];
+    if (thread->actually_exited) continue;
+    if (!thread->currently_stopped || thread->awaiting_birth_stop ||
+        thread->exit_announced || thread->has_restart_result ||
+        thread->inherited_clone_return_pending || !thread->syscall_pending ||
+        thread->last_observation.stop != LF_TRACE_SYSCALL_ENTRY)
+      return fail(history, 0, EPROTO);
+    size_t matches = 0;
+    for (size_t j = 0; j < catalog->tid_count; j++)
+      if (catalog->tids[j] == thread->tid) matches++;
+    if (matches != 1) return fail(history, 0, EPROTO);
+    living++;
+  }
+  if (living != catalog->tid_count) return fail(history, 0, EPROTO);
+  if (lf_entry_gate_close(&history->entry_gate, pidfd, catalog,
+                          originals, original_count) < 0)
+    return fail(history, history->entry_gate.last_observation.native_error,
+                history->entry_gate.last_observation.rejection_error);
   return 0;
 }
