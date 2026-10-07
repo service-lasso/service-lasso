@@ -1,5 +1,13 @@
 # Original creator source checkpoint (#1728)
 
+2026-10-08 current disposition: BLOCKED / LOCAL_MINIMUM. The user authorized
+the first allocation_reserved fix, but live readback still confirms missing
+creator/entry/U1 bodies and zero improved Linux verification. The growing
+design/header diff meets the gov-02/gov-13 circuit breaker. See
+[retained incident and resume conditions](1728-LINUX-CLEANUP-LOCAL-MINIMUM.md).
+Historical next-implementation guidance below is not permission to bypass
+this stop. No code or test was changed in the circuit-breaker audit.
+
 Development source preparation; sole author is the current repair chat. Dedicated managed checkout C:/Users/maxbarrass/.codex/worktrees/f7-root-creator-1728/service-lasso, branch feature/1728-original-root-creator, base developce56f592. Draft PR #1729 targets develop. Existing Linux #1724/#1725 and #1640/#1687 owner branches remain retained.
 
 Different reviewer review_1728_native_profile completed WHOLE PROPOSAL / RECEIVING-CONTRACT GO for frozen5c980205c2e9a439780c001db5124df5e4f2c8eb. Originalc0eb6ced partial NO_GO is preserved: premature RO mappings, incorrect executable-memory implication and producer ordering. Subsequent complete graph review also exposed incompatible bootstrap/terminal W error sending, circular SDK/readiness startup, missing actual entry mechanism and pre-SDK failure-custody overclaim. All are resolved in the reviewed receiving contract, not proven as executable behavior.
