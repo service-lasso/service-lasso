@@ -1,0 +1,53 @@
+name: Documentation Consumer Qualification
+
+on:
+  pull_request:
+    branches: [develop]
+    paths:
+      - '.github/workflows/docs-consumer-qualification.yml'
+      - 'scripts/qualify-docs-consumers.mjs'
+      - 'tests/fixtures/docs-consumers/**'
+      - 'docs/**'
+      - 'package.json'
+      - 'package-lock.json'
+  push:
+    branches: [develop]
+    paths:
+      - '.github/workflows/docs-consumer-qualification.yml'
+      - 'scripts/qualify-docs-consumers.mjs'
+      - 'tests/fixtures/docs-consumers/**'
+      - 'docs/**'
+      - 'package.json'
+      - 'package-lock.json'
+
+permissions:
+  contents: read
+
+jobs:
+  consumers:
+    name: Actual Docusaurus SSG and Mermaid browser consumers
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+      - name: Acquire unchanged locked graph
+        run: npm ci
+      - name: Retain unchanged dependency audit policies
+        run: |
+          npm run audit:production
+          npm run audit:tooling
+      - name: Install locked Playwright Chromium
+        run: node node_modules/@playwright/test/cli.js install --with-deps chromium
+      - name: Qualify actual private documentation consumers
+        run: node scripts/qualify-docs-consumers.mjs
+      - name: Preserve private consumer evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: docs-consumer-${{ github.sha }}-${{ github.run_id }}
+          path: .docs-consumer-qualification
+          include-hidden-files: true
