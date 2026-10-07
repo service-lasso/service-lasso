@@ -4,6 +4,7 @@
 #include "trace-observation-linux.h"
 #include "terminal-policy-linux.h"
 #include "entry-gate-linux.h"
+#include "parked-wait-linux.h"
 
 struct lf_thread_history_entry {
   pid_t tid;
@@ -20,6 +21,8 @@ struct lf_thread_history_entry {
   uint64_t entry_ordinal;
   uint64_t exit_ordinal;
   bool has_restart_result;
+  bool acquisition_closed_in_wait;
+  struct lf_gate_observation wait_observation;
   int64_t restart_result;
   struct lf_trace_observation last_observation;
 };
@@ -27,6 +30,7 @@ struct lf_thread_history_record {
   struct lf_trace_observation actual;
   bool awaiting_creator_event;
   bool gate_checked;
+  bool gate_closed_during_memory_wait;
   struct lf_gate_observation gate_observation;
 };
 struct lf_thread_history {
@@ -78,9 +82,10 @@ int lf_thread_history_next(struct lf_thread_history *);
 int lf_thread_history_resume(struct lf_thread_history *, pid_t tid);
 
 /* One-way integration of the trusted S acquisition gate. This conservative
- * entry-only closure requires every living correlated thread at a genuine
- * entry and rejects pending births and unresolved restart history. It does
- * not label interrupt/blocked threads as settled. Complete SETTLED, actual
+ * closure requires every living correlated thread at a genuine entry or an
+ * actually interrupted finite non-original wait with its original entry
+ * retained. Pending births and unresolved restart history reject. Complete
+ * SETTLED, actual
  * creator/pidfd identity, original bindings and prior effect/source proofs
  * remain S prerequisites. No caller packet authorizes this transition.
  * Once closed, resume checks each genuine entry and retains its independent
@@ -89,7 +94,8 @@ int lf_thread_history_resume(struct lf_thread_history *, pid_t tid);
  */
 int lf_thread_history_close_acquisition(struct lf_thread_history *,
     int held_pidfd, const struct lf_terminal_catalog *,
-    const struct lf_fd_binding *originals, size_t original_count);
+    const struct lf_fd_binding *originals, size_t original_count,
+    const struct lf_fd_binding *nonoriginals, size_t nonoriginal_count);
 
 /* This module records actual lifecycle/syscall chronology only. It cannot
  * authorize drain, PARKED/TSYNC, deletion or reset. Original FD/effect/restart

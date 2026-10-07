@@ -255,25 +255,57 @@ int lf_thread_history_resume(struct lf_thread_history *history, pid_t tid) {
 
 int lf_thread_history_close_acquisition(struct lf_thread_history *history,
     int pidfd, const struct lf_terminal_catalog *catalog,
-    const struct lf_fd_binding *originals, size_t original_count) {
+    const struct lf_fd_binding *originals, size_t original_count,
+    const struct lf_fd_binding *nonoriginals, size_t nonoriginal_count) {
   if (!history) { errno = EINVAL; return -1; }
   if (history->failed) { errno = history->rejection_error; return -1; }
   if (!history->initialized || history->entry_gate.closed || !catalog ||
       catalog->tgid != history->root_tid || !catalog->tids ||
-      !catalog->tid_count || catalog->tid_count > LF_POLICY_THREADS)
+      !catalog->tid_count || catalog->tid_count > LF_POLICY_THREADS ||
+      !nonoriginals || !nonoriginal_count || nonoriginal_count > LF_POLICY_FDS ||
+      nonoriginal_count != catalog->fd_count)
     return fail(history, 0, EPROTO);
+  struct lf_terminal_policy policy;
+  if (lf_terminal_policy_build(catalog, &policy) < 0)
+    return fail(history, 0, errno);
+  for (size_t i = 0; i < nonoriginal_count; i++) {
+    if (nonoriginals[i].held_fd < 0 || !nonoriginals[i].object_key)
+      return fail(history, 0, EPROTO);
+    size_t matches = 0;
+    for (size_t j = 0; j < catalog->fd_count; j++)
+      if (nonoriginals[i].workload_fd == catalog->fds[j].fd &&
+          nonoriginals[i].rights == catalog->fds[j].rights) matches++;
+    if (matches != 1) return fail(history, 0, EPROTO);
+    for (size_t j = 0; j < i; j++)
+      if (nonoriginals[j].workload_fd == nonoriginals[i].workload_fd)
+        return fail(history, 0, EPROTO);
+  }
   for (size_t i = 0; i < history->record_count; i++)
     if (history->records[i].awaiting_creator_event)
       return fail(history, 0, EPROTO);
   size_t living = 0;
   for (size_t i = 0; i < history->thread_count; i++) {
-    const struct lf_thread_history_entry *thread = &history->threads[i];
+    struct lf_thread_history_entry *thread = &history->threads[i];
     if (thread->actually_exited) continue;
     if (!thread->currently_stopped || thread->awaiting_birth_stop ||
         thread->exit_announced || thread->has_restart_result ||
-        thread->inherited_clone_return_pending || !thread->syscall_pending ||
-        thread->last_observation.stop != LF_TRACE_SYSCALL_ENTRY)
+        thread->inherited_clone_return_pending || !thread->syscall_pending)
       return fail(history, 0, EPROTO);
+    if (thread->last_observation.stop != LF_TRACE_SYSCALL_ENTRY) {
+      if (thread->last_observation.stop != LF_TRACE_INTERRUPT_OR_GROUP ||
+          thread->last_observation.stop_signal != SIGTRAP ||
+          !thread->entry_ordinal || thread->entry_ordinal > history->record_count)
+        return fail(history, 0, EPROTO);
+      const struct lf_trace_observation *entry =
+          &history->records[thread->entry_ordinal - 1].actual;
+      if (entry->tid != thread->tid ||
+          lf_parked_wait_check(entry, &policy, pidfd, nonoriginals,
+              nonoriginal_count, &thread->wait_observation) < 0)
+        return fail(history, thread->wait_observation.native_error,
+                    thread->wait_observation.rejection_error ?
+                    thread->wait_observation.rejection_error : EPROTO);
+      thread->acquisition_closed_in_wait = true;
+    }
     size_t matches = 0;
     for (size_t j = 0; j < catalog->tid_count; j++)
       if (catalog->tids[j] == thread->tid) matches++;
@@ -285,5 +317,16 @@ int lf_thread_history_close_acquisition(struct lf_thread_history *history,
                           originals, original_count) < 0)
     return fail(history, history->entry_gate.last_observation.native_error,
                 history->entry_gate.last_observation.rejection_error);
+  for (size_t i = 0; i < history->thread_count; i++) {
+    const struct lf_thread_history_entry *thread = &history->threads[i];
+    if (!thread->acquisition_closed_in_wait) continue;
+    struct lf_thread_history_record *record =
+        &history->records[thread->entry_ordinal - 1];
+    /* Explicitly distinguish closure DURING a proved non-original wait from
+     * permission issued before its original entry. Never backdate the gate. */
+    record->gate_closed_during_memory_wait = true;
+    record->gate_checked = true;
+    record->gate_observation = thread->wait_observation;
+  }
   return 0;
 }
