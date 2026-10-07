@@ -14,6 +14,8 @@ Fresh GPT-6.1 Sol low reviewer review_linux1724_protocol found one remaining sou
 
 Fresh GPT-6.1 Sol low reviewer review_linux1724_drain accepted the original-handle/effect algorithm correction in its entire review. One bounded D5 compatibility gap remained: control read/readv could not validate the inherited mandatory per-packet SCM_CREDENTIALS/ancillary/truncation grammar while recvmsg was terminal-denied. The correction selects fixed held credential-only recvmsg/sendmsg; S never sends descriptors to W0, native per-message held-peer checks remain mandatory, and K copy-FD transport remains a separate inaccessible channel. No connection-only identity substitute or generic FD receive is selected.
 
-## Corrected credential-only candidate — awaiting different entire review
+## 171473fd — different entire architecture GO for Linux source authoring
 
-DRAINING, no-original-reference census, genuine Node completion, kernel return checkpoints, poll-family history rejection and distinct source input families remain selected proposals. The narrow control syscall/issuer/credential rules now preserve D5. No normative ADR selection or native/source implementation is dispatched by this record.
+Fresh GPT-6.1 Sol low reviewer review_linux1724_control found no remaining actionable architecture gap across the entire combined D1-D8 proposal. The fixed credential-only control contract resolves D5 without FD acquisition because trusted S owns the sole peer and never sends descriptors; K's channel stays inaccessible. D1 drain/census/TSYNC, genuine Node callbacks, all protected post-seal effects, D4 ingress and finite D8 derivation remain coherent. Final source/policy/numeric fit/actual native inputs and F7 resources stay separate unqualified dependencies.
+
+The primary conductor selects the exact reviewed design/protocol through ADR-003 for source preparation. This does not grant execution or acceptance. No import/compiler/test/native action occurred during architecture review or selection.
