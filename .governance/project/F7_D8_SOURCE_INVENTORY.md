@@ -6,6 +6,8 @@ Status: planned source contract awaiting distinct entire canonical review. Every
 
 ## Source ownership map
 
+ADR-004 now selects the complete amendment06 canonical contract after human approval, superseding the prior unselected material-change status only. The ONE inventory remains here. Add U0 original creator/caller ownership ahead of U1: authentic source-owned ROOT header/callsite, pre-effect original arenas/held views, exact SDK5 ABI/source/actor/lifetime/allocator catalogs and all-nine physical reservations. No U0 implementation or actual bindings are delivered by that decision. U1 remains the existing receiving boundary; original #1687/#1640 branches are preserved. Canonical integration review precedes source authoring against the amended contract; final complete implementation review/NEW actual-input admission precede execution. All fifteen U4 pairs remain authored/unexecuted and the complete adapter remains missing.
+
 Linux #1724 / ADR-003 supersedes the historical U4 D1 NO_GO for source authoring only. Its Linux source is being prepared on fix/1724-linux-native-fixture-removal without changing existing #1640/#1687 branches. The following authored U4 primitives implement actual native operations; the complete supervisor/inception/effect/drain/launcher/native client and U1-U3 packages remain incomplete. Current rows below supersede the historical all-ABSENT base snapshot for authored components only. No actual resource, final SOURCE GO or execution claim follows.
 
 | Planned path / existing target | Sole implementation unit | Actor and boundary | Current fact |

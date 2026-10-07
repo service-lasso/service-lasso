@@ -1,6 +1,6 @@
 # F7 terminal custody: decision required for the Linux repair
 
-Status: proposed, NOT SELECTED. Linked work: #1724, #1687, #1640; draft PR1725 into develop. This document changes no active acceptance requirement and authorizes no implementation against an amended contract, resource activation, native execution, merge or release.
+Status: resolved by human approval and whole conductor selection in [ADR-004](ADR-004-f7-durable-prefix-terminal-custody.md), 2026-10-07. Linked work: #1724, #1687, #1640; draft PR1725 into develop. The following proposal remains historical decision context; ADR-004 and its complete canonical seven-document contract govern source preparation. No resource activation, native execution, merge or release follows.
 
 ## Concrete decision
 

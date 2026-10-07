@@ -1,5 +1,7 @@
 # Bootstrap Adoption TODO
 
+Linux #1724/F7 current continuation: ADR-004 records human-approved whole amendment06 selection and the seven byte-identical reviewed canonical documents. SPEC-010/intent/backlog/ONE inventory must remain aligned before code. Next: different entire canonical integration review, original source-owned ROOT creator/header/callsite and actual view/allocator/catalog implementation connected to U1, then complete Linux adapter; no placeholders, guessed budgets or native execution before final review and new actual-input admission. Protected eleven rows/recovered/adversarial/full-suite acceptance remains required. No resource activation, merge or release is inferred.
+
 - #1716 active source remediation: SPEC-002 AC-4CG.1716 sequential artifact/package versioning caller retains one consumed private metadata credential. Preserve original assertions and auth policy; deterministic regression and original live gate remain UNRUN pending NEW complete actual-input ROOT, different fresh ENTIRE review and parent admission. Provider403 cause remains UNKNOWN.
 
 ## Mac readiness documentation remediation (2026-10-05, #1675)

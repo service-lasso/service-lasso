@@ -6,6 +6,8 @@ This spec incorporates the ENTIRE selected architecture below. Proposal-phase st
 
 ## Normative requirement map
 
+2026-10-07 amendment: [ADR-004](../decisions/ADR-004-f7-durable-prefix-terminal-custody.md) selects the complete reviewed [amendment06 contract](../contracts/f7-amendment06/README.md) after human approval. This supersedes self-inclusive once-only durable terminal membership: completed prefix is durably authenticated; every post-prefix original result remains separately LIVE_ONLY in pre-reserved independently held typed native slots. Loss/partial/unavailable suffix never qualifies a positive requirement needing it. The complete verdict is PREFIX_DURABLE_WITH_ORIGINAL_LIVE_TERMINAL_CUSTODY, never FULL_DURABLE_TERMINAL_ACCEPTED. Exact SDK5/manifest3 dispatch, native views/rights/publication/retention, original creator/caller and all-nine physical reservation obligations are selected together, not just the prefix clause. F7-01..F7-09, all protected original assertions/once-only ciphertext/recovery/off-host proof and finite actor separation remain mandatory under that precise membership distinction. Linux ADR-003 supersedes historical D1 NO-GO for Linux source preparation only; Windows remains separate. Actual inputs/packages remain incomplete; full final review and NEW complete-input ROOT precede execution.
+
 | ID | Required contract and acceptance |
 | --- | --- |
 | F7-01 | O admission and persistent private channels precede EVERY downstream initialization; raw capture, natural original EOF and all primary/secondary error witnesses remain exact. |
