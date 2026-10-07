@@ -296,6 +296,9 @@ public static class ServiceLassoManagedLauncherNative
         // known failed initiating operation. Its original observation survives.
         internal bool Failed;
         internal bool ChildIssuanceUnresolved;
+        // false/no observation means not yet issued; true means pending or
+        // unavailable; false/original observation means actually observed.
+        internal bool PrimaryWaitPending;
         internal HMACSHA256 Progress;
         internal readonly List<EnvironmentOverride> EnvironmentOwners = new List<EnvironmentOverride>();
         internal ManagedInvocation(List<FileStream> files) { Files = files; }
@@ -638,9 +641,11 @@ public static class ServiceLassoManagedLauncherNative
                 processInformation.dwProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture) + "}";
             File.WriteAllText(payload.ackPath, acknowledgment, StrictUtf8);
 
+            invocation.PrimaryWaitPending = true;
             uint targetWait = WaitForSingleObject(processHandle, Infinite);
             int targetWaitError = targetWait == UInt32.MaxValue ? Marshal.GetLastWin32Error() : unchecked((int)targetWait);
             invocation.Observe("target-primary-wait", targetWaitError, targetWait != WaitObject0, null);
+            invocation.PrimaryWaitPending = false;
             if (targetWait != WaitObject0)
             {
                 throw new Win32Exception(targetWaitError, "Managed target wait failed.");
@@ -657,6 +662,8 @@ public static class ServiceLassoManagedLauncherNative
         {
             if (invocation.Primary == null) invocation.Primary = primary;
             invocation.PrimaryResult = failureExitCode;
+            if (invocation.PrimaryWaitPending)
+                invocation.Observe("target-primary-wait-unavailable", 0, true, primary);
             return failureExitCode;
         }
         finally
@@ -1460,7 +1467,7 @@ public static class ServiceLassoManagedLauncherNative
         // An unavailable create return or malformed issued child cannot become
         // no child merely because a local handle is zero. A failed original wait
         // cannot be retried by containment and then laundered into closure.
-        if (invocation.ChildIssuanceUnresolved || invocation.Outcomes.Exists(o => o.Site == "target-primary-wait" && o.Failed))
+        if (invocation.ChildIssuanceUnresolved || invocation.Outcomes.Exists(o => o.Site == "target-primary-wait" && o.Failed) || invocation.PrimaryWaitPending)
             RetainManagedInvocation(invocation);
         if (!targetAssignedToJob && processHandle != IntPtr.Zero)
         {

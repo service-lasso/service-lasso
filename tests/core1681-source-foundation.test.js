@@ -903,3 +903,55 @@ test('F18 all CSharp newlines end comments and deny raw quoted literal newlines 
   assert.deepEqual(js.root.children.map(row => row.name), ['a']);
   parseSourceForest(bytes('const a = "x\u2028y\u2029z";'), 'javascript');
 });
+
+test('F20 interior CSharp formatting cannot repair a keyword or declaration boundary', () => {
+  for (const source of ['class\ufeffC {}', 'namespace\ufeffN { class C {} }',
+    'class C { int\ufeffx; }', 'class C { int x\ufeff; }', 'class C {}\ufeffclass D {}',
+    'class\u200bC {}', 'class C { int x\u2060; }']) {
+    const decoded = decodeOriginal(bytes(source)), at = source.search(/[\ufeff\u200b\u2060]/u);
+    denies(() => lexOriginal(decoded, 'csharp'), 'UNSUPPORTED_SYNTAX');
+    denies(() => parseSourceForest(bytes(source), 'csharp'), 'UNSUPPORTED_SYNTAX');
+    denies(() => cs(source), 'UNSUPPORTED_SYNTAX');
+    const validCandidate = cs('class C {}');
+    denies(() => checkFoundationBindings(bytes(source), identity('csharp'), [clr()], validCandidate), 'UNSUPPORTED_SYNTAX');
+    assert.deepEqual(decoded.origin(at, at + 1).byte, [bytes(source.slice(0, at)).length, bytes(source.slice(0, at + 1)).length]);
+    if (source === 'class\ufeffC {}') {
+      assert.deepEqual(decoded.origin(at, at + 1).utf16, [5, 6]);
+      assert.deepEqual(decoded.origin(at, at + 1).byte, [5, 8]);
+    }
+  }
+});
+
+test('F20 leading BOM and every closed CSharp whitespace retain whole namespace bindings and origins', () => {
+  const separators = ['\t', '\v', '\f', ' ', '\u00a0', '\u1680',
+    ...Array.from({ length: 11 }, (_, at) => String.fromCharCode(0x2000 + at)),
+    '\u202f', '\u205f', '\u3000', '\r', '\n', '\r\n', '\u0085', '\u2028', '\u2029'];
+  for (const separator of separators) {
+    const source = `\ufeffnamespace${separator}N { class${separator}C { int${separator}x; } }\r\n`;
+    const { parsed, result } = checkedCsSyntax(source);
+    assert.deepEqual(result.bindings.filter(row => row.kind === 'type').map(row => row.name), ['C']);
+    assert.deepEqual(binding(result, 'x').semanticOwner.declaration, binding(result, 'C', 'type').declId);
+    assert.deepEqual(binding(result, 'C', 'type').declId.parent.namespace, ['N']);
+    const lexer = lexOriginal(decodeOriginal(bytes(source)), 'csharp');
+    assert.equal(lexer.trivia[0].kind, 'bom');
+    assert.deepEqual(lexer.trivia[0].origin.byte, [0, 3]);
+    assert.deepEqual(lexer.trivia[0].origin.utf16, [0, 1]);
+    assert.equal(parsed.consumedBytes, bytes(source).length);
+    assert.deepEqual(lexer.tokens.at(-1).origin.byte, [bytes(source).length, bytes(source).length]);
+    const declaration = parsed.root.children[0].children[0];
+    const at = source.indexOf('class');
+    assert.equal(declaration.origin.utf16[0], at);
+    assert.equal(declaration.origin.byte[0], bytes(source.slice(0, at)).length);
+    if (separator !== '\u0085') {
+      const counterpart = `\ufeffconst${separator}x = 1;\r\n`;
+      const javascript = js(counterpart);
+      assert.equal(binding(javascript, 'x').name, 'x');
+      assert.equal(binding(javascript, 'x').origin.byte[0], bytes(counterpart.slice(0, counterpart.indexOf('x'))).length);
+    }
+  }
+  const jsSource = '\ufeffconst\ufeffx = 1;\r\n';
+  const result = js(jsSource);
+  assert.equal(binding(result, 'x').name, 'x');
+  assert.deepEqual(binding(result, 'x').origin.utf16, [jsSource.indexOf('x'), jsSource.indexOf('x') + 5]);
+  denies(() => parseSourceForest(bytes('const\u0085x = 1;'), 'javascript'), 'UNSUPPORTED_SYNTAX');
+});

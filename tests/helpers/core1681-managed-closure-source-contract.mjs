@@ -5,14 +5,76 @@ function fail(detail) { throw new Error(`managed closure ${detail}`); }
 
 function tokens(source) {
   const result = [];
-  const pattern = /\s+|\/\/[^\r\n]*|\/\*[\s\S]*?\*\/|@"(?:[^"]|"")*"|"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|[A-Za-z_][A-Za-z_0-9]*|[0-9]+|==|!=|<=|>=|\+\+|\+=|\|=|=>|&&|\|\||\?\?|[^\s]/gy;
-  let offset = 0;
+  // Independent closed C# trivia/literal intake for the WHOLE actual owner.
+  // Do not use JS \s or a fallback that repairs unsupported original bytes.
+  const newline = ch => /[\r\n\u0085\u2028\u2029]/u.test(ch);
+  const whitespace = ch => /[\u0009\u000b\u000c\u0020\u00a0\u1680\u2000-\u200a\u202f\u205f\u3000\r\n\u0085\u2028\u2029]/u.test(ch);
+  const operators = ["==", "!=", "<=", ">=", "++", "+=", "|=", "=>", "&&", "||", "??"];
+  let offset = source.charCodeAt(0) === 0xfeff ? 1 : 0;
   while (offset < source.length) {
-    pattern.lastIndex = offset;
-    const match = pattern.exec(source);
-    if (!match) fail("token boundary");
-    offset = pattern.lastIndex;
-    if (!/^\s|^\/\//u.test(match[0]) && !match[0].startsWith("/*")) result.push(match[0]);
+    const start = offset, ch = source[offset];
+    if (whitespace(ch)) { offset++; continue; }
+    if (source.startsWith("//", offset)) {
+      offset += 2;
+      while (offset < source.length && !newline(source[offset])) offset++;
+      continue;
+    }
+    if (source.startsWith("/*", offset)) {
+      const end = source.indexOf("*/", offset + 2);
+      if (end < 0) fail("unterminated comment");
+      offset = end + 2; continue;
+    }
+    if (source.startsWith('@"', offset)) {
+      offset += 2; let closed = false;
+      while (offset < source.length) {
+        if (source[offset++] !== '"') continue;
+        if (source[offset] === '"') { offset++; continue; }
+        closed = true; break;
+      }
+      if (!closed) fail("unterminated verbatim literal");
+      result.push(source.slice(start, offset)); continue;
+    }
+    if (ch === '"' || ch === "'") {
+      offset++; let closed = false, units = 0;
+      while (offset < source.length) {
+        const value = source[offset++];
+        if (value === ch) { closed = true; break; }
+        if (newline(value)) fail("raw newline in ordinary literal");
+        if (value === "\\") {
+          if (offset === source.length || newline(source[offset])) fail("unavailable/newline escape");
+          const escaped = source[offset++];
+          if (!"\\'\"0abfnrtv".includes(escaped)) {
+            let width = escaped === "u" ? 4 : escaped === "U" ? 8 : 0;
+            if (escaped === "x") {
+              width = 0;
+              while (width < 4 && /[0-9a-fA-F]/u.test(source[offset + width] ?? "")) width++;
+            }
+            if (!width || !new RegExp(`^[0-9a-fA-F]{${width}}$`, "u").test(source.slice(offset, offset + width))) fail("unsupported literal escape");
+            const scalar = Number.parseInt(source.slice(offset, offset + width), 16);
+            if (escaped === "U" && (scalar > 0x10ffff || scalar >= 0xd800 && scalar <= 0xdfff)) fail("invalid scalar escape");
+            units += escaped === "U" && scalar > 0xffff ? 1 : 0;
+            offset += width;
+          }
+        }
+        units++;
+      }
+      if (!closed || ch === "'" && units !== 1) fail("unterminated/invalid ordinary literal");
+      result.push(source.slice(start, offset)); continue;
+    }
+    if (/[A-Za-z_]/u.test(ch)) {
+      offset++;
+      while (offset < source.length && /[A-Za-z_0-9]/u.test(source[offset])) offset++;
+      result.push(source.slice(start, offset)); continue;
+    }
+    if (/[0-9]/u.test(ch)) {
+      offset++;
+      while (offset < source.length && /[0-9]/u.test(source[offset])) offset++;
+      result.push(source.slice(start, offset)); continue;
+    }
+    const operator = operators.find(value => source.startsWith(value, offset));
+    if (operator) { result.push(operator); offset += operator.length; continue; }
+    if ("{}[]();,.:?+-*/%=!~<>&|^".includes(ch)) { result.push(ch); offset++; continue; }
+    fail("unsupported original token character");
   }
   // Conditional compilation cannot create a different reachable owning program.
   if (result.includes("#") || result.includes("$")) fail("unsupported preprocessing/interpolation");
@@ -204,7 +266,7 @@ function invocationBindings(body) {
   const declared = members(body), fields = declared.filter((value) => value.body === null), methods = declared.filter((value) => value.body !== null);
   fieldSet(fields, ["internal readonly List<OriginalObservation> Outcomes = new List<OriginalObservation>()", "internal readonly List<FileStream> Files",
     "internal IntPtr Job, Process, Thread, Directory", "internal Exception Primary", "internal int PrimaryResult", "internal bool Failed",
-    "internal bool ChildIssuanceUnresolved", "internal HMACSHA256 Progress", "internal readonly List<EnvironmentOverride> EnvironmentOwners = new List<EnvironmentOverride>()"]);
+    "internal bool ChildIssuanceUnresolved", "internal bool PrimaryWaitPending", "internal HMACSHA256 Progress", "internal readonly List<EnvironmentOverride> EnvironmentOwners = new List<EnvironmentOverride>()"]);
   if (methods.length !== 5 || !["internal ManagedInvocation(List<FileStream> files)", "internal void Observe(string site, int status, bool failed, Exception exception)", "internal void ObservePrimary(string site, int status, bool failed, Exception exception)", "internal bool Release(ref IntPtr handle, string site, int ordinal)", "internal bool ReleaseFile(FileStream file, int ordinal)"].every((header) => methods.filter((value) => same(value.header, header)).length === 1)) fail("original invocation callee/member bindings");
   const constructor = method(body, "internal ManagedInvocation(List<FileStream> files)");
   count(constructor, 1); requireLeaf(constructor[0], "Files = files");
@@ -234,7 +296,7 @@ function invocationBindings(body) {
 function owningCallees(launcher) {
   const completeContainment = method(launcher, "private static void ContainManagedJobBeforeFileRelease(ref IntPtr jobHandle, IntPtr processHandle, bool targetAssignedToJob, ManagedInvocation invocation)");
   count(completeContainment, 10);
-  branch(completeContainment[0], 'invocation.ChildIssuanceUnresolved || invocation.Outcomes.Exists(o => o.Site == "target-primary-wait" && o.Failed)', ["RetainManagedInvocation(invocation)"]);
+  branch(completeContainment[0], 'invocation.ChildIssuanceUnresolved || invocation.Outcomes.Exists(o => o.Site == "target-primary-wait" && o.Failed) || invocation.PrimaryWaitPending', ["RetainManagedInvocation(invocation)"]);
   const containment = completeContainment.slice(1);
   count(containment, 9);
   const unassigned = containment[0];
@@ -580,6 +642,7 @@ const ownershipEffects = [
   'throw new Win32Exception(original.NativeStatus, "Managed target thread handle close failed.")',
   'string acknowledgment = "{\\"token\\":\\"" + payload.ackToken + "\\",\\"pid\\":" + processInformation.dwProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture) + "}"',
   "throw original.Exception", "uint targetWait = WaitForSingleObject(processHandle, Infinite)",
+  "invocation.PrimaryWaitPending = true", "invocation.PrimaryWaitPending = false",
   'invocation.Observe("target-primary-wait", targetWaitError, targetWait != WaitObject0, null)',
   "invocation.PrimaryResult = unchecked((int)exitCode)", "return invocation.PrimaryResult",
   "invocation.Primary = primary", "invocation.PrimaryResult = failureExitCode",
@@ -651,9 +714,11 @@ function caller(nodes) {
   const outer = nodes[6];
   if (outer.kind !== "try" || outer.catches.length !== 1 || !same(outer.catches[0].binding, "Exception primary") || outer.final === null) fail("whole caller exception enclosure");
   const handler = outer.catches[0].body;
-  count(handler, 3);
+  count(handler, 4);
   branch(handler[0], "invocation.Primary == null", ["invocation.Primary = primary"]);
-  requireLeaf(handler[1], "invocation.PrimaryResult = failureExitCode"); requireLeaf(handler[2], "return failureExitCode");
+  requireLeaf(handler[1], "invocation.PrimaryResult = failureExitCode");
+  branch(handler[2], "invocation.PrimaryWaitPending", ['invocation.Observe("target-primary-wait-unavailable", 0, true, primary)']);
+  requireLeaf(handler[3], "return failureExitCode");
   finalizer(outer.final);
 
   const seen = new Map(), loops = [], returns = [], predicates = new Map(), events = [];
@@ -741,12 +806,21 @@ function caller(nodes) {
     assignment.node, lookup("targetAssignedToJob = true")[0].node, resume.node,
     lookup("Thread.Sleep(payload.postResumeDelayMilliseconds)")[0].node, release.node,
     lookup("File.WriteAllText(payload.ackPath, acknowledgment, StrictUtf8)")[0].node,
+    lookup("invocation.PrimaryWaitPending = true")[0].node,
     lookup("uint targetWait = WaitForSingleObject(processHandle, Infinite)")[0].node,
     lookup('invocation.Observe("target-primary-wait", targetWaitError, targetWait != WaitObject0, null)')[0].node,
+    lookup("invocation.PrimaryWaitPending = false")[0].node,
     predicate("targetWait != WaitObject0")[0].node, exit.node,
     lookup("invocation.PrimaryResult = unchecked((int)exitCode)")[0].node, returns[0],
   ].map((node) => events.indexOf(node));
   if (ordered.some((position, at) => position < 0 || (at && position <= ordered[at - 1]))) fail("original lifecycle effect order");
+  const waitAt = outer.body.indexOf(lookup("invocation.PrimaryWaitPending = true")[0].node);
+  // Pending is immediately before THIS initiating call, never an earlier
+  // unrelated operation; observation is complete before it can be resolved.
+  ["invocation.PrimaryWaitPending = true", "uint targetWait = WaitForSingleObject(processHandle, Infinite)",
+    "int targetWaitError = targetWait == UInt32.MaxValue ? Marshal.GetLastWin32Error() : unchecked((int)targetWait)",
+    'invocation.Observe("target-primary-wait", targetWaitError, targetWait != WaitObject0, null)',
+    "invocation.PrimaryWaitPending = false"].forEach((effect, at) => requireLeaf(outer.body[waitAt + at], effect));
   // Cardinality excludes additional accepted-looking calls/writes as well as
   // indirect aliases. Location excludes unreachable/conditional original roles.
   for (const effect of ownershipEffects) {
@@ -757,7 +831,7 @@ function caller(nodes) {
   const roster = lookup("boundFiles.Add(boundFile)")[0];
   const files = loops.find((node) => node.kind === "for");
   if (acquired.ancestors.length !== 1 || acquired.ancestors[0] !== files || roster.ancestors.length !== 1 || roster.ancestors[0] !== files || files.body.indexOf(roster.node) !== files.body.indexOf(acquired.node) + 1) fail("reachable original file acquisition/roster");
-  for (const expression of ["ValidateNativeLayouts()", "InitializeProgress()", "jobHandle = CreateJobObjectW(IntPtr.Zero, null)", "ConfigureKillOnClose(jobHandle)", "ApplyTargetEnvironmentOverrides(payload.targetEnvironmentOverrides, invocation)", "targetAssignedToJob = true", "uint targetWait = WaitForSingleObject(processHandle, Infinite)", "invocation.PrimaryResult = unchecked((int)exitCode)"]) {
+  for (const expression of ["ValidateNativeLayouts()", "InitializeProgress()", "jobHandle = CreateJobObjectW(IntPtr.Zero, null)", "ConfigureKillOnClose(jobHandle)", "ApplyTargetEnvironmentOverrides(payload.targetEnvironmentOverrides, invocation)", "targetAssignedToJob = true", "invocation.PrimaryWaitPending = true", "uint targetWait = WaitForSingleObject(processHandle, Infinite)", "invocation.PrimaryWaitPending = false", "invocation.PrimaryResult = unchecked((int)exitCode)"]) {
     if (lookup(expression)[0].ancestors.length) fail("conditional original caller effect");
   }
   const sleeping = lookup("Thread.Sleep(payload.postResumeDelayMilliseconds)")[0];

@@ -200,6 +200,30 @@ internal static class Core1681ManagedLifetimeSourceCases
         Expect(!owner.Outcomes.Any(o => o.Site == "target-process-release" || o.Site == "directory-sync-process-release" ||
             o.Site == "bound-file-release"), "unknown_issuance_never_releases_child_inputs");
     }
+    // F21 external SAME-live-owner observation only. A separately admitted
+    // native fixture must independently establish the original initiating
+    // interop call threw before its return, original handle/file identity and
+    // ongoing retention. No callback/shim/preclosed numeric slot/supplied status
+    // or this observer can manufacture that failure mechanism. It remains absent.
+    internal static void ObserveOriginalPrimaryWaitUnavailable(
+        ServiceLassoManagedLauncherNative.ManagedInvocation owner,
+        Exception independentlyObservedOriginalException, IntPtr originalProcess, IntPtr originalJob,
+        FileStream[] originalFiles, int independentlyExpectedMappedFailure)
+    {
+        Expect(owner.PrimaryWaitPending && ReferenceEquals(owner.Primary, independentlyObservedOriginalException) &&
+            owner.PrimaryResult == independentlyExpectedMappedFailure, "same_pending_primary_wait_exception_result");
+        var unavailable = owner.Outcomes.Single(o => o.Site == "target-primary-wait-unavailable");
+        Expect(unavailable.Failed && ReferenceEquals(unavailable.Exception, independentlyObservedOriginalException) &&
+            !owner.Outcomes.Any(o => o.Site == "target-primary-wait"), "unavailable_not_actual_wait_observation");
+        Expect(owner.Process == originalProcess && owner.Job == originalJob && originalProcess != IntPtr.Zero &&
+            originalJob != IntPtr.Zero && owner.Files.SequenceEqual(originalFiles), "same_original_live_wait_dependencies");
+        Expect(!owner.Outcomes.Any(o => o.Site == "unassigned-process-terminate" || o.Site == "unassigned-process-wait" ||
+            o.Site == "managed-job-terminate" || o.Site == "managed-job-accounting" || o.Site == "managed-process-wait" ||
+            o.Site == "managed-job-release" || o.Site == "target-process-release" || o.Site == "bound-file-release"),
+            "pending_original_wait_no_retry_termination_or_dependent_release");
+        // Independently safe environment/progress retirement is still allowed;
+        // no process-exit/deadline receipt proves nonreturn or this owner custody.
+    }
     // Actual wait failure with separately retained live child custody. The
     // admitted fixture must retain its independent original child handle while
     // this deliberately closed numeric wait slot is observed. That duplicate

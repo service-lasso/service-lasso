@@ -56,7 +56,12 @@ const rest = ch => /[A-Za-z0-9_$]/.test(ch);
 export function lexOriginal(decoded, language) {
   if (!['javascript', 'csharp'].includes(language)) deny('UNSUPPORTED_FRONTEND', language);
   const { text, origin } = decoded, tokens = [], trivia = [];
-  const whitespace = ch => /\s/.test(ch) || language === 'csharp' && ch === '\u0085';
+  // C# Zs/TAB/VT/FF and its five newline characters are independent from
+  // ECMAScript WhiteSpace. In particular interior FEFF is a formatting
+  // character, never a keyword/name separator in the supported ASCII profile.
+  const whitespace = language === 'csharp'
+    ? ch => /[\u0009\u000b\u000c\u0020\u00a0\u1680\u2000-\u200a\u202f\u205f\u3000\r\n\u0085\u2028\u2029]/u.test(ch)
+    : ch => /\s/u.test(ch);
   let at = decoded.bom ? 1 : 0;
   if (decoded.bom) trivia.push({ kind: 'bom', origin: origin(0, 1) });
   function emit(kind, start) { tokens.push({ kind, value: text.slice(start, at), origin: origin(start, at) }); }
