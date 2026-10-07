@@ -50,6 +50,15 @@ class Parser {
     this.at++; return token;
   }
   span(start, end = this.tokens[this.at - 1]) { return this.decoded.origin(start.origin.utf16[0], end.origin.utf16[1]); }
+  hasLineTerminator(left, right) {
+    return /[\r\n\u2028\u2029]/.test(this.decoded.text.slice(left.origin.utf16[1], right.origin.utf16[0]));
+  }
+  hasFunctionContext() {
+    for (let owner = this.scope; owner; owner = owner.owner) {
+      if (['function', 'functionExpression', 'lambda'].includes(owner.kind)) return true;
+    }
+    return false;
+  }
   node(kind, name, start, extra = {}) {
     const node = { kind, name, start, origin: null, children: [], synthetics: [], references: [], scopes: [],
       owner: this.scope, structural: this.structural, namespace: [...this.structural.namespace],
@@ -204,6 +213,10 @@ class Parser {
     return left;
   }
   arrow(start, names) {
+    // The original gap includes both whitespace and comment trivia. Check the
+    // last formal token (identifier or closing parenthesis), never its spelling.
+    if (this.language === 'javascript' && this.hasLineTerminator(this.tokens[this.at - 2], this.tokens[this.at - 1]))
+      deny('INVALID_SYNTAX', 'line terminator before arrow', this.tokens[this.at - 1].origin);
     const node = this.node('lambda', '<lambda>', start, { returnType: this.language === 'javascript' ? dynamicType() : null });
     // C# contextual lambda parameter types require typed-expression inference,
     // deliberately denied rather than silently installing JS Any types.
@@ -247,13 +260,16 @@ class Parser {
       return { kind: word, test, body, alternative, origin: this.span(start) };
     }
     if (['return', 'throw'].includes(word)) {
+      if (this.language === 'javascript' && word === 'return' && !this.hasFunctionContext())
+        deny('INVALID_SYNTAX', 'return requires enclosing function', start.origin);
       this.at++;
-      if (this.language === 'javascript' && /[\r\n]/.test(this.decoded.text.slice(start.origin.utf16[1], this.current().origin.utf16[0]))) deny('UNSUPPORTED_SYNTAX', 'automatic semicolon insertion after return/throw', start.origin);
+      if (this.language === 'javascript' && this.hasLineTerminator(start, this.current())) deny('UNSUPPORTED_SYNTAX', 'automatic semicolon insertion after return/throw', start.origin);
       const value = this.value() === ';' ? null : this.expression(); this.need(';');
       if (word === 'throw' && !value) deny('UNSUPPORTED_SYNTAX', 'rethrow requires exception binding', start.origin);
       return { kind: word, value, origin: this.span(start) };
     }
-    if (['for', 'foreach', 'switch', 'try', 'using', 'lock', 'yield', 'break', 'continue', 'class', 'async', 'export'].includes(word)) {
+    if (['for', 'foreach', 'switch', 'try', 'using', 'lock', 'yield', 'break', 'continue', 'class', 'export'].includes(word) ||
+        this.language === 'csharp' && word === 'async') {
       deny('UNSUPPORTED_SYNTAX', `${word} lowering is not implemented in foundation subgrammar`, start.origin);
     }
     if (this.language === 'csharp') {
@@ -328,12 +344,28 @@ class Parser {
     }
     if (!this.types.length) deny('UNSUPPORTED_SYNTAX', 'C# root declaration', start.origin);
     const ownerType = this.types.at(-1), constructor = this.value() === ownerType.name && this.tokens[this.at + 1].value === '(';
+    if (constructor) {
+      if (!['class', 'struct'].includes(ownerType.category)) deny('INVALID_SYNTAX', 'constructor requires class or struct', start.origin);
+      const statik = mods.includes('static');
+      const allowed = statik ? ['static'] : ['public', 'private', 'internal', 'protected'];
+      if (statik && mods.some(modifier => ['public', 'private', 'internal', 'protected'].includes(modifier)))
+        deny('INVALID_SYNTAX', 'static constructor has no access modifier', start.origin);
+      if (mods.some(modifier => !allowed.includes(modifier))) deny('UNSUPPORTED_SYNTAX', 'unsupported constructor modifiers', start.origin);
+      if (!statik && ownerType.modifiers.includes('static')) deny('INVALID_SYNTAX', 'static type cannot have instance constructor', start.origin);
+      if (!statik && ownerType.category === 'struct' && mods.includes('protected'))
+        deny('INVALID_SYNTAX', 'struct constructor cannot have protected accessibility', start.origin);
+      if (statik && ownerType.children.some(child => child.kind === 'constructor' && child.static))
+        deny('INVALID_SYNTAX', 'duplicate static constructor', start.origin);
+    }
     const type = constructor ? { kind: 'sourceType', declaration: ownerType } : this.typeRef();
     const name = constructor ? this.id() : this.id();
     if (this.value() === '(' || this.value() === '<') {
       const node = this.node(constructor ? 'constructor' : 'method', name.value, start,
         { type: null, returnType: constructor ? { kind: 'void' } : type, attributes, modifiers: mods, static: mods.includes('static'), receiver: mods.includes('static') ? 'none' : 'instance' });
       this.genericParameters(node); this.formals(node);
+      if (constructor && node.static && node.parameters.length) deny('INVALID_SYNTAX', 'static constructor requires zero formals', start.origin);
+      if (constructor && !node.static && ownerType.category === 'struct' && !node.parameters.length && !mods.includes('public'))
+        deny('INVALID_SYNTAX', 'parameterless struct constructor requires public accessibility', start.origin);
       if (this.value() === ':' || this.value() === 'where') deny('UNSUPPORTED_SYNTAX', 'constructor chain/generic constraints', this.current().origin);
       if (this.take(';')) { if (!mods.includes('extern') && ownerType.category !== 'interface' && !mods.includes('abstract')) deny('INVALID_SYNTAX', 'body required', start.origin); }
       else node.body = this.inScope(node, () => this.block());

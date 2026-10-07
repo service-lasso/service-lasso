@@ -62,7 +62,11 @@ export function lexOriginal(decoded, language) {
   while (at < text.length) {
     const start = at, ch = text[at];
     if (/\s/.test(ch)) { while (at < text.length && /\s/.test(text[at])) at++; trivia.push({ kind: 'space', origin: origin(start, at) }); continue; }
-    if (text.startsWith('//', at)) { at += 2; while (at < text.length && text[at] !== '\r' && text[at] !== '\n') at++; trivia.push({ kind: 'comment', origin: origin(start, at) }); continue; }
+    if (text.startsWith('//', at)) {
+      at += 2;
+      while (at < text.length && !(language === 'javascript' ? /[\r\n\u2028\u2029]/ : /[\r\n]/).test(text[at])) at++;
+      trivia.push({ kind: 'comment', origin: origin(start, at) }); continue;
+    }
     if (text.startsWith('/*', at)) { const end = text.indexOf('*/', at + 2); if (end < 0) deny('INCOMPLETE_INPUT', 'unterminated comment', origin(start, text.length)); at = end + 2; trivia.push({ kind: 'comment', origin: origin(start, at) }); continue; }
     if (ch === '#' || ch === '`' || (language === 'csharp' && (ch === '@' || ch === '$'))) deny('UNSUPPORTED_SYNTAX', 'preprocessor/template/verbatim/interpolated source', origin(start, start + 1));
     if (first(ch)) { at++; while (at < text.length && rest(text[at])) at++; emit('identifier', start); continue; }

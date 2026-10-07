@@ -272,6 +272,118 @@ test('F3 contextual identifiers are permitted and property IdentifierNames may b
 });
 function assertIdentity(left, right) { return JSON.stringify(left) === JSON.stringify(right); }
 
+test('F6 return requires an enclosing function through nested lexical statements', () => {
+  for (const source of ['return 1;', '{ return 1; }', 'if (true) { return 1; }', 'while (true) { return 1; }',
+    'function f() { return 1; } return 2;', 'const f = () => { return 1; }; { return 2; }'])
+    denies(() => js(source), 'INVALID_SYNTAX');
+  const source = 'function f(x) { if (true) { return x; } } const a = function(x) { { return x; } }; const b = (x) => { return x; };';
+  const result = js(source);
+  assert.deepEqual(result.bindings.filter(row => ['function', 'functionExpression', 'lambda'].includes(row.kind)).map(row => row.kind),
+    ['function', 'functionExpression', 'lambda']);
+  assert.equal(result.completeEnumeration, true); assert.equal(result.sourceGo, false);
+  const parsed = parseSourceForest(bytes(source), 'javascript');
+  assert.equal(parsed.root.statements[0].declaration.body.statements[0].body.statements[0].kind, 'return');
+});
+
+test('F6 every arrow boundary denies all four line terminators in plain and comment trivia', () => {
+  for (const newline of ['\r', '\n', '\u2028', '\u2029']) {
+    for (const gap of [newline, `/*${newline}*/`, `// comment${newline}`]) {
+      for (const formal of ['x', '(x)', '()'])
+        denies(() => js(`const f = ${formal}${gap}=> 1;`), 'INVALID_SYNTAX');
+    }
+  }
+  const result = js('const a = x /*same line*/ => x; const b = (x) /*same line*/ => x; const c = () /*same line*/ => 1;');
+  assert.deepEqual(result.bindings.filter(row => row.kind === 'lambda').map(row => row.parameters.length), [1, 1, 0]);
+  // A newline inside parenthesized formals and after => is legal. Only the
+  // restricted closing-formal => gap must stay on the same original line.
+  const multiline = js('const f = (\nx\n) =>\n x;');
+  assert.equal(binding(multiline, '<lambda>').parameters.length, 1);
+});
+
+test('F6 return and throw restricted trivia denies every line terminator', () => {
+  for (const newline of ['\r', '\n', '\u2028', '\u2029']) {
+    for (const gap of [newline, `/*${newline}*/`, `// comment${newline}`]) {
+      for (const keyword of ['return', 'throw'])
+        denies(() => js(`function f() { ${keyword}${gap}1; }`), 'UNSUPPORTED_SYNTAX');
+    }
+  }
+  const parsed = parseSourceForest(bytes('function f() { return /*same line*/ 1; } function g() { throw /*same line*/ 2; }'), 'javascript');
+  assert.deepEqual(parsed.root.statements.map(row => [row.declaration.body.statements[0].kind,
+    row.declaration.body.statements[0].value.spelling]), [['return', '1'], ['throw', '2']]);
+  const empty = parseSourceForest(bytes('function f() { return; }'), 'javascript');
+  assert.equal(empty.root.statements[0].declaration.body.statements[0].value, null);
+});
+
+test('F6 JS line comments end at Unicode line terminators without hiding later source', () => {
+  for (const newline of ['\r', '\n', '\u2028', '\u2029']) {
+    const source = `const a = 1; //comment${newline}const b = 2;`, result = js(source);
+    assert.deepEqual(result.bindings.map(row => row.name), ['a', 'b']);
+    const parsed = parseSourceForest(bytes(source), 'javascript');
+    const comment = parsed.trivia.find(row => row.kind === 'comment');
+    assert.equal(parsed.decoded.text.slice(...comment.origin.utf16), '//comment');
+    assert.equal(parsed.consumedBytes, bytes(source).length);
+    denies(() => js(`const a = 1; //comment${newline}return 2;`), 'INVALID_SYNTAX');
+  }
+});
+
+test('F6 contextual async expression statements remain ordinary names while async syntax denies', () => {
+  const result = js('const async = 1; async; async + 2; async = 3; const f = async => async; f(async);');
+  assert.equal(binding(result, 'async', 'local').name, 'async');
+  assert.equal(binding(result, '<lambda>').parameters.length, 1);
+  assert.equal(binding(result, '<lambda>').captures.length, 0);
+  for (const source of ['async function f() { return 1; }', 'const f = async function() { return 1; };',
+    'const f = async x => x;', 'const f = async (x) => x;', 'const f = async () => 1;']) denies(() => js(source));
+});
+
+test('F7 malformed static constructor formals/access deny before binding or slot effects', () => {
+  for (const declaration of ['static C(int x) {}', 'public static C() {}', 'private static C() {}',
+    'protected static C() {}', 'internal static C() {}', 'static C() {} static C() {}']) {
+    const raw = bytes(`class C { static int s = 1; ${declaration} }`);
+    denies(() => parseSourceForest(raw, 'csharp'));
+    denies(() => bindSource(raw, identity('csharp'), [clr()]));
+    denies(() => checkFoundationBindings(raw, identity('csharp'), [clr()], { bindings: [] }));
+  }
+});
+
+test('F7 unsupported constructor modifiers and categories deny complete source', () => {
+  for (const modifier of ['readonly', 'const', 'sealed', 'abstract', 'virtual', 'override', 'extern', 'new']) {
+    for (const prefix of [modifier, `${modifier} static`]) denies(() => cs(`class C { ${prefix} C() {} }`));
+  }
+  denies(() => parseSourceForest(bytes('interface C { C() {} }'), 'csharp'), 'INVALID_SYNTAX');
+  denies(() => parseSourceForest(bytes('interface C { static C() {} }'), 'csharp'), 'INVALID_SYNTAX');
+  denies(() => parseSourceForest(bytes('static class C { public C() {} }'), 'csharp'), 'INVALID_SYNTAX');
+  denies(() => cs('class C { static C(); }'), 'INVALID_SYNTAX');
+  denies(() => parseSourceForest(bytes('struct C { protected C(int x) {} }'), 'csharp'), 'INVALID_SYNTAX');
+  denies(() => parseSourceForest(bytes('struct C { private C() {} }'), 'csharp'), 'INVALID_SYNTAX');
+  denies(() => parseSourceForest(bytes('struct C { C() {} }'), 'csharp'), 'INVALID_SYNTAX');
+  const structure = parseSourceForest(bytes('struct C { public C(int x) {} static C() {} }'), 'csharp');
+  assert.deepEqual(structure.root.children[0].children.map(row => [row.kind, row.static, row.parameters.length]),
+    [['constructor', false, 1], ['constructor', true, 0]]);
+});
+
+test('F7 valid constructors preserve ordered initializers and separate base prerequisite', () => {
+  const result = cs('class C { int a = 1; int P { get; set; } = 2; static int s = 3; static int Q { get; set; } = 4; const int K = 5; public C(int x) {} static C() {} }');
+  const instance = result.bindings.find(row => row.kind === 'constructor' && !row.static);
+  const statik = result.bindings.find(row => row.kind === 'constructor' && row.static);
+  assert.equal(instance.parameters.length, 1); assert.equal(statik.parameters.length, 0);
+  assert.deepEqual(instance.generatedInitializerOrder.map(row => row.declaration), ['a', 'P'].map(name => binding(result, name).declId));
+  assert.deepEqual(statik.generatedInitializerOrder.map(row => row.declaration), ['s', 'Q'].map(name => binding(result, name).declId));
+  assert.deepEqual(instance.generatedInitializerOrder.map(row => row.originalExpression.spelling), ['1', '2']);
+  assert.deepEqual(statik.generatedInitializerOrder.map(row => row.originalExpression.spelling), ['3', '4']);
+  assert.equal(instance.baseConstructorPrerequisite.order, 'afterInstanceInitializers-beforeConstructorBody');
+  assert.equal(instance.baseConstructorPrerequisite.declarationStatus, 'boundExactCatalogueDeclaration');
+  assert.equal(instance.baseConstructorPrerequisite.transferProof, 'deferred');
+  assert.equal(statik.baseConstructorPrerequisite, null);
+  assert.equal(statik.initializerTiming, 'explicit-static-constructor-unproved-trigger');
+  assert.equal(result.bindings.some(row => ['instanceConstructor', 'typeInitializer'].includes(row.origin.role)), false);
+  const ordinary = cs('class C { int a = 1; public C() {} }');
+  assert.equal(binding(ordinary, 'C', 'constructor').parameters.length, 0);
+  assert.equal(ordinary.bindings.some(row => row.origin.role === 'instanceConstructor'), false);
+  const staticOnly = cs('static class C { static int a = 1; static C() {} }');
+  assert.equal(staticOnly.bindings.some(row => row.origin.role === 'instanceConstructor'), false);
+  assert.equal(binding(staticOnly, 'C', 'constructor').generatedInitializerOrder.length, 1);
+});
+
 test('full fixed catalogue metadata is required, not names, hashes or effect booleans', () => {
   const missing = clr(); delete missing.members[0].effects.ordinaryThrow;
   denies(() => validateCatalogue(missing), 'INVALID_INPUT');
