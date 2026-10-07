@@ -208,6 +208,7 @@ int lf_thread_history_next(struct lf_thread_history *history) {
 int lf_thread_history_resume(struct lf_thread_history *history, pid_t tid) {
   if (!history) { errno = EINVAL; return -1; }
   if (history->failed) { errno = history->rejection_error; return -1; }
+  if (history->sealing_hold) return fail(history, 0, EPROTO);
   struct lf_thread_history_entry *thread = find(history, tid);
   if (!thread || thread->actually_exited || !thread->currently_stopped ||
       thread->last_observation.tid != tid)

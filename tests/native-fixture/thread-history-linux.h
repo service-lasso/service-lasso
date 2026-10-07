@@ -31,6 +31,7 @@ struct lf_thread_history_record {
   bool awaiting_creator_event;
   bool gate_checked;
   bool gate_closed_during_memory_wait;
+  bool sealing_exception;
   struct lf_gate_observation gate_observation;
 };
 struct lf_thread_history {
@@ -43,6 +44,7 @@ struct lf_thread_history {
   size_t record_count;
   size_t record_capacity;
   bool initialized;
+  bool sealing_hold;
   struct lf_entry_gate entry_gate;
   bool failed;
   int native_error;
