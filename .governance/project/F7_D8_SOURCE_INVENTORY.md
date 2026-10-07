@@ -43,6 +43,8 @@ Units name coherent ownership packages, not currently assigned humans/host accou
 
 ## Actor/resources register
 
+Current Linux dependency disposition (2026-10-07): all fifteen authored U4 native pairs received cumulative SOURCE PREPARATION CHECKPOINT GO at d7517a52457c57913dd098eae5bace5e441cb624; no execution or complete adapter acceptance follows. Existing-owner coordination completed and confirms no delivered authentic ROOT creator/header/callsite. Amendment06's different entire contract review is complete and conditional, superseding stale pending-review statements only. Its material Alternative A remains unselected; U1-U3 and actual bindings remain incomplete. See .governance/decisions/F7-TERMINAL-CUSTODY-DECISION-REQUEST.md for the concrete unchanged-versus-amended terminal custody boundary. This proposed decision neither creates another source inventory nor adopts an ABI/resource/acceptance amendment.
+
 | Actor/resource | Required authority | Actual identity / activation fact |
 | --- | --- | --- |
 | O | Independently admitted external native ROOT observer, held private persistent spool/channels; admitted signer | ABSENT principal/binary/loaded inputs/ENV/keys/admission |
