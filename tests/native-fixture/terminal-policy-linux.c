@@ -154,7 +154,8 @@ int lf_terminal_policy_build(const struct lf_terminal_catalog *c,
   flags(&b, 2, MSG_DONTWAIT | MSG_CMSG_CLOEXEC, MSG_CMSG_CLOEXEC);
   finish(&b, skip);
   skip = rule(&b, SYS_sendmsg);
-  held_fd(&b, c, 0, LF_FD_CONTROL); flags(&b, 2, MSG_DONTWAIT, 0);
+  held_fd(&b, c, 0, LF_FD_CONTROL);
+  flags(&b, 2, MSG_DONTWAIT | MSG_NOSIGNAL, 0);
   finish(&b, skip);
 
   /* All original slots were genuinely closed before seal; no FD acquisition
