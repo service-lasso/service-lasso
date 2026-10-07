@@ -92,7 +92,7 @@ CA-COMMAND-1, CA-STDERR-1 without claiming their real runtime behavior.
 
 ## Evidence and next boundary
 
-`tests/core1681-source-foundation.test.mjs` contains meaningful authored positive
+`tests/core1681-source-foundation.test.js` contains meaningful authored positive
 and negative vectors for exact origin/encoding/EOF, supported parsing/counters,
 multiple declarations, captures/shadows, required synthetics, enum values,
 catalogue substitution and complete fourteen-input intake. ALL tests are UNRUN.
@@ -110,3 +110,14 @@ ROOT admits these sources. Source GO, SupportSafety, runtime/native acceptance,
 publication/same-byte integration and GA remain unmet. The retained PR1681
 branch/worktree is the explicit governed recovery/landing exception; parent owns
 tracking/admission/landing and other workers/evidence remain preserved.
+
+## #1681 foundation review17 F1-F4 repair and develop reconciliation (2026-10-07)
+
+SPEC-002 AC-4DI.4 / R3 / C3, Development SOURCE ONLY / in_progress. Parent adopted ENTIRE foundation review17 ROOT3bd9425aaaf180251e8e50d03a3d1aaaefce74bb8557ba2c2a27d3aab1f92da0, REPORT40bb51e1adfb77dbff35af7223976c28a10e6b1cd93be10689a660f35403b092. This coherent repair requires F1 exact nearest-enclosing/qualified nested TypeIds, parameter precedence, arity and accessibility; F2 explicit/implicit ordered field/auto-property initializer associations, const exclusion, instance/static timing and separate checked/deferred base-constructor prerequisite; F3 complete finite JS binding keyword/context rules and denial of unlowered default formals; F4 closed catalogue effect-sort tags/payload/relations including Truth/Nullish consistency, preserving the fixed-descriptor gate. Meaningful positive/negative regressions are authored UNRUN.
+
+Retained owned PR1681 branch is the GOV-10 recovery exception. Exact current develop ce56f59245821eefd2232cdec05e2cb42bd044e4 was merged normally as 372b7464; four append-only governance conflicts retain BOTH full #1681 and incoming #1718 contracts. Incoming dependency/docs source, original CLI executable mode and all selected14 source bytes are preserved; new current source/version associations will be recorded in the NEW cumulative ROOT. Historical original hashes remain history, never current admission.
+
+Four modules remain foundation partial. All14 inputs/183 roles/35 families/9 callers/18 provider premises/6 catalogue groups, R1-R7/W1-W4/B4/K-BIND/K-CALL/K-SUBSTITUTE/K-OWNER, readable H/CD and six literal W4 adapters remain required. Shared producer/table checker is not an independent typed-proof kernel. sourceGo/admission/execution remain false; original32pins/13fails/73-before-TAP/05-07 NO_GO, 5326closure/249ranges/59supports/seven discrepancies including exactly four signature-document failures and private/unknown failures remain. No target imports/Node/helper/parser/npm/compiler/tests/XML/MSI/crypto/native/ENV/ACL effects. Natural CI push only. Freeze/push entire cumulative source for parent WHOLE audit and DIFFERENT fresh ENTIRE review19 before remaining profiles. No GA/publication/promotion/deployment/cleanup/force/rebase/settings/rerun.
+### Foundation review17 F5 integration mapping (parent supplied)
+
+SPEC-002 AC-4DI.4 / R3 / C3 also requires discovery through the unchanged standard isolated npm test runner. Rename the newly authored foundation regression file from .test.mjs to repository-standard .test.js and update its documentation references. Its .mjs helper imports remain explicit. This is additive test integration; all original protected .test.js files and runner assertions/globs stay unchanged. Regressions remain UNRUN locally and natural new-head CI is separate evidence.

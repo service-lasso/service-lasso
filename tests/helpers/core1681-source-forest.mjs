@@ -13,6 +13,13 @@ const reserved = new Set(['return', 'throw', 'new', 'if', 'else', 'while', 'for'
   'false', 'null', 'await', 'yield', 'static', 'public', 'private', 'protected']);
 const csReserved = new Set(['void', 'bool', 'int', 'string', 'object', 'uint', 'long', 'ulong',
   'short', 'ushort', 'byte', 'sbyte', 'char', 'float', 'double', 'decimal', 'ref', 'out', 'in', 'params']);
+// The supported JS Unit uses strict/module identifier rules, including await and
+// strict future-reserved words. Contextual async/of/as/from/get/set remain names.
+const jsReserved = new Set(['await', 'break', 'case', 'catch', 'class', 'const', 'continue',
+  'debugger', 'default', 'delete', 'do', 'else', 'enum', 'export', 'extends', 'false', 'finally',
+  'for', 'function', 'if', 'import', 'in', 'instanceof', 'new', 'null', 'return', 'super',
+  'switch', 'this', 'throw', 'true', 'try', 'typeof', 'var', 'void', 'while', 'with',
+  'implements', 'interface', 'let', 'package', 'private', 'protected', 'public', 'static', 'yield']);
 const ownedParseInputs = new WeakMap();
 
 // Recursive descent over a deliberately closed subgrammar, NOT an anchor scan.
@@ -29,7 +36,19 @@ class Parser {
   value() { return this.current().value; }
   take(value) { if (this.value() === value) { return this.tokens[this.at++]; } return null; }
   need(value) { const token = this.take(value); if (!token) deny('INVALID_SYNTAX', `expected ${value}, found ${this.value()}`, this.current().origin); return token; }
-  id(typePosition = false) { const token = this.current(); if (token.kind !== 'identifier' || (!typePosition && (reserved.has(token.value) || (this.language === 'csharp' && csReserved.has(token.value))))) deny('INVALID_SYNTAX', 'nonreserved identifier required', token.origin); this.at++; return token; }
+  identifier(token, binding = true, property = false) {
+    const forbidden = this.language === 'javascript'
+      ? !property && (jsReserved.has(token.value) || binding && ['eval', 'arguments'].includes(token.value))
+      : reserved.has(token.value) || csReserved.has(token.value);
+    if (token.kind !== 'identifier' || forbidden) deny('INVALID_SYNTAX', 'identifier forbidden in selected language/context', token.origin);
+    return token;
+  }
+  id(typePosition = false, property = false) {
+    const token = this.current();
+    if (this.language === 'csharp' && typePosition) { if (token.kind !== 'identifier') deny('INVALID_SYNTAX', 'type identifier required', token.origin); }
+    else this.identifier(token, !property, property);
+    this.at++; return token;
+  }
   span(start, end = this.tokens[this.at - 1]) { return this.decoded.origin(start.origin.utf16[0], end.origin.utf16[1]); }
   node(kind, name, start, extra = {}) {
     const node = { kind, name, start, origin: null, children: [], synthetics: [], references: [], scopes: [],
@@ -89,7 +108,10 @@ class Parser {
         if (this.language === 'javascript' && this.take('...')) deny('UNSUPPORTED_SYNTAX', 'rest formal lowering', start.origin);
         const type = this.language === 'javascript' ? dynamicType() : this.typeRef();
         const name = this.id(), param = this.node('parameter', name.value, start, { type, attributes, direction, params: variadic });
-        if (this.take('=')) param.defaultValue = this.expression(2);
+        if (this.take('=')) {
+          if (this.language === 'javascript') deny('UNSUPPORTED_SYNTAX', 'default formal initialization scope/lowering', name.origin);
+          param.defaultValue = this.expression(2);
+        }
         param.origin = this.span(start); node.parameters.push(param);
       } while (this.take(','));
     });
@@ -117,7 +139,7 @@ class Parser {
       if (this.language === 'javascript') {
         const name = this.id(); this.scope.references.push({ name: name.value, origin: name.origin, role: 'value' });
         let target = { kind: 'name', name: name.value, origin: name.origin };
-        while (this.take('.')) target = { kind: 'member', target, member: this.id().value };
+        while (this.take('.')) target = { kind: 'member', target, member: this.id(false, true).value };
         const args = this.arguments(); left = { kind: 'new', target, arguments: args };
       } else {
         const type = this.typeRef(); left = { kind: 'new', type, arguments: this.arguments() };
@@ -152,20 +174,22 @@ class Parser {
         this.at++; let value;
         if (this.take(':')) value = this.expression(2);
         else { if (key.kind !== 'identifier') deny('INVALID_SYNTAX', 'shorthand property requires identifier', key.origin);
+          this.identifier(key, false);
           value = { kind: 'name', name: key.value, origin: key.origin }; this.scope.references.push({ name: key.value, origin: key.origin, role: 'value' }); }
         properties.push({ key: key.value, value, origin: key.origin });
       } while (this.take(','));
       this.need('}'); left = { kind: 'object', properties };
     } else if (['string', 'number'].includes(start.kind) || ['true', 'false', 'null'].includes(start.value)) {
       this.at++; left = { kind: 'literal', spelling: start.value, literalKind: start.kind };
-    } else if (start.kind === 'identifier' && !reserved.has(start.value)) {
+    } else if (start.kind === 'identifier' && !(this.language === 'javascript' ? jsReserved : reserved).has(start.value)) {
+      this.identifier(start, false);
       this.at++;
       if (this.take('=>')) left = this.arrow(start, [start]);
       else { left = { kind: 'name', name: start.value }; this.scope.references.push({ name: start.value, origin: start.origin, role: 'value' }); }
     } else deny('UNSUPPORTED_SYNTAX', `expression ${this.value()}`, start.origin);
     left.origin = this.span(start);
     while (true) {
-      if (this.take('.')) { left = { kind: 'member', target: left, member: this.id().value, origin: this.span(start) }; continue; }
+      if (this.take('.')) { left = { kind: 'member', target: left, member: this.id(false, this.language === 'javascript').value, origin: this.span(start) }; continue; }
       if (this.value() === '(') { left = { kind: 'call', target: left, arguments: this.arguments(), origin: this.span(start) }; continue; }
       if (this.take('[')) { const index = this.expression(); this.need(']'); left = { kind: 'index', target: left, index, origin: this.span(start) }; continue; }
       if (['++', '--'].includes(this.value())) { left = { kind: 'postfix', op: this.tokens[this.at++].value, operand: left, origin: this.span(start) }; continue; }
@@ -184,7 +208,7 @@ class Parser {
     // C# contextual lambda parameter types require typed-expression inference,
     // deliberately denied rather than silently installing JS Any types.
     if (this.language !== 'javascript') deny('UNSUPPORTED_SYNTAX', 'C# contextual lambda typing', start.origin);
-    this.inScope(node, () => { for (const token of names) { const param = this.node('parameter', token.value, token);
+    this.inScope(node, () => { for (const token of names) { this.identifier(token); const param = this.node('parameter', token.value, token);
       param.origin = token.origin; node.parameters.push(param); } });
     node.body = this.inScope(node, () => this.value() === '{' ? this.block() : this.expression(2));
     node.origin = this.span(start); return { kind: 'lambda', declaration: node, origin: node.origin };
@@ -253,7 +277,7 @@ class Parser {
       return { kind: 'moduleInitialization', module: module.value, origin: this.span(start) };
     }
     if (this.value() !== '{') deny('UNSUPPORTED_SYNTAX', 'only named imports implemented', this.current().origin);
-    this.at++; do { const imported = this.id(); const local = this.take('as') ? this.id() : imported;
+    this.at++; do { const imported = this.id(false, true); const local = this.take('as') ? this.id() : this.identifier(imported);
       entries.push(this.node('import', local.value, imported, { import: { exported: imported.value, module: null, target: null } }));
       entries.at(-1).origin = this.span(imported);
     } while (this.take(','));
@@ -353,6 +377,8 @@ class Parser {
       defaultValue: null, initializer: null, accessor: null, backing: null, captures: [], import: null, explicitInterface: null, ...extra };
   }
   requiredSlots(type) {
+    if (['class', 'struct'].includes(type.category))
+      type.beforeFieldInit = !type.children.some(child => child.kind === 'constructor' && child.static);
     if (type.category === 'class' && !type.modifiers.includes('static') && !type.children.some(child => child.kind === 'constructor' && !child.static)) {
       type.synthetics.push(this.synthetic('instanceConstructor', type, 0, { returnType: { kind: 'void' }, receiver: 'instance',
         modifiers: [type.modifiers.includes('abstract') ? 'protected' : type.modifiers.includes('public') ? 'public' : 'internal'] }));
@@ -360,7 +386,6 @@ class Parser {
     if (type.children.some(child => ['field', 'property'].includes(child.kind) && child.static && child.initializer && !child.modifiers.includes('const')) &&
         !type.children.some(child => child.kind === 'constructor' && child.static)) {
       type.synthetics.push(this.synthetic('typeInitializer', type, 0, { returnType: { kind: 'void' }, static: true }));
-      type.beforeFieldInit = true;
     }
   }
   parse() {

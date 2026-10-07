@@ -106,6 +106,54 @@ function checkFiniteData(value, label) {
   }
   deny('CATALOGUE_MISMATCH', `${label} contains non-finite/non-data metadata`);
 }
+function checkEffects(member, catalogue) {
+  exactKeys(member.effects, effectKeys, 'catalogue effects');
+  for (const sort of effectKeys) if (!Array.isArray(member.effects[sort])) deny('CATALOGUE_MISMATCH', `effects ${sort}`);
+  const tags = { normal: ['returnVoid', 'finiteValuePartition'], ordinaryThrow: ['ordinaryThrow'], writes: ['receiverField'] };
+  for (const sort of effectKeys) {
+    const alternatives = member.effects[sort], seen = new Set();
+    if (!Array.isArray(alternatives)) deny('CATALOGUE_MISMATCH', `effects ${sort}`);
+    for (const alternative of alternatives) {
+      if (!alternative || Object.getPrototypeOf(alternative) !== Object.prototype || !(tags[sort] ?? []).includes(alternative.kind))
+        deny('CATALOGUE_MISMATCH', `unknown/wrong-sort ${sort} effect tag`);
+      const key = referenceKey(alternative);
+      if (seen.has(key)) deny('CATALOGUE_MISMATCH', 'duplicate effect alternative'); seen.add(key);
+      if (alternative.kind === 'returnVoid') {
+        exactKeys(alternative, ['kind', 'receiver'], 'returnVoid effect');
+        if (member.kind !== 'constructor' || member.returnType?.kind !== 'void' || member.receiver !== 'instance' ||
+            alternative.receiver !== 'sameFreshReceiver') deny('CATALOGUE_MISMATCH', 'constructor return/receiver relation');
+      } else if (alternative.kind === 'ordinaryThrow') {
+        exactKeys(alternative, ['kind', 'exception', 'origin', 'sameExceptionPropagates'], 'ordinaryThrow effect');
+        if (member.kind !== 'constructor' || alternative.exception !== 'freshOrdinaryExn' ||
+            alternative.origin !== 'constructor-allocation-or-runtime' || alternative.sameExceptionPropagates !== true)
+          deny('CATALOGUE_MISMATCH', 'ordinary exception identity/origin relation');
+      } else if (alternative.kind === 'receiverField') {
+        exactKeys(alternative, ['kind', 'path', 'value', 'frame'], 'receiverField effect');
+        exactKeys(alternative.value, ['kind', 'index'], 'receiverField value');
+        if (member.receiver !== 'instance' || member.static || member.kind !== 'constructor' ||
+            !same(alternative.path, ['Message']) || alternative.frame !== 'receiverExceptionState' ||
+            alternative.value.kind !== 'formal' || !Number.isSafeInteger(alternative.value.index) || alternative.value.index < 0 ||
+            !same(member.parameters[alternative.value.index]?.type, { kind: 'named', path: ['System', 'String'], arguments: [] }) ||
+            ![ ['System', 'SystemException'], ['System', 'IO', 'InvalidDataException'] ].some(path => same(path, member.parent)))
+          deny('CATALOGUE_MISMATCH', 'receiver field/frame/formal relation');
+      } else {
+        exactKeys(alternative, ['kind', 'operation', 'falseCases', 'trueCases', 'coercion', 'nativeOwnerConsequence'], 'finiteValuePartition effect');
+        const operation = alternative.operation, any = { kind: 'dynamic', profile: 'CE-JS-2', sort: 'Any' };
+        const falsy = ['undefined', 'null', 'false', 'positiveZero', 'negativeZero', 'NaN', 'emptyString', 'zeroBigInt'];
+        if (!['Truth', 'Nullish'].includes(operation) || catalogue.profile !== 'CE-JS-foundation-1' ||
+            member.kind !== 'method' || member.name !== operation || !same(member.parent, ['JS', 'ValueOperations']) ||
+            !member.static || member.receiver !== 'none' || member.parameters.length !== 1 ||
+            !same(member.parameters[0].type, any) || !same(member.returnType, any) ||
+            !same(alternative.falseCases, operation === 'Truth' ? falsy : ['allOtherValues']) ||
+            !same(alternative.trueCases, operation === 'Truth' ? ['allOtherValues'] : ['undefined', 'null']) ||
+            alternative.coercion !== 'none' || alternative.nativeOwnerConsequence !== 'none')
+          deny('CATALOGUE_MISMATCH', 'contradictory/incomplete Truth/Nullish partition relation');
+        if (member.effects.normal.length !== 1 || effectKeys.some(sort => sort !== 'normal' && member.effects[sort].length))
+          deny('CATALOGUE_MISMATCH', 'finite value partition cannot have conflicting effects');
+      }
+    }
+  }
+}
 
 // A catalogue is a finite structured forest. Full row metadata/effect partitions
 // are mandatory; missing rows/targets/alternatives do not become free primitives.
@@ -156,12 +204,7 @@ export function validateCatalogue(catalogue) {
       if (parameter.defaultValue?.kind !== 'absent') deny('UNSUPPORTED_CATALOGUE', 'catalogue optional default constant checking not implemented');
       checkTypeReference(parameter.type, paths, member.typeParameters);
     }
-    exactKeys(member.effects, effectKeys, 'catalogue effects');
-    for (const key of effectKeys) {
-      if (!Array.isArray(member.effects[key])) deny('CATALOGUE_MISMATCH', `effects ${key}`);
-      for (const alternative of member.effects[key]) if (!alternative || Object.getPrototypeOf(alternative) !== Object.prototype ||
-          typeof alternative.kind !== 'string' || !alternative.kind) deny('CATALOGUE_MISMATCH', `structured tagged ${key} alternative required`);
-    }
+    checkEffects(member, catalogue);
     if ((member.static && member.receiver !== 'none') || (!member.static && member.receiver !== 'instance')) deny('CATALOGUE_MISMATCH', 'receiver/static mismatch');
     if (!member.effects.normal.length && !member.effects.ordinaryThrow.length && !member.effects.nonreturn.length) deny('INCOMPLETE_CATALOGUE', 'member has no completion alternatives');
     const identity = referenceKey([member.parent, member.kind, member.name, member.arity,
@@ -220,11 +263,29 @@ export function validateCatalogue(catalogue) {
       effects: structuredClone(row.effects ?? null) };
   });
   return { catalogue: structuredClone(catalogue), identity, paths, typeIds, entries, bindings,
-    structurallyComplete: true, authenticInstalledProfile: false };
+    structurallyComplete: true, closedFoundationEffectSubset: true, completeSelectedEffectCatalogue: false, authenticInstalledProfile: false };
 }
 
 const csAliases = new Map([['bool', ['System', 'Boolean']], ['int', ['System', 'Int32']],
   ['string', ['System', 'String']], ['object', ['System', 'Object']]]);
+function sourceTypeChain(node) {
+  const chain = [];
+  for (let owner = node; owner; owner = owner.owner) if (owner.kind === 'type') chain.unshift(owner);
+  return chain;
+}
+function sourceTypePath(node) { return [...node.namespace, ...sourceTypeChain(node).map(owner => owner.name)]; }
+function accessibleSourceType(target, node) {
+  const lexical = sourceTypeChain(node);
+  for (const component of sourceTypeChain(target)) {
+    const enclosing = sourceTypeChain(component).slice(0, -1).at(-1);
+    const access = component.modifiers.find(value => ['public', 'private', 'internal', 'protected'].includes(value))
+      ?? (enclosing?.category === 'interface' ? 'public' : enclosing ? 'private' : 'internal');
+    if (access === 'public' || access === 'internal') continue; // Same source Unit/assembly subset.
+    // Derived-type accessibility is outside this no-explicit-bases subprofile.
+    if (!enclosing || !lexical.includes(enclosing)) return false;
+  }
+  return true;
+}
 function resolveType(type, node, forest, catalogues) {
   if (type === null) return null;
   if (type.kind === 'void') return { kind: 'void' };
@@ -240,17 +301,31 @@ function resolveType(type, node, forest, catalogues) {
   if (type.path.length === 1 && type.path[0] === 'void') return { kind: 'void' };
   let owner = node;
   while (owner) {
-    const parameter = owner.typeParameters?.find(row => row.name === type.path[0] && type.path.length === 1);
-    if (parameter) return { kind: 'parameter', declaration: parameter.declId };
+    const parameter = owner.typeParameters?.find(row => row.name === type.path[0]);
+    if (parameter) {
+      if (type.path.length !== 1 || type.arguments.length) deny('INCOMPLETE_BINDING', 'type parameter cannot have nested path or generic arguments');
+      return { kind: 'parameter', declaration: parameter.declId };
+    }
     owner = owner.owner;
   }
-  const path = csAliases.get(type.path[0]) ?? type.path;
-  const matches = forest.entries.filter(row => row.kind === 'type' &&
-    (same([...row.namespace, row.name], path) || (path.length === 1 && row.name === path[0] && same(row.namespace, node.namespace))));
+  const alias = type.path.length === 1 ? csAliases.get(type.path[0]) : null;
+  const path = alias ?? type.path;
+  const sourceTypes = forest.entries.filter(row => row.kind === 'type');
+  const tiers = alias ? [path] : sourceTypeChain(node).reverse().map(owner => [...sourceTypePath(owner), ...path]);
+  if (!alias) for (let length = node.namespace.length; length >= 0; length--) tiers.push([...node.namespace.slice(0, length), ...path]);
+  let matches = [];
+  for (const tier of tiers) {
+    matches = sourceTypes.filter(row => same(sourceTypePath(row), tier));
+    if (matches.length) break; // Nearest lexical owner wins; never flatten foreign nested types.
+  }
   const imports = catalogues.flatMap(catalogue => [...catalogue.paths.entries()].filter(([key]) => key === referenceKey(path)).map(([key, row]) => ({ catalogue, key, row })));
   if (matches.length && imports.length) deny('SOURCE_SHADOW', `source declaration shadows protected ${path.join('.')}`);
   if (matches.length === 1 && !imports.length) {
+    if (!accessibleSourceType(matches[0], node)) deny('INCOMPLETE_BINDING', 'inaccessible source TypeId');
     if (type.arguments.length !== matches[0].typeParameters.length) deny('INCOMPLETE_BINDING', 'source generic arity mismatch');
+    const enclosing = sourceTypeChain(matches[0]).slice(0, -1);
+    if (enclosing.some(owner => owner.typeParameters.length && !sourceTypeChain(node).includes(owner)))
+      deny('INCOMPLETE_BINDING', 'qualified constructed enclosing generic type is outside foundation syntax');
     return { kind: 'source', declaration: matches[0].declId, arguments: type.arguments.map(argument => resolveType(argument, node, forest, catalogues)) };
   }
   if (imports.length === 1 && !matches.length) {
@@ -301,7 +376,7 @@ export function bindSource(rawBytes, identity, catalogueInputs = []) {
   const typePaths = new Set();
   for (const entry of forest.entries) {
     if (entry.kind === 'type') {
-      const path = referenceKey([...entry.namespace, entry.name]), sourcePath = referenceKey([entry.declId.parent, entry.name]);
+      const path = referenceKey(sourceTypePath(entry)), sourcePath = referenceKey([entry.declId.parent, entry.name]);
       if (typePaths.has(sourcePath)) deny('AMBIGUOUS_BINDING', 'duplicate C# type declaration requires unsupported partial semantics', entry.origin);
       typePaths.add(sourcePath);
       if (catalogues.some(catalogue => catalogue.paths.has(path))) deny('SOURCE_SHADOW', `source type ${entry.name} shadows imported primitive`);
@@ -311,8 +386,9 @@ export function bindSource(rawBytes, identity, catalogueInputs = []) {
     const names = new Set();
     for (const child of scope.children ?? []) {
       if (['block', 'namespace', 'synthetic', 'lambda', 'functionExpression', 'namespaceImport'].includes(child.kind)) continue;
-      if (names.has(child.name)) deny('AMBIGUOUS_BINDING', `duplicate declaration ${child.name}`, child.origin);
-      names.add(child.name);
+      const nameKey = child.kind === 'constructor' ? `${child.name}:constructor:${child.static ? 'static' : 'instance'}` : child.name;
+      if (names.has(nameKey)) deny('AMBIGUOUS_BINDING', `duplicate declaration ${child.name}`, child.origin);
+      names.add(nameKey);
       if (['local', 'parameter'].includes(child.kind)) {
         const parent = scope.owner;
         const outer = parent ? lookup(parent, child.name) : null;
@@ -366,10 +442,19 @@ export function bindSource(rawBytes, identity, catalogueInputs = []) {
     if (resolvedType?.kind === 'void') deny('INCOMPLETE_BINDING', 'void cannot be a field/formal/storage type', node.origin);
     const implicitBase = node.kind === 'type' && ['class', 'struct', 'enum'].includes(node.category)
       ? { kind: 'named', path: ['System', node.category === 'class' ? 'Object' : node.category === 'struct' ? 'ValueType' : 'Enum'], arguments: [] } : null;
-    const generatedInitializers = node.slot && ['instanceConstructor', 'typeInitializer'].includes(node.slot.role)
-      ? node.slot.anchor.children.filter(child => ['field', 'property'].includes(child.kind) && child.initializer &&
-          child.static === (node.slot.role === 'typeInitializer') && !child.modifiers.includes('const'))
-        .map(child => ({ declaration: child.declId, originalExpression: cleanSyntax(child.initializer) })) : [];
+    const constructorType = node.kind === 'constructor' ? node.owner
+      : ['instanceConstructor', 'typeInitializer'].includes(node.slot?.role) ? node.slot.anchor : null;
+    const generatedInitializers = constructorType ? constructorType.children
+      .filter(child => (child.kind === 'field' || child.kind === 'property' && child.children.every(accessor => accessor.auto)) &&
+        child.initializer && child.static === node.static && !child.modifiers.includes('const'))
+      .map(child => ({ declaration: child.declId, originalExpression: cleanSyntax(child.initializer) })) : [];
+    const baseConstructor = constructorType?.category === 'class' && !node.static
+      ? catalogues.flatMap(catalogue => catalogue.entries).find(entry => entry.kind === 'constructor' &&
+        same(entry.descriptor.parent, ['System', 'Object']) && entry.descriptor.parameters.length === 0)?.declId ?? null : null;
+    const initializerTiming = constructorType ? node.static
+      ? constructorType.beforeFieldInit ? 'beforefieldinit-unproved-trigger' : 'explicit-static-constructor-unproved-trigger'
+      : 'instance-before-base-constructor' : node.kind === 'type' && ['class', 'struct'].includes(node.category)
+        ? node.beforeFieldInit ? 'beforefieldinit-unproved-trigger' : 'explicit-static-constructor-unproved-trigger' : null;
     return { declId: node.declId, kind: node.kind, name: node.name,
       semanticOwner: scopeId(node.owner), category: node.category ?? node.kind,
       origin: node.slot ? { kind: 'synthetic', noSpan: true, anchor: node.slot.anchor.declId,
@@ -383,7 +468,7 @@ export function bindSource(rawBytes, identity, catalogueInputs = []) {
       modifiers: [...node.modifiers], attributes: cleanSyntax(node.attributes), direction: node.direction,
       params: node.params, defaultValue: cleanSyntax(node.defaultValue), bases: implicitBase ? [resolveType(implicitBase, node, forest, catalogues)] : [],
       interfaces: node.interfaces.map(base => resolveType(base, node, forest, catalogues)), explicitInterface: node.explicitInterface,
-      initializer: cleanSyntax(node.initializer), initializerTiming: node.beforeFieldInit ? 'beforefieldinit-unproved-trigger' : null,
+      initializer: cleanSyntax(node.initializer), initializerTiming,
       accessors: node.children.filter(child => child.kind === 'accessor').map(child => child.declId),
       backing: node.synthetics.filter(slot => slot.slot.role === 'backingStorage').map(slot => slot.declId),
       captures: structuredClone(node.captures), import: cleanSyntax(node.import),
@@ -391,8 +476,10 @@ export function bindSource(rawBytes, identity, catalogueInputs = []) {
       implicitSlots: node.synthetics.map(slot => slot.declId),
       enumConstant: structuredClone(node.enumConstant ?? null),
       generatedInitializerOrder: generatedInitializers,
-      generatedBaseConstructor: node.slot?.role === 'instanceConstructor'
-        ? catalogues.flatMap(catalogue => catalogue.entries).find(entry => entry.kind === 'constructor' && same(entry.descriptor.parent, ['System', 'Object']) && entry.descriptor.parameters.length === 0)?.declId ?? null : null,
+      generatedBaseConstructor: baseConstructor,
+      baseConstructorPrerequisite: constructorType?.category === 'class' && !node.static
+        ? { target: baseConstructor, declarationStatus: baseConstructor ? 'boundExactCatalogueDeclaration' : 'deferredMissingCatalogueConstructor',
+          order: 'afterInstanceInitializers-beforeConstructorBody', transferProof: 'deferred' } : null,
     };
   });
   if (parsed.root.statements.some(statement => statement.kind === 'moduleInitialization')) deny('INCOMPLETE_BINDING', 'module initialization requires an exact selected W4 conditional adapter or supplied dependency definition');

@@ -184,6 +184,94 @@ test('unknown C# source type cannot borrow a trusted type by name', () => {
   denies(() => cs('class C { Missing a; }'), 'INCOMPLETE_BINDING');
 });
 
+test('F1 same-name nested types bind nearest enclosing owner and exact qualified path', () => {
+  const result = cs('namespace N { class A { public class X {} X a; class Inner { X inherited; } } class B { public class X {} X b; A.X qualified; } }');
+  const xs = result.bindings.filter(row => row.kind === 'type' && row.name === 'X');
+  assert.equal(xs.length, 2); assert.notDeepEqual(xs[0].declId, xs[1].declId);
+  assert.deepEqual(binding(result, 'a').type.declaration, xs[0].declId);
+  assert.deepEqual(binding(result, 'inherited').type.declaration, xs[0].declId);
+  assert.deepEqual(binding(result, 'b').type.declaration, xs[1].declId);
+  assert.deepEqual(binding(result, 'qualified').type.declaration, xs[0].declId);
+  const full = cs('namespace N { class A { public class X {} } } class B { N.A.X x; }');
+  assert.deepEqual(binding(full, 'x').type.declaration, binding(full, 'X', 'type').declId);
+});
+
+test('F1 foreign unqualified and inaccessible qualified nested types deny', () => {
+  denies(() => cs('class A { public class X {} } class B { X field; }'), 'INCOMPLETE_BINDING');
+  denies(() => cs('class A { class X {} } class B { A.X field; }'), 'INCOMPLETE_BINDING');
+  denies(() => cs('class A { private class Hidden { public class X {} } } class B { A.Hidden.X field; }'), 'INCOMPLETE_BINDING');
+  denies(() => cs('class A { protected class X {} } class B { A.X field; }'), 'INCOMPLETE_BINDING');
+});
+
+test('F1 type parameters precede source types and generic arity is exact', () => {
+  const result = cs('class T {} class C<T> { T field; T F<U>(U x) { return field; } }');
+  const parameter = result.bindings.find(row => row.kind === 'typeParameter' && row.name === 'T');
+  assert.deepEqual(binding(result, 'field').type, { kind: 'parameter', declaration: parameter.declId });
+  assert.deepEqual(binding(result, 'x').type.declaration, binding(result, 'U', 'typeParameter').declId);
+  const generic = cs('class Box<T> {} class C { Box<int> value; }');
+  assert.deepEqual(binding(generic, 'value').type.declaration, binding(generic, 'Box').declId);
+  assert.equal(binding(generic, 'value').type.arguments[0].kind, 'imported');
+  denies(() => cs('class Box<T> {} class C { Box value; }'), 'INCOMPLETE_BINDING');
+  denies(() => cs('class C<T> { T<int> value; }'), 'INCOMPLETE_BINDING');
+  denies(() => cs('class T { public class X {} } class C<T> { T.X value; }'), 'INCOMPLETE_BINDING');
+  denies(() => cs('class A<T> { public class X {} } class B { A.X value; }'), 'INCOMPLETE_BINDING');
+});
+
+test('F2 explicit instance and static constructors retain ordered applicable initializers', () => {
+  const result = cs('class C { int a = 1, b = 2; public int P { get; set; } = 3; const int K = 4; static int s = 5, t = 6; public static int Q { get; set; } = 7; public C() {} static C() {} }');
+  const instance = result.bindings.find(row => row.kind === 'constructor' && !row.static);
+  const statik = result.bindings.find(row => row.kind === 'constructor' && row.static);
+  assert.deepEqual(instance.generatedInitializerOrder.map(row => row.declaration), ['a', 'b', 'P'].map(name => binding(result, name).declId));
+  assert.deepEqual(statik.generatedInitializerOrder.map(row => row.declaration), ['s', 't', 'Q'].map(name => binding(result, name).declId));
+  assert.deepEqual(instance.generatedInitializerOrder.map(row => row.originalExpression.spelling), ['1', '2', '3']);
+  assert.equal(instance.initializerTiming, 'instance-before-base-constructor');
+  assert.equal(statik.initializerTiming, 'explicit-static-constructor-unproved-trigger');
+  assert.equal(binding(result, 'C', 'type').initializerTiming, statik.initializerTiming);
+  assert.equal(instance.baseConstructorPrerequisite.declarationStatus, 'boundExactCatalogueDeclaration');
+  assert.deepEqual(instance.baseConstructorPrerequisite.target, instance.generatedBaseConstructor);
+  assert.equal(instance.baseConstructorPrerequisite.transferProof, 'deferred');
+  assert.equal(statik.baseConstructorPrerequisite, null);
+  assert.equal(result.bindings.some(row => ['instanceConstructor', 'typeInitializer'].includes(row.origin.role)), false);
+});
+
+test('F2 implicit constructors retain field/property order and exclude const', () => {
+  const result = cs('class C { int a = 1, b = 2; int P { get; set; } = 3; static int s = 4, t = 5; static int Q { get; set; } = 6; const int K = 7; }');
+  const instance = result.bindings.find(row => row.origin.role === 'instanceConstructor');
+  const statik = result.bindings.find(row => row.origin.role === 'typeInitializer');
+  assert.deepEqual(instance.generatedInitializerOrder.map(row => row.declaration), ['a', 'b', 'P'].map(name => binding(result, name).declId));
+  assert.deepEqual(statik.generatedInitializerOrder.map(row => row.declaration), ['s', 't', 'Q'].map(name => binding(result, name).declId));
+  assert.equal(statik.initializerTiming, 'beforefieldinit-unproved-trigger');
+  assert.equal(instance.baseConstructorPrerequisite.order, 'afterInstanceInitializers-beforeConstructorBody');
+  assert.equal(cs('class C { const int K = 1; }').bindings.some(row => row.origin.role === 'typeInitializer'), false);
+  // An absent catalogue cannot supply even the implicit Object base TypeId.
+  denies(() => bindSource(bytes('class C { public C() {} }'), identity('csharp')), 'INCOMPLETE_BINDING');
+});
+
+test('F3 default function and arrow formals deny until separate initialization scope lowering', () => {
+  for (const source of ['function f(x = 1) { return x; }', 'const f = function(x = 1) { return x; };',
+    'const f = (x = 1) => x;', 'const f = (x, y = x) => y;']) denies(() => js(source));
+});
+
+test('F3 all strict-module reserved binding contexts deny including parenthesized arrows', () => {
+  const names = ['delete', 'debugger', 'do', 'extends', 'instanceof', 'super', 'this', 'with', 'enum',
+    'implements', 'interface', 'package', 'private', 'protected', 'public', 'static', 'await', 'yield', 'true', 'null', 'eval', 'arguments'];
+  for (const name of names) {
+    denies(() => js(`const ${name} = 1;`));
+    denies(() => js(`function f(${name}) { return 1; }`));
+    denies(() => js(`const f = (${name}) => 1;`));
+  }
+  denies(() => parseSourceForest(bytes('import { x as delete } from "./module.mjs";'), 'javascript'), 'INVALID_SYNTAX');
+});
+
+test('F3 contextual identifiers are permitted and property IdentifierNames may be keywords', () => {
+  const result = js('function f(async, of, as, from, get, set) { const callback = (async, of) => async + of; return callback; }');
+  assert.deepEqual(binding(result, 'f').parameters.map(row => result.bindings.find(item => assertIdentity(item.declId, row.declaration)).name),
+    ['async', 'of', 'as', 'from', 'get', 'set']);
+  const properties = js('const value = { delete: 1, true: 2 }; const selected = value.delete;');
+  assert.equal(binding(properties, 'selected').initializer.member, 'delete');
+});
+function assertIdentity(left, right) { return JSON.stringify(left) === JSON.stringify(right); }
+
 test('full fixed catalogue metadata is required, not names, hashes or effect booleans', () => {
   const missing = clr(); delete missing.members[0].effects.ordinaryThrow;
   denies(() => validateCatalogue(missing), 'INVALID_INPUT');
@@ -206,6 +294,32 @@ test('catalogue counters depend on structured ordinal order, not input insertion
   const original = clr(), reordered = clr(); reordered.types.reverse(); reordered.members.reverse();
   assert.deepEqual(validateCatalogue(original).entries.map(row => row.declId), validateCatalogue(reordered).entries.map(row => row.declId));
   assert.equal(validateCatalogue(original).entries.every(row => row.origin.noSpan === true), true);
+});
+
+test('F4 closed effect sorts reject foreign/unknown tags and missing operation payload', () => {
+  for (const [sort, alternative] of [['normal', { kind: 'foreignWrite' }], ['normal', { kind: 'ordinaryThrow', exception: 'freshOrdinaryExn' }],
+    ['writes', { kind: 'returnVoid', receiver: 'sameFreshReceiver' }], ['status', { kind: 'unknownStatus' }],
+    ['normal', { kind: 'returnVoid' }], ['ordinaryThrow', { kind: 'ordinaryThrow' }], ['writes', { kind: 'receiverField' }]]) {
+    const catalogue = clr(); catalogue.members[0].effects[sort] = [alternative]; denies(() => validateCatalogue(catalogue));
+  }
+  const formal = clr(); formal.members[1].effects.writes[0].value.index = 99;
+  denies(() => validateCatalogue(formal), 'CATALOGUE_MISMATCH');
+  const duplicate = clr(); duplicate.members[0].effects.normal.push(structuredClone(duplicate.members[0].effects.normal[0]));
+  denies(() => validateCatalogue(duplicate), 'CATALOGUE_MISMATCH');
+});
+
+test('F4 Truth and Nullish retain distinct complete consistent value partitions', () => {
+  const catalogue = structuredClone(FIXED_FOUNDATION_CATALOGUES[2]);
+  assert.equal(validateCatalogue(catalogue).closedFoundationEffectSubset, true);
+  assert.equal(validateCatalogue(catalogue).completeSelectedEffectCatalogue, false);
+  for (const mutate of [value => value.members[0].effects.normal[0].trueCases.push('null'),
+    value => value.members[1].effects.normal[0].falseCases = ['undefined', 'null'],
+    value => value.members[0].effects.normal[0].operation = 'Nullish',
+    value => delete value.members[1].effects.normal[0].coercion,
+    value => value.members[0].effects.writes.push({ kind: 'receiverField' }),
+    value => value.members[1].parameters = []]) {
+    const changed = structuredClone(catalogue); mutate(changed); denies(() => validateCatalogue(changed));
+  }
 });
 
 test('CLR48 and conditional modern profiles cannot substitute for each other', () => {
