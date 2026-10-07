@@ -505,3 +505,123 @@ test('the actual fourteen readable source bodies enter the whole API, with hones
   assert.equal(result.outcomes.some(row => row.id === 'CD-mcp' && row.status === 'DENIED'), true);
   assert.equal(result.outcomes.every(row => row.status !== 'OPAQUE_NATIVE_PROVIDER'), true);
 });
+
+// Whole review22 bundle. Every denial enters parser, binder and shared checker;
+// shared checking is not an independent typed proof kernel. Authored UNRUN.
+function denyJsSyntax(source) {
+  const raw = bytes(source);
+  denies(() => parseSourceForest(raw, 'javascript'));
+  denies(() => bindSource(raw, identity()));
+  denies(() => checkFoundationBindings(raw, identity(), [], { bindings: [] }));
+}
+function checkedJsSyntax(source) {
+  const raw = bytes(source), result = bindSource(raw, identity());
+  const checked = checkFoundationBindings(raw, identity(), [], result);
+  assert.equal(checked.checkedDeclarations, result.bindings.length);
+  assert.equal(checked.actualSourceGo, false);
+  return { parsed: parseSourceForest(raw, 'javascript'), result };
+}
+
+test('F8 postfix original gaps include every terminator and plain/block/line comments', () => {
+  for (const newline of ['\r', '\n', '\u2028', '\u2029'])
+    for (const gap of [newline, `/*${newline}*/`, `// comment${newline}`])
+      for (const op of ['++', '--']) denyJsSyntax(`let x = 1; x${gap}${op};`);
+  for (const op of ['++', '--']) {
+    const { parsed } = checkedJsSyntax(`let x = 1; x /*same line*/ ${op};`);
+    assert.equal(parsed.root.statements[1].expression.kind, 'postfix');
+    assert.equal(parsed.root.statements[1].expression.op, op);
+    assert.equal(parsed.root.statements[1].expression.operand.name, 'x');
+  }
+});
+
+test('F8 assignment and update require closed targets and one ungrouped update suffix', () => {
+  for (const op of ['++', '--'])
+    for (const target of ['1', '(1)', '(x + 1)', '(x = 1)', '(x++)', '(++x)', 'f()']) {
+      const prefix = 'let x = 1; function f() { return x; } ';
+      denyJsSyntax(`${prefix}${target}${op};`);
+      denyJsSyntax(`${prefix}${op}${target};`);
+    }
+  for (const source of ['1 = 2;', '(1) += 2;', 'let x = 1; (x + 1) = 2;',
+    'let x = 1; x++ = 2;', 'let x = 1; (++x) -= 2;', 'let x = 1; (x = 2) = 3;',
+    'eval = 1;', 'arguments++;', '++eval;', '(arguments) -= 1;']) denyJsSyntax(source);
+  for (const first of ['++', '--']) for (const second of ['++', '--'])
+    for (const tail of [second, '.value', '[0]', '()']) denyJsSyntax(`let x = 1; x${first}${tail};`);
+  const source = 'let x = 1; const o = { value: 1 }; const a = [1]; x = 2; (x) += 1; o.value--; a[0]++; ++x; --o.value; ++(a[0]); (x)++; x = x + 1;';
+  const { parsed } = checkedJsSyntax(source);
+  const expressions = parsed.root.statements.slice(3).map(row => row.expression);
+  assert.deepEqual(expressions.map(row => row.kind), ['assignment', 'assignment', 'postfix', 'postfix', 'prefix', 'prefix', 'prefix', 'postfix', 'assignment']);
+  assert.deepEqual(expressions.slice(2, 4).map(row => row.operand.kind), ['member', 'index']);
+  // A group re-enters a primary context, so a member target on a grouped
+  // expression is legal syntax even when its runtime value is untyped here.
+  assert.equal(checkedJsSyntax('let x = 1; (x++).value = 2;').parsed.root.statements[1].expression.left.kind, 'member');
+});
+
+test('F9 ungrouped arrow heads deny in binary and unary operand grammar', () => {
+  for (const head of ['x', '(x)', '()']) {
+    for (const op of ['+', '-', '*', '/', '==', '<', '>', '&&', '||', '??'])
+      denyJsSyntax(`const f = 1 ${op} ${head} => 1;`);
+    for (const op of ['!', '~', '+', '-', 'typeof ', 'void '])
+      denyJsSyntax(`const f = ${op}${head} => 1;`);
+  }
+});
+
+test('F9 grouped arrows, nested closures and assignment-capable contexts keep ownership', () => {
+  const source = 'const captured = 1; const f = x => y => x + y + captured; function use(a) { return a; } const g = 1 + (x => x); const h = use(x => x); const a = [x => x]; const o = { value: x => x }; const c = true ? x => x : y => y; let slot = 1; const assigned = slot = x => x; const writes = x => slot = x;';
+  const { parsed, result } = checkedJsSyntax(source);
+  const f = parsed.root.statements[1].declarations[0].initializer.declaration;
+  assert.equal(f.body.kind, 'lambda');
+  const inner = f.body.declaration;
+  assert.equal(inner.owner, f);
+  assert.equal(inner.parameters[0].owner, inner);
+  assert.equal(f.parameters[0].owner, f);
+  const g = parsed.root.statements[3].declarations[0].initializer;
+  assert.equal(g.kind, 'binary'); assert.equal(g.right.kind, 'group'); assert.equal(g.right.expression.kind, 'lambda');
+  assert.equal(parsed.root.statements[4].declarations[0].initializer.arguments[0].expression.kind, 'lambda');
+  assert.equal(parsed.root.statements[5].declarations[0].initializer.items[0].kind, 'lambda');
+  assert.equal(parsed.root.statements[6].declarations[0].initializer.properties[0].value.kind, 'lambda');
+  assert.equal(parsed.root.statements[7].declarations[0].initializer.whenFalse.kind, 'lambda');
+  assert.equal(parsed.root.statements[9].declarations[0].initializer.kind, 'assignment');
+  assert.equal(parsed.root.statements[10].declarations[0].initializer.declaration.body.kind, 'assignment');
+  const lambdas = result.bindings.filter(row => row.kind === 'lambda');
+  assert.ok(lambdas[1].captures.some(row => assertIdentity(row.declaration, binding(result, 'x', 'parameter').declId)));
+  assert.ok(lambdas[1].captures.some(row => assertIdentity(row.declaration, binding(result, 'captured').declId)));
+  // Grouped arrows are valid operands for every previously denied context.
+  for (const op of ['+', '*', '<', '&&', '||', '??']) checkedJsSyntax(`const f = 1 ${op} (x => x);`);
+  for (const op of ['!', '~', '+', '-', 'typeof ', 'void ']) checkedJsSyntax(`const f = ${op}(x => x);`);
+  checkedJsSyntax('let x = 1; function use(a) { return a; } const f = use(x = y => y); const a = [x = y => y]; const o = { value: x = y => y };');
+});
+
+test('F10 JS coalescing/logical families deny all ungrouped sides and longer chains', () => {
+  for (const op of ['||', '&&']) for (const expression of [
+    `1 ?? 2 ${op} 3`, `1 ${op} 2 ?? 3`, `1 ?? 2 ?? 3 ${op} 4`,
+    `1 ${op} 2 ${op} 3 ?? 4`, `1 ?? 2 ${op} 3 ?? 4`, `1 ${op} 2 ?? 3 ${op} 4`])
+    denyJsSyntax(`const value = ${expression};`);
+  denyJsSyntax('const value = 1 ?? 2 || 3 && 4;');
+  denyJsSyntax('const value = 1 && 2 || 3 ?? 4;');
+});
+
+test('F10 pure chains and explicit groups preserve AST families and Csharp separation', () => {
+  for (const op of ['??', '||', '&&']) {
+    const { parsed } = checkedJsSyntax(`const value = 1 ${op} 2 ${op} 3;`);
+    const tree = parsed.root.statements[0].declarations[0].initializer;
+    assert.equal(tree.op, op); assert.equal(tree.left.op, op); assert.equal(tree.right.spelling, '3');
+  }
+  for (const op of ['||', '&&']) {
+    const right = checkedJsSyntax(`const value = 1 ?? (2 ${op} 3);`).parsed.root.statements[0].declarations[0].initializer;
+    assert.equal(right.op, '??'); assert.equal(right.right.kind, 'group'); assert.equal(right.right.expression.op, op);
+    const left = checkedJsSyntax(`const value = (1 ?? 2) ${op} 3;`).parsed.root.statements[0].declarations[0].initializer;
+    assert.equal(left.op, op); assert.equal(left.left.kind, 'group'); assert.equal(left.left.expression.op, '??');
+    checkedJsSyntax(`const value = (1 ${op} 2) ?? 3;`);
+    checkedJsSyntax(`const value = 1 ${op} (2 ?? 3);`);
+  }
+  checkedJsSyntax('const value = 1 || 2 && 3;');
+  checkedJsSyntax('const value = 1 ?? (2 || 3 && 4) ?? 5;');
+  checkedJsSyntax('const value = (1 ?? 2) || (3 ?? 4);');
+  checkedJsSyntax('const value = 1 ?? 2 ? 3 || 4 : 5 && 6;');
+  checkedJsSyntax('const value = 1 ?? (true ? 2 || 3 : 4 && 5);');
+  const raw = bytes('class C { object Value = null ?? true || false; }');
+  const result = bindSource(raw, identity('csharp'), [clr()]);
+  assert.equal(checkFoundationBindings(raw, identity('csharp'), [clr()], result).checkedDeclarations, result.bindings.length);
+  assert.equal(binding(result, 'Value').initializer.op, '??');
+  assert.equal(binding(result, 'Value').initializer.right.op, '||');
+});

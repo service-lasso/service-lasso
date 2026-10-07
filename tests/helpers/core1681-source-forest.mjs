@@ -141,8 +141,17 @@ class Parser {
   }
   expression(minimum = 1) {
     const start = this.current(); let left;
+    // These shared callers historically use 2 to delimit comma-separated C#
+    // expressions. JS uses AssignmentExpression in those positions, admitting
+    // both assignments and arrows (comma itself is not in this subgrammar).
+    if (this.language === 'javascript' && minimum === 2) minimum = 1;
+    const arrowContext = minimum <= 2;
     if (this.value() === 'await') deny('UNSUPPORTED_SYNTAX', 'async/module-await context typing', start.origin);
-    if (['!', '~', '+', '-', 'typeof', 'void'].includes(this.value())) {
+    if (['++', '--'].includes(this.value())) {
+      const op = this.tokens[this.at++].value, operand = this.expression(13);
+      this.requireAssignmentTarget(operand, start);
+      left = { kind: 'prefix', op, operand };
+    } else if (['!', '~', '+', '-', 'typeof', 'void'].includes(this.value())) {
       const op = this.tokens[this.at++].value; left = { kind: 'unary', op, operand: this.expression(13) };
     } else if (this.take('new')) {
       if (this.language === 'javascript') {
@@ -161,14 +170,19 @@ class Parser {
       left = { kind: 'function', declaration: node };
     } else if (this.take('(')) {
       if (this.value() === ')') {
-        this.at++; this.need('=>'); left = this.arrow(start, []);
+        this.at++; this.need('=>');
+        if (!arrowContext) deny('INVALID_SYNTAX', 'ungrouped arrow requires assignment expression context', start.origin);
+        left = this.arrow(start, []);
       } else {
         const saved = this.at; const names = [];
         while (this.current().kind === 'identifier') {
           names.push(this.current()); this.at++;
           if (!this.take(',')) break;
         }
-        if (this.take(')') && this.take('=>')) left = this.arrow(start, names);
+        if (this.take(')') && this.take('=>')) {
+          if (!arrowContext) deny('INVALID_SYNTAX', 'ungrouped arrow requires assignment expression context', start.origin);
+          left = this.arrow(start, names);
+        }
         else { this.at = saved; left = { kind: 'group', expression: this.expression() }; this.need(')'); }
       }
     } else if (this.take('[')) {
@@ -193,24 +207,59 @@ class Parser {
     } else if (start.kind === 'identifier' && !(this.language === 'javascript' ? jsReserved : reserved).has(start.value)) {
       this.identifier(start, false);
       this.at++;
-      if (this.take('=>')) left = this.arrow(start, [start]);
+      if (this.take('=>')) {
+        if (!arrowContext) deny('INVALID_SYNTAX', 'ungrouped arrow requires assignment expression context', start.origin);
+        left = this.arrow(start, [start]);
+      }
       else { left = { kind: 'name', name: start.value }; this.scope.references.push({ name: start.value, origin: start.origin, role: 'value' }); }
     } else deny('UNSUPPORTED_SYNTAX', `expression ${this.value()}`, start.origin);
     left.origin = this.span(start);
     while (true) {
+      // An UpdateExpression is no longer a LeftHandSideExpression. Grouping can
+      // establish a fresh suffix context; an ungrouped update cannot take one.
+      if (['prefix', 'postfix', 'lambda'].includes(left.kind) && ['.', '(', '[', '++', '--'].includes(this.value()))
+        deny('INVALID_SYNTAX', 'suffix requires a left hand side expression', this.current().origin);
       if (this.take('.')) { left = { kind: 'member', target: left, member: this.id(false, this.language === 'javascript').value, origin: this.span(start) }; continue; }
       if (this.value() === '(') { left = { kind: 'call', target: left, arguments: this.arguments(), origin: this.span(start) }; continue; }
       if (this.take('[')) { const index = this.expression(); this.need(']'); left = { kind: 'index', target: left, index, origin: this.span(start) }; continue; }
-      if (['++', '--'].includes(this.value())) { left = { kind: 'postfix', op: this.tokens[this.at++].value, operand: left, origin: this.span(start) }; continue; }
+      if (['++', '--'].includes(this.value())) {
+        const token = this.current();
+        if (this.language === 'javascript' && this.hasLineTerminator(this.tokens[this.at - 1], token))
+          deny('UNSUPPORTED_SYNTAX', 'automatic semicolon insertion before postfix update', token.origin);
+        this.requireAssignmentTarget(left, token);
+        left = { kind: 'postfix', op: this.tokens[this.at++].value, operand: left, origin: this.span(start) }; continue;
+      }
       if (this.value() === '?' && minimum <= 2) {
         this.at++; const whenTrue = this.expression(); this.need(':'); const whenFalse = this.expression(2);
         left = { kind: 'conditional', test: left, whenTrue, whenFalse, origin: this.span(start) }; continue;
       }
       const level = precedence.get(this.value()); if (level === undefined || level < minimum) break;
-      const op = this.tokens[this.at++].value, right = this.expression(level === 1 ? level : level + 1);
+      const token = this.tokens[this.at++], op = token.value;
+      if (level === 1) this.requireAssignmentTarget(left, token);
+      const right = this.expression(level === 1 ? level : level + 1);
+      if (this.language === 'javascript' && ['??', '||', '&&'].includes(op)) {
+        const incompatible = op === '??' ? new Set(['||', '&&']) : new Set(['??']);
+        if (this.hasUngroupedOperator(left, incompatible) || this.hasUngroupedOperator(right, incompatible))
+          deny('INVALID_SYNTAX', 'ungrouped coalescing/logical operator mix', token.origin);
+      }
       left = { kind: level === 1 ? 'assignment' : 'binary', op, left, right, origin: this.span(start) };
     }
     return left;
+  }
+  requireAssignmentTarget(expression, token) {
+    while (expression.kind === 'group') expression = expression.expression;
+    // Supported syntax only: destructuring, optional-chain targets and all
+    // other categories deny. This does not assert writable/numeric types.
+    if (!['name', 'member', 'index'].includes(expression.kind))
+      deny('INVALID_SYNTAX', 'unsupported assignment/update target', token.origin);
+    if (this.language === 'javascript' && expression.kind === 'name' && ['eval', 'arguments'].includes(expression.name))
+      deny('INVALID_SYNTAX', 'strict assignment/update target identifier', token.origin);
+  }
+  hasUngroupedOperator(expression, operators) {
+    // A group is an explicit grammar boundary; function bodies, conditional
+    // arms, calls and assignments contain separate expression productions.
+    return expression.kind === 'binary' && (operators.has(expression.op) ||
+      this.hasUngroupedOperator(expression.left, operators) || this.hasUngroupedOperator(expression.right, operators));
   }
   arrow(start, names) {
     // The original gap includes both whitespace and comment trivia. Check the
