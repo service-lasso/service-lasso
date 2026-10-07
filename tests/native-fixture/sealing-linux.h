@@ -3,6 +3,7 @@
 
 #include "thread-history-linux.h"
 #include "filter-inspection-linux.h"
+#include "task-census-linux.h"
 
 struct lf_seal_memory_read {
   uintptr_t address;
@@ -12,6 +13,7 @@ struct lf_seal_memory_read {
 };
 struct lf_sealing_inputs {
   int held_proc_directory;
+  int held_workload_cgroup;
   struct lf_filter_view early[2];
   const struct lf_fd_binding *nonoriginals;
   size_t nonoriginal_count;
@@ -45,6 +47,8 @@ struct lf_sealing {
   struct lf_fd_census_observation after_fds;
   struct lf_filter_inspection before_filters;
   struct lf_filter_inspection after_filters;
+  struct lf_task_census before_tasks;
+  struct lf_task_census after_tasks;
 };
 
 /* Internal trusted S, once-zero-initialized state and continuously held inputs.

@@ -50,7 +50,7 @@ static bool disjoint(const void *a, size_t a_size, const void *b, size_t b_size)
 }
 static int inputs(const struct lf_sealing_inputs *in,
                    const struct lf_thread_history *history) {
-  if (!in || in->held_proc_directory < 0 || !in->nonoriginals ||
+  if (!in || in->held_proc_directory < 0 || in->held_workload_cgroup < 0 || !in->nonoriginals ||
       !in->nonoriginal_count || in->nonoriginal_count > LF_POLICY_FDS ||
       in->nonoriginal_count != history->entry_gate.nonoriginal_count ||
       in->fd_record_capacity < in->nonoriginal_count ||
@@ -177,6 +177,10 @@ int lf_sealing_begin(struct lf_sealing *seal, struct lf_thread_history *history,
   for (size_t i = 0; i < history->record_count; i++)
     if (history->records[i].awaiting_creator_event)
       return failed(seal, history, 0, EPROTO);
+  if (lf_task_census_check(history->entry_gate.held_pidfd, in->held_proc_directory,
+      in->held_workload_cgroup, history->root_tid, seal->tids, seal->tid_count,
+      &seal->before_tasks) < 0)
+    return failed(seal, history, seal->before_tasks.native_error, errno);
   for (size_t i = 0; i < 2; i++) {
     seal->early[i].count = in->early[i].count;
     memcpy(seal->early[i].instructions, in->early[i].instructions,
@@ -253,6 +257,10 @@ int lf_sealing_finish(struct lf_sealing *seal, struct lf_thread_history *history
       return failed(seal, history, 0, EPROTO);
   }
   if (living != seal->tid_count) return failed(seal, history, 0, EPROTO);
+  if (lf_task_census_check(history->entry_gate.held_pidfd, in->held_proc_directory,
+      in->held_workload_cgroup, history->root_tid, seal->tids, seal->tid_count,
+      &seal->after_tasks) < 0)
+    return failed(seal, history, seal->after_tasks.native_error, errno);
   struct lf_filter_view chain[3] = {
     {seal->early[0].instructions, seal->early[0].count},
     {seal->early[1].instructions, seal->early[1].count},
