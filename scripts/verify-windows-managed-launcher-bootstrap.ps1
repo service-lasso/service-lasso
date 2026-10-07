@@ -150,8 +150,14 @@ $temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) ("service-lasso-native-boo
     else { $start.Arguments = $nativeArguments }
     $key = "$temporaryRoot|$label"
     if ($script:NativeToolOwners.ContainsKey($key)) { throw "An original tool owner already exists; no retry." }
-    $owner = @{ process = $null; stdoutRaw = $null; stderrRaw = $null; startAttempted = $false; startReturned = $false; started = $null; attached = $false; exitObserved = $false; exitCode = $null; settled = $false; gate = [Threading.ManualResetEventSlim]::new($false); errors = [Collections.Generic.List[object]]::new(); copies = @{ stdout = @{ source = $null; task = $null; terminal = $false; observation = $null }; stderr = @{ source = $null; task = $null; terminal = $false; observation = $null } } }
+    $owner = @{ process = $null; stdoutRaw = $null; stderrRaw = $null; startAttempted = $false; startReturned = $false; started = $null; attached = $false; exitObserved = $false; exitCode = $null; settled = $false; recordingFailed = $false; recordingFailure = $null; lastOriginalError = $null; primaryError = $null; gate = [Threading.ManualResetEventSlim]::new($false); errors = [Collections.Generic.List[object]]::new(); copies = @{ stdout = @{ source = $null; task = $null; terminal = $false; observation = $null }; stderr = @{ source = $null; task = $null; terminal = $false; observation = $null } } }
     $script:NativeToolOwners.Add($key, $owner)
+    function Add-OriginalToolError([string]$phase, $original) {
+      $owner.lastOriginalError = $original
+      if ($null -eq $owner.primaryError -and $original -is [Exception]) { $owner.primaryError = $original }
+      try { $owner.errors.Add(@{ phase = $phase; exception = $original }) }
+      catch { $owner.recordingFailure = $_.Exception; $owner.recordingFailed = $true }
+    }
     function Write-OriginalToolRecord([string]$suffix, $record) {
       $bytes = [Text.UTF8Encoding]::new($false).GetBytes(($record | ConvertTo-Json -Depth 12))
       $stream = [IO.File]::Open((Join-Path $temporaryRoot "$label.$suffix.json"), [IO.FileMode]::CreateNew)
@@ -163,10 +169,10 @@ $temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) ("service-lasso-native-boo
       $state = 'ACTUAL_COPY_COMPLETED'; $failure = $null
       try { [void]($copy.task.GetAwaiter().GetResult()); $copy.terminal = $true }
       catch {
-        $failure = $_.Exception.ToString()
+        $failure = $_.Exception
         $copy.terminal = $copy.task.IsCompleted
         $state = if ($copy.task.IsFaulted) { 'ACTUAL_COPY_FAULTED' } elseif ($copy.task.IsCanceled) { 'ACTUAL_COPY_CANCELED' } else { 'COPY_OBSERVATION_UNRESOLVED' }
-        $owner.errors.Add(@{ phase = "$name-copy-observation"; exception = $failure })
+        try { Add-OriginalToolError "$name-copy-observation" $failure } catch { $owner.recordingFailure = $_.Exception; $owner.recordingFailed = $true }
       }
       $faults = @()
       if ($copy.task.IsFaulted -and $copy.task.Exception) { $faults = @($copy.task.Exception.Flatten().InnerExceptions | ForEach-Object { $_.ToString() }) }
@@ -175,10 +181,11 @@ $temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) ("service-lasso-native-boo
     function Retain-ActiveOriginalOwner {
       # The registry and this non-returning live invocation strongly own every
       # original resource. A custody file alone is never a live handoff/terminal.
-      foreach ($name in @('stdout', 'stderr')) { if ($owner.copies.$name.task -and -not $owner.copies.$name.terminal) { Observe-OriginalCopy $name } }
+      try { foreach ($name in @('stdout', 'stderr')) { if ($owner.copies.$name.task -and -not $owner.copies.$name.terminal) { Observe-OriginalCopy $name } } }
+      catch { try { Add-OriginalToolError 'retention-copy-observation' $_.Exception } catch { $owner.recordingFailure = $_.Exception; $owner.recordingFailed = $true } }
       try { Write-OriginalToolRecord 'ACTIVE-CUSTODY' @{ state = 'ACTIVE_INVOCATION_RETAINS_UNRESOLVED_ORIGINAL_RESOURCES'; ownerKey = $key; invocationPid = $PID; recipe = $recipe; startAttempted = $owner.startAttempted; startReturned = $owner.startReturned; started = $owner.started; attached = $owner.attached; exitObserved = $owner.exitObserved; exitCode = $owner.exitCode; stdoutCopy = $owner.copies.stdout.observation; stderrCopy = $owner.copies.stderr.observation; errors = @($owner.errors); returned = $false; resourcesReleased = $false } }
-      catch { $owner.errors.Add(@{ phase = 'custody-record'; exception = $_.Exception.ToString() }) }
-      while ($true) { try { $owner.gate.Wait() } catch { $owner.errors.Add(@{ phase = 'custody-wait'; exception = $_.Exception.ToString() }) } }
+      catch { try { Add-OriginalToolError 'custody-record' $_.Exception } catch { $owner.recordingFailure = $_.Exception; $owner.recordingFailed = $true } }
+      while ($true) { try { $owner.gate.Wait() } catch { try { Add-OriginalToolError 'custody-wait' $_.Exception } catch { $owner.recordingFailure = $_.Exception; $owner.recordingFailed = $true } } }
     }
     try {
       $owner.stdoutRaw = [IO.File]::Open((Join-Path $temporaryRoot "$label.stdout.raw"), [IO.FileMode]::CreateNew)
@@ -187,10 +194,10 @@ $temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) ("service-lasso-native-boo
       try {
         $owner.startAttempted = $true; $owner.started = $owner.process.Start(); $owner.startReturned = $true
         $owner.attached = $owner.started
-        if (-not $owner.started) { $owner.errors.Add(@{ phase = 'start'; exception = 'Original Start returned false' }) }
+        if (-not $owner.started) { try { Add-OriginalToolError 'start' 'Original Start returned false' } catch { $owner.recordingFailure = $_.Exception; $owner.recordingFailed = $true } }
       } catch {
-        $owner.errors.Add(@{ phase = 'start'; exception = $_.Exception.ToString() })
-        try { $null = $owner.process.Id; $owner.attached = $true } catch { $owner.errors.Add(@{ phase = 'original-attachment-unobserved'; exception = $_.Exception.ToString() }) }
+        try { Add-OriginalToolError 'start' $_.Exception } catch { $owner.recordingFailure = $_.Exception; $owner.recordingFailed = $true }
+        try { $null = $owner.process.Id; $owner.attached = $true } catch { try { Add-OriginalToolError 'original-attachment-unobserved' $_.Exception } catch { $owner.recordingFailure = $_.Exception; $owner.recordingFailed = $true } }
       }
       if ($owner.attached) {
         # Independent setup and observation: one fault never skips the other.
@@ -200,15 +207,15 @@ $temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) ("service-lasso-native-boo
             else { $source = $owner.process.StandardError.BaseStream; $destination = $owner.stderrRaw }
             $owner.copies.$name.source = $source
             $owner.copies.$name.task = $source.CopyToAsync($destination)
-          } catch { $owner.errors.Add(@{ phase = "$name-copy-start"; exception = $_.Exception.ToString() }) }
+          } catch { try { Add-OriginalToolError "$name-copy-start" $_.Exception } catch { $owner.recordingFailure = $_.Exception; $owner.recordingFailed = $true } }
         }
         try { $owner.process.WaitForExit(); $owner.exitCode = $owner.process.ExitCode; $owner.exitObserved = $true }
-        catch { $owner.errors.Add(@{ phase = 'natural-exit'; exception = $_.Exception.ToString() }) }
+        catch { try { Add-OriginalToolError 'natural-exit' $_.Exception } catch { $owner.recordingFailure = $_.Exception; $owner.recordingFailed = $true } }
         Observe-OriginalCopy 'stdout'
         Observe-OriginalCopy 'stderr'
         if (-not $owner.exitObserved) {
           try { if ($owner.process.HasExited) { $owner.exitCode = $owner.process.ExitCode; $owner.exitObserved = $true } }
-          catch { $owner.errors.Add(@{ phase = 'available-original-exit'; exception = $_.Exception.ToString() }) }
+          catch { try { Add-OriginalToolError 'available-original-exit' $_.Exception } catch { $owner.recordingFailure = $_.Exception; $owner.recordingFailed = $true } }
         }
         if (-not $owner.exitObserved -or -not $owner.copies.stdout.terminal -or -not $owner.copies.stderr.terminal) { Retain-ActiveOriginalOwner }
       } elseif ($owner.startAttempted -and -not $owner.startReturned) { Retain-ActiveOriginalOwner }
@@ -216,26 +223,27 @@ $temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) ("service-lasso-native-boo
       # false/pre-start failure issued neither a process nor any copy.
       $owner.settled = $true
     } catch {
-      $owner.errors.Add(@{ phase = 'initiating-boundary'; exception = $_.Exception.ToString() })
+      if (-not $owner.primaryError) { $owner.primaryError = $_.Exception }
+      try { Add-OriginalToolError 'initiating-boundary' $_.Exception } catch { $owner.recordingFailure = $_.Exception; $owner.recordingFailed = $true }
       if ($owner.startAttempted -and -not $owner.settled) { Retain-ActiveOriginalOwner }
       $owner.settled = $true # pre-start only: no original process/copy issued
     }
     $releaseFailed = $false
     foreach ($name in @('stdout', 'stderr')) {
-      if ($owner.copies.$name.source) { try { $owner.copies.$name.source.Dispose() } catch { $releaseFailed = $true; $owner.errors.Add(@{ phase = "$name-source-release"; exception = $_.Exception.ToString() }) } }
+      if ($owner.copies.$name.source) { try { $owner.copies.$name.source.Dispose() } catch { $releaseFailed = $true; try { Add-OriginalToolError "$name-source-release" $_.Exception } catch { $owner.recordingFailure = $_.Exception; $owner.recordingFailed = $true } } }
     }
     foreach ($name in @('stdoutRaw', 'stderrRaw')) {
       if ($owner.$name) {
-        try { $owner.$name.Flush($true) } catch { $owner.errors.Add(@{ phase = "$name-flush"; exception = $_.Exception.ToString() }) }
-        try { $owner.$name.Dispose() } catch { $releaseFailed = $true; $owner.errors.Add(@{ phase = "$name-release"; exception = $_.Exception.ToString() }) }
+        try { $owner.$name.Flush($true) } catch { try { Add-OriginalToolError "$name-flush" $_.Exception } catch { $owner.recordingFailure = $_.Exception; $owner.recordingFailed = $true } }
+        try { $owner.$name.Dispose() } catch { $releaseFailed = $true; try { Add-OriginalToolError "$name-release" $_.Exception } catch { $owner.recordingFailure = $_.Exception; $owner.recordingFailed = $true } }
       }
     }
-    if ($owner.process) { try { $owner.process.Dispose() } catch { $releaseFailed = $true; $owner.errors.Add(@{ phase = 'process-release'; exception = $_.Exception.ToString() }) } }
+    if ($owner.process) { try { $owner.process.Dispose() } catch { $releaseFailed = $true; try { Add-OriginalToolError 'process-release' $_.Exception } catch { $owner.recordingFailure = $_.Exception; $owner.recordingFailed = $true } } }
     if ($releaseFailed) { Retain-ActiveOriginalOwner }
     $completed = $owner.exitObserved -and $owner.copies.stdout.observation.state -eq 'ACTUAL_COPY_COMPLETED' -and $owner.copies.stderr.observation.state -eq 'ACTUAL_COPY_COMPLETED'
-    Write-OriginalToolRecord 'result' @{ recipe = $recipe; tool = $file; arguments = $arguments; nativeArguments = $nativeArguments; startAttempted = $owner.startAttempted; startReturned = $owner.startReturned; started = $owner.started; completed = $completed; exitObserved = $owner.exitObserved; exitCode = $owner.exitCode; stdoutCopy = $owner.copies.stdout.observation; stderrCopy = $owner.copies.stderr.observation; exceptions = @($owner.errors); classification = $(if ($completed -and $owner.errors.Count -eq 0 -and $owner.exitCode -eq 0) { 'completed_success' } else { 'original_observed_failure' }) }
+    try { Write-OriginalToolRecord 'result' @{ recipe = $recipe; tool = $file; arguments = $arguments; nativeArguments = $nativeArguments; startAttempted = $owner.startAttempted; startReturned = $owner.startReturned; started = $owner.started; completed = $completed; exitObserved = $owner.exitObserved; exitCode = $owner.exitCode; stdoutCopy = $owner.copies.stdout.observation; stderrCopy = $owner.copies.stderr.observation; exceptions = @($owner.errors); classification = $(if ($completed -and $owner.errors.Count -eq 0 -and -not $owner.recordingFailed -and $owner.exitCode -eq 0) { 'completed_success' } else { 'original_observed_failure' }) } } catch { try { Add-OriginalToolError 'result-observer' $_.Exception } catch { $owner.recordingFailure = $_.Exception; $owner.recordingFailed = $true } }
     $null = $script:NativeToolOwners.Remove($key)
-    if (-not $completed -or $owner.errors.Count -or $owner.exitCode -ne 0) { throw "The original tool/copy outcomes failed; retained without retry." }
+    if (-not $completed -or $owner.errors.Count -or $owner.recordingFailed -or $owner.exitCode -ne 0) { if ($owner.primaryError) { throw $owner.primaryError }; throw "The original tool/copy outcomes failed; retained without retry." }
   }
   $cmdImage = [IO.Path]::GetFullPath((Join-Path $env:SystemRoot 'System32\cmd.exe'))
   $cmdArguments = Get-NativeCmdInitializerArguments $initializePath

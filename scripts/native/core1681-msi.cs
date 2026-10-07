@@ -108,6 +108,9 @@ namespace ServiceLasso.SourceAcquisition
         internal string InstalledContext = "UNRESOLVED_INSTALL_BRANCH";
         internal string Eligibility = "UNQUALIFIED_INPUT";
         internal Exception OriginalException;
+        internal Exception RecordingFailure, ObserverFailure;
+        internal string LastOriginalOperation;
+        internal long LastOriginalStatus;
     }
     internal sealed class MsiReadOnly
     {
@@ -123,11 +126,16 @@ namespace ServiceLasso.SourceAcquisition
         private bool closing;
         private bool capturingExtendedError;
         private object pendingCall;
+        private Exception pendingException;
+        private NativeResource pendingResource;
+        private readonly RetentionState preparedRetention;
+        internal NativeResource CurrentPendingResource { get { return pendingResource; } }
         internal MsiReceipt CurrentReceipt { get { return receipt; } }
         internal RetentionState CurrentRetention { get; private set; }
         private void Retain(string reason)
         {
-            CurrentRetention = new RetentionState(this, reason);
+            CurrentRetention = preparedRetention;
+            CurrentRetention.Reason = reason;
             Lifetime.Retain(api.Module, CurrentRetention);
         }
         internal MsiReadOnly(MsiExports exports, IHeldInput input)
@@ -136,6 +144,8 @@ namespace ServiceLasso.SourceAcquisition
                 input.OriginalReadableHandle == new IntPtr(-1) || String.IsNullOrEmpty(input.NativeObjectReference))
                 throw new ArgumentException("HELD_MSI_UNQUALIFIED");
             api = exports; held = input; receipt.HeldMsi = input.OriginalBytes;
+            // No acquired MSI resource exists at this allocation boundary.
+            preparedRetention = new RetentionState(this, null);
         }
         private void Before(string operation, string token)
         { api.Module.BeforeCall("MsiReadOnly", operation, token); }
@@ -145,21 +155,41 @@ namespace ServiceLasso.SourceAcquisition
             try { T result = originalCall(); pendingCall = null; return result; }
             catch (Exception original)
             {
-                receipt.Observations.Add(new NativeObservation(receipt.Observations.Count + 1, operation + ":unknown-return", -1, null, original));
+                pendingException = original;
+                if (receipt.OriginalException == null) receipt.OriginalException = original;
+                try { receipt.Observations.Add(new NativeObservation(receipt.Observations.Count + 1, operation + ":unknown-return", -1, null, original)); }
+                catch (Exception recording) { receipt.RecordingFailure = recording; }
                 // A marshaling/interop exception is not evidence that the native call acquired nothing.
                 GC.KeepAlive(pendingCall);
                 Retain("UNKNOWN_ORIGINAL_MSI_CALL_RETURN"); throw;
             }
         }
-        private NativeResource Own(string kind, uint handle, bool view = false)
+        private NativeResource Reserve(string kind, bool view = false)
         {
-            if (handle == 0) return null;
-            var resource = new NativeResource(receipt.Resources.Count + 1, kind, handle, view);
-            receipt.Resources.Add(resource); return resource;
+            // Publish an invocation-owned original output slot BEFORE acquisition.
+            var resource = new NativeResource(receipt.Resources.Count + 1, kind, 0, view);
+            pendingResource = resource; return resource;
+        }
+        private void Publish(NativeResource resource, uint handle, long originalResult)
+        {
+            resource.Handle = handle;
+            resource.AcquisitionResult = originalResult; resource.AcquisitionReturned = true;
+            if (handle != 0)
+            {
+                try { receipt.Resources.Add(resource); }
+                catch (Exception recording)
+                {
+                    receipt.RecordingFailure = recording;
+                    Retain("UNPUBLISHED_ORIGINAL_MSI_RESOURCE");
+                }
+            }
+            // A zero original output acquires nothing and adds no fake resource.
+            pendingResource = null;
         }
         private void Observe(string operation, uint status, bool error = true)
         {
             // Store initiating operation/status before acquiring the extended native error record.
+            receipt.LastOriginalOperation = operation; receipt.LastOriginalStatus = status;
             var original = new NativeObservation(receipt.Observations.Count + 1, operation, status, null, null);
             receipt.Observations.Add(original);
             if (error && !capturingExtendedError && status != 0 && status != 234 && status != 259)
@@ -178,12 +208,12 @@ namespace ServiceLasso.SourceAcquisition
         private void CaptureOneExtendedError(string operation, uint status)
         {
             Before("MsiGetLastErrorRecord", operation);
-            uint handle = Call("MsiGetLastErrorRecord", () => api.Error());
-            NativeResource resource = Own("extended-error-record", handle);
+            NativeResource resource = Reserve("extended-error-record");
+            uint handle = Call("MsiGetLastErrorRecord", () => { uint value = api.Error(); Publish(resource, value, value); return value; });
             if (handle == 0) return;
-            var fields = new List<MsiErrorField>();
             try
             {
+                var fields = new List<MsiErrorField>();
                 uint count = FieldCount(handle);
                 for (uint field = 0; field <= count; field++)
                 {
@@ -244,8 +274,8 @@ namespace ServiceLasso.SourceAcquisition
         {
             uint record = 0;
             Before("MsiViewGetColumnInfo", kind.ToString());
-            uint status = Call("MsiViewGetColumnInfo", () => api.Columns(view, kind, out record));
-            var resource = Own("column-info-" + kind, record);
+            var resource = Reserve("column-info-" + kind);
+            uint status = Call("MsiViewGetColumnInfo", () => { uint value = api.Columns(view, kind, out record); Publish(resource, record, value); return value; });
             try
             {
                 Observe("MsiViewGetColumnInfo", status);
@@ -302,7 +332,8 @@ namespace ServiceLasso.SourceAcquisition
         }
         private void Release(NativeResource resource)
         {
-            if (resource == null || resource.CloseStatus.HasValue) return;
+            if (pendingCall != null) Retain("PENDING_ORIGINAL_MSI_CALL");
+            if (resource == null || resource.Handle == 0 || resource.CloseStatus.HasValue) return;
             try
             {
                 if (resource.View)
@@ -320,8 +351,10 @@ namespace ServiceLasso.SourceAcquisition
             }
             catch (Exception original)
             {
-                receipt.Observations.Add(new NativeObservation(receipt.Observations.Count + 1,
-                    "resource-close-exception", -1, null, original));
+                pendingException = original;
+                try { receipt.Observations.Add(new NativeObservation(receipt.Observations.Count + 1,
+                    "resource-close-exception", -1, null, original)); }
+                catch (Exception recording) { receipt.RecordingFailure = recording; }
                 Retain("UNKNOWN_ORIGINAL_HANDLE_CLOSE");
             }
         }
@@ -330,8 +363,8 @@ namespace ServiceLasso.SourceAcquisition
             var table = new MsiTable { Name = name, State = "TABLE_ERROR" }; receipt.Tables.Add(table);
             uint view = 0;
             Before("MsiDatabaseOpenViewW", "SELECT * FROM `" + name + "`");
-            uint status = Call("MsiDatabaseOpenViewW", () => api.View(database, "SELECT * FROM `" + name + "`", out view));
-            var resource = Own("view:" + name, view, true);
+            var resource = Reserve("view:" + name, true);
+            uint status = Call("MsiDatabaseOpenViewW", () => { uint value = api.View(database, "SELECT * FROM `" + name + "`", out view); Publish(resource, view, value); return value; });
             try
             {
                 Observe("MsiDatabaseOpenViewW", status);
@@ -346,8 +379,8 @@ namespace ServiceLasso.SourceAcquisition
                 {
                     uint record = 0;
                     Before("MsiViewFetch", name + ":" + row);
-                    status = Call("MsiViewFetch", () => api.Next(view, out record));
-                    var recordResource = Own("row:" + name + ":" + row, record);
+                    var recordResource = Reserve("row:" + name + ":" + row);
+                    status = Call("MsiViewFetch", () => { uint value = api.Next(view, out record); Publish(recordResource, record, value); return value; });
                     try
                     {
                         Observe("MsiViewFetch", status);
@@ -400,8 +433,8 @@ namespace ServiceLasso.SourceAcquisition
         {
             uint summary = 0;
             Before("MsiGetSummaryInformationW", "held-database:updates=0:path=NULL");
-            uint status = Call("MsiGetSummaryInformationW", () => api.SummaryInfo(database, null, 0, out summary));
-            var resource = Own("summary", summary);
+            var resource = Reserve("summary");
+            uint status = Call("MsiGetSummaryInformationW", () => { uint value = api.SummaryInfo(database, null, 0, out summary); Publish(resource, summary, value); return value; });
             try
             {
                 Observe("MsiGetSummaryInformationW", status);
@@ -438,8 +471,9 @@ namespace ServiceLasso.SourceAcquisition
             try
             {
                 Before("MsiOpenDatabaseW", "MSIDBOPEN_READONLY:" + held.OriginalPath);
-                uint status = Call("MsiOpenDatabaseW", () => api.Database(held.OriginalPath, IntPtr.Zero, out database));
-                resource = Own("database", database); Observe("MsiOpenDatabaseW", status);
+                resource = Reserve("database");
+                uint status = Call("MsiOpenDatabaseW", () => { uint value = api.Database(held.OriginalPath, IntPtr.Zero, out database); Publish(resource, database, value); return value; });
+                Observe("MsiOpenDatabaseW", status);
                 if (status != 0 || database == 0) return receipt;
                 string association = held.OriginalDatabaseAssociation(database, api.Module);
                 receipt.DatabaseAssociation = String.IsNullOrEmpty(association) ? "DATABASE_OBJECT_ASSOCIATION_UNQUALIFIED" : association;
@@ -452,12 +486,16 @@ namespace ServiceLasso.SourceAcquisition
             catch (Exception original)
             {
                 receipt.OriginalException = original; receipt.Eligibility = "UNQUALIFIED_INPUT";
-                api.Module.ObserveOriginalException("MsiReadOnly.Read", original); return receipt;
+                try { api.Module.ObserveOriginalException("MsiReadOnly.Read", original); }
+                catch (Exception observer) { receipt.ObserverFailure = observer; }
+                return receipt;
             }
             finally
             {
+                if (pendingCall != null) Retain("PENDING_ORIGINAL_MSI_DATABASE_DEPENDENCIES");
                 Release(resource);
-                held.ObserveAfterOriginalClosure();
+                try { held.ObserveAfterOriginalClosure(); }
+                catch (Exception observer) { receipt.ObserverFailure = observer; }
                 GC.KeepAlive(held); GC.KeepAlive(api);
             }
         }

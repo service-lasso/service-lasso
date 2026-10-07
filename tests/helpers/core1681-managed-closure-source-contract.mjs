@@ -175,7 +175,7 @@ function parse(body) {
       if (!catches.length && !final) fail("unhandled try");
       return { kind, body: flatten(child.body), catches, final };
     }
-    if (["goto", "do", "switch", "continue", "lock", "fixed", "unsafe", "yield"].includes(kind)) fail("unsupported flow");
+    if (["goto", "do", "switch", "lock", "fixed", "unsafe", "yield"].includes(kind)) fail("unsupported flow");
     const start = at;
     let parentheses = 0, brackets = 0, initializer = 0;
     while (at < body.length) {
@@ -246,13 +246,23 @@ function finalizer(nodes) {
 
 function finisher(nodes) {
   count(nodes, 4);
-  requireLeaf(nodes[0], 'invocation.Release(ref thread, "target-thread-release", 0)');
-  requireLeaf(nodes[1], 'invocation.Release(ref process, "target-process-release", 0)');
+  recordingProtected(nodes[0], 'invocation.Release(ref thread, "target-thread-release", 0)');
+  recordingProtected(nodes[1], 'invocation.Release(ref process, "target-process-release", 0)');
   const loop = nodes[2];
   if (loop?.kind !== "for" || !["int ordinal = 0; ordinal < invocation.Files.Count; ordinal++", "int ordinal = 0; ordinal < invocation.Files.Count; ordinal += 1"].some((value) => same(loop.condition, value))) fail("every original file loop");
   count(loop.body, 1);
-  requireLeaf(loop.body[0], "invocation.ReleaseFile(invocation.Files[ordinal], ordinal)");
+  recordingProtected(loop.body[0], "invocation.ReleaseFile(invocation.Files[ordinal], ordinal)");
   branch(nodes[3], "invocation.Failed", ["RetainManagedInvocation(invocation)"]);
+}
+function recordingProtected(node, effect) {
+  caught(node, [effect], "Exception recording", ["invocation.RecordingFailure = recording", "invocation.Failed = true"]);
+}
+function recordingInitializer(node, fields) {
+  if (node?.kind !== 'try' || node.final !== null || node.catches.length !== 1 || !same(node.catches[0].binding, 'Exception recording')) fail('recording initializer exception enclosure');
+  count(node.body, 1); count(node.catches[0].body, 2);
+  initializer(node.body[0], 'invocation.Outcomes.Add(new OriginalObservation {', fields, '})');
+  requireLeaf(node.catches[0].body[0], 'invocation.RecordingFailure = recording');
+  requireLeaf(node.catches[0].body[1], 'invocation.Failed = true');
 }
 function retention(nodes) {
   count(nodes, 1);
@@ -265,18 +275,26 @@ function retention(nodes) {
 function invocationBindings(body) {
   const declared = members(body), fields = declared.filter((value) => value.body === null), methods = declared.filter((value) => value.body !== null);
   fieldSet(fields, ["internal readonly List<OriginalObservation> Outcomes = new List<OriginalObservation>()", "internal readonly List<FileStream> Files",
-    "internal IntPtr Job, Process, Thread, Directory", "internal Exception Primary", "internal int PrimaryResult", "internal bool Failed",
-    "internal bool ChildIssuanceUnresolved", "internal bool PrimaryWaitPending", "internal HMACSHA256 Progress", "internal readonly List<EnvironmentOverride> EnvironmentOwners = new List<EnvironmentOverride>()"]);
+    "internal IntPtr Job, Process, Thread, Directory", "internal Exception Primary", "internal Exception RecordingFailure", "internal Exception UnrecordedException", "internal int PrimaryResult", "internal bool Failed",
+    "internal bool ChildIssuanceUnresolved", "internal bool PrimaryWaitPending", "internal bool PrimaryWaitFailed", "internal HMACSHA256 Progress", "internal readonly List<EnvironmentOverride> EnvironmentOwners = new List<EnvironmentOverride>()"]);
   if (methods.length !== 5 || !["internal ManagedInvocation(List<FileStream> files)", "internal void Observe(string site, int status, bool failed, Exception exception)", "internal void ObservePrimary(string site, int status, bool failed, Exception exception)", "internal bool Release(ref IntPtr handle, string site, int ordinal)", "internal bool ReleaseFile(FileStream file, int ordinal)"].every((header) => methods.filter((value) => same(value.header, header)).length === 1)) fail("original invocation callee/member bindings");
   const constructor = method(body, "internal ManagedInvocation(List<FileStream> files)");
   count(constructor, 1); requireLeaf(constructor[0], "Files = files");
   const observe = method(body, "internal void Observe(string site, int status, bool failed, Exception exception)");
   count(observe, 2);
-  initializer(observe[0], "Outcomes.Add(new OriginalObservation {", ["Site = site", "Ordinal = Outcomes.Count", "NativeStatus = status", "Failed = failed", "Exception = exception"], "})");
-  requireLeaf(observe[1], "Failed |= failed");
+  requireLeaf(observe[0], "Failed |= failed");
+  const guardedObservation = node => {
+    if (node?.kind !== 'try' || node.final !== null || node.catches.length !== 1 || !same(node.catches[0].binding, 'Exception recording')) fail('observation recording exception enclosure');
+    count(node.body, 1); count(node.catches[0].body, 3);
+    initializer(node.body[0], "Outcomes.Add(new OriginalObservation {", ["Site = site", "Ordinal = Outcomes.Count", "NativeStatus = status", "Failed = failed", "Exception = exception"], "})");
+    requireLeaf(node.catches[0].body[0], 'UnrecordedException = exception');
+    requireLeaf(node.catches[0].body[1], 'RecordingFailure = recording');
+    requireLeaf(node.catches[0].body[2], 'Failed = true');
+  };
+  guardedObservation(observe[1]);
   const primary = method(body, "internal void ObservePrimary(string site, int status, bool failed, Exception exception)");
   count(primary, 1);
-  initializer(primary[0], "Outcomes.Add(new OriginalObservation {", ["Site = site", "Ordinal = Outcomes.Count", "NativeStatus = status", "Failed = failed", "Exception = exception"], "})");
+  guardedObservation(primary[0]);
   const release = method(body, "internal bool Release(ref IntPtr handle, string site, int ordinal)");
   count(release, 9);
   requireLeaf(release[0], "OriginalObservation previous = Outcomes.Find(o => o.Site == site && o.Ordinal == ordinal && o.Attempted)");
@@ -296,7 +314,7 @@ function invocationBindings(body) {
 function owningCallees(launcher) {
   const completeContainment = method(launcher, "private static void ContainManagedJobBeforeFileRelease(ref IntPtr jobHandle, IntPtr processHandle, bool targetAssignedToJob, ManagedInvocation invocation)");
   count(completeContainment, 10);
-  branch(completeContainment[0], 'invocation.ChildIssuanceUnresolved || invocation.Outcomes.Exists(o => o.Site == "target-primary-wait" && o.Failed) || invocation.PrimaryWaitPending', ["RetainManagedInvocation(invocation)"]);
+  branch(completeContainment[0], 'invocation.ChildIssuanceUnresolved || invocation.Outcomes.Exists(o => o.Site == "target-primary-wait" && o.Failed) || invocation.PrimaryWaitFailed || invocation.PrimaryWaitPending', ["RetainManagedInvocation(invocation)"]);
   const containment = completeContainment.slice(1);
   count(containment, 9);
   const unassigned = containment[0];
@@ -327,16 +345,19 @@ function owningCallees(launcher) {
   requireLeaf(process.body[1], "int waitError = waited == UInt32.MaxValue ? Marshal.GetLastWin32Error() : unchecked((int)waited)");
   requireLeaf(process.body[2], 'invocation.Observe("managed-process-wait", waitError, waited != WaitObject0, null)');
   branch(process.body[3], "waited != WaitObject0", ["RetainManagedInvocation(invocation)"]);
-  requireLeaf(containment[8], 'invocation.Release(ref jobHandle, "managed-job-release", 0)');
+  recordingProtected(containment[8], 'invocation.Release(ref jobHandle, "managed-job-release", 0)');
 
   const launch = method(launcher, "private static void ClearLaunchEnvironment(ManagedInvocation invocation)");
   count(launch, 2);
   requireLeaf(launch[0], "string[] names = { PayloadEnvironmentName, GateEnvironmentName, ProgressEnvironmentName }");
-  branch(launch[1], "int index = 0; index < names.Length; index++", ['RetireEnvironmentName(invocation, names[index], names[index], "launch-environment-clear", index)'], "for");
+  if (launch[1]?.kind !== 'for' || !same(launch[1].condition, 'int index = 0; index < names.Length; index++')) fail('every launch environment name');
+  count(launch[1].body, 1);
+  recordingProtected(launch[1].body[0], 'RetireEnvironmentName(invocation, names[index], names[index], "launch-environment-clear", index)');
   const clear = method(launcher, "internal static void ClearTargetEnvironmentOverrides(EnvironmentOverride[] environmentOverrides, ManagedInvocation invocation, int count)");
   count(clear, 1);
-  branch(clear[0], "int index = 0; index < count; index++", ["EnvironmentOverride environmentOverride = environmentOverrides[index]",
-    'RetireEnvironmentName(invocation, environmentOverride.name, environmentOverride, "target-environment-clear", index)'], "for");
+  if (clear[0]?.kind !== 'for' || !same(clear[0].condition, 'int index = 0; index < count; index++')) fail('every original target environment name');
+  count(clear[0].body, 2); requireLeaf(clear[0].body[0], 'EnvironmentOverride environmentOverride = environmentOverrides[index]');
+  recordingProtected(clear[0].body[1], 'RetireEnvironmentName(invocation, environmentOverride.name, environmentOverride, "target-environment-clear", index)');
   const name = method(launcher, "private static void RetireEnvironmentName(ManagedInvocation invocation, string name, object resource, string site, int ordinal)");
   count(name, 4);
   branch(name[0], "invocation.Outcomes.Exists(o => o.Site == site && o.Ordinal == ordinal && o.Attempted)", ["return"]);
@@ -366,10 +387,10 @@ function owningCallees(launcher) {
   requireLeaf(each.body[0], "invocation.EnvironmentOwners.Add(environmentOverride)");
   requireLeaf(each.body[1], "Environment.SetEnvironmentVariable(environmentOverride.name, environmentOverride.value, EnvironmentVariableTarget.Process)");
   requireLeaf(each.body[2], "appliedCount += 1");
-  initializer(each.body[3], "invocation.Outcomes.Add(new OriginalObservation {", ['Site = "target-environment-apply"', "Ordinal = appliedCount - 1", "Resource = environmentOverride", "Attempted = true", "Closed = true"], "})");
+  recordingInitializer(each.body[3], ['Site = "target-environment-apply"', "Ordinal = appliedCount - 1", "Resource = environmentOverride", "Attempted = true", "Closed = true"]);
   const failed = attempt.catches[0].body;
   count(failed, 4); requireLeaf(failed[0], "invocation.Primary = primary");
-  initializer(failed[1], "invocation.Outcomes.Add(new OriginalObservation {", ['Site = "target-environment-apply"', "Ordinal = appliedCount", "Resource = environmentOverrides[appliedCount]", "Attempted = true", "Failed = true", "Exception = primary"], "})");
+  recordingInitializer(failed[1], ['Site = "target-environment-apply"', "Ordinal = appliedCount", "Resource = environmentOverrides[appliedCount]", "Attempted = true", "Failed = true", "Exception = primary"]);
   caught(failed[2], ["ClearTargetEnvironmentOverrides(environmentOverrides, invocation, appliedCount + 1)"], "Exception later", ['invocation.Observe("target-environment-rollback-unknown-return", 0, true, later)']);
   requireLeaf(failed[3], "throw");
   const originalFailure = method(launcher, "private static void ThrowOriginalRetirementFailure(ManagedInvocation invocation)");
@@ -624,6 +645,7 @@ const ownershipEffects = [
   "ValidateNativeLayouts()", "InitializeProgress()",
   "FileStream boundFile = new FileStream(approvedFile.file, FileMode.Open, FileAccess.Read, FileShare.Read)",
   "boundFiles.Add(boundFile)", "actualSha256 = ToLowerHex(sha256.ComputeHash(boundFile))",
+  "boundFiles.Capacity = checked(boundFiles.Count + payload.approvedFiles.Length)",
   "uint finalPathLength = GetFinalPathNameByHandleW(boundFile.SafeFileHandle.DangerousGetHandle(), finalPathBuffer, (uint)finalPathBuffer.Capacity, 0)",
   "RetireProgress(invocation)", "jobHandle = CreateJobObjectW(IntPtr.Zero, null)", "ConfigureKillOnClose(jobHandle)",
   "ApplyTargetEnvironmentOverrides(payload.targetEnvironmentOverrides, invocation)",
@@ -643,6 +665,7 @@ const ownershipEffects = [
   'string acknowledgment = "{\\"token\\":\\"" + payload.ackToken + "\\",\\"pid\\":" + processInformation.dwProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture) + "}"',
   "throw original.Exception", "uint targetWait = WaitForSingleObject(processHandle, Infinite)",
   "invocation.PrimaryWaitPending = true", "invocation.PrimaryWaitPending = false",
+  "invocation.PrimaryWaitFailed = targetWait != WaitObject0",
   'invocation.Observe("target-primary-wait", targetWaitError, targetWait != WaitObject0, null)',
   "invocation.PrimaryResult = unchecked((int)exitCode)", "return invocation.PrimaryResult",
   "invocation.Primary = primary", "invocation.PrimaryResult = failureExitCode",
@@ -787,6 +810,7 @@ function caller(nodes) {
     lookup("ValidateNativeLayouts()")[0].node, lookup("InitializeProgress()")[0].node,
     lookup("ClearLaunchEnvironment(invocation)")[0].node,
     lookup("WaitForGate(gatePath, payload.releaseToken, TimeSpan.FromSeconds(45))")[0].node,
+    lookup("boundFiles.Capacity = checked(boundFiles.Count + payload.approvedFiles.Length)")[0].node,
     lookup("FileStream boundFile = new FileStream(approvedFile.file, FileMode.Open, FileAccess.Read, FileShare.Read)")[0].node,
     lookup("boundFiles.Add(boundFile)")[0].node,
     lookup("actualSha256 = ToLowerHex(sha256.ComputeHash(boundFile))")[0].node,
@@ -808,6 +832,7 @@ function caller(nodes) {
     lookup("File.WriteAllText(payload.ackPath, acknowledgment, StrictUtf8)")[0].node,
     lookup("invocation.PrimaryWaitPending = true")[0].node,
     lookup("uint targetWait = WaitForSingleObject(processHandle, Infinite)")[0].node,
+    lookup("invocation.PrimaryWaitFailed = targetWait != WaitObject0")[0].node,
     lookup('invocation.Observe("target-primary-wait", targetWaitError, targetWait != WaitObject0, null)')[0].node,
     lookup("invocation.PrimaryWaitPending = false")[0].node,
     predicate("targetWait != WaitObject0")[0].node, exit.node,
@@ -819,6 +844,7 @@ function caller(nodes) {
   // unrelated operation; observation is complete before it can be resolved.
   ["invocation.PrimaryWaitPending = true", "uint targetWait = WaitForSingleObject(processHandle, Infinite)",
     "int targetWaitError = targetWait == UInt32.MaxValue ? Marshal.GetLastWin32Error() : unchecked((int)targetWait)",
+    "invocation.PrimaryWaitFailed = targetWait != WaitObject0",
     'invocation.Observe("target-primary-wait", targetWaitError, targetWait != WaitObject0, null)',
     "invocation.PrimaryWaitPending = false"].forEach((effect, at) => requireLeaf(outer.body[waitAt + at], effect));
   // Cardinality excludes additional accepted-looking calls/writes as well as
@@ -830,6 +856,8 @@ function caller(nodes) {
   const acquired = lookup("FileStream boundFile = new FileStream(approvedFile.file, FileMode.Open, FileAccess.Read, FileShare.Read)")[0];
   const roster = lookup("boundFiles.Add(boundFile)")[0];
   const files = loops.find((node) => node.kind === "for");
+  const reservation = lookup('boundFiles.Capacity = checked(boundFiles.Count + payload.approvedFiles.Length)')[0];
+  if (reservation.ancestors.length || outer.body.indexOf(reservation.node) !== outer.body.indexOf(files) - 1) fail('file roster capacity reserved before original acquisition');
   if (acquired.ancestors.length !== 1 || acquired.ancestors[0] !== files || roster.ancestors.length !== 1 || roster.ancestors[0] !== files || files.body.indexOf(roster.node) !== files.body.indexOf(acquired.node) + 1) fail("reachable original file acquisition/roster");
   for (const expression of ["ValidateNativeLayouts()", "InitializeProgress()", "jobHandle = CreateJobObjectW(IntPtr.Zero, null)", "ConfigureKillOnClose(jobHandle)", "ApplyTargetEnvironmentOverrides(payload.targetEnvironmentOverrides, invocation)", "targetAssignedToJob = true", "invocation.PrimaryWaitPending = true", "uint targetWait = WaitForSingleObject(processHandle, Infinite)", "invocation.PrimaryWaitPending = false", "invocation.PrimaryResult = unchecked((int)exitCode)"]) {
     if (lookup(expression)[0].ancestors.length) fail("conditional original caller effect");
@@ -881,8 +909,10 @@ function directorySettlement(launcher) {
   branch(finish[0], 'invocation.ChildIssuanceUnresolved || (childProcess != IntPtr.Zero && !childClosed)', ['RetainManagedInvocation(invocation)']);
   ['invocation.Release(ref childThread, "directory-sync-thread-release", 0)',
     'invocation.Release(ref childProcess, "directory-sync-process-release", 0)',
-    'invocation.Release(ref directory, "directory-sync-directory-release", 0)'].forEach((role, at) => requireLeaf(finish[at + 1], role));
-  branch(finish[4], 'int ordinal = 0; ordinal < invocation.Files.Count; ordinal++', ['invocation.ReleaseFile(invocation.Files[ordinal], ordinal)'], 'for');
+    'invocation.Release(ref directory, "directory-sync-directory-release", 0)'].forEach((role, at) => recordingProtected(finish[at + 1], role));
+  const fileLoop = finish[4];
+  if (fileLoop?.kind !== 'for' || !same(fileLoop.condition, 'int ordinal = 0; ordinal < invocation.Files.Count; ordinal++')) fail('every original directory file loop');
+  count(fileLoop.body, 1); recordingProtected(fileLoop.body[0], 'invocation.ReleaseFile(invocation.Files[ordinal], ordinal)');
   branch(finish[5], 'invocation.Failed', ['RetainManagedInvocation(invocation)']);
   const route = method(launcher, 'private static int RunDirectorySyncLaunch(string encodedPayload)');
   count(route, 7);
@@ -891,7 +921,10 @@ function directorySettlement(launcher) {
     'bool childClosed = false'].forEach((role, at) => requireLeaf(route[at], role));
   const owned = route[6];
   if (owned.kind !== 'try' || owned.catches.length !== 1 || !same(owned.catches[0].binding, 'Exception primary') || !owned.final) fail('original directory invocation enclosure');
-  count(owned.body, 40); count(owned.catches[0].body, 3); count(owned.final, 4);
+  count(owned.body, 41); count(owned.catches[0].body, 3); count(owned.final, 4);
+  requireLeaf(owned.body[8], 'invocation.Files.Capacity = 1');
+  // Consume the sole pre-acquisition reservation before the unchanged roles.
+  owned.body.splice(8, 1);
   ['invocation.Primary = primary', 'invocation.PrimaryResult = DirectorySyncLaunchBindingInvalid', 'return DirectorySyncLaunchBindingInvalid'].forEach((role, at) => requireLeaf(owned.catches[0].body[at], role));
   ['invocation.Process = childProcess', 'invocation.Thread = childThread', 'invocation.Directory = directoryHandle',
     'FinishDirectorySyncInvocation(invocation, childClosed, ref childThread, ref childProcess, ref directoryHandle)'].forEach((role, at) => requireLeaf(owned.final[at], role));
@@ -955,4 +988,145 @@ export function assertManagedClosureSourceConformance(source) {
   finisher(method(launcher, "internal static void FinishManagedReleases(ManagedInvocation invocation, ref IntPtr thread, ref IntPtr process)"));
   retention(method(launcher, "internal static void RetainManagedInvocation(ManagedInvocation owner)"));
   directorySettlement(launcher);
+}
+
+// F25 transitive C# recording/retention SOURCE conformance. This closed role
+// checker consumes the actual owning statement trees, never callbacks/fixtures
+// as native return authority. It is deliberately not a compiler/proof kernel.
+export function assertAcquisitionRecordingSourceConformance(acquisitionSource, msiSource, trustSource) {
+  const namespace = source => region(tokens(source), 'namespace ServiceLasso.SourceAcquisition');
+  const acquisition = namespace(acquisitionSource), msi = region(namespace(msiSource), 'internal sealed class MsiReadOnly');
+  const trust = region(namespace(trustSource), 'internal sealed class OfflineAuthenticode');
+  const retained = region(acquisition, 'internal sealed class RetentionState');
+  const interrupted = method(retained, 'internal void Interrupted(Exception original)');
+  count(interrupted, 2); requireLeaf(interrupted[0], 'LastInterruptionException = original');
+  caught(interrupted[1], ['Volatile.Write(ref interruptions, new RetentionInterruption(interruptions, original))'],
+    'Exception recording', ['RecordingFailure = recording']);
+  const lifetime = method(region(acquisition, 'internal static class Lifetime'), 'internal static void Retain(IOriginalNativeModule module, RetentionState retained)');
+  count(lifetime, 2);
+  const callback = lifetime[0];
+  if (callback.kind !== 'try' || callback.catches.length !== 1 || !same(callback.catches[0].binding, 'Exception original') || callback.final === null) fail('once-only original retention callback enclosure');
+  count(callback.body, 1); requireLeaf(callback.body[0], 'module.RetainUnknownOriginalOwner(retained.Owner, retained.Reason)');
+  count(callback.catches[0].body, 1); requireLeaf(callback.catches[0].body[0], 'retained.CallbackFailure = original');
+  count(callback.final, 1); requireLeaf(callback.final[0], 'retained.CallbackCompleted = true');
+  const loop = lifetime[1];
+  if (loop.kind !== 'for' || !same(loop.condition, ';;')) fail('same original lifetime never returns');
+  count(loop.body, 4);
+  caught(loop.body[0], ['Thread.Sleep(1000)'], 'Exception original', ['retained.Interrupted(original)']);
+  ['GC.KeepAlive(retained.Owner)', 'GC.KeepAlive(retained)', 'GC.KeepAlive(module)'].forEach((effect, at) => requireLeaf(loop.body[at + 1], effect));
+  for (const [owner, constructor] of [[msi, 'internal MsiReadOnly(MsiExports exports, IHeldInput input)'],
+    [trust, 'internal OfflineAuthenticode(WintrustExports exports, IHeldInput held, RootPolicyInput rootPolicy, IIndependentChainObserver chainObserver)']]) {
+    const fields = members(owner);
+    if (fields.filter(row => row.body === null && same(row.header, 'private readonly RetentionState preparedRetention')).length !== 1) fail('private prepared retention field');
+    const ctor = method(owner, constructor);
+    count(ctor, owner === msi ? 5 : 7);
+    requireLeaf(ctor.at(-1), 'preparedRetention = new RetentionState(this, null)');
+    // Constructor has no native acquisition. No allocation can be moved to Retain.
+    for (const node of ctor.slice(1, -1)) if (node.kind !== 'leaf' || node.expression.some(value => ['new', 'Call', 'Read', 'WinVerifyTrust', 'Retain'].includes(value))) fail('retention prepared before native ownership');
+    const barrier = method(owner, 'private void Retain(string reason)');
+    count(barrier, 3);
+    ['CurrentRetention = preparedRetention', 'CurrentRetention.Reason = reason', 'Lifetime.Retain(api.Module, CurrentRetention)'].forEach((effect, at) => requireLeaf(barrier[at], effect));
+  }
+  const invoke = method(msi, 'private T Call<T>(string operation, Func<T> originalCall)');
+  count(invoke, 2); requireLeaf(invoke[0], 'pendingCall = originalCall');
+  const original = invoke[1];
+  if (original.kind !== 'try' || original.final !== null || original.catches.length !== 1 || !same(original.catches[0].binding, 'Exception original')) fail('original call pending enclosure');
+  count(original.body, 3);
+  ['T result = originalCall()', 'pendingCall = null', 'return result'].forEach((effect, at) => requireLeaf(original.body[at], effect));
+  const failure = original.catches[0].body; count(failure, 6);
+  requireLeaf(failure[0], 'pendingException = original');
+  branch(failure[1], 'receipt.OriginalException == null', ['receipt.OriginalException = original']);
+  caught(failure[2], ['receipt.Observations.Add(new NativeObservation(receipt.Observations.Count + 1, operation + ":unknown-return", -1, null, original))'], 'Exception recording', ['receipt.RecordingFailure = recording']);
+  ['GC.KeepAlive(pendingCall)', 'Retain("UNKNOWN_ORIGINAL_MSI_CALL_RETURN")', 'throw'].forEach((effect, at) => requireLeaf(failure[at + 3], effect));
+  const reserve = method(msi, 'private NativeResource Reserve(string kind, bool view = false)');
+  count(reserve, 3);
+  ['var resource = new NativeResource(receipt.Resources.Count + 1, kind, 0, view)', 'pendingResource = resource', 'return resource'].forEach((effect, at) => requireLeaf(reserve[at], effect));
+  const publish = method(msi, 'private void Publish(NativeResource resource, uint handle, long originalResult)');
+  count(publish, 5);
+  ['resource.Handle = handle', 'resource.AcquisitionResult = originalResult', 'resource.AcquisitionReturned = true'].forEach((effect, at) => requireLeaf(publish[at], effect));
+  if (publish[3].kind !== 'if' || !same(publish[3].condition, 'handle != 0')) fail('zero output never invents acquired resource');
+  count(publish[3].body, 1);
+  caught(publish[3].body[0], ['receipt.Resources.Add(resource)'], 'Exception recording', ['receipt.RecordingFailure = recording', 'Retain("UNPUBLISHED_ORIGINAL_MSI_RESOURCE")']);
+  requireLeaf(publish[4], 'pendingResource = null');
+  function leaves(nodes) {
+    return nodes.flatMap(node => node.kind === 'leaf' ? [{ node, siblings: nodes }] : [
+      ...leaves(node.body ?? []), ...(node.catches ?? []).flatMap(handler => leaves(handler.body)), ...leaves(node.final ?? [])]);
+  }
+  for (const [signature, reservation, call] of [
+    ['private void CaptureOneExtendedError(string operation, uint status)', 'NativeResource resource = Reserve("extended-error-record")', 'uint handle = Call("MsiGetLastErrorRecord", () => { uint value = api.Error(); Publish(resource, value, value); return value; })'],
+    ['private string[] Info(uint view, uint kind)', 'var resource = Reserve("column-info-" + kind)', 'uint status = Call("MsiViewGetColumnInfo", () => { uint value = api.Columns(view, kind, out record); Publish(resource, record, value); return value; })'],
+    ['private void ReadTable(uint database, string name)', 'var resource = Reserve("view:" + name, true)', 'uint status = Call("MsiDatabaseOpenViewW", () => { uint value = api.View(database, "SELECT * FROM `" + name + "`", out view); Publish(resource, view, value); return value; })'],
+    ['private void ReadTable(uint database, string name)', 'var recordResource = Reserve("row:" + name + ":" + row)', 'status = Call("MsiViewFetch", () => { uint value = api.Next(view, out record); Publish(recordResource, record, value); return value; })'],
+    ['private void ReadSummary(uint database)', 'var resource = Reserve("summary")', 'uint status = Call("MsiGetSummaryInformationW", () => { uint value = api.SummaryInfo(database, null, 0, out summary); Publish(resource, summary, value); return value; })'],
+    ['internal MsiReceipt Read()', 'resource = Reserve("database")', 'uint status = Call("MsiOpenDatabaseW", () => { uint value = api.Database(held.OriginalPath, IntPtr.Zero, out database); Publish(resource, database, value); return value; })'],
+  ]) {
+    const body = method(msi, signature), matches = leaves(body).filter(row => leaf(row.node, reservation));
+    if (matches.length !== 1) fail('one genuine pre-effect resource slot');
+    const at = matches[0].siblings.indexOf(matches[0].node);
+    requireLeaf(matches[0].siblings[at + 1], call);
+    if (leaves(body).filter(row => leaf(row.node, call)).length !== 1) fail('original acquisition issued once');
+  }
+  // Every acquired-resource owner encloses fallible records in its own finally.
+  for (const [signature, length, finalEffect] of [
+    ['private void CaptureOneExtendedError(string operation, uint status)', 5, 'Release(resource)'],
+    ['private string[] Info(uint view, uint kind)', 5, 'Release(resource)'],
+    ['private void ReadTable(uint database, string name)', 7, 'Release(resource)'],
+    ['private void ReadSummary(uint database)', 5, 'Release(resource)'],
+  ]) {
+    const owning = method(msi, signature); count(owning, length);
+    const enclosure = owning.at(-1);
+    if (enclosure.kind !== 'try' || enclosure.catches.length || enclosure.final === null) fail('original acquired resource finally');
+    count(enclosure.final, 1); requireLeaf(enclosure.final[0], finalEffect);
+    if (signature.includes('CaptureOneExtendedError')) requireLeaf(enclosure.body[0], 'var fields = new List<MsiErrorField>()');
+    if (signature.includes('ReadTable')) {
+      const row = enclosure.body.find(node => node.kind === 'for');
+      if (!row) fail('actual original row owner');
+      const rowEnclosure = row.body.at(-1);
+      if (rowEnclosure.kind !== 'try' || rowEnclosure.catches.length || rowEnclosure.final === null) fail('original row acquired resource finally');
+      count(rowEnclosure.final, 1); requireLeaf(rowEnclosure.final[0], 'Release(recordResource)');
+    }
+  }
+  const release = method(msi, 'private void Release(NativeResource resource)');
+  count(release, 3);
+  branch(release[0], 'pendingCall != null', ['Retain("PENDING_ORIGINAL_MSI_CALL")']);
+  branch(release[1], 'resource == null || resource.Handle == 0 || resource.CloseStatus.HasValue', ['return']);
+  const close = release[2];
+  if (close.kind !== 'try' || close.final !== null || close.catches.length !== 1 || !same(close.catches[0].binding, 'Exception original')) fail('original release pending enclosure');
+  count(close.body, 6);
+  if (close.body[0].kind !== 'if' || !same(close.body[0].condition, 'resource.View')) fail('original view close');
+  count(close.body[0].body, 4);
+  ['Before("MsiViewClose", resource.Ordinal.ToString())', 'uint viewStatus = Call("MsiViewClose", () => api.ViewClose(resource.Handle))', 'Observe("MsiViewClose", viewStatus)'].forEach((effect, at) => requireLeaf(close.body[0].body[at], effect));
+  branch(close.body[0].body[3], 'viewStatus != 0', ['Retain("FAILED_ORIGINAL_VIEW_CLOSE")']);
+  ['Before("MsiCloseHandle", resource.Ordinal.ToString())', 'uint status = Call("MsiCloseHandle", () => api.HandleClose(resource.Handle))',
+    'resource.CloseStatus = status', 'Observe("MsiCloseHandle", status)'].forEach((effect, at) => requireLeaf(close.body[at + 1], effect));
+  branch(close.body[5], 'status != 0', ['Retain("FAILED_ORIGINAL_HANDLE_CLOSE")']);
+  const closingFailure = close.catches[0].body; count(closingFailure, 3);
+  requireLeaf(closingFailure[0], 'pendingException = original');
+  caught(closingFailure[1], ['receipt.Observations.Add(new NativeObservation(receipt.Observations.Count + 1, "resource-close-exception", -1, null, original))'],
+    'Exception recording', ['receipt.RecordingFailure = recording']);
+  requireLeaf(closingFailure[2], 'Retain("UNKNOWN_ORIGINAL_HANDLE_CLOSE")');
+  const observation = method(msi, 'private void Observe(string operation, uint status, bool error = true)');
+  count(observation, 7);
+  ['receipt.LastOriginalOperation = operation', 'receipt.LastOriginalStatus = status',
+    'var original = new NativeObservation(receipt.Observations.Count + 1, operation, status, null, null)', 'receipt.Observations.Add(original)'].forEach((effect, at) => requireLeaf(observation[at], effect));
+  branch(observation[4], 'error && !capturingExtendedError && status != 0 && status != 234 && status != 259', ['CaptureExtendedError(operation, status)']);
+  requireLeaf(observation[5], 'api.Module.ObserveOriginalCall(operation, status)'); requireLeaf(observation[6], 'budget.Charge(128)');
+  const read = method(msi, 'internal MsiReceipt Read()'); count(read, 6);
+  branch(read[0], 'closing', ['throw new InvalidOperationException("OWNER_ALREADY_ENTERED")']);
+  ['closing = true', 'held.ObserveBefore()', 'uint database = 0', 'NativeResource resource = null'].forEach((effect, at) => requireLeaf(read[at + 1], effect));
+  const readBoundary = read[5];
+  if (readBoundary.kind !== 'try' || readBoundary.catches.length !== 1 || !same(readBoundary.catches[0].binding, 'Exception original') || readBoundary.final === null) fail('original database held dependency enclosure');
+  const handler = readBoundary.catches[0].body; count(handler, 4);
+  requireLeaf(handler[0], 'receipt.OriginalException = original'); requireLeaf(handler[1], 'receipt.Eligibility = "UNQUALIFIED_INPUT"');
+  caught(handler[2], ['api.Module.ObserveOriginalException("MsiReadOnly.Read", original)'], 'Exception observer', ['receipt.ObserverFailure = observer']);
+  requireLeaf(handler[3], 'return receipt');
+  const final = readBoundary.final; count(final, 5);
+  branch(final[0], 'pendingCall != null', ['Retain("PENDING_ORIGINAL_MSI_DATABASE_DEPENDENCIES")']);
+  requireLeaf(final[1], 'Release(resource)');
+  caught(final[2], ['held.ObserveAfterOriginalClosure()'], 'Exception observer', ['receipt.ObserverFailure = observer']);
+  requireLeaf(final[3], 'GC.KeepAlive(held)'); requireLeaf(final[4], 'GC.KeepAlive(api)');
+  const reportException = method(trust, 'private void ReportException(string operation, Exception original)');
+  count(reportException, 1);
+  caught(reportException[0],
+    ['api.Module.ObserveOriginalException(operation, original)'], 'Exception observer', ['receipt.ObserverException = observer']);
 }

@@ -286,9 +286,12 @@ function accessibleSourceType(target, node) {
   }
   return true;
 }
-function resolveType(type, node, forest, catalogues) {
+function resolveType(type, node, forest, catalogues, allowBareVoid = false) {
   if (type === null) return null;
-  if (type.kind === 'void') return { kind: 'void' };
+  if (type.kind === 'void' || type.kind === 'named' && type.path.length === 1 && type.path[0] === 'void') {
+    if (!allowBareVoid) deny('INCOMPLETE_BINDING', 'void is only a bare return category', node.origin);
+    return { kind: 'void' };
+  }
   if (type.kind === 'dynamic') return structuredClone(type);
   if (type.kind === 'sourceType') {
     const declaration = type.declaration ?? node;
@@ -296,9 +299,19 @@ function resolveType(type, node, forest, catalogues) {
     return { kind: 'source', declaration: declaration.declId, arguments: declaration.typeParameters.map(parameter => ({ kind: 'parameter', declaration: parameter.declId })) };
   }
   if (type.kind === 'typeParameter') return { kind: 'parameter', declaration: node.declId };
-  if (['array', 'nullable'].includes(type.kind)) return { ...type, element: resolveType(type.element, node, forest, catalogues) };
+  if (['array', 'nullable'].includes(type.kind)) {
+    const element = resolveType(type.element, node, forest, catalogues);
+    if (type.kind === 'nullable') {
+      const source = element.kind === 'source' ? forest.entries.find(row => same(row.declId, element.declaration)) : null;
+      const imported = element.kind === 'imported' ? catalogues.flatMap(catalogue => [...catalogue.paths.entries()]
+        .filter(([key]) => same(catalogue.typeIds.get(key), element.declaration)).map(([, row]) => row)) : [];
+      if (!(source && ['struct', 'enum'].includes(source.category)) &&
+          !(imported.length === 1 && ['struct', 'enum'].includes(imported[0].kind)))
+        deny('INCOMPLETE_BINDING', 'nullable requires an admitted nonnullable value type', node.origin);
+    }
+    return { ...type, element };
+  }
   if (type.kind !== 'named') deny('INCOMPLETE_BINDING', 'unsupported type descriptor');
-  if (type.path.length === 1 && type.path[0] === 'void') return { kind: 'void' };
   let owner = node;
   while (owner) {
     const parameter = owner.typeParameters?.find(row => row.name === type.path[0]);
@@ -321,6 +334,8 @@ function resolveType(type, node, forest, catalogues) {
   const imports = catalogues.flatMap(catalogue => [...catalogue.paths.entries()].filter(([key]) => key === referenceKey(path)).map(([key, row]) => ({ catalogue, key, row })));
   if (matches.length && imports.length) deny('SOURCE_SHADOW', `source declaration shadows protected ${path.join('.')}`);
   if (matches.length === 1 && !imports.length) {
+    if (matches[0].category === 'class' && matches[0].modifiers.includes('static'))
+      deny('INCOMPLETE_BINDING', 'static class cannot be a constituent type', node.origin);
     if (!accessibleSourceType(matches[0], node)) deny('INCOMPLETE_BINDING', 'inaccessible source TypeId');
     if (type.arguments.length !== matches[0].typeParameters.length) deny('INCOMPLETE_BINDING', 'source generic arity mismatch');
     const enclosing = sourceTypeChain(matches[0]).slice(0, -1);
@@ -459,7 +474,7 @@ export function bindSource(rawBytes, identity, catalogueInputs = []) {
       semanticOwner: scopeId(node.owner), category: node.category ?? node.kind,
       origin: node.slot ? { kind: 'synthetic', noSpan: true, anchor: node.slot.anchor.declId,
         role: node.slot.role, ordinal: node.slot.ordinal } : structuredClone(node.origin),
-      type: resolvedType, returnType: resolveType(node.returnType, node, forest, catalogues),
+      type: resolvedType, returnType: resolveType(node.returnType, node, forest, catalogues, true),
       receiver: node.receiver, static: node.static,
       typeParameters: node.typeParameters.map(parameter => parameter.declId), constraints: structuredClone(node.constraints),
       parameters: node.parameters.map(parameter => ({ declaration: parameter.declId,

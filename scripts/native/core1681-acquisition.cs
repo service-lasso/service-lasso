@@ -192,7 +192,9 @@ namespace ServiceLasso.SourceAcquisition
     {
         internal readonly int Ordinal;
         internal readonly string Kind;
-        internal readonly uint Handle;
+        internal uint Handle;
+        internal long AcquisitionResult;
+        internal bool AcquisitionReturned;
         internal uint? CloseStatus;
         internal bool View;
         internal NativeResource(int ordinal, string kind, uint handle, bool view)
@@ -246,8 +248,9 @@ namespace ServiceLasso.SourceAcquisition
     internal sealed class RetentionState
     {
         internal readonly object Owner;
-        internal readonly string Reason;
+        internal string Reason;
         internal Exception CallbackFailure;
+        internal Exception LastInterruptionException, RecordingFailure;
         internal volatile bool CallbackCompleted;
         private RetentionInterruption interruptions;
         internal RetentionInterruption Interruptions { get { return Volatile.Read(ref interruptions); } }
@@ -257,7 +260,9 @@ namespace ServiceLasso.SourceAcquisition
             // One original writer, immutable nodes, release/acquire publication.
             // No interruptible lock, wait or external observer callback is used
             // while retaining the exception from the original sleep.
-            Volatile.Write(ref interruptions, new RetentionInterruption(interruptions, original));
+            LastInterruptionException = original;
+            try { Volatile.Write(ref interruptions, new RetentionInterruption(interruptions, original)); }
+            catch (Exception recording) { RecordingFailure = recording; }
         }
     }
     internal static class Lifetime

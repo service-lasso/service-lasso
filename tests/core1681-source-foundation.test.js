@@ -955,3 +955,80 @@ test('F20 leading BOM and every closed CSharp whitespace retain whole namespace 
   assert.deepEqual(binding(result, 'x').origin.utf16, [jsSource.indexOf('x'), jsSource.indexOf('x') + 5]);
   denies(() => parseSourceForest(bytes('const\u0085x = 1;'), 'javascript'), 'UNSUPPORTED_SYNTAX');
 });
+
+// F23-F24 source witnesses: additive, all locally UNRUN.
+test('F23 recursively denies void in unused storage/formal/return/type constructions with original spans', () => {
+  for (const declaration of ['void[] f;', 'void? f;', 'void f;', 'void P { get; set; }',
+    'void[] F() {}', 'void? F() {}', 'void F(void[] x) {}', 'void F(void x) {}',
+    'Box<void> f;', 'Box<Box<void>> f;', 'Box<void[]> f;', 'Box<void?> f;',
+    'Box<void>[] F() {}', 'void F(Box<void>[] x) {}']) {
+    const source = `\ufeffclass Box<T> {} class C { ${declaration} }\r\n`;
+    for (const action of [() => parseSourceForest(bytes(source), 'csharp'), () => cs(source),
+      () => checkFoundationBindings(bytes(source), identity('csharp'), [clr()], cs('class C {}'))]) {
+      assert.throws(action, error => error instanceof SourceDenial && error.code === 'INVALID_SYNTAX' &&
+        error.origin?.kind === 'source' && error.origin.utf16[0] >= source.indexOf('void') &&
+        error.origin.byte[0] === bytes(source.slice(0, error.origin.utf16[0])).length);
+    }
+  }
+});
+
+test('F23 legitimate bare void lowering and legal constructed categories retain exact original declarations', () => {
+  const source = 'class Box<T> {} class C { int[] a; int[][] b; int? n; Box<int> g; Box<Box<int>> h; void F(int[] x, int? y, Box<int> z) {} int[] G() { return a; } int P { get; set; } }';
+  const result = cs(source);
+  assert.deepEqual(binding(result, 'F').returnType, { kind: 'void' });
+  assert.equal(binding(result, 'G').returnType.kind, 'array');
+  assert.equal(binding(result, 'n').type.kind, 'nullable');
+  assert.equal(binding(result, 'h').type.arguments[0].kind, 'source');
+  for (const row of result.bindings.filter(row => row.kind === 'constructor' || row.origin.role === 'instanceConstructor' || row.kind === 'accessor' && row.accessor === 'set'))
+    assert.deepEqual(row.returnType, { kind: 'void' });
+  assert.equal(checkFoundationBindings(bytes(source), identity('csharp'), [clr()], result).checkedDeclarations, result.bindings.length);
+});
+
+test('F24 validates the whole CLR48 fixed/params list before checked metadata, reached or unused', () => {
+  for (const formals of ['ref params int[] x', 'out params int[] x', 'in params int[] x',
+    'params int[] x, int y', 'params int[] x, params int[] y', 'params int x',
+    'params int[] x = null', 'ref int x = 1', 'out int x = 1', 'int x = 1, int y',
+    'int x = 1, ref int y', 'int x = 1, out int y', 'int x = 1, in int y']) {
+    const source = `\ufeffclass C { void Unused(${formals}) {} }\r\n`;
+    for (const action of [() => parseSourceForest(bytes(source), 'csharp'), () => cs(source),
+      () => checkFoundationBindings(bytes(source), identity('csharp'), [clr()], cs('class C {}'))]) {
+      assert.throws(action, error => error instanceof SourceDenial && error.code === 'INVALID_SYNTAX' &&
+        error.origin?.kind === 'source' && error.origin.utf16[0] >= source.indexOf('(') + 1 &&
+        error.origin.byte[0] === bytes(source.slice(0, error.origin.utf16[0])).length);
+    }
+  }
+});
+
+test('F24 legal optional/ref/out/in and final arrays retain formal order, metadata and original spans', () => {
+  for (const formals of ['int x, params int[] y', 'int x = 1, params int[] y', 'params int[][] y',
+    'int x = 1, int y = 2', 'ref int x, out int y, in int z', 'in int x = 1, int y = 2']) {
+    const source = `\ufeffclass C { void F(${formals}) {} }\r\n`, result = cs(source), method = binding(result, 'F');
+    const parameters = result.bindings.filter(row => row.kind === 'parameter');
+    assert.deepEqual(method.parameters.map(row => row.declaration), parameters.map(row => row.declId));
+    assert.deepEqual(parameters.map(row => row.origin.utf16[0]), [...parameters.map(row => row.origin.utf16[0])].sort((a, b) => a - b));
+    for (const row of parameters) assert.equal(row.origin.byte[0], bytes(source.slice(0, row.origin.utf16[0])).length);
+    if (formals.includes('params')) { assert.equal(parameters.at(-1).params, true); assert.equal(parameters.at(-1).direction, 'value'); assert.equal(parameters.at(-1).type.kind, 'array'); }
+    if (formals.startsWith('in int x =')) { assert.equal(parameters[0].direction, 'in'); assert.equal(parameters[0].defaultValue.kind, 'literal'); }
+    assert.equal(checkFoundationBindings(bytes(source), identity('csharp'), [clr()], result).checkedDeclarations, result.bindings.length);
+  }
+});
+test('F23 nullable underlying categories reject reference, arrays, nested nullable and unconstrained parameters', () => {
+  for (const source of ['class C { string? x; }', 'class C { int[]? x; }', 'class C { int?? x; }',
+    'class C<T> { T? x; }', 'class Box<T> {} class C { Box<int>? x; }']) {
+    assert.throws(() => cs(source), error => error instanceof SourceDenial &&
+      ['INCOMPLETE_BINDING', 'INVALID_SYNTAX'].includes(error.code) && error.origin?.kind === 'source');
+  }
+  const source = 'struct S {} class Box<T> {} class C { S? a; int?[] b; Box<int?[]> c; void F(params int?[] x) {} }';
+  const result = cs(source);
+  assert.equal(binding(result, 'a').type.kind, 'nullable');
+  assert.equal(binding(result, 'b').type.element.kind, 'nullable');
+  assert.equal(checkFoundationBindings(bytes(source), identity('csharp'), [clr()], result).checkedDeclarations, result.bindings.length);
+});
+
+test('F23 static classes cannot become storage, formal, return, array or generic constituent categories', () => {
+  for (const declaration of ['S f;', 'S[] f;', 'Box<S> f;', 'S F() {}', 'void F(S x) {}']) {
+    const source = `static class S {} class Box<T> {} class C { ${declaration} }`;
+    assert.throws(() => cs(source), error => error instanceof SourceDenial && error.code === 'INCOMPLETE_BINDING' && error.origin?.kind === 'source');
+  }
+  assert.doesNotThrow(() => cs('static class S { static void F() {} } class C {}'));
+});

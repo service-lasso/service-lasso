@@ -95,16 +95,30 @@ class Parser {
     owner.children.push(scope);
     return { kind: 'block', statements, scope, origin: scope.origin };
   }
-  typeRef() {
+  typeRef(allowBareVoid = false) {
     const first = this.id(true); const path = [first.value];
     if (this.language === 'csharp' && csPredefinedTypes.has(first.value) && ['.', '<'].includes(this.value()))
       deny('INVALID_SYNTAX', 'predefined type is not a qualified/generic name', first.origin);
     while (this.take('.')) path.push(this.id().value);
     const args = [];
-    if (this.take('<')) { do { args.push(this.typeRef()); } while (this.take(',')); this.need('>'); }
+    if (this.take('<')) {
+      do { args.push(this.typeRef()); } while (this.take(','));
+      // A >> lexical token closes two nested type-argument lists in C#.
+      // Split only in this production, retaining both original half-open spans.
+      if (this.value() === '>>') {
+        const token = this.current(), at = token.origin.utf16[0];
+        this.tokens.splice(this.at, 1, { ...token, value: '>', origin: this.decoded.origin(at, at + 1) },
+          { ...token, value: '>', origin: this.decoded.origin(at + 1, at + 2) });
+      }
+      this.need('>');
+    }
     let type = { kind: 'named', path, arguments: args };
-    while (this.take('[')) { this.need(']'); type = { kind: 'array', element: type, rank: 1 }; }
-    if (this.take('?')) type = { kind: 'nullable', element: type };
+    while (['[', '?'].includes(this.value())) {
+      if (this.take('[')) { this.need(']'); type = { kind: 'array', element: type, rank: 1 }; }
+      else { this.need('?'); type = { kind: 'nullable', element: type }; }
+    }
+    if (path.length === 1 && path[0] === 'void' && (!allowBareVoid || type.kind !== 'named'))
+      deny('INVALID_SYNTAX', 'void is only a bare return category', this.span(first));
     return type;
   }
   genericParameters(node) {
@@ -134,6 +148,23 @@ class Parser {
       } while (this.take(','));
     });
     this.need(')');
+    if (this.language === 'csharp') {
+      let optionalSeen = false;
+      for (let index = 0; index < node.parameters.length; index++) {
+        const param = node.parameters[index];
+        if (param.params) {
+          if (index !== node.parameters.length - 1 || param.direction !== 'value' || param.defaultValue ||
+              param.type.kind !== 'array' || param.type.rank !== 1)
+            deny('INVALID_SYNTAX', 'params requires one final unmodified one-dimensional array without default', param.origin);
+        } else {
+          if (param.defaultValue && ['ref', 'out'].includes(param.direction))
+            deny('INVALID_SYNTAX', 'ref/out cannot have default', param.origin);
+          if (!param.defaultValue && optionalSeen)
+            deny('INVALID_SYNTAX', 'required fixed parameter follows optional fixed parameter', param.origin);
+          optionalSeen ||= param.defaultValue !== null;
+        }
+      }
+    }
   }
   attributes() {
     const rows = [];
@@ -472,7 +503,7 @@ class Parser {
       if (statik && ownerType.children.some(child => child.kind === 'constructor' && child.static))
         deny('INVALID_SYNTAX', 'duplicate static constructor', start.origin);
     }
-    const type = constructor ? { kind: 'sourceType', declaration: ownerType } : this.typeRef();
+    const type = constructor ? { kind: 'sourceType', declaration: ownerType } : this.typeRef(true);
     const name = constructor ? this.id() : this.id();
     if (this.value() === '(' || this.value() === '<') {
       if (!constructor) this.csModifiers('method', mods, start, ownerType);
@@ -491,6 +522,8 @@ class Parser {
       }
       node.origin = this.span(start); return;
     }
+    if (type.kind === 'named' && type.path.length === 1 && type.path[0] === 'void')
+      deny('INVALID_SYNTAX', 'void cannot be a property/field/storage type', this.span(start));
     if (this.value() === '{') {
       this.csModifiers('property', mods, start, ownerType);
       if (this.tokens[this.at + 1].value === '}') deny('INVALID_SYNTAX', 'property requires accessor declarations', start.origin);

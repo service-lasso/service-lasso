@@ -291,6 +291,8 @@ public static class ServiceLassoManagedLauncherNative
         internal readonly List<FileStream> Files;
         internal IntPtr Job, Process, Thread, Directory;
         internal Exception Primary;
+        internal Exception RecordingFailure;
+        internal Exception UnrecordedException;
         internal int PrimaryResult;
         // Failed governs unresolved closure/retirement/release, not an ordinary
         // known failed initiating operation. Its original observation survives.
@@ -299,19 +301,22 @@ public static class ServiceLassoManagedLauncherNative
         // false/no observation means not yet issued; true means pending or
         // unavailable; false/original observation means actually observed.
         internal bool PrimaryWaitPending;
+        internal bool PrimaryWaitFailed;
         internal HMACSHA256 Progress;
         internal readonly List<EnvironmentOverride> EnvironmentOwners = new List<EnvironmentOverride>();
         internal ManagedInvocation(List<FileStream> files) { Files = files; }
         internal void Observe(string site, int status, bool failed, Exception exception)
         {
-            Outcomes.Add(new OriginalObservation { Site = site, Ordinal = Outcomes.Count,
-                NativeStatus = status, Failed = failed, Exception = exception });
             Failed |= failed;
+            try { Outcomes.Add(new OriginalObservation { Site = site, Ordinal = Outcomes.Count,
+                NativeStatus = status, Failed = failed, Exception = exception }); }
+            catch (Exception recording) { UnrecordedException = exception; RecordingFailure = recording; Failed = true; }
         }
         internal void ObservePrimary(string site, int status, bool failed, Exception exception)
         {
-            Outcomes.Add(new OriginalObservation { Site = site, Ordinal = Outcomes.Count,
-                NativeStatus = status, Failed = failed, Exception = exception });
+            try { Outcomes.Add(new OriginalObservation { Site = site, Ordinal = Outcomes.Count,
+                NativeStatus = status, Failed = failed, Exception = exception }); }
+            catch (Exception recording) { UnrecordedException = exception; RecordingFailure = recording; Failed = true; }
         }
         internal bool Release(ref IntPtr handle, string site, int ordinal)
         {
@@ -459,6 +464,7 @@ public static class ServiceLassoManagedLauncherNative
             WaitForGate(gatePath, payload.releaseToken, TimeSpan.FromSeconds(45));
 
             string[] boundFilePaths = new string[payload.approvedFiles.Length];
+            boundFiles.Capacity = checked(boundFiles.Count + payload.approvedFiles.Length);
             for (int index = 0; index < payload.approvedFiles.Length; index += 1)
             {
                 ApprovedFile approvedFile = payload.approvedFiles[index];
@@ -644,6 +650,7 @@ public static class ServiceLassoManagedLauncherNative
             invocation.PrimaryWaitPending = true;
             uint targetWait = WaitForSingleObject(processHandle, Infinite);
             int targetWaitError = targetWait == UInt32.MaxValue ? Marshal.GetLastWin32Error() : unchecked((int)targetWait);
+            invocation.PrimaryWaitFailed = targetWait != WaitObject0;
             invocation.Observe("target-primary-wait", targetWaitError, targetWait != WaitObject0, null);
             invocation.PrimaryWaitPending = false;
             if (targetWait != WaitObject0)
@@ -694,9 +701,15 @@ public static class ServiceLassoManagedLauncherNative
     // Caller establishes genuine original child/job closure before this seam.
     internal static void FinishManagedReleases(ManagedInvocation invocation, ref IntPtr thread, ref IntPtr process)
     {
-        invocation.Release(ref thread, "target-thread-release", 0);
-        invocation.Release(ref process, "target-process-release", 0);
-        for (int ordinal = 0; ordinal < invocation.Files.Count; ordinal++) invocation.ReleaseFile(invocation.Files[ordinal], ordinal);
+        try { invocation.Release(ref thread, "target-thread-release", 0); }
+        catch (Exception recording) { invocation.RecordingFailure = recording; invocation.Failed = true; }
+        try { invocation.Release(ref process, "target-process-release", 0); }
+        catch (Exception recording) { invocation.RecordingFailure = recording; invocation.Failed = true; }
+        for (int ordinal = 0; ordinal < invocation.Files.Count; ordinal++)
+        {
+            try { invocation.ReleaseFile(invocation.Files[ordinal], ordinal); }
+            catch (Exception recording) { invocation.RecordingFailure = recording; invocation.Failed = true; }
+        }
         if (invocation.Failed) RetainManagedInvocation(invocation);
     }
 
@@ -1349,15 +1362,17 @@ public static class ServiceLassoManagedLauncherNative
                     environmentOverride.value,
                     EnvironmentVariableTarget.Process);
                 appliedCount += 1;
-                invocation.Outcomes.Add(new OriginalObservation { Site = "target-environment-apply", Ordinal = appliedCount - 1,
-                    Resource = environmentOverride, Attempted = true, Closed = true });
+                try { invocation.Outcomes.Add(new OriginalObservation { Site = "target-environment-apply", Ordinal = appliedCount - 1,
+                    Resource = environmentOverride, Attempted = true, Closed = true }); }
+                catch (Exception recording) { invocation.RecordingFailure = recording; invocation.Failed = true; }
             }
         }
         catch (Exception primary)
         {
             invocation.Primary = primary;
-            invocation.Outcomes.Add(new OriginalObservation { Site = "target-environment-apply", Ordinal = appliedCount,
-                Resource = environmentOverrides[appliedCount], Attempted = true, Failed = true, Exception = primary });
+            try { invocation.Outcomes.Add(new OriginalObservation { Site = "target-environment-apply", Ordinal = appliedCount,
+                Resource = environmentOverrides[appliedCount], Attempted = true, Failed = true, Exception = primary }); }
+            catch (Exception recording) { invocation.RecordingFailure = recording; invocation.Failed = true; }
             // Include the attempted original name even when its application
             // outcome is unknown. Each safe rollback has its own disposition.
             try { ClearTargetEnvironmentOverrides(environmentOverrides, invocation, appliedCount + 1); }
@@ -1371,7 +1386,8 @@ public static class ServiceLassoManagedLauncherNative
         for (int index = 0; index < count; index++)
         {
             EnvironmentOverride environmentOverride = environmentOverrides[index];
-            RetireEnvironmentName(invocation, environmentOverride.name, environmentOverride, "target-environment-clear", index);
+            try { RetireEnvironmentName(invocation, environmentOverride.name, environmentOverride, "target-environment-clear", index); }
+            catch (Exception recording) { invocation.RecordingFailure = recording; invocation.Failed = true; }
         }
     }
 
@@ -1415,7 +1431,10 @@ public static class ServiceLassoManagedLauncherNative
     {
         string[] names = { PayloadEnvironmentName, GateEnvironmentName, ProgressEnvironmentName };
         for (int index = 0; index < names.Length; index++)
-            RetireEnvironmentName(invocation, names[index], names[index], "launch-environment-clear", index);
+        {
+            try { RetireEnvironmentName(invocation, names[index], names[index], "launch-environment-clear", index); }
+            catch (Exception recording) { invocation.RecordingFailure = recording; invocation.Failed = true; }
+        }
     }
 
     private static void ThrowOriginalRetirementFailure(ManagedInvocation invocation)
@@ -1467,7 +1486,7 @@ public static class ServiceLassoManagedLauncherNative
         // An unavailable create return or malformed issued child cannot become
         // no child merely because a local handle is zero. A failed original wait
         // cannot be retried by containment and then laundered into closure.
-        if (invocation.ChildIssuanceUnresolved || invocation.Outcomes.Exists(o => o.Site == "target-primary-wait" && o.Failed) || invocation.PrimaryWaitPending)
+        if (invocation.ChildIssuanceUnresolved || invocation.Outcomes.Exists(o => o.Site == "target-primary-wait" && o.Failed) || invocation.PrimaryWaitFailed || invocation.PrimaryWaitPending)
             RetainManagedInvocation(invocation);
         if (!targetAssignedToJob && processHandle != IntPtr.Zero)
         {
@@ -1514,7 +1533,8 @@ public static class ServiceLassoManagedLauncherNative
             invocation.Observe("managed-process-wait", waitError, waited != WaitObject0, null);
             if (waited != WaitObject0) RetainManagedInvocation(invocation);
         }
-        invocation.Release(ref jobHandle, "managed-job-release", 0);
+        try { invocation.Release(ref jobHandle, "managed-job-release", 0); }
+        catch (Exception recording) { invocation.RecordingFailure = recording; invocation.Failed = true; }
     }
 
     private static void FailClosedWithLaunchFilesHeld()
@@ -1651,6 +1671,7 @@ public static class ServiceLassoManagedLauncherNative
             string requestedHelper = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(typeof(ServiceLassoManagedLauncherNative).Assembly.Location), DirectorySyncHelperRelativePath));
             string requestedDirectory = Path.GetFullPath(payload.directory);
             if ((File.GetAttributes(requestedHelper) & FileAttributes.ReparsePoint) != 0) return DirectorySyncLaunchBindingInvalid;
+            invocation.Files.Capacity = 1;
             helperHandle = new FileStream(requestedHelper, FileMode.Open, FileAccess.Read, FileShare.Read);
             invocation.Files.Add(helperHandle);
             if (helperHandle.Length != DirectorySyncHelperByteLength) return DirectorySyncLaunchBindingInvalid;
@@ -1730,10 +1751,17 @@ public static class ServiceLassoManagedLauncherNative
         // Failed/unknown original wait is not child closure. Hold all original
         // inputs and handles on this same live stack; no wait/kill retry.
         if (invocation.ChildIssuanceUnresolved || (childProcess != IntPtr.Zero && !childClosed)) RetainManagedInvocation(invocation);
-        invocation.Release(ref childThread, "directory-sync-thread-release", 0);
-        invocation.Release(ref childProcess, "directory-sync-process-release", 0);
-        invocation.Release(ref directory, "directory-sync-directory-release", 0);
-        for (int ordinal = 0; ordinal < invocation.Files.Count; ordinal++) invocation.ReleaseFile(invocation.Files[ordinal], ordinal);
+        try { invocation.Release(ref childThread, "directory-sync-thread-release", 0); }
+        catch (Exception recording) { invocation.RecordingFailure = recording; invocation.Failed = true; }
+        try { invocation.Release(ref childProcess, "directory-sync-process-release", 0); }
+        catch (Exception recording) { invocation.RecordingFailure = recording; invocation.Failed = true; }
+        try { invocation.Release(ref directory, "directory-sync-directory-release", 0); }
+        catch (Exception recording) { invocation.RecordingFailure = recording; invocation.Failed = true; }
+        for (int ordinal = 0; ordinal < invocation.Files.Count; ordinal++)
+        {
+            try { invocation.ReleaseFile(invocation.Files[ordinal], ordinal); }
+            catch (Exception recording) { invocation.RecordingFailure = recording; invocation.Failed = true; }
+        }
         if (invocation.Failed) RetainManagedInvocation(invocation);
     }
 

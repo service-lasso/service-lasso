@@ -90,6 +90,7 @@ namespace ServiceLasso.SourceAcquisition
         internal string State = "UNQUALIFIED_INPUT";
         internal Binding Subject;
         internal SignatureObservation CountObservation;
+        internal Exception ObserverException;
     }
     internal sealed class OfflineAuthenticode
     {
@@ -102,17 +103,20 @@ namespace ServiceLasso.SourceAcquisition
         private bool entered;
         private bool providerClosurePending;
         private SignatureObservation current;
+        private readonly RetentionState preparedRetention;
         internal SignatureObservation CurrentObservation { get { return current; } }
         internal bool ProviderClosurePending { get { return providerClosurePending; } }
         internal IntPtr[] OriginalInputPointers { get { return new[] { path, file, signature, data }; } }
         internal RetentionState CurrentRetention { get; private set; }
         private void Retain(string reason)
         {
-            CurrentRetention = new RetentionState(this, reason);
+            CurrentRetention = preparedRetention;
+            CurrentRetention.Reason = reason;
             Lifetime.Retain(api.Module, CurrentRetention);
         }
         private void ReportException(string operation, Exception original)
-        { try { api.Module.ObserveOriginalException(operation, original); } catch { /* Original remains in owner. */ } }
+        { try { api.Module.ObserveOriginalException(operation, original); }
+          catch (Exception observer) { receipt.ObserverException = observer; } }
         internal OfflineAuthenticode(WintrustExports exports, IHeldInput held, RootPolicyInput rootPolicy,
             IIndependentChainObserver chainObserver)
         {
@@ -120,6 +124,8 @@ namespace ServiceLasso.SourceAcquisition
                 held.OriginalReadableHandle == new IntPtr(-1) || String.IsNullOrEmpty(held.NativeObjectReference))
                 throw new ArgumentException("HELD_FILE_UNQUALIFIED");
             api = exports; subject = held; roots = rootPolicy; chains = chainObserver; receipt.Subject = held.OriginalBytes;
+            // Allocation is before any native pointer/provider ownership exists.
+            preparedRetention = new RetentionState(this, null);
         }
         private SignatureObservation One(uint index, bool count)
         {
