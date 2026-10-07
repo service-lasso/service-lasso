@@ -56,15 +56,16 @@ const rest = ch => /[A-Za-z0-9_$]/.test(ch);
 export function lexOriginal(decoded, language) {
   if (!['javascript', 'csharp'].includes(language)) deny('UNSUPPORTED_FRONTEND', language);
   const { text, origin } = decoded, tokens = [], trivia = [];
+  const whitespace = ch => /\s/.test(ch) || language === 'csharp' && ch === '\u0085';
   let at = decoded.bom ? 1 : 0;
   if (decoded.bom) trivia.push({ kind: 'bom', origin: origin(0, 1) });
   function emit(kind, start) { tokens.push({ kind, value: text.slice(start, at), origin: origin(start, at) }); }
   while (at < text.length) {
     const start = at, ch = text[at];
-    if (/\s/.test(ch)) { while (at < text.length && /\s/.test(text[at])) at++; trivia.push({ kind: 'space', origin: origin(start, at) }); continue; }
+    if (whitespace(ch)) { while (at < text.length && whitespace(text[at])) at++; trivia.push({ kind: 'space', origin: origin(start, at) }); continue; }
     if (text.startsWith('//', at)) {
       at += 2;
-      while (at < text.length && !(language === 'javascript' ? /[\r\n\u2028\u2029]/ : /[\r\n]/).test(text[at])) at++;
+      while (at < text.length && !(language === 'javascript' ? /[\r\n\u2028\u2029]/ : /[\r\n\u0085\u2028\u2029]/).test(text[at])) at++;
       trivia.push({ kind: 'comment', origin: origin(start, at) }); continue;
     }
     if (text.startsWith('/*', at)) { const end = text.indexOf('*/', at + 2); if (end < 0) deny('INCOMPLETE_INPUT', 'unterminated comment', origin(start, text.length)); at = end + 2; trivia.push({ kind: 'comment', origin: origin(start, at) }); continue; }
@@ -84,7 +85,7 @@ export function lexOriginal(decoded, language) {
       while (at < text.length) {
         const current = text[at++];
         if (current === ch) { closed = true; break; }
-        if (current === '\r' || current === '\n') deny('INVALID_SYNTAX', 'newline in quoted literal', origin(start, at));
+        if ((language === 'csharp' ? /[\r\n\u0085\u2028\u2029]/ : /[\r\n]/).test(current)) deny('INVALID_SYNTAX', 'newline in quoted literal', origin(start, at));
         if (current === '\\') {
           if (at === text.length) break;
           const escaped = text[at++];

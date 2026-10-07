@@ -204,14 +204,17 @@ function invocationBindings(body) {
   const declared = members(body), fields = declared.filter((value) => value.body === null), methods = declared.filter((value) => value.body !== null);
   fieldSet(fields, ["internal readonly List<OriginalObservation> Outcomes = new List<OriginalObservation>()", "internal readonly List<FileStream> Files",
     "internal IntPtr Job, Process, Thread, Directory", "internal Exception Primary", "internal int PrimaryResult", "internal bool Failed",
-    "internal HMACSHA256 Progress", "internal readonly List<EnvironmentOverride> EnvironmentOwners = new List<EnvironmentOverride>()"]);
-  if (methods.length !== 4 || !["internal ManagedInvocation(List<FileStream> files)", "internal void Observe(string site, int status, bool failed, Exception exception)", "internal bool Release(ref IntPtr handle, string site, int ordinal)", "internal bool ReleaseFile(FileStream file, int ordinal)"].every((header) => methods.filter((value) => same(value.header, header)).length === 1)) fail("original invocation callee/member bindings");
+    "internal bool ChildIssuanceUnresolved", "internal HMACSHA256 Progress", "internal readonly List<EnvironmentOverride> EnvironmentOwners = new List<EnvironmentOverride>()"]);
+  if (methods.length !== 5 || !["internal ManagedInvocation(List<FileStream> files)", "internal void Observe(string site, int status, bool failed, Exception exception)", "internal void ObservePrimary(string site, int status, bool failed, Exception exception)", "internal bool Release(ref IntPtr handle, string site, int ordinal)", "internal bool ReleaseFile(FileStream file, int ordinal)"].every((header) => methods.filter((value) => same(value.header, header)).length === 1)) fail("original invocation callee/member bindings");
   const constructor = method(body, "internal ManagedInvocation(List<FileStream> files)");
   count(constructor, 1); requireLeaf(constructor[0], "Files = files");
   const observe = method(body, "internal void Observe(string site, int status, bool failed, Exception exception)");
   count(observe, 2);
   initializer(observe[0], "Outcomes.Add(new OriginalObservation {", ["Site = site", "Ordinal = Outcomes.Count", "NativeStatus = status", "Failed = failed", "Exception = exception"], "})");
   requireLeaf(observe[1], "Failed |= failed");
+  const primary = method(body, "internal void ObservePrimary(string site, int status, bool failed, Exception exception)");
+  count(primary, 1);
+  initializer(primary[0], "Outcomes.Add(new OriginalObservation {", ["Site = site", "Ordinal = Outcomes.Count", "NativeStatus = status", "Failed = failed", "Exception = exception"], "})");
   const release = method(body, "internal bool Release(ref IntPtr handle, string site, int ordinal)");
   count(release, 9);
   requireLeaf(release[0], "OriginalObservation previous = Outcomes.Find(o => o.Site == site && o.Ordinal == ordinal && o.Attempted)");
@@ -229,7 +232,10 @@ function invocationBindings(body) {
 // grouping and effect-free initializer field order are independent of these
 // relations; bodies are neither hashed nor compared to production snapshots.
 function owningCallees(launcher) {
-  const containment = method(launcher, "private static void ContainManagedJobBeforeFileRelease(ref IntPtr jobHandle, IntPtr processHandle, bool targetAssignedToJob, ManagedInvocation invocation)");
+  const completeContainment = method(launcher, "private static void ContainManagedJobBeforeFileRelease(ref IntPtr jobHandle, IntPtr processHandle, bool targetAssignedToJob, ManagedInvocation invocation)");
+  count(completeContainment, 10);
+  branch(completeContainment[0], 'invocation.ChildIssuanceUnresolved || invocation.Outcomes.Exists(o => o.Site == "target-primary-wait" && o.Failed)', ["RetainManagedInvocation(invocation)"]);
+  const containment = completeContainment.slice(1);
   count(containment, 9);
   const unassigned = containment[0];
   if (unassigned.kind !== "if" || !same(unassigned.condition, "!targetAssignedToJob && processHandle != IntPtr.Zero")) fail("unassigned original process owner");
@@ -300,11 +306,10 @@ function owningCallees(launcher) {
   requireLeaf(each.body[2], "appliedCount += 1");
   initializer(each.body[3], "invocation.Outcomes.Add(new OriginalObservation {", ['Site = "target-environment-apply"', "Ordinal = appliedCount - 1", "Resource = environmentOverride", "Attempted = true", "Closed = true"], "})");
   const failed = attempt.catches[0].body;
-  count(failed, 5); requireLeaf(failed[0], "invocation.Primary = primary");
+  count(failed, 4); requireLeaf(failed[0], "invocation.Primary = primary");
   initializer(failed[1], "invocation.Outcomes.Add(new OriginalObservation {", ['Site = "target-environment-apply"', "Ordinal = appliedCount", "Resource = environmentOverrides[appliedCount]", "Attempted = true", "Failed = true", "Exception = primary"], "})");
-  requireLeaf(failed[2], "invocation.Failed = true");
-  caught(failed[3], ["ClearTargetEnvironmentOverrides(environmentOverrides, invocation, appliedCount + 1)"], "Exception later", ['invocation.Observe("target-environment-rollback-unknown-return", 0, true, later)']);
-  requireLeaf(failed[4], "throw");
+  caught(failed[2], ["ClearTargetEnvironmentOverrides(environmentOverrides, invocation, appliedCount + 1)"], "Exception later", ['invocation.Observe("target-environment-rollback-unknown-return", 0, true, later)']);
+  requireLeaf(failed[3], "throw");
   const originalFailure = method(launcher, "private static void ThrowOriginalRetirementFailure(ManagedInvocation invocation)");
   count(originalFailure, 3);
   requireLeaf(originalFailure[0], "OriginalObservation original = invocation.Outcomes.Find(o => o.Failed && o.Exception != null)");
@@ -560,11 +565,12 @@ const ownershipEffects = [
   "uint finalPathLength = GetFinalPathNameByHandleW(boundFile.SafeFileHandle.DangerousGetHandle(), finalPathBuffer, (uint)finalPathBuffer.Capacity, 0)",
   "RetireProgress(invocation)", "jobHandle = CreateJobObjectW(IntPtr.Zero, null)", "ConfigureKillOnClose(jobHandle)",
   "ApplyTargetEnvironmentOverrides(payload.targetEnvironmentOverrides, invocation)",
+  "invocation.ChildIssuanceUnresolved = true", "invocation.ChildIssuanceUnresolved = false",
   "ProcessInformation processInformation",
   "bool targetCreated",
   "targetCreated = CreateProcessW(resolvedExecutable, commandLine, IntPtr.Zero, IntPtr.Zero, true, CreateSuspended, IntPtr.Zero, payload.workingDirectory, ref startupInfo, out processInformation)",
   'Win32Exception original = new Win32Exception(targetCreationError, "Managed target creation failed.")', "throw original",
-  "invocation.Primary = original", 'invocation.Observe("target-original-create", targetCreationError, true, original)',
+  "invocation.Primary = original", 'invocation.ObservePrimary("target-original-create", targetCreationError, true, original)',
   "processHandle = processInformation.hProcess", "threadHandle = processInformation.hThread",
   'invocation.Observe("target-original-create", 0, false, null)',
   'invocation.Observe("target-original-create-throw", 0, true, original)',
@@ -725,11 +731,13 @@ function caller(nodes) {
     lookup("jobHandle = CreateJobObjectW(IntPtr.Zero, null)")[0].node,
     lookup("ConfigureKillOnClose(jobHandle)")[0].node,
     lookup("ApplyTargetEnvironmentOverrides(payload.targetEnvironmentOverrides, invocation)")[0].node,
+    lookup("invocation.ChildIssuanceUnresolved = true")[0].node,
     lookup("targetCreated = CreateProcessW(resolvedExecutable, commandLine, IntPtr.Zero, IntPtr.Zero, true, CreateSuspended, IntPtr.Zero, payload.workingDirectory, ref startupInfo, out processInformation)")[0].node,
     lookup("processHandle = processInformation.hProcess")[0].node,
     lookup("threadHandle = processInformation.hThread")[0].node,
     lookup("ClearTargetEnvironmentOverrides(payload.targetEnvironmentOverrides, invocation, payload.targetEnvironmentOverrides.Length)")[0].node,
     predicate("processHandle == IntPtr.Zero || threadHandle == IntPtr.Zero || processInformation.dwProcessId == 0")[0].node,
+    lookup("invocation.ChildIssuanceUnresolved = false", 2).find(row => row.ancestors.length === 0)?.node,
     assignment.node, lookup("targetAssignedToJob = true")[0].node, resume.node,
     lookup("Thread.Sleep(payload.postResumeDelayMilliseconds)")[0].node, release.node,
     lookup("File.WriteAllText(payload.ackPath, acknowledgment, StrictUtf8)")[0].node,
@@ -743,7 +751,7 @@ function caller(nodes) {
   // indirect aliases. Location excludes unreachable/conditional original roles.
   for (const effect of ownershipEffects) {
     if (["invocation.Primary = primary", "invocation.PrimaryResult = failureExitCode"].some((value) => same(effect, value))) continue;
-    lookup(effect.join(" "), same(effect, "ThrowOriginalRetirementFailure(invocation)") ? 3 : same(effect, "invocation.Primary = original") ? 2 : 1);
+    lookup(effect.join(" "), same(effect, "ThrowOriginalRetirementFailure(invocation)") ? 3 : same(effect, "invocation.Primary = original") || same(effect, "invocation.ChildIssuanceUnresolved = false") ? 2 : 1);
   }
   const acquired = lookup("FileStream boundFile = new FileStream(approvedFile.file, FileMode.Open, FileAccess.Read, FileShare.Read)")[0];
   const roster = lookup("boundFiles.Add(boundFile)")[0];
@@ -761,15 +769,98 @@ function caller(nodes) {
   const create = lookup("targetCreated = CreateProcessW(resolvedExecutable, commandLine, IntPtr.Zero, IntPtr.Zero, true, CreateSuspended, IntPtr.Zero, payload.workingDirectory, ref startupInfo, out processInformation)")[0];
   const creation = create.ancestors[0];
   if (create.ancestors.length !== 1 || creation.kind !== "try" || creation.catches.length !== 1 || !same(creation.catches[0].binding, "Exception original") || creation.final === null) fail("original creation enclosure");
-  count(creation.body, 3);
-  if (creation.body[0] !== create.node) fail("creation precedes original handle publication");
-  branch(creation.body[1], "!targetCreated", ["targetCreationError = Marshal.GetLastWin32Error()", "failureExitCode = TargetCreationFailureExitCode(targetCreationError)", 'Win32Exception original = new Win32Exception(targetCreationError, "Managed target creation failed.")', "invocation.Primary = original", 'invocation.Observe("target-original-create", targetCreationError, true, original)', "throw original"]);
-  branch(creation.body[2], "targetCreated", ["processHandle = processInformation.hProcess", "threadHandle = processInformation.hThread", 'invocation.Observe("target-original-create", 0, false, null)']);
+  count(creation.body, 4);
+  requireLeaf(creation.body[0], "invocation.ChildIssuanceUnresolved = true");
+  if (creation.body[1] !== create.node) fail("creation precedes original handle publication");
+  branch(creation.body[2], "!targetCreated", ["targetCreationError = Marshal.GetLastWin32Error()", "failureExitCode = TargetCreationFailureExitCode(targetCreationError)", 'Win32Exception original = new Win32Exception(targetCreationError, "Managed target creation failed.")', "invocation.Primary = original", "invocation.ChildIssuanceUnresolved = false", 'invocation.ObservePrimary("target-original-create", targetCreationError, true, original)', "throw original"]);
+  branch(creation.body[3], "targetCreated", ["processHandle = processInformation.hProcess", "threadHandle = processInformation.hThread", 'invocation.Observe("target-original-create", 0, false, null)']);
   count(creation.catches[0].body, 2);
   branch(creation.catches[0].body[0], "invocation.Primary == null", ["invocation.Primary = original", 'invocation.Observe("target-original-create-throw", 0, true, original)']);
   requireLeaf(creation.catches[0].body[1], "throw");
+  const resolved = lookup("invocation.ChildIssuanceUnresolved = false", 2);
+  if (resolved.filter(row => row.ancestors.length === 0).length !== 1 ||
+      resolved.filter(row => row.ancestors.length === 2 && row.ancestors[0] === creation && row.ancestors[1] === creation.body[2]).length !== 1)
+    fail("issuance resolved only by original FALSE or valid original TRUE evidence");
   count(creation.final, 1);
   caught(creation.final[0], ["ClearTargetEnvironmentOverrides(payload.targetEnvironmentOverrides, invocation, payload.targetEnvironmentOverrides.Length)"], "Exception later", ['invocation.Observe("target-environment-retirement-unknown-return", 0, true, later)']);
+}
+
+// F19: classify original known failed effects separately from unresolved
+// issuance/closure and consume each directory route settlement statement.
+function directorySettlement(launcher) {
+  const wait = method(launcher, "internal static bool ObserveDirectorySyncChildWait(ManagedInvocation invocation, IntPtr childProcess)");
+  count(wait, 4);
+  ['uint waited = WaitForSingleObject(childProcess, Infinite)',
+    'int status = waited == UInt32.MaxValue ? Marshal.GetLastWin32Error() : unchecked((int)waited)',
+    'invocation.Observe("directory-sync-child-wait", status, waited != WaitObject0, null)',
+    'return waited == WaitObject0'].forEach((role, at) => requireLeaf(wait[at], role));
+  const query = method(launcher, "internal static bool ObserveDirectorySyncChildExit(ManagedInvocation invocation, IntPtr childProcess, out uint exitCode)");
+  count(query, 6);
+  requireLeaf(query[0], 'bool exitKnown = GetExitCodeProcess(childProcess, out exitCode)');
+  requireLeaf(query[1], 'int exitError = exitKnown ? 0 : Marshal.GetLastWin32Error()');
+  requireLeaf(query[2], 'Win32Exception original = exitKnown ? null : new Win32Exception(exitError, "Directory sync child exit-code query failed.")');
+  branch(query[3], '!exitKnown', ['invocation.Primary = original']);
+  requireLeaf(query[4], 'invocation.ObservePrimary("directory-sync-child-exit-query", exitError, !exitKnown, original)');
+  requireLeaf(query[5], 'return exitKnown');
+  const finish = method(launcher, 'internal static void FinishDirectorySyncInvocation(ManagedInvocation invocation, bool childClosed, ref IntPtr childThread, ref IntPtr childProcess, ref IntPtr directory)');
+  count(finish, 6);
+  branch(finish[0], 'invocation.ChildIssuanceUnresolved || (childProcess != IntPtr.Zero && !childClosed)', ['RetainManagedInvocation(invocation)']);
+  ['invocation.Release(ref childThread, "directory-sync-thread-release", 0)',
+    'invocation.Release(ref childProcess, "directory-sync-process-release", 0)',
+    'invocation.Release(ref directory, "directory-sync-directory-release", 0)'].forEach((role, at) => requireLeaf(finish[at + 1], role));
+  branch(finish[4], 'int ordinal = 0; ordinal < invocation.Files.Count; ordinal++', ['invocation.ReleaseFile(invocation.Files[ordinal], ordinal)'], 'for');
+  branch(finish[5], 'invocation.Failed', ['RetainManagedInvocation(invocation)']);
+  const route = method(launcher, 'private static int RunDirectorySyncLaunch(string encodedPayload)');
+  count(route, 7);
+  ['FileStream helperHandle = null', 'IntPtr directoryHandle = IntPtr.Zero', 'IntPtr childProcess = IntPtr.Zero',
+    'IntPtr childThread = IntPtr.Zero', 'ManagedInvocation invocation = new ManagedInvocation(new List<FileStream>())',
+    'bool childClosed = false'].forEach((role, at) => requireLeaf(route[at], role));
+  const owned = route[6];
+  if (owned.kind !== 'try' || owned.catches.length !== 1 || !same(owned.catches[0].binding, 'Exception primary') || !owned.final) fail('original directory invocation enclosure');
+  count(owned.body, 40); count(owned.catches[0].body, 3); count(owned.final, 4);
+  ['invocation.Primary = primary', 'invocation.PrimaryResult = DirectorySyncLaunchBindingInvalid', 'return DirectorySyncLaunchBindingInvalid'].forEach((role, at) => requireLeaf(owned.catches[0].body[at], role));
+  ['invocation.Process = childProcess', 'invocation.Thread = childThread', 'invocation.Directory = directoryHandle',
+    'FinishDirectorySyncInvocation(invocation, childClosed, ref childThread, ref childProcess, ref directoryHandle)'].forEach((role, at) => requireLeaf(owned.final[at], role));
+  const effects = new Map([
+    [0, 'byte[] payloadBytes = Convert.FromBase64String(encodedPayload)'], [1, 'string payloadJson'],
+    [3, 'DirectorySyncLaunchPayload payload = ParseDirectorySyncLaunchPayload(payloadJson)'],
+    [5, 'string requestedHelper = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(typeof(ServiceLassoManagedLauncherNative).Assembly.Location), DirectorySyncHelperRelativePath))'],
+    [6, 'string requestedDirectory = Path.GetFullPath(payload.directory)'],
+    [8, 'helperHandle = new FileStream(requestedHelper, FileMode.Open, FileAccess.Read, FileShare.Read)'], [9, 'invocation.Files.Add(helperHandle)'], [11, 'string helperDigest'],
+    [14, 'string helperFinalPath = FinalPathForHandle(helperHandle.SafeFileHandle.DangerousGetHandle())'],
+    [16, 'directoryHandle = CreateFileW(requestedDirectory, GenericRead, ShareRead | ShareWrite, IntPtr.Zero, OpenExisting, FileFlagBackupSemantics, IntPtr.Zero)'],
+    [18, 'string directoryFinalPath = FinalPathForHandle(directoryHandle)'], [20, 'WaitForDirectorySyncTestGate()'],
+    [21, 'StartupInfo startupInfo = new StartupInfo()'], [22, 'startupInfo.cb = Marshal.SizeOf(typeof(StartupInfo))'], [23, 'ProcessInformation processInformation'],
+    [24, 'StringBuilder commandLine = new StringBuilder(BuildCommandLine(helperFinalPath, new[] { directoryFinalPath }))'],
+    [25, 'invocation.ChildIssuanceUnresolved = true'],
+    [26, 'bool childCreated = CreateProcessW(helperFinalPath, commandLine, IntPtr.Zero, IntPtr.Zero, false, 0, IntPtr.Zero, null, ref startupInfo, out processInformation)'],
+    [28, 'childProcess = processInformation.hProcess'], [29, 'childThread = processInformation.hThread'],
+    [30, 'invocation.ObservePrimary("directory-sync-child-create", 0, false, null)'], [32, 'invocation.ChildIssuanceUnresolved = false'],
+    [33, 'childClosed = ObserveDirectorySyncChildWait(invocation, childProcess)'], [35, 'uint exitCode'],
+    [36, 'bool exitKnown = ObserveDirectorySyncChildExit(invocation, childProcess, out exitCode)'], [38, 'invocation.PrimaryResult = 0'], [39, 'return 0'],
+  ]);
+  for (const [at, role] of effects) requireLeaf(owned.body[at], role);
+  const bytes = owned.body[2];
+  if (bytes.kind !== 'try' || bytes.catches.length || !bytes.final) fail('directory original payload bytes');
+  count(bytes.body, 2); count(bytes.final, 1);
+  branch(bytes.body[0], '!String.Equals(Convert.ToBase64String(payloadBytes), encodedPayload, StringComparison.Ordinal)', ['return DirectorySyncLaunchPayloadInvalid']);
+  requireLeaf(bytes.body[1], 'payloadJson = StrictUtf8.GetString(payloadBytes)');
+  requireLeaf(bytes.final[0], 'Array.Clear(payloadBytes, 0, payloadBytes.Length)');
+  branch(owned.body[4], 'payload == null || !IsFullyQualifiedWindowsPath(payload.directory)', ['return DirectorySyncLaunchPayloadInvalid']);
+  branch(owned.body[7], '(File.GetAttributes(requestedHelper) & FileAttributes.ReparsePoint) != 0', ['return DirectorySyncLaunchBindingInvalid']);
+  branch(owned.body[10], 'helperHandle.Length != DirectorySyncHelperByteLength', ['return DirectorySyncLaunchBindingInvalid']);
+  branch(owned.body[12], 'SHA256 sha256 = SHA256.Create()', ['helperDigest = ToLowerHex(sha256.ComputeHash(helperHandle))'], 'using');
+  branch(owned.body[13], '!String.Equals(helperDigest, DirectorySyncHelperSha256, StringComparison.Ordinal)', ['return DirectorySyncLaunchBindingInvalid']);
+  branch(owned.body[15], '!SameWindowsPath(helperFinalPath, requestedHelper)', ['return DirectorySyncLaunchBindingInvalid']);
+  branch(owned.body[17], 'directoryHandle == new IntPtr(-1)', ['directoryHandle = IntPtr.Zero', 'return DirectorySyncLaunchBindingInvalid']);
+  branch(owned.body[19], '!SameWindowsPath(directoryFinalPath, requestedDirectory)', ['return DirectorySyncLaunchBindingInvalid']);
+  branch(owned.body[27], '!childCreated', ['int createError = Marshal.GetLastWin32Error()',
+    'Win32Exception original = new Win32Exception(createError, "Directory sync child creation failed.")', 'invocation.Primary = original',
+    'invocation.PrimaryResult = DirectorySyncLaunchCreateFailed', 'invocation.ObservePrimary("directory-sync-child-create", createError, true, original)',
+    'invocation.ChildIssuanceUnresolved = false', 'return DirectorySyncLaunchCreateFailed']);
+  branch(owned.body[31], 'childProcess == IntPtr.Zero || childThread == IntPtr.Zero || processInformation.dwProcessId == 0', ['throw new InvalidOperationException("Directory sync child process evidence was invalid.")']);
+  branch(owned.body[34], '!childClosed', ['invocation.PrimaryResult = DirectorySyncLaunchChildFailed', 'return DirectorySyncLaunchChildFailed']);
+  branch(owned.body[37], '!exitKnown || exitCode != 0', ['invocation.PrimaryResult = DirectorySyncLaunchChildFailed', 'return DirectorySyncLaunchChildFailed']);
 }
 
 export function assertManagedClosureSourceConformance(source) {
@@ -789,4 +880,5 @@ export function assertManagedClosureSourceConformance(source) {
   fileRelease(method(invocation, "internal bool ReleaseFile(FileStream file, int ordinal)"));
   finisher(method(launcher, "internal static void FinishManagedReleases(ManagedInvocation invocation, ref IntPtr thread, ref IntPtr process)"));
   retention(method(launcher, "internal static void RetainManagedInvocation(ManagedInvocation owner)"));
+  directorySettlement(launcher);
 }

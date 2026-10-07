@@ -3,6 +3,7 @@
 // runtime/reference/module/input closure after NEW complete ROOT admission.
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -16,6 +17,28 @@ internal static class Core1681ManagedLifetimeSourceCases
     internal static int RunOriginalManagedEntrypoint(ServiceLassoManagedLauncherNative.ManagedInvocation sameOwner)
     {
         return ServiceLassoManagedLauncherNative.RunManagedInvocation(sameOwner);
+    }
+    // The admitted fixture must supply valid original payload/gates and a real
+    // existing non-executable target, or independently observed ACL denial, so
+    // original CreateProcessW actually returns FALSE (not a pre-create check).
+    // No shim, closed slot, supplied status or fixture exception creates it.
+    internal static void OriginalManagedKnownFalseSettles(
+        ServiceLassoManagedLauncherNative.ManagedInvocation sameOwner,
+        int independentlyExpectedWin32Error, int independentlyExpectedMappedFailure)
+    {
+        int result = ServiceLassoManagedLauncherNative.RunManagedInvocation(sameOwner);
+        var create = sameOwner.Outcomes.Single(o => o.Site == "target-original-create" && o.Failed);
+        Expect(create.Exception is Win32Exception && create.NativeStatus == independentlyExpectedWin32Error &&
+            ((Win32Exception)create.Exception).NativeErrorCode == independentlyExpectedWin32Error &&
+            ReferenceEquals(sameOwner.Primary, create.Exception), "known_false_original_error_identity");
+        Expect(result == independentlyExpectedMappedFailure && result >= 102 && result <= 112 && result != 103 &&
+            result != 104 && result != 105 && result != 106 && sameOwner.PrimaryResult == result,
+            "known_false_returns_same_failure_mapping");
+        Expect(!sameOwner.ChildIssuanceUnresolved && !sameOwner.Failed && sameOwner.Process == IntPtr.Zero &&
+            sameOwner.Thread == IntPtr.Zero && sameOwner.Outcomes.Where(o => o.Attempted).All(o => o.Closed && !o.Failed),
+            "known_false_no_child_all_original_retirements_closed");
+        Expect(sameOwner.Outcomes.Any(o => o.Site == "managed-job-release" && o.Closed),
+            "known_false_original_job_released_after_containment");
     }
     // Genuine acquired HMAC retirement through the actual production helper.
     // A failure case needs separately observed original Dispose failure; no
@@ -90,6 +113,10 @@ internal static class Core1681ManagedLifetimeSourceCases
     }
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool CloseHandle(IntPtr original);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern uint GetProcessId(IntPtr original);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr OpenProcess(uint access, bool inherit, uint originalPid);
     private static void Expect(bool condition, string claim)
     {
         if (!condition) throw new InvalidOperationException(claim);
@@ -136,6 +163,42 @@ internal static class Core1681ManagedLifetimeSourceCases
             "directory_sync_original_safe_closure_positive");
         Expect(owner.Outcomes.Count(o => o.Attempted && o.Closed) == 4,
             "directory_sync_all_original_releases_observed");
+    }
+    // Keep the independently acquired exited process object held throughout.
+    // A real SYNCHRONIZE-only handle can wait for closure but lacks process query
+    // rights. This authors an actual FALSE query after actual WAIT_OBJECT0; it
+    // fabricates neither outcome and does not preclose/reuse a numeric slot.
+    internal static void OriginalDirectorySyncKnownClosedQueryFailure(IntPtr heldExitedProcess,
+        IntPtr thread, IntPtr directory, FileStream helper)
+    {
+        uint originalPid = GetProcessId(heldExitedProcess);
+        Expect(originalPid != 0, "original_held_process_pid");
+        IntPtr synchronizeOnly = OpenProcess(0x00100000, false, originalPid);
+        Expect(synchronizeOnly != IntPtr.Zero, "actual_original_synchronize_only_process");
+        var owner = new ServiceLassoManagedLauncherNative.ManagedInvocation(new List<FileStream> { helper });
+        owner.Process = synchronizeOnly; owner.Thread = thread; owner.Directory = directory;
+        bool closed = ServiceLassoManagedLauncherNative.ObserveDirectorySyncChildWait(owner, synchronizeOnly);
+        Expect(closed, "actual_original_wait_object_zero");
+        uint exitCode;
+        bool known = ServiceLassoManagedLauncherNative.ObserveDirectorySyncChildExit(owner, synchronizeOnly, out exitCode);
+        var query = owner.Outcomes.Single(o => o.Site == "directory-sync-child-exit-query");
+        Expect(!known && query.Failed && query.NativeStatus == 5 && query.Exception is Win32Exception &&
+            ReferenceEquals(owner.Primary, query.Exception) && !owner.Failed, "actual_access_denied_query_primary_not_release_failure");
+        owner.PrimaryResult = 123; // original production directory mapping
+        ServiceLassoManagedLauncherNative.FinishDirectorySyncInvocation(owner, closed, ref thread, ref synchronizeOnly, ref directory);
+        Expect(owner.PrimaryResult == 123 && ReferenceEquals(owner.Primary, query.Exception) && query.Failed &&
+            !owner.Failed && synchronizeOnly == IntPtr.Zero && thread == IntPtr.Zero && directory == IntPtr.Zero &&
+            owner.Outcomes.Where(o => o.Attempted).All(o => o.Closed && !o.Failed), "known_closed_query_failure_settles_only_after_all_safe_releases");
+        GC.KeepAlive(heldExitedProcess); // external owner still owns this handle
+    }
+    // External admitted observer reads SAME live invocation after a genuine
+    // original interop throw/invalid issuance. It never writes the disposition.
+    internal static void ObserveOriginalUnresolvedIssuance(ServiceLassoManagedLauncherNative.ManagedInvocation owner)
+    {
+        Expect(owner.ChildIssuanceUnresolved && owner.Primary != null,
+            "unknown_original_issuance_same_primary_and_owner");
+        Expect(!owner.Outcomes.Any(o => o.Site == "target-process-release" || o.Site == "directory-sync-process-release" ||
+            o.Site == "bound-file-release"), "unknown_issuance_never_releases_child_inputs");
     }
     // Actual wait failure with separately retained live child custody. The
     // admitted fixture must retain its independent original child handle while

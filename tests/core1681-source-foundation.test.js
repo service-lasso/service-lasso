@@ -784,7 +784,7 @@ test('F13 empty duplicate mixed and invalid initialized property forms deny befo
 });
 
 test('F13 concrete property accessors retain value ownership backing and initializer order', () => {
-  const source = 'class C { int a = 1; int G { get; } = 2; int S { set; } = 3; int Both { set; get; } = 4; int Explicit { get { return a; } set { a = value; } } static int Q { get; set; } = 5; }';
+  const source = 'class C { int a = 1; int G { get; } = 2; int S { get; set; } = 3; int Both { set; get; } = 4; int Explicit { get { return a; } set { a = value; } } static int Q { get; set; } = 5; }';
   const { parsed, result } = checkedCsSyntax(source);
   for (const name of ['G', 'S', 'Both', 'Q']) assert.equal(binding(result, name).backing.length, 1);
   assert.equal(binding(result, 'Explicit').backing.length, 0);
@@ -834,4 +834,72 @@ test('F14 valid type field method property forms preserve metadata and synthetic
     'public sealed class C { public int F() { return 1; } }', 'readonly struct C { public int F() { return 1; } }',
     'public interface C { int F(); int P { get; set; } }', 'public enum C { A }',
     'class C { public new class N {} public new int x; public new virtual int F() { return 1; } }']) checkedCsSyntax(source);
+});
+
+test('F15 concrete setter-only auto properties deny while genuine bodyless and explicit forms retain ownership', () => {
+  for (const declaration of ['int P { set; }', 'int P { set; } = 1;',
+    'static int P { set; }', 'static int P { set; } = 1;']) denyCsSyntax(`class C { ${declaration} }`);
+  for (const source of ['class C { int P { set {} } }',
+    'abstract class C { public abstract int P { set; } }',
+    'class C { public extern int P { set; } }', 'interface C { int P { set; } }']) {
+    const { parsed, result } = checkedCsSyntax(source);
+    const property = binding(result, 'P');
+    assert.equal(property.backing.length, 0);
+    const setter = parsed.root.children[0].children.find(row => row.name === 'P').children[0];
+    assert.equal(setter.parameters.length, 1);
+    assert.equal(setter.parameters[0].owner, setter);
+    assert.equal(setter.parameters[0].slot.anchor, setter);
+  }
+});
+
+test('F16 default constructor declared accessibility stays separate from enclosing type access', () => {
+  for (const source of ['class C {}', 'internal class C {}', 'public class C {}',
+    'class Outer { private class C {} }', 'class Outer { protected class C {} }',
+    'class Outer { internal class C {} }', 'class Outer { public class C {} }',
+    'abstract class C {}', 'class Outer { private abstract class C {} }']) {
+    const { result } = checkedCsSyntax(source), type = binding(result, 'C', 'type');
+    const ctor = result.bindings.find(row => row.origin.role === 'instanceConstructor' && assertIdentity(row.origin.anchor, type.declId));
+    assert.deepEqual(ctor.modifiers, [type.modifiers.includes('abstract') ? 'protected' : 'public']);
+    assert.deepEqual(ctor.semanticOwner.declaration, type.declId);
+  }
+  for (const source of ['static class C {}', 'class C { private C() {} }',
+    'class C { internal C(int value) {} }']) {
+    const { result } = checkedCsSyntax(source);
+    assert.equal(result.bindings.some(row => row.origin.role === 'instanceConstructor'), false);
+  }
+});
+
+test('F17 declaration phase and category reject invalid owners before accepting a forest', () => {
+  for (const source of ['class C { namespace N { class D {} } }', 'enum E<T> { A }',
+    'class C<T> { enum E<U> { A } }', 'class A {} using N;',
+    'namespace N { class A {} using N; }', 'namespace N {} using N;',
+    'namespace N { namespace M {} using N; }']) denyCsSyntax(source);
+  for (const source of ['namespace N { using N; class A {} class B { class Nested {} } }',
+    'namespace N { class A {} } namespace N { using N; class B {} }',
+    'class C<T> { enum E { A, B } class Nested<U> {} }']) {
+    const { parsed } = checkedCsSyntax(source);
+    assert.equal(parsed.completeSyntax, true);
+  }
+  for (const source of ['using X = N; class C {}', 'using static N; class C {}',
+    'global using N; class C {}']) assert.throws(() => parseSourceForest(bytes(source), 'csharp'));
+});
+
+test('F18 all CSharp newlines end comments and deny raw quoted literal newlines with original spans', () => {
+  for (const newline of ['\r', '\n', '\r\n', '\u0085', '\u2028', '\u2029']) {
+    const source = `\ufeffclass A {} // comment${newline}class B {}`;
+    const { parsed, result } = checkedCsSyntax(source);
+    assert.deepEqual(result.bindings.filter(row => row.kind === 'type').map(row => row.name), ['A', 'B']);
+    const type = parsed.root.children[1], start = source.indexOf('class B');
+    assert.equal(type.origin.utf16[0], start);
+    assert.equal(type.origin.byte[0], bytes(source.slice(0, start)).length);
+    assert.equal(parsed.consumedBytes, bytes(source).length);
+    denyCsSyntax(`class A {} // comment${newline}#invalid`);
+    denyCsSyntax(`class C { string P = "a${newline}b"; }`);
+    denyCsSyntax(`class C { char P = '${newline}'; }`);
+  }
+  // NEL is not a JS LineTerminator; LS/PS inside a JS string have their own
+  // lexical grammar. Retain those rules independently of C#.
+  const js = parseSourceForest(bytes('const a = 1; // comment\u0085const hidden = 2;'), 'javascript');
+  assert.deepEqual(js.root.children.map(row => row.name), ['a']);
+  parseSourceForest(bytes('const a = "x\u2028y\u2029z";'), 'javascript');
 });

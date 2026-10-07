@@ -420,12 +420,19 @@ class Parser {
   }
   csDeclaration() {
     const start = this.current();
-    if (this.value() === 'namespace') { this.csNamespace(); return; }
+    // Phase belongs to the actual compilation/namespace owner, not its name.
+    // Repeated namespace declarations each have their own directive phase.
+    if (this.value() === 'namespace') {
+      if (this.types.length) deny('INVALID_SYNTAX', 'namespace inside type', start.origin);
+      this.scope.membersStarted = true; this.csNamespace(); return;
+    }
     if (this.take('using')) {
       if (this.types.length) deny('INVALID_SYNTAX', 'using inside type', start.origin);
+      if (this.scope.membersStarted) deny('INVALID_SYNTAX', 'using after namespace members', start.origin);
       const target = this.typeRef(); this.need(';');
       const node = this.node('namespaceImport', target.path?.at(-1) ?? '<import>', start, { import: { target, module: null, exported: null } }); node.origin = this.span(start); return;
     }
+    this.scope.membersStarted = true;
     const attributes = this.attributes(), mods = [];
     while (modifiers.has(this.value())) mods.push(this.tokens[this.at++].value);
     if (new Set(mods).size !== mods.length) deny('INVALID_SYNTAX', 'duplicate declaration modifier', start.origin);
@@ -434,6 +441,7 @@ class Parser {
     if (['class', 'struct', 'interface', 'enum'].includes(this.value())) {
       const category = this.tokens[this.at++].value, name = this.id();
       this.csModifiers(category, mods, start);
+      if (category === 'enum' && this.value() === '<') deny('INVALID_SYNTAX', 'enum cannot have type parameters', start.origin);
       const node = this.node('type', name.value, start, { type: { kind: 'sourceType', declaration: null }, category, modifiers: mods, attributes });
       this.genericParameters(node);
       if (this.take(':')) { do { node.bases.push(this.typeRef()); } while (this.take(',')); }
@@ -505,6 +513,8 @@ class Parser {
       this.need('}');
       if (node.children.some(child => child.auto) && node.children.some(child => !child.auto))
         deny('INVALID_SYNTAX', 'mixed auto/explicit property accessors', start.origin);
+      if (!bodyless && node.children.some(child => child.auto) && !node.children.some(child => child.accessor === 'get'))
+        deny('INVALID_SYNTAX', 'concrete auto property requires getter', start.origin);
       if (ownerType.category === 'struct' && ownerType.modifiers.includes('readonly') && !node.static &&
           node.children.some(child => child.auto && child.accessor === 'set'))
         deny('INVALID_SYNTAX', 'readonly struct cannot have mutable auto property', start.origin);
@@ -541,7 +551,7 @@ class Parser {
       type.beforeFieldInit = !type.children.some(child => child.kind === 'constructor' && child.static);
     if (type.category === 'class' && !type.modifiers.includes('static') && !type.children.some(child => child.kind === 'constructor' && !child.static)) {
       type.synthetics.push(this.synthetic('instanceConstructor', type, 0, { returnType: { kind: 'void' }, receiver: 'instance',
-        modifiers: [type.modifiers.includes('abstract') ? 'protected' : type.modifiers.includes('public') ? 'public' : 'internal'] }));
+        modifiers: [type.modifiers.includes('abstract') ? 'protected' : 'public'] }));
     }
     if (type.children.some(child => ['field', 'property'].includes(child.kind) && child.static && child.initializer && !child.modifiers.includes('const')) &&
         !type.children.some(child => child.kind === 'constructor' && child.static)) {

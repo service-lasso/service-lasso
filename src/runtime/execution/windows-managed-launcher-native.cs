@@ -292,7 +292,10 @@ public static class ServiceLassoManagedLauncherNative
         internal IntPtr Job, Process, Thread, Directory;
         internal Exception Primary;
         internal int PrimaryResult;
+        // Failed governs unresolved closure/retirement/release, not an ordinary
+        // known failed initiating operation. Its original observation survives.
         internal bool Failed;
+        internal bool ChildIssuanceUnresolved;
         internal HMACSHA256 Progress;
         internal readonly List<EnvironmentOverride> EnvironmentOwners = new List<EnvironmentOverride>();
         internal ManagedInvocation(List<FileStream> files) { Files = files; }
@@ -301,6 +304,11 @@ public static class ServiceLassoManagedLauncherNative
             Outcomes.Add(new OriginalObservation { Site = site, Ordinal = Outcomes.Count,
                 NativeStatus = status, Failed = failed, Exception = exception });
             Failed |= failed;
+        }
+        internal void ObservePrimary(string site, int status, bool failed, Exception exception)
+        {
+            Outcomes.Add(new OriginalObservation { Site = site, Ordinal = Outcomes.Count,
+                NativeStatus = status, Failed = failed, Exception = exception });
         }
         internal bool Release(ref IntPtr handle, string site, int ordinal)
         {
@@ -554,6 +562,7 @@ public static class ServiceLassoManagedLauncherNative
             ApplyTargetEnvironmentOverrides(payload.targetEnvironmentOverrides, invocation);
             try
             {
+                invocation.ChildIssuanceUnresolved = true;
                 targetCreated = CreateProcessW(
                     resolvedExecutable,
                     commandLine,
@@ -571,7 +580,8 @@ public static class ServiceLassoManagedLauncherNative
                     failureExitCode = TargetCreationFailureExitCode(targetCreationError);
                     Win32Exception original = new Win32Exception(targetCreationError, "Managed target creation failed.");
                     invocation.Primary = original;
-                    invocation.Observe("target-original-create", targetCreationError, true, original);
+                    invocation.ChildIssuanceUnresolved = false;
+                    invocation.ObservePrimary("target-original-create", targetCreationError, true, original);
                     throw original;
                 }
                 if (targetCreated)
@@ -595,11 +605,12 @@ public static class ServiceLassoManagedLauncherNative
                 try { ClearTargetEnvironmentOverrides(payload.targetEnvironmentOverrides, invocation, payload.targetEnvironmentOverrides.Length); }
                 catch (Exception later) { invocation.Observe("target-environment-retirement-unknown-return", 0, true, later); }
             }
-            if (invocation.Failed) ThrowOriginalRetirementFailure(invocation);
             if (processHandle == IntPtr.Zero || threadHandle == IntPtr.Zero || processInformation.dwProcessId == 0)
             {
                 throw new InvalidOperationException("Managed target process evidence was invalid.");
             }
+            invocation.ChildIssuanceUnresolved = false;
+            if (invocation.Failed) ThrowOriginalRetirementFailure(invocation);
             failureExitCode = FailureExitCodeJobAssignment;
             if (!AssignProcessToJobObject(jobHandle, processHandle))
             {
@@ -1340,7 +1351,6 @@ public static class ServiceLassoManagedLauncherNative
             invocation.Primary = primary;
             invocation.Outcomes.Add(new OriginalObservation { Site = "target-environment-apply", Ordinal = appliedCount,
                 Resource = environmentOverrides[appliedCount], Attempted = true, Failed = true, Exception = primary });
-            invocation.Failed = true;
             // Include the attempted original name even when its application
             // outcome is unknown. Each safe rollback has its own disposition.
             try { ClearTargetEnvironmentOverrides(environmentOverrides, invocation, appliedCount + 1); }
@@ -1447,6 +1457,11 @@ public static class ServiceLassoManagedLauncherNative
         bool targetAssignedToJob,
         ManagedInvocation invocation)
     {
+        // An unavailable create return or malformed issued child cannot become
+        // no child merely because a local handle is zero. A failed original wait
+        // cannot be retried by containment and then laundered into closure.
+        if (invocation.ChildIssuanceUnresolved || invocation.Outcomes.Exists(o => o.Site == "target-primary-wait" && o.Failed))
+            RetainManagedInvocation(invocation);
         if (!targetAssignedToJob && processHandle != IntPtr.Zero)
         {
             bool terminated = TerminateProcess(processHandle, 1);
@@ -1649,15 +1664,27 @@ public static class ServiceLassoManagedLauncherNative
             startupInfo.cb = Marshal.SizeOf(typeof(StartupInfo));
             ProcessInformation processInformation;
             StringBuilder commandLine = new StringBuilder(BuildCommandLine(helperFinalPath, new[] { directoryFinalPath }));
-            if (!CreateProcessW(helperFinalPath, commandLine, IntPtr.Zero, IntPtr.Zero, false, 0, IntPtr.Zero, null, ref startupInfo, out processInformation)) return DirectorySyncLaunchCreateFailed;
+            invocation.ChildIssuanceUnresolved = true;
+            bool childCreated = CreateProcessW(helperFinalPath, commandLine, IntPtr.Zero, IntPtr.Zero, false, 0, IntPtr.Zero, null, ref startupInfo, out processInformation);
+            if (!childCreated)
+            {
+                int createError = Marshal.GetLastWin32Error();
+                Win32Exception original = new Win32Exception(createError, "Directory sync child creation failed.");
+                invocation.Primary = original; invocation.PrimaryResult = DirectorySyncLaunchCreateFailed;
+                invocation.ObservePrimary("directory-sync-child-create", createError, true, original);
+                invocation.ChildIssuanceUnresolved = false;
+                return DirectorySyncLaunchCreateFailed;
+            }
             childProcess = processInformation.hProcess;
             childThread = processInformation.hThread;
+            invocation.ObservePrimary("directory-sync-child-create", 0, false, null);
+            if (childProcess == IntPtr.Zero || childThread == IntPtr.Zero || processInformation.dwProcessId == 0)
+                throw new InvalidOperationException("Directory sync child process evidence was invalid.");
+            invocation.ChildIssuanceUnresolved = false;
             childClosed = ObserveDirectorySyncChildWait(invocation, childProcess);
             if (!childClosed) { invocation.PrimaryResult = DirectorySyncLaunchChildFailed; return DirectorySyncLaunchChildFailed; }
             uint exitCode;
-            bool exitKnown = GetExitCodeProcess(childProcess, out exitCode);
-            int exitError = exitKnown ? 0 : Marshal.GetLastWin32Error();
-            invocation.Observe("directory-sync-child-exit-query", exitError, !exitKnown, null);
+            bool exitKnown = ObserveDirectorySyncChildExit(invocation, childProcess, out exitCode);
             if (!exitKnown || exitCode != 0) { invocation.PrimaryResult = DirectorySyncLaunchChildFailed; return DirectorySyncLaunchChildFailed; }
             invocation.PrimaryResult = 0;
             return 0;
@@ -1681,12 +1708,21 @@ public static class ServiceLassoManagedLauncherNative
         invocation.Observe("directory-sync-child-wait", status, waited != WaitObject0, null);
         return waited == WaitObject0;
     }
+    internal static bool ObserveDirectorySyncChildExit(ManagedInvocation invocation, IntPtr childProcess, out uint exitCode)
+    {
+        bool exitKnown = GetExitCodeProcess(childProcess, out exitCode);
+        int exitError = exitKnown ? 0 : Marshal.GetLastWin32Error();
+        Win32Exception original = exitKnown ? null : new Win32Exception(exitError, "Directory sync child exit-code query failed.");
+        if (!exitKnown) invocation.Primary = original;
+        invocation.ObservePrimary("directory-sync-child-exit-query", exitError, !exitKnown, original);
+        return exitKnown;
+    }
     internal static void FinishDirectorySyncInvocation(ManagedInvocation invocation, bool childClosed,
         ref IntPtr childThread, ref IntPtr childProcess, ref IntPtr directory)
     {
         // Failed/unknown original wait is not child closure. Hold all original
         // inputs and handles on this same live stack; no wait/kill retry.
-        if (childProcess != IntPtr.Zero && !childClosed) RetainManagedInvocation(invocation);
+        if (invocation.ChildIssuanceUnresolved || (childProcess != IntPtr.Zero && !childClosed)) RetainManagedInvocation(invocation);
         invocation.Release(ref childThread, "directory-sync-thread-release", 0);
         invocation.Release(ref childProcess, "directory-sync-process-release", 0);
         invocation.Release(ref directory, "directory-sync-directory-release", 0);
