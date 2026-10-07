@@ -697,22 +697,48 @@ async function prepareRuntimeLogStreams(
 
 async function closeWriteStream(stream: WriteStream): Promise<void> {
   if (stream.closed) {
+    if (stream.errored) {
+      throw stream.errored;
+    }
     return;
   }
 
-  await new Promise<void>((resolve) => {
-    stream.end(() => resolve());
+  await new Promise<void>((resolve, reject) => {
+    let closeError: Error | null = stream.errored;
+    const onError = (error: Error): void => {
+      closeError ??= error;
+    };
+    const onClose = (): void => {
+      stream.removeListener("error", onError);
+      const error = closeError ?? stream.errored;
+      if (error) {
+        reject(error);
+      } else {
+        resolve();
+      }
+    };
+    // `finish` only drains writes. The original file remains a live capability
+    // until the genuine autoClose/close completion, including on write errors.
+    stream.on("error", onError);
+    stream.once("close", onClose);
+    stream.end();
   });
 }
 
 async function closeRuntimeLogStreams(
   streams: ManagedProcessRecord["logStreams"],
 ): Promise<void> {
-  await Promise.all([
+  const outcomes = await Promise.allSettled([
     closeWriteStream(streams.combined),
     closeWriteStream(streams.stdout),
     closeWriteStream(streams.stderr),
   ]);
+  const errors = outcomes.flatMap((outcome) =>
+    outcome.status === "rejected" ? [outcome.reason] : [],
+  );
+  if (errors.length > 0) {
+    throw new AggregateError(errors, "Runtime log file closure failed.");
+  }
 }
 
 function writeCombinedLogEntry(
@@ -2539,8 +2565,14 @@ export async function startManagedProcess(
   try {
     approvedLaunchFiles = (await options.verifyBeforeSpawn?.()) ?? [];
   } catch (error) {
-    await closeRuntimeLogStreams(logStreams);
-    throw new ManagedProcessStartError("prelaunch_verification", error);
+    let failure = error;
+    await closeRuntimeLogStreams(logStreams).catch((closeError) => {
+      failure = new AggregateError(
+        [error, closeError],
+        "Prelaunch verification and runtime log closure failed.",
+      );
+    });
+    throw new ManagedProcessStartError("prelaunch_verification", failure);
   }
   const useWindowsManagedLauncher =
     process.platform === "win32" && Boolean(workspaceRoot);
@@ -2560,8 +2592,14 @@ export async function startManagedProcess(
       : null;
     await managedProcessLaunchStateCreatedHook?.();
   } catch (error) {
-    await closeRuntimeLogStreams(logStreams);
-    throw new ManagedProcessStartError("launch_state_creation", error);
+    let failure = error;
+    await closeRuntimeLogStreams(logStreams).catch((closeError) => {
+      failure = new AggregateError(
+        [error, closeError],
+        "Launch state creation and runtime log closure failed.",
+      );
+    });
+    throw new ManagedProcessStartError("launch_state_creation", failure);
   }
   let child: ManagedChildHandle | null = null;
   let exitPromise: Promise<{

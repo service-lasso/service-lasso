@@ -15,6 +15,10 @@ Owner: current repair chat; branch fix/1724-linux-native-fixture-removal, draft 
 
 ## Independent source checkpoint
 
+Fresh review_linux1724_native_checkpoint reviewed the entire cumulative frozen 0d425adab453bc56653f4806c6363a7459bccf5a candidate against develop ce56f592, selected architecture, inherited blueprint/rejection, protected callback graph and actual native sources. SOURCE PREPARATION CHECKPOINT GO, no actionable finding. All 25 manifest-listed external source captures independently hash-match; additional ptrace source inspected separately. This includes control, filter readback, SAME-OFD census and trace primitives, but does not provide final SOURCE/admission/execution authority. Later source changes require cumulative review.
+
+Supervisor log drain now awaits genuine WriteStream close rather than finish/end callback. All three stream closures settle before real errors are returned; prelaunch/launch-state primary errors remain first in an AggregateError if closure also fails. This closes an actual original-file owner gap; it does not establish complete native drain or passing-test evidence.
+
 Fresh GPT-6.1 Sol low reviewer review_linux1724_source_checkpoint reviewed the entire authored cumulative checkpoint at5cffceae229d80b7100028e18d2c6d81d0775d4d against the selected complete architecture and inherited D1-D8. SOURCE PREPARATION CHECKPOINT GO: no actionable source defect in the narrow child contract, imported crash row/workflow equality, original custody body extraction or native BPF/TSYNC component. This permits continued authoring only, not final SOURCE GO/admission/execution. Later control transport/MSG_NOSIGNAL and filter inspection are outside that frozen checkpoint and require final cumulative review.
 
 ## Remaining coherent implementation
