@@ -172,7 +172,9 @@ class Parser {
       if (this.value() === ')') {
         this.at++; this.need('=>');
         if (!arrowContext) deny('INVALID_SYNTAX', 'ungrouped arrow requires assignment expression context', start.origin);
-        left = this.arrow(start, []);
+        // ArrowFunction is a complete AssignmentExpression alternative. Its
+        // ConciseBody belongs to the arrow, not the generic operand loop below.
+        return this.arrow(start, []);
       } else {
         const saved = this.at; const names = [];
         while (this.current().kind === 'identifier') {
@@ -181,7 +183,7 @@ class Parser {
         }
         if (this.take(')') && this.take('=>')) {
           if (!arrowContext) deny('INVALID_SYNTAX', 'ungrouped arrow requires assignment expression context', start.origin);
-          left = this.arrow(start, names);
+          return this.arrow(start, names);
         }
         else { this.at = saved; left = { kind: 'group', expression: this.expression() }; this.need(')'); }
       }
@@ -209,7 +211,7 @@ class Parser {
       this.at++;
       if (this.take('=>')) {
         if (!arrowContext) deny('INVALID_SYNTAX', 'ungrouped arrow requires assignment expression context', start.origin);
-        left = this.arrow(start, [start]);
+        return this.arrow(start, [start]);
       }
       else { left = { kind: 'name', name: start.value }; this.scope.references.push({ name: start.value, origin: start.origin, role: 'value' }); }
     } else deny('UNSUPPORTED_SYNTAX', `expression ${this.value()}`, start.origin);
@@ -217,7 +219,7 @@ class Parser {
     while (true) {
       // An UpdateExpression is no longer a LeftHandSideExpression. Grouping can
       // establish a fresh suffix context; an ungrouped update cannot take one.
-      if (['prefix', 'postfix', 'lambda'].includes(left.kind) && ['.', '(', '[', '++', '--'].includes(this.value()))
+      if (['prefix', 'postfix'].includes(left.kind) && ['.', '(', '[', '++', '--'].includes(this.value()))
         deny('INVALID_SYNTAX', 'suffix requires a left hand side expression', this.current().origin);
       if (this.take('.')) { left = { kind: 'member', target: left, member: this.id(false, this.language === 'javascript').value, origin: this.span(start) }; continue; }
       if (this.value() === '(') { left = { kind: 'call', target: left, arguments: this.arguments(), origin: this.span(start) }; continue; }

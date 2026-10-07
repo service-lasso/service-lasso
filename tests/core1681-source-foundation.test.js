@@ -625,3 +625,84 @@ test('F10 pure chains and explicit groups preserve AST families and Csharp separ
   assert.equal(binding(result, 'Value').initializer.op, '??');
   assert.equal(binding(result, 'Value').initializer.right.op, '||');
 });
+
+// F11 is an AssignmentExpression production boundary, not an operator denylist.
+// Matrix literals deliberately enumerate every supported binary operator.
+const arrowHeadsF11 = ['x', '(x)', '()'];
+const binaryOperatorsF11 = ['+', '-', '*', '/', '%', '<<', '>>', '<', '>', '<=', '>=', 'in',
+  '==', '!=', '===', '!==', '&', '^', '|', '&&', '||', '??'];
+
+test('F11 every block arrow head denies every ungrouped binary and conditional continuation', () => {
+  for (const head of arrowHeadsF11) {
+    for (const op of binaryOperatorsF11) denyJsSyntax(`const f = ${head} => {} ${op} 1;`);
+    denyJsSyntax(`const f = ${head} => {} ? 1 : 2;`);
+    for (const suffix of ['= 1', '+= 1', '-= 1', '.value', '[0]', '()', '++', '--'])
+      denyJsSyntax(`const f = ${head} => {} ${suffix};`);
+  }
+});
+
+test('F11 grouped block arrows are primary operands for every binary and conditional continuation', () => {
+  for (const head of arrowHeadsF11) {
+    for (const op of binaryOperatorsF11) {
+      const { parsed } = checkedJsSyntax(`const f = (${head} => {}) ${op} 1;`);
+      const tree = parsed.root.statements[0].declarations[0].initializer;
+      assert.equal(tree.kind, 'binary'); assert.equal(tree.op, op);
+      assert.equal(tree.left.kind, 'group'); assert.equal(tree.left.expression.kind, 'lambda');
+      assert.equal(tree.left.expression.declaration.body.kind, 'block');
+      assert.equal(tree.right.spelling, '1');
+      const right = checkedJsSyntax(`const f = 1 ${op} (${head} => {});`).parsed.root.statements[0].declarations[0].initializer;
+      assert.equal(right.op, op); assert.equal(right.right.kind, 'group');
+      assert.equal(right.right.expression.kind, 'lambda');
+    }
+    const tree = checkedJsSyntax(`const f = (${head} => {}) ? 1 : 2;`).parsed.root.statements[0].declarations[0].initializer;
+    assert.equal(tree.kind, 'conditional'); assert.equal(tree.test.kind, 'group');
+    assert.equal(tree.test.expression.kind, 'lambda'); assert.equal(tree.whenTrue.spelling, '1');
+    assert.equal(tree.whenFalse.spelling, '2');
+  }
+});
+
+test('F11 expression arrow bodies retain all binary and conditional trees inside the closure', () => {
+  for (const head of arrowHeadsF11) {
+    const value = head === '()' ? '1' : 'x';
+    for (const op of binaryOperatorsF11) {
+      const { parsed } = checkedJsSyntax(`const f = ${head} => ${value} ${op} 1;`);
+      const tree = parsed.root.statements[0].declarations[0].initializer;
+      assert.equal(tree.kind, 'lambda'); assert.equal(tree.declaration.body.kind, 'binary');
+      assert.equal(tree.declaration.body.op, op); assert.equal(tree.declaration.body.right.spelling, '1');
+    }
+    const tree = checkedJsSyntax(`const f = ${head} => true ? 1 : 2;`).parsed.root.statements[0].declarations[0].initializer;
+    assert.equal(tree.kind, 'lambda'); assert.equal(tree.declaration.body.kind, 'conditional');
+  }
+});
+
+test('F11 block arrows complete caller arguments, containers, conditional arms and assignment RHS', () => {
+  for (const head of arrowHeadsF11) {
+    const source = `function use(a) { return a; } const call = use(${head} => {}); const array = [${head} => {}]; const object = { value: ${head} => {} }; const conditional = true ? ${head} => {} : ${head} => {}; let slot = 1; const assigned = slot = ${head} => {}; const nested = outer => ${head} => {};`;
+    const { parsed } = checkedJsSyntax(source), statements = parsed.root.statements;
+    assert.equal(statements[1].declarations[0].initializer.arguments[0].expression.kind, 'lambda');
+    assert.equal(statements[2].declarations[0].initializer.items[0].kind, 'lambda');
+    assert.equal(statements[3].declarations[0].initializer.properties[0].value.kind, 'lambda');
+    const conditional = statements[4].declarations[0].initializer;
+    assert.equal(conditional.test.spelling, 'true'); assert.equal(conditional.whenTrue.kind, 'lambda');
+    assert.equal(conditional.whenFalse.kind, 'lambda');
+    const assigned = statements[6].declarations[0].initializer;
+    assert.equal(assigned.kind, 'assignment'); assert.equal(assigned.right.kind, 'lambda');
+    const outer = statements[7].declarations[0].initializer.declaration;
+    assert.equal(outer.body.kind, 'lambda'); assert.equal(outer.body.declaration.owner, outer);
+  }
+});
+
+test('F11 grouped block arrows preserve actual formal, lexical block and capture owners', () => {
+  for (const head of arrowHeadsF11) {
+    const value = head === '()' ? 'captured' : 'x + captured';
+    const { parsed, result } = checkedJsSyntax(`const captured = 1; const f = (${head} => { return ${value}; }) + 1;`);
+    const group = parsed.root.statements[1].declarations[0].initializer.left;
+    assert.equal(group.kind, 'group'); const lambda = group.expression.declaration;
+    assert.equal(lambda.body.scope.owner, lambda); assert.equal(lambda.body.statements[0].kind, 'return');
+    assert.equal(lambda.parameters.length, head === '()' ? 0 : 1);
+    for (const formal of lambda.parameters) assert.equal(formal.owner, lambda);
+    const boundLambda = result.bindings.find(row => row.kind === 'lambda');
+    assert.ok(boundLambda.captures.some(row => assertIdentity(row.declaration, binding(result, 'captured').declId)));
+    if (head !== '()') assert.equal(boundLambda.captures.some(row => assertIdentity(row.declaration, binding(result, 'x', 'parameter').declId)), false);
+  }
+});
