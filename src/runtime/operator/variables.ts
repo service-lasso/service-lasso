@@ -3,6 +3,7 @@ import type { DiscoveredService, ServiceEnvMap, ServiceEnvValue } from "../../co
 import { getLifecycleState } from "../lifecycle/store.js";
 import path from "node:path";
 import { buildEndpointVariables } from "./endpoints.js";
+import { hasEphemeralSecretFiles, serviceSecretsDirectory } from "../broker/secret-files.js";
 
 export interface ServiceVariableEntry {
   key: string;
@@ -63,6 +64,8 @@ export interface ServiceSelectorDiagnostic {
 }
 
 export interface ServiceTextResolutionOptions {
+  /** Launch-only Broker capability directory; never persisted. */
+  secretFilesDirectory?: string;
   brokerValues?: Record<string, string>;
   diagnostics?: ServiceSelectorDiagnostic[];
   diagnosticKey?: string;
@@ -526,6 +529,12 @@ export function buildServiceVariables(
   );
 
   const derivedVariables: ServiceVariableEntry[] = [
+    ...(hasEphemeralSecretFiles(service) ? [{
+      key: "SERVICE_LASSO_SECRETS_DIR",
+      value: options.secretFilesDirectory ?? (process.env.SERVICE_LASSO_SECRET_FILES_TRANSPORT === "tmpfs"
+        ? serviceSecretsDirectory(service) : "[available-at-launch]"),
+      scope: "derived" as const,
+    }] : []),
     {
       key: "SERVICE_ID",
       value: service.manifest.id,
@@ -605,7 +614,8 @@ export function buildServiceVariables(
     scope: "manifest" as const,
     value: replaceEnvValueSelectors(
       value,
-      [...rawManifestVariables, ...globalVariables, ...derivedVariables],
+      [...derivedVariables.filter((entry) => entry.key === "SERVICE_LASSO_SECRETS_DIR"),
+        ...rawManifestVariables, ...globalVariables, ...derivedVariables],
       { ...brokerResolutionOptions, diagnosticKey: key },
     ),
   }));
@@ -678,6 +688,7 @@ export function buildServiceVariables(
   return {
     serviceId: service.manifest.id,
     variables: [
+      ...derivedVariables.filter((entry) => entry.key === "SERVICE_LASSO_SECRETS_DIR"),
       ...manifestVariables,
       ...brokerImportVariables,
       ...globalVariables,
