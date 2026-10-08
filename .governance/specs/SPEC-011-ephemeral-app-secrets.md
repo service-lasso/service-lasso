@@ -1,5 +1,19 @@
 # SPEC-011: Ephemeral app secret files
 
+- **ESM-13 (#1743, Broker #201, Echo #14):** the owner corrects default file
+  provisioning ownership: Core sends secret references and secret-free file
+  templates to Broker, which resolves under the fresh scoped launch lease,
+  renders in its RAM store and returns the WebDAV directory. File-only imports
+  must not return plaintext through Core's startup lookup; direct environment
+  imports and the explicit tmpfs alternative retain their existing semantics.
+  Validate declared bindings, missing/denied refs, bounded rendering, returned
+  paths, replacement/revocation and privacy with an executed complete Echo
+  example. Supply executable setup/check code and a complete manifest, then
+  correct/publish ESM-12 docs. This supersedes ESM-7's Core-rendered secret flow.
+  The installed Node type declarations require an explicit three-argument
+  default spawn adapter; preserve command/argument/options behavior and every
+  existing managed-process acceptance check while restoring source compilation.
+
 - **ESM-12 (#1740):** publish an advanced getting-started lesson explaining
   explicit file/template opt-in, scoped Broker imports, fresh launch resolution,
   supplied app paths, safe inventory/read evidence and restart/revocation.

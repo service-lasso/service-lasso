@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import type { DiscoveredService } from "../../contracts/service.js";
 import type { SecretsBrokerRuntimeContext } from "./runtime.js";
 import type { SecretsBrokerLaunchLeaseIssuer } from "./identity.js";
-import { issueSecretsBrokerLaunchLease } from "./identity.js";
+import { issueSecretsBrokerLaunchLease, namespacedBrokerRef } from "./identity.js";
 
 export interface RAMSecretFileGrant { directory: string; revoke: () => Promise<boolean> }
 const grants = new Map<string, RAMSecretFileGrant>();
@@ -35,13 +35,18 @@ export async function createRAMSecretFileGrant(
   const result = await runtime.operatorRequest({ method: "POST", pathWithQuery: "/v1/file-grants",
     headers: { "Content-Type": "application/json" }, body: Buffer.from(JSON.stringify({
       serviceId: service.manifest.id, workspaceId: issuer?.workspaceId, identityLease,
-      refs: [], instanceId: createHash("sha256").update(keyFor(service)).digest("hex"), files: outputs,
+      instanceId: createHash("sha256").update(keyFor(service)).digest("hex"), files: outputs,
+      bindings: (service.manifest.broker?.imports ?? []).map((entry) => ({
+        selector: entry.ref, ref: namespacedBrokerRef(entry.namespace, entry.ref), required: entry.required === true,
+      })),
     })),
   });
   if (result.status !== 201) throw new Error("Broker file grant rejected.");
-  const response = JSON.parse(result.body.toString("utf8")) as { baseUrl?: unknown; token?: unknown };
+  const response = JSON.parse(result.body.toString("utf8")) as { baseUrl?: unknown; token?: unknown; directory?: unknown };
   // Revocation is exact-token and cannot remove a replacement generation.
   const token = response.token;
+  const httpDirectory = ramSecretFilesDirectory(response.baseUrl, token, "linux");
+  if (response.directory !== httpDirectory) throw new Error("Invalid Broker secret-file directory.");
   const directory = ramSecretFilesDirectory(response.baseUrl, token);
   const key = keyFor(service);
   const grant: RAMSecretFileGrant = { directory, revoke: async () => {

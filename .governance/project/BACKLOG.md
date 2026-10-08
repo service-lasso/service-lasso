@@ -1,5 +1,14 @@
 # Backlog
 
+- #1743, in_review: SPEC-011 ESM-13; Broker #201 and Echo #14.
+  Correct vault-to-file ownership and execute a complete runnable reference.
+  Corrected full-manifest Echo preparation/launch/check and missing-secret denial
+  passed on Ubuntu (21 focused tests, no skips); Windows focused checks passed
+  (15 passed, 6 platform skips). Broker RAM tests passed on both; its broader
+  retention failure remains tracked separately under Broker #199. Docs build,
+  17 publication checks, capability ledger and tooling audit passed.
+  #1740 publication awaits governed source landing and an exact live receipt.
+
 - #1740, in_review: SPEC-011 ESM-12. Advanced secure secret provisioning
   lesson, reference reconciliation, owner-authorized Pages publication and live
   index/article/source-receipt verification. Documentation only. Local docs

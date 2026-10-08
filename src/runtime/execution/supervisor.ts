@@ -370,7 +370,13 @@ let managedProcessLaunchStateRemover = removeWindowsManagedLaunchStateDirectory;
 let managedProcessLaunchStateCreatedHook: (() => Promise<void> | void) | null =
   null;
 let managedProcessPostResumeDelayMs = 0;
-let managedProcessSpawner: ManagedProcessSpawner = spawn;
+const defaultManagedProcessSpawner: ManagedProcessSpawner = (command, args, options) => {
+  const child = spawn(command, [...args], options);
+  // Node's PID is optional before a successful spawn. Preserve the actual child
+  // and make that undefined-or-number surface explicit for the managed adapter.
+  return Object.assign(child, { pid: child.pid });
+};
+let managedProcessSpawner: ManagedProcessSpawner = defaultManagedProcessSpawner;
 let managedProcessSpawnTimeoutMs = MANAGED_PROCESS_SPAWN_TIMEOUT_MS;
 
 export function setManagedProcessTreeTerminatorForTests(
@@ -523,7 +529,7 @@ export function setManagedProcessSpawnerForTests(
       "Managed process spawn test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.",
     );
   }
-  managedProcessSpawner = spawner ?? spawn;
+  managedProcessSpawner = spawner ?? defaultManagedProcessSpawner;
 }
 
 export function setManagedProcessSpawnTimeoutForTests(

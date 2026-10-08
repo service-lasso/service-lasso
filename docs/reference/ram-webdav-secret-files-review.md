@@ -3,13 +3,15 @@
 For a step-by-step Echo consumer and usage checks, follow
 [Advanced - Provision Service Secrets Securely](../getting-started/advanced-provision-service-secrets-securely.md).
 The service's `ephemeral: true` file/template declaration requests file delivery;
-a Broker import alone does not. Core resolves and renders, then Broker receives
-the rendered outputs over its authenticated local grant API.
+a Broker import alone does not. Core requests provisioning using scoped refs
+and secret-free templates. Broker resolves internally and returns the WebDAV path.
 
 Declared `config.files[]` and `config.templates[]` with `ephemeral: true` use
-Broker-owned RAM WebDAV by default on every platform. Core resolves current
-Broker values, renders outputs, and sends them through authenticated local IPC
-with a fresh service/workspace/peer-bound launch lease. Broker keeps the outputs
+Broker-owned RAM WebDAV by default on every platform. Core sends declared
+selector/ref bindings and secret-free templates through authenticated local IPC
+with a fresh service/workspace/peer-bound launch lease. Broker resolves current
+vault values internally, renders the files and returns their private directory.
+File-only refs do not produce plaintext lookup responses to Core. Broker keeps the outputs
 in its bounded memory store. It creates no plaintext filesystem outputs.
 Direct environment-variable secret delivery remains supported.
 

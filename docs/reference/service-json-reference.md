@@ -376,7 +376,10 @@ Finite lifecycle actions continue to use their existing bounded runtime behavior
 
 For app secrets that require files, `config.files[]` and
 `config.templates[]` can set boolean `ephemeral: true`. These outputs are
-recreated before fresh launch in Broker's RAM WebDAV store by default,
+provisioned before fresh launch in Broker's RAM WebDAV store by default.
+Core sends declared references and secret-free templates; Broker resolves
+internally and returns the private directory. File-only imports do not return
+plaintext to Core. These outputs stay
 outside the app directory, and are excluded from persistent artifact/preimage
 state. Pass their paths through `${SERVICE_LASSO_SECRETS_DIR}` in app-supported
 environment variables. Install outputs do not support this flag. See

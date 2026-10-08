@@ -164,7 +164,13 @@ export async function materializeEphemeralSecretFiles(
   const outputs: Array<{ path: string; content: string }> = [];
   try {
     const diagnostics: ServiceSelectorDiagnostic[] = [];
-    const resolution = { ...options, diagnostics };
+    // With RAM publishing, keep Broker selectors as references, even if the
+    // same secret was resolved for an explicitly requested environment value.
+    const resolution = { ...options, diagnostics,
+      ...(publish && process.env.SERVICE_LASSO_SECRET_FILES_TRANSPORT !== "tmpfs" ? {
+        brokerValues: Object.fromEntries((service.manifest.broker?.imports ?? []).map((entry) => [entry.ref, `\${${entry.ref}}`])),
+      } : {}),
+    };
     for (const file of (service.manifest.config?.files ?? []).filter((entry) => entry.ephemeral)) {
       outputs.push({
         path: resolveServiceText(file.path, service, sharedGlobalEnv, resolvedPorts, resolution),
