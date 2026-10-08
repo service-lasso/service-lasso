@@ -13,6 +13,7 @@ const SAFE_TEARDOWN_PHASES = new Set([
   "broker_ipc_close",
   "vault_server_close",
   "vault_provider_server_close",
+  "receipt_work_settlement",
   "lifecycle_reset",
   "temp_root_cleanup",
 ]);
@@ -174,6 +175,8 @@ export async function teardownRealAdminBrowserFixture({
   resetLifecycle,
   tempRoot,
   removeTempRoot = rm,
+  settleOwnedWork = async () => {},
+  beforeTempRemoval = async () => {},
   timeouts: timeoutOverrides = {},
 }) {
   const timeouts = {
@@ -247,6 +250,14 @@ export async function teardownRealAdminBrowserFixture({
       ),
     );
   }
+  let ownedWorkSettled = false;
+  try {
+    await settleOwnedWork();
+    ownedWorkSettled = true;
+  } catch (error) {
+    if (error instanceof RealAdminBrowserTeardownError) failures.push(...error.failures);
+    else failures.push(safeFailure("receipt_work_settlement", error, "receipt_work_failed"));
+  }
   try {
     resetLifecycle();
   } catch (error) {
@@ -260,9 +271,11 @@ export async function teardownRealAdminBrowserFixture({
     apiServerClosed &&
     brokerIPCClosed &&
     vaultServerClosed &&
-    vaultProviderServerClosed
+    vaultProviderServerClosed &&
+    ownedWorkSettled && failures.length === 0
   ) {
     try {
+      await beforeTempRemoval();
       await removeTempRootBoundedly(
         tempRoot,
         timeouts.tempCleanupTimeoutMs,

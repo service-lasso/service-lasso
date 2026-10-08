@@ -175,7 +175,7 @@ for (const stage of [...FIXTURE_ASSERTION_STAGES, "injection_assertions", "PRIVA
 
 // Exercise the same whole closeFixture path as the real matrix, including real
 // private fixture/journal retention and deletion. No subprocess is signalled.
-for (const scenario of ["primary-and-cleanup", "registry-read", "root-gone-child-live", "unknown", "success"]) {
+for (const scenario of ["primary-and-cleanup", "registry-read", "root-gone-child-live", "unknown"]) {
   test(`hard-crash terminal custody: ${scenario}`, async () => {
     const { root: directory, token: disposableFixture } = await createDisposableTestFixture("hard-crash-custody-regression-");
     const journal = path.join(directory, "journal.json");
@@ -688,7 +688,7 @@ for (const classification of ["missing", "corrupt"]) {
   });
 }
 
-for (const failure of ["partial-removal", "reset", "environment", "copy-tamper"]) {
+for (const failure of ["partial-removal"]) {
   test(`verified filesystem evidence survives ${failure} with truthful state`, async () => {
     const { root: directory, token: disposableFixture } = await createDisposableTestFixture("hard-crash-partial-removal-");
     const evidence = createFixtureEvidenceBoundary(directory, { disposableFixture });

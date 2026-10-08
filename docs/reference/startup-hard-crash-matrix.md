@@ -5,6 +5,8 @@ Spec binding: `AC-4BJ.1` through `AC-4BJ.9` in `.governance/specs/SPEC-002-core-
 
 The matrix launches startup in a subprocess and terminates that process immediately from a test-only hook after the selected durable phase has been journaled. The hook is available only when `SERVICE_LASSO_ENABLE_TEST_HOOKS=1`; it is not reachable from production APIs, CLI arguments, manifests, service environment, or packaged release behavior.
 
+Each formal and recovered-compensation row also has its own Node test-file process (`#1720`, `AC-4BJ.9c.row-isolation`). The shared `tests/startup-hard-crash-matrix.js` keeps the original protected assertions. The metadata entrypoint and nine row entrypoints are discovered by the complete suite and explicitly included by the selected-phase workflow. This prevents an earlier retained failure's process-global lifecycle state from causing a later workspace to skip enrollment. It does not reset retained fixtures or bypass removal refusals. Positive native removal/reset remains blocked under `#1640`; run all `tests/startup-hard-crash-matrix*.test.js` entrypoints when checking the complete matrix.
+
 ## Durable Subphase Inventory
 
 The seven formal phases are the externally stable recovery contract. Their implementation contains narrower durable subphases:
