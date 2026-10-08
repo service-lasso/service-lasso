@@ -248,6 +248,10 @@ export function compileServiceStartupBrokerPlan(
     `service:${service.manifestPath}:${service.manifest.id}:startup-broker`,
     {
       env: JSON.stringify(service.manifest.env ?? {}),
+      // Include inline file selectors even when no equivalent env import exists.
+      materializedFiles: JSON.stringify([
+        ...(service.manifest.config?.files ?? []),
+      ]),
       imports: JSON.stringify(imports),
       importTemplates: importTemplates.join("\n"),
       generatedSecrets: JSON.stringify(
