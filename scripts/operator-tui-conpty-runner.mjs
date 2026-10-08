@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseConptyProbeResult } from "./operator-tui-conpty-result.mjs";
+import { createConptyNativeContainment } from "./conpty-native-containment.mjs";
 
 const MAX_CAPTURED_BYTES = 16 * 1024;
 const HELPER_TIMEOUT_MS = 35_000;
@@ -135,19 +136,25 @@ async function createContainedWindowsLaunch({ command, args, helperPath, env, la
   }
 }
 
-export async function runConptyHelper({ command = "python", helperPath, executable, mode, apiUrl, apiToken, envSource, timeoutMs = HELPER_TIMEOUT_MS, platform = process.platform, managedLauncherPath = WINDOWS_MANAGED_LAUNCHER, spawnProcess = spawn }) {
+export async function runConptyHelper({ command = "python", helperPath, executable, mode, apiUrl, apiToken, envSource, timeoutMs = HELPER_TIMEOUT_MS, platform = process.platform, managedLauncherPath = WINDOWS_MANAGED_LAUNCHER, spawnProcess = spawn, containmentFactory = createConptyNativeContainment }) {
   const args = [helperPath, "--executable", executable, "--mode", mode];
   const env = conptyHelperEnvironment({ apiUrl, apiToken, source: envSource });
   let stdout = "";
   const launch = platform === "win32"
     ? await createContainedWindowsLaunch({ command, args, helperPath, env, launcherPath: managedLauncherPath })
     : { command, args, env, cleanup: async () => {} };
+  let containment, returnedChild = false, cleanupAuthorized = false;
 
   try {
+    if (platform === "win32") {
+      containment = await containmentFactory();
+      launch.env = { ...launch.env, ...containment.environment };
+    }
     const completion = await new Promise((resolve) => {
     let settled = false;
     let child;
     let timedOut = false;
+    let childFailed = false;
     const finish = (result) => {
       if (settled) return;
       settled = true;
@@ -156,20 +163,29 @@ export async function runConptyHelper({ command = "python", helperPath, executab
     };
     const timer = setTimeout(() => {
       timedOut = true;
-      try { child?.kill(); } catch {}
+      try { if (containment) containment.requestCancellation(); else child?.kill(); } catch { childFailed = true; }
     }, timeoutMs);
     try {
       child = spawnProcess(launch.command, launch.args, { cwd: undefined, env: launch.env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+      returnedChild = true;
+      containment?.bindChild(child);
       child.stdout?.on("data", (chunk) => { stdout = appendBounded(stdout, chunk); });
       child.stderr?.resume();
-      child.once("error", () => finish({ kind: "failed" }));
-      child.once("close", (code, signal) => finish({ kind: !timedOut && code === 0 && !signal ? "success" : "nonzero" }));
+      // A failed kill can emit error while the owned child remains alive.
+      // Retain failure but keep inputs and settlement bound to actual close.
+      child.on("error", () => { childFailed = true; });
+      child.once("close", (code, signal) => finish({ kind: !childFailed && !timedOut && code === 0 && !signal ? "success" : "nonzero" }));
     } catch {
       finish({ kind: "failed" });
     }
     });
+    // Missing/invalid private native receipt leaves this attempt unresolved
+    // with its inputs retained. Top bootstrap close is not Job closure.
+    const nativeTerminal = containment && returnedChild ? await containment.finalizeAfterChildClose() : null;
+    cleanupAuthorized = true;
 
-    if (completion.kind === "success" || completion.kind === "nonzero") {
+    // Closed success output cannot override a failed or timed-out owned close.
+    if (completion.kind === "success" && (!nativeTerminal || nativeTerminal.code === 0)) {
       try {
         return parseConptyProbeResult(stdout, mode);
       } catch {
@@ -178,6 +194,9 @@ export async function runConptyHelper({ command = "python", helperPath, executab
     }
     throw safeFailure();
   } finally {
-    await launch.cleanup();
+    if (!returnedChild || cleanupAuthorized) {
+      await containment?.cleanup();
+      await launch.cleanup();
+    }
   }
 }
