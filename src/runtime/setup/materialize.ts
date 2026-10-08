@@ -101,7 +101,7 @@ async function materializeFiles(
   const files = definition?.files ?? [];
   const materializedPaths: string[] = [];
 
-  for (const file of files.filter((entry) => !entry.ephemeral)) {
+  for (const file of files) {
     const renderedRelativePath = resolveServiceText(file.path, service, sharedGlobalEnv, resolvedPorts, options);
     const renderedContent = resolveServiceText(file.content, service, sharedGlobalEnv, resolvedPorts, options);
     const { absolutePath, relativePath } = resolveArtifactPath(service.serviceRoot, renderedRelativePath);
@@ -112,7 +112,7 @@ async function materializeFiles(
     materializedPaths.push(relativePath);
   }
 
-  for (const template of (definition?.templates ?? []).filter((entry) => !entry.ephemeral)) {
+  for (const template of (definition?.templates ?? [])) {
     const sourceContent = await readTemplateSource(service.serviceRoot, template.source, expectedTemplateDigests);
     const renderedRelativePath = resolveServiceText(template.target, service, sharedGlobalEnv, resolvedPorts, options);
     const renderedContent = resolveServiceText(sourceContent, service, sharedGlobalEnv, resolvedPorts, options);
@@ -171,13 +171,13 @@ export async function materializeEphemeralSecretFiles(
         brokerValues: Object.fromEntries((service.manifest.broker?.imports ?? []).map((entry) => [entry.ref, `\${${entry.ref}}`])),
       } : {}),
     };
-    for (const file of (service.manifest.config?.files ?? []).filter((entry) => entry.ephemeral)) {
+    for (const file of (service.manifest.broker?.files ?? [])) {
       outputs.push({
         path: resolveServiceText(file.path, service, sharedGlobalEnv, resolvedPorts, resolution),
         content: resolveServiceText(file.content, service, sharedGlobalEnv, resolvedPorts, resolution),
       });
     }
-    for (const template of (service.manifest.config?.templates ?? []).filter((entry) => entry.ephemeral)) {
+    for (const template of (service.manifest.broker?.templates ?? [])) {
       const source = await readTemplateSource(service.serviceRoot, template.source, expectedTemplateDigests);
       outputs.push({
         path: resolveServiceText(template.target, service, sharedGlobalEnv, resolvedPorts, resolution),

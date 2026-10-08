@@ -2,11 +2,11 @@
 
 For a step-by-step Echo consumer and usage checks, follow
 [Advanced - Provision Service Secrets Securely](../getting-started/advanced-provision-service-secrets-securely.md).
-The service's `ephemeral: true` file/template declaration requests file delivery;
+The service's `broker.files`/`broker.templates` declaration requests file delivery;
 a Broker import alone does not. Core requests provisioning using scoped refs
 and secret-free templates. Broker resolves internally and returns the WebDAV path.
 
-Declared `config.files[]` and `config.templates[]` with `ephemeral: true` use
+Declared `broker.files[]` and `broker.templates[]` use
 Broker-owned RAM WebDAV by default on every platform. Core sends declared
 selector/ref bindings and secret-free templates through authenticated local IPC
 with a fresh service/workspace/peer-bound launch lease. Broker resolves current
@@ -18,10 +18,19 @@ Direct environment-variable secret delivery remains supported.
 ```json
 {
   "broker": {
-    "imports": [{ "namespace": "shared/database", "ref": "database.PASSWORD", "required": true }]
-  },
-  "config": {
-    "files": [{ "path": "db-password", "content": "${database.PASSWORD}", "ephemeral": true }]
+    "imports": [
+      {
+        "namespace": "shared/database",
+        "ref": "database.PASSWORD",
+        "required": true
+      }
+    ],
+    "files": [
+      {
+        "path": "db-password",
+        "content": "${database.PASSWORD}"
+      }
+    ]
   },
   "env": {
     "DB_PASSWORD_FILE": "${SERVICE_LASSO_SECRETS_DIR}/db-password",

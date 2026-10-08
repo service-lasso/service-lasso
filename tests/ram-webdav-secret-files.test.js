@@ -21,7 +21,7 @@ test("ESM-13 file-only secrets go to Broker as references while explicit env del
  const before=process.env.SERVICE_LASSO_SECRET_FILES_TRANSPORT;delete process.env.SERVICE_LASSO_SECRET_FILES_TRANSPORT;
  try {
   const root=path.join(servicesRoot,"app");await mkdir(root);
-  await writeFile(path.join(root,"service.json"),JSON.stringify({id:"app",name:"App",description:"Broker-owned file",broker:{imports:[{namespace:"shared/app",ref:"app.KEY",required:true}]},config:{files:[{path:"key",content:"${app.KEY}",ephemeral:true}]}}));
+  await writeFile(path.join(root,"service.json"),JSON.stringify({id:"app",name:"App",description:"Broker-owned file",broker:{imports:[{namespace:"shared/app",ref:"app.KEY",required:true}],files:[{path:"key",content:"${app.KEY}"}]}}));
   const [service]=await discoverServices(servicesRoot);
   const resolution=await resolveServiceStartupBrokerResolution(service,()=>assert.fail("File-only secret must not be returned to Core"));
   assert.deepEqual(resolution.plan.brokerRefs,[]);
@@ -35,7 +35,7 @@ test("ESM-13 file-only secrets go to Broker as references while explicit env del
   delete service.manifest.env;process.env.SERVICE_LASSO_SECRET_FILES_TRANSPORT="tmpfs";
   await resolveServiceStartupBrokerResolution(service,({refs})=>{assert.deepEqual(refs,["app.KEY"]);return [{ref:"app.KEY",status:"resolved",value:"synthetic-tmpfs-value"}];});
   delete process.env.SERVICE_LASSO_SECRET_FILES_TRANSPORT;
-  service.manifest.config.files[0].content="${other.UNDECLARED}";
+  service.manifest.broker.files[0].content="${other.UNDECLARED}";
   await assert.rejects(materializeEphemeralSecretFiles(service,{}, {},{},undefined,()=>assert.fail("Unimported secret must not reach Broker")),/preparation failed/);
  } finally {if(before===undefined)delete process.env.SERVICE_LASSO_SECRET_FILES_TRANSPORT;else process.env.SERVICE_LASSO_SECRET_FILES_TRANSPORT=before;await rm(tempRoot,{recursive:true,force:true});}
 });
@@ -52,7 +52,7 @@ test("ESM-7 default refuses unavailable RAM provider without creating disk outpu
  const {tempRoot,servicesRoot}=await makeTempServicesRoot("ram-no-provider-");
  const before=process.env.SERVICE_LASSO_SECRET_FILES_TRANSPORT;delete process.env.SERVICE_LASSO_SECRET_FILES_TRANSPORT;
  try {
-  const root=path.join(servicesRoot,"app");await mkdir(root);await writeFile(path.join(root,"service.json"),JSON.stringify({id:"app",name:"App",description:"RAM fixture",config:{files:[{path:"key",content:"synthetic",ephemeral:true}]}}));
+  const root=path.join(servicesRoot,"app");await mkdir(root);await writeFile(path.join(root,"service.json"),JSON.stringify({id:"app",name:"App",description:"RAM fixture",broker:{files:[{path:"key",content:"synthetic"}]}}));
   const [service]=await discoverServices(servicesRoot);
   await assert.rejects(materializeEphemeralSecretFiles(service,{},{}),/preparation failed/);
   await assert.rejects(readFile(path.join(root,"key")),{code:"ENOENT"});
@@ -80,7 +80,7 @@ test("ESM-7..10 native Broker/Core launch, env compatibility, replacement rotati
   let ready=false;for(let i=0;i<100;i++){try{const result=await request({method:"GET",pathWithQuery:"/health",headers:{},timeoutMs:200});if(result.status===200){ready=true;break;}}catch{}await new Promise(r=>setTimeout(r,50));}
   assert.equal(ready,true,`source Broker did not become available: ${brokerDiagnostics}`);
   const root=path.join(servicesRoot,"ram-app");await mkdir(root);
-  await writeFile(path.join(root,"service.json"),JSON.stringify({id:"ram-app",name:"RAM app",description:"Synthetic RAM consumer",executable:process.execPath,args:["app.mjs"],env:{PASSWORD:"${database.PASSWORD}",PASSWORD_FILE:"${SERVICE_LASSO_SECRETS_DIR}/password"},broker:{imports:[{namespace:"shared/database",ref:"database.PASSWORD",required:true}]},config:{files:[{path:"password",content:"${database.PASSWORD}",ephemeral:true}]}}));
+  await writeFile(path.join(root,"service.json"),JSON.stringify({id:"ram-app",name:"RAM app",description:"Synthetic RAM consumer",executable:process.execPath,args:["app.mjs"],env:{PASSWORD:"${database.PASSWORD}",PASSWORD_FILE:"${SERVICE_LASSO_SECRETS_DIR}/password"},broker:{imports:[{namespace:"shared/database",ref:"database.PASSWORD",required:true}],files:[{path:"password",content:"${database.PASSWORD}"}]}}));
   await writeFile(path.join(root,"app.mjs"),`import {writeFileSync} from 'node:fs';
     const response=await fetch(process.env.PASSWORD_FILE);const content=await response.text();
     writeFileSync('consumed.json',JSON.stringify({matches:response.ok&&content===process.env.PASSWORD}));setInterval(()=>{},1000);`);
@@ -118,8 +118,8 @@ test("ESM-7..10 native Broker/Core launch, env compatibility, replacement rotati
   for(const file of ["vault.json","audit.jsonl"]){const data=await readFile(path.join(tempRoot,file),"utf8");assert.equal(data.includes("synthetic-first"),false);assert.equal(data.includes("synthetic-replacement"),false);assert.equal(data.includes(latestURL.split("/")[3]),false);}
   // A secret file may also contain local/environment inputs with no Broker refs;
   // its grant lease has only a service-specific file namespace and resolve scope.
-  delete service.manifest.broker;service.manifest.env.PASSWORD="synthetic-static";
-  service.manifest.config.files[0].content="synthetic-static";await rm(path.join(root,"consumed.json"));
+  service.manifest.broker = { files: service.manifest.broker.files };service.manifest.env.PASSWORD="synthetic-static";
+  service.manifest.broker.files[0].content="synthetic-static";await rm(path.join(root,"consumed.json"));
   const staticOptions={...options,brokerLookup:()=>[]};
   await startService(service,registry,staticOptions);assert.equal((await consume()).matches,true);
   denyRevocation=true;const stopped=await stopService(service);assert.equal(stopped.state.running,false);assert.match(stopped.message,/revocation is pending/);
@@ -158,7 +158,7 @@ test("ESM-7..10 native Broker/Core launch, env compatibility, replacement rotati
    const after=JSON.parse((await request({method:"GET",pathWithQuery:"/v1/file-grants/status",headers:{}})).body.toString());
    assert.equal(after.files.some(file=>file.serviceId==="echo-webdav"),false);
    service.manifest.broker.imports[0].ref="echo.MISSING";
-   service.manifest.config.files[0].content='{"demoCredential":"${echo.MISSING}"}';
+   service.manifest.broker.files[0].content='{"demoCredential":"${echo.MISSING}"}';
    await assert.rejects(startService(service,echoRegistry,options),/preparation failed/);
    assert.equal(getLifecycleState(service.manifest.id).runtime.pid,null);
    const denied=JSON.parse((await request({method:"GET",pathWithQuery:"/v1/file-grants/status",headers:{}})).body.toString());

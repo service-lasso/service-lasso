@@ -242,3 +242,27 @@ Fresh sole source author39 accepts the retained issue checkout and unchanged bra
 The existing full compiler/proof/caller programme in PROJECT_INTENT, SPEC-002 AC-4DI.4/R3/C3/G1, SPEC-007 AC-7G, BACKLOG, INIT and source-admission traceability remains operative without narrowing. ENTIRE reviewer37 NO_GO ROOT8db05809d7e2bc0be0e011673234bd0b126d03719658cd119444a5d2dc202258 remains effective. Author39 must finish actual selected producer, independent K2, all original callers and connected owned-operation/release/supervisor source obligations. After the genuinely complete cumulative source freeze, a fresh DIFFERENT reviewer40, NEW full actual-input ROOT and parent admission precede every target effect. The earlier planned reviewer39 number is superseded only by this author/reviewer separation; no historical review claim changes.
 
 Current natural51bd source and release failures remain failed evidence, including stale managed source provenance and normalized managed launcher length mismatch. No rebuild, repin, target execution, provider rerun/cancel or unapproved foreign-owner root may repair evidence by assertion. Original protected tests, all75 foundation bodies/raw68778 prefix/six protected files, native32 pins/39936, full1602 lock except admitted tuple, receiving ancestry/contributions and every retained failure remain required. Source implementation is ACTIVE, not SOURCE_GO or full delivery completion. Parent owns tracking/review/admission/landing; no main, branch rename, history rewrite, settings, publication, deployment or GA authority.
+
+## #1747 Broker file declaration correction (2026-10-09)
+
+Owner requires broker.files/templates without ephemeral; config/install return
+to ordinary Core materialization. SPEC-011 ESM-14 supersedes old declaration
+placement and requires legacy rejection before plaintext writes. Work is isolated
+on fix/1747-broker-file-declarations from develop d994acf3; inherited primary
+deleted packages and untracked evidence are retained, outside this work unit.
+Echo companion #16 updates the runnable manifest and preparation assertions.
+
+Verification: Windows build passed. Isolated Windows focused regressions passed
+48/48 with six Linux-only skips (54 total); Linux WSL Ubuntu-26.04 passed all
+11/11, including native source-built Broker/Core/Echo file-only provisioning,
+replacement, stop/revocation, missing refs, tmpfs restart and disk rejection.
+Broker source is immutable PR202 head 2fd98ee; Echo preparation/checker 2/2.
+Final contract/discovery/selector/audit/dependency regression checks passed 91/91.
+Companion Echo PR17 is pushed at 7bcee7c and targets develop.
+The first Windows unisolated test run hit the existing oversized host registry;
+retry used three fresh explicit workspace/instance/port-registry paths without
+changing retained host state. The Linux disk-negative fixture was corrected
+because /tmp is tmpfs here; it now proves a non-tmpfs fixture before rejection.
+Docs build passed with existing image-dimension-parser warnings; diff check passed.
+No Windows native WebClient, release, publication or deployment qualification.
+Next action: review the Core and companion Echo develop PRs and their checks.

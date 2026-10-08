@@ -16,20 +16,28 @@ import { makeTempServicesRoot } from "./test-helpers.js";
 
 const fragment = {
   id: "secret-file-app", name: "Secret file app", description: "Synthetic secret-file consumer",
-  config: { files: [{ path: "password", content: "${database.PASSWORD}", ephemeral: true }] },
+  broker: { files: [{ path: "password", content: "${database.PASSWORD}" }] },
 };
 
-test("ESM-1 manifest preserves config ephemeral flags and rejects invalid/install declarations", () => {
+test("ESM-14 manifest validates Broker outputs and rejects removed ephemeral fields", () => {
   const parsed = validateServiceManifest(fragment, "service.json");
-  assert.equal(parsed.config.files[0].ephemeral, true);
-  for (const ephemeral of ["true", 1, null]) {
-    assert.throws(() => validateServiceManifest({ ...fragment,
-      config: { files: [{ ...fragment.config.files[0], ephemeral }] } }, "service.json"), /boolean/);
+  assert.deepEqual(parsed.broker.files, fragment.broker.files);
+  for (const field of ["config", "install", "broker"]) {
+    for (const ephemeral of [true, false, "true", 1, null]) {
+      for (const declaration of [{ files: [{ path: "password", content: "secret", ephemeral }] },
+        { templates: [{ source: "template", target: "password", ephemeral }] }]) {
+        assert.throws(() => validateServiceManifest({ ...fragment, [field]: declaration }, "service.json"), /broker.files or broker.templates without ephemeral/);
+      }
+    }
   }
-  assert.throws(() => validateServiceManifest({ ...fragment, install: fragment.config }, "service.json"), /belong in config/);
   const template = validateServiceManifest({ ...fragment,
-    config: { templates: [{ source: "template", target: "password", ephemeral: true }] } }, "service.json");
-  assert.equal(template.config.templates[0].ephemeral, true);
+    broker: { templates: [{ source: "template", target: "password" }] } }, "service.json");
+  assert.deepEqual(template.broker.templates, [{ source: "template", target: "password" }]);
+  for (const declaration of [{ files: {} }, { files: [{ path: "", content: "x" }] },
+    { files: [{ path: "password", content: 1 }] }, { templates: [{ source: "template" }] },
+    { templates: [{ source: "", target: "password" }] }]) {
+    assert.throws(() => validateServiceManifest({ ...fragment, broker: declaration }, "service.json"), /broker/);
+  }
 });
 
 async function withLinuxFixture(run) {
@@ -47,7 +55,7 @@ async function withLinuxFixture(run) {
   await writeFile(path.join(serviceRoot, "service.json"), JSON.stringify({ ...fragment,
     executable: process.execPath, args: ["app.mjs"],
     env: { DB_PASSWORD: "${database.PASSWORD}", DB_PASSWORD_FILE: "${SERVICE_LASSO_SECRETS_DIR}/password" },
-    broker: { imports: [{ namespace: "shared/database", ref: "database.PASSWORD", required: true }] },
+    broker: { ...fragment.broker, imports: [{ namespace: "shared/database", ref: "database.PASSWORD", required: true }] },
   }));
   const leaseScript = path.join(tempRoot, "lease.mjs");
   await writeFile(leaseScript, 'process.stdout.write(JSON.stringify({outcome:"ready",lease:{fixture:true}}));');
@@ -135,16 +143,21 @@ test("ESM-3 unavailable Broker and persistent disk block before app spawn", linu
     await assert.rejects(startService(service, registry, options), /Broker|broker/);
     assert.equal(getLifecycleState(service.manifest.id).runtime.pid, null);
     setStatus("resolved");
-    process.env.SERVICE_LASSO_SECRETS_ROOT = tempRoot;
-    await assert.rejects(startService(service, registry, options), /Ephemeral secret-file preparation failed/);
-    assert.equal(getLifecycleState(service.manifest.id).runtime.pid, null);
+    // /tmp itself may be tmpfs. Prove that the negative fixture is disk-backed.
+    const diskRoot = await mkdtemp(path.join(process.cwd(), ".secret-disk-test-"));
+    try {
+      assert.notEqual((await statfs(diskRoot)).type, 0x01021994);
+      process.env.SERVICE_LASSO_SECRETS_ROOT = diskRoot;
+      await assert.rejects(startService(service, registry, options), /Ephemeral secret-file preparation failed/);
+      assert.equal(getLifecycleState(service.manifest.id).runtime.pid, null);
+    } finally { await rm(diskRoot, { recursive: true, force: true }); }
   });
 });
 
 test("ESM-3/4 template outputs stay private and never call persistent preimage hooks", linuxOnly, async () => {
   await withLinuxFixture(async ({ service }) => {
     await writeFile(path.join(service.serviceRoot, "template"), "password=${database.PASSWORD}");
-    service.manifest.config = { templates: [{ source: "template", target: "nested/credentials", ephemeral: true }] };
+    service.manifest.broker = { ...service.manifest.broker, files: [], templates: [{ source: "template", target: "nested/credentials" }] };
     await materializeConfigArtifacts(service, {}, {}, {}, {
       beforeWrite() { throw new Error("Ephemeral output entered persistent preimages"); }, afterWrite() {},
     });

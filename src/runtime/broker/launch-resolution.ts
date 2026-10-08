@@ -163,14 +163,13 @@ function setToArray(values: Set<string>): string[] | undefined {
 
 /** File-only imports are resolved by Broker's file-provisioning request. */
 function deferredFileRefs(service: DiscoveredService): Set<string> {
-  const config = service.manifest.config;
+  const broker = service.manifest.broker;
   if (process.env.SERVICE_LASSO_SECRET_FILES_TRANSPORT === "tmpfs" ||
-      ![...(config?.files ?? []), ...(config?.templates ?? [])].some((entry) => entry.ephemeral)) return new Set();
+      !((broker?.files?.length ?? 0) + (broker?.templates?.length ?? 0))) return new Set();
   const direct = compileCachedServiceSelectorPlan(
     `service:${service.manifestPath}:${service.manifest.id}:direct-broker`,
     [JSON.stringify({ ...service.manifest,
-      config: { ...config, files: config?.files?.filter((entry) => !entry.ephemeral), templates: config?.templates?.filter((entry) => !entry.ephemeral) },
-      broker: { ...service.manifest.broker, imports: [] },
+      broker: { ...broker, imports: [], files: [], templates: [] },
     })],
   );
   const generated = new Set(service.manifest.broker?.writeback?.generatedSecrets?.map((entry) => entry.ref) ?? []);
@@ -270,6 +269,7 @@ export function compileServiceStartupBrokerPlan(
       // Include inline file selectors even when no equivalent env import exists.
       materializedFiles: JSON.stringify([
         ...(service.manifest.config?.files ?? []),
+        ...(service.manifest.broker?.files ?? []),
       ]),
       imports: JSON.stringify(imports),
       importTemplates: importTemplates.join("\n"),

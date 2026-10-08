@@ -44,7 +44,7 @@ export interface ServiceMutationDefinitionBinding {
 }
 
 export async function buildServiceMutationDefinitionBinding(service: DiscoveredService): Promise<ServiceMutationDefinitionBinding> {
-  const templates = await templateDigests(service, [service.manifest.install, service.manifest.config]);
+  const templates = await templateDigests(service, [service.manifest.install, service.manifest.config, service.manifest.broker]);
   const identity = {
     manifest: canonical(service.manifest),
     templateSources: templates,

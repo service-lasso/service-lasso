@@ -729,6 +729,7 @@ export function compileServiceMaterializationSelectorPlan(
 ): ServiceSelectorPlan {
   const installFiles = service.manifest.install?.files ?? [];
   const configFiles = service.manifest.config?.files ?? [];
+  const brokerFiles = service.manifest.broker?.files ?? [];
   const cacheKey = `service:${service.manifestPath}:${service.manifest.id}:materialization`;
   const fingerprintValues = {
     env: JSON.stringify(service.manifest.env ?? {}),
@@ -737,6 +738,7 @@ export function compileServiceMaterializationSelectorPlan(
     exports: JSON.stringify(service.manifest.broker?.exports ?? []),
     install: JSON.stringify(installFiles),
     config: JSON.stringify(configFiles),
+    brokerFiles: JSON.stringify(brokerFiles),
   };
   const fingerprint = fingerprintSelectorValues(fingerprintValues);
   const cached = selectorPlanCache.get(cacheKey);
@@ -780,6 +782,10 @@ export function compileServiceMaterializationSelectorPlan(
     compileCachedServiceSelectorPlan(
       `${cacheKey}:config`,
       configFiles.flatMap((file) => [file.path, file.content]),
+    ),
+    compileCachedServiceSelectorPlan(
+      `${cacheKey}:broker-files`,
+      brokerFiles.flatMap((file) => [file.path, file.content]),
     ),
   ]);
 

@@ -1,5 +1,25 @@
 # SPEC-011: Ephemeral app secret files
 
+- **ESM-14 (#1747, owner correction 2026-10-09):** Declare disposable secret
+  outputs in `broker.files[]` ({path, content}) and `broker.templates[]`
+  ({source, target}), without an ephemeral flag. Broker owns default RAM
+  provisioning, scoped imports, rendering and returned-directory delivery.
+  Preserve ESM-13 file-only privacy and existing grant replacement/revocation.
+  `config.files/templates` and `install.files/templates` exclusively retain
+  ordinary Core materialization beneath the service root, transaction hooks,
+  lifecycle metadata and drift behavior. Reject the removed `ephemeral` field
+  with a migration diagnostic before any write; never silently persist legacy
+  secret outputs. The explicit Linux tmpfs transport uses the same broker
+  declarations and retains its existing Core-owned delivery adapter. Include
+  Broker templates in guarded definition digests and Broker inline selectors
+  in dependency/audit planning. Update runnable examples and references. Verify
+  mixed ordinary/Broker declarations, secret-free outgoing requests, fresh
+  launch/revocation, legacy rejection, malformed declarations and guarded
+  template changes. This supersedes declaration placement in ESM-1/7/13;
+  unchanged transport/security requirements remain applicable.
+
+
+
 - **ESM-13 (#1743, Broker #201, Echo #14):** the owner corrects default file
   provisioning ownership: Core sends secret references and secret-free file
   templates to Broker, which resolves under the fresh scoped launch lease,
