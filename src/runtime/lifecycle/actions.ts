@@ -78,6 +78,7 @@ import {
 import {
   materializeConfigArtifacts,
   materializeInstallArtifacts,
+  materializeEphemeralSecretFiles,
 } from "../setup/materialize.js";
 import type { MaterializationWriteHooks, StartupArtifactAcquisitionHooks } from "../startup/materialization.js";
 import { writeServiceState } from "../state/writeState.js";
@@ -1573,6 +1574,8 @@ async function startServiceSerialized(
   }));
   let handle: Awaited<ReturnType<typeof startManagedProcess>>;
   try {
+    await materializeEphemeralSecretFiles(service, sharedGlobalEnv, resolvedPorts,
+      variableResolution ?? {}, options.expectedTemplateDigests);
     handle = await startManagedProcess({
       service,
       executionPlan,

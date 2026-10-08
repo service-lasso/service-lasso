@@ -54,6 +54,11 @@ This repo is therefore the place where the real core behavior must live and cont
 
 ## Constraints
 
+- Optional extracted app secrets use Core-owned Linux tmpfs paths and are
+  regenerated from current Broker resolution before fresh launch (#1730,
+  `SPEC-011 ESM-1..6`). Environment delivery stays supported. App-owned files
+  and the deferred Linux test-harness cleanup are outside this work unit.
+
 - Unpatched docs-tool advisories are remediated through local versioned tooling copies with retained source/license provenance and direct regressions; audit thresholds remain unchanged (`SPEC-002 AC-4AJ.6`, #1612).
 
 - Documentation publication supports an explicit owner-authorized manual `Docs Site` run from `develop`, with `publish=true`, after existing audit, ledger and build gates through `github-pages` (`SPEC-002 AC-4AJ.5`, #1612). Ordinary develop pushes and PRs remain validation-only; automatic release-branch docs publication remains supported.

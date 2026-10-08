@@ -73,11 +73,14 @@ export interface ServicePortMappingDeclaration {
 export interface ServiceMaterializedFile {
   path: string;
   content: string;
+  /** Linux config output owned by Core, recreated on tmpfs before each launch. */
+  ephemeral?: boolean;
 }
 
 export interface ServiceMaterializedTemplate {
   source: string;
   target: string;
+  ephemeral?: boolean;
 }
 
 export interface ServiceActionMaterialization {

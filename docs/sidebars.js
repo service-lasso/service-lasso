@@ -57,6 +57,8 @@ const sidebars = {
       { type: "doc", id: "reference/vault-key-bootstrap", label: "Vault setup and key custody" },
       { type: "doc", id: "reference/first-run-vault-bootstrap-permissions", label: "Users and permissions" },
       { type: "doc", id: "reference/service-secret-access-policy", label: "Service secret access" },
+      { type: "doc", id: "reference/linux-app-secret-files", label: "Linux app secret files on tmpfs" },
+      { type: "doc", id: "reference/ram-webdav-secret-files-review", label: "Local RAM WebDAV design review" },
       { type: "doc", id: "reference/audit", label: "Audit history" },
       { type: "doc", id: "reference/resource-isolation-model", label: "Process and resource isolation" },
       { type: "doc", id: "reference/runtime-capabilities", label: "Supported capabilities and limitations" },
