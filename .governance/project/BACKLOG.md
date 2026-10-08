@@ -1025,3 +1025,5 @@ The same CSS graph observer must retain actual original compilation.chunkAsset e
 Before completing the CSS compiler-source proposal, bind ENTIRE genuine official webpack5.109.2 published archive inventory (including Compilation/ModuleGraph/ChunkGraph/RealContentHashPlugin/TemplatedPathPlugin and package/main/helper sources) to unchanged lock integrity/URL/version and actual installed file hashes before either build. This closes version-only compiler provenance; saved tag-source API reads are separately retained and do not replace npm installed-byte equality. No lock/package/resolver/library changes or local target execution.
 
 #1730 / PR1731 landed develop a0b85ef9: explicit Linux ephemeral profile scoped verified. #1732 In progress: SPEC-011 ESM-7..10 default Broker RAM WebDAV; companion Broker #196. No release or deployment authority.
+
+#1732 merged PR1733 develop bef6babc; Broker #196 merged PR197 develop5436d4ea. #1734 In progress: SPEC-012 OTF-1..5, ten saved Linux cleanup failures plus allocation row; preserve product/adversarial assertions and qualify creator-owned teardown on Ubuntu.

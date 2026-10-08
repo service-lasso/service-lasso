@@ -164,3 +164,26 @@ Existing positive removal assertions stay intact and will fail under retention;
 unknown-owner native proof requires the explicitly admitted laboratory fixture,
 never an absent-input pass or skip. Fresh entire source review and NEW complete
 input exact-head ROOT admission precede all execution.
+
+## 2026-10-08: ordinary disposable Linux fixtures (#1734)
+
+SPEC-012 records the owner's correction: cleanup of a trusted, private test
+fixture is ordinary test teardown. It is not Service Lasso recovery behavior and
+does not require the separate hostile-writer security-custody implementation.
+Creator-issued in-memory tokens bind fresh temp roots to their original directory
+identities. The boundary verifies the independent evidence copy, inventory,
+identity and privacy, settles held test handles, and removes only that root.
+The default strong-custody boundary and adversarial refusal tests remain intact.
+
+The seven original crash phases retain their recovery, generation, ownership,
+absence, residue and unrelated-process assertions. The successful terminal
+cleanup and post-removal reset, environment and copy-tamper cases retain their
+original outcome assertions. Their eleven saved failures shared an unavailable
+fixture-removal operation; they were not eleven demonstrated service bugs.
+
+Native Ubuntu scoped verification: 74 tests, 70 passed, four platform skips,
+zero failures, including all eleven formerly blocked rows and recovered
+compensation. A root-owned disposable input also exercises the unchanged
+foreign-owner rejection. Original failed evidence remains retained. Windows
+custody execution still fails during existing privacy/guardian setup and is not
+qualified by this Linux result. Full-suite verification is tracked separately.
