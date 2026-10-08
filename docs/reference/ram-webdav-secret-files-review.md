@@ -95,3 +95,23 @@ peer-bound Unix IPC, fresh managed-child HTTP reads, environment compatibility,
 replacement rotation, stop revocation and persisted-state privacy. Broker issue
 #196 owns its real HTTP isolation, safety and bounds tests. These checks do not
 claim qualification of all Windows service accounts, packaged release or deployment.
+
+## Inventory and consumer example (#1738)
+
+Service Admin exposes **Secrets Broker -> RAM files**, also in the Broker
+service Secrets tab. The authenticated workspace-read route is
+`GET /api/services/%40secretsbroker/operations/webdav?limit=100&cursor=0`,
+forwarded to Broker `GET /v1/file-grants/status`. It reports listener state,
+active grant/file counts, RAM capacity/use, service ownership, names, sizes,
+completed downloads, served bytes and last access. Values and capability tokens
+remain private. Counters reset on grant replacement/revocation or Broker restart;
+HEAD and directory listings do not count as downloads.
+
+Echo issue #12 adds an opt-in `examples/webdav/service.json` consumer manifest
+in the lasso-echoservice repository. Its `/secret-file` route reports safe read
+status; POST rereads the supplied demo JSON without exposing values. Actual
+Core/Broker/Echo source builds passed this sample on Ubuntu: two reads matched
+Broker accounting, env/durable outputs withheld private material, and stop
+removed its grant. The management matrix also passed Windows named-pipe and
+Unix IPC, plus native Windows UNC. Admin unit/browser fixtures are separate
+from that real integration; no installed/released-package claim is made.

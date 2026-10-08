@@ -1,5 +1,14 @@
 # SPEC-011: Ephemeral app secret files
 
+- **ESM-11 (#1738):** authenticated workspace-read management exposes Broker
+  RAM WebDAV metadata at `operations/webdav`: listener state, RAM usage, active
+  grants and paginated filenames, service/workspace ownership, sizes and read
+  counters. Only GET is allowed; bounded numeric limit/cursor are forwarded.
+  Secret values, capability tokens and URLs remain excluded. Service Admin
+  supplies a usage dashboard; Echo supplies an opt-in file consumer example.
+  Verify allowlists, permission mapping, query bounds, real Broker IPC and
+  positive/negative file consumption without durable secret disclosure.
+
 Status: Active development. Owner request: 2026-10-08. Issues: #1730 (landed), #1732.
 
 Service Lasso owns declared plaintext app secret files and passes their paths to
