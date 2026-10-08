@@ -1,5 +1,11 @@
 # Backlog
 
+- #1740, in_review: SPEC-011 ESM-12. Advanced secure secret provisioning
+  lesson, reference reconciliation, owner-authorized Pages publication and live
+  index/article/source-receipt verification. Documentation only. Local docs
+  build, 17 publication tests, zero-vulnerability tooling audit, ledger and
+  literal-preservation checks passed; live publication remains pending.
+
 - #1738, in_review: SPEC-011 ESM-11. Broker RAM WebDAV inventory management
   proxy, explicit GET/query allowlists, permission and real IPC verification.
   Companion Broker #198, Admin #691 and Echo #12 provide metrics/UI/example.

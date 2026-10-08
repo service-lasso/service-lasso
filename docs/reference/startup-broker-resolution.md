@@ -72,12 +72,15 @@ Policy-denied refs are intentionally separate from missing refs. Operators shoul
 
 ## Cache invalidation
 
-Apps that require a file can opt into Core-owned Linux tmpfs outputs with
+Apps that require a file opt into Broker-owned RAM WebDAV outputs with
 `config.files[].ephemeral` or `config.templates[].ephemeral`, then pass
 `${SERVICE_LASSO_SECRETS_DIR}/<name>` through an app-supported environment
-variable. See [Linux app secret files](linux-app-secret-files.md) for manifest,
-mount and restart configuration. These files are recreated from the current
-launch resolution before each fresh spawn; environment delivery stays supported.
+variable. Core resolves the current values, renders the outputs and asks Broker
+to create a scoped RAM grant before each fresh spawn. An import by itself does
+not create a file. See the [secure provisioning lesson](../getting-started/advanced-provision-service-secrets-securely.md)
+and [RAM WebDAV delivery](ram-webdav-secret-files-review.md). Linux native paths
+require the explicitly selected [tmpfs alternative](linux-app-secret-files.md);
+environment delivery stays supported.
 
 Selector plans are cached by service manifest path/id and the effective `env` + `broker.imports` content. The cache invalidates when:
 

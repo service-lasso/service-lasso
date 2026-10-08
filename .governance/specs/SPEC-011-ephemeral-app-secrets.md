@@ -1,5 +1,17 @@
 # SPEC-011: Ephemeral app secret files
 
+- **ESM-12 (#1740):** publish an advanced getting-started lesson explaining
+  explicit file/template opt-in, scoped Broker imports, fresh launch resolution,
+  supplied app paths, safe inventory/read evidence and restart/revocation.
+  Use the real Echo sample and distinguish source features from installed
+  release prerequisites. Reconcile tmpfs/default-WebDAV reference wording.
+  Verify lesson navigation, docs build and the owner-authorized Pages publication
+  receipt plus live index/article. Documentation publication is not a binary
+  release or GA decision.
+  Existing architecture-page MDX literals that block this publication may
+  receive markup-only escapes outside code, preserving their exact text and
+  normative contracts; no parser, audit or publication gate is weakened.
+
 - **ESM-11 (#1738):** authenticated workspace-read management exposes Broker
   RAM WebDAV metadata at `operations/webdav`: listener state, RAM usage, active
   grants and paginated filenames, service/workspace ownership, sizes and read
