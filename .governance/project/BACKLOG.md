@@ -1027,3 +1027,9 @@ Before completing the CSS compiler-source proposal, bind ENTIRE genuine official
 #1730 / PR1731 landed develop a0b85ef9: explicit Linux ephemeral profile scoped verified. #1732 In progress: SPEC-011 ESM-7..10 default Broker RAM WebDAV; companion Broker #196. No release or deployment authority.
 
 #1732 merged PR1733 develop bef6babc; Broker #196 merged PR197 develop5436d4ea. #1734 In progress: SPEC-012 OTF-1..5, ten saved Linux cleanup failures plus allocation row; preserve product/adversarial assertions and qualify creator-owned teardown on Ubuntu.
+
+#1734 scoped verified for develop landing / PR1735: SPEC-012 OTF-1..5; all eleven
+saved cleanup failures pass. Full Ubuntu run1966:1870 pass,87 skips,9 fail; eight
+host-tool failures pass in subsequent direct checks. #1736 tracks the independent
+unchanged-parent HTTP replay failure; whole-suite and Windows qualification remain
+incomplete. Native F7 architecture remains separate from ordinary test teardown.

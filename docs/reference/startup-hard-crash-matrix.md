@@ -187,3 +187,26 @@ compensation. A root-owned disposable input also exercises the unchanged
 foreign-owner rejection. Original failed evidence remains retained. Windows
 custody execution still fails during existing privacy/guardian setup and is not
 qualified by this Linux result. Full-suite verification is tracked separately.
+
+### Closed full-run evidence and remaining scope
+
+The configured `npm test` run on Ubuntu Server/Node22.23.3 at commit
+`5a01bcfd01b8da78757402552977e6b4d30d1f31` (tree
+`2dc501e406a93c82960d50a6ac44d25aa5a43cec`) closed naturally with
+1,966 tests:1,870 passed,87 skipped,nine failed. All eleven formerly blocked
+rows and recovered compensation passed. The closed receipt retains actual child
+exit1 and private raw logs; this is not a full-suite green claim.
+
+Eight failures came from absent host test prerequisites: PowerShell (two
+cancellation and four actual pre-browser producer tests), `lsof` (demo ownership),
+and the `python` command (ConPTY helper). Private, process-local test tooling was
+provided without a host-wide install. Subsequent focused checks passed all eight:
+62 tests across cancellation/demo/HTTP yielded61 pass and the separate HTTP
+failure; pre-browser producer5/5 pass; ConPTY helper10 pass/one platform skip.
+
+The remaining `#1465 concurrent HTTP replay` assertion returns409 where200 is
+expected. It reproduces on unchanged parentdevelop `bef6babc`:12 tests,11 pass,
+one fail. Track it separately in #1736. Windows new teardown-unit checks pass
+(two pass/one POSIX-only skip), but existing Windows privacy initialization and
+broader CI failures remain unqualified. All seven natural Ubuntu crash-phase CI
+jobs passed at5a01bcfd. No product runtime changes or release/deployment claim.

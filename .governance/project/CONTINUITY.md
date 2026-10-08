@@ -167,3 +167,15 @@ custody refusal and adversaries remain unchanged. Native Ubuntu scoped run74:
 Original saved failed runs retained. Windows existing guardian/privacy setup
 fails and is not qualified. Full native suite remains pending. No product code,
 release, deployment or native F7 implementation claim.
+
+#1734 scoped completion: all eleven original Linux cleanup failures pass in both
+scoped verification and the configured full run at5a01bcfd/tree2dc501e4. Full run
+1966:1870 pass,87 skips,9 failures; retain actual failed receipt/exit1. Eight
+missing-tool failures subsequently pass with private PowerShell/lsof/python
+inputs. The remaining actor-scoped HTTP replay failure reproduces on unchanged
+parentdevelop bef6babc (12:11 pass,1 fail) and is tracked separately in #1736.
+Seven natural Ubuntu crash-phase CI jobs pass. New Windows teardown unit checks
+2 pass/1 POSIX skip; existing Windows privacy initialization remains unqualified.
+Targeted GOV-13 self-review confirms original observable assertions and default
+strong adversaries retained. Native F7 writer exclusion is not implemented or
+required for the owner's ordinary-fixture recovery scope. No release/deployment.
