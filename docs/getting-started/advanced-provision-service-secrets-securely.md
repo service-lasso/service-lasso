@@ -19,7 +19,7 @@ then use Admin to see its size and completed downloads. Stop/start the service
 and verify the file is recreated under a fresh grant.
 
 ```mermaid
-flowchart LR
+flowchart TB
   accTitle: Provision a service secret file
   accDescr: Core resolves a scoped secret from Broker, renders the declared file and returns it to Broker RAM. Echo receives a private directory in its environment and reads the file. Admin observes metadata and counters only.
   broker[("Secrets Broker<br/>Encrypted vault + RAM files")]
