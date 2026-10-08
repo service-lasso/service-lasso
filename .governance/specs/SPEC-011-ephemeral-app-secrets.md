@@ -9,7 +9,7 @@
   Validate declared bindings, missing/denied refs, bounded rendering, returned
   paths, replacement/revocation and privacy with an executed complete Echo
   example. Supply executable setup/check code and a complete manifest, then
-  correct/publish ESM-12 docs. This supersedes ESM-7's Core-rendered secret flow.
+  correct/publish ESM-12 docs. This supersedes the original ESM-7 Core-rendered flow.
   The installed Node type declarations require an explicit three-argument
   default spawn adapter; preserve command/argument/options behavior and every
   existing managed-process acceptance check while restoring source compilation.
@@ -85,9 +85,10 @@ examples and official Linux/systemd docs; ESM-6 to recorded exact-source checks.
 ## Default RAM WebDAV delivery (issue #1732)
 
 Owner approved default Broker-owned RAM WebDAV for all extracted secret files.
-ESM-7: WebDAV is the default on every platform. Core sends freshly rendered
-outputs over authenticated Broker IPC with a distinct scoped resolve lease.
-Broker returns a fresh per-instance capability and loopback endpoint. Core passes
+ESM-7 (owner-corrected by ESM-13): WebDAV is the default on every platform.
+Core sends scoped refs and secret-free templates over authenticated Broker IPC
+with a distinct scoped resolve lease. Broker resolves and renders internally,
+returning the private WebDAV directory, capability and loopback endpoint. Core passes
 its URL/Windows UNC directory through SERVICE_LASSO_SECRETS_DIR before spawn.
 No plaintext file or token enters lifecycle snapshots, drift or durable state.
 ESM-8: Broker enforces RAM-only, strict 127.0.0.1, read-only grant isolation,
