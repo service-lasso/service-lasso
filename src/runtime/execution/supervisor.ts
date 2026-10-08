@@ -1678,6 +1678,12 @@ export function resolveManagedProcessLaunch(
       variableResolution,
     ),
   );
+  if (variableResolution.secretFilesDirectory) {
+    const token = variableResolution.secretFilesDirectory.split(/[\\/]/).at(-1)!;
+    if ([executable, workingDirectory, ...args].some((value) => value.includes(token))) {
+      throw new Error("Secret-file capabilities must be supplied through the service environment.");
+    }
+  }
   return {
     executable,
     args,
