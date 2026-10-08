@@ -251,3 +251,11 @@ SPEC-002 AC-4BH/AC-4DI.4 and SPEC-006 AC-6F/AC-6G retain the entire N1–N5/#157
 ### Core #1714 second ENTIRE review F1/F2 protocol reconciliation
 
 The b4a719af distinct entire architecture review remains WHOLE_ARCHITECTURE_NO_GO; documentation-only landing safety is separate. This source-only amendment binds every compensation path to the irreversible B-local NO_TERMINATE_M publication in its original phase/effect ledger before any ACK native write; committed-unacknowledged pending/failed/lost ACK, death and interruption cannot restore termination. H's authenticated ACK controls admission only. The unchanged64-byte CHILD_CREATED grammar now closes Windows original process/thread values and Linux exact B-local original pidfd correlation metadata, thread=0, exactly one associated original SCM_RIGHTS FD, atomic MSG_CMSG_CLOEXEC and same-live original partial/unknown receive retention. No Linux thread object, PID reopen or numeric descriptor authority is introduced. Every added H/C/B/M resource requires actual source/owner/lifetime/domain attribution before fit; service1MiB/store4MiB/Core128MiB cannot migrate into UNKNOWN measured Node B0/B2 or qualification-only32GiB Q0/Q2. Entire original workspace/eight-failure/native1681/public/private/full-Node/rollback/matrix boundaries remain required and unqualified. Different fresh ENTIRE review and parent selection remain next; no implementation, provider selection, execution or acceptance follows.
+
+### #1736 target-scoped start confirmation
+SPEC-013 LQ-2 refines AC-6E: service-specific start revisions bind only executable
+inputs of their actual mutation targets; stable context still binds the full
+service dependency closure. An unrelated service's installed/configured state
+cannot alone stale that confirmation. Runtime-wide actions/restart retain their
+existing executable binding scope. Target/dependency definition, artifact,
+template and executable changes still fail closed at the existing boundaries.

@@ -179,3 +179,12 @@ Seven natural Ubuntu crash-phase CI jobs pass. New Windows teardown unit checks
 Targeted GOV-13 self-review confirms original observable assertions and default
 strong adversaries retained. Native F7 writer exclusion is not implemented or
 required for the owner's ordinary-fixture recovery scope. No release/deployment.
+Resuming at current develop3baf9667 in fresh fix/1736-linux-suite-replay. Owner
+requests all nine remaining failures fixed. Eight are missing actual host tools;
+private PowerShell/lsof/python inputs already prove those assertions. Diagnostic
+HTTP execution returns confirmation_plan_mismatch (409, expected202) because
+buildStartArtifactBindings includes every service's installed/configured
+executable revision. Correct service_start scope only; preserve runtime-wide and
+restart plans, stable dependency context, actor/replay/tamper checks. SPEC-013
+LQ-1..4 and SPEC-006 AC-6E/AC-6F record acceptance before product implementation.
+Original full-run receipt and baseline failure retained. No release/deployment.
