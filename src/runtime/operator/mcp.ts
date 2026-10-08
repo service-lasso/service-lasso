@@ -193,7 +193,7 @@ interface McpJsonRpcResponse {
 const CONTRACT_VERSION = "service-lasso-mcp.v1";
 const MCP_PROTOCOL_VERSION = LATEST_PROTOCOL_VERSION;
 const MCP_SDK_PACKAGE = "@modelcontextprotocol/sdk";
-const MCP_SDK_VERSION = "1.30.1";
+const MCP_SDK_VERSION = "1.31.0";
 const REDACTION_VALUE = "[REDACTED]";
 const DEFAULT_LOG_LIMIT = 20;
 const MAX_LOG_LIMIT = 50;

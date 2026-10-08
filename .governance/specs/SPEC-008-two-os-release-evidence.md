@@ -1,5 +1,8 @@
 # SPEC-008: Windows/Linux release evidence propagation
 
+### PR1638 scoped npm argv correction (#1626, 85ca successor)
+R3/R5/R6 require the scoped published preparer to pass the integrity-verified npm archive pathname as an unchanged argv element, including legal Windows roots containing spaces, percent-variable literals, ampersands, parentheses, exclamation marks, carets and Unicode. Use the landed canonical npm descriptor: actual process.execPath plus its fixed sibling npm-cli.js on Windows, copied data argv, and shell:false/windowsVerbatimArguments:false after caller options. Retain the preparer's cwd/env/stdio/signal/timeout options, original synchronous/asynchronous Error identity, output through close, nonzero failure, one pre-mutation acquisition retry and first-failure precedence. Actual receiving-child, scoped caller/integrity/installed-fixture and retry sources supplement every existing protected same-byte Core/npm/CLI/runtime gate without changing them. Sources remain UNEXECUTED until different fresh ENTIRE cumulative review and NEW complete-input ROOT admission. R1-R7/F1/F2/F3/R5, EMPTY catalogs, original failures/private evidence and owner GA authority remain required. The provider CodeQL19 conversation is retained for parent disposition after reviewed correction; no dismissal, resolution, gate bypass or externally exploitable RCE claim follows source authoring.
+
 Active Development spec. Issue #1628 correction of #1619 / #1613 / #1562. Architecture: [ADR-001](../decisions/ADR-001-two-os-release-evidence.md). Parent release gates: SPEC-007 AC-7F/7G/7H. This is a prospective implementation contract; existing executable three-platform gates stay unchanged until coherent reviewed implementation lands.
 
 ## R1 — closed immutable policy and scope (C1/C4)
@@ -141,6 +144,32 @@ TUI denial coverage additionally rejects third manifest sums row, duplicate/miss
 
 ## R7 — delivery state and unchanged blockers
 
+### #1562 scoped fixture boundary correction (2026-10-06)
+
+R2/R3/R6 govern the four deterministic fixture/harness mismatches retained in
+the natural 6f0dad qualification job 111872673279 (#916/#1533/#1536/#1538).
+This amendment permits fixture repairs with distinct entire review, not a change
+to protected acceptance semantics. A recognized CLI protected2 schema without
+scope must assert its exact closed-scope denial; an unknown version separately
+asserts candidate-schema denial. TUI schema downgrade with otherwise complete
+scope must reach the pinned-identity denial; missing scope separately asserts
+the closed-schema denial. Valid TUI3 counterparts and independent missing,
+duplicate, reordered, altered-policy, raw-byte and checksum-inventory denials
+remain required. The complete Windows published v3 body inside v4 includes
+successful localOperatorLockout; missing or unsuccessful lockout remains denied
+by the real aggregate, with original provider/downloaded bytes equal before
+semantics. Linux retains its original scenario requirements.
+
+The actual Admin aggregate held-buffer race fixture must install and restore
+the exact Array.prototype.filter descriptor without relying on Node22
+MockTracker.method accepting an Array. Observe both platform selectors after
+their complete held-body semantics and require wrapper refs from the original
+buffers despite later pathname replacement. Restore the descriptor on every
+outcome. Fixtures are SURROGATE / UNRUN until different ENTIRE source review
+and NEW complete-input ROOT admission. No production validator, closed schema,
+positive proof, deadline, pin, provider authority, native/private custody or
+other natural failure is relaxed; complete original #1562 delivery remains open.
+
 Contract work, native proof, publication, catalog pins, both fixed consumer qualifications, Core packaging, published qualification and owner GA are distinct states. Empty protected tool/template catalogs remain empty until actual evidence and separately reviewed pins-only change. #1628 corrects agent-added TUI hash-cycle, twelve-repository and CLI-inner-ZIP assertions; preserved earlier reviews/blueprints/failures remain historical and cannot authorize the corrected producer. Current cleanup EBUSY/native/operator/input/native observer/compiler/fixture/private custody/credential/provider gaps retain original failures and ownership. Darwin-exclusive prerequisites deferred; shared Windows/Linux prerequisites remain blockers. Input APIs and grammar unchanged; separate input architecture owns actual non-destructive source preservation and deadlines, not stronger agent-invented finite syscall/noatime assumptions. No merge/source review establishes technical readiness. ADR rollback preserves every failed/private/immutable artifact.
 
 ## Exact scoped dispatch and selector appendix
@@ -159,3 +188,32 @@ The new entrypoint filenames are Core `core-development-candidate-scoped.yml`, `
 All target host matrices have Windows then Linux canonical evidence order regardless of scheduler order. New receipts in R3 bind policy via enclosing scope and immutable byte ref. Underlying local native receipts retain original private grammar; only the enclosing scope-aware producer/aggregate evidence may qualify them. CLI portable supported runtime order remains win32/linux/darwin. TUIv3 nested keys are source(commit,ref,repository), release(draft,immutable,prerelease,tag), checksumManifest(name,sha256), assets(executable,name,platform,sha256). TUI checksum is SHA256SUMS.txt and public manifest is candidate-manifest.json; exactly2 archive-only checksum entries. New scope wrapper is not uploaded as an extra candidate asset.
 
 Validation inventory must include selectors from both workflow and artifact APIs, terminal cancelled/skipped jobs, empty/extra artifacts, prior attempts, wrong policy with valid original bytes, and no caller downgrade. Publisher final evidence and private draft journal use source-owned scoped wrapper plus R3 publication metadata; existing private phase receipts remain unchanged in meaning, never treated as final Core admission.
+
+### PR1638 original provider-to-consumer correction (2026-10-04)
+SPEC-008 R3/R4/R6 requires original provider ZIP member bytes to bind the actual downloaded files before any decoding, parsing, archive preflight or startup. The published aggregate holds raw downloaded buffers, compares the exact original member inventory/bodies, and fatal-decodes those same verified buffers; decoded text re-encoding cannot establish custody. Candidate provider ID/digest/current successful producer/source/run/attempt/retention checks execute in the consumer process and return the exact six original members; all six held downloaded buffers must equal them before candidate semantics and same-held-buffer extraction. Prospective actual caller regressions cover identical members reaching semantics, coherent Core archive/manifest/sums replacement, one-byte and invalid UTF8 differences, digest/inventory substitutions, and classified prebrowser failure. Source-only correction retains every R1-R7 obligation, EMPTY catalogs, two Template roles/twenty gates and original native gates. Tests remain UNEXECUTED pending different entire-source review and NEW complete-input ROOT admission; PR1637 npm defect remains separately deferred.
+PR1638 R5 credential binding: only the final protected release publisher receives the environment-scoped DEVELOPMENT_CANDIDATE_TOKEN. No github.token/GITHUB_TOKEN fallback is eligible for the Administration-read policy endpoints. Actual secret provisioning/capability remains unproved; absent credential fails before acquisition or writes. Keep environment ID20898438221, latest same-candidate scoped authority/app15368 and every per-write control unchanged. Build/read-only credentials and npm registry credential remain independently scoped.
+
+### PR1638 scoped Admin original-buffer continuity (F3)
+R2/R3/R6 requires the scoped packaged Admin caller to retain exact provider-member and compared downloaded Buffer maps for both platforms. Complete existing initial-projection, Admin metadata and consumer/prebrowser receipt semantics consume those same compared Buffers through a separate reader adapter; final success refs hash only the same validated metadata Buffers. No pathname reopen may introduce later bodies. Preserve legacy pathname reader behavior, closed inventories, fatal scoped UTF8, strict JSON, native/private/public grammar, current job/attempt identities, deadlines and classified failure denial. Actual caller prospective regressions cover original success, coherent replacement after comparison, postvalidation metadata replacement, invalid UTF8, digest/body/inventory substitution and classified prebrowser failure. All remain UNEXECUTED before different entire-source review and NEW complete-input ROOT admission. All R1-R7/F1/F2 obligations and honest EMPTY production catalogs remain required.
+
+
+## PR1638 entire develop integration and scoped owning observations (2026-10-04)
+
+Development SOURCE ONLY, same issue1626 retained author unit. Normal integration uses exact develop c3632a87a83b9377b67752a0059e83f673403b8b after history1646, Core1653/CLI41 F4 and legacy1652 landing. Preserve all original R1-R7/F1/F2/F3/R5 source, protected retry/consumer/provider segments, private failures and complete incoming contracts. Historical6750 SOURCE GO does not transfer.
+
+SPEC-006 AC-6G.owning-resource-observation and SPEC-008 R2/R5/R7 require the ACTUAL scoped packaged MCP route to retain the original shared owning grammar: candidate command, four provenance commands, nested pack command, stage lock, installation and consumer command; strict closed consumer stderr relay on success and failure. Unreached allocations remain not_created; exit and close remain distinct, awaited lock release/finally precedence and original Error ownership remain. Use ownedCommandStderr for an own data stderr string; no external getter vulnerability is established. Finite private-safe stderr observations never extend any closed public success/native proof schema or invent resource custody.
+
+The scoped verifier must also carry the landed Windows npm descriptor selection from issue1650: fixed actual process.execPath sibling npm-cli.js selected before ambient overrides, unchanged non-Windows routing and outer npmEntrypoint diagnostic seam. Original300000ms install/900000ms consumer/60000ms provenance, cleanup eight attempts and native/published same-byte acceptance remain unchanged. Source helper is never copied over published Core.
+
+Meaningful prospective fixtures exercise actual scoped allocation/candidate/provenance/staging/install/consumer/catch/finally bodies, original shared resource grammar and forged/private/unknown/contradictory stderr negatives, unreached resources and error/cleanup precedence. They are UNEXECUTED; different fresh ENTIRE cumulative source review and NEW complete-input ROOT admission precede any import/parser/compiler/build/npm/test/native invocation. EMPTY catalogs, provider original ZIP/private Admin/held-buffer custody, native1640 NO-GO, F7 unknown causes, full Windows/Linux released journeys/TUI five actions/Core ZIP and owner GA gates remain unchanged. Parent owns tracking/landing.
+
+
+## PR1638 F1/F2 entire-review correction (2026-10-05)
+
+Development SOURCE ONLY continuation of issue #1626 at retained bca254a4233a1297626caf6c38aa9b658fb913f8. The complete independent128/58/22-path review is SOURCE NO-GO for F1 policy checkout transformation and F2 early PTY child cleanup; neither earlier GO nor byte replay qualifies the corrected source.
+
+SPEC-008 R1/R5 require physical canonical policy bytes to remain exactly445 LF bytes, SHA256159d644c161cf532c94d3bfe17ed55e32bf94c5d2843928945c450f6d8140c12 and the original pinned Git blob/schema/provenance. Add only the exact policy -text attribute to exclude Git checkout newline translation, including core.autocrlf=true; no policy rewrite, new pin or broad normalization. Prospective real Git filter cases must prove exact bytes under true/false/input and demonstrate the original unprotected transformation.
+
+SPEC-008 R6/R7 require both actual scoped and legacy generated PTY owners to establish cleanup status before any startup/connected/help action can fail. Preserve the primary exception, exact forked-child kill/wait and PTY descriptor close, original20-second startup/5-second help/q deadlines, unavailable and connected-positive assertions, help/navigation and clean q-exit. Meaningful prospective cases execute the actual generated run_case body against owned failing startup/help children and independently observe exact kill/reap/descriptor close and retained original error; fixture behavior is not native TUI acceptance.
+
+Prepare this coherent two-finding source correction only. Existing R1..R7/TC01..TC12/CA01..CA08, complete incoming integration, protected preparer bodies, all original failures/private custody, empty catalogs, native1640 NO-GO/F7 absence and actual Windows/Linux released/published/operator gates remain unchanged. New authored cases remain UNEXECUTED until a DIFFERENT fresh ENTIRE corrected-source GO and NEW complete-input ROOT admission. Parent owns issue tracking/landing. No parser/import/compiler/build/Node/npm/test/native invocation, main, provider controls/dispatch/rerun, release or cleanup.

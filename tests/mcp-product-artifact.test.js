@@ -7,6 +7,7 @@ import { createServer } from "node:http";
 import { once } from "node:events";
 import { promisify } from "node:util";
 import { ZipArchive } from "./helpers/zip-fixture.mjs";
+import { assertManagedClosureSourceConformance } from "./helpers/core1681-managed-closure-source-contract.mjs";
 import {
   MCP_PACKAGED_COVERAGE_KEYS,
   MCP_PRODUCT_EVIDENCE_CONTRACT,
@@ -89,6 +90,188 @@ test("#864 guarded diagnostic acquisition is time- and size-bounded", async () =
   } finally {
     server.closeAllConnections?.();
     await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("#1681 AC-4DI.4 G1 actual-source closure guard rejects ownership and ordering drift", async () => {
+  // These are source-conformance vectors. They do not invoke the C# launcher or
+  // create native outcomes, and cannot qualify the retained executable images.
+  const source = await readFile("src/runtime/execution/windows-managed-launcher-native.cs", "utf8");
+  assert.doesNotThrow(() => assertManagedClosureSourceConformance(source));
+  const vectors = [
+    ["disposal before containment", "RunManagedInvocation", "try { ContainManagedJobBeforeFileRelease(", "invocation.Files[0].Dispose(); try { ContainManagedJobBeforeFileRelease("],
+    ["file release before outer finally", "RunManagedInvocation", "targetAssignedToJob = true;", "targetAssignedToJob = true; invocation.ReleaseFile(boundFiles[0], 0);"],
+    ["wrong original file", "ReleaseFile", "File = file, Attempted = true", "File = null, Attempted = true"],
+    ["wrong original ordinal", "FinishManagedReleases", "invocation.ReleaseFile(invocation.Files[ordinal], ordinal)", "invocation.ReleaseFile(invocation.Files[ordinal], ordinal + 1)"],
+    ["missing original exception capture", "ReleaseFile", "original.Exception = failure; original.Failed = true;", "original.Failed = true;"],
+    ["missing original object retention", "ReleaseFile", "Outcomes.Add(original);", "// original was not retained"],
+    ["repeated attempt after earlier outcome", "ReleaseFile", "if (previous != null) return previous.Closed;", "// retry bypasses previous outcome"],
+    ["missing original failure fold", "ReleaseFile", "Failed |= original.Failed;", "// failed result was not folded"],
+    ["missing same-owner failure retention", "FinishManagedReleases", "if (invocation.Failed) RetainManagedInvocation(invocation);", "// failed invocation escapes"],
+    ["later safe releases conditioned on earlier close", "FinishManagedReleases", "invocation.Release(ref process,", "if (!invocation.Failed) invocation.Release(ref process,"],
+    ["early success bypass", "RunManagedInvocation", "return invocation.PrimaryResult;", "return 0;"],
+    ["unknown containment skips retention", "RunManagedInvocation", "RetainManagedInvocation(invocation);", "// unknown containment escapes"],
+    ["lost live owner", "RetainManagedInvocation", "GC.KeepAlive(owner);", "GC.KeepAlive(null);"],
+    ["unreachable release decoy", "ReleaseFile", "Outcomes.Add(original);", "if (false) { Outcomes.Add(original); }"],
+    // Both distinct05 finding classes preserve ALL original mandatory phrases.
+    // A blacklist for goto alone cannot exclude these added effects or aliases.
+    ["forward jump skips every safe release", "FinishManagedReleases", 'invocation.Release(ref thread, "target-thread-release", 0);', 'goto OriginalReleaseEnd; invocation.Release(ref thread, "target-thread-release", 0);'],
+    ["forward jump escapes same-owner retention", "RetainManagedInvocation", "for (;;)", "goto Escaped; for (;;)"],
+    ["uncaptured throw precedes containment", "RunManagedInvocation", "try { ContainManagedJobBeforeFileRelease(", "throw new InvalidOperationException(); try { ContainManagedJobBeforeFileRelease("],
+    ["extra Close before original attempted lookup", "ReleaseFile", "OriginalObservation previous =", "file.Close(); OriginalObservation previous ="],
+    ["original exception overwritten after capture", "ReleaseFile", "Failed |= original.Failed;", "original.Exception = null; Failed |= original.Failed;"],
+    ["ordered original ledger RemoveAt", "ReleaseFile", "Outcomes.Add(original);", "Outcomes.Add(original); Outcomes.RemoveAt(Outcomes.Count - 1);"],
+    ["original roster lost through bound alias", "RunManagedInvocation", "boundFiles.Add(boundFile);", "boundFiles.Add(boundFile); boundFiles.Clear();"],
+    ["actual ref handles zeroed after owner saved", "RunManagedInvocation", "invocation.Thread = threadHandle;", "invocation.Thread = threadHandle; threadHandle = IntPtr.Zero; processHandle = IntPtr.Zero;"],
+    ["roster alias handed to unknown mutating call", "RunManagedInvocation", "boundFiles.Add(boundFile);", "boundFiles.Add(boundFile); MutateOriginalRoster(boundFiles);"],
+    ["new roster alias mutates same list", "RunManagedInvocation", "boundFiles.Add(boundFile);", "boundFiles.Add(boundFile); List<FileStream> alias = boundFiles; alias.RemoveAt(0);"],
+    ["new ledger alias removes original outcome", "ReleaseFile", "Outcomes.Add(original);", "Outcomes.Add(original); var ledgerAlias = Outcomes; ledgerAlias.Clear();"],
+    ["original exception modified by indirect call", "ReleaseFile", "Failed |= original.Failed;", "OverwriteOriginalException(original); Failed |= original.Failed;"],
+    ["unknown retirement call before containment", "RunManagedInvocation", "try { ContainManagedJobBeforeFileRelease(", "RetireAlias(invocation.Files); try { ContainManagedJobBeforeFileRelease("],
+    ["unknown call before attempted retirement", "ReleaseFile", "OriginalObservation previous =", "RetireIndirectly(file); OriginalObservation previous ="],
+    ["exception suppression in additional finally", "ReleaseFile", "Failed |= original.Failed;", "try { } finally { original.Exception = null; } Failed |= original.Failed;"],
+    ["additional release after original observation", "ReleaseFile", "Failed |= original.Failed;", "file.Dispose(); Failed |= original.Failed;"],
+    ["additional exception before remaining safe releases", "FinishManagedReleases", 'invocation.Release(ref process, "target-process-release", 0);', 'throw new InvalidOperationException(); invocation.Release(ref process, "target-process-release", 0);'],
+    ["ledger failure reset after all originals retained", "ReleaseFile", "return original.Closed;", "Failed = false; return original.Closed;"],
+    ["original finisher alias replaced", "RunManagedInvocation", "invocation.Thread = threadHandle;", "invocation.Thread = threadHandle; threadHandle = invocation.Job;"],
+    ["same-owner object reset before retention", "RetainManagedInvocation", "GC.KeepAlive(owner);", "owner = new ManagedInvocation(new List<FileStream>()); GC.KeepAlive(owner);"],
+    ["unknown finalizer call after legitimate containment", "RunManagedInvocation", "FinishManagedReleases(invocation, ref threadHandle, ref processHandle);", "UnknownMutation(invocation); FinishManagedReleases(invocation, ref threadHandle, ref processHandle);"],
+    ["accepted-looking infinite delay in caller", "RunManagedInvocation", "targetAssignedToJob = true;", "targetAssignedToJob = true; Thread.Sleep(Timeout.Infinite);"],
+    ["additional original-looking process creation", "RunManagedInvocation", "targetAssignedToJob = true;", "targetAssignedToJob = true; targetCreated = CreateProcessW(resolvedExecutable, commandLine, IntPtr.Zero, IntPtr.Zero, true, CreateSuspended, IntPtr.Zero, payload.workingDirectory, ref startupInfo, out processInformation);"],
+    ["unexamined direct owner field mutation", "RunManagedInvocation", "targetAssignedToJob = true;", "targetAssignedToJob = true; invocation.Files[0] = null;"],
+    ["original create disposition erased before handles saved", "RunManagedInvocation", "if (!targetCreated)", "targetCreated = false; if (!targetCreated)"],
+    ["hidden interpolation mutates original roster", "RunManagedInvocation", "boundFiles.Add(boundFile);", 'boundFiles.Add(boundFile); SetProgress($"{MutateOriginalRoster(boundFiles)}");'],
+    ["unknown property getter carries an indirect effect", "RunManagedInvocation", "targetAssignedToJob = true;", "targetAssignedToJob = true; failureExitCode = UnknownMutation.Value;"],
+    ["original failure result relabeled success", "RunManagedInvocation", "targetAssignedToJob = true;", "targetAssignedToJob = true; failureExitCode = 0;"],
+    // Distinct06: evaluating an empty IF still performs its original effect.
+    ["early duplicate resume predicate retains original tokens", "RunManagedInvocation", "failureExitCode = FailureExitCodeJobAssignment;", "if (ResumeThread(threadHandle) == UInt32.MaxValue) { } failureExitCode = FailureExitCodeJobAssignment;"],
+    ["early duplicate release predicate retains original tokens", "RunManagedInvocation", "failureExitCode = FailureExitCodeJobAssignment;", 'if (!invocation.Release(ref threadHandle, "target-thread-release", 0)) { } failureExitCode = FailureExitCodeJobAssignment;'],
+    ["duplicate assign predicate before original creation", "RunManagedInvocation", "ApplyTargetEnvironmentOverrides(", "if (!AssignProcessToJobObject(jobHandle, processHandle)) { } ApplyTargetEnvironmentOverrides("],
+    ["duplicate original exit-code predicate", "RunManagedInvocation", "if (!GetExitCodeProcess(processHandle, out exitCode))", "if (!GetExitCodeProcess(processHandle, out exitCode)) { } if (!GetExitCodeProcess(processHandle, out exitCode))"],
+    ["conditional resume skips actual successful path", "RunManagedInvocation", "if (ResumeThread(threadHandle) == UInt32.MaxValue)", "if (!targetCreated) if (ResumeThread(threadHandle) == UInt32.MaxValue)"],
+    ["nonnull actual containment early return retains whole body", "ContainManagedJobBeforeFileRelease", "if (!targetAssignedToJob &&", "if (invocation != null) return; if (!targetAssignedToJob &&"],
+    ["actual containment unassigned process alias erased", "ContainManagedJobBeforeFileRelease", "bool terminated =", "processHandle = IntPtr.Zero; bool terminated ="],
+    ["actual drain returns before accounting zero", "ContainManagedJobBeforeFileRelease", "while (true)", "if (invocation != null) return; while (true)"],
+    ["original job released before drain", "ContainManagedJobBeforeFileRelease", "while (true)", 'invocation.Release(ref jobHandle, "managed-job-release", 0); while (true)'],
+    ["actual native terminate effect repeated", "ContainManagedJobBeforeFileRelease", "bool jobTerminated =", "TerminateJobObject(jobHandle, 1); bool jobTerminated ="],
+    ["actual environment callee early return retains whole body", "ClearLaunchEnvironment", "string[] names =", "if (invocation != null) return; string[] names ="],
+    ["actual environment original name retired before ledger", "RetireEnvironmentName", "OriginalObservation original =", "Environment.SetEnvironmentVariable(name, null, EnvironmentVariableTarget.Process); OriginalObservation original ="],
+    ["actual target environment callee skips all names", "ClearTargetEnvironmentOverrides", "for (int index =", "if (invocation != null) return; for (int index ="],
+    ["actual environment apply forgets attempted original", "ApplyTargetEnvironmentOverrides", "invocation.EnvironmentOwners.Add(environmentOverride);", "if (false) { invocation.EnvironmentOwners.Add(environmentOverride); }"],
+    ["actual progress callee early return retains whole body", "RetireProgress", "progressToken = null;", "if (invocation != null) return; progressToken = null;"],
+    ["actual HMAC first attempt disposed before ledger", "RetireProgressOwned", "invocation.Progress = originalHmac;", "originalHmac.Dispose(); invocation.Progress = originalHmac;"],
+    ["actual original error erased in callee", "ThrowOriginalRetirementFailure", "if (original != null)", "original.Exception = null; if (original != null)"],
+    ["actual job configuration skips native effect", "ConfigureKillOnClose", "JobObjectExtendedLimitInformation information =", "return; JobObjectExtendedLimitInformation information ="],
+    ["actual progress initialization loses owner", "InitializeProgress", "progressHmac = new HMACSHA256(key);", "progressHmac = new HMACSHA256(key); progressHmac.Dispose();"],
+    ["actual progress observer disposes owner", "SetProgress", "digest = progressHmac.ComputeHash(phaseBytes);", "progressHmac.Dispose(); digest = progressHmac.ComputeHash(phaseBytes);"],
+    ["actual value callee reaches a hidden native effect", "IsFullyQualifiedWindowsPath", "if (String.IsNullOrWhiteSpace(value))", "ResumeThread(IntPtr.Zero); if (String.IsNullOrWhiteSpace(value))"],
+  ];
+  for (const [label, owner, needle, replacement] of vectors) {
+    const signatures = {
+      RunManagedInvocation: "internal static int RunManagedInvocation(",
+      ReleaseFile: "internal bool ReleaseFile(",
+      FinishManagedReleases: "internal static void FinishManagedReleases(",
+      RetainManagedInvocation: "internal static void RetainManagedInvocation(",
+      ContainManagedJobBeforeFileRelease: "private static void ContainManagedJobBeforeFileRelease(",
+      ClearLaunchEnvironment: "private static void ClearLaunchEnvironment(",
+      RetireEnvironmentName: "private static void RetireEnvironmentName(",
+      ClearTargetEnvironmentOverrides: "internal static void ClearTargetEnvironmentOverrides(",
+      ApplyTargetEnvironmentOverrides: "internal static void ApplyTargetEnvironmentOverrides(",
+      RetireProgress: "internal static void RetireProgress(",
+      RetireProgressOwned: "internal static void RetireProgressOwned(",
+      ThrowOriginalRetirementFailure: "private static void ThrowOriginalRetirementFailure(",
+      ConfigureKillOnClose: "private static void ConfigureKillOnClose(",
+      InitializeProgress: "private static void InitializeProgress(",
+      SetProgress: "private static void SetProgress(",
+      IsFullyQualifiedWindowsPath: "private static bool IsFullyQualifiedWindowsPath(",
+    };
+    const at = source.indexOf(signatures[owner]);
+    assert.ok(at >= 0, `${label}: actual owner exists`);
+    const after = source.slice(at);
+    assert.ok(after.includes(needle), `${label}: actual mutation anchor exists`);
+    let mutant = source.slice(0, at) + after.replace(needle, replacement);
+    // Complete compiling forward-jump shapes from distinct05, retaining all
+    // original release/retention statements as unreachable source decoys.
+    if (label === "forward jump skips every safe release") mutant = mutant.replace("if (invocation.Failed) RetainManagedInvocation(invocation);", "OriginalReleaseEnd: ; if (invocation.Failed) RetainManagedInvocation(invocation);");
+    if (label === "forward jump escapes same-owner retention") mutant = mutant.replace("GC.KeepAlive(owner);\r\n        }", "GC.KeepAlive(owner);\r\n        }\r\n        Escaped: ;").replace("GC.KeepAlive(owner);\n        }", "GC.KeepAlive(owner);\n        }\n        Escaped: ;");
+    assert.notEqual(mutant, source, `${label}: actual source changed`);
+    assert.throws(() => assertManagedClosureSourceConformance(mutant), /managed closure/u, label);
+    // A correct-looking original snippet outside the owning body cannot repair
+    // either lexical ownership or the independently required relational chain.
+    const decoy = `${mutant}\n/* unrelated original snippet: ${needle} */\n`;
+    assert.throws(() => assertManagedClosureSourceConformance(decoy), /managed closure/u, `${label}: outside-owner decoy`);
+  }
+  // Move COMPLETE original effectful branches while retaining each exactly once.
+  // Cardinality alone cannot reject these actual compiling lifecycle mutations.
+  for (const [label, begin, end, destination] of [
+    ["original resume moved before job assignment", "            if (ResumeThread(threadHandle)", "            if (payload.postResumeDelayMilliseconds", "            failureExitCode = FailureExitCodeJobAssignment;"],
+    ["original first native release moved before resume", '            if (!invocation.Release(ref threadHandle, "target-thread-release", 0))', "            failureExitCode = FailureExitCodeAcknowledgmentWrite;", "            failureExitCode = FailureExitCodeTargetResume;"],
+  ]) {
+    const at = source.indexOf(begin), stop = source.indexOf(end, at);
+    assert.ok(at >= 0 && stop > at && source.includes(destination), `${label}: complete original owner anchors`);
+    const originalBranch = source.slice(at, stop);
+    const mutant = source.replace(originalBranch, "").replace(destination, originalBranch + destination);
+    assert.notEqual(mutant, source);
+    assert.throws(() => assertManagedClosureSourceConformance(mutant), /managed closure original lifecycle effect order/u, label);
+  }
+  // Safe source variations exercise grammar roles rather than a production-body
+  // snapshot. They change structure while preserving observable closure effects.
+  const positiveVariations = [
+    ["braced prior-attempt return", "internal bool ReleaseFile(", "if (previous != null) return previous.Closed;", "if (previous != null) { return previous.Closed; }"],
+    ["braced failure gate", "internal static void FinishManagedReleases(", "if (invocation.Failed) RetainManagedInvocation(invocation);", "if (invocation.Failed) { RetainManagedInvocation(invocation); }"],
+    ["equivalent file-loop increment", "internal static void FinishManagedReleases(", "ordinal < invocation.Files.Count; ordinal++", "ordinal < invocation.Files.Count; ordinal += 1"],
+    ["original field initializer permutation", "internal bool ReleaseFile(", 'Site = "bound-file-release", Ordinal = ordinal,', 'Ordinal = ordinal, Site = "bound-file-release",'],
+    ["harmless release block and empty statement", "internal bool ReleaseFile(", "Outcomes.Add(original);", "{ ; Outcomes.Add(original); ; }"],
+    ["pure caller failed-retirement branch braces", "internal static int RunManagedInvocation(", "if (invocation.Failed) ThrowOriginalRetirementFailure(invocation);", "if (invocation.Failed) { ThrowOriginalRetirementFailure(invocation); }"],
+    ["pure containment failure branch braces", "private static void ContainManagedJobBeforeFileRelease(", "if (!jobTerminated) RetainManagedInvocation(invocation);", "if (!jobTerminated) { ; RetainManagedInvocation(invocation); ; }"],
+    ["pure callee prior-attempt branch braces", "private static void RetireEnvironmentName(", "if (invocation.Outcomes.Exists(o => o.Site == site && o.Ordinal == ordinal && o.Attempted)) return;", "if (invocation.Outcomes.Exists(o => o.Site == site && o.Ordinal == ordinal && o.Attempted)) { return; }"],
+    ["callee observation field initializer permutation", "internal static void RetireProgressOwned(", 'Site = "progress-retirement", Ordinal = 0,', 'Ordinal = 0, Site = "progress-retirement",'],
+    ["callee irreversible effect harmless block", "private static void ContainManagedJobBeforeFileRelease(", 'invocation.Release(ref jobHandle, "managed-job-release", 0);', '{ ; invocation.Release(ref jobHandle, "managed-job-release", 0); ; }'],
+  ];
+  for (const [label, signature, needle, replacement] of positiveVariations) {
+    const at = source.indexOf(signature), after = source.slice(at);
+    assert.ok(at >= 0 && after.includes(needle), `${label}: actual owning anchor exists`);
+    const variant = source.slice(0, at) + after.replace(needle, replacement);
+    assert.notEqual(variant, source);
+    assert.doesNotThrow(() => assertManagedClosureSourceConformance(variant), label);
+  }
+  // A real correct-looking method in another class must not supply the actual
+  // invocation's release role. The old global-signature lookup could select it.
+  const releaseAt = source.indexOf("internal bool ReleaseFile(");
+  const retainAt = source.indexOf("internal static void RetainManagedInvocation(", releaseAt);
+  assert.ok(releaseAt >= 0 && retainAt > releaseAt);
+  const enclosed = source.slice(releaseAt, retainAt);
+  const releaseMethod = enclosed.slice(0, enclosed.lastIndexOf("}"));
+  const wrongOwner = source.replace("internal bool ReleaseFile(", "public bool ReleaseFile(")
+    .replace("public static int Main()", `internal sealed class UnrelatedOwner {
+      internal readonly List<OriginalObservation> Outcomes = new List<OriginalObservation>();
+      internal bool Failed;
+      ${releaseMethod}
+    }
+    public static int Main()`);
+  assert.throws(() => assertManagedClosureSourceConformance(wrongOwner), /managed closure/u, "real unrelated method decoy");
+  const bindingMutants = [
+    ["outcome exception setter silently discards original", "internal Exception Exception;", "internal Exception Exception { get { return null; } set { } }"],
+    ["roster getter supplies a replacement alias", "internal readonly List<FileStream> Files;", "internal List<FileStream> Files { get { return new List<FileStream>(); } set { } }"],
+    ["ledger getter loses original observations", "internal readonly List<OriginalObservation> Outcomes = new List<OriginalObservation>();", "internal List<OriginalObservation> Outcomes { get { return new List<OriginalObservation>(); } }"],
+    ["constructor clears original acquired roster", "internal ManagedInvocation(List<FileStream> files) { Files = files; }", "internal ManagedInvocation(List<FileStream> files) { Files = files; files.Clear(); }"],
+    ["observation callee destroys original roster", "Failed |= failed;", "Files.Clear(); Failed |= failed;"],
+    ["native retirement callee loses original ledger", "original.Closed = CloseHandle(original.Handle);", "Outcomes.Clear(); original.Closed = CloseHandle(original.Handle);"],
+    ["source CLR alias changes original Thread binding", "using System;", "using System; using Thread = HiddenThread;"],
+    ["source member shadows CLR retention receiver", "public static int Main()", "private static HiddenThread Thread; public static int Main()"],
+    ["native release binding calls another entry point", '[DllImport("kernel32.dll", SetLastError = true)]\r\n    [return: MarshalAs(UnmanagedType.Bool)]\r\n    private static extern bool CloseHandle', '[DllImport("kernel32.dll", EntryPoint = "AnotherClose", SetLastError = true)]\r\n    [return: MarshalAs(UnmanagedType.Bool)]\r\n    private static extern bool CloseHandle'],
+    ["native containment binding calls another entry point", 'private static extern bool TerminateJobObject(IntPtr job, uint exitCode);', 'private static bool TerminateJobObject(IntPtr job, uint exitCode) { return true; }'],
+    ["native accounting field has a forged getter", 'public uint ActiveProcesses;', 'public uint ActiveProcesses { get { return 0; } set { } }'],
+    ["payload pure predicate hides original release getter", 'public int postResumeDelayMilliseconds { get; set; }', 'public int postResumeDelayMilliseconds { get { CloseHandle(IntPtr.Zero); return 0; } set { } }'],
+    ["original CLR exception constructor shadowed", 'public static int Main()', 'private sealed class InvalidOperationException : Exception { public InvalidOperationException(string value) { } } public static int Main()'],
+  ];
+  for (const [label, crlfNeedle, crlfReplacement] of bindingMutants) {
+    const needle = source.includes("\r\n") ? crlfNeedle : crlfNeedle.replaceAll("\r\n", "\n");
+    const replacement = source.includes("\r\n") ? crlfReplacement : crlfReplacement.replaceAll("\r\n", "\n");
+    assert.ok(source.includes(needle), `${label}: actual declaration/callee anchor`);
+    const mutant = source.replace(needle, replacement);
+    assert.throws(() => assertManagedClosureSourceConformance(mutant), /managed closure/u, label);
+    assert.throws(() => assertManagedClosureSourceConformance(`${mutant}\n/* original binding: ${needle} */\n`), /managed closure/u, `${label}: outside-owner declaration decoy`);
   }
 });
 
@@ -250,7 +433,7 @@ function evidence(candidateSha, platform) {
     packageArchiveSha256: "a".repeat(64),
     sdk: {
       packageName: "@modelcontextprotocol/sdk",
-      version: "1.30.1",
+      version: "1.31.0",
       protocolVersion: "2025-11-25",
       supportedProtocolVersions: ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05", "2024-10-07"],
     },
@@ -292,6 +475,7 @@ test("#864 retained evidence rejects incomplete, inflated, unexpected, or malfor
     (value) => { value.credentials = "not-allowed"; },
     (value) => { value.sdk.unexpected = "passed"; },
     (value) => { value.sdk.version = "1.29.0"; },
+    (value) => { value.sdk.version = "1.30.1"; },
     (value) => { value.inspector.version = "2.3.0"; },
     (value) => { value.packageArchiveSha256 = "not-a-digest"; },
     (value) => { value.canonical.discovery = "failed"; },
@@ -612,7 +796,7 @@ test("#864 retained evidence verifies downloaded content, exact SHA, three OSes,
     assert.match(managedLauncherManagedSource, /releaseToken[\s\S]*?filesBoundToken[\s\S]*?continueToken[\s\S]*?ackToken/u);
     assert.match(managedLauncherManagedSource, /HMACSHA256[\s\S]*?RetireProgress[\s\S]*?ClearLaunchEnvironment/u);
     assert.match(managedLauncherManagedSource, /AssertBootstrapEnvironmentSanitized[\s\S]*?ApplyTargetEnvironmentOverrides[\s\S]*?CreateProcessW[\s\S]*?ClearTargetEnvironmentOverrides/u);
-    assert.match(managedLauncherManagedSource, /targetAssignedToJob = true[\s\S]*?ContainManagedJobBeforeFileRelease[\s\S]*?boundFile\.Dispose/u);
+    assertManagedClosureSourceConformance(managedLauncherManagedSource);
     assert.match(managedLauncherManagedSource, /ContainManagedJobBeforeFileRelease[\s\S]*?TerminateJobObject[\s\S]*?ActiveProcesses == 0/u);
     assert.doesNotMatch(managedLauncherManagedSource, /Reflection\.Emit|Add-Type|Process\.Start|PowerShell/u);
     const managedLauncher = await readFile("src/runtime/execution/windows-managed-launcher-managed.exe");
