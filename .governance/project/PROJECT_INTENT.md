@@ -651,3 +651,5 @@ The same CSS graph observer must retain actual original compilation.chunkAsset e
 Before completing the CSS compiler-source proposal, bind ENTIRE genuine official webpack5.109.2 published archive inventory (including Compilation/ModuleGraph/ChunkGraph/RealContentHashPlugin/TemplatedPathPlugin and package/main/helper sources) to unchanged lock integrity/URL/version and actual installed file hashes before either build. This closes version-only compiler provenance; saved tag-source API reads are separately retained and do not replace npm installed-byte equality. No lock/package/resolver/library changes or local target execution.
 
 Owner decision 2026-10-08 (#1732): default extracted secret files to Broker-owned RAM WebDAV with per-launch read-only loopback grants; retain env delivery and explicit Linux tmpfs alternative. Application storage after delivery is outside Core acceptance.
+
+Owner scope update #1734: ordinary test-created temporary directory teardown uses SPEC-012 trusted disposable-fixture ownership; it does not gate Service Lasso recovery on hostile same-UID writer exclusion. Strong default custody and native F7 contracts remain separate.
