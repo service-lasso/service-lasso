@@ -1,19 +1,31 @@
 # Backlog
 
-- #1743, in_review: SPEC-011 ESM-13; Broker #201 and Echo #14.
+- #1743, done: SPEC-011 ESM-13; Core PR #1744, Broker PR #202 and Echo PR #15 merged.
   Correct vault-to-file ownership and execute a complete runnable reference.
   Corrected full-manifest Echo preparation/launch/check and missing-secret denial
   passed on Ubuntu (21 focused tests, no skips); Windows focused checks passed
   (15 passed, 6 platform skips). Broker RAM tests passed on both; its broader
   retention failure remains tracked separately under Broker #199. Docs build,
   17 publication checks, capability ledger and tooling audit passed.
-  #1740 publication awaits governed source landing and an exact live receipt.
+  #1740 publication completed from merged source d63443e94d52608407ffb29888cdaa1e987f848d.
 
-- #1740, in_review: SPEC-011 ESM-12. Advanced secure secret provisioning
+- #1740, done: SPEC-011 ESM-12/13. Advanced secure secret provisioning
   lesson, reference reconciliation, owner-authorized Pages publication and live
-  index/article/source-receipt verification. Documentation only. Local docs
+  index/article/source-receipt verification. Original docs PRs #1741/#1742 were
+  corrected by #1744 after the owner's Broker-owned provisioning clarification.
+  The lesson now has a full manifest plus executable Echo setup/check commands.
+  Local docs
   build, 17 publication tests, zero-vulnerability tooling audit, ledger and
-  literal-preservation checks passed; live publication remains pending.
+  literal-preservation checks passed. Pages run 37786745214 built/deployed
+  successfully; live index link, lesson, rendered diagram and publication receipt
+  were verified at source d63443e94d52608407ffb29888cdaa1e987f848d. This is docs
+  publication and scoped source verification, not a binary release or GA claim.
+
+- #1745, open: SPEC-006 AC-6G / SPEC-002 AC-4BH. Track the pre-existing
+  Windows managed-launcher C# source/provenance digest mismatch on develop
+  22516fbe and unchanged feature head fbb5aeee. Preserve the exact-byte consumer
+  gate and original assets; reconcile through the existing native owner path.
+  Whole Core qualification remains unpassed separately from ESM-13.
 
 - #1738, in_review: SPEC-011 ESM-11. Broker RAM WebDAV inventory management
   proxy, explicit GET/query allowlists, permission and real IPC verification.
