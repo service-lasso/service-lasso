@@ -210,3 +210,29 @@ one fail. Track it separately in #1736. Windows new teardown-unit checks pass
 (two pass/one POSIX-only skip), but existing Windows privacy initialization and
 broader CI failures remain unqualified. All seven natural Ubuntu crash-phase CI
 jobs passed at5a01bcfd. No product runtime changes or release/deployment claim.
+
+## #1736 closed Linux qualification (2026-10-08)
+
+The nine follow-up failures are resolved. Eight needed genuine host test tools;
+one exposed a product bug: service-specific start confirmations included
+unrelated services' installed/configured executable revisions. PR1737 scopes
+that binding to actual service-start mutation targets at preflight and execution.
+Stable dependency context, actual input-tamper rejection, actor-scoped replay,
+runtime-wide action bindings and restart bindings remain intact. Original test
+assertions are unchanged.
+
+The configured full Ubuntu Server/Node22.23.3 run at
+`2bddf203537eb7037ec6faa62e5f44d598b0211e`, tree
+`9e8f9d39d10312ac2e4ea3d44c228cbfa5855b09`, naturally closed with exit0:
+1,966 tests,1,879 passed,87 existing platform skips,zero failures. Actual
+PowerShell/lsof/Python commands, the root-owned foreign-owner fixture and native
+Broker executable were supplied privately. Tracked source remained unchanged;
+the generated Python cache is retained disposable audit-checkout state. Private
+raw logs and the closed receipt remain retained alongside the original failures.
+
+Native Ubuntu durable HTTP/guarded-action scope:25 pass,one platform skip,zero
+failures. Windows same scope:26 pass,zero skips or failures. This includes the
+existing real dependency/executable-tamper cases. Natural Linux CI process-tree,
+allocation,generation,Broker IPC and all seven crash-phase jobs also pass.
+Whole Windows custody, docs tooling-audit CI and release qualification remain
+separate; no global CI, GA, publication or deployment claim follows.

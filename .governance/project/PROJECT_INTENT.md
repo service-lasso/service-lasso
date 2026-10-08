@@ -653,3 +653,9 @@ Before completing the CSS compiler-source proposal, bind ENTIRE genuine official
 Owner decision 2026-10-08 (#1732): default extracted secret files to Broker-owned RAM WebDAV with per-launch read-only loopback grants; retain env delivery and explicit Linux tmpfs alternative. Application storage after delivery is outside Core acceptance.
 
 Owner scope update #1734: ordinary test-created temporary directory teardown uses SPEC-012 trusted disposable-fixture ownership; it does not gate Service Lasso recovery on hostile same-UID writer exclusion. Strong default custody and native F7 contracts remain separate.
+
+## Linux qualification correction (#1736)
+SPEC-013 LQ-1..4 resolves the nine remaining Ubuntu failures: genuine test tools
+and target-scoped start executable revisions. SPEC-006 AC-6E/AC-6F remain the
+confirmation, actor-scoping and replay contracts. Runtime-wide actions and
+restart behavior retain their existing executable scope. No release/deployment.

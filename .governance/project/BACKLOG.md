@@ -1033,3 +1033,15 @@ saved cleanup failures pass. Full Ubuntu run1966:1870 pass,87 skips,9 fail; eigh
 host-tool failures pass in subsequent direct checks. #1736 tracks the independent
 unchanged-parent HTTP replay failure; whole-suite and Windows qualification remain
 incomplete. Native F7 architecture remains separate from ordinary test teardown.
+
+#1736 In progress: SPEC-013 LQ-1..4 / SPEC-006 AC-6E,AC-6F. Supply actual missing
+Linux test prerequisites and remove unrelated executable lifecycle revisions from
+service-specific start confirmations. Preserve original guarded negative tests
+and naturally close the full Ubuntu suite. Base develop3baf9667; private issue
+worktree preserves inherited primary deletions/audit state and old owner branches.
+
+#1736 Verified / PR1737 landing: SPEC-013 LQ-1..4 satisfied. Full Ubuntu immutable
+2bddf203:1966 tests,1879 pass,87 existing skips,0 fail,natural exit0. Original nine
+failures pass; docs explain genuine test tools. Ubuntu scoped25 pass/1 skip;
+Windows scoped26 pass. Existing Windows custody/docs CI/release gates remain
+outside this scoped completion. Owner authorizes develop merge; no deployment.

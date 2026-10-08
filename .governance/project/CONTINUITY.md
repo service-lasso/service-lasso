@@ -179,3 +179,26 @@ Seven natural Ubuntu crash-phase CI jobs pass. New Windows teardown unit checks
 Targeted GOV-13 self-review confirms original observable assertions and default
 strong adversaries retained. Native F7 writer exclusion is not implemented or
 required for the owner's ordinary-fixture recovery scope. No release/deployment.
+Resuming at current develop3baf9667 in fresh fix/1736-linux-suite-replay. Owner
+requests all nine remaining failures fixed. Eight are missing actual host tools;
+private PowerShell/lsof/python inputs already prove those assertions. Diagnostic
+HTTP execution returns confirmation_plan_mismatch (409, expected202) because
+buildStartArtifactBindings includes every service's installed/configured
+executable revision. Correct service_start scope only; preserve runtime-wide and
+restart plans, stable dependency context, actor/replay/tamper checks. SPEC-013
+LQ-1..4 and SPEC-006 AC-6E/AC-6F record acceptance before product implementation.
+Original full-run receipt and baseline failure retained. No release/deployment.
+
+#1736 verified for develop landing / PR1737: SPEC-013 LQ-1..4 and SPEC-006
+AC-6E/AC-6F. Full native Ubuntu2bddf203/tree9e8f9d39:1966 tests,1879 pass,87
+existing platform skips,0 fail; natural exit0,closed receipt and original failures
+retained. Actual private PowerShell/lsof/python + native foreign-owner/Broker inputs
+supplied. Original nine cases all pass with unchanged assertions. Ubuntu scoped
+25 pass/1 platform skip; Windows scoped26/26 pass. Product correction scopes
+service-start executable revisions to actual mutation targets; runtime-wide,
+restart,dependency context,actor/replay/tamper guards unchanged. Full tracked
+source unchanged; remote Python cache is generated/disposable retained audit state.
+Windows whole custody/docs tooling CI/release remain separate and unqualified.
+Final verification-document update changes no runtime code; no rerun needed for
+unchanged executable behavior. Dedicated worktree clean after committed docs;
+primary inherited deletions/audit state and other owner branches preserved.

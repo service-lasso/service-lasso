@@ -466,3 +466,17 @@ Linux cleanup failures pass in scoped and full execution. Full natural run at
 tool failures pass after private tooling provision; unchanged-parent HTTP replay
 failure is tracked independently in #1736. Native F7, Windows whole custody and
 release/deployment qualification are not claimed. Deliver through PR1735/develop.
+
+## #1736 Linux nine-failure follow-up
+Active spec SPEC-013 LQ-1..4, SPEC-006 AC-6E/AC-6F. Before implementation, owner
+explicitly authorizes fixing all nine. Eight are missing host test tools; direct
+HTTP diagnostics show confirmation_plan_mismatch when another service's lifecycle
+changes the globally collected executable revisions. Select only service-start
+mutation target executables; retain dependency context and runtime-wide/restart
+scope. Original assertions remain. Full native qualification required.
+
+#1736 remediation verified: full native Ubuntu2bddf203/tree9e8f9d39 naturally
+closed exit0,1966 tests:1879 pass,87 existing platform skips,0 fail. All nine
+prior failures resolved; no assertions or platform applicability changed. Windows
+scoped26/26 pass and Ubuntu scoped25 pass/1 skip. PR1737 is the develop delivery
+path. Retain original receipts and separate Windows/docs/release investigations.
