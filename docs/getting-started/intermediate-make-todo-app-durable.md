@@ -7,7 +7,7 @@ title: Intermediate — Add PostgreSQL to the Todo service
 **Lesson code:** [02 — Database](https://github.com/service-lasso/lesson-todo/tree/develop/lessons/02-database).
 The folder contains this stage's complete service inventory, architecture and
 standalone run instructions, with the changes from the App checkpoint.
-The commands below continue your Core demo workspace.
+Use the runnable checkpoint below, or continue the Core demo authoring route later in this article.
 
 Continue the [managed Todo app lesson](beginner-todo-app.md). Add a second service,
 PostgreSQL, to the same Lasso inventory and make the Todo service depend on it.
@@ -61,6 +61,47 @@ These services also run inside Service Lasso. They support the application path 
 
 </details>
 
+
+## Run the published lesson checkpoint
+
+In the lesson repository from the previous article, prepare this separate checkpoint:
+
+```sh
+npm ci
+npm run setup -- 02
+npm run lesson:02
+```
+
+The host uses published Core and Admin and acquires the pinned service archives;
+no sibling build is needed. Open the printed loopback Admin URL, complete
+**Initialize Secrets Broker**, privately save and acknowledge its recovery
+material, and continue as local-root. Install/configure/start the application
+services in Admin, dependencies first, then open Todo's allocated Network URL.
+
+Fresh Intel macOS 11 checkpoints automatically select compatible Broker and
+managed Node 22 profiles for the machine's OS and CPU. Apple Silicon is a separate
+compatibility case; consult the [lesson platform prerequisites](https://github.com/service-lasso/lesson-todo#platform-prerequisites).
+Setup preserves existing manifests and data: retained Node 24 requires macOS
+13.5 or newer, and the older Broker requires macOS 12. Use a separate fresh
+learning folder for the new pins; do not overwrite a retained workspace.
+
+To carry your JSON history forward, stop both checkpoint hosts and back up `.workspace/01-app/services/todo/data/todos.json`. Copy it to `.workspace/02-database/services/todo/data/todos.json` before the first SQL start, only when the destination does not exist. Start PostgreSQL before Todo. Confirm the original items, add a new item, refresh and restart both services in dependency order.
+
+Type `shutdown` in the host terminal to stop this owned checkpoint. Restart
+with `npm run lesson:02`, then start managed services in Admin again,
+dependencies first. Host restart preserves data and does not automatically
+start the application stack. Do not run two hosts against one checkpoint.
+Checkpoints have separate state and do not copy data automatically.
+
+The first three stages use local learning access. [SSO](zitadel-sso-hub.md)
+has separate identity and platform prerequisites; this route does not establish
+Mac SSO support. The [desktop stage](package-todo-tauri.md) builds on Windows x64.
+
+## Core demo authoring route
+
+The steps below teach source packaging and manual imports in the Core demo.
+Their existing provider pins are separate from the fresh lesson checkpoint's
+Mac-compatible selection. On Intel macOS 11, use the checkpoint above.
 
 ## 1. Import PostgreSQL into the same inventory
 

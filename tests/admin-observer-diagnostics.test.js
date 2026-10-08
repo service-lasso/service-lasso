@@ -205,17 +205,43 @@ test("AC-4BY.2 R2 real invalid initial and timeout returns retain eventual obser
         instanceRegistryPath: path.join(root, "instances.json"),
         hostPortRegistryPath: path.join(root, "ports.json"),
       };
-      // This actual activated provider damages its own initial record. It
-      // creates no successful receipt/native identity and changes no validator.
-      await writeFile(provider, route === "invalid_initial" ? `
+      // Both failure routes begin after the observer's actual activation.
+      // Reading initial.json on spawn races its publication; exiting before
+      // activation can also retire the provider during native identity lookup.
+      // No fixture record substitutes for the observer's native proof.
+      await writeFile(provider, `
+        import assert from "node:assert/strict";
         import { readFile, writeFile } from "node:fs/promises";
         import path from "node:path";
-        const file = path.join(process.env.SERVICE_LASSO_ADMIN_PROVIDER_OBSERVER_ROOT, "initial.json");
-        const initial = JSON.parse(await readFile(file, "utf8"));
-        initial.provider = null;
-        await writeFile(file, JSON.stringify(initial) + "\\n");
-        process.exitCode = 7;
-      ` : "setTimeout(() => process.exit(7), 180);\n");
+        const root = process.env.SERVICE_LASSO_ADMIN_PROVIDER_OBSERVER_ROOT;
+        const deadline = Date.now() + 5_000;
+        let activation;
+        while (!activation && Date.now() < deadline) {
+          try { activation = JSON.parse(await readFile(path.join(root, "activation.json"), "utf8")); }
+          catch (error) {
+            if (error.code !== "ENOENT") throw error;
+            await new Promise((resolve) => setTimeout(resolve, 10));
+          }
+        }
+        assert.ok(activation, "fixture provider must reach actual observer activation");
+        assert.equal(activation.schema, "service-lasso.admin-provider-observer-activation.v2");
+        assert.equal(activation.private, true);
+        assert.equal(activation.state, "ACTIVATED");
+        assert.deepEqual(activation.source, ${JSON.stringify(source)});
+        assert.equal(activation.provider.pid, process.pid);
+        if (${JSON.stringify(route)} === "invalid_initial") {
+          const file = path.join(root, "initial.json");
+          const initial = JSON.parse(await readFile(file, "utf8"));
+          assert.equal(initial.nonce, activation.nonce);
+          assert.deepEqual(initial.source, activation.source);
+          assert.deepEqual(initial.provider, activation.provider);
+          initial.provider = null;
+          await writeFile(file, JSON.stringify(initial) + "\\n");
+          process.exitCode = 7;
+        } else {
+          setTimeout(() => process.exit(7), 180);
+        }
+      `);
       const result = await consumeWithDurableObserver(process.execPath, [provider], {
         cwd: root, observerRoot, source, inputs, timeoutMs: route === "timeout" ? 20 : 5_000,
         onObserverDiagnostic: () => {},
@@ -232,6 +258,16 @@ test("AC-4BY.2 R2 real invalid initial and timeout returns retain eventual obser
       assert.equal(channels.terminal.spawnError, false);
       assert.equal(channels.observation, "observer_closed_readback");
       assert.deepEqual(channels.source, source);
+      const activation = JSON.parse(await readFile(path.join(observerRoot, "activation.json"), "utf8"));
+      assert.equal(activation.schema, "service-lasso.admin-provider-observer-activation.v2");
+      assert.equal(activation.private, true);
+      assert.equal(activation.state, "ACTIVATED");
+      assert.deepEqual(activation.source, source);
+      assert.equal(activation.nonce, channels.nonce);
+      assert.equal(Number.isSafeInteger(activation.provider.pid) && activation.provider.pid > 0, true);
+      const initial = JSON.parse(await readFile(path.join(observerRoot, "initial.json"), "utf8"));
+      if (route === "invalid_initial") assert.equal(initial.provider, null);
+      else assert.deepEqual(initial.provider, activation.provider);
       for (const member of channels.channels) {
         const bytes = await readFile(path.join(observerRoot, member.name));
         assert.equal(bytes.length, member.bytes);

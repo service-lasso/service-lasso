@@ -144,6 +144,32 @@ TUI denial coverage additionally rejects third manifest sums row, duplicate/miss
 
 ## R7 — delivery state and unchanged blockers
 
+### #1562 scoped fixture boundary correction (2026-10-06)
+
+R2/R3/R6 govern the four deterministic fixture/harness mismatches retained in
+the natural 6f0dad qualification job 111872673279 (#916/#1533/#1536/#1538).
+This amendment permits fixture repairs with distinct entire review, not a change
+to protected acceptance semantics. A recognized CLI protected2 schema without
+scope must assert its exact closed-scope denial; an unknown version separately
+asserts candidate-schema denial. TUI schema downgrade with otherwise complete
+scope must reach the pinned-identity denial; missing scope separately asserts
+the closed-schema denial. Valid TUI3 counterparts and independent missing,
+duplicate, reordered, altered-policy, raw-byte and checksum-inventory denials
+remain required. The complete Windows published v3 body inside v4 includes
+successful localOperatorLockout; missing or unsuccessful lockout remains denied
+by the real aggregate, with original provider/downloaded bytes equal before
+semantics. Linux retains its original scenario requirements.
+
+The actual Admin aggregate held-buffer race fixture must install and restore
+the exact Array.prototype.filter descriptor without relying on Node22
+MockTracker.method accepting an Array. Observe both platform selectors after
+their complete held-body semantics and require wrapper refs from the original
+buffers despite later pathname replacement. Restore the descriptor on every
+outcome. Fixtures are SURROGATE / UNRUN until different ENTIRE source review
+and NEW complete-input ROOT admission. No production validator, closed schema,
+positive proof, deadline, pin, provider authority, native/private custody or
+other natural failure is relaxed; complete original #1562 delivery remains open.
+
 Contract work, native proof, publication, catalog pins, both fixed consumer qualifications, Core packaging, published qualification and owner GA are distinct states. Empty protected tool/template catalogs remain empty until actual evidence and separately reviewed pins-only change. #1628 corrects agent-added TUI hash-cycle, twelve-repository and CLI-inner-ZIP assertions; preserved earlier reviews/blueprints/failures remain historical and cannot authorize the corrected producer. Current cleanup EBUSY/native/operator/input/native observer/compiler/fixture/private custody/credential/provider gaps retain original failures and ownership. Darwin-exclusive prerequisites deferred; shared Windows/Linux prerequisites remain blockers. Input APIs and grammar unchanged; separate input architecture owns actual non-destructive source preservation and deadlines, not stronger agent-invented finite syscall/noatime assumptions. No merge/source review establishes technical readiness. ADR rollback preserves every failed/private/immutable artifact.
 
 ## Exact scoped dispatch and selector appendix
