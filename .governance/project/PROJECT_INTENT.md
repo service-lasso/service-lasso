@@ -1,5 +1,14 @@
 # Project Intent
 
+## Broker-owned vault-to-file provisioning (#1743)
+
+Owner correction: ask Broker for a secret in a file and receive its WebDAV
+path. Core forwards references and templates; Broker owns secret resolution
+and RAM rendering. SPEC-011 ESM-13 supersedes the previous plaintext roundtrip
+for file-only imports. Deliver and execute a complete Echo reference with
+setup/check code before corrected lesson publication. Documentation publication
+is authorized; binary release, GA and deployment are not part of this slice.
+
 ## Secure secret-file lesson (#1740)
 
 Development documentation work under SPEC-011 ESM-12: teach explicit file

@@ -4,93 +4,178 @@ title: Advanced - Provision Service Secrets Securely
 
 # Advanced - Provision Service Secrets Securely
 
-**Lesson code:** [Echo RAM WebDAV sample](https://github.com/service-lasso/lasso-echoservice/tree/develop/examples/webdav).
-The sample manifest and [consumer guide](https://github.com/service-lasso/lasso-echoservice/blob/develop/docs/webdav-example.md)
-show a managed service reading a Broker-backed JSON file without printing its
-value. Continue from a working [Service Admin and Echo workspace](../quick-start.md).
-This optional advanced lesson can also follow the Todo lessons; it uses Echo
-to make file consumption visible without changing your Todo data.
+**Lesson code:** [Complete runnable Echo reference](https://github.com/service-lasso/lasso-echoservice/tree/develop/examples/webdav).
+Continue from a working [Service Admin and Echo workspace](../quick-start.md).
+This optional advanced lesson uses a separate learning service.
 
 ## Outcome
 
-Declare a scoped secret import, ask for an ephemeral file, and let Core supply
-its location to the service. Read it through Broker's local RAM WebDAV listener,
-then use Admin to see its size and completed downloads. Stop/start the service
-and verify the file is recreated under a fresh grant.
+Ask Secrets Broker to provision a secret into a RAM file and return its WebDAV
+path. Core passes the path to Echo. Verify size, successful reads, recreation
+and denial using the executable checker and Admin's inventory.
 
 ```mermaid
 flowchart TB
-  accTitle: Provision a service secret file
-  accDescr: Core resolves a scoped secret from Broker, renders the declared file and returns it to Broker RAM. Echo receives a private directory in its environment and reads the file. Admin observes metadata and counters only.
-  broker[("Secrets Broker<br/>Encrypted vault + RAM files")]
-  core("Core<br/>Resolve, render, grant")
+  accTitle: Broker provisions a secret file and returns its path
+  accDescr: Core sends scoped refs and a secret-free template. Broker resolves internally and returns the WebDAV directory. Echo receives it and reads the file. Admin shows metadata.
+  core("Core<br/>Request provisioning, pass path")
+  broker[("Secrets Broker<br/>Resolve vault ref, provision RAM file")]
   echo("Echo<br/>Read supplied file")
-  admin("Service Admin<br/>Metadata and usage")
-  core -->|Scoped resolve over IPC| broker
-  broker -->|Current value| core
-  core -->|Rendered file over IPC| broker
-  core -->|Directory in child environment| echo
+  admin("Service Admin<br/>State, size and downloads")
+  core -->|Scoped refs and template over IPC| broker
+  broker -->|Private WebDAV directory| core
+  core -->|Returned directory in child environment| echo
   echo -->|Read over loopback WebDAV| broker
   admin -->|Authenticated inventory through Core| broker
 ```
 
-| Purpose | Component | Responsibility |
-| --- | --- | --- |
-| Orchestration | Core | Resolve declared imports, render ephemeral outputs before launch, pass their directory, revoke the grant on stop. |
-| Secrets | Secrets Broker | Retain the encrypted vault and serve temporary output bytes from bounded RAM under a scoped capability. |
-| Consumer | `echo-webdav` | Read the supplied JSON and expose safe read status. |
-| Management | Service Admin | Show listener state, RAM usage, file ownership, sizes, download counts and last access. |
+The file-only credential stays inside Broker until Echo downloads it.
+Core does not request its plaintext through `/v1/resolve` or render it locally.
+Explicit secret delivery in `env` remains supported separately.
 
 ## Before you start
 
-Use a separate learning service folder and a Broker that is initialized,
-unlocked and available to Core. Your operator needs permission to create the
-demo secret and workspace-read permission to inspect inventory.
+Use an initialized, unlocked Broker connected to your learning host, with
+secret-write permission and workspace-read permission for inventory. Use
+matching Core/Broker builds implementing Broker-owned reference-to-file
+provisioning, Admin's **Secrets Broker → RAM files** view and Echo's consumer.
+Older builds accepting only Core-rendered bytes do not implement this contract.
+Publishing documentation does not upgrade installed binaries.
 
-Use matching builds containing Core's RAM file-grant support, Broker's
-`/v1/file-grants` and `/v1/file-grants/status` APIs, Admin's **Secrets Broker →
-RAM files** page, and Echo's `/secret-file` consumer. These features landed in
-[Core #1739](https://github.com/service-lasso/service-lasso/pull/1739),
-[Broker #200](https://github.com/service-lasso/lasso-secretsbroker/pull/200),
-[Admin #692](https://github.com/service-lasso/lasso-serviceadmin/pull/692) and
-[Echo #13](https://github.com/service-lasso/lasso-echoservice/pull/13).
-Publishing this lesson does not upgrade existing installed packages.
+Install Node 22+ and the Go version in Echo's `go.mod` to prepare the sample.
+The prepared binary needs no Go installation at runtime. The setup command
+refuses an existing `echo-webdav` folder and preserves existing services.
 
-The source sample uses `go run .`: install the Go version required by Echo's
-`go.mod`. Packaged consumers retain their packaged executable and arguments.
-Native integration for this sample was checked on Ubuntu, with separate
-Windows IPC/UNC checks; this is not a qualification of every platform or account.
+## 1. Prepare the complete service
 
-## 1. Put the demo value in Broker
+From a terminal outside your host's services root:
 
-In Service Admin, open Secrets Broker's secret management view and create:
+```powershell
+git clone --branch develop --single-branch https://github.com/service-lasso/lasso-echoservice.git echo-secret-reference
+Set-Location echo-secret-reference
+$servicesRoot = Read-Host 'Existing services root for your learning host'
+node examples/webdav/prepare.mjs $servicesRoot
+```
 
-| Field | Demo value |
-| --- | --- |
-| Namespace | `shared/echo` |
-| Ref | `echo.DEMO_CREDENTIAL` |
-| Value | `synthetic-demo-credential` |
+Linux/macOS:
 
-The full stored reference is `shared/echo/echo.DEMO_CREDENTIAL`. Use this
-synthetic value for the lesson. Real credentials belong in Broker, not in a
-checked-in service manifest or template source.
+```bash
+git clone --branch develop --single-branch https://github.com/service-lasso/lasso-echoservice.git echo-secret-reference
+cd echo-secret-reference
+read -r -p 'Existing services root for your learning host: ' servicesRoot
+node examples/webdav/prepare.mjs "$servicesRoot"
+```
 
-## 2. Ask for file delivery in the service manifest
+The executable setup compiles Echo and writes its binary and complete manifest
+into the new `echo-webdav` service folder. All endpoints, health checks and
+secret declarations are retained. Windows uses `./echo-secret-demo.exe`;
+Linux/macOS use `./echo-secret-demo`. A failed build leaves the new folder for inspection.
 
-The [sample service.json](https://github.com/service-lasso/lasso-echoservice/blob/develop/examples/webdav/service.json)
-contains the following additions to a normal Echo manifest:
+This is the complete Linux/macOS manifest produced by the setup command:
 
 ```json
 {
-  "broker": {
-    "imports": [
-      {
-        "namespace": "shared/echo",
-        "ref": "echo.DEMO_CREDENTIAL",
-        "required": true
-      }
-    ]
+  "id": "echo-webdav",
+  "name": "Echo RAM WebDAV demo",
+  "description": "Go-based harness service used for Service Lasso integration, runtime hardening, and supervision testing.",
+  "version": "0.3.0",
+  "enabled": true,
+  "executable": "./echo-secret-demo",
+  "args": [],
+  "env": {
+    "ECHO_MESSAGE": "hello from echo-service harness",
+    "ECHO_PORT": "${endpoint.service.port}",
+    "ECHO_HTTP_HEALTH_PORT": "${endpoint.http_health.port}",
+    "ECHO_TCP_PORT": "${endpoint.tcp_health.port}",
+    "ECHO_LOG_PATH": "./runtime/echo.log",
+    "ECHO_STATE_PATH": "./runtime/state.json",
+    "ECHO_DB_PATH": "./runtime/echo.sqlite",
+    "SERVICE_LASSO_GLOBAL_ENV_JSON": "{\"ECHO_ENV_CHANNEL\":\"demo\"}",
+    "ECHO_SECRET_FILES_DIR": "${SERVICE_LASSO_SECRETS_DIR}",
+    "ECHO_SECRET_FILE_NAME": "demo-config.json"
   },
+  "endpoints": [
+    {
+      "id": "service",
+      "kind": "network",
+      "label": "Service HTTP",
+      "direction": "inbound",
+      "transport": "tcp",
+      "protocol": "http",
+      "bind": "127.0.0.1",
+      "port": {
+        "default": 4010,
+        "strategy": "preferred"
+      },
+      "exposure": "local",
+      "required": true,
+      "primary": true
+    },
+    {
+      "id": "http_health",
+      "kind": "network",
+      "label": "Dedicated HTTP health",
+      "direction": "inbound",
+      "transport": "tcp",
+      "protocol": "http",
+      "bind": "127.0.0.1",
+      "port": {
+        "default": 4011,
+        "strategy": "preferred"
+      },
+      "exposure": "local",
+      "required": true
+    },
+    {
+      "id": "tcp_health",
+      "kind": "network",
+      "label": "Dedicated TCP health",
+      "direction": "inbound",
+      "transport": "tcp",
+      "protocol": "tcp",
+      "bind": "127.0.0.1",
+      "port": {
+        "default": 4012,
+        "strategy": "preferred"
+      },
+      "exposure": "local",
+      "required": true
+    },
+    {
+      "id": "ui",
+      "kind": "url",
+      "label": "ui",
+      "target": "service",
+      "url": "http://${endpoint.service.bind}:${endpoint.service.port}/",
+      "exposure": "local",
+      "required": true,
+      "primary": true
+    },
+    {
+      "id": "service_health",
+      "kind": "url",
+      "label": "service",
+      "target": "service",
+      "url": "http://${endpoint.service.bind}:${endpoint.service.port}/health",
+      "exposure": "local",
+      "required": true
+    },
+    {
+      "id": "http_health_url",
+      "kind": "url",
+      "label": "http-health",
+      "target": "http_health",
+      "url": "http://${endpoint.http_health.bind}:${endpoint.http_health.port}/health",
+      "exposure": "local",
+      "required": true
+    }
+  ],
+  "healthchecks": [
+    {
+      "id": "process-ready",
+      "type": "process"
+    }
+  ],
   "config": {
     "files": [
       {
@@ -100,144 +185,124 @@ contains the following additions to a normal Echo manifest:
       }
     ]
   },
-  "env": {
-    "ECHO_SECRET_FILES_DIR": "${SERVICE_LASSO_SECRETS_DIR}",
-    "ECHO_SECRET_FILE_NAME": "demo-config.json"
+  "broker": {
+    "imports": [
+      {
+        "namespace": "shared/echo",
+        "ref": "echo.DEMO_CREDENTIAL",
+        "required": true
+      }
+    ]
   }
 }
 ```
 
-This is a fragment, not a complete runnable manifest. Keep the sample's
-executable, endpoints and other service fields. For source use, place its full
-manifest beside Echo's `main.go` as `service.json` in a separate service folder
-under your host's services root, and refresh service discovery. It appears as
-`echo-webdav`. For an existing packaged Echo, stop it before editing and merge
-the import, file and environment entries while retaining its executable/args.
+## 2. Create the demo secret in Broker
 
-Prepare a new source folder from a terminal outside your host's services root:
+In Service Admin, create namespace `shared/echo`, ref `echo.DEMO_CREDENTIAL`,
+value `synthetic-demo-credential`. The full stored reference is
+`shared/echo/echo.DEMO_CREDENTIAL`. Use this synthetic value for the lesson;
+actual credentials belong in Broker, not in checked-in manifests.
 
-```powershell
-git clone --branch develop --single-branch https://github.com/service-lasso/lasso-echoservice.git echo-webdav
-Copy-Item echo-webdav/examples/webdav/service.json echo-webdav/service.json
-```
-
-Move that new `echo-webdav` folder into your learning host's actual services
-root before refreshing discovery. Preserve any existing service folder; do not
-replace a retained Echo instance with this sample.
-
-| Declaration | What it requests |
+| Configuration | Meaning |
 | --- | --- |
-| `broker.imports` | Resolve a permitted value in a specific namespace. An import alone does not create a file. |
-| `config.files[].ephemeral: true` | Render the inline content into the secret-file provider before fresh launch. Ordinary files without this flag remain ordinary configuration. |
-| `config.templates[].ephemeral: true` | Render a secret-free packaged template into the provider instead; declare every Broker ref its content uses. |
-| `${SERVICE_LASSO_SECRETS_DIR}` in `env` | Pass Core's launch-specific directory to an environment variable the app actually supports. |
+| `broker.imports[].namespace` and `ref` | Bind the template selector to its permitted stored reference. |
+| `required: true` | Broker must find and authorize this reference; failure prevents spawn. |
+| `config.files[].ephemeral: true` | Ask Broker to provision the named file in RAM. |
+| `content` | A secret-free template; Broker substitutes the reference internally. |
+| `${SERVICE_LASSO_SECRETS_DIR}` | The private WebDAV directory returned by Broker and supplied at launch. |
+| `ECHO_SECRET_FILE_NAME` | Echo appends `demo-config.json` and reads it. |
 
-For a single-value file, set `content` to just the selector and pass
-`${SERVICE_LASSO_SECRETS_DIR}/password` to an app-supported variable such as
-`DB_PASSWORD_FILE`. `_FILE` names are conventions: Core does not infer them or
-convert arbitrary environment secrets into files. Environment-only secret
-delivery remains available through an explicit selector in `env`.
+An import alone does not create a file. The ephemeral declaration requests
+provisioning. `_FILE` names are app conventions; choose variables your consumer
+understands. Single-value files can use `${database.PASSWORD}` as content and
+`${SERVICE_LASSO_SECRETS_DIR}/password` as an app-supported path variable.
+Packaged secret-free templates use `config.templates[].ephemeral: true`.
+Broker substitutes text; it does not JSON-escape arbitrary credentials.
+The lesson value is JSON-safe. Arbitrary raw values suit a single-value file.
 
-Core performs text substitution, not JSON encoding. The lesson's synthetic
-value is JSON-safe. For real structured credentials, provide appropriately
-encoded content; do not assume quotes or newlines in a secret are escaped.
+## 3. Start through Core
 
-## 3. Start the service through Core
+Refresh discovery; Install, Configure and Start `echo-webdav` in Admin.
+The prepared sample requires no manual manifest assembly.
 
-Use Admin's Install/Configure actions when offered, then Start `echo-webdav`.
-Do not launch Echo directly: that would bypass the managed secret-file preparation.
+1. Core sends output names, secret-free templates and selector/ref bindings
+   with a fresh service/workspace/peer-bound launch lease.
+2. Broker authorizes and resolves internally, provisions bounded RAM files
+   and returns the private WebDAV directory.
+3. Core supplies that directory through the child environment and starts Echo.
+   No file-only plaintext resolve response returns to Core.
+4. Echo reads and validates the JSON, exposing only safe status.
 
-On a fresh launch, Core:
-
-1. Resolves the service's current scoped Broker imports. A missing or denied
-   required value prevents process spawn.
-2. Renders the declared ephemeral files/templates in memory.
-3. Sends the rendered outputs to Broker over authenticated local IPC with a
-   service/workspace/peer-bound launch lease. Broker creates a fresh RAM grant.
-4. Supplies its private directory through the declared child environment and
-   starts the app. Neither file bytes nor capability tokens become durable
-   lifecycle/configuration snapshots.
-
-The service gets a Windows UNC directory or a Linux/macOS HTTP directory.
-Echo converts the Windows directory to a loopback HTTP request, so this sample
-needs no mapped drive or Windows WebClient setup. Other apps must support their
-supplied URL or native UNC path; a Linux HTTP URL is not a POSIX file path.
-Apps that require a native Linux file path can explicitly use the
+Starting Echo directly cannot provision its file. Windows receives a UNC
+directory; Linux/macOS receive an HTTP directory. Echo converts Windows UNC
+to loopback HTTP, so this sample needs no mapping or WebClient setup.
+URLs are not POSIX paths. Native Linux files require the explicitly selected
 [tmpfs alternative](../reference/linux-app-secret-files.md).
 
-## 4. Prove the app read the file
+## 4. Run the checker and inspect usage
 
-Open Echo's allocated service HTTP endpoint from its Network view. Use that
-actual endpoint rather than assuming port 4010. In PowerShell:
+Copy Echo's allocated **Service HTTP** origin from Admin's Network view.
+From the example checkout:
 
 ```powershell
-$echoUrl = 'http://127.0.0.1:4010' # Replace with Echo's allocated service endpoint.
-Invoke-RestMethod "$echoUrl/secret-file"
-Invoke-RestMethod -Method Post "$echoUrl/secret-file"
+$echoOrigin = Read-Host 'Echo Service HTTP origin (http://127.0.0.1:<port>)'
+node examples/webdav/check.mjs $echoOrigin
 ```
 
-GET reports only `status`, `sizeBytes`, `reads` and `lastReadAt`; it does not
-reread the secret. Expect `ready` and at least one read from startup. POST
-rereads the JSON and increments Echo's successful read count. The response must
-not contain the credential or its capability path. `disabled` means the
-consumer is unconfigured; `unavailable` means reading or validating it failed.
-Echo's ordinary health status is separate from this optional consumer status.
+Linux/macOS: `node examples/webdav/check.mjs "$echoOrigin"` with the allocated
+origin. Do not assume port 4010. The executable checker verifies startup loaded
+a file, rereads it and requires the successful read counter to advance.
+For this exact synthetic value, a first check on an idle instance prints:
 
-Open **Secrets Broker → RAM files**. The inventory panel starts directly below
-the toolbar; there is no duplicate page heading above it. Filter by
-`echo-webdav` and find `demo-config.json`:
+```json
+{ "status": "loaded", "sizeBytes": 46, "reads": 2 }
+```
 
-- The listener is listening on loopback and the file has a nonzero size.
-- Successful file GETs increase completed downloads and bytes served. After
-  startup and one successful POST, an otherwise idle grant normally has two
-  completed downloads. Compare changes rather than assuming no other reader.
-- Last access updates after a completed file download. HEAD and directory
-  listings do not increment completed downloads.
+It exits nonzero for unavailable files, remote/redirected endpoints, invalid
+status or a counter that does not advance. `GET /secret-file` exposes safe
+status; `POST /secret-file` rereads. Ordinary Echo health alone is insufficient.
 
-The page polls every 30 seconds. Use Refresh files for an immediate update.
-Search and sort operate on the current page; use pagination for larger
-inventories. Names, sizes, ownership and counters are visible; contents and
-capability tokens are not. These are server write counters, not proof that an
-app saved or used the downloaded credential. Echo's safe read status supplies
-the consumer-side evidence for this lesson.
+Open **Secrets Broker → RAM files**, filter `echo-webdav` and Refresh files.
+Inspect listener state, RAM usage, ownership, size, completed downloads,
+bytes served and last access. `demo-config.json` should match Echo's size and
+show two downloads after startup and one checker run if there are no other
+readers. Repeat the checker to compare changes. HEAD/listings do not increment
+completed downloads. The page polls every 30 seconds; search/sort apply to
+the current page. Contents and capability tokens stay private. Server counters
+measure completed writes; Echo's status proves its received JSON was valid.
 
-## 5. Verify stop, replacement and failure
+## 5. Verify recreation and failure
 
-1. Stop only `echo-webdav` through Core. Refresh inventory: its grant disappears.
-2. Start it again. A new grant and file appear; counters start again. Core
-   resolves the current vault value and recreates outputs even if lifecycle
-   state already says configured. An already-running/adopted process retains
-   its existing grant instead.
-3. In this learning workspace, stop Echo, remove the synthetic demo ref and
-   try Start. The required import must prevent spawn. Restore the ref before
-   trying again; never remove a real application's secret for this exercise.
+1. Stop only this learning service through Core: its grant disappears.
+2. Start again: Broker provisions a fresh path/file from the current vault
+   value; counters restart. Configured state does not skip fresh provisioning.
+3. Stop, remove only the synthetic reference and try Start: provisioning must
+   fail before spawn. Restore it to recover. Preserve real application secrets.
 
 Replacement invalidates the old capability. Broker restart loses RAM grants;
-fresh service launches recreate them from the encrypted vault. A Core crash
-alone does not revoke a surviving Broker grant. If revocation IPC is unavailable,
-Core reports pending revocation; restore Broker and retry the normal action.
-Recreating an extracted file does not generate or rotate the stored secret.
+fresh launches provision again. Already-running/adopted processes retain their
+grant. A Core crash alone does not revoke surviving Broker grants. When
+revocation IPC fails, restore Broker and retry the normal pending action.
+Recreating a file does not rotate the vault secret.
 
 ## If the result differs
 
 | Symptom | Check |
 | --- | --- |
-| Start reports missing/denied import | Namespace/ref, service access policy and Broker unlocked/available state. |
-| File preparation fails before spawn | Matching Broker API support, valid relative output names, resolved selectors and RAM limits. There is no disk fallback. |
-| Echo reports disabled/unavailable | Both consumer environment entries, matching Echo build and valid JSON content. Ordinary Echo health alone is insufficient. |
-| Inventory is empty or stopped | Start a configured file consumer; importing an environment-only secret does not create a grant. |
-| Inventory reports permission denied or error | Workspace-read access and matching Core/Broker/Admin builds; live errors do not use demo data. |
-| Native app rejects the supplied path | Confirm HTTP/DAV or Windows UNC support; use Linux tmpfs only when a native path is required. |
+| Setup refuses the folder | Preserve the existing service; use a separate learning host/root. |
+| Provisioning fails before spawn | Matching API, namespace/ref policy, unlocked vault, relative names and RAM limits. No disk fallback. |
+| Echo reports unavailable | Consumer environment entries, matching binary and valid JSON. |
+| Inventory is empty | Start this file consumer; environment-only imports create no files. |
+| Inventory denies access | Workspace-read permission and matching Core/Broker/Admin builds. |
+| Another app rejects the path | Confirm HTTP/DAV or Windows UNC support; native Linux files require tmpfs. |
 
-Use only the safe status and metadata for screenshots or support reports.
-Capability paths are credentials even though they point at loopback. Broker
-serves the extracted bytes from RAM with read-only isolation and bounded
-requests; that does not prevent a consuming app from copying or logging them.
+Use safe metadata for screenshots/support. Capability paths are credentials
+even on loopback. Consumers can still copy or log the bytes they receive.
 
 ## Next steps
 
-Apply the same manifest pattern to your own service, using its supported path
-environment variable. Read the [service.json reference](../reference/service-json-reference.md),
+Read the [complete runnable reference](https://github.com/service-lasso/lasso-echoservice/tree/develop/examples/webdav),
+[service.json reference](../reference/service-json-reference.md),
 [startup resolution](../reference/startup-broker-resolution.md) and
-[RAM WebDAV delivery contract](../reference/ram-webdav-secret-files-review.md)
-for lifecycle, limits and access details.
+[RAM WebDAV delivery contract](../reference/ram-webdav-secret-files-review.md).

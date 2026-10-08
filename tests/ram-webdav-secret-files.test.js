@@ -2,8 +2,9 @@ import net from "node:net";
 import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { spawn } from "node:child_process";
-import { mkdir, readFile, writeFile, rm } from "node:fs/promises";
+import { mkdir, readFile, writeFile, rm, copyFile, chmod } from "node:fs/promises";
 import { once } from "node:events";
 import { ramSecretFilesDirectory, revokeRAMSecretFileGrant } from "../dist/runtime/broker/ram-webdav.js";
 import { requestSecretsBrokerHttp } from "../dist/runtime/broker/ipc-transport.js";
@@ -12,7 +13,32 @@ import { createServiceRegistry } from "../dist/runtime/manager/DependencyGraph.j
 import { installService, configService, startService, restartService, stopService } from "../dist/runtime/lifecycle/actions.js";
 import { getLifecycleState, resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import { materializeEphemeralSecretFiles } from "../dist/runtime/setup/materialize.js";
+import { resolveServiceStartupBrokerResolution } from "../dist/runtime/broker/launch-resolution.js";
 import { makeTempServicesRoot } from "./test-helpers.js";
+
+test("ESM-13 file-only secrets go to Broker as references while explicit env delivery remains resolved", async () => {
+ const {tempRoot,servicesRoot}=await makeTempServicesRoot("broker-owned-files-");
+ const before=process.env.SERVICE_LASSO_SECRET_FILES_TRANSPORT;delete process.env.SERVICE_LASSO_SECRET_FILES_TRANSPORT;
+ try {
+  const root=path.join(servicesRoot,"app");await mkdir(root);
+  await writeFile(path.join(root,"service.json"),JSON.stringify({id:"app",name:"App",description:"Broker-owned file",broker:{imports:[{namespace:"shared/app",ref:"app.KEY",required:true}]},config:{files:[{path:"key",content:"${app.KEY}",ephemeral:true}]}}));
+  const [service]=await discoverServices(servicesRoot);
+  const resolution=await resolveServiceStartupBrokerResolution(service,()=>assert.fail("File-only secret must not be returned to Core"));
+  assert.deepEqual(resolution.plan.brokerRefs,[]);
+  let sent;
+  assert.equal(await materializeEphemeralSecretFiles(service,{}, {},{brokerValues:{"app.KEY":"must-not-send-plaintext"}},undefined,async files=>{sent=files;return "synthetic-private-directory";}),"synthetic-private-directory");
+  assert.deepEqual(sent,[{path:"key",content:"${app.KEY}"}]);
+  service.manifest.env={KEY:"${app.KEY}"};
+  let requested;
+  const envResolution=await resolveServiceStartupBrokerResolution(service,({refs})=>{requested=refs;return [{ref:"app.KEY",status:"resolved",value:"synthetic-env-value"}];});
+  assert.deepEqual(requested,["app.KEY"]);assert.equal(envResolution.variableResolution.brokerValues["app.KEY"],"synthetic-env-value");
+  delete service.manifest.env;process.env.SERVICE_LASSO_SECRET_FILES_TRANSPORT="tmpfs";
+  await resolveServiceStartupBrokerResolution(service,({refs})=>{assert.deepEqual(refs,["app.KEY"]);return [{ref:"app.KEY",status:"resolved",value:"synthetic-tmpfs-value"}];});
+  delete process.env.SERVICE_LASSO_SECRET_FILES_TRANSPORT;
+  service.manifest.config.files[0].content="${other.UNDECLARED}";
+  await assert.rejects(materializeEphemeralSecretFiles(service,{}, {},{},undefined,()=>assert.fail("Unimported secret must not reach Broker")),/preparation failed/);
+ } finally {if(before===undefined)delete process.env.SERVICE_LASSO_SECRET_FILES_TRANSPORT;else process.env.SERVICE_LASSO_SECRET_FILES_TRANSPORT=before;await rm(tempRoot,{recursive:true,force:true});}
+});
 
 test("ESM-7 RAM directory accepts only loopback and formats Windows UNC / HTTP paths", () => {
  const token="a".repeat(64);
@@ -61,12 +87,22 @@ test("ESM-7..10 native Broker/Core launch, env compatibility, replacement rotati
   const registry=createServiceRegistry(await discoverServices(servicesRoot));service=registry.getById("ram-app");
   const issuer={workspaceId:"test-workspace",command:{command:binary,env:{...process.env,SECRETSBROKER_LAUNCH_IDENTITY_SIGNING_KEY:signingKey}}};
   const lookup=async({refs,identityLease,service:lookupService})=>{
+   assert.equal(lookupService.manifest.id === "echo-webdav",false,"Echo file-only secret must remain inside Broker");
    const resolved=await post("/v1/resolve",{serviceId:lookupService.manifest.id,workspaceId:"test-workspace",identityLease,refs:refs.map(ref=>`${ref.startsWith("echo.")?"shared/echo":"shared/database"}/${ref}`)});
    assert.equal(resolved.status,200,resolved.status===200?undefined:resolved.body.toString());const payload=JSON.parse(resolved.body.toString());
    return refs.map((ref,i)=>({ref,status:payload.results[i].outcome==="ready"?"resolved":"missing",value:payload.results[i].value}));
   };
   let latestURL,denyRevocation=false;const runtime={lookup,operatorRequest:async input=>{
    if(denyRevocation&&input.pathWithQuery==="/v1/file-grants/revoke")throw new Error("Synthetic IPC outage");
+   if(input.pathWithQuery==="/v1/file-grants") {
+    const body=JSON.parse(input.body.toString());
+    if(body.serviceId==="echo-webdav") {
+     const selector=body.bindings[0].selector;assert.ok(["echo.DEMO_CREDENTIAL","echo.MISSING"].includes(selector));
+     assert.deepEqual(body.bindings,[{selector,ref:`shared/echo/${selector}`,required:true}]);
+     assert.equal(body.files[0].content,`{"demoCredential":"\${${selector}}"}`);
+     assert.equal(input.body.toString().includes("synthetic-demo-credential"),false);
+    }
+   }
    const result=await request(input);if(input.pathWithQuery==="/v1/file-grants"&&result.status===201){const grant=JSON.parse(result.body.toString());latestURL=`${grant.baseUrl}/${grant.token}/password`;}
    return result;
   },serverEnv:{},transportBinding:{kind:"unix-uid",subject:String(process.getuid())},launchLeaseIssuer:issuer};
@@ -96,18 +132,22 @@ test("ESM-7..10 native Broker/Core launch, env compatibility, replacement rotati
   if (process.env.SERVICE_LASSO_TEST_ECHO_BIN && process.env.SERVICE_LASSO_TEST_ECHO_MANIFEST) {
    const echoRoot=path.join(servicesRoot,"echo-webdav");await mkdir(echoRoot);
    const manifest=JSON.parse(await readFile(process.env.SERVICE_LASSO_TEST_ECHO_MANIFEST,"utf8"));
-   manifest.executable=process.env.SERVICE_LASSO_TEST_ECHO_BIN;manifest.args=[];delete manifest.endpoints;
-   const port=await new Promise((resolve,reject)=>{const listener=net.createServer();listener.once("error",reject);listener.listen(0,"127.0.0.1",()=>{const port=listener.address().port;listener.close(error=>error?reject(error):resolve(port));});});
-   Object.assign(manifest.env,{ECHO_PORT:String(port),ECHO_HTTP_HEALTH_PORT:"0",ECHO_TCP_PORT:"0",ECHO_LOG_PATH:path.join(echoRoot,"echo.log"),ECHO_STATE_PATH:path.join(echoRoot,"state.json"),ECHO_DB_PATH:path.join(echoRoot,"echo.sqlite")});
+   assert.equal(manifest.executable,"./echo-secret-demo");assert.deepEqual(manifest.args,[]);
+   await copyFile(process.env.SERVICE_LASSO_TEST_ECHO_BIN,path.join(echoRoot,"echo-secret-demo"));await chmod(path.join(echoRoot,"echo-secret-demo"),0o700);
+   Object.assign(manifest.env,{ECHO_LOG_PATH:path.join(echoRoot,"echo.log"),ECHO_STATE_PATH:path.join(echoRoot,"state.json"),ECHO_DB_PATH:path.join(echoRoot,"echo.sqlite")});
    await writeFile(path.join(echoRoot,"service.json"),JSON.stringify(manifest));
    const echoRegistry=createServiceRegistry(await discoverServices(servicesRoot));service=echoRegistry.getById("echo-webdav");
    assert.equal((await post("/v1/secrets",{ref:"shared/echo/echo.DEMO_CREDENTIAL",value:"synthetic-demo-credential"})).status,200);
    await installService(service,echoRegistry);await configService(service,echoRegistry,options);
    await startService(service,echoRegistry,options);
+   const port=getLifecycleState(service.manifest.id).runtime.ports.service;
    let echoStatus;
    for(let i=0;i<100;i++){try{const response=await fetch(`http://127.0.0.1:${port}/secret-file`);if(response.ok){echoStatus=await response.json();break;}}catch{}await new Promise(r=>setTimeout(r,50));}
    assert.equal(echoStatus?.status,"loaded");assert.equal(echoStatus.reads,1);
-   assert.equal((await (await fetch(`http://127.0.0.1:${port}/secret-file`,{method:"POST"})).json()).reads,2);
+   if(process.env.SERVICE_LASSO_TEST_ECHO_CHECK) {
+    const {checkEchoSecretFile}=await import(pathToFileURL(process.env.SERVICE_LASSO_TEST_ECHO_CHECK).href);
+    assert.deepEqual(await checkEchoSecretFile(`http://127.0.0.1:${port}`),{status:"loaded",sizeBytes:echoStatus.sizeBytes,reads:2});
+   } else assert.equal((await (await fetch(`http://127.0.0.1:${port}/secret-file`,{method:"POST"})).json()).reads,2);
    const statusResponse=await request({method:"GET",pathWithQuery:"/v1/file-grants/status?limit=100&cursor=0",headers:{}});
    assert.equal(statusResponse.status,200);const inventory=JSON.parse(statusResponse.body.toString());
    const row=inventory.files.find(file=>file.serviceId==="echo-webdav");assert.equal(row.path,"demo-config.json");assert.equal(row.downloads,2);assert.equal(row.sizeBytes,echoStatus.sizeBytes);assert.equal(row.servedBytes,row.sizeBytes*2);
@@ -117,6 +157,12 @@ test("ESM-7..10 native Broker/Core launch, env compatibility, replacement rotati
    await stopService(service);
    const after=JSON.parse((await request({method:"GET",pathWithQuery:"/v1/file-grants/status",headers:{}})).body.toString());
    assert.equal(after.files.some(file=>file.serviceId==="echo-webdav"),false);
+   service.manifest.broker.imports[0].ref="echo.MISSING";
+   service.manifest.config.files[0].content='{"demoCredential":"${echo.MISSING}"}';
+   await assert.rejects(startService(service,echoRegistry,options),/preparation failed/);
+   assert.equal(getLifecycleState(service.manifest.id).runtime.pid,null);
+   const denied=JSON.parse((await request({method:"GET",pathWithQuery:"/v1/file-grants/status",headers:{}})).body.toString());
+   assert.equal(denied.files.some(file=>file.serviceId==="echo-webdav"),false);
   }
 
  } finally {
