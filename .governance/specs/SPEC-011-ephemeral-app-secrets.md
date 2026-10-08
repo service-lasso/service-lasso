@@ -1,12 +1,15 @@
-# SPEC-011: Ephemeral app secret files on Linux
+# SPEC-011: Ephemeral app secret files
 
-Status: Active development. Owner request: 2026-10-08. Issue: #1730.
+Status: Active development. Owner request: 2026-10-08. Issues: #1730 (landed), #1732.
 
-Service Lasso owns optional plaintext app secret files and passes their paths to
+Service Lasso owns declared plaintext app secret files and passes their paths to
 apps. Existing environment-variable secret delivery remains supported. The app
 does not own the output directory. The Broker vault and startup recovery state
 remain durable; app-owned configuration/data and test-harness cleanup are out of
 scope. This is not selection of the #1724 Option B custody proposal.
+
+Broker RAM WebDAV is the default provider (ESM-7..10 below). The original Linux
+requirements ESM-1..6 apply to the explicitly selected tmpfs alternative only.
 
 - **ESM-1:** `config.files[]` and `config.templates[]` may declare boolean
   `ephemeral: true`. Their relative output paths resolve beneath a Core-owned
@@ -43,3 +46,24 @@ scope. This is not selection of the #1724 Option B custody proposal.
 Verification maps ESM-1/3 to discovery and file safety checks; ESM-2/4 to real
 managed child launch and transaction-hook/privacy assertions; ESM-5 to deployment
 examples and official Linux/systemd docs; ESM-6 to recorded exact-source checks.
+
+## Default RAM WebDAV delivery (issue #1732)
+
+Owner approved default Broker-owned RAM WebDAV for all extracted secret files.
+ESM-7: WebDAV is the default on every platform. Core sends freshly rendered
+outputs over authenticated Broker IPC with a distinct scoped resolve lease.
+Broker returns a fresh per-instance capability and loopback endpoint. Core passes
+its URL/Windows UNC directory through SERVICE_LASSO_SECRETS_DIR before spawn.
+No plaintext file or token enters lifecycle snapshots, drift or durable state.
+ESM-8: Broker enforces RAM-only, strict 127.0.0.1, read-only grant isolation,
+256-bit token rotation and bounded requests/storage. Core revokes the exact grant
+on stop, ordinary exit or failed launch; replacement cannot be revoked by an old
+exit callback. No fallback to disk or tmpfs when Broker is unavailable.
+ESM-9: Linux tmpfs remains explicitly selectable with
+SERVICE_LASSO_SECRET_FILES_TRANSPORT=tmpfs. Existing ESM-1/3/5 Linux mount rules
+apply only to that alternative. Default WebDAV needs no administrator mount.
+ESM-10: Preserve environment-secret delivery; verify managed child HTTP reads,
+replacement launch and revocation, native Broker HTTP isolation/denial/bounds,
+and safe errors/state. URL clients and native Windows WebClient are distinct
+consumption mechanisms; Linux DAV URLs are not POSIX filesystem paths. App
+behaviour after receiving secrets and harness cleanup remain outside acceptance.

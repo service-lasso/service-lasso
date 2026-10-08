@@ -159,7 +159,8 @@ export async function materializeEphemeralSecretFiles(
   resolvedPorts: Record<string, number>,
   options: ServiceTextResolutionOptions = {},
   expectedTemplateDigests?: Readonly<Record<string, string>>,
-): Promise<void> {
+  publish?: (outputs: Array<{ path: string; content: string }>) => Promise<string>,
+): Promise<string | undefined> {
   const outputs: Array<{ path: string; content: string }> = [];
   try {
     const diagnostics: ServiceSelectorDiagnostic[] = [];
@@ -179,9 +180,21 @@ export async function materializeEphemeralSecretFiles(
     }
     // Refuse every unresolved secret-file selector, including optional imports.
     if (diagnostics.length > 0) throw new Error("Unresolved ephemeral secret-file inputs.");
-    for (const output of outputs) await writeEphemeralSecretFile(service, output.path, output.content);
+    if (outputs.some((output) => output.path.includes("[available-at-launch]") || output.content.includes("[available-at-launch]"))) {
+      throw new Error("The launch-only secret directory belongs in the service environment.");
+    }
+    if (outputs.length === 0) return undefined;
+    if (process.env.SERVICE_LASSO_SECRET_FILES_TRANSPORT === "tmpfs") {
+      for (const output of outputs) await writeEphemeralSecretFile(service, output.path, output.content);
+      return undefined;
+    }
+    if (process.env.SERVICE_LASSO_SECRET_FILES_TRANSPORT && process.env.SERVICE_LASSO_SECRET_FILES_TRANSPORT !== "webdav") {
+      throw new Error("Unknown secret-file transport.");
+    }
+    if (!publish) throw new Error("Broker RAM provider unavailable.");
+    return await publish(outputs);
   } catch {
     // Resolved paths, templates and filesystem errors can contain secret values.
-    throw new Error("Ephemeral secret-file preparation failed; check Broker inputs and private Linux tmpfs configuration.");
+    throw new Error("Ephemeral secret-file preparation failed; check Broker inputs and the selected secret-file provider.");
   }
 }

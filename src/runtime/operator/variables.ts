@@ -64,6 +64,8 @@ export interface ServiceSelectorDiagnostic {
 }
 
 export interface ServiceTextResolutionOptions {
+  /** Launch-only Broker capability directory; never persisted. */
+  secretFilesDirectory?: string;
   brokerValues?: Record<string, string>;
   diagnostics?: ServiceSelectorDiagnostic[];
   diagnosticKey?: string;
@@ -529,7 +531,8 @@ export function buildServiceVariables(
   const derivedVariables: ServiceVariableEntry[] = [
     ...(hasEphemeralSecretFiles(service) ? [{
       key: "SERVICE_LASSO_SECRETS_DIR",
-      value: serviceSecretsDirectory(service),
+      value: options.secretFilesDirectory ?? (process.env.SERVICE_LASSO_SECRET_FILES_TRANSPORT === "tmpfs"
+        ? serviceSecretsDirectory(service) : "[available-at-launch]"),
       scope: "derived" as const,
     }] : []),
     {

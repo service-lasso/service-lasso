@@ -34,6 +34,8 @@ test("ESM-1 manifest preserves config ephemeral flags and rejects invalid/instal
 
 async function withLinuxFixture(run) {
   const previous = process.env.SERVICE_LASSO_SECRETS_ROOT;
+  const previousTransport = process.env.SERVICE_LASSO_SECRET_FILES_TRANSPORT;
+  process.env.SERVICE_LASSO_SECRET_FILES_TRANSPORT = "tmpfs";
   const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-ephemeral-");
   // A fresh private directory on an existing tmpfs; no host mount mutation.
   const secretsRoot = await mkdtemp("/dev/shm/service-lasso-secret-test-");
@@ -69,6 +71,8 @@ async function withLinuxFixture(run) {
     resetLifecycleState();
     if (previous === undefined) delete process.env.SERVICE_LASSO_SECRETS_ROOT;
     else process.env.SERVICE_LASSO_SECRETS_ROOT = previous;
+    if (previousTransport === undefined) delete process.env.SERVICE_LASSO_SECRET_FILES_TRANSPORT;
+    else process.env.SERVICE_LASSO_SECRET_FILES_TRANSPORT = previousTransport;
     await rm(secretsRoot, { recursive: true, force: true });
     await rm(tempRoot, { recursive: true, force: true });
   }

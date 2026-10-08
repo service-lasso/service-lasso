@@ -73,7 +73,7 @@ export interface ServicePortMappingDeclaration {
 export interface ServiceMaterializedFile {
   path: string;
   content: string;
-  /** Linux config output owned by Core, recreated on tmpfs before each launch. */
+  /** Secret config output recreated in Broker RAM before each launch (explicit Linux tmpfs alternative). */
   ephemeral?: boolean;
 }
 
