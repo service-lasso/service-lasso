@@ -73,11 +73,14 @@ export interface ServicePortMappingDeclaration {
 export interface ServiceMaterializedFile {
   path: string;
   content: string;
+  /** Secret config output recreated in Broker RAM before each launch (explicit Linux tmpfs alternative). */
+  ephemeral?: boolean;
 }
 
 export interface ServiceMaterializedTemplate {
   source: string;
   target: string;
+  ephemeral?: boolean;
 }
 
 export interface ServiceActionMaterialization {
