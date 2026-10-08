@@ -90,6 +90,10 @@ export function resolveSecretsBrokerAdminAliasPath(suffix: string): string | nul
     return "/v1/telemetry";
   }
 
+  if (normalized === "operations/webdav") {
+    return "/v1/file-grants/status";
+  }
+
   if (normalized === "operations/events") {
     return "/v1/events";
   }

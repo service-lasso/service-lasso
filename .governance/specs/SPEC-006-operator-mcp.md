@@ -252,6 +252,14 @@ SPEC-002 AC-4BH/AC-4DI.4 and SPEC-006 AC-6F/AC-6G retain the entire N1–N5/#157
 
 The b4a719af distinct entire architecture review remains WHOLE_ARCHITECTURE_NO_GO; documentation-only landing safety is separate. This source-only amendment binds every compensation path to the irreversible B-local NO_TERMINATE_M publication in its original phase/effect ledger before any ACK native write; committed-unacknowledged pending/failed/lost ACK, death and interruption cannot restore termination. H's authenticated ACK controls admission only. The unchanged64-byte CHILD_CREATED grammar now closes Windows original process/thread values and Linux exact B-local original pidfd correlation metadata, thread=0, exactly one associated original SCM_RIGHTS FD, atomic MSG_CMSG_CLOEXEC and same-live original partial/unknown receive retention. No Linux thread object, PID reopen or numeric descriptor authority is introduced. Every added H/C/B/M resource requires actual source/owner/lifetime/domain attribution before fit; service1MiB/store4MiB/Core128MiB cannot migrate into UNKNOWN measured Node B0/B2 or qualification-only32GiB Q0/Q2. Entire original workspace/eight-failure/native1681/public/private/full-Node/rollback/matrix boundaries remain required and unqualified. Different fresh ENTIRE review and parent selection remain next; no implementation, provider selection, execution or acceptance follows.
 
+### #1736 target-scoped start confirmation
+SPEC-013 LQ-2 refines AC-6E: service-specific start revisions bind only executable
+inputs of their actual mutation targets; stable context still binds the full
+service dependency closure. An unrelated service's installed/configured state
+cannot alone stale that confirmation. Runtime-wide actions/restart retain their
+existing executable binding scope. Target/dependency definition, artifact,
+template and executable changes still fail closed at the existing boundaries.
+
 ## Core #1681 selected complete operator v2 source programme (2026-10-08)
 
 Active Development contract OPV2-1 connects SPEC-002 AC-4DI.4/R3/C3/G1 and SPEC-006 operator ingress with the complete B/C/D/E delivery. Parent selected all M01–M08 together under standing full delivery authority after different entire reviewer15, author14 ROOT d0db5f3cbab4b8b1653d587a9df835ef117f1af849377d5b08265cacc76a64e3, reviewer15 ROOT ed9d6ffd03e5c489a91eaf92012030418652930d6ff8543de8367adacd455d82. The exact immutable selected BLUEPRINT/CODECS/ACCEPTANCE/DECISIONS/all46 REQUIREMENT-OWNER-MATRIX are committed under `.governance/specs/operator-v2-selected/`. Their historical UNSELECTED wording describes the prior proposal stage; this explicit parent selection makes M01–M08 operative for source development only, with no changed schema or exception. All five files were personally read through EOF by Core39 and raw-copy hash compared; review credit is not inherited.

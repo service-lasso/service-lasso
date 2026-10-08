@@ -99,7 +99,7 @@ function buildDesiredConfigFiles(
   const resolvedPorts = Object.keys(lifecycle.runtime.ports).length > 0 ? lifecycle.runtime.ports : service.manifest.ports ?? {};
   const sharedGlobalEnv = collectRuntimeGlobalEnv(services);
 
-  return (service.manifest.config?.files ?? []).map((file: ServiceMaterializedFile) => {
+  return (service.manifest.config?.files ?? []).filter((file) => !file.ephemeral).map((file: ServiceMaterializedFile) => {
     const renderedPath = resolveServiceText(file.path, service, sharedGlobalEnv, resolvedPorts);
     const renderedContent = resolveServiceText(file.content, service, sharedGlobalEnv, resolvedPorts);
     const resolved = resolveArtifactPath(service.serviceRoot, renderedPath);

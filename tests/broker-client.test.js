@@ -605,6 +605,14 @@ test("broker management client allows bounded operational telemetry and event re
       "GET /v1/telemetry",
       "GET /v1/events?severity=warning&family=auth_failure&limit=25&cursor=0",
     ]);
+    await requestSecretsBrokerManagement(options, { method: "GET", path: "/v1/file-grants/status?limit=100&cursor=0" });
+    assert.equal(observed.at(-1), "GET /v1/file-grants/status?limit=100&cursor=0");
+    const before = observed.length;
+    for (const path of ["/v1/file-grants/status?limit=201", "/v1/file-grants/status?cursor=-1", "/v1/file-grants/status?token=private", "/v1/file-grants/status?limit=1&limit=2"]) {
+      await assert.rejects(requestSecretsBrokerManagement(options, { method: "GET", path }), /query is invalid/);
+    }
+    await assert.rejects(requestSecretsBrokerManagement(options, { method: "POST", path: "/v1/file-grants/status" }), /not allowlisted/);
+    assert.equal(observed.length, before);
   } finally {
     await close(server);
   }

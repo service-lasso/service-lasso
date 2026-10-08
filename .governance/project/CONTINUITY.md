@@ -177,6 +177,53 @@ SPEC-007 AC-7F/AC-7G.docs-consumers selects faithful compiler observation: retai
 All prior F1/F2/wire repairs, original36249/49179 frozen packets, original fe1d NO_GO and natural failures, entire05b8/4777 terminal evidence, malformed original roots/raw addendum9 and thirteen native/product failures remain retained. Package/lock/publicdocs/browserpolicy/cache/refetch/deadlines/retries/concurrency/permissions unchanged. Every intentional commit immediately pushed SAME PR1722. No local target execution before NEW complete-input ROOT/DIFFERENT whole SOURCE_GO/parent admission; fresh whole review and natural new-head actual result remain required separately. Author ACTIVE; no acceptance/merge/release/publication/promotion/deployment claim.
 The same CSS graph observer must retain actual original compilation.chunkAsset emission and final asset identity across stock webpack RealContentHashPlugin optimization. Official webpack5.109.2 renameAsset updates the actual chunk.files and final asset contenthash metadata without updating the original mini render-manifest template inputs. Bind original render entry -> actual chunkAsset emission -> final same-chunk asset whose real final contenthash resolves that original template through getPathWithInfo/TemplatedPathPlugin, retaining both original/final names and hashes. No compiler method wrapping, output rename/mutation, synthetic chunk or guessed/all-CSS association is permitted.
 Before completing the CSS compiler-source proposal, bind ENTIRE genuine official webpack5.109.2 published archive inventory (including Compilation/ModuleGraph/ChunkGraph/RealContentHashPlugin/TemplatedPathPlugin and package/main/helper sources) to unchanged lock integrity/URL/version and actual installed file hashes before either build. This closes version-only compiler provenance; saved tag-source API reads are separately retained and do not replace npm installed-byte equality. No lock/package/resolver/library changes or local target execution.
+2026-10-08 #1732 / SPEC-011 ESM-7..10: default Broker RAM WebDAV implemented in isolated feature/1732-default-ram-webdav; companion Broker feature/196-ram-webdav-secrets. Ubuntu actual production Broker/peer-bound IPC/managed-child reads, env compatibility, fresh restart and revocation passed; full scoped Core run 91 tests:87 pass/4 platform skips. Windows isolated source run86:80 pass/6 platform skips; all5 Broker identity regressions pass. Native Windows UNC read passed with existing WebClient, no mapping/config mutation. Docusaurus SSG succeeds with existing image-parser warnings. Broker full Go suite and vet pass; race detector unavailable because cgo is disabled. No release/deployment claim. Owner explicitly authorizes develop merge, then review the ten saved Linux cleanup failures separately from service recovery; retain original evidence and no claim of new crash-suite passes yet.
+
+#1732 qualification correction: Broker final full-suite repeat had event-retention and local migration failures in unchanged source; each then passed three focused repetitions. Earlier full-suite pass and new RAM/native/contract checks stand, but latest full-suite green is not claimed. Owner-authorized source merge remains distinct from release qualification.
+
+2026-10-08 #1734 / SPEC-012 OTF-1..5: owner explicitly selects ordinary teardown
+for creator-owned private test fixtures. All seven hard-crash phases and four
+positive cleanup cases keep their original assertions; default hostile-writer
+custody refusal and adversaries remain unchanged. Native Ubuntu scoped run74:
+70 pass,4 platform skips,0 fail, with actual root-owned foreign-owner input.
+Original saved failed runs retained. Windows existing guardian/privacy setup
+fails and is not qualified. Full native suite remains pending. No product code,
+release, deployment or native F7 implementation claim.
+
+#1734 scoped completion: all eleven original Linux cleanup failures pass in both
+scoped verification and the configured full run at5a01bcfd/tree2dc501e4. Full run
+1966:1870 pass,87 skips,9 failures; retain actual failed receipt/exit1. Eight
+missing-tool failures subsequently pass with private PowerShell/lsof/python
+inputs. The remaining actor-scoped HTTP replay failure reproduces on unchanged
+parentdevelop bef6babc (12:11 pass,1 fail) and is tracked separately in #1736.
+Seven natural Ubuntu crash-phase CI jobs pass. New Windows teardown unit checks
+2 pass/1 POSIX skip; existing Windows privacy initialization remains unqualified.
+Targeted GOV-13 self-review confirms original observable assertions and default
+strong adversaries retained. Native F7 writer exclusion is not implemented or
+required for the owner's ordinary-fixture recovery scope. No release/deployment.
+Resuming at current develop3baf9667 in fresh fix/1736-linux-suite-replay. Owner
+requests all nine remaining failures fixed. Eight are missing actual host tools;
+private PowerShell/lsof/python inputs already prove those assertions. Diagnostic
+HTTP execution returns confirmation_plan_mismatch (409, expected202) because
+buildStartArtifactBindings includes every service's installed/configured
+executable revision. Correct service_start scope only; preserve runtime-wide and
+restart plans, stable dependency context, actor/replay/tamper checks. SPEC-013
+LQ-1..4 and SPEC-006 AC-6E/AC-6F record acceptance before product implementation.
+Original full-run receipt and baseline failure retained. No release/deployment.
+
+#1736 verified for develop landing / PR1737: SPEC-013 LQ-1..4 and SPEC-006
+AC-6E/AC-6F. Full native Ubuntu2bddf203/tree9e8f9d39:1966 tests,1879 pass,87
+existing platform skips,0 fail; natural exit0,closed receipt and original failures
+retained. Actual private PowerShell/lsof/python + native foreign-owner/Broker inputs
+supplied. Original nine cases all pass with unchanged assertions. Ubuntu scoped
+25 pass/1 platform skip; Windows scoped26/26 pass. Product correction scopes
+service-start executable revisions to actual mutation targets; runtime-wide,
+restart,dependency context,actor/replay/tamper guards unchanged. Full tracked
+source unchanged; remote Python cache is generated/disposable retained audit state.
+Windows whole custody/docs tooling CI/release remain separate and unqualified.
+Final verification-document update changes no runtime code; no rerun needed for
+unchanged executable behavior. Dedicated worktree clean after committed docs;
+primary inherited deletions/audit state and other owner branches preserved.
 
 ## #1681 foundation review20 F6/F7 coherent repair (2026-10-07)
 

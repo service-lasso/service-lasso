@@ -1,5 +1,9 @@
 # Backlog
 
+- #1738, in_review: SPEC-011 ESM-11. Broker RAM WebDAV inventory management
+  proxy, explicit GET/query allowlists, permission and real IPC verification.
+  Companion Broker #198, Admin #691 and Echo #12 provide metrics/UI/example.
+
 - #1716 (parent #1562), in_progress: SPEC-002 AC-4CG.1716 / SPEC-007 AC-7G. Repair only sequential release-versioning caller credential reuse; preserve original live gate and add closed-response artifact-to-package regression. New vectors UNRUN pending complete-input freeze, different fresh ENTIRE review and parent admission. Historical provider403 cause UNKNOWN; no auth-policy, provider settings, retry, release or cleanup change.
 
 PR1638 #1626 scoped npm argv correction (85ca successor): in_progress, SPEC-008 R3/R5/R6. Replace only the owned scoped preparer's cmd-string npm boundary with the landed canonical descriptor; preserve caller options, original Error/output/close behavior, one pre-mutation retry and first failure. Add actual receiving-child/legal-hostile-root/env override/integrity/installed-fixture and failure regressions without weakening protected gates. Sources UNEXECUTED; different ENTIRE cumulative review and NEW complete-input ROOT admission remain pending. R1-R7/F1/F2/F3/R5, EMPTY catalogs, prior failures/private evidence/native and owner GA gates remain required. Parent retains CodeQL19 conversation disposition and tracking/landing.
@@ -14,6 +18,7 @@ The owner's current GA delivery scope is Windows and Linux under [current GA pla
 This backlog tracks active product delivery for the `service-lasso` core runtime.
 
 ## Current Active Spec
+- `SPEC-011-ephemeral-app-secrets.md`
 - `SPEC-002-core-standalone-runtime.md`
 - `SPEC-003-main-develop-reconciliation.md`
 - `SPEC-004-isolated-wsl-runner-pool.md`
@@ -24,6 +29,7 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 ## Issue Register
 | ID | Status | Title | Spec References | Notes |
 | --- | --- | --- | --- | --- |
+| `ISS-1730` | `in_progress` | Recreate Core-owned ephemeral app secret files on Linux tmpfs | `SPEC-011`, `ESM-1..6` | Fresh Broker resolution before launch; pass Core paths through app env. Native Ubuntu verification and deployment guidance; no app-owned cleanup or #1724 changes. |
 | `ISS-1675` | `in_review` | Diagnose native Mac guarded lifecycle hashing and record Mac readiness activities | `SPEC-006 AC-6E`; `SPEC-007 AC-7F/7G/7H` | The unchanged uninstrumented thirteen-file native rerun passed: 106 passed, one Windows-only skip, zero failures, exit 0. Earlier diagnostic interruptions are retained; no product patch is justified. [Mac readiness](../../docs/development/macos-readiness.md) separates source/packaged/browser/published proof and the supported macOS 14+ browser prerequisite. Current Windows/Linux GA applicability is unchanged. |
 | `ISS-1654` | `in_review` | Repair published hard-crash protocol governance ADR reference | `SPEC-002`, `AC-4AJ`, `AC-4BJ.9c.fixture-isolation-v1` | PR #1655 retains the literal canonical repository path beside the external develop ADR source link. The external-link repair is independently carried by current develop; this integration preserves that source and records #1654 provenance. Original docs job 111318902389 remains failed; natural original-head docs/MCP builds do not qualify the changed integration head. Different entire source review and NEW ROOT precede manual execution; publication and native acceptance remain separate. |
 | `ISS-1612` | `done` | Restore explicit documentation publication from develop | `SPEC-002`, `AC-4AJ.5`, `AC-4AJ.6` | Repair #1615 merged as `7d6f1ce6c244543c65b0efac2218c6f8dc456bc0`. Owner-authorized manual Docs Site run `37140638976` built/uploaded/deployed successfully. Live source receipt matches that SHA/run; home, contributor publishing instructions, explainer, CSS and both JS assets read back successfully. Local tooling patches retain upstream provenance and 14 direct regressions; production/full-tooling audits report zero vulnerabilities. Existing runtime-qualification failures remain separate and retained in #1612. |
@@ -1195,6 +1201,38 @@ SPEC-007 AC-7F/AC-7G.docs-consumers selects faithful compiler observation: retai
 All prior F1/F2/wire repairs, original36249/49179 frozen packets, original fe1d NO_GO and natural failures, entire05b8/4777 terminal evidence, malformed original roots/raw addendum9 and thirteen native/product failures remain retained. Package/lock/publicdocs/browserpolicy/cache/refetch/deadlines/retries/concurrency/permissions unchanged. Every intentional commit immediately pushed SAME PR1722. No local target execution before NEW complete-input ROOT/DIFFERENT whole SOURCE_GO/parent admission; fresh whole review and natural new-head actual result remain required separately. Author ACTIVE; no acceptance/merge/release/publication/promotion/deployment claim.
 The same CSS graph observer must retain actual original compilation.chunkAsset emission and final asset identity across stock webpack RealContentHashPlugin optimization. Official webpack5.109.2 renameAsset updates the actual chunk.files and final asset contenthash metadata without updating the original mini render-manifest template inputs. Bind original render entry -> actual chunkAsset emission -> final same-chunk asset whose real final contenthash resolves that original template through getPathWithInfo/TemplatedPathPlugin, retaining both original/final names and hashes. No compiler method wrapping, output rename/mutation, synthetic chunk or guessed/all-CSS association is permitted.
 Before completing the CSS compiler-source proposal, bind ENTIRE genuine official webpack5.109.2 published archive inventory (including Compilation/ModuleGraph/ChunkGraph/RealContentHashPlugin/TemplatedPathPlugin and package/main/helper sources) to unchanged lock integrity/URL/version and actual installed file hashes before either build. This closes version-only compiler provenance; saved tag-source API reads are separately retained and do not replace npm installed-byte equality. No lock/package/resolver/library changes or local target execution.
+
+#1730 / PR1731 landed develop a0b85ef9: explicit Linux ephemeral profile scoped verified. #1732 In progress: SPEC-011 ESM-7..10 default Broker RAM WebDAV; companion Broker #196. No release or deployment authority.
+
+#1732 merged PR1733 develop bef6babc; Broker #196 merged PR197 develop5436d4ea. #1734 In progress: SPEC-012 OTF-1..5, ten saved Linux cleanup failures plus allocation row; preserve product/adversarial assertions and qualify creator-owned teardown on Ubuntu.
+
+#1734 scoped verified for develop landing / PR1735: SPEC-012 OTF-1..5; all eleven
+saved cleanup failures pass. Full Ubuntu run1966:1870 pass,87 skips,9 fail; eight
+host-tool failures pass in subsequent direct checks. #1736 tracks the independent
+unchanged-parent HTTP replay failure; whole-suite and Windows qualification remain
+incomplete. Native F7 architecture remains separate from ordinary test teardown.
+
+#1736 In progress: SPEC-013 LQ-1..4 / SPEC-006 AC-6E,AC-6F. Supply actual missing
+Linux test prerequisites and remove unrelated executable lifecycle revisions from
+service-specific start confirmations. Preserve original guarded negative tests
+and naturally close the full Ubuntu suite. Base develop3baf9667; private issue
+worktree preserves inherited primary deletions/audit state and old owner branches.
+
+#1736 Verified / PR1737 landing: SPEC-013 LQ-1..4 satisfied. Full Ubuntu immutable
+2bddf203:1966 tests,1879 pass,87 existing skips,0 fail,natural exit0. Original nine
+failures pass; docs explain genuine test tools. Ubuntu scoped25 pass/1 skip;
+Windows scoped26 pass. Existing Windows custody/docs CI/release gates remain
+outside this scoped completion. Owner authorizes develop merge; no deployment.
+
+## #1640 complete native fixture implementation (source preparation)
+
+Active Development unit: implement ADR-002 and AC-4BJ.9c.fixture-isolation-v1 FI-1..FI-7 as a coherent native provisioner/role-loader/W driver/M mediator/K keeper/R denial-runner source bundle, from develop33e19ea24aaaff62e5dbfbb8d57001576fb2fb16. Issue #1326 remains protected; implementation readiness, different entire source GO, NEW complete-input admission and actual Windows/Linux acceptance are separate gates.
+
+The implementation must use native private endpoint authentication, actual fresh principals and held process/object custody. No standard Node stream, PID number, owner string, environment variable, copied JSON capsule, mock adapter or launch receipt alone grants original authority. Ordinary helpers retain genuine current-actor ownership and fail-closed removal. Source-owned native loader is the only original capsule authority; M and K cannot reopen original names or mutate them. Genuine W lifecycle state and original injected Error identity stay in the owning process; M receives finite authenticated assertion reads. R stays outside the workload group.
+
+Required source inventory: source-owned privileged provisioner and native role bridge for both platforms; direct approved launch/closure gates; bounded protocol and inherited handles; original physical privacy proof before writes; permanent launch quiescence, exact guardian custody transfer/positive exit/EOF and delete-denying-handle closure; prior-approved held inventory, complete independent persistent-copy verification, continuous exclusion and approved-object removal; new W reset only after original absence; post-reset/ENV copy readback; independent preinitialized raw error capture/EOF. Keep all F1-F7, seven formal plus two recovered rows, raw registry/accepted history/error identity and unrelated process guards. Complete concurrent native denial and positive/partial fault sources supplement original gates. Root/SYSTEM/admin are trusted assumptions; capability unknown remains unavailable/failure, never skip or PASS. F7 approved off-host custodian/destination remains absent, so local capture cannot claim transfer acceptance. Shared #1635 production tree transport is a separate owner unit; only actually landed source may be consumed as develop authority.
+
+No local product import/parser/compiler/build/install/npm/tests/native/ACL/account/mount/cgroup/provisioning/runtime execution is permitted before a different ENTIRE final source GO and NEW source/toolchain/kernel/privileged actor/IPC/all ENV admission. Natural CI is read-only evidence; no dispatch/rerun/control mutation. Push each complete intentional commit immediately and use an issue PR into develop. Current source preparation does not enable destructive cleanup or qualify Windows/Linux GA. Darwin remains deferred.
 
 ## #1681 foundation review17 F1-F4 repair and develop reconciliation (2026-10-07)
 

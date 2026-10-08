@@ -634,6 +634,39 @@ SPEC-007 AC-7F/AC-7G.docs-consumers selects faithful compiler observation: retai
 All prior F1/F2/wire repairs, original36249/49179 frozen packets, original fe1d NO_GO and natural failures, entire05b8/4777 terminal evidence, malformed original roots/raw addendum9 and thirteen native/product failures remain retained. Package/lock/publicdocs/browserpolicy/cache/refetch/deadlines/retries/concurrency/permissions unchanged. Every intentional commit immediately pushed SAME PR1722. No local target execution before NEW complete-input ROOT/DIFFERENT whole SOURCE_GO/parent admission; fresh whole review and natural new-head actual result remain required separately. Author ACTIVE; no acceptance/merge/release/publication/promotion/deployment claim.
 The same CSS graph observer must retain actual original compilation.chunkAsset emission and final asset identity across stock webpack RealContentHashPlugin optimization. Official webpack5.109.2 renameAsset updates the actual chunk.files and final asset contenthash metadata without updating the original mini render-manifest template inputs. Bind original render entry -> actual chunkAsset emission -> final same-chunk asset whose real final contenthash resolves that original template through getPathWithInfo/TemplatedPathPlugin, retaining both original/final names and hashes. No compiler method wrapping, output rename/mutation, synthetic chunk or guessed/all-CSS association is permitted.
 Before completing the CSS compiler-source proposal, bind ENTIRE genuine official webpack5.109.2 published archive inventory (including Compilation/ModuleGraph/ChunkGraph/RealContentHashPlugin/TemplatedPathPlugin and package/main/helper sources) to unchanged lock integrity/URL/version and actual installed file hashes before either build. This closes version-only compiler provenance; saved tag-source API reads are separately retained and do not replace npm installed-byte equality. No lock/package/resolver/library changes or local target execution.
+## 2026-10-08 owner-scoped Linux fixture remediation (#1734)
+
+SPEC-012 OTF-1..5 records the explicit trusted disposable-fixture requirement
+correction. Original recovery and adversarial assertions remain. All eleven saved
+Linux cleanup failures pass in scoped and full execution. Full natural run at
+5a01bcfd:1966 tests,1870 pass,87 skips,9 fail; actual receipt retained. Eight absent
+tool failures pass after private tooling provision; unchanged-parent HTTP replay
+failure is tracked independently in #1736. Native F7, Windows whole custody and
+release/deployment qualification are not claimed. Deliver through PR1735/develop.
+
+## #1736 Linux nine-failure follow-up
+Active spec SPEC-013 LQ-1..4, SPEC-006 AC-6E/AC-6F. Before implementation, owner
+explicitly authorizes fixing all nine. Eight are missing host test tools; direct
+HTTP diagnostics show confirmation_plan_mismatch when another service's lifecycle
+changes the globally collected executable revisions. Select only service-start
+mutation target executables; retain dependency context and runtime-wide/restart
+scope. Original assertions remain. Full native qualification required.
+
+#1736 remediation verified: full native Ubuntu2bddf203/tree9e8f9d39 naturally
+closed exit0,1966 tests:1879 pass,87 existing platform skips,0 fail. All nine
+prior failures resolved; no assertions or platform applicability changed. Windows
+scoped26/26 pass and Ubuntu scoped25 pass/1 skip. PR1737 is the develop delivery
+path. Retain original receipts and separate Windows/docs/release investigations.
+
+## #1640 complete native fixture implementation (source preparation)
+
+Active Development unit: implement ADR-002 and AC-4BJ.9c.fixture-isolation-v1 FI-1..FI-7 as a coherent native provisioner/role-loader/W driver/M mediator/K keeper/R denial-runner source bundle, from develop33e19ea24aaaff62e5dbfbb8d57001576fb2fb16. Issue #1326 remains protected; implementation readiness, different entire source GO, NEW complete-input admission and actual Windows/Linux acceptance are separate gates.
+
+The implementation must use native private endpoint authentication, actual fresh principals and held process/object custody. No standard Node stream, PID number, owner string, environment variable, copied JSON capsule, mock adapter or launch receipt alone grants original authority. Ordinary helpers retain genuine current-actor ownership and fail-closed removal. Source-owned native loader is the only original capsule authority; M and K cannot reopen original names or mutate them. Genuine W lifecycle state and original injected Error identity stay in the owning process; M receives finite authenticated assertion reads. R stays outside the workload group.
+
+Required source inventory: source-owned privileged provisioner and native role bridge for both platforms; direct approved launch/closure gates; bounded protocol and inherited handles; original physical privacy proof before writes; permanent launch quiescence, exact guardian custody transfer/positive exit/EOF and delete-denying-handle closure; prior-approved held inventory, complete independent persistent-copy verification, continuous exclusion and approved-object removal; new W reset only after original absence; post-reset/ENV copy readback; independent preinitialized raw error capture/EOF. Keep all F1-F7, seven formal plus two recovered rows, raw registry/accepted history/error identity and unrelated process guards. Complete concurrent native denial and positive/partial fault sources supplement original gates. Root/SYSTEM/admin are trusted assumptions; capability unknown remains unavailable/failure, never skip or PASS. F7 approved off-host custodian/destination remains absent, so local capture cannot claim transfer acceptance. Shared #1635 production tree transport is a separate owner unit; only actually landed source may be consumed as develop authority.
+
+No local product import/parser/compiler/build/install/npm/tests/native/ACL/account/mount/cgroup/provisioning/runtime execution is permitted before a different ENTIRE final source GO and NEW source/toolchain/kernel/privileged actor/IPC/all ENV admission. Natural CI is read-only evidence; no dispatch/rerun/control mutation. Push each complete intentional commit immediately and use an issue PR into develop. Current source preparation does not enable destructive cleanup or qualify Windows/Linux GA. Darwin remains deferred.
 
 ## #1681 foundation review17 F1-F4 repair and develop reconciliation (2026-10-07)
 
