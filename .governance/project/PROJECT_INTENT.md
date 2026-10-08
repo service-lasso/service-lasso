@@ -1,5 +1,13 @@
 # Project Intent
 
+## Secure secret-file lesson (#1740)
+
+Development documentation work under SPEC-011 ESM-12: teach explicit file
+provisioning and observable Echo consumption; correct stale tmpfs wording.
+The owner authorizes publication of these documentation changes to GitHub Pages
+and live verification. This authority does not request a binary or GA release.
+Inherited primary-checkout changes remain outside this isolated worktree.
+
 ## RAM WebDAV visibility (#1738)
 
 The owner requests metadata and usage visibility in Broker management and a

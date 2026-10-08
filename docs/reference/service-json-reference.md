@@ -380,6 +380,8 @@ recreated before fresh launch in Broker's RAM WebDAV store by default,
 outside the app directory, and are excluded from persistent artifact/preimage
 state. Pass their paths through `${SERVICE_LASSO_SECRETS_DIR}` in app-supported
 environment variables. Install outputs do not support this flag. See
+[Provision Service Secrets Securely](../getting-started/advanced-provision-service-secrets-securely.md)
+for a real Echo consumer, its opt-in manifest and safe usage checks, and
 [RAM WebDAV secret files](ram-webdav-secret-files-review.md) for URL/UNC delivery
 and access controls. Linux native filesystem delivery is an explicit
 `SERVICE_LASSO_SECRET_FILES_TRANSPORT=tmpfs` alternative; see

@@ -1,5 +1,11 @@
 # Broker-owned RAM WebDAV secret files
 
+For a step-by-step Echo consumer and usage checks, follow
+[Advanced - Provision Service Secrets Securely](../getting-started/advanced-provision-service-secrets-securely.md).
+The service's `ephemeral: true` file/template declaration requests file delivery;
+a Broker import alone does not. Core resolves and renders, then Broker receives
+the rendered outputs over its authenticated local grant API.
+
 Declared `config.files[]` and `config.templates[]` with `ephemeral: true` use
 Broker-owned RAM WebDAV by default on every platform. Core resolves current
 Broker values, renders outputs, and sends them through authenticated local IPC
