@@ -1,5 +1,7 @@
 # ADR-002: Fixture isolation and approved-object deletion (#1629)
 
+Linux mechanism amendment: [ADR-003](ADR-003-linux-original-isolate-revocation.md) selects the reviewed original-isolate drain/exclusion mechanism for source preparation under #1724. Its bounded living-W0 exception supersedes the all-W-exit Linux mechanism below, preserving all logical F1-F7 and original post-removal reset requirements. The historical prospective description remains for provenance; no implementation or native acceptance is observed.
+
 Status: conductor-selected architecture promoted for source preparation; independent entire amendment review and develop landing pending. This contract is prospective. No native capability, implementation SOURCE GO, input admission or cleanup success is observed. Governing requirements: SPEC-002 AC-4BH.2/AC-4BJ.9c F1-F7; parent #1326/#1562. Integration base: develop `7a76037dc81f4cbcf6ef46c2dbe895acfff32596`, including #1627. Other owners' #1626/#1628/U4/U5 work is outside this unit.
 
 ## Decision and trust boundary

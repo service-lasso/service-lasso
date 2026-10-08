@@ -1526,3 +1526,11 @@ The same CE2 precode continuation now defines the proposed closed private C9 mea
 
 
 Core1643 whole CE2 architecture review mapping: docs/decisions/CORE-CE2-WHOLE-REVIEW-ENTRYPOINT.md binds the complete current realm/physical-owner decisions, all23 effect contracts, exact current-only private dispatch, and explicitly UNSELECTED terminal/secrecy alternatives. Five owning effects exist; eighteen definitions and positive constructors/hooks remain unfinished. Documentary custody or conditional architecture approval is not entire product SOURCE_GO or execution admission; preserve all original/failed/private inputs and require a different entire review and new complete ROOT before product execution.
+
+### Linux native removal repair ownership (#1724)
+
+The user directed the Linux repair chat on 2026-10-07 to perform the eleven-failure repair itself. A separate current-develop fix/1724-linux-native-fixture-removal branch owns this bounded follow-up without changing #1640/#1687 existing branches. SPEC-002 AC-4BH.2 / AC-4BJ.9c.fixture-isolation-v1 and ADR-002 govern. The whole source/design correction is recorded in .governance/project/LINUX1724_NATIVE_REMOVAL_DESIGN.md; it is an unselected proposal and does not approve native deletion or weaken protected callback/assertions. Different whole architecture review and durable selection precede normative/implementation edits; entire final source review and NEW complete actual-input ROOT admission precede execution. All eleven affected tests and configured Linux full suite must pass naturally before completion.
+
+### #1724 reviewed Linux source preparation
+
+ADR-003 selects the complete original-isolate drain/exclusion protocol after DIFFERENT ENTIRE architecture GO at171473fd4feed3c60b89db3e30272936ba953a6e. The current repair chat owns source preparation on fix/1724-linux-native-fixture-removal. Import reviewed prospective PR1721 row extraction through the governed source path; implement the genuine Linux native adapter without weakening protected assertions or claiming absent F7 dependencies. Complete cumulative source/protected-test review and NEW actual-input ROOT admission remain before execution. All eleven failures remain unresolved until natural native/full-suite acceptance.
