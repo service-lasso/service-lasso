@@ -130,6 +130,11 @@ async function startMockBroker(options = {}) {
       return;
     }
 
+    if (pathname === "/v1/file-grants/status") {
+      writeJson(200, { serviceId: "@secretsbroker", outcome: "ready", state: "listening", activeGrants: 0, files: [] });
+      return;
+    }
+
     if (pathname === "/v1/events") {
       writeJson(200, {
         serviceId: "@secretsbroker",
@@ -463,6 +468,10 @@ test("Core proxy E2E covers reveal, edit, rotate, provider, migration, and telem
 
     const aliasedTelemetry = await getJson(`${base}/operations/telemetry`);
     assert.equal(aliasedTelemetry.status, 200);
+    const webdav = await getJson(`${base}/operations/webdav?limit=100&cursor=0`);
+    assert.equal(webdav.status, 200);
+    assert.equal(webdav.body.state, "listening");
+    assert.equal(mockBroker.seen().url, "/v1/file-grants/status?limit=100&cursor=0");
     assert.equal(mockBroker.seenAuthorization(), `Bearer ${mockBroker.expectedToken}`);
     assert.equal(mockBroker.seen().url?.startsWith("/v1/"), true);
   } finally {

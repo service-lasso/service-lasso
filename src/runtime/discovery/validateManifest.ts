@@ -372,6 +372,19 @@ function readActionMaterialization(
   }
 
   const record = value as Record<string, unknown>;
+  for (const entries of [record.files, record.templates]) {
+    if (!Array.isArray(entries)) continue;
+    for (const entry of entries) {
+      if (!entry || typeof entry !== "object") continue;
+      const ephemeral = (entry as Record<string, unknown>).ephemeral;
+      if (ephemeral !== undefined && typeof ephemeral !== "boolean") {
+        throw new Error(`Invalid service manifest at ${manifestPath}: ${field} ephemeral must be a boolean.`);
+      }
+      if (field === "install" && ephemeral === true) {
+        throw new Error(`Invalid service manifest at ${manifestPath}: ephemeral files belong in config, not install.`);
+      }
+    }
+  }
   if (
     record.files !== undefined &&
     (!Array.isArray(record.files) ||
@@ -416,6 +429,8 @@ function readActionMaterialization(
           files: record.files.map((entry) => ({
             path: expectNonEmptyString((entry as Record<string, string>).path, `${field}.files.path`, manifestPath),
             content: (entry as Record<string, string>).content,
+            ...((entry as Record<string, unknown>).ephemeral !== undefined
+              ? { ephemeral: (entry as Record<string, unknown>).ephemeral as boolean } : {}),
           })),
         }
       : {}),
@@ -432,6 +447,8 @@ function readActionMaterialization(
               `${field}.templates.target`,
               manifestPath,
             ),
+            ...((entry as Record<string, unknown>).ephemeral !== undefined
+              ? { ephemeral: (entry as Record<string, unknown>).ephemeral as boolean } : {}),
           })),
         }
       : {}),

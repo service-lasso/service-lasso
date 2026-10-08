@@ -109,3 +109,24 @@ test("image dimension parsing fails closed instead of accepting attacker-control
     /image dimension parsing is disabled/i,
   );
 });
+
+/** GHSA-jqcg-44mw-7w3h: IPv6 trust must not admit IPv4 across families. */
+test("patched proxy-addr preserves explicit IPv4 and IPv6 trust boundaries", () => {
+  const proxyaddr = require("proxy-addr");
+  for (const subnets of [["::/1"], ["::/1", "2001:db8::/32"]]) {
+    const trust = proxyaddr.compile(subnets);
+    assert.equal(trust("127.0.0.1"), false);
+    assert.equal(trust("::ffff:127.0.0.1"), false);
+    assert.equal(trust("2001:db8::1"), true);
+  }
+  for (const subnets of [["127.0.0.0/8"], ["127.0.0.0/8", "10.0.0.0/8"]]) {
+    const trust = proxyaddr.compile(subnets);
+    assert.equal(trust("127.0.0.1"), true);
+    assert.equal(trust("::ffff:127.0.0.1"), true);
+    assert.equal(trust("2001:db8::1"), false);
+  }
+  const mapped = proxyaddr.compile("::ffff:127.0.0.0/104");
+  assert.equal(mapped("127.0.0.1"), true);
+  assert.equal(mapped("::ffff:127.0.0.1"), true);
+  assert.equal(mapped("2001:db8::1"), false);
+});

@@ -46,7 +46,7 @@ archive against real PostgreSQL. Full managed/Admin integration above was
 executed on Windows with the explicit PostgreSQL adapter. It does not qualify
 macOS PostgreSQL, whole-demo shutdown, upstream template admission or GA.
 
-## Todo identity stage (#1673)
+## Earlier App-only identity stage (#1673)
 
 The [fourth tutorial](../getting-started/zitadel-sso-hub.md) now adds Zitadel
 sign-in to the managed Todo app, rather than leaving the consuming application
@@ -77,7 +77,7 @@ literal Core CLI import/install and verified SHA256
 `a8297a6f16e13cc283ef80ccc0a5187e1c276fdbb176d21f0e6faa3d32b8d5e6`.
 A fresh owned Core loaded that exact artifact; an earlier in-memory held-artifact
 attempt was retained and excluded from released acceptance. Actual Zitadel test
-user login, protected Go API proxy reads/writes/reload, native confirmed Todo
+user login, App-protected Go API proxy reads/writes/reload, native confirmed Todo
 restart, re-login and logout passed. PostgreSQL retained all four original JSON
 IDs/titles, and the released Go API list matched the SQL rows.
 
@@ -87,6 +87,81 @@ machine-wide trust claim. Public `/healthz` stayed available; anonymous `/todos`
 was denied, and restart invalidated sessions while retaining data. Local sessions
 authorize the shared list, not per-user rows or direct remote API access. No
 Linux/macOS native identity, production deployment or GA claim follows.
+
+**Correction (#1692):** that release protected Todo's front door only. The Go
+API still accepted direct anonymous reads and writes. The previous browser
+checks established App session enforcement, not API authorization. That gap
+was a defect in the SSO lesson, even though the API listened on loopback. The
+corrective release below adds API token validation; the earlier results remain
+recorded with this narrower scope.
+
+## Todo API authentication correction (#1692)
+
+The API now requires an explicit mode: anonymous for the preceding local
+lessons, or Zitadel for SSO. Missing or partial identity configuration fails
+startup. The secured API introspects each bearer access token over trusted
+HTTPS with a separate registered Basic API client and a private secret file.
+It checks active status, issuer, project audience, issuing Todo Web client,
+subject, token type and lifetime before accessing the database. Public health
+does not authorize Todo reads or writes.
+
+Todo requests the project audience and keeps the access token only in its
+bounded server session. The proxy forwards that token, ignores browser-supplied
+Authorization headers and never falls back after API rejection. The paired
+configuration helper rejects older API manifests and configures API protection
+before enabling App sign-in. Both services must be stopped during changes.
+
+New tests cover source middleware rejection and configuration, signed HTTPS
+OIDC forwarding, access-token expiry and extracted-archive execution. The
+proxy fixture uses a simulated API and does not establish Go enforcement or
+real Zitadel acceptance. Existing protected tests were not edited.
+
+The first corrective publication, Todo `2026.10.4-9c6567f` and API
+`2026.10.4-3e560cc`, passed package pipelines but failed the literal Core import
+configuration check: Core's schema projection removes `meta`, including the
+API capability marker. The acquired archives were correct; the released helper
+refused to enable SSO on the imported manifest. That attempt is retained as a
+failure, not released acceptance. The subsequent correction publishes the
+non-secret capability in `env.TODO_API_AUTH_CONTRACT`, which import preserves,
+and tests the paired helper against a manifest with no metadata. Runtime
+startup uses the same capability and still requires matching secured settings.
+
+On **5 October 2026**, independent Windows execution passed with literal Core
+imports, actual checksum acquisition, the acquired paired configuration helper
+and managed launch of these final development consumers:
+
+| Consumer | Exact published identity | Windows archive SHA-256 |
+| --- | --- | --- |
+| App | [Todo `2026.10.4-15dc4b9`](https://github.com/service-lasso/lasso-todo/releases/tag/2026.10.4-15dc4b9), source `15dc4b906224a360d91f0478acace04633fee70c` | `f8c1ce5247d5118e939598b27b40ed44da9531743a304b026be99d2d71a86ebf` |
+| API | [API `2026.10.4-02ef566`](https://github.com/service-lasso/lasso-todo-api/releases/tag/2026.10.4-02ef566), source `02ef5663a16a04dab1769bb33f0d5a168c525f81` | `00d84ca8c04d701c44f228111e3196633a91c139b2a41f717ea58f4b441cbdb6` |
+
+[Todo publication run 37245621423](https://github.com/service-lasso/lasso-todo/actions/runs/37245621423)
+and [API publication run 37245603210](https://github.com/service-lasso/lasso-todo-api/actions/runs/37245603210)
+passed all three platform package gates; the API also passed held Linux archive
+execution against real PostgreSQL. The independent managed identity boundary
+below was executed on Windows, separately from those hosted package gates.
+
+| Managed boundary | Direct result |
+| --- | --- |
+| Literal release import | Preserved environment capability; no metadata repair or local archive substitution |
+| Direct API GET/POST without a token or with an invalid bearer | 401; exact SQL rows unchanged |
+| Real Zitadel password + PKCE browser login | Session established; access-token-forwarded create 201 and list 200 |
+| Persistence and managed App/API restart | Eight SQL rows, all previous IDs/titles retained; old session invalidated |
+| Identity stopped with an authenticated session | Read and CSRF-authorized write returned 503; SQL rows unchanged |
+| Identity recovery | Authenticated list recovered with retained data |
+| Logout | Old cookie and anonymous App data requests returned 401 |
+
+An earlier local-package integration also tested a real token for the wrong
+audience. Source TLS middleware fixtures cover expired/revoked/incorrect
+issuer/client/scope tokens and malformed/provider responses. Those are separate
+from the final released browser/API observations above. A test harness initially
+omitted the App's CSRF header and received the expected 403; the corrected
+positive write used the actual session CSRF token. Transient GitHub 500 responses
+during release checksum acquisition were retained; a later actual Core install
+succeeded without substituting local payloads. Private credentials, databases,
+certificates and failed attempts remain retained; inherited fixtures and host
+trust were not changed. No per-user list, native WebView SSO, production or GA
+qualification follows from this correction.
 
 ## Corrected PostgreSQL producer release
 
@@ -186,6 +261,45 @@ interaction, code signing, offline service acquisition, embedded WebView SSO,
 macOS/Linux native execution and GA are separate, unqualified boundaries.
 The unchanged Core startup-crash suite still reports existing fixture failures;
 this docs-only change does not claim whole-Core acceptance.
+
+## Public Mac SSO checkpoint (#1704)
+
+The [SSO article](../getting-started/zitadel-sso-hub.md) now recommends the
+public lesson-host route qualified on Intel macOS 11.7.11. Public lesson
+source `0d72fc40fe3147786fec97642b658389bb063b63` contains the reviewed
+stage04 implementation; its frozen author head was
+`d9d27754b17db6e0e6ad6534548668ed35f7c9ff`.
+[Lesson #9's direct acceptance record](https://github.com/service-lasso/lesson-todo/issues/9#issuecomment-5999756112)
+retains the literal consumer results and original failed attempts.
+
+Identity release
+[`2026.10.5-d7e04eb`](https://github.com/service-lasso/lasso-zitadel/releases/tag/2026.10.5-d7e04eb)
+targets `d7e04ebd9489ddc8c6798e408cd8ce7992711146`.
+[Producer run 37327998201](https://github.com/service-lasso/lasso-zitadel/actions/runs/37327998201)
+passed all eight full source/actual binary scans and five hosted native gates.
+All thirteen public assets and twelve checksum entries were read back; seven
+staged qualification files matched the published bytes. That producer proof
+is distinct from the literal Mac lesson below.
+
+| Boundary | Direct observation |
+| --- | --- |
+| Public consumption | Published Core/Admin, selected Intel macOS 11 Broker/Identity profiles, normal checksum-bound acquisition/configuration/start |
+| Private provisioning | Hidden Node prompt; invalid input/cancellation launched no child; create-only Broker references and protected private API credential file |
+| Paired application | Real Web PKCE login, authenticated App/API reads/writes, SQL IDs retained on refresh |
+| Denials | Anonymous/malformed and genuine other-project API tokens returned 401; CSRF returned 403; SQL unchanged |
+| Identity outage | API reads/writes returned 503 without SQL mutation; recovery returned 200 |
+| Lifecycle | Restart invalidated sessions; relogin retained rows; logout invalidated the old cookie; full Core reopen retained identity users/projects and Todo IDs |
+| Setup retention/shutdown | Nineteen manifest/credential/certificate files and three Node symlink targets preserved; owned processes and listener range empty afterward |
+
+Exact lesson [test run 37347837393](https://github.com/service-lasso/lesson-todo/actions/runs/37347837393)
+and [Windows desktop run 37347837387](https://github.com/service-lasso/lesson-todo/actions/runs/37347837387)
+passed. They do not replace the native Mac application/provider observations.
+Natural access-token expiry was not verified; temporary isolated provider
+settings were restored. ARM macOS 11, native Mac desktop, all-platform full SSO
+and GA remain unqualified. The earlier manual Windows Core route and its pins
+remain separate; existing wider Core failures are not repaired by this article.
+Documentation merge, publication and exact live source readback are separate
+acceptance steps.
 
 ## Wider example inventory (earlier review)
 

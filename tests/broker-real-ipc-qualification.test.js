@@ -25,6 +25,7 @@ const execFileAsync = promisify(execFile);
 
 const expectedManagementResults = new Map([
   ["GET /v1/events", { statusCode: 200, outcome: "ready" }],
+  ["GET /v1/file-grants/status", { statusCode: 200, outcome: "ready" }],
   ["GET /v1/management/lifecycle/backups", { statusCode: 200, outcome: "ready" }],
   ["GET /v1/management/lifecycle/status", { statusCode: 200, outcome: "ready" }],
   ["GET /v1/management/secrets", { statusCode: 200, outcome: "ready" }],

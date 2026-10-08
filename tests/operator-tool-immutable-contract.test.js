@@ -27,7 +27,7 @@ test("AC-4CG / AC-7G entire current CLI producer-shaped inventory retains all na
   assert.deepEqual(manifest.assets.filter(asset => asset.kind === "native").map(asset => asset.target), ["win32-x64", "linux-x64", "darwin-arm64"]);
 });
 
-for (const [name, mutate] of [
+for (const [name, mutate, expectedError = /rejected/i] of [
   ["missing native archive", fixture => fixture.held.delete(fixture.manifest.assets.find(asset => asset.kind === "native").name)],
   ["extra published file", fixture => fixture.held.set("extra.json", encode({}))],
   ["checksum substitution", fixture => fixture.held.set("SHA256SUMS.txt", Buffer.from("not exact"))],
@@ -35,12 +35,13 @@ for (const [name, mutate] of [
   ["version drift", fixture => { fixture.manifest.version = "0.1.0-dev.aaaaaaa"; rebound(fixture); }],
   ["tag drift", fixture => { fixture.manifest.candidateTag = "latest"; rebound(fixture); }],
   ["wrong repository", fixture => { fixture.manifest.source.repository = "other/cli"; rebound(fixture); }],
-  ["manifest schema drift", fixture => { fixture.manifest.schemaVersion = 2; rebound(fixture); }],
+  ["manifest schema drift without required scope", fixture => { fixture.manifest.schemaVersion = 2; rebound(fixture); }, { message: "scope: closed schema mismatch" }],
+  ["unknown manifest schema", fixture => { fixture.manifest.schemaVersion = 3; rebound(fixture); }, { message: "Protected candidate rejected: unknown candidate schema" }],
   ["extra manifest field", fixture => { fixture.manifest.accepted = true; rebound(fixture); }],
   ["duplicate trusted JSON key", fixture => { const text = fixture.held.get("development-candidate.json").toString(); fixture.held.set("development-candidate.json", Buffer.from(text.replace('{"schemaVersion":1,', '{"schemaVersion":1,"schemaVersion":1,'))); }],
   ["checksum declaration incomplete", fixture => { fixture.manifest.checksums.entries.pop(); rebound(fixture); }],
   ["native sidecar substitution", fixture => { fixture.held.set("provenance-win32-x64.json", encode({ ...JSON.parse(fixture.held.get("provenance-win32-x64.json")), source: { commit: "a".repeat(40) } })); rebound(fixture); }],
-]) test(`AC-7G rejects ${name}`, () => { const fixture = createProtectedCliFixture(); mutate(fixture); assert.throws(() => verify(fixture), /rejected/i); });
+]) test(`AC-7G rejects ${name}`, () => { const fixture = createProtectedCliFixture(); mutate(fixture); assert.throws(() => verify(fixture), expectedError); });
 
 for (const [name, mutate] of [
   ["extra native member", members => members.push(["extra", Buffer.from("extra")])],
