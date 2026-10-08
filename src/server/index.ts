@@ -1272,6 +1272,7 @@ const BROKER_LIFECYCLE_PROXY_PATHS = new Map<string, BrokerManagementRouteDefini
 ]);
 
 const BROKER_OPERATIONS_PROXY_PATHS = new Map<string, BrokerManagementRouteDefinition>([
+  ["webdav", { method: "GET", brokerPath: "/v1/file-grants/status", permission: "workspace:read", sensitive: false }],
   ["telemetry", { method: "GET", brokerPath: "/v1/telemetry", permission: "workspace:read", sensitive: false }],
   ["events", { method: "GET", brokerPath: "/v1/events", permission: "workspace:read", sensitive: false }],
 ]);
@@ -1336,6 +1337,19 @@ export function matchBrokerManagementProxyRoute(method: string, url: URL): Broke
   if (!mapping || mapping.method !== method) return null;
 
   const params = new URLSearchParams();
+  if (mapping.brokerPath === "/v1/file-grants/status") {
+    for (const name of ["limit", "cursor"]) {
+      const values = url.searchParams.getAll(name);
+      if (values.length === 0) continue;
+      const value = values[0] ?? "";
+      const number = Number(value);
+      if (values.length !== 1 || !/^\d{1,6}$/u.test(value) ||
+          (name === "limit" ? number < 1 || number > 200 : number > 131072)) {
+        throw new ApiError("invalid_request", 400, "Invalid WebDAV inventory pagination.");
+      }
+      params.set(name, value);
+    }
+  }
   if (mapping.brokerPath === "/v1/management/secrets" && url.searchParams.has("search")) {
     params.set("search", (url.searchParams.get("search") ?? "").slice(0, 256));
   }

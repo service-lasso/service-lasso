@@ -1,3 +1,4 @@
+import net from "node:net";
 import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
@@ -59,8 +60,8 @@ test("ESM-7..10 native Broker/Core launch, env compatibility, replacement rotati
     writeFileSync('consumed.json',JSON.stringify({matches:response.ok&&content===process.env.PASSWORD}));setInterval(()=>{},1000);`);
   const registry=createServiceRegistry(await discoverServices(servicesRoot));service=registry.getById("ram-app");
   const issuer={workspaceId:"test-workspace",command:{command:binary,env:{...process.env,SECRETSBROKER_LAUNCH_IDENTITY_SIGNING_KEY:signingKey}}};
-  const lookup=async({refs,identityLease})=>{
-   const resolved=await post("/v1/resolve",{serviceId:"ram-app",workspaceId:"test-workspace",identityLease,refs:refs.map(ref=>`shared/database/${ref}`)});
+  const lookup=async({refs,identityLease,service:lookupService})=>{
+   const resolved=await post("/v1/resolve",{serviceId:lookupService.manifest.id,workspaceId:"test-workspace",identityLease,refs:refs.map(ref=>`${ref.startsWith("echo.")?"shared/echo":"shared/database"}/${ref}`)});
    assert.equal(resolved.status,200,resolved.status===200?undefined:resolved.body.toString());const payload=JSON.parse(resolved.body.toString());
    return refs.map((ref,i)=>({ref,status:payload.results[i].outcome==="ready"?"resolved":"missing",value:payload.results[i].value}));
   };
@@ -90,6 +91,34 @@ test("ESM-7..10 native Broker/Core launch, env compatibility, replacement rotati
   service.manifest.args=["${SERVICE_LASSO_SECRETS_DIR}"];
   await assert.rejects(startService(service,registry,staticOptions),/preparation failed/);
   assert.equal(getLifecycleState(service.manifest.id).runtime.pid,null);
+  // Optional actual Echo consumer: use its checked-in sample manifest unchanged
+  // except executable, test-owned runtime paths and ephemeral listening ports.
+  if (process.env.SERVICE_LASSO_TEST_ECHO_BIN && process.env.SERVICE_LASSO_TEST_ECHO_MANIFEST) {
+   const echoRoot=path.join(servicesRoot,"echo-webdav");await mkdir(echoRoot);
+   const manifest=JSON.parse(await readFile(process.env.SERVICE_LASSO_TEST_ECHO_MANIFEST,"utf8"));
+   manifest.executable=process.env.SERVICE_LASSO_TEST_ECHO_BIN;manifest.args=[];delete manifest.endpoints;
+   const port=await new Promise((resolve,reject)=>{const listener=net.createServer();listener.once("error",reject);listener.listen(0,"127.0.0.1",()=>{const port=listener.address().port;listener.close(error=>error?reject(error):resolve(port));});});
+   Object.assign(manifest.env,{ECHO_PORT:String(port),ECHO_HTTP_HEALTH_PORT:"0",ECHO_TCP_PORT:"0",ECHO_LOG_PATH:path.join(echoRoot,"echo.log"),ECHO_STATE_PATH:path.join(echoRoot,"state.json"),ECHO_DB_PATH:path.join(echoRoot,"echo.sqlite")});
+   await writeFile(path.join(echoRoot,"service.json"),JSON.stringify(manifest));
+   const echoRegistry=createServiceRegistry(await discoverServices(servicesRoot));service=echoRegistry.getById("echo-webdav");
+   assert.equal((await post("/v1/secrets",{ref:"shared/echo/echo.DEMO_CREDENTIAL",value:"synthetic-demo-credential"})).status,200);
+   await installService(service,echoRegistry);await configService(service,echoRegistry,options);
+   await startService(service,echoRegistry,options);
+   let echoStatus;
+   for(let i=0;i<100;i++){try{const response=await fetch(`http://127.0.0.1:${port}/secret-file`);if(response.ok){echoStatus=await response.json();break;}}catch{}await new Promise(r=>setTimeout(r,50));}
+   assert.equal(echoStatus?.status,"loaded");assert.equal(echoStatus.reads,1);
+   assert.equal((await (await fetch(`http://127.0.0.1:${port}/secret-file`,{method:"POST"})).json()).reads,2);
+   const statusResponse=await request({method:"GET",pathWithQuery:"/v1/file-grants/status?limit=100&cursor=0",headers:{}});
+   assert.equal(statusResponse.status,200);const inventory=JSON.parse(statusResponse.body.toString());
+   const row=inventory.files.find(file=>file.serviceId==="echo-webdav");assert.equal(row.path,"demo-config.json");assert.equal(row.downloads,2);assert.equal(row.sizeBytes,echoStatus.sizeBytes);assert.equal(row.servedBytes,row.sizeBytes*2);
+   const environment=await (await fetch(`http://127.0.0.1:${port}/env`)).text();
+   assert.equal(environment.includes(latestURL.split("/")[3]),false);
+   for(const file of ["echo.log","state.json"]){const content=await readFile(path.join(echoRoot,file),"utf8");assert.equal(content.includes("synthetic-demo-credential"),false);assert.equal(content.includes(latestURL.split("/")[3]),false);}
+   await stopService(service);
+   const after=JSON.parse((await request({method:"GET",pathWithQuery:"/v1/file-grants/status",headers:{}})).body.toString());
+   assert.equal(after.files.some(file=>file.serviceId==="echo-webdav"),false);
+  }
+
  } finally {
   if(service&&getLifecycleState(service.manifest.id).running)await stopService(service);
   broker.kill("SIGTERM");if(broker.exitCode===null)await once(broker,"exit");resetLifecycleState();
