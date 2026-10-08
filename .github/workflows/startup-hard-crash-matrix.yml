@@ -49,4 +49,15 @@ jobs:
         env:
           SERVICE_LASSO_HARD_CRASH_PHASE: ${{ matrix.phase }}
           SERVICE_LASSO_INSTANCE_REGISTRY_PATH: ${{ runner.temp }}/service-lasso-hard-crash-instances.json
-        run: node --test --test-concurrency=1 tests/startup-hard-crash-matrix.test.js
+        run: >-
+          node --test --test-concurrency=1
+          tests/startup-hard-crash-matrix.test.js
+          tests/startup-hard-crash-matrix-preflight-reconciliation.test.js
+          tests/startup-hard-crash-matrix-allocation-reserved.test.js
+          tests/startup-hard-crash-matrix-configuration-materialized.test.js
+          tests/startup-hard-crash-matrix-process-spawned.test.js
+          tests/startup-hard-crash-matrix-ownership-persisted.test.js
+          tests/startup-hard-crash-matrix-owned-readiness-proven.test.js
+          tests/startup-hard-crash-matrix-generation-committed.test.js
+          tests/startup-hard-crash-matrix-recovered-process-spawned.test.js
+          tests/startup-hard-crash-matrix-recovered-generation-committed.test.js

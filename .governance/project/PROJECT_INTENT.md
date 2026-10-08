@@ -7,6 +7,10 @@ real Echo consumer example. SPEC-011 ESM-11 adds a read-only, workspace-read
 proxy for bounded inventory; file values and capability tokens stay private.
 This is Development source work, with no publication or deployment authority.
 
+## Hard-crash row process isolation (#1720)
+
+SPEC-002 AC-4BJ.9c.row-isolation isolates each protected crash/recovered row in its own Node test-file process so retained failure state cannot contaminate another workspace's recovery. Preserve every original assertion and native removal refusal, with complete-suite and selected-phase workflow coverage. No product lifecycle reset, unsafe cleanup, native implementation, ownership change or deadline expansion is authorized. #1640/#1687 and their existing owners remain separate dependencies.
+
 ## Sequential release-versioning credential custody (#1716)
 
 Source-only repair under SPEC-002 AC-4CG.1716 retains the original artifact/package version gate and captures the step metadata credential once before child staging, reusing the private local explicitly across both stagers. A separate closed-response regression must prove artifact-to-package reuse, environment removal and headerless downloads. Historical PR37392084646 test1478 HTTP403 and same-source push37392078704 remain preserved; the provider refusal cause is UNKNOWN. No production auth policy, permissions, retries, identities or publication authority changes. Execution remains UNRUN until a NEW complete actual-input ROOT, a different fresh ENTIRE cumulative review and parent admission.

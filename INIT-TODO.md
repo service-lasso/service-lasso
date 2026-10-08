@@ -1,5 +1,7 @@
 # Bootstrap Adoption TODO
 
+- #1720 test remediation: SPEC-002 AC-4BJ.9c.row-isolation; separate all nine protected crash rows into fresh Node test-file processes without changing original row assertions, cleanup, reset or deadlines. Current Linux baseline and exact row-body move require review/evidence. #1640 positive native removal/reset and #1687 F7 remain unqualified.
+
 - #1716 active source remediation: SPEC-002 AC-4CG.1716 sequential artifact/package versioning caller retains one consumed private metadata credential. Preserve original assertions and auth policy; deterministic regression and original live gate remain UNRUN pending NEW complete actual-input ROOT, different fresh ENTIRE review and parent admission. Provider403 cause remains UNKNOWN.
 
 ## Mac readiness documentation remediation (2026-10-05, #1675)
