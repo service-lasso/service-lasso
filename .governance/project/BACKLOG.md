@@ -14,6 +14,7 @@ The owner's current GA delivery scope is Windows and Linux under [current GA pla
 This backlog tracks active product delivery for the `service-lasso` core runtime.
 
 ## Current Active Spec
+- `SPEC-011-ephemeral-app-secrets.md`
 - `SPEC-002-core-standalone-runtime.md`
 - `SPEC-003-main-develop-reconciliation.md`
 - `SPEC-004-isolated-wsl-runner-pool.md`
@@ -24,6 +25,7 @@ This backlog tracks active product delivery for the `service-lasso` core runtime
 ## Issue Register
 | ID | Status | Title | Spec References | Notes |
 | --- | --- | --- | --- | --- |
+| `ISS-1730` | `in_progress` | Recreate Core-owned ephemeral app secret files on Linux tmpfs | `SPEC-011`, `ESM-1..6` | Fresh Broker resolution before launch; pass Core paths through app env. Native Ubuntu verification and deployment guidance; no app-owned cleanup or #1724 changes. |
 | `ISS-1675` | `in_review` | Diagnose native Mac guarded lifecycle hashing and record Mac readiness activities | `SPEC-006 AC-6E`; `SPEC-007 AC-7F/7G/7H` | The unchanged uninstrumented thirteen-file native rerun passed: 106 passed, one Windows-only skip, zero failures, exit 0. Earlier diagnostic interruptions are retained; no product patch is justified. [Mac readiness](../../docs/development/macos-readiness.md) separates source/packaged/browser/published proof and the supported macOS 14+ browser prerequisite. Current Windows/Linux GA applicability is unchanged. |
 | `ISS-1654` | `in_review` | Repair published hard-crash protocol governance ADR reference | `SPEC-002`, `AC-4AJ`, `AC-4BJ.9c.fixture-isolation-v1` | PR #1655 retains the literal canonical repository path beside the external develop ADR source link. The external-link repair is independently carried by current develop; this integration preserves that source and records #1654 provenance. Original docs job 111318902389 remains failed; natural original-head docs/MCP builds do not qualify the changed integration head. Different entire source review and NEW ROOT precede manual execution; publication and native acceptance remain separate. |
 | `ISS-1612` | `done` | Restore explicit documentation publication from develop | `SPEC-002`, `AC-4AJ.5`, `AC-4AJ.6` | Repair #1615 merged as `7d6f1ce6c244543c65b0efac2218c6f8dc456bc0`. Owner-authorized manual Docs Site run `37140638976` built/uploaded/deployed successfully. Live source receipt matches that SHA/run; home, contributor publishing instructions, explainer, CSS and both JS assets read back successfully. Local tooling patches retain upstream provenance and 14 direct regressions; production/full-tooling audits report zero vulnerabilities. Existing runtime-qualification failures remain separate and retained in #1612. |
