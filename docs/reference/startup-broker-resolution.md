@@ -72,6 +72,13 @@ Policy-denied refs are intentionally separate from missing refs. Operators shoul
 
 ## Cache invalidation
 
+Apps that require a file can opt into Core-owned Linux tmpfs outputs with
+`config.files[].ephemeral` or `config.templates[].ephemeral`, then pass
+`${SERVICE_LASSO_SECRETS_DIR}/<name>` through an app-supported environment
+variable. See [Linux app secret files](linux-app-secret-files.md) for manifest,
+mount and restart configuration. These files are recreated from the current
+launch resolution before each fresh spawn; environment delivery stays supported.
+
 Selector plans are cached by service manifest path/id and the effective `env` + `broker.imports` content. The cache invalidates when:
 
 - an env template changes

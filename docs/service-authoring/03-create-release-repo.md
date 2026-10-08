@@ -17,12 +17,21 @@ Create the repository in GitHub first, then verify its template origin before
 you change service files:
 
 ```powershell
-gh repo create service-lasso/<repo-name> --public --template service-lasso/service-template --description "<description>"
+gh repo create service-lasso/<repo-name> --public --template service-lasso/service-template --include-all-branches --description "<description>"
 
 $template = gh api repos/service-lasso/<repo-name> --jq '.template_repository.full_name'
 if ($template -ne 'service-lasso/service-template') {
   throw "Repository was not created from the Service Lasso template: $template"
 }
+```
+
+Wait for GitHub generation to expose the copied `develop` branch before
+continuing. Record that commit and the template's `develop` commit as bootstrap
+provenance; if the branch remains absent, stop and correct the bootstrap.
+
+```powershell
+gh api repos/service-lasso/<repo-name>/branches/develop --jq '.commit.sha'
+gh repo edit service-lasso/<repo-name> --default-branch develop
 ```
 
 Then clone that GitHub-created repository and make the first adaptation on a
@@ -32,7 +41,7 @@ tracked issue branch:
 git clone --branch develop --single-branch https://github.com/service-lasso/<repo-name>.git C:\projects\service-lasso\<repo-name>
 cd C:\projects\service-lasso\<repo-name>
 gh issue create --title "Bootstrap <service-id> from service template" --body "..."
-git checkout -b docs/<issue>-bootstrap-<service> origin/develop
+git checkout -b feature/<issue>-bootstrap-<service> origin/develop
 ```
 
 If the template query returns `null`, stop and correct the repository's

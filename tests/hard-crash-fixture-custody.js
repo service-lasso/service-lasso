@@ -1,20 +1,27 @@
 import { mkdir, lstat, mkdtemp, open, readFile, readdir, realpath, writeFile } from "node:fs/promises";
 import { constants } from "node:fs";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { execFile } from "node:child_process";
 import path from "node:path";
 import { holdFixtureRoot } from "./fixture-root-custody.js";
+import { verifyDisposableTestFixture, removeDisposableTestFixture } from "./disposable-test-fixture.js";
 import { fixturePrivacyScript } from "./fixture-privacy-custody.js";
+import { fixturePrivacyBootstrap, createFixturePrivacyDecoder } from "./fixture-privacy-transport.js";
 
 export const FIXTURE_PRIVACY_RESULTS = Object.freeze([
   "not_attempted", "passed", "compiler", "prepare", "acquire", "information",
   "type", "redirect", "security", "owner", "inventory", "identity",
   "descriptor", "protect", "readback", "release", "spawn_unavailable",
   "timeout_unavailable", "response_unavailable", "malformed_response",
+  "launch_unavailable", "bootstrap_unavailable",
 ]);
 const nativePrivacyOperations = FIXTURE_PRIVACY_RESULTS.slice(2, 16);
 const privacyByError = new WeakMap();
 const privacyByBoundary = new WeakMap();
+const transportByError = new WeakMap();
+const transportByBoundary = new WeakMap();
+const weakKey = value => value !== null && (typeof value === "object" || typeof value === "function");
+export function fixturePrivacyTransportFailureObservation(error) { return weakKey(error) ? transportByError.get(error) : undefined; }
 const privacyObservation = (verification = "not_attempted", protection = "not_attempted") =>
   Object.freeze({ schema: "service-lasso.fixture-privacy-observation.v1", verification, protection });
 
@@ -31,10 +38,11 @@ export function decodeFixturePrivacyResponse(stdout) {
   return undefined;
 }
 export function fixturePrivacyFailureObservation(error) {
-  return privacyByError.get(error) ?? privacyObservation("response_unavailable", "not_attempted");
+  return (weakKey(error) ? privacyByError.get(error) : undefined) ?? privacyObservation("response_unavailable", "not_attempted");
 }
 export function classifyFixturePrivacyCompletion(stdout, failed, spawnFailed, timeoutReached) {
   const response = decodeFixturePrivacyResponse(stdout);
+  if (timeoutReached === true) return "timeout_unavailable";
   if (response && response !== "passed") return response;
   if (failed === true) {
     if (spawnFailed === true) return "spawn_unavailable";
@@ -43,38 +51,64 @@ export function classifyFixturePrivacyCompletion(stdout, failed, spawnFailed, ti
   }
   return failed === false && response === "passed" ? "passed" : "malformed_response";
 }
-const deliverPrivacyObservation = (observe, value) => {
-  try { observe(value); } catch { /* Observation never changes privacy authority. */ }
+const deliverPrivacyObservation = (observe, value, transport) => {
+  try { observe(value, transport); } catch { /* Observation never changes privacy authority. */ }
 };
 
 // The timer observes the same existing timeout; it adds no retry/deadline or
 // process action. Spawn is witnessed by our own child's events, not error.code.
-async function runFixturePrivacy(root, protect, observe) {
+export async function runFixturePrivacy(root, protect, observe, launch = execFile) {
   return await new Promise((resolve, reject) => {
     let spawnFailed = false;
     let timeoutReached = false;
     let timer;
     let child;
+    let decoder;
+    let spawned = false;
     try {
+      const nonce = randomBytes(16).toString("hex");
+      const role = protect ? "p" : "v";
+      if (Buffer.byteLength(fixturePrivacyScript) > 65_536) throw new Error("Fixture privacy payload exceeds its source bound.");
+      decoder = createFixturePrivacyDecoder(nonce, role);
       timer = setTimeout(() => { timeoutReached = true; }, 5_000);
       timer.unref();
-      child = execFile(path.join(process.env.SystemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
-        ["-NoProfile", "-NonInteractive", "-Command", fixturePrivacyScript], {
+      child = launch(path.join(process.env.SystemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
+        ["-NoProfile", "-NonInteractive", "-Command", fixturePrivacyBootstrap], {
           windowsHide: true, timeout: 5_000, maxBuffer: 16 * 1024,
           env: { ...process.env, SERVICE_LASSO_FIXTURE_EVIDENCE_ROOT: root,
-            SERVICE_LASSO_FIXTURE_EVIDENCE_PROTECT: protect ? "1" : "0" },
+            SERVICE_LASSO_FIXTURE_EVIDENCE_PROTECT: protect ? "1" : "0",
+            SERVICE_LASSO_FIXTURE_PRIVACY_NONCE: nonce, SERVICE_LASSO_FIXTURE_PRIVACY_ROLE: role,
+            SERVICE_LASSO_FIXTURE_PRIVACY_PAYLOAD: fixturePrivacyScript },
         }, (error, stdout) => {
           clearTimeout(timer);
-          const result = classifyFixturePrivacyCompletion(stdout, Boolean(error), spawnFailed, timeoutReached);
-          observe(result);
+          let decoded;
+          try { decoded = decoder.finish(decodeFixturePrivacyResponse); } catch { /* Diagnostic failure is neutral. */ }
+          const result = timeoutReached ? "timeout_unavailable" : spawnFailed || !spawned ? "launch_unavailable" :
+            decoded?.observation.state === "malformed" ? "malformed_response" :
+            decoded?.response && decoded.response !== "passed" ? decoded.response :
+            !error && decoded?.response === "passed" ? "passed" :
+            decoded?.observation.events.length === 0 ? "bootstrap_unavailable" : "response_unavailable";
+          try { observe(result, decoded?.observation); } catch { /* Never replace the original error. */ }
+          if (weakKey(error)) {
+            if (decoded) transportByError.set(error, decoded.observation);
+            privacyByError.set(error, privacyObservation(protect ? "not_attempted" : result, protect ? result : "not_attempted"));
+          }
           if (error) { reject(error); return; }
-          if (result !== "passed") { reject(new Error("Fixture privacy response rejected.")); return; }
+          if (result !== "passed") {
+            const rejected = new Error("Fixture privacy response rejected.");
+            privacyByError.set(rejected, privacyObservation(protect ? "not_attempted" : result, protect ? result : "not_attempted"));
+            if (decoded) transportByError.set(rejected, decoded.observation);
+            reject(rejected); return;
+          }
           resolve();
         });
       child.once("error", () => { spawnFailed = true; });
+      child.once("spawn", () => { spawned = true; });
+      child.stdout?.on("data", chunk => { try { decoder.feed(chunk); } catch { decoder.invalidate(); } });
     } catch (error) {
       clearTimeout(timer);
-      observe("spawn_unavailable");
+      try { observe("launch_unavailable"); } catch { /* Preserve construction error identity. */ }
+      if (weakKey(error)) privacyByError.set(error, privacyObservation(protect ? "not_attempted" : "launch_unavailable", protect ? "launch_unavailable" : "not_attempted"));
       reject(error);
     }
   });
@@ -91,37 +125,43 @@ async function evidencePermissions(root, protect, observe = () => {}) {
   }
 }
 
-export async function protectOriginalFixture(root, observe = () => {}) {
-  if (process.platform === "win32") {
+export async function protectOriginalFixture(root, observe = () => {}, permissions = evidencePermissions) {
+  if (process.platform === "win32" || permissions !== evidencePermissions) {
     // Recovered/crash callers may already hold an original whose private DACL
     // is established. Read-only validation requests no DELETE/write access.
     // An unprotected original still requires the separately held mutation path;
     // neither path resets an owner or enables a privilege.
     let verificationResult = "response_unavailable";
     let protectionResult = "not_attempted";
+    let verificationTransport = null, protectionTransport = null;
+    const deliver = value => deliverPrivacyObservation(observe, value,
+      Object.freeze({ verification: verificationTransport, protection: protectionTransport }));
     try {
-      await evidencePermissions(root, false, result => { verificationResult = result; });
-      deliverPrivacyObservation(observe, privacyObservation(verificationResult, protectionResult));
+      await permissions(root, false, (result, transport) => { verificationResult = result; verificationTransport = transport ?? null; });
+      deliver(privacyObservation(verificationResult, protectionResult));
       return;
     }
     catch (verification) {
       const first = privacyObservation(verificationResult, protectionResult);
-      privacyByError.set(verification, first);
+      if (weakKey(verification)) privacyByError.set(verification, first);
       try {
-        await evidencePermissions(root, true, result => { protectionResult = result; });
-        deliverPrivacyObservation(observe, privacyObservation(verificationResult, protectionResult));
+        await permissions(root, true, (result, transport) => { protectionResult = result; protectionTransport = transport ?? null; });
+        deliver(privacyObservation(verificationResult, protectionResult));
       } catch (protection) {
         const observation = privacyObservation(verificationResult, protectionResult);
-        privacyByError.set(protection, observation);
+        if (weakKey(protection)) privacyByError.set(protection, observation);
         const error = new AggregateError([verification, protection], "Original fixture privacy is unresolved.");
+        transportByError.set(error, Object.freeze({ verification: verificationTransport, protection: protectionTransport }));
         privacyByError.set(error, observation);
-        deliverPrivacyObservation(observe, observation);
+        deliver(observation);
         throw error;
       }
     }
   } else await evidencePermissions(root, true);
 }
-export async function verifyOriginalFixturePrivacy(root) { await evidencePermissions(root, false); }
+export async function verifyOriginalFixturePrivacy(root, observe = () => {}, permissions = evidencePermissions) {
+  await permissions(root, false, (result, transport) => deliverPrivacyObservation(observe, result, transport));
+}
 
 export const FIXTURE_INITIALIZATION_STAGES = Object.freeze([
   "initialization_diagnostic_allocate", "initialization_diagnostic_privacy",
@@ -137,7 +177,7 @@ export const FIXTURE_ASSERTION_STAGES = Object.freeze([
 // Preserve closed fixture bytes outside the recursive removal root. Do not
 // follow links into another owner's state. The copy is private local evidence,
 // including for a successful row; no copy path is emitted in diagnostics.
-export function createFixtureEvidenceBoundary(root, { beforeInitializationStep } = {}) {
+export function createFixtureEvidenceBoundary(root, { beforeInitializationStep, disposableFixture } = {}) {
   let evidenceRoot;
   let verified = false;
   let sealedInventory;
@@ -224,6 +264,8 @@ export function createFixtureEvidenceBoundary(root, { beforeInitializationStep }
           }
           catch (cause) {
             const error = new Error("Fixture initialization rejected.", { cause });
+            const transport = transportByError.get(cause);
+            if (transport) { transportByError.set(error, transport); transportByBoundary.set(boundary, transport); }
             error.fixtureInitializationStage = stage;
             throw error;
           }
@@ -284,10 +326,19 @@ export function createFixtureEvidenceBoundary(root, { beforeInitializationStep }
       await verifyOriginalInventory();
       await rootCustody.verify();
       // A real regression can intervene at the formerly unsafe last-check to
-      // delete/child-acquisition interval. No deletion exists below this hook:
-      // absent validated writer exclusion, remove rejects unconditionally.
+      // delete/child-acquisition interval. Strong custody still refuses below;
+      // ordinary disposable teardown independently revalidates its creator root.
       await afterFinalValidation?.();
-      await rootCustody.remove();
+      if (disposableFixture) {
+        await verifyCopy();
+        await verifyOriginalInventory();
+        await rootCustody.verify();
+        await verifyDisposableTestFixture(disposableFixture, root);
+        // Windows directory guardians intentionally hold handles without
+        // DELETE sharing. Settle them before ordinary creator-owned teardown.
+        await this.release();
+        await removeDisposableTestFixture(disposableFixture, root);
+      } else await rootCustody.remove();
       originalRemoved = true;
     },
     async release() { if (rootCustody) { const held = rootCustody; rootCustody = undefined; await held.release(); } },
@@ -331,6 +382,7 @@ export function createFixtureEvidenceBoundary(root, { beforeInitializationStep }
     // Private test assertion surface, never included in the public projection.
     get evidenceRoot() { return evidenceRoot; },
     get originalRoot() { return root; },
+    get removalPolicy() { return disposableFixture ? "test-owned" : "writer-exclusion"; },
     takeStateFailures() { return stateFailures.splice(0); },
     get diagnosticRoot() { return diagnosticRoot; },
     get initializationStage() { return initializationStage; },
@@ -470,10 +522,12 @@ export async function closeFixture({ primary, primaryStage = "action", failures 
   catch (error) { failures.push({ stage: "held_release", error }); }
   if (removalAttempted && state.evidence !== "retained") failures.push({ stage: "evidence_state", error: new Error("Preserved fixture evidence is unresolved.") });
   try { report({ kind: "hard-crash-fixture-custody", recovery,
+    removalPolicy: evidence.removalPolicy ?? "writer-exclusion",
     stop: failures.some((entry) => entry.stage === "stop") ? "failed" : "settled",
     finalization: failures.some((entry) => entry.stage === "finalization") ? "failed" : "settled",
     absence: result?.absent ? "proven" : "unresolved", reset: resetState, environment, ...state,
-    stages: projection(), privacyObservation: privacyByBoundary.get(evidence) ?? privacyObservation() }); }
+    stages: projection(), privacyObservation: privacyByBoundary.get(evidence) ?? privacyObservation(),
+    privacyTransportObservation: transportByBoundary.get(evidence) }); }
   catch (error) { failures.push({ stage: "diagnostic", error }); }
   if (primary || failures.length) {
     try { await evidence.retainErrors([
@@ -485,6 +539,7 @@ export async function closeFixture({ primary, primaryStage = "action", failures 
       `Hard-crash fixture failed: ${JSON.stringify(projection())}`);
     aggregate.fixtureStages = projection();
     aggregate.fixturePrivacyObservation = privacyByBoundary.get(evidence) ?? privacyObservation();
+    aggregate.fixturePrivacyTransportObservation = transportByBoundary.get(evidence);
     throw aggregate;
   }
 }

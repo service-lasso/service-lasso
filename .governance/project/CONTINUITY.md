@@ -128,3 +128,77 @@ Current terminal8189 full qualification reports1562 tests/1476 pass/17 fail/69 s
 Acceptance adds independent real two-commit Git source -> depth1 acquisition, actual ordinary and aliased-parent strict checkout positives, valid wrong-tree and wrong-head/failed-source negatives reaching actual fetch/tree boundaries. Both complete workflow ordinary/alias native Core/separate-Admin positives and workflow negatives use an explicitly exact shallow source before unchanged native assertions. All31 independent adversaries, native mandatory vectors, private/public authority and earlier8+3/finite-timeout/normal-publication repairs remain required. The other11 full-suite failures stay with their separate owners (#1591/#1593/#1595/#1596/#1599/#1601 and parent routing); no source is copied from those lanes.
 
 No source execution/import/parser/compiler/test/helper/npm/install/native ACL/lifecycle is authorized locally. Authored regressions are UNEXECUTED. Different fresh ENTIRE cumulative SOURCE GO and NEW complete-input ROOT admission precede any local execution; full three-OS/compiler/native/operator/product/natural-CI/publication/same-byte gates remain unmet. Parent owns tracking; no main access, nested agents, deadline/concurrency/skip/permission weakening, rerun/dispatch/cancel/settings, merge/publication or cleanup.
+### #1718 / PR #1722 ENTIRE browser outcome and custody repair (2026-10-06)
+
+Development SOURCE ONLY, sole successor author on retained fix/1718-docs-consumer-qualification at clean4777b0c6dd69cf17f6042cbb51d916a17a0f77bf/treeb8cd0278dc6bff170cf33e40fe773350d351e146, named developbasecae79b5e92d7ded41dda1f1c600ee9b53b7aaebc. Bounded GOV-10 recovery preserves the same issue1718/PR1722 and open owner checkout. SPEC-007 AC-7F/AC-7G.docs-consumers binds all F1/F2/F3 as one coherent source unit before implementation.
+
+F1: terminal valid-page result requires final actual observation drainage and page-error/request-failure/status/compiler-digest checks after DOM/screenshot capture and context settlement; invalid-Mermaid deliberate parse errors must be separately and precisely classified. F2: preserve the original primary assertion/operation failure, record every capture/cleanup error independently, and independently attempt context/browser/server settlement even when another close rejects. Scenario PASS is provisional until whole cleanup succeeds; capture or cleanup error fails the unit.
+
+F3: authentic natural4777 run37422382726/artifact11393293439 failed browser digest after ordinary0/pooled0, actual workers1+2 and routes185/188. Native math x2+1 and ELK geometry were observed before failure; legacy/invalid are NOT_REACHED. Same JS URL assets/js/5e95c892.e0dfbb7d.js has two200 responses: expected7505cc6e60c36f7104e6f16cf7dc01f086c99a4edaccb36b77ff72cedd7641ea and empty e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855. Existing evidence lacks method/cache/transport cause: UNKNOWN. Add faithful private request/method/resource/header/original identity/body-length/cache transport observations and independent server request identity/read-byte hash/error observations before the unchanged digest failure. No empty-response exclusion, manufactured GET body, status200 authority, inferred cache cause or server-only browser identity. Protocol-specific acceptance requires actual new evidence and parent scope selection.
+
+Preserve entire31581-member original source ROOT965a6577f26dfb6b7fa7327ebcbde7b29107c839d7544f846a617c93a56db823, ENTIRE SOURCE_NO_GO review ROOT5c14343cd1a2d057d9b4a91496c7c08e8101eafd44421ff859fdf2feca7c2bc0 and all original90/bbe/efe/4777 failures, malformed failed original roots and distinct raw-byte addendum9. CLI wrapper remains100755/same blob. Public docs/config/package/lock/release/private policies/deadlines/retries/concurrency/permissions remain unchanged. No local target import/parser/helper/browser/build/test/compiler/native/ENV/ACL execution before NEW complete-input ROOT, DIFFERENT entire SOURCE_GO and parent admission. Natural push CI is separate allowed evidence; no rerun/dispatch/cancel/settings/main/cleanup/merge/release. Author unit stays ACTIVE pending authentic cause disposition and fresh whole review; no acceptance claim.
+### #1718 / PR #1722 faithful static response length after authentic05b8 diagnostics
+
+Development SOURCE ONLY, same retained author unit at05b8d38303300ab3e21eb1472ab4bb3671d1ce86/tree1eed3857b30e40a2b6065f0aa41e5d1981d17469. DIFFERENT ENTIRE checkpoint review SOURCE_GO ROOT348d2379b55e542043dcccf8b64e8474908a79f875b74e68406be290e25f3cde binds instrumentation source only; no target admission or runtime qualification.
+
+Authentic natural run37423603262/job112138198700/artifact11394280438 fails unchanged digest for assets/js/5e95c892.e25c9fe0.js: script GETrequest5 gives actual359/expected5bb760cc646b52218516d66f939a4d59eb0a2a306192517bb9c75b6c7c12fbf8; distinct OTHER GETrequest14 Sec-Purpose:prefetch gives observed0/emptye3b0 while responseBodySize371. Both original serverrequests5/14 saved359 correct, finished and writableFinished/status200/no errors; both original response headers are Transfer-Encoding:chunked and omit Content-Length. CDP disk/serviceworker/prefetch-cache flags are false. Underlying browser backend empty-body mechanism remains UNKNOWN. Native math/ELK are partial observations; legacy/invalid NOT_REACHED and whole consumer remains FAILED.
+
+Parent selects exact Content-Length:bytes.length for the private200 static response's actual immutable readBuffer, preserving Content-Type/request-ID and all diagnostics; retain and assert declared/written length and read/saved/written digest agreement. Official Playwright1.63.0 Chromium createResponseBodyCallback source589..630 returns backend body immediately when expectedLength is absent. When expectedLength is positive and backend body empty, the stock method checks safeGET/static-or-Sec-Purpose-prefetch before its original Network.loadNetworkResource disableCache:false reader. Accurate server wire metadata permits that stock handling; this is source reasoning, not a claim that a new natural run will pass. No custom refetch, manufactured body, response filtering/skips, empty-hash exemption, cache/serviceworker/browser-policy change or server-only browser authority. All response/compiler hashes remain unchanged.
+
+Preserve immutable36249 checkpoint, complete4777 terminal ROOT3f50e836ab8faa16639874f68ff69984bcd672f808b491572adbc324a6bdabbc/MF4544, full different05b8 review5 and actual05b8 receipt/browser/server/CDP/saved-body originals in the next cumulative actual-byte packet. Existing F1/F2 outcomes, original31581/review5/90/bbe/efe failed roots/addendum9, wrapper100755/sameblob and protected policies remain required. Commit/push immediately samePR1722; new natural CI and DIFFERENT entire final source review remain separate. No local target execution or changed deadlines/permissions. Author unit ACTIVE pending actual result and parent disposition.
+### #1718 / PR #1722 actual extracted CSS compiler graph correction
+
+Development SOURCE ONLY same ACTIVE author atfe1d62fe7138161c65e95ba91e55db114b10b209/tree7d927c8d379b76899f4cdf2db6e18fb533b6072b. Parent adopts entire SOURCE_NO_GO review ROOT27d4c8b2a753a91b7ee44c72aba6860ef3337a92a3bbb70b831b1c5b6849e453: actual selected katex.css normal modules have files[], so protected legacy selected-CSS assertion genuinely fails. Preserve authentic fe1d math/computed red2px/KaTeX_Math and actual compiler/browser stylesheet SHA agreement as supporting observations, never selected-source provenance or whole qualification. Invalid Mermaid NOT_REACHED.
+
+SPEC-007 AC-7F/AC-7G.docs-consumers selects faithful compiler observation: retain normal physical source hashes and record original selected resource -> actual mini-css-extract-plugin CssDependency -> real CssModule -> actual chunk -> original rendered stylesheet asset/hash. Official mini-css-extract-plugin2.10.2 published archive integrity matches unchanged lock; bind its exact installed package/files and actual exported getCssDependency/getCssModule class identities for the compiler webpack instance. CssModule.nameForCondition supplies the original resource; moduleGraph.getModule(dependency), chunkGraph source-type membership and actual mini plugin renderManifest entries supply edges. Resolve the actual entry filename/pathOptions with webpack5.109.2 getPathWithInfo, the same compiler API used at actual emission, and require original chunk.files membership plus existing emitted asset bytes. No guessed output name, assigning all CSS, empty-files fallback or style-only proof. Original CSS source hashes, selected CSS/browser/font/hash assertions remain unchanged; extraction observations add truthful graph provenance only.
+
+All prior F1/F2/wire repairs, original36249/49179 frozen packets, original fe1d NO_GO and natural failures, entire05b8/4777 terminal evidence, malformed original roots/raw addendum9 and thirteen native/product failures remain retained. Package/lock/publicdocs/browserpolicy/cache/refetch/deadlines/retries/concurrency/permissions unchanged. Every intentional commit immediately pushed SAME PR1722. No local target execution before NEW complete-input ROOT/DIFFERENT whole SOURCE_GO/parent admission; fresh whole review and natural new-head actual result remain required separately. Author ACTIVE; no acceptance/merge/release/publication/promotion/deployment claim.
+The same CSS graph observer must retain actual original compilation.chunkAsset emission and final asset identity across stock webpack RealContentHashPlugin optimization. Official webpack5.109.2 renameAsset updates the actual chunk.files and final asset contenthash metadata without updating the original mini render-manifest template inputs. Bind original render entry -> actual chunkAsset emission -> final same-chunk asset whose real final contenthash resolves that original template through getPathWithInfo/TemplatedPathPlugin, retaining both original/final names and hashes. No compiler method wrapping, output rename/mutation, synthetic chunk or guessed/all-CSS association is permitted.
+Before completing the CSS compiler-source proposal, bind ENTIRE genuine official webpack5.109.2 published archive inventory (including Compilation/ModuleGraph/ChunkGraph/RealContentHashPlugin/TemplatedPathPlugin and package/main/helper sources) to unchanged lock integrity/URL/version and actual installed file hashes before either build. This closes version-only compiler provenance; saved tag-source API reads are separately retained and do not replace npm installed-byte equality. No lock/package/resolver/library changes or local target execution.
+2026-10-08 #1732 / SPEC-011 ESM-7..10: default Broker RAM WebDAV implemented in isolated feature/1732-default-ram-webdav; companion Broker feature/196-ram-webdav-secrets. Ubuntu actual production Broker/peer-bound IPC/managed-child reads, env compatibility, fresh restart and revocation passed; full scoped Core run 91 tests:87 pass/4 platform skips. Windows isolated source run86:80 pass/6 platform skips; all5 Broker identity regressions pass. Native Windows UNC read passed with existing WebClient, no mapping/config mutation. Docusaurus SSG succeeds with existing image-parser warnings. Broker full Go suite and vet pass; race detector unavailable because cgo is disabled. No release/deployment claim. Owner explicitly authorizes develop merge, then review the ten saved Linux cleanup failures separately from service recovery; retain original evidence and no claim of new crash-suite passes yet.
+
+#1732 qualification correction: Broker final full-suite repeat had event-retention and local migration failures in unchanged source; each then passed three focused repetitions. Earlier full-suite pass and new RAM/native/contract checks stand, but latest full-suite green is not claimed. Owner-authorized source merge remains distinct from release qualification.
+
+2026-10-08 #1734 / SPEC-012 OTF-1..5: owner explicitly selects ordinary teardown
+for creator-owned private test fixtures. All seven hard-crash phases and four
+positive cleanup cases keep their original assertions; default hostile-writer
+custody refusal and adversaries remain unchanged. Native Ubuntu scoped run74:
+70 pass,4 platform skips,0 fail, with actual root-owned foreign-owner input.
+Original saved failed runs retained. Windows existing guardian/privacy setup
+fails and is not qualified. Full native suite remains pending. No product code,
+release, deployment or native F7 implementation claim.
+
+#1734 scoped completion: all eleven original Linux cleanup failures pass in both
+scoped verification and the configured full run at5a01bcfd/tree2dc501e4. Full run
+1966:1870 pass,87 skips,9 failures; retain actual failed receipt/exit1. Eight
+missing-tool failures subsequently pass with private PowerShell/lsof/python
+inputs. The remaining actor-scoped HTTP replay failure reproduces on unchanged
+parentdevelop bef6babc (12:11 pass,1 fail) and is tracked separately in #1736.
+Seven natural Ubuntu crash-phase CI jobs pass. New Windows teardown unit checks
+2 pass/1 POSIX skip; existing Windows privacy initialization remains unqualified.
+Targeted GOV-13 self-review confirms original observable assertions and default
+strong adversaries retained. Native F7 writer exclusion is not implemented or
+required for the owner's ordinary-fixture recovery scope. No release/deployment.
+Resuming at current develop3baf9667 in fresh fix/1736-linux-suite-replay. Owner
+requests all nine remaining failures fixed. Eight are missing actual host tools;
+private PowerShell/lsof/python inputs already prove those assertions. Diagnostic
+HTTP execution returns confirmation_plan_mismatch (409, expected202) because
+buildStartArtifactBindings includes every service's installed/configured
+executable revision. Correct service_start scope only; preserve runtime-wide and
+restart plans, stable dependency context, actor/replay/tamper checks. SPEC-013
+LQ-1..4 and SPEC-006 AC-6E/AC-6F record acceptance before product implementation.
+Original full-run receipt and baseline failure retained. No release/deployment.
+
+#1736 verified for develop landing / PR1737: SPEC-013 LQ-1..4 and SPEC-006
+AC-6E/AC-6F. Full native Ubuntu2bddf203/tree9e8f9d39:1966 tests,1879 pass,87
+existing platform skips,0 fail; natural exit0,closed receipt and original failures
+retained. Actual private PowerShell/lsof/python + native foreign-owner/Broker inputs
+supplied. Original nine cases all pass with unchanged assertions. Ubuntu scoped
+25 pass/1 platform skip; Windows scoped26/26 pass. Product correction scopes
+service-start executable revisions to actual mutation targets; runtime-wide,
+restart,dependency context,actor/replay/tamper guards unchanged. Full tracked
+source unchanged; remote Python cache is generated/disposable retained audit state.
+Windows whole custody/docs tooling CI/release remain separate and unqualified.
+Final verification-document update changes no runtime code; no rerun needed for
+unchanged executable behavior. Dedicated worktree clean after committed docs;
+primary inherited deletions/audit state and other owner branches preserved.

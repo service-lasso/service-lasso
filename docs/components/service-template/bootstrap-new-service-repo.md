@@ -16,10 +16,7 @@ Do **not** start from a local copy or another service repo and retrofit the temp
 Create the repository with either GitHub UI **Use this template** or GitHub CLI:
 
 ```powershell
-gh repo create service-lasso/<repo-name> \
-  --public \
-  --template service-lasso/service-template \
-  --description "<description>"
+gh repo create service-lasso/<repo-name> --public --template service-lasso/service-template --include-all-branches --description "<description>"
 ```
 
 Before making service-specific changes, verify GitHub recorded the template origin:
@@ -33,10 +30,22 @@ if ($template -ne 'service-lasso/service-template') {
 
 The GitHub UI should also show that the repo was generated from `service-lasso/service-template`. If the API returns `null`, stop: the repo was created incorrectly.
 
-Then clone locally:
+Include all branches so the generated repository contains the template's
+`develop` baseline. GitHub generation can take a moment: wait until this query
+succeeds, then select `develop` as the new repository's default. If it remains
+absent, stop and correct the bootstrap; do not use a promotion branch.
 
 ```powershell
-git clone https://github.com/service-lasso/<repo-name>.git C:\projects\service-lasso\<repo-name>
+gh api repos/service-lasso/<repo-name>/branches/develop --jq '.commit.sha'
+gh repo edit service-lasso/<repo-name> --default-branch develop
+```
+
+Record the template repository, its current `develop` commit and the generated
+`develop` commit in the issue and a committed `template-origin.json` before
+adaptation. Then clone locally:
+
+```powershell
+git clone --branch develop --single-branch https://github.com/service-lasso/<repo-name>.git C:\projects\service-lasso\<repo-name>
 cd C:\projects\service-lasso\<repo-name>
 ```
 
@@ -44,8 +53,10 @@ Then create a focused issue and branch for the first adaptation work:
 
 ```powershell
 gh issue create --repo service-lasso/<repo-name> --title "Bootstrap <service-id> from service template" --body "..."
-git checkout -b issue-1-bootstrap-<service>
+git checkout -b feature/<issue>-bootstrap-<service> origin/develop
 ```
+
+Push every commit and open the issue-linked pull request against `develop`.
 
 ## Required rename/adaptation checklist
 

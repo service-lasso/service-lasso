@@ -26,7 +26,7 @@
     "package:verify": "npm run build && node scripts/publish-package-verify.mjs",
     "verify:package-consumer": "npm run build && node scripts/verify-package-consumer.mjs",
     "verify:operator-tui-pty": "npm run build && node scripts/verify-operator-tui-pty.mjs",
-    "test:mcp:product": "npm run build && node --test --test-concurrency=1 tests/operator-mcp.test.js tests/operator-mcp-identity.test.js tests/operator-mcp-stdio.test.js tests/operator-mcp-read-surface.test.js tests/operator-mcp-guarded-actions.test.js tests/operator-mcp-operations.test.js tests/operator-mcp-product-acceptance.test.js tests/mcp-product-artifact.test.js tests/packaged-verification-diagnostics.test.js tests/owned-temp-cleanup.test.js",
+    "test:mcp:product": "npm run build && node --test --test-concurrency=1 tests/operator-mcp.test.js tests/operator-mcp-identity.test.js tests/operator-mcp-stdio.test.js tests/operator-mcp-read-surface.test.js tests/operator-mcp-guarded-actions.test.js tests/operator-mcp-operations.test.js tests/operator-mcp-product-acceptance.test.js tests/mcp-product-artifact.test.js tests/packaged-verification-diagnostics.test.js tests/owned-temp-cleanup.test.js tests/owning-resource-observation.test.js",
     "verify:mcp:packaged": "npm run build && node scripts/verify-mcp-packaged.mjs",
     "verify:baseline-start": "npm run build && node scripts/baseline-start-smoke.mjs",
     "verify:real-app-e2e": "npm run build && node scripts/verify-real-app-e2e.mjs",
@@ -43,9 +43,9 @@
     "verify:traefik-release": "npm run build && node scripts/verify-release-backed-traefik.mjs",
     "demo": "npm run build && node scripts/demo-start.mjs --port=17883",
     "demo:start": "npm run build && node scripts/demo-start.mjs --port=17883",
-    "demo:stop": "npm run build && node scripts/demo-stop.mjs --port=17883",
+    "demo:stop": "node scripts/demo-stop.mjs --port=17883",
     "demo:watchdog": "npm run build && node scripts/demo-watchdog.mjs",
-    "demo:recycle": "npm run build && node scripts/demo-recycle.mjs",
+    "demo:recycle": "node scripts/demo-recycle.mjs",
     "demo:gate": "npm run build && node scripts/demo-gate.mjs --port=17883",
     "demo:status": "node scripts/demo-status.mjs",
     "demo:verify-canonical": "node scripts/demo-verify-canonical.mjs",
@@ -73,11 +73,11 @@
     "verify:release-governance": "node scripts/validate-release-governance.mjs && node --test tests/release-governance.test.js"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.30.1",
+    "@modelcontextprotocol/sdk": "1.31.0",
     "fflate": "0.8.3",
     "jose": "6.2.12",
     "tar": "7.5.22",
-    "unicode-case-folding": "1.1.1",
+    "unicode-case-folding": "1.1.2",
     "zod": "4.6.5"
   },
   "devDependencies": {
@@ -86,16 +86,23 @@
     "@docusaurus/theme-mermaid": "3.10.2",
     "@mdx-js/react": "^3.1.1",
     "@mermaid-js/layout-elk": "0.1.9",
-    "@modelcontextprotocol/inspector": "2.8.0",
+    "@modelcontextprotocol/inspector": "2.9.0",
     "@playwright/test": "1.63.0",
-    "@types/node": "^26.6.2",
-    "pnpm": "10.34.5",
+    "@types/node": "^26.6.3",
+    "pnpm": "12.8.2",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "selfsigned": "5.5.0",
     "typescript": "^7.0.2"
   },
   "overrides": {
+    "postcss-selector-parser": "7.1.6",
+    "mermaid": {
+      "katex": "0.18.2"
+    },
+    "@docusaurus/core": {
+      "tinypool": "2.1.2"
+    },
     "ip-address": "10.7.2",
     "serialize-javascript": "7.1.0",
     "hono": "4.13.7",

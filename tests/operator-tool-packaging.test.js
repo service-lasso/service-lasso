@@ -56,24 +56,29 @@ async function importFixtureStagers(root) {
   const publishModulePath = path.join(root, "publish-package-lib.mjs");
   const operatorModuleUrl = pathToFileURL(operatorModulePath).href;
   const releaseModuleUrl = pathToFileURL(releaseModulePath).href;
+  const npmCommandModuleUrl = pathToFileURL(path.join(scriptsRoot, "npm-command-lib.mjs")).href;
   const originalOperatorRecords = operatorSource.slice(
     operatorSource.indexOf("export const CURRENT_TUI_RELEASE ="),
     operatorSource.indexOf("export function assertExactToolRelease"),
   );
   assert.ok(originalOperatorRecords.startsWith("export const CURRENT_TUI_RELEASE"));
-  await writeFile(operatorModulePath, operatorSource.replace(originalOperatorRecords, fixtureOperatorToolModule()).replace("./operator-tool-cli-contract.mjs", pathToFileURL(path.join(scriptsRoot, "operator-tool-cli-contract.mjs")).href));
+  await writeFile(operatorModulePath, operatorSource.replace(originalOperatorRecords, fixtureOperatorToolModule()).replace("./ga-platform-scope-lib.mjs", pathToFileURL(path.join(scriptsRoot, "ga-platform-scope-lib.mjs")).href).replace("./scoped-provider-readback-lib.mjs", pathToFileURL(path.join(scriptsRoot, "scoped-provider-readback-lib.mjs")).href).replace("./operator-tool-cli-contract.mjs", pathToFileURL(path.join(scriptsRoot, "operator-tool-cli-contract.mjs")).href));
 
   const releaseSource = await readFile(path.join(scriptsRoot, "release-artifact-lib.mjs"), "utf8");
   await writeFile(releaseModulePath, releaseSource
+    .replace("./ga-platform-scope-lib.mjs", pathToFileURL(path.join(scriptsRoot, "ga-platform-scope-lib.mjs")).href)
     .replace("../dist/runtime/files/safe-zip.js", pathToFileURL(path.join(path.resolve(), "dist", "runtime", "files", "safe-zip.js")).href)
     .replace("./release-asset-policy.mjs", pathToFileURL(path.join(scriptsRoot, "release-asset-policy.mjs")).href)
     .replace("./release-version-lib.mjs", pathToFileURL(path.join(scriptsRoot, "release-version-lib.mjs")).href)
+    .replace("./npm-command-lib.mjs", npmCommandModuleUrl)
     .replace("./operator-tool-packaging-lib.mjs", operatorModuleUrl));
 
   const publishSource = await readFile(path.join(scriptsRoot, "publish-package-lib.mjs"), "utf8");
   await writeFile(publishModulePath, publishSource
+    .replace("./ga-platform-scope-lib.mjs", pathToFileURL(path.join(scriptsRoot, "ga-platform-scope-lib.mjs")).href)
     .replace("./release-artifact-lib.mjs", releaseModuleUrl)
     .replace("./release-version-lib.mjs", pathToFileURL(path.join(scriptsRoot, "release-version-lib.mjs")).href)
+    .replace("./npm-command-lib.mjs", npmCommandModuleUrl)
     .replace("./operator-tool-packaging-lib.mjs", operatorModuleUrl));
 
   return {
@@ -209,6 +214,65 @@ test("workflow-projected metadata token stages package, normal, and bundled arti
     assert.deepEqual(metadataAuthorization, Array(12).fill("Bearer projected-read-token"));
     assert.ok(assetAuthorization.length > 0);
     assert.ok(assetAuthorization.every((authorization) => authorization === undefined));
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalToken === undefined) delete process.env.SERVICE_LASSO_RELEASE_METADATA_TOKEN;
+    else process.env.SERVICE_LASSO_RELEASE_METADATA_TOKEN = originalToken;
+    if (originalOffline === undefined) delete process.env.npm_config_offline;
+    else process.env.npm_config_offline = originalOffline;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("one consumed metadata credential survives artifact then package staging without environment reacquisition", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "operator-tool-versioning-"));
+  const metadataAuthorization = [];
+  const assetAuthorization = [];
+  const originalFetch = globalThis.fetch;
+  const originalToken = process.env.SERVICE_LASSO_RELEASE_METADATA_TOKEN;
+  const originalOffline = process.env.npm_config_offline;
+  const expectedToken = "versioning-fixture-token";
+  try {
+    const fixtureFetch = fixtureReleaseFetch({ metadataAuthorization, assetAuthorization });
+    globalThis.fetch = async (url, options = {}) => {
+      if (new URL(url).hostname === "api.github.com") {
+        assert.ok(options.headers?.authorization === `Bearer ${expectedToken}`, "both stagers must authenticate every metadata read with the retained local");
+      } else {
+        assert.equal(options.headers?.authorization, undefined);
+      }
+      return fixtureFetch(url, options);
+    };
+    process.env.npm_config_offline = "true";
+    const { stageReleaseArtifact, stagePublishedPackage } = await importFixtureStagers(root);
+    process.env.SERVICE_LASSO_RELEASE_METADATA_TOKEN = ` ${expectedToken} `;
+    const releaseMetadataToken = consumeReleaseMetadataToken();
+    assert.equal(process.env.SERVICE_LASSO_RELEASE_METADATA_TOKEN, undefined);
+
+    const released = stageReleaseArtifact({
+      repoRoot: path.resolve(),
+      outputRoot: path.join(root, "release"),
+      version: "0.1.0-versioning.fixture",
+      releaseMetadataToken,
+    });
+    assert.equal(process.env.SERVICE_LASSO_RELEASE_METADATA_TOKEN, undefined);
+    const stagedRelease = await released;
+    assert.equal(stagedRelease.manifest.operatorToolsManifest, "operator-tools/manifest.json");
+    const firstStageMetadataCount = metadataAuthorization.length;
+    assert.equal(firstStageMetadataCount, 4);
+
+    const published = stagePublishedPackage({
+      repoRoot: path.resolve(),
+      outputRoot: path.join(root, "package"),
+      version: "0.1.0-versioning.fixture",
+      releaseMetadataToken,
+    });
+    assert.equal(process.env.SERVICE_LASSO_RELEASE_METADATA_TOKEN, undefined);
+    const stagedPackage = await published;
+    assert.equal(stagedPackage.manifest.operatorToolsManifest, "operator-tools/manifest.json");
+    assert.equal(metadataAuthorization.length - firstStageMetadataCount, 4);
+    assert.ok(assetAuthorization.length > 0);
+    assert.ok(assetAuthorization.every(authorization => authorization === undefined));
+    assert.equal(process.env.SERVICE_LASSO_RELEASE_METADATA_TOKEN, undefined);
   } finally {
     globalThis.fetch = originalFetch;
     if (originalToken === undefined) delete process.env.SERVICE_LASSO_RELEASE_METADATA_TOKEN;

@@ -1,3 +1,4 @@
+import { observeFixtureStartupPath, observeFixtureStartupDiscovery, withFixtureStartupPathForTests, type FixtureStartupPathHook } from "../runtime/startup/fixture-path-observation.js";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { once } from "node:events";
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -460,6 +461,7 @@ import type {
 } from "../contracts/api.js";
 
 export interface ApiServerOptions {
+  fixtureStartupPathForTests?: FixtureStartupPathHook;
   port?: number;
   portPolicy?: RuntimeEndpointAllocationPolicy;
   host?: string;
@@ -2875,10 +2877,16 @@ async function executeRuntimeOrchestrationAction(
     const service = runtimeModel.registry.getById(serviceId);
 
     if (!service) {
+      observeFixtureStartupPath("selection", "not_selected", serviceId);
+      observeFixtureStartupPath("action", "skip", serviceId);
+      observeFixtureStartupPath("outcome", "skipped", serviceId);
       continue;
     }
 
     if (service.manifest.enabled === false && !isProviderRole(service.manifest)) {
+      observeFixtureStartupPath("selection", "disabled", serviceId);
+      observeFixtureStartupPath("action", "skip", serviceId);
+      observeFixtureStartupPath("outcome", "skipped", serviceId);
       continue;
     }
 
@@ -2886,15 +2894,22 @@ async function executeRuntimeOrchestrationAction(
 
     if (action !== "stopAll") {
       if (action === "autostart" && service.manifest.autostart !== true) {
+        observeFixtureStartupPath("selection", "not_selected", serviceId);
+        observeFixtureStartupPath("action", "skip", serviceId);
+        observeFixtureStartupPath("outcome", "skipped", serviceId);
         skipped.push({ serviceId, reason: "autostart_disabled" });
         continue;
       }
 
       if (lifecycle.running) {
+        observeFixtureStartupPath("selection", "already_running", serviceId);
+        observeFixtureStartupPath("action", "skip", serviceId);
+        observeFixtureStartupPath("outcome", "skipped", serviceId);
         skipped.push({ serviceId, reason: "already_running" });
         continue;
       }
 
+      observeFixtureStartupPath("selection", "selected", serviceId);
       const prepared = await prepareAndStartService(service, runtimeModel.registry, preparedStartOptions);
       if (prepared.result) {
         results.push(await buildLifecycleActionResponse(service, runtimeModel.registry, prepared.result, workspaceRoot));
@@ -2998,7 +3013,10 @@ function createMcpGuardedActionFacade(
       ...(step.action === "start" ? plannedPortEffects(step.serviceId) : []),
     ]);
 
-  const buildStartArtifactBindings = async (serviceIds: string[]): Promise<{
+  const buildStartArtifactBindings = async (
+    serviceIds: string[],
+    executableScope: "runtime" | "targets" = "runtime",
+  ): Promise<{
     revisions: Record<string, string>;
     definitionRevisions: Record<string, string>;
     templateDigestsByService: Record<string, Readonly<Record<string, string>>>;
@@ -3033,7 +3051,9 @@ function createMcpGuardedActionFacade(
       revisions[serviceId] = binding.revision;
       effects.push(...binding.effects);
     }
-    const allExecutableBindings = await runtimeExecutableBindings();
+    const allExecutableBindings = await runtimeExecutableBindings(
+      executableScope === "targets" ? serviceIds : undefined,
+    );
     const allExecutableRevisions = Object.fromEntries(
       Object.entries(allExecutableBindings).map(([serviceId, binding]) => [serviceId, binding.revision]),
     );
@@ -3104,8 +3124,10 @@ function createMcpGuardedActionFacade(
       return [serviceId, await buildServiceMutationDefinitionRevision(service)];
     })));
 
-  const runtimeExecutableBindings = async (): Promise<Record<string, ServiceExecutableMutationBinding>> => Object.fromEntries(await Promise.all(
-    runtimeModel.discovered.map(async (candidate) => [
+  const runtimeExecutableBindings = async (
+    serviceIds?: readonly string[],
+  ): Promise<Record<string, ServiceExecutableMutationBinding>> => Object.fromEntries(await Promise.all(
+    runtimeModel.discovered.filter((candidate) => !serviceIds || serviceIds.includes(candidate.manifest.id)).map(async (candidate) => [
       candidate.manifest.id,
       await buildServiceExecutableMutationBinding(
         candidate,
@@ -3292,7 +3314,7 @@ function createMcpGuardedActionFacade(
       const selectedSteps = runtimePlan.steps.filter((step) => selected.has(step.serviceId));
       const blockers = selectedSteps.filter((step) => step.status === "blocked");
       const steps = selectedSteps.filter((step) => step.status === "would_run");
-      const artifactPlan = await buildStartArtifactBindings(steps.map((step) => step.serviceId));
+      const artifactPlan = await buildStartArtifactBindings(steps.map((step) => step.serviceId), "targets");
       const allBlockers = [
         ...blockers.map((step) => `${step.serviceId} blocked: ${step.reason ?? "blocked"}`),
         ...artifactPlan.blockers,
@@ -3498,7 +3520,7 @@ function createMcpGuardedActionFacade(
         throw new ApiError("guarded_plan_changed", 409, "The authoritative guarded action plan changed before execution.");
       }
       const startArtifactPlan = action === "service_start" || action === "runtime_start_all"
-        ? await buildStartArtifactBindings(approvedPlan.targets)
+        ? await buildStartArtifactBindings(approvedPlan.targets, action === "service_start" ? "targets" : "runtime")
         : null;
       if (startArtifactPlan && (startArtifactPlan.blockers.length > 0 || startArtifactPlan.revision !== approvedPlan.revision)) {
         throw new ApiError("guarded_plan_changed", 409, "The authoritative guarded install candidates changed before execution.");
@@ -8237,7 +8259,7 @@ export async function startApiServer(options: ApiServerOptions = {}): Promise<Ru
   // starts any scheduler. The adapter itself is attached only after the active
   // runtime reaches owned readiness below.
   if (options.mcpStdio) resolveMcpStdioAuthorization(options.mcpStdio);
-  return await startApiServerInternal(options);
+  return await withFixtureStartupPathForTests(options.fixtureStartupPathForTests, () => startApiServerInternal(options));
 }
 
 function journalCommittedServiceAdoptionIds(journal: StartupTransactionJournal): string[] {
@@ -8406,6 +8428,7 @@ async function startApiServerInternal(
     if (!recoveredGeneration) {
       await runStartupTransactionPhaseHook(options, transaction.journal);
       generation = await beginRuntimeGeneration(config, { generationId });
+      observeFixtureStartupPath("generation", "new");
       transaction.journal = await advanceStartupTransaction(
         transaction.journal,
         "preflight_reconciliation",
@@ -8416,6 +8439,7 @@ async function startApiServerInternal(
       );
     } else {
       generation = recoveredGeneration;
+      observeFixtureStartupPath("generation", "resumed");
       transaction.journal = await advanceStartupTransaction(
         transaction.journal,
         transaction.journal.phase,
@@ -8520,8 +8544,10 @@ async function startApiServerGeneration(
   // The lower-level API server remains opt-in for embedded/test callers.
   // startRuntimeApp is the product entrypoint and applies the persisted default.
   const runtimeAutostart = options.noAutostart ? false : options.autostart === true;
+  observeFixtureStartupPath("options", options.noAutostart ? "no_autostart" : runtimeAutostart ? "enabled" : "disabled");
   const publicHost = bindHost === "0.0.0.0" ? "127.0.0.1" : bindHost === "::" ? "::1" : bindHost;
   const bootModel = await loadRuntimeModel(config.servicesRoot);
+  observeFixtureStartupDiscovery(serviceId => Boolean(bootModel.registry.getById(serviceId)));
   const runtimeInstanceId = generation.instanceId;
   const runtimeGenerationId = generation.generationId;
   await rehydrateDiscoveredServices(bootModel.discovered, {
@@ -8858,6 +8884,7 @@ async function startApiServerGeneration(
       workspaceRoot: config.workspaceRoot,
       bindHost,
     });
+    observeFixtureStartupPath("setup", setupAfterStartup.setupMode ? "required" : "ready");
     // A listener without a startup orchestration pass must remain available to
     // start the Broker. Fail-closed onboarding belongs after that pass (or in
     // the setup bootstrap route), once its protected transport is reachable.
@@ -8969,6 +8996,7 @@ async function startApiServerGeneration(
       "owned_readiness_proven",
       { completedActions: ["owned_readiness_proven"] },
     );
+    observeFixtureStartupPath("readiness", "reached");
     await runStartupTransactionPhaseHook(options, transaction.journal);
     await publishRuntimeGeneration(config, runtimeGenerationId, {
       phase: "running",
@@ -8980,6 +9008,7 @@ async function startApiServerGeneration(
       "generation_committed",
       { completedActions: ["generation_committed"] },
     );
+    observeFixtureStartupPath("generation", "committed");
     await runStartupTransactionPhaseHook(options, transaction.journal);
     transaction.journal = await completeCommittedStartupMaterializationCleanup(transaction.journal);
     transaction.journal = await settleStartupTransaction(transaction.journal, "committed", {

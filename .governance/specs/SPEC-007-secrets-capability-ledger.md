@@ -310,3 +310,175 @@ Core independently reads the exact fixed-repository git/ref/tags/<tag> and resol
 
 ### AC-7F/AC-7G/AC-7H — durable scoped evidence migration (#1619)
 The active [SPEC-008 R1-R7](SPEC-008-two-os-release-evidence.md) and [ADR-001](../decisions/ADR-001-two-os-release-evidence.md) govern the prospective Windows/Linux producer-to-published-qualification route. Exact source-owned policy, closed schema migrations, all-and-only native jobs, inventories, immutable publisher/public readback, empty-catalog denial, same-byte Core/npm and legacy dispatch remain one coherent contract. Issue #1628 selects CLI protected2/portable2 native TAR and explicitly retires the misplaced CLI inner-ZIP blocker; Core staged-service/outer Windows ZIP proof remains required. This source-only durable decision is awaiting distinct entire review; original executable gates, native/input/custody blockers, deadlines and failed evidence remain unchanged until reviewed implementation and admitted direct proof.
+
+### Issue #1636: bounded fixed Windows npm argv authority
+
+AC-7G.windows-npm-argv: Release/publish and Windows newcomer npm calls execute process.execPath with the fixed installation-relative node_modules/npm/bin/npm-cli.js and unchanged argument elements. No ComSpec, npm_execpath, PATH, alternate layout or shell fallback selects Windows command authority. Non-Windows behavior remains compatible. runCommand enforces shell:false and windowsVerbatimArguments:false after options while preserving ordinary options, original error identity, output through close/EOF, lifecycle observations and stage-lock release precedence. Generated installed consumers emit the shared fixed descriptor as JSON data, bind their runtime to the generating process.execPath on Windows, and pass archives as data argv. npm intentional lifecycle/configuration scripts retain npm semantics; no shell-free descendant guarantee.
+
+Consolidate the complete 13-path PR #1624 resource observation contract at afc841cf0d6520a076e55ed501dceccc9fd0a003 onto current develop via this distinct issue branch. Retained #1624 ownership and all original assertions/failures remain preserved; parent reconciles its lifecycle after reviewed landing. Core #1626 owns a separate release-artifact writer; integration occurs through develop PRs.
+
+Prepare exact receiving-child argv witnesses (spaces, &, parentheses, %, !, caret, quote, Unicode, trailing slash/backslash) and actual npm pack/install/view plus generated-consumer installed archive identity in Windows-legal roots. Preserve deadlines, expected bytes/version/inventory, cleanup and privacy. No local import/parser/compiler/build/Node/npm/test/native execution until a different ENTIRE cumulative source GO and NEW complete-input admission of Node plus complete fixed npm installed subtree provenance/metadata/owners/reparse ancestry/digests. Natural push CI may be read only; no rerun/dispatch/cancel/control weakening.
+
+Explicit deferred follow-up #1636: scripts/verify-mcp-packaged.mjs retains environment-selected npm authority; scripts/prepare-published-package-qualification.mjs retains its duplicate cmd wrapper. Separate reviewed scope/admission must preserve MCP timeoutMs300000. These surfaces are not fixed by this bundle; no repository-wide repair claim. Existing mcp-product-acceptance runner semantics change only by the preserved PR #1624 observation contract, not by npm routing.
+
+### PR #1637 R1: protected staging fixture import closure
+
+Development source-only correction under issue #1636 / AC-7G.windows-npm-argv, continuing the retained clean c675b741 PR head with sole author custody. The actual importFixtureStagers caller must retain the exact shared scripts/npm-command-lib.mjs dependency for BOTH relocated release-artifact-lib.mjs and publish-package-lib.mjs, using the existing canonical file-URL rewiring pattern. Preserve all three actual stagers, fixed metadata identities, restricted token consumption, headerless asset assertions, original deadlines and all cumulative resource/options/Error identity contracts. The shared helper remains real source; no stub, duplicate implementation, skip or bypass.
+
+This repairs the independent ENTIRE review R1 source finding only. No imports/parser/Node/npm/compiler/build/test/native/manual product invocation is authorized. Freeze and immediately push the coherent correction; a different fresh ENTIRE cumulative source review and NEW exact-source complete-input ROOT admission precede execution. Original failed reviews, source/raw/physical input bundles and deferred npm wrapper proposals remain preserved. No deferred wrapper edit, provider controls, rerun, merge, publication or main access.
+### Issue #1650: reviewed deferred Windows npm routes
+
+Development source preparation for SPEC-007 AC-7G.windows-npm-argv and SPEC-006 AC-6G, linked #1636/#1562 after PR #1637 landed at fdaf1b12687cdce8878cca85d398029fd6535557. The approved whole two-surface blueprint closes only the earlier verifier/preparer deferrals in source: Windows verifier selects getNpmCommand's fixed process.execPath sibling npm-cli.js before any ambient SERVICE_LASSO_NPM_ENTRYPOINT/npm_execpath evaluation; non-Windows configured/layout routing remains exact. Keep the explicit outer AsyncFunction npmEntrypoint diagnostic fixture seam.
+
+Published preparation routes getNpmCommand through its original local Promise runner, with shell:false/windowsVerbatimArguments:false after options. Preserve original synchronous/asynchronous Error identity, output through close, nonzero message, cwd/env/stdio/windowsHide/signal/timeout/killSignal, exact integrity-bound tarball and first failure/one pre-mutation retry. Source harness imports never replace or rebuild published Core bytes. MCP300000ms, original native15s/product/published gates, eight cleanup attempts/delays/privacy and all protected assertions remain unchanged.
+
+Prepare receiving argv, Windows-legal root/hostile child-only environment, real exact npm fixture install through both original launch seams, options/errors/close/nonzero, non-Windows routing and first-failure/no-third-attempt regressions. SOURCE UNEXECUTED: different fresh ENTIRE cumulative source review and NEW complete-input ROOT admission precede imports/parser/compiler/build/tests/npm/native. No provider dispatch/settings/merge or release authority. Backlog status: in_progress source authoring; review/qualification remains open. Existing primary retained state and other worktree ownership remain preserved.
+### `AC-7G.scoped-tar-parser` — #1562 scoped original archive compatibility
+
+The public npm original-tool byte verifier and Core outer TAR preflight must use
+`Parser`, the public parser class exported by the declared and locked tar 7.5.22
+ESM package. Both readers must admit complete finite archives while retaining
+strict parser errors, entry draining/end settlement, original-buffer comparison,
+member/path/link/inventory limits, compressed/expanded budgets and publication
+readback. No extraction, tool import, lifecycle or native execution is permitted
+by npm byte verification. Dependency pins and existing protected evidence remain
+unchanged. Additive source regressions exercise both actual readers with valid
+finite archives and invalid/truncated/traversal/substitution input. Source tests
+are UNEXECUTED until distinct whole-source review and new input admission;
+source compatibility does not establish publication or native acceptance.
+
+`AC-7G.scoped-tar-parser.R1/R2`: both actual readers reject every `ignoredEntry`
+(including unsupported types and metadata exceeding tar's 1 MiB limit), retaining
+the first error and draining entries. Before reader acceptance, the same held
+expanded original buffer must pass shared finite framing: complete 512-byte
+headers and rounded-up effective payload blocks, at most 100,000 physical
+headers, safe nonnegative effective sizes within existing 256 MiB member and
+512 MiB total expanded budgets, and two consecutive entirely zero 512-byte EOF
+blocks. After the first EOF block only complete zero blocks are permitted;
+missing EOF, a single zero block, partial headers/padding, or any nonzero byte
+after EOF denies. This deliberately requires finite producer completeness rather
+than permissive TAR-tool recovery; normal npm/Core producers terminate with zero
+blocks. Payload padding remains opaque. GNU long-name/long-link and local/global
+PAX metadata remain supported under the existing 1 MiB bound; framing uses tar's
+public Header/Pax interpretation of effective sizes, applying pending metadata
+only to ordinary members and consuming local metadata once. Pending local
+metadata at EOF denies. Ordinary reader path/root/link/duplicate/inventory checks
+still govern effective names, and strict parser errors remain mandatory. Additive
+actual-reader positives include GNU/PAX names, local/global size overrides and
+zero-block trailing padding; negatives include unknown types, oversized GNU
+metadata, complete-payload missing EOF/partial header/single EOF/nonzero trailing
+data and a member after EOF. Existing active-body truncation tests stay intact.
+All new source remains UNEXECUTED until new distinct entire-source GO and exact
+fresh complete execution-input ROOT admission; original native extraction and
+publication authority are unchanged.
+
+`AC-7G.scoped-tar-parser.R3/R4`: enforce the 1 MiB metadata bound against
+each intermediary header's physical size before decoding or invoking either
+actual reader. Pending local/global PAX size cannot reduce that physical bound.
+The framing pass retains ordinary effective Header sizes, applying global then
+local overrides and directory zero-size semantics. Both actual readers bind
+each ordinary entry to that validated size and use it for member/expanded quotas
+and observed body-length equality; mutable ReadEntry.size is not size authority.
+Npm still compares the complete opaque original bytes. Retain all R1/R2 controls.
+Additive actual-reader regressions cover pending local and global size before
+oversized GNU/PAX metadata, conflicting local-over-global ordinary sizes, and
+effective member-budget violations. They remain UNEXECUTED pending a different
+fresh entire-source review and new complete execution-input admission.
+
+`AC-7G.scoped-tar-parser.R4.fields`: retain ordinary authoritative type/path/
+linkpath with size in the framing pass. Header controls type and effective size;
+local GNU/PAX path and linkpath override the raw header. Global path/linkpath
+are excluded from authority, matching locked Header's scoped interpretation;
+global size remains applicable unless locally overridden. Both actual readers
+bind emitted type/path to the ordered framing inventory. Core resolves only the
+authoritative local-or-raw linkpath and requires zero authoritative link size,
+then applies all existing path/root/traversal/alias/cycle/target checks. Pending
+local fields are consumed once, globals persist, and later GNU/PAX local fields
+replace earlier local fields. Add local-over-global legitimate links and unsafe
+local/raw traversal/alias/size-interaction regressions. This is the conservative
+scoped source contract; native metadata equivalence still requires qualified
+execution and is not established by source review or these UNEXECUTED fixtures.
+
+`AC-7G.scoped-tar-parser.R5/R6`: supersedes the Parser-dispatch requirement
+and R4.fields acceptance of emitted target disagreement. Shared validated physical
+framing drives the locked public Header/Pax/ReadEntry decoder directly, so pending
+ordinary fields cannot control intermediary metadata consumption. Preserve every
+strict Header validation predicate, unknown/ignored-entry denial, physical 1 MiB
+metadata cap, effective size/body quotas, local-once/global-persistent semantics,
+complete EOF and original opaque bodies. Neither translated extraction bytes nor
+private Parser symbols are permitted. Core compares actual ReadEntry linkpath to
+the validated local/raw linkpath and fails closed on every disagreement, including
+unsafe or safe-but-different global aliases/cycles/dangling targets. Original
+compressed extraction input remains unchanged; source agreement is not native
+qualification. Add actual-reader positives for pending global zero and 1 MiB+1
+before bounded local/GNU/PAX, pending local zero before bounded GNU/PAX and a
+following size override. All additions remain SOURCE_UNRUN pending DIFFERENT
+ENTIRE review and NEW complete execution-input ROOT admission.
+
+
+Issue #1718 / SPEC-007 AC-7F, AC-7G: resolve the official proxy-addr 2.0.8 patch for GHSA-jqcg-44mw-7w3h without weakening audits, overrides, consumer ranges or protected qualification. Source-only until fresh whole review and parent execution admission; thirteen native/product gates remain unqualified.
+
+### Issue #1718 / PR #1719 whole dependency audit correction
+
+Development SOURCE ONLY, SPEC-007 AC-7F / AC-7G. Sole successor retains the existing clean 8b777581d81e4999e46a5a2ee0ad74f834515a40 issue branch fix/1718-proxy-addr-audit under a bounded GOV-10 recovery exception; base develop73b02a01904800713d1f3f34a3384ca872ab1518. Entire original review is NO_GO; preserve its immutable source and F1/F2/F3 report.
+
+Acceptance unit now includes production proxy-addr2.0.8 plus all actual tooling findings from exact8b production PASS0/tooling FAIL36 before TAP: compression, joi, katex, postcss-selector-parser (all16 nested paths), source-map-js and both tinypool advisories. Read actual official advisories, complete registry metadata and patch sources; retain workspace replacements, compatible caller ranges/interfaces, SDK1.31.0, existing overrides and production low/tooling high audit policies. Never force audit downgrades, suppress findings, invent compatible versions or fabricate a resolved graph. If a coherent lock graph needs resolver execution, finish source-feasible corrections and record exact complete input/admission prerequisites before that execution.
+
+F1 uses accepted ::/1 single/multiple native-IPv6 positives and IPv4/mapped negatives; retain explicit IPv4 and full-marker mapped positives. F2 binds SDK1.31.0 and original individual audit elapsed108ms/119ms. F3 distinguishes manifest/dist/exports npm packing and root-lock SBOM from the lock-bearing release archive npm-install graph. Published/current npm consumers require independent actual installed-byte qualification.
+
+No Node/import/parser/npm/install/lock regeneration/audit/test/build/compiler/helper/native/ENV/ACL execution before DIFFERENT fresh ENTIRE cumulative review and NEW complete actual-input ROOT parent admission. Freeze the complete whole unit with original1132 members, prior NO_GO report, raw natural failures, all official metadata, whole base/current physical source and literal ROOTMF/REPORT readback. All thirteen native/product gates and unrelated owners remain unqualified and preserved. No merge/release/promotion/publication/deployment/cleanup authority.
+#1718 AC-7F/AC-7G implementation selection before metadata editing: use official compression1.8.2, joi17.13.8, source-map-js1.2.2; globally resolve all16 selector copies to official7.1.6 with an explicit selector override; scope official KaTeX0.18.2 under mermaid and official Tinypool2.1.2 under @docusaurus/core. The last three are intentional caller-range crossings, supported by direct published caller/API inspection, not claimed upstream semver compatibility. No Docusaurus/Mermaid/ELK version change or local package relabeling. Existing dependency sets remain unchanged except compression's official added destroy1.2.0, already in the root graph; apply actual official dist metadata and Tinypool Node engine. Manually edited metadata is a SOURCE PROPOSAL, not an npm-generated/install-validated graph. Different entire review and NEW full ROOT admission must precede npm resolver/clean install, actual caller/adversary fixtures, complete docs/build/tests and consumer qualification; any normalization changes require a new freeze/review/admission.
+Entire #1718 selected graph/caller evidence, F1-F3 corrections and exact remaining input/acceptance boundaries: [.governance/project/CORE1718_DEPENDENCY_AUDIT_REPAIR.md](../project/CORE1718_DEPENDENCY_AUDIT_REPAIR.md). Manual source proposal only; all execution/qualification remains UNRUN.
+
+### #1718 actual documentation consumer qualification (2026-10-06)
+
+Development SOURCE_ONLY additive follow-up from current named develop cae79b5e92d7ded41dda1f1c600ee9b53b7aaebc after PR #1719 landed. SPEC-007 AC-7F/AC-7G.docs-consumers binds the remaining direct docs boundaries: ordinary full current Docusaurus build; full current docs pooled SSG with only future.faster.ssgWorkerThreads and its required removeLegacyPostBuildHeadAttribute flag enabled in a private qualification copy; actual default theme Mermaid native MathML, forced legacy HTML/CSS math and registered ELK rendered in Chromium from built output. Inputs and build roots stay outside public docs source/publication. Preserve Node22, Docusaurus3.10.2, Mermaid11.17.2, ELK0.1.9, current manually authored lock and workspaces.
+
+Acceptance requires actual worker task logs and full ordinary/pooled HTML route inventory parity, browser diagram/MathML/legacy computed CSS and loaded font semantics, and compiler module-to-emitted-asset plus browser-response digest binding to selected official installed KaTeX/Mermaid/ELK sources. Invalid Mermaid must produce the default error boundary rather than a false success. Mere imports/version checks, Tinypool-shaped surrogates and source push are insufficient. A separate naturally triggered docs-consumer CI job may produce isolated evidence; it does not substitute for unchanged full release/native gates or the retained thirteen failures. No local target execution before complete input freeze, DIFFERENT entire SOURCE_GO and parent admission. Preserve original whole source, reviews and terminal CI evidence. Sole author owns the new fix/1718-docs-consumer-qualification checkout; old owner checkouts and primary inherited state remain retained. Review and evidence are pending.
+
+### #1718 / PR #1722 first actual docs failure and topology correction
+
+Original source90de5322a012e20b11ab9c2d2c11022ac43ced68 / tree ed2e2c51b56ed8229dcde9dba3c7510c707d7e0d remains immutable. Natural run37420183923 attempt1/job112127568885 executes only the ordinary private Docusaurus build, started05:46:57.795Z ended05:48:18.247Z exit1: unchanged host-runner-service-owner-package ../../scripts/host-runner-service/contract-v1.json target is missing from the private docs-only topology. Preserve original fatal log449-483, prior image-size-safe warnings430/438 and full first actual receipt/artifact; pooled SSG, route parity and every browser case are NOT_REACHED. Separate ordinary Docs success is not consumer qualification.
+
+Before correction, whole-source-checkpoint-root-v1 SOURCE_CHECKPOINT90_NOT_FINAL_KNOWN_UNIT ROOTe029db2617b30d35852c7341ac486e01f92596d3258f4d061b0ec425ce19acb3 preserves complete90base/head/physical/rawGit, all original6137/review8/final32/CI494 bindings and884 first failed consumer originals/artifact members. Parent selects a materially new source-topology repair: copy ENTIRE tracked regular physical source tree into private ordinary/pooled roots; preserve repository-relative artifacts, original docs/link policy/loader and all consumer checks. Reject missing paths, symlinks/reparse ancestry, nonregular tracked entries, dirty source or head/source drift; copy no untracked, ignored, retained or generated runtime state. Source-owned tracked templates/assets remain actual source inputs. No public docs edits, link suppression, fixture stubs, lock/dependency change, manual rerun or local target execution. Corrected source remains UNRUN locally until final complete input freeze, DIFFERENT entire review and parent admission. Existing thirteen native/product failures and all original protected policies stay preserved.
+
+### #1718 / PR #1722 bbe original clean-source failure diagnostic
+
+Source bbe18b56955e37f18b0b5fc1dd3712ab4489a165 / tree da376278be2555773a851f459b7ab0d68e8c5f30 is preserved in whole-source-checkpoint-root-v1 SOURCE_CHECKPOINT_BBE_NOT_FINAL_KNOWN_UNIT ROOT1f6ceb59aa5f492fc1115da87acff092c8d2fe27d3b18dfe99c3848c8ef9d71a,19884 members. It includes complete current/base physical/raw source, prior13028 checkpoint, sealed original90CI1370 and original firstbbe job/artifact11392918152. Actual PRmerge checkout a202012291f469d82783763fd2bf3067c0fe6fbc tree equals bbe; natural run37421112764/job112130446203 exits1 in unchanged clean guard, raw status LENGTH24 (24 !==0), commands=[], ordinary/pool/browser NOT_REACHED. Exact dirt path/cause is UNKNOWN because original raw Gitstatus bytes were not captured; do not infer them. Separate current DocsSite pass and exactbbe native failures do not qualify this consumer unit.
+
+Parent selects narrowly additive source diagnostics before the same clean assertion: preserve actual raw status/index/head/tree, raw tracked diff (no external/text conversion driver) and hashes/metadata of changed tracked regular physical files only in private ignored evidence. Never copy arbitrary untracked/private contents, delete/reset dirt, weaken the guard or accept dirty source. This provides materially new original cause evidence on a natural new-head attempt; no manual retry or local target execution. Whole source unit remains active until authentic cause is disposed and coherent input frozen/reviewed/admitted; every old failure/checkpoint is immutable.
+
+
+### #1718 / PR #1722 original efe diagnostic and executable CLI source mode
+
+Natural run37421698878 attempt1/artifact11393625534 at PRmerge34546d3dc0a6b674b2a516b34bd7325c8c29c6b6/tree4c309174f18d163f7cbe5ba0edbc869e988090fa records raw status exactly ` M packages/core/cli.js\0` (24 bytes) and ONLY mode100644 to100755 in the raw tracked diff. Receipt commands=[]; ordinary/pooled/browser NOT_REACHED. Original bbe cause remains UNKNOWN; this new observation does not rewrite history. Literal original packet is D:/projects/service-lasso/service-lasso/_audit/natural1722-efe98-terminal-oct06-01. Immutable EFE source checkpoint ROOT3f7b17233e19ac722f8903b28b190c338f4699733bd191f7fc462ba822ebed7d binds25749 physical members with MF e171433e7eb6d3f1ebe00b3c48d210ffe6147e723dd04ea8c89fee33af043d0c and FULL db4bef2e89a234fd3dd0ec222d5cbec6921123e760107cf97ff24230f3193254.
+
+Parent selects committing packages/core/cli.js executable100755, matching existing npm bin and shebang, with identical206-byte content/Git blobdc92912ba747f80f7fe13c80c24c69731e05c2ed. Intentional Git index mode only; no physical ACL/runtime execution, reset, ignored chmod or clean guard relaxation. Preserve complete old failed roots as FAILED_ROOT_BINDING and distinct verified raw-binding addendum ROOT28cd2738382f454b242a2e563a0af91756ef4b61ceb9faa053bfa51c54df1105; never normalize or overwrite originals. Whole cumulative source review and natural CI are distinct, all existing protected failures/policies unchanged.
+
+### #1718 / PR #1722 ENTIRE browser outcome and custody repair (2026-10-06)
+
+Development SOURCE ONLY, sole successor author on retained fix/1718-docs-consumer-qualification at clean4777b0c6dd69cf17f6042cbb51d916a17a0f77bf/treeb8cd0278dc6bff170cf33e40fe773350d351e146, named developbasecae79b5e92d7ded41dda1f1c600ee9b53b7aaebc. Bounded GOV-10 recovery preserves the same issue1718/PR1722 and open owner checkout. SPEC-007 AC-7F/AC-7G.docs-consumers binds all F1/F2/F3 as one coherent source unit before implementation.
+
+F1: terminal valid-page result requires final actual observation drainage and page-error/request-failure/status/compiler-digest checks after DOM/screenshot capture and context settlement; invalid-Mermaid deliberate parse errors must be separately and precisely classified. F2: preserve the original primary assertion/operation failure, record every capture/cleanup error independently, and independently attempt context/browser/server settlement even when another close rejects. Scenario PASS is provisional until whole cleanup succeeds; capture or cleanup error fails the unit.
+
+F3: authentic natural4777 run37422382726/artifact11393293439 failed browser digest after ordinary0/pooled0, actual workers1+2 and routes185/188. Native math x2+1 and ELK geometry were observed before failure; legacy/invalid are NOT_REACHED. Same JS URL assets/js/5e95c892.e0dfbb7d.js has two200 responses: expected7505cc6e60c36f7104e6f16cf7dc01f086c99a4edaccb36b77ff72cedd7641ea and empty e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855. Existing evidence lacks method/cache/transport cause: UNKNOWN. Add faithful private request/method/resource/header/original identity/body-length/cache transport observations and independent server request identity/read-byte hash/error observations before the unchanged digest failure. No empty-response exclusion, manufactured GET body, status200 authority, inferred cache cause or server-only browser identity. Protocol-specific acceptance requires actual new evidence and parent scope selection.
+
+Preserve entire31581-member original source ROOT965a6577f26dfb6b7fa7327ebcbde7b29107c839d7544f846a617c93a56db823, ENTIRE SOURCE_NO_GO review ROOT5c14343cd1a2d057d9b4a91496c7c08e8101eafd44421ff859fdf2feca7c2bc0 and all original90/bbe/efe/4777 failures, malformed failed original roots and distinct raw-byte addendum9. CLI wrapper remains100755/same blob. Public docs/config/package/lock/release/private policies/deadlines/retries/concurrency/permissions remain unchanged. No local target import/parser/helper/browser/build/test/compiler/native/ENV/ACL execution before NEW complete-input ROOT, DIFFERENT entire SOURCE_GO and parent admission. Natural push CI is separate allowed evidence; no rerun/dispatch/cancel/settings/main/cleanup/merge/release. Author unit stays ACTIVE pending authentic cause disposition and fresh whole review; no acceptance claim.
+### #1718 / PR #1722 faithful static response length after authentic05b8 diagnostics
+
+Development SOURCE ONLY, same retained author unit at05b8d38303300ab3e21eb1472ab4bb3671d1ce86/tree1eed3857b30e40a2b6065f0aa41e5d1981d17469. DIFFERENT ENTIRE checkpoint review SOURCE_GO ROOT348d2379b55e542043dcccf8b64e8474908a79f875b74e68406be290e25f3cde binds instrumentation source only; no target admission or runtime qualification.
+
+Authentic natural run37423603262/job112138198700/artifact11394280438 fails unchanged digest for assets/js/5e95c892.e25c9fe0.js: script GETrequest5 gives actual359/expected5bb760cc646b52218516d66f939a4d59eb0a2a306192517bb9c75b6c7c12fbf8; distinct OTHER GETrequest14 Sec-Purpose:prefetch gives observed0/emptye3b0 while responseBodySize371. Both original serverrequests5/14 saved359 correct, finished and writableFinished/status200/no errors; both original response headers are Transfer-Encoding:chunked and omit Content-Length. CDP disk/serviceworker/prefetch-cache flags are false. Underlying browser backend empty-body mechanism remains UNKNOWN. Native math/ELK are partial observations; legacy/invalid NOT_REACHED and whole consumer remains FAILED.
+
+Parent selects exact Content-Length:bytes.length for the private200 static response's actual immutable readBuffer, preserving Content-Type/request-ID and all diagnostics; retain and assert declared/written length and read/saved/written digest agreement. Official Playwright1.63.0 Chromium createResponseBodyCallback source589..630 returns backend body immediately when expectedLength is absent. When expectedLength is positive and backend body empty, the stock method checks safeGET/static-or-Sec-Purpose-prefetch before its original Network.loadNetworkResource disableCache:false reader. Accurate server wire metadata permits that stock handling; this is source reasoning, not a claim that a new natural run will pass. No custom refetch, manufactured body, response filtering/skips, empty-hash exemption, cache/serviceworker/browser-policy change or server-only browser authority. All response/compiler hashes remain unchanged.
+
+Preserve immutable36249 checkpoint, complete4777 terminal ROOT3f50e836ab8faa16639874f68ff69984bcd672f808b491572adbc324a6bdabbc/MF4544, full different05b8 review5 and actual05b8 receipt/browser/server/CDP/saved-body originals in the next cumulative actual-byte packet. Existing F1/F2 outcomes, original31581/review5/90/bbe/efe failed roots/addendum9, wrapper100755/sameblob and protected policies remain required. Commit/push immediately samePR1722; new natural CI and DIFFERENT entire final source review remain separate. No local target execution or changed deadlines/permissions. Author unit ACTIVE pending actual result and parent disposition.
+### #1718 / PR #1722 actual extracted CSS compiler graph correction
+
+Development SOURCE ONLY same ACTIVE author atfe1d62fe7138161c65e95ba91e55db114b10b209/tree7d927c8d379b76899f4cdf2db6e18fb533b6072b. Parent adopts entire SOURCE_NO_GO review ROOT27d4c8b2a753a91b7ee44c72aba6860ef3337a92a3bbb70b831b1c5b6849e453: actual selected katex.css normal modules have files[], so protected legacy selected-CSS assertion genuinely fails. Preserve authentic fe1d math/computed red2px/KaTeX_Math and actual compiler/browser stylesheet SHA agreement as supporting observations, never selected-source provenance or whole qualification. Invalid Mermaid NOT_REACHED.
+
+SPEC-007 AC-7F/AC-7G.docs-consumers selects faithful compiler observation: retain normal physical source hashes and record original selected resource -> actual mini-css-extract-plugin CssDependency -> real CssModule -> actual chunk -> original rendered stylesheet asset/hash. Official mini-css-extract-plugin2.10.2 published archive integrity matches unchanged lock; bind its exact installed package/files and actual exported getCssDependency/getCssModule class identities for the compiler webpack instance. CssModule.nameForCondition supplies the original resource; moduleGraph.getModule(dependency), chunkGraph source-type membership and actual mini plugin renderManifest entries supply edges. Resolve the actual entry filename/pathOptions with webpack5.109.2 getPathWithInfo, the same compiler API used at actual emission, and require original chunk.files membership plus existing emitted asset bytes. No guessed output name, assigning all CSS, empty-files fallback or style-only proof. Original CSS source hashes, selected CSS/browser/font/hash assertions remain unchanged; extraction observations add truthful graph provenance only.
+
+All prior F1/F2/wire repairs, original36249/49179 frozen packets, original fe1d NO_GO and natural failures, entire05b8/4777 terminal evidence, malformed original roots/raw addendum9 and thirteen native/product failures remain retained. Package/lock/publicdocs/browserpolicy/cache/refetch/deadlines/retries/concurrency/permissions unchanged. Every intentional commit immediately pushed SAME PR1722. No local target execution before NEW complete-input ROOT/DIFFERENT whole SOURCE_GO/parent admission; fresh whole review and natural new-head actual result remain required separately. Author ACTIVE; no acceptance/merge/release/publication/promotion/deployment claim.
+The same CSS graph observer must retain actual original compilation.chunkAsset emission and final asset identity across stock webpack RealContentHashPlugin optimization. Official webpack5.109.2 renameAsset updates the actual chunk.files and final asset contenthash metadata without updating the original mini render-manifest template inputs. Bind original render entry -> actual chunkAsset emission -> final same-chunk asset whose real final contenthash resolves that original template through getPathWithInfo/TemplatedPathPlugin, retaining both original/final names and hashes. No compiler method wrapping, output rename/mutation, synthetic chunk or guessed/all-CSS association is permitted.
+Before completing the CSS compiler-source proposal, bind ENTIRE genuine official webpack5.109.2 published archive inventory (including Compilation/ModuleGraph/ChunkGraph/RealContentHashPlugin/TemplatedPathPlugin and package/main/helper sources) to unchanged lock integrity/URL/version and actual installed file hashes before either build. This closes version-only compiler provenance; saved tag-source API reads are separately retained and do not replace npm installed-byte equality. No lock/package/resolver/library changes or local target execution.

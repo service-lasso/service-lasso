@@ -21,3 +21,5 @@ Apply this checklist to both long-lived branches. `develop` is the repository de
 - [ ] Preserve only PR #1586 / develop / codex/850-native-custody-platform-followup / service-lasso/service-lasso as SPEC-003 grandfathering of the already-owned head; all direction/current-develop ancestry checks remain required and new normal branches remain typed.
 
 - [ ] Issue #1597 / SPEC-003 BR-008: PR #1586 requires fresh ENTIRE cumulative source review and NEW complete-input ROOT admission before source execution; native/runtime/hosted/product/compiler/operator gates remain separate. This checklist records requirements only and changes no provider control.
+
+- [ ] Issue #1636 / SPEC-007 AC-7G.windows-npm-argv: consolidate the full PR #1624 resource observation contract, require a different ENTIRE cumulative source review and NEW complete-input Node plus fixed npm installed-subtree admission before local execution. Deferred verify-mcp-packaged ENV authority and prepare-published-package-qualification cmd wrapper remain separate tracked subitems; no repository-wide repaired claim or provider control change.
