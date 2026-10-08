@@ -474,3 +474,9 @@ HTTP diagnostics show confirmation_plan_mismatch when another service's lifecycl
 changes the globally collected executable revisions. Select only service-start
 mutation target executables; retain dependency context and runtime-wide/restart
 scope. Original assertions remain. Full native qualification required.
+
+#1736 remediation verified: full native Ubuntu2bddf203/tree9e8f9d39 naturally
+closed exit0,1966 tests:1879 pass,87 existing platform skips,0 fail. All nine
+prior failures resolved; no assertions or platform applicability changed. Windows
+scoped26/26 pass and Ubuntu scoped25 pass/1 skip. PR1737 is the develop delivery
+path. Retain original receipts and separate Windows/docs/release investigations.
