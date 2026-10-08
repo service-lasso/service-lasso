@@ -351,16 +351,21 @@ export async function consume(command, args, options = {}) {
 }
 
 async function waitForPrivateObserver(root, names, observerExit) {
+  let observerExited = false;
   for (;;) {
     for (const name of names) {
       const candidate = path.join(root, name);
       try { await access(candidate); return candidate; } catch { /* keep polling */ }
     }
+    // Exit can win the polling race after a terminal has been published.
+    // Scan the original names once after exit before concluding absence;
+    // the caller still validates the full terminal and native witnesses.
+    if (observerExited) return null;
     const state = await Promise.race([
       new Promise((resolve) => setTimeout(() => resolve("retry"), 10)),
       observerExit.then(() => "observer_exited"),
     ]);
-    if (state === "observer_exited") return null;
+    observerExited = state === "observer_exited";
   }
 }
 

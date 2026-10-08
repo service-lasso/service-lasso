@@ -262,6 +262,45 @@ macOS/Linux native execution and GA are separate, unqualified boundaries.
 The unchanged Core startup-crash suite still reports existing fixture failures;
 this docs-only change does not claim whole-Core acceptance.
 
+## Public Mac SSO checkpoint (#1704)
+
+The [SSO article](../getting-started/zitadel-sso-hub.md) now recommends the
+public lesson-host route qualified on Intel macOS 11.7.11. Public lesson
+source `0d72fc40fe3147786fec97642b658389bb063b63` contains the reviewed
+stage04 implementation; its frozen author head was
+`d9d27754b17db6e0e6ad6534548668ed35f7c9ff`.
+[Lesson #9's direct acceptance record](https://github.com/service-lasso/lesson-todo/issues/9#issuecomment-5999756112)
+retains the literal consumer results and original failed attempts.
+
+Identity release
+[`2026.10.5-d7e04eb`](https://github.com/service-lasso/lasso-zitadel/releases/tag/2026.10.5-d7e04eb)
+targets `d7e04ebd9489ddc8c6798e408cd8ce7992711146`.
+[Producer run 37327998201](https://github.com/service-lasso/lasso-zitadel/actions/runs/37327998201)
+passed all eight full source/actual binary scans and five hosted native gates.
+All thirteen public assets and twelve checksum entries were read back; seven
+staged qualification files matched the published bytes. That producer proof
+is distinct from the literal Mac lesson below.
+
+| Boundary | Direct observation |
+| --- | --- |
+| Public consumption | Published Core/Admin, selected Intel macOS 11 Broker/Identity profiles, normal checksum-bound acquisition/configuration/start |
+| Private provisioning | Hidden Node prompt; invalid input/cancellation launched no child; create-only Broker references and protected private API credential file |
+| Paired application | Real Web PKCE login, authenticated App/API reads/writes, SQL IDs retained on refresh |
+| Denials | Anonymous/malformed and genuine other-project API tokens returned 401; CSRF returned 403; SQL unchanged |
+| Identity outage | API reads/writes returned 503 without SQL mutation; recovery returned 200 |
+| Lifecycle | Restart invalidated sessions; relogin retained rows; logout invalidated the old cookie; full Core reopen retained identity users/projects and Todo IDs |
+| Setup retention/shutdown | Nineteen manifest/credential/certificate files and three Node symlink targets preserved; owned processes and listener range empty afterward |
+
+Exact lesson [test run 37347837393](https://github.com/service-lasso/lesson-todo/actions/runs/37347837393)
+and [Windows desktop run 37347837387](https://github.com/service-lasso/lesson-todo/actions/runs/37347837387)
+passed. They do not replace the native Mac application/provider observations.
+Natural access-token expiry was not verified; temporary isolated provider
+settings were restored. ARM macOS 11, native Mac desktop, all-platform full SSO
+and GA remain unqualified. The earlier manual Windows Core route and its pins
+remain separate; existing wider Core failures are not repaired by this article.
+Documentation merge, publication and exact live source readback are separate
+acceptance steps.
+
 ## Wider example inventory (earlier review)
 
 | Article/example | Observed result and remaining boundary |

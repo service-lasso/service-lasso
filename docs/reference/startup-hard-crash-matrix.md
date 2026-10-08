@@ -164,3 +164,75 @@ Existing positive removal assertions stay intact and will fail under retention;
 unknown-owner native proof requires the explicitly admitted laboratory fixture,
 never an absent-input pass or skip. Fresh entire source review and NEW complete
 input exact-head ROOT admission precede all execution.
+
+## 2026-10-08: ordinary disposable Linux fixtures (#1734)
+
+SPEC-012 records the owner's correction: cleanup of a trusted, private test
+fixture is ordinary test teardown. It is not Service Lasso recovery behavior and
+does not require the separate hostile-writer security-custody implementation.
+Creator-issued in-memory tokens bind fresh temp roots to their original directory
+identities. The boundary verifies the independent evidence copy, inventory,
+identity and privacy, settles held test handles, and removes only that root.
+The default strong-custody boundary and adversarial refusal tests remain intact.
+
+The seven original crash phases retain their recovery, generation, ownership,
+absence, residue and unrelated-process assertions. The successful terminal
+cleanup and post-removal reset, environment and copy-tamper cases retain their
+original outcome assertions. Their eleven saved failures shared an unavailable
+fixture-removal operation; they were not eleven demonstrated service bugs.
+
+Native Ubuntu scoped verification: 74 tests, 70 passed, four platform skips,
+zero failures, including all eleven formerly blocked rows and recovered
+compensation. A root-owned disposable input also exercises the unchanged
+foreign-owner rejection. Original failed evidence remains retained. Windows
+custody execution still fails during existing privacy/guardian setup and is not
+qualified by this Linux result. Full-suite verification is tracked separately.
+
+### Closed full-run evidence and remaining scope
+
+The configured `npm test` run on Ubuntu Server/Node22.23.3 at commit
+`5a01bcfd01b8da78757402552977e6b4d30d1f31` (tree
+`2dc501e406a93c82960d50a6ac44d25aa5a43cec`) closed naturally with
+1,966 tests:1,870 passed,87 skipped,nine failed. All eleven formerly blocked
+rows and recovered compensation passed. The closed receipt retains actual child
+exit1 and private raw logs; this is not a full-suite green claim.
+
+Eight failures came from absent host test prerequisites: PowerShell (two
+cancellation and four actual pre-browser producer tests), `lsof` (demo ownership),
+and the `python` command (ConPTY helper). Private, process-local test tooling was
+provided without a host-wide install. Subsequent focused checks passed all eight:
+62 tests across cancellation/demo/HTTP yielded61 pass and the separate HTTP
+failure; pre-browser producer5/5 pass; ConPTY helper10 pass/one platform skip.
+
+The remaining `#1465 concurrent HTTP replay` assertion returns409 where200 is
+expected. It reproduces on unchanged parentdevelop `bef6babc`:12 tests,11 pass,
+one fail. Track it separately in #1736. Windows new teardown-unit checks pass
+(two pass/one POSIX-only skip), but existing Windows privacy initialization and
+broader CI failures remain unqualified. All seven natural Ubuntu crash-phase CI
+jobs passed at5a01bcfd. No product runtime changes or release/deployment claim.
+
+## #1736 closed Linux qualification (2026-10-08)
+
+The nine follow-up failures are resolved. Eight needed genuine host test tools;
+one exposed a product bug: service-specific start confirmations included
+unrelated services' installed/configured executable revisions. PR1737 scopes
+that binding to actual service-start mutation targets at preflight and execution.
+Stable dependency context, actual input-tamper rejection, actor-scoped replay,
+runtime-wide action bindings and restart bindings remain intact. Original test
+assertions are unchanged.
+
+The configured full Ubuntu Server/Node22.23.3 run at
+`2bddf203537eb7037ec6faa62e5f44d598b0211e`, tree
+`9e8f9d39d10312ac2e4ea3d44c228cbfa5855b09`, naturally closed with exit0:
+1,966 tests,1,879 passed,87 existing platform skips,zero failures. Actual
+PowerShell/lsof/Python commands, the root-owned foreign-owner fixture and native
+Broker executable were supplied privately. Tracked source remained unchanged;
+the generated Python cache is retained disposable audit-checkout state. Private
+raw logs and the closed receipt remain retained alongside the original failures.
+
+Native Ubuntu durable HTTP/guarded-action scope:25 pass,one platform skip,zero
+failures. Windows same scope:26 pass,zero skips or failures. This includes the
+existing real dependency/executable-tamper cases. Natural Linux CI process-tree,
+allocation,generation,Broker IPC and all seven crash-phase jobs also pass.
+Whole Windows custody, docs tooling-audit CI and release qualification remain
+separate; no global CI, GA, publication or deployment claim follows.

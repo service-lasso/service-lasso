@@ -17,6 +17,8 @@ $managedPath = Join-Path $repoRoot $managedRelativePath
 $binaryPath = Join-Path $repoRoot $binaryRelativePath
 $provenancePath = Join-Path $repoRoot $provenanceRelativePath
 $vsDevCmd = "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat"
+$vcVars = Join-Path (Split-Path -Parent $vsDevCmd) "vsdevcmd/ext/vcvars.bat"
+$recipe = "BOOTSTRAP-NATIVE-VCVARS-ENV-2"
 $compilerOptions = @("/nologo", "/TC", "/O2", "/GS", "/MT", "/W4", "/link", "/Brepro", "bcrypt.lib")
 
 if (-not [IO.File]::Exists($vsDevCmd)) { throw "The trusted Visual Studio native compiler environment was unavailable." }
@@ -51,7 +53,7 @@ function Get-CanonicalProvenanceJson([string]$sourceSha256, [string]$managedSha2
     '  "schemaVersion": 1,',
     '  "compiler": {',
     '    "family": "Microsoft Visual C++ Build Tools native compiler",',
-    '    "path": "Visual Studio 2022 Build Tools via VsDevCmd",',
+    '    "path": "Visual Studio 2022 Build Tools via BOOTSTRAP-NATIVE-VCVARS-ENV-2",',
     '    "options": [',
     '      "/nologo",',
     '      "/TC",',
@@ -85,24 +87,190 @@ function Get-CanonicalProvenanceJson([string]$sourceSha256, [string]$managedSha2
   ) -join "`n")
 }
 
+[byte[]]$sourceBytes = [IO.File]::ReadAllBytes($sourcePath)
+[byte[]]$managedBytes = [IO.File]::ReadAllBytes($managedPath)
+$sourceSha256 = Get-Sha256Hex $sourceBytes
+$managedSha256 = Get-Sha256Hex $managedBytes
+$sourceText = [Text.Encoding]::UTF8.GetString($sourceBytes)
+$digestDeclaration = [regex]::Match($sourceText, 'MANAGED_LAUNCHER_SHA256\[32\]\s*=\s*\{([^}]+)\}', [Text.RegularExpressions.RegexOptions]::Singleline)
+$digestValues = @([regex]::Matches($digestDeclaration.Groups[1].Value, '0x([a-fA-F0-9]{2})') | ForEach-Object { $_.Groups[1].Value.ToLowerInvariant() })
+if ($managedBytes.Length -ne 39936 -or $sourceText -notmatch 'MANAGED_LAUNCHER_BYTE_LENGTH\s+39936LL' -or $digestValues.Count -ne 32 -or ($digestValues -join '') -cne $managedSha256) {
+  throw "Native bootstrap source did not pin the managed launcher identity."
+}
+$script:NativeToolOwners = [Collections.Generic.Dictionary[string,object]]::new([StringComparer]::Ordinal)
 $temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) ("service-lasso-native-bootstrap-" + [Guid]::NewGuid().ToString("N"))
-try {
-  $null = New-Item -ItemType Directory -Path $temporaryRoot
+  # Retain every original attempt, including failed initialization/compiler output.
+  $null = New-Item -ItemType Directory -Path $temporaryRoot -ErrorAction Stop
+  $childTemp = Join-Path $temporaryRoot "temp"
+  $null = New-Item -ItemType Directory -Path $childTemp -ErrorAction Stop
+  $childEnvironment = [Collections.Generic.Dictionary[string,string]]::new([StringComparer]::OrdinalIgnoreCase)
+  foreach ($name in @("PUBLIC", "PROCESSOR_IDENTIFIER", "SystemRoot", "PROCESSOR_REVISION", "ProgramW6432", "PROCESSOR_ARCHITECTURE", "SystemDrive", "ProgramFiles", "APPDATA", "USERPROFILE", "OS", "LOCALAPPDATA", "ProgramFiles(x86)", "WINDIR", "ProgramData", "NUMBER_OF_PROCESSORS", "PROCESSOR_LEVEL", "COMSPEC")) {
+    $value = [Environment]::GetEnvironmentVariable($name)
+    if ([string]::IsNullOrEmpty($value)) { throw "A required minimal child environment input was unavailable: $name" }
+    $childEnvironment.Add($name, $value)
+  }
+  $childEnvironment.Add("TEMP", $childTemp)
+  $childEnvironment.Add("TMP", $childTemp)
+  $childEnvironment.Add("PATH", "$env:SystemRoot\System32;$env:SystemRoot;$env:SystemRoot\System32\Wbem")
+  $childEnvironment.Add("VSCMD_SKIP_SENDTELEMETRY", "1")
+  if (-not [IO.File]::Exists($vcVars)) { throw "The selected native compiler extension was unavailable." }
+  $initializePath = Join-Path $temporaryRoot "initialize-native-env.cmd"
+  $initializeText = @(
+    '@echo off',
+    ('call "{0}" -no_logo -arch=x64 -no_ext' -f $vsDevCmd),
+    'if errorlevel 1 exit /b 1',
+    ('call "{0}"' -f $vcVars),
+    'if errorlevel 1 exit /b 1',
+    'set "INCLUDE=%__VSCMD_VCVARS_INCLUDE%%INCLUDE%"',
+    'set "EXTERNAL_INCLUDE=%__VSCMD_VCVARS_INCLUDE%%EXTERNAL_INCLUDE%"',
+    'set __VSCMD_VCVARS_INCLUDE=',
+    'set',
+    'exit /b 0',
+    ''
+  ) -join "`r`n"
+  [IO.File]::WriteAllText($initializePath, $initializeText, [Text.UTF8Encoding]::new($false))
+  function Get-NativeCmdInitializerArguments([string]$path) {
+    if (-not [IO.Path]::IsPathFullyQualified($path) -or $path.IndexOfAny([char[]]'"%!^&|<>') -ge 0 -or $path.Contains("`r") -or $path.Contains("`n")) { throw "The initializer path cannot be represented in the closed CMD call grammar." }
+    $full = [IO.Path]::GetFullPath($path)
+    if ($full -notmatch '^[A-Za-z]:\\' -or $full.Contains('/')) { throw "The initializer requires an absolute Windows drive path." }
+    # CMD /s removes only the first/last outer quotes. The inner quoted batch
+    # path remains literal in call; no CRT-style ArgumentList escaping occurs.
+    return '/u /d /s /c "call "' + $full + '""'
+  }
+  function Invoke-RetainedNativeTool([string]$file, [string[]]$arguments, $environment, [string]$label, [string]$nativeArguments = $null) {
+    $start = [Diagnostics.ProcessStartInfo]::new()
+    $start.FileName = $file
+    $start.WorkingDirectory = $temporaryRoot
+    $start.UseShellExecute = $false
+    $start.RedirectStandardOutput = $true
+    $start.RedirectStandardError = $true
+    $start.Environment.Clear()
+    foreach ($entry in $environment.GetEnumerator()) { $start.Environment.Add($entry.Key, $entry.Value) }
+    if ([string]::IsNullOrEmpty($nativeArguments)) { foreach ($argument in $arguments) { $start.ArgumentList.Add($argument) } }
+    else { $start.Arguments = $nativeArguments }
+    $key = "$temporaryRoot|$label"
+    if ($script:NativeToolOwners.ContainsKey($key)) { throw "An original tool owner already exists; no retry." }
+    $owner = @{ process = $null; stdoutRaw = $null; stderrRaw = $null; startAttempted = $false; startReturned = $false; started = $null; attached = $false; exitObserved = $false; exitCode = $null; settled = $false; recordingFailed = $false; recordingFailure = $null; lastOriginalError = $null; primaryError = $null; gate = [Threading.ManualResetEventSlim]::new($false); errors = [Collections.Generic.List[object]]::new(); copies = @{ stdout = @{ source = $null; task = $null; terminal = $false; observation = $null }; stderr = @{ source = $null; task = $null; terminal = $false; observation = $null } } }
+    $script:NativeToolOwners.Add($key, $owner)
+    function Add-OriginalToolError([string]$phase, $original) {
+      $owner.lastOriginalError = $original
+      if ($null -eq $owner.primaryError -and $original -is [Exception]) { $owner.primaryError = $original }
+      try { $owner.errors.Add(@{ phase = $phase; exception = $original }) }
+      catch { $owner.recordingFailure = $_.Exception; $owner.recordingFailed = $true }
+    }
+    function Write-OriginalToolRecord([string]$suffix, $record) {
+      $bytes = [Text.UTF8Encoding]::new($false).GetBytes(($record | ConvertTo-Json -Depth 12))
+      $stream = [IO.File]::Open((Join-Path $temporaryRoot "$label.$suffix.json"), [IO.FileMode]::CreateNew)
+      try { $stream.Write($bytes, 0, $bytes.Length) } finally { $stream.Dispose() }
+    }
+    function Observe-OriginalCopy([string]$name) {
+      $copy = $owner.copies.$name
+      if ($null -eq $copy.task) { return }
+      $state = 'ACTUAL_COPY_COMPLETED'; $failure = $null
+      try { [void]($copy.task.GetAwaiter().GetResult()); $copy.terminal = $true }
+      catch {
+        $failure = $_.Exception
+        $copy.terminal = $copy.task.IsCompleted
+        $state = if ($copy.task.IsFaulted) { 'ACTUAL_COPY_FAULTED' } elseif ($copy.task.IsCanceled) { 'ACTUAL_COPY_CANCELED' } else { 'COPY_OBSERVATION_UNRESOLVED' }
+        try { Add-OriginalToolError "$name-copy-observation" $failure } catch { $owner.recordingFailure = $_.Exception; $owner.recordingFailed = $true }
+      }
+      $faults = @()
+      if ($copy.task.IsFaulted -and $copy.task.Exception) { $faults = @($copy.task.Exception.Flatten().InnerExceptions | ForEach-Object { $_.ToString() }) }
+      $copy.observation = @{ state = $state; terminalObserved = $copy.terminal; taskStatus = [string]$copy.task.Status; exception = $failure; allFaults = $faults }
+    }
+    function Retain-ActiveOriginalOwner {
+      # The registry and this non-returning live invocation strongly own every
+      # original resource. A custody file alone is never a live handoff/terminal.
+      try { foreach ($name in @('stdout', 'stderr')) { if ($owner.copies.$name.task -and -not $owner.copies.$name.terminal) { Observe-OriginalCopy $name } } }
+      catch { try { Add-OriginalToolError 'retention-copy-observation' $_.Exception } catch { $owner.recordingFailure = $_.Exception; $owner.recordingFailed = $true } }
+      try { Write-OriginalToolRecord 'ACTIVE-CUSTODY' @{ state = 'ACTIVE_INVOCATION_RETAINS_UNRESOLVED_ORIGINAL_RESOURCES'; ownerKey = $key; invocationPid = $PID; recipe = $recipe; startAttempted = $owner.startAttempted; startReturned = $owner.startReturned; started = $owner.started; attached = $owner.attached; exitObserved = $owner.exitObserved; exitCode = $owner.exitCode; stdoutCopy = $owner.copies.stdout.observation; stderrCopy = $owner.copies.stderr.observation; errors = @($owner.errors); returned = $false; resourcesReleased = $false } }
+      catch { try { Add-OriginalToolError 'custody-record' $_.Exception } catch { $owner.recordingFailure = $_.Exception; $owner.recordingFailed = $true } }
+      while ($true) { try { $owner.gate.Wait() } catch { try { Add-OriginalToolError 'custody-wait' $_.Exception } catch { $owner.recordingFailure = $_.Exception; $owner.recordingFailed = $true } } }
+    }
+    try {
+      $owner.stdoutRaw = [IO.File]::Open((Join-Path $temporaryRoot "$label.stdout.raw"), [IO.FileMode]::CreateNew)
+      $owner.stderrRaw = [IO.File]::Open((Join-Path $temporaryRoot "$label.stderr.raw"), [IO.FileMode]::CreateNew)
+      $owner.process = [Diagnostics.Process]::new(); $owner.process.StartInfo = $start
+      try {
+        $owner.startAttempted = $true; $owner.started = $owner.process.Start(); $owner.startReturned = $true
+        $owner.attached = $owner.started
+        if (-not $owner.started) { try { Add-OriginalToolError 'start' 'Original Start returned false' } catch { $owner.recordingFailure = $_.Exception; $owner.recordingFailed = $true } }
+      } catch {
+        try { Add-OriginalToolError 'start' $_.Exception } catch { $owner.recordingFailure = $_.Exception; $owner.recordingFailed = $true }
+        try { $null = $owner.process.Id; $owner.attached = $true } catch { try { Add-OriginalToolError 'original-attachment-unobserved' $_.Exception } catch { $owner.recordingFailure = $_.Exception; $owner.recordingFailed = $true } }
+      }
+      if ($owner.attached) {
+        # Independent setup and observation: one fault never skips the other.
+        foreach ($name in @('stdout', 'stderr')) {
+          try {
+            if ($name -eq 'stdout') { $source = $owner.process.StandardOutput.BaseStream; $destination = $owner.stdoutRaw }
+            else { $source = $owner.process.StandardError.BaseStream; $destination = $owner.stderrRaw }
+            $owner.copies.$name.source = $source
+            $owner.copies.$name.task = $source.CopyToAsync($destination)
+          } catch { try { Add-OriginalToolError "$name-copy-start" $_.Exception } catch { $owner.recordingFailure = $_.Exception; $owner.recordingFailed = $true } }
+        }
+        try { $owner.process.WaitForExit(); $owner.exitCode = $owner.process.ExitCode; $owner.exitObserved = $true }
+        catch { try { Add-OriginalToolError 'natural-exit' $_.Exception } catch { $owner.recordingFailure = $_.Exception; $owner.recordingFailed = $true } }
+        Observe-OriginalCopy 'stdout'
+        Observe-OriginalCopy 'stderr'
+        if (-not $owner.exitObserved) {
+          try { if ($owner.process.HasExited) { $owner.exitCode = $owner.process.ExitCode; $owner.exitObserved = $true } }
+          catch { try { Add-OriginalToolError 'available-original-exit' $_.Exception } catch { $owner.recordingFailure = $_.Exception; $owner.recordingFailed = $true } }
+        }
+        if (-not $owner.exitObserved -or -not $owner.copies.stdout.terminal -or -not $owner.copies.stderr.terminal) { Retain-ActiveOriginalOwner }
+      } elseif ($owner.startAttempted -and -not $owner.startReturned) { Retain-ActiveOriginalOwner }
+      # Either each issued task and original exit is observed, or actual Start
+      # false/pre-start failure issued neither a process nor any copy.
+      $owner.settled = $true
+    } catch {
+      if (-not $owner.primaryError) { $owner.primaryError = $_.Exception }
+      try { Add-OriginalToolError 'initiating-boundary' $_.Exception } catch { $owner.recordingFailure = $_.Exception; $owner.recordingFailed = $true }
+      if ($owner.startAttempted -and -not $owner.settled) { Retain-ActiveOriginalOwner }
+      $owner.settled = $true # pre-start only: no original process/copy issued
+    }
+    $releaseFailed = $false
+    foreach ($name in @('stdout', 'stderr')) {
+      if ($owner.copies.$name.source) { try { $owner.copies.$name.source.Dispose() } catch { $releaseFailed = $true; try { Add-OriginalToolError "$name-source-release" $_.Exception } catch { $owner.recordingFailure = $_.Exception; $owner.recordingFailed = $true } } }
+    }
+    foreach ($name in @('stdoutRaw', 'stderrRaw')) {
+      if ($owner.$name) {
+        try { $owner.$name.Flush($true) } catch { try { Add-OriginalToolError "$name-flush" $_.Exception } catch { $owner.recordingFailure = $_.Exception; $owner.recordingFailed = $true } }
+        try { $owner.$name.Dispose() } catch { $releaseFailed = $true; try { Add-OriginalToolError "$name-release" $_.Exception } catch { $owner.recordingFailure = $_.Exception; $owner.recordingFailed = $true } }
+      }
+    }
+    if ($owner.process) { try { $owner.process.Dispose() } catch { $releaseFailed = $true; try { Add-OriginalToolError 'process-release' $_.Exception } catch { $owner.recordingFailure = $_.Exception; $owner.recordingFailed = $true } } }
+    if ($releaseFailed) { Retain-ActiveOriginalOwner }
+    $completed = $owner.exitObserved -and $owner.copies.stdout.observation.state -eq 'ACTUAL_COPY_COMPLETED' -and $owner.copies.stderr.observation.state -eq 'ACTUAL_COPY_COMPLETED'
+    try { Write-OriginalToolRecord 'result' @{ recipe = $recipe; tool = $file; arguments = $arguments; nativeArguments = $nativeArguments; startAttempted = $owner.startAttempted; startReturned = $owner.startReturned; started = $owner.started; completed = $completed; exitObserved = $owner.exitObserved; exitCode = $owner.exitCode; stdoutCopy = $owner.copies.stdout.observation; stderrCopy = $owner.copies.stderr.observation; exceptions = @($owner.errors); classification = $(if ($completed -and $owner.errors.Count -eq 0 -and -not $owner.recordingFailed -and $owner.exitCode -eq 0) { 'completed_success' } else { 'original_observed_failure' }) } } catch { try { Add-OriginalToolError 'result-observer' $_.Exception } catch { $owner.recordingFailure = $_.Exception; $owner.recordingFailed = $true } }
+    $null = $script:NativeToolOwners.Remove($key)
+    if (-not $completed -or $owner.errors.Count -or $owner.recordingFailed -or $owner.exitCode -ne 0) { if ($owner.primaryError) { throw $owner.primaryError }; throw "The original tool/copy outcomes failed; retained without retry." }
+  }
+  $cmdImage = [IO.Path]::GetFullPath((Join-Path $env:SystemRoot 'System32\cmd.exe'))
+  $cmdArguments = Get-NativeCmdInitializerArguments $initializePath
+  Invoke-RetainedNativeTool $cmdImage @() $childEnvironment 'initialize' $cmdArguments
+  $initialized = [Collections.Generic.Dictionary[string,string]]::new([StringComparer]::OrdinalIgnoreCase)
+  $rawEnvironment = [IO.File]::ReadAllBytes((Join-Path $temporaryRoot "initialize.stdout.raw"))
+  if ($rawEnvironment.Length % 2 -ne 0) { throw "The initialized environment output was not UTF16LE." }
+  foreach ($line in ([Text.UnicodeEncoding]::new($false, $false, $true).GetString($rawEnvironment) -split "\r?\n")) {
+    if ($line.Length -eq 0) { continue }
+    $separator = $line.IndexOf('=')
+    if ($separator -lt 1) { throw "The initialized environment contained an invalid record." }
+    $initialized.Add($line.Substring(0, $separator), $line.Substring($separator + 1))
+  }
+  if ($initialized['VSCMD_ARG_HOST_ARCH'] -ne 'x64' -or $initialized['VSCMD_ARG_TGT_ARCH'] -ne 'x64') { throw "The initialized native architecture was invalid." }
+  foreach ($name in @('CL', '_CL_', 'LINK', '_LINK_')) { if ($initialized.ContainsKey($name)) { throw "An undeclared compiler override was present." } }
+  foreach ($name in @('VCToolsInstallDir', 'VCToolsVersion', 'WindowsSdkDir', 'WindowsSDKVersion', 'PATH', 'INCLUDE', 'EXTERNAL_INCLUDE', 'LIB', 'LIBPATH')) {
+    if (-not $initialized.ContainsKey($name) -or [string]::IsNullOrEmpty($initialized[$name])) { throw "A selected native dependency was unavailable: $name" }
+  }
+  [IO.File]::WriteAllText((Join-Path $temporaryRoot "PRIVATE-initialized-environment.json"), ($initialized | ConvertTo-Json -Depth 3), [Text.UTF8Encoding]::new($false))
+  $cl = Join-Path $initialized['VCToolsInstallDir'] "bin/Hostx64/x64/cl.exe"
+  if (-not [IO.File]::Exists($cl)) { throw "The selected absolute native compiler was unavailable." }
   $compiledPath = Join-Path $temporaryRoot "windows-managed-launcher-native.exe"
   $objectPath = Join-Path $temporaryRoot "windows-managed-launcher-native-bootstrap.obj"
-  $nativeCommand = 'call "' + $vsDevCmd + '" -no_logo -arch=x64 && cl.exe /nologo /TC /O2 /GS /MT /W4 "' + $sourcePath + '" /Fo:"' + $objectPath + '" /Fe:"' + $compiledPath + '" /link /Brepro bcrypt.lib'
-  & cmd.exe /d /s /c $nativeCommand
-  if ($LASTEXITCODE -ne 0 -or -not [IO.File]::Exists($compiledPath)) { throw "Native bootstrap compilation failed." }
+  Invoke-RetainedNativeTool $cl @('/nologo', '/TC', '/O2', '/GS', '/MT', '/W4', $sourcePath, "/Fo:$objectPath", "/Fe:$compiledPath", '/link', '/Brepro', 'bcrypt.lib') $initialized "compile"
+  if (-not [IO.File]::Exists($compiledPath)) { throw "Native bootstrap compilation did not produce an image." }
   [byte[]]$normalizedBinaryBytes = Get-NormalizedNativePeBytes $compiledPath
-  [byte[]]$sourceBytes = [IO.File]::ReadAllBytes($sourcePath)
-  [byte[]]$managedBytes = [IO.File]::ReadAllBytes($managedPath)
-  $sourceSha256 = Get-Sha256Hex $sourceBytes
-  $managedSha256 = Get-Sha256Hex $managedBytes
   $binarySha256 = Get-Sha256Hex $normalizedBinaryBytes
-  $sourceText = [Text.Encoding]::UTF8.GetString($sourceBytes)
-  if ($sourceText -notmatch ('MANAGED_LAUNCHER_BYTE_LENGTH\s+' + $managedBytes.Length + 'LL') -or $sourceText -notmatch ('0x' + $managedSha256.Substring(0, 2))) {
-    throw "Native bootstrap source did not pin the managed launcher identity."
-  }
   $provenanceJson = Get-CanonicalProvenanceJson $sourceSha256 $managedSha256 $managedBytes.Length $binarySha256 $normalizedBinaryBytes.Length
   [byte[]]$provenanceBytes = (New-Object Text.UTF8Encoding($false, $true)).GetBytes($provenanceJson)
   if ($Update) {
@@ -116,6 +284,3 @@ try {
   if (-not (Test-ByteArrayEqual $shippedProvenance $provenanceBytes)) { throw "The native bootstrap provenance was not canonical." }
   if ([Text.Encoding]::ASCII.GetString($shippedBytes).Contains("BSJB")) { throw "The native bootstrap unexpectedly contains CLR metadata." }
   [pscustomobject]@{ result = "passed"; sourceSha256 = $sourceSha256; managedLauncherSha256 = $managedSha256; managedLauncherByteLength = $managedBytes.Length; binarySha256 = $binarySha256; binaryByteLength = $normalizedBinaryBytes.Length; clrMetadata = "absent" } | ConvertTo-Json -Compress
-} finally {
-  if ([IO.Directory]::Exists($temporaryRoot)) { Remove-Item -LiteralPath $temporaryRoot -Recurse -Force }
-}
