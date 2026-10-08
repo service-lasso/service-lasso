@@ -36,7 +36,8 @@ import {
   getStartupTransactionJournalPath,
   readStartupTransactionJournal,
 } from "../dist/runtime/startup/transaction.js";
-import { makeTempServicesRoot, writeExecutableFixtureService } from "./test-helpers.js";
+import { writeExecutableFixtureService } from "./test-helpers.js";
+import { makeDisposableServicesRoot } from "./disposable-test-fixture.js";
 import { registerFixturePrivacyTransportTests } from "./fixture-privacy-transport-regressions.js";
 import { observeFixtureStartupPath, withFixtureStartupPathForTests } from "../dist/runtime/startup/fixture-path-observation.js";
 export function registerMatrixMetadataTests() {
@@ -181,7 +182,7 @@ async function allocateFixtureApiPort() {
 }
 
 async function withMatrixEnvironment(phase, action) {
-  const fixture = await makeTempServicesRoot(`service-lasso-hard-crash-${phase}-`);
+  const fixture = await makeDisposableServicesRoot(`service-lasso-hard-crash-${phase}-`);
   const keys = ["SERVICE_LASSO_HOST_PORT_REGISTRY_PATH", "SERVICE_LASSO_INSTANCE_REGISTRY_PATH",
     "SERVICE_LASSO_PORT_RANGE_START", "SERVICE_LASSO_PORT_RANGE_END",
     "SERVICE_LASSO_ENABLE_TEST_HOOKS", "SERVICE_LASSO_HARD_CRASH_SECRET"];
@@ -193,7 +194,7 @@ async function withMatrixEnvironment(phase, action) {
   fixture.startupPathHook = { serviceId: "matrix-service", observe: record => { fixture.startupPath = record; } };
   fixture.recovery = "unknown";
   fixture.actionStage = "fixture_initialization";
-  const evidence = createFixtureEvidenceBoundary(fixture.tempRoot);
+  const evidence = createFixtureEvidenceBoundary(fixture.tempRoot, { disposableFixture: fixture.disposableFixture });
   let enrollmentHookArmed = false;
   let primary;
   try {

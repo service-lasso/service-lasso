@@ -2,7 +2,46 @@
 
 Canonical owner map for SPEC-010 F7-09, ADR-002 and native #1640 D8. This is the ONE planned inventory; historical `tests/native/fixture-isolation/` paths in ADR-002 are aliases for `tests/native-fixture/` below, not a second implementation. Existing #1640 checkout remains untouched and its source owner retains custody. This source map does not repair D1-D7 or authorize native implementation of their rejected architecture.
 
-Status: planned source contract awaiting distinct entire canonical review. Every new native/source component below is **ABSENT / UNIMPLEMENTED** at base ae912db700a7f879efb8665203d115ee3c59fc93. Existing adaptation targets are present source requiring future owned changes; no present target establishes capability. Actors are architectural roles, not invented accounts or people. Product paths may be authored only after this whole pre-code contract is accepted/landed, under a newly selected issue and sole writer. Outputs/compiler/SDK/TLS/zlib/crypto/Node-API libraries and actual loaded inputs are ABSENT/unadmitted, never inferred from documentation.
+Status: complete canonical contract independently reviewed and landed through #1651 at develop d65aa4c7. Every new native/source component below was **ABSENT / UNIMPLEMENTED** at historical base ae912db700a7f879efb8665203d115ee3c59fc93; this table retains the original complete ownership plan. Current U1 actual partial source progress is recorded below and is not complete U1. Existing adaptation targets are present source requiring future owned changes; no present target establishes capability. Actors are architectural roles, not invented accounts or people. Outputs/compiler/SDK/TLS/zlib/crypto/Node-API libraries and actual loaded inputs remain ABSENT/unadmitted, never inferred from source.
+
+## Current owned U1 source progress — incomplete
+
+Complete implementation #1687 (parents #1562/#1326) is separate from bounded
+canonical #1647 completed through #1651. SAME sole writer retains
+`feature/1647-f7-u1-native-capture` / draft #1686 under conductor receiving
+exception, no rename/reuse/owner change. This writer owns actual native
+framing/state/budget, held spool/witness, Linux and Windows drain, canonical
+index/segment encoder and exact index decoder, reserve-before-crypto journal,
+crypto/signing, finite projection, partial native regression and provenance/
+row-derivation source. Internal `protocol.c`, `observer.h`,
+`canonical-index-reader.c`, `attempt-journal.c/.h` and
+`protocol-native-regression.c` implement the existing U1 boundary; they grant
+no new actor or public authority. Complete actual limitations/missing callers
+are retained in [U1 source checkpoint](../../tests/native-fixture/U1-SOURCE-CHECKPOINT.md).
+Current added source includes `async-spool.c/.h`, `observer-finalize.c`,
+`read-capability.c`, `segment-record.c/.h`, `plaintext-manifest.c/.h`
+and `transport-package.c/.h`:
+independent preallocated persistence queues, emergency witness member, retained
+native drain settlement, complete held-member readback and connected once-only
+segment/manifest/index/signature packaging. These are source progress without execution.
+Additional independent source now includes `manifest-reader.c/.h`, `recovery.c/.h`,
+explicit final journal freeze, and `CMakeLists.txt`/platform build contracts.
+Recovery validation proves integrity of original expected held objects only;
+it does not issue or authenticate successor authority. Build/source decoder
+success would not establish original ROOT or native witness trust.
+Complete pre-READY ownership/control settlement, authenticated pre-O entry/creation,
+complete manifests/records/errors/caller integration/SAME recovery and full
+production-path regression coverage remain missing. Actual nine-row inputs,
+actors/resources/keys/grants/spool/binaries/loaded inputs remain ABSENT. No
+component-only source GO or U1 completion follows. Existing #1640/#1643 writers
+and their checkouts remain untouched; U2/U3/U4/U5 statuses are unchanged.
+The previously missing concrete U1 original ROOT receipt/held-endpoint caller
+boundary is now specified as a SOURCE PROPOSAL in
+[admission contract](../../tests/native-fixture/admission-contract.md), before
+positive entry code. The original ROOT creator/call site and actual provisioned
+catalog remain ABSENT; there is no self-issuing receipt/path/default capsule.
+This proposal must be reconciled with the original producer/source owner before
+positive constructor implementation and cannot confer source GO or activation.
 
 ## Source ownership map
 
@@ -83,3 +122,161 @@ U1 next source authorship starts only after this canonical whole contract is ind
 ## Required direct acceptance catalog (unexecuted)
 
 All original F1-F7 and nine rows remain mandatory. F7 adds pre-O admission failure rejection; initialization/privacy/provision/guardian/serialization primary+secondary/cyclic failures; genuine child exit-before-drain/EOF missing/writer leak; queue/disk/collector death; role/replay/sequence/capability failure; ONCE ciphertext/index/signature persistence, O/T death and SAME authenticated successor; randomized re-encryption conflict; exact branchless seed push, unknown outcome reconciliation, extra refs/workflows, bootstrap drift/deletion, role grants/redirect/ID mismatches; original protocol/pack truncation/trailer/delta source/result/opcode/external-base/cycle/quota failures; wrong tree ordering/binary OID/commit LF/date/extra-header/REST-only readback rejection; C wrong-key/decrypt/disk/access/ALL persisted readback including after O/S death; omitted/forged native witness and receipt replay. Private failures remain retained; a receipt means failed_attempt_preserved and never runtime PASS, D1 approval, cleanup or release. G native own persisted capture and C own plaintext persistence are separate requirements.
+
+The retained-object integrity validator now has Linux and Windows native worker
+source with explicit stack reservations and nonblocking result polling. Actual
+thread exit must precede release; failed wait/join/handle-close leaves the job
+and all original input capabilities/buffers retained. These jobs do not create
+ROOT authority, authenticated successors, or universal I/O settlement bounds.
+Linux private witnesses preserve actual fstat/fcntl/poll failures and poll retry
+statuses. POLLNVAL is recorded as its actual two-byte poll flag, without an
+invented read failure or errno. All new paths remain UNEXECUTED.
+
+Transport ciphertext and domain-separated signature construction now consume
+explicit source-owned workspaces; hidden malloc/free is removed from these
+paths. Missing capacity and overlapping plaintext/key/signature buffers fail
+closed, and recovery supplies its own retained signature workspace. Source
+regressions cover closed domains, insufficient capacity and overlap rejection;
+they remain UNEXECUTED. These memory inputs still need full actual native row
+reservation/provenance and authenticated ROOT owning-entry integration.
+
+Private witness reader source now checks the complete closed fixed record,
+original invocation/attempt/lifetime/pipe bindings, exact merged sequence and
+per-stream ordinal, reserved bytes, event-inline rules, exact length and SHA256
+against inline facts or an independently read original raw slice. Rejection
+preserves reader position; replay/gaps and altered raw bytes cannot advance it.
+This structural/byte validator does not prove an OS call or admit custody.
+Source regressions are present and UNEXECUTED; production original-witness
+semantics, authenticated expectations and complete native fixture coverage
+remain incomplete and cannot be replaced by these structural vectors.
+
+Linux original private-channel source now performs nonblocking native recvmsg
+on a held AF_UNIX SOCK_SEQPACKET socket with already enabled SO_PASSCRED. It
+retains actual query/receive facts, original body/control bytes, kernel peer
+credentials and per-message credentials; truncation, absent/duplicate/mismatched
+credentials and unexpected ancillary data fail closed. Unknown received handles
+remain private retained custody, never adopted or silently cleaned up here.
+Aligned nonoverlapping bounded buffers must be reserved before original producer
+initialization. This module issues no roles and cannot establish child birth or
+lifetime from a PID; original admitted ROOT peer binding/callsite is still absent.
+The existing FIFO observer path has not been relabeled as credential-authenticated;
+its owning integration and full original native regression source remain pending.
+
+Linux original child wait facts now retain the entire native siginfo byte record
+immediately after waitid, including pending, unusual-kind and failure cases.
+Earlier returned pid/status/kind are preserved before disposition checks rather
+than discarded. Private child witnesses carry a closed 72-byte header plus the
+exact native record; native record length is explicit and bounded by 256 bytes.
+The witness reader enforces the complete child length, and both persistence
+queues require the full 528-byte worst-case framed/queued record reservation.
+Native ABI/header provenance and actual row reservations remain unadmitted;
+these original facts never prove pipe EOF or authenticated child/ROOT admission.
+
+Private child fact decoding now enforces the exact header/native-byte length,
+closed disposition, original observed/not-observed consistency and native-call
+bitmap. An input rejection cannot fabricate a native call/error/exit record.
+Child exit/pending witness events must match their decoded private facts and
+native status before the witness reader advances. Original raw ABI bytes are
+retained unchanged; this decoder cannot authenticate a process or infer EOF.
+Adversarial source regression cases cover truncated native records, inconsistent
+observation, invented native calls and byte preservation, all UNEXECUTED.
+
+Linux deadline clock failure now retains the actual clock_gettime result,
+original timespec bytes and immediately captured errno in a private inline
+witness before the drain marks the attempt incomplete. Invalid/overflowed time
+values retain their original bytes with status zero, without a fabricated errno.
+No clock failure is turned into EOF, termination, cleanup or a universal bound.
+
+#1687 U1 original-error producer continuation: implement native Node-API source
+that reads original-W Error/cause/AggregateError objects in their actual isolate,
+checks injected identity before field access, retains original primary/secondary
+handles and produces the private native graph/channel bytes using explicit
+prepared workspace and queue inputs. Original ROOT creator/callsite, actual W
+adapter and all Node headers/import libraries/runtime source admission remain
+ABSENT. A separate native producer/regression source does not authorize U4
+lifecycle or create a positive capsule. Exact proposed ingress/owner/endpoint/
+queue/readiness/recovery boundaries belong in producer-contract.md for distinct
+architecture review; all product/native execution remains prohibited.
+
+Native original-W error producer source now uses actual Node-API handles and
+pre-reserved arenas to retain primary/injected identity before field access,
+exact UTF16 field state/code units, cause/custom-object cycles, original own
+properties, ordered/repeated AggregateError entries and ordered secondaries.
+Native number/BigInt encodings preserve exact scalar values; +0/-0 are not
+collapsed. Cached original field/element observations avoid a second getter
+read. Serialization exceptions are retained as actual objects and restored
+pending, preserving the actual primary. Native C++ regressions operate on real
+Node-API Errors/AggregateError/objects/getter exceptions; they remain UNEXECUTED
+and require the original fixture/entry owner. No Node host/addon import occurred.
+Original ROOT issuer and W adapter, native producer-channel owning integration,
+full row/resource/provenance and native transport regressions remain incomplete.
+Node headers/import libraries/runtime are ABSENT/UNADMITTED; CMake requires an
+exact separate header input before any compiler invocation. Private schema
+changes are described in original-error-schema.md, with no new public fields.
+
+Native original-error transport now has explicit caller-owned normal/emergency
+rings, write/history/state buffers and stack/guard reservations. A single actual
+Linux/Windows native writer merges immutable frames by original global sequence;
+VM/control submission never blocks on transport. Known delivered prefixes and
+all failed queued/in-flight originals remain retained. Original sender native
+query/write/peer/object facts have bounded append-only private history; missing
+history capacity stops before another write. Construction errors retain their
+ordered original native statuses and partially initialized objects. Windows
+compares the held original kernel-object reference without additional object
+access rights; exact Kernelbase/SDK inputs remain UNADMITTED. Linux verifies
+original socket identity/connected credentials and held peer liveness against
+independently admitted ROOT expectations. These observations do not issue roles.
+The actual Node-API encoder now feeds the native queue, with a closed emergency
+serialization-failure record preserving primary and pending exception status.
+O error-channel source continues validating later original frames after a known
+serialization fallback while retaining attempt incompleteness. Malformed data
+still rejects. Original ROOT actor/source/peer/entry proof, W adapter integration,
+full resource/row/provenance and entire native regression source remain pending.
+
+Unexecuted producer native regression source now accepts only the original fixture owner's already-prepared queue, original serialized graph, independent original bindings, and bytes actually read from its held native endpoint. It compares the complete received frame and original payload, checks rejected types cannot change accepted submission counts, and checks exact retained queued/in-flight bytes after an actual native failure. No surrogate receiver, fixture creation, actor grant, runtime acceptance or whole-unit completion is supplied. Original full row/owner/callsite integration remains pending.
+
+Persistence source now requires original caller-owned state/ring/write/drain buffers and explicit native writer stack/guard sizes for all four raw and ordinary/emergency witness writers. The owning capture preparation path supplies those exact memory descriptors; hidden malloc/calloc and default native writer stacks were removed from asynchronous persistence. Partial construction retains the original native state; actual-exit join failures retain native status and source-owned storage is never freed. These are explicit source requests, not proof of actual kernel/allocator charge, admitted row caps or authentic ROOT source ownership. Windows drain-owner allocation/default stacks and full cross-buffer geometry/source-budget accounting remain unfinished.
+
+Windows drain preparation now consumes exact original caller-owned drain-owner storage and explicit stack reservations for each created original stream. Heap allocation/default drain stacks were removed; original create/resume/wait/close failures are retained in owner state before subsequent native operations. Actual-exit settlement leaves original storage and native facts owner-held. This remains SOURCE ONLY: original admitted memory catalogs and exact rounded kernel charges are absent, cross-owner buffer disjointness/full native error histories and running-before-READY ingress still require complete integration.
+
+Original Windows start-before-launch library wiring now separates prepared storage, actual persistence worker entry, original drain resume, actual drain entry/live-handle acknowledgment, and later original child observation. The downstream owner must keep the child NOT_CREATED until persistence_ready and windows_ready succeed; creating suspended threads is never READY. The Windows capture loop consumes the already-running original drain owner instead of resuming after child observation. This is a viable closed library boundary, not an authentic ROOT creator/callsite or source grant: the real original owner, admitted source header/actor/kernel binding and Linux pre-O owning entry remain ABSENT/unresolved. No positive ROOT authority or runtime result was invented.
+
+Owning capture preparation now checks the entire original mutable storage graph for address overflow and cross-worker aliasing before any native writer is created: capture/reservation/member/witness/channel state, error payload, original drain buffers, all raw and witness queue states/rings/write buffers, and Windows drain-owner storage must be disjoint. This closes per-queue-only geometry gaps while retaining missing catalog/actual allocation/rounded charge NO-GO. Encryption rejects overlap with the actual held signer secret and owning object/member/journal state before reserve/crypto can mutate them. All checks remain unexecuted source; they do not authenticate supplied actors or keys.
+Pre-code original Linux endpoint source refinement is durable in producer-contract.md: creator/connect credentials and original per-message W sender credentials must be independently bound to original ROOT-held lifetimes/source, never conflated into a synthetic PID authority. Original creator/custody catalogs remain ABSENT.
+Native Linux receiver source now checks the original connected-endpoint creator triple separately from each actual SCM_CREDENTIALS original sender triple. Both independently supplied original bindings are mandatory with no fallback/default. An inherited creator identity cannot substitute for original W sender identity; exact original ROOT-held creator/sender lifetime/source admission remains ABSENT and this receiver never self-issues it.
+Original witness construction now uses an explicitly caller-owned disjoint record workspace instead of a hidden 65KiB native stack array. The complete private record is materialized before the witness budget/queue decision; overflow or failed native enqueue retains exact pending bytes and forbids workspace overwrite. Successful deep-copy submission clears pending ownership only after queue acceptance. Owning pre-READY validation requires this exact workspace; Windows witness serialization remains under its original shared lock. Actual allocator/stack charges and admitted full-row source catalogs remain absent.
+Pre-code owning header refinement: producer-contract.md records distinct original O read-witness and W Error-producer roles/lifetimes in one invocation/attempt. Generic header equality cannot authenticate or equate these original sources; actual ROOT binding creator/callsite remains ABSENT.
+Owning capture header validation now requires O for original read witnesses and W for original incoming Error frames, both with original nonzero lifetime and the same invocation/attempt. W lifetime is not copied or equated to O lifetime. This closes a connected library source contradiction; actual independently admitted ROOT source/actor/lifetime binding remains absent, so header checks cannot issue authority or entire SOURCE GO.
+Independent recovery validation source now requires caller-owned native job storage and explicit Windows stack/Linux stack-plus-guard sizes, removing hidden recovery heap allocation/free. It retains original constructor results including simultaneous attribute-disposal failure and separately reports actual worker creation. Owning job/inventory/journal/decoded/index/canonical/hash/signature storage and outputs must be disjoint before native job start or persistent validation. Actual job exit settles synchronization while all original source-owned state/facts remain retained. This is retained-object integrity source only; authenticated original custodian/T-successor issuer/callsite/catalog are absent and no SAME authority is issued.
+Pre-code producer lifetime refinement is durable in producer-contract.md: exact original napi_env and persistent bounded strong-reference arena, original serialization exception retention before rethrow, no reset/free/cross-isolate identity fiction. Actual native allocation charges and original-W owner/callsite remain ABSENT.
+Original Error producer now requires a persistent bounded strong-reference arena tied to the exact original napi_env. It strongly retains original primary/injected identity, secondaries and newly discovered objects before getters; graph resets/delivery/failure never discard prior references. Actual serialization exception is strongly retained before rethrow; keeper/native-secondary failure statuses and any actual secondary exception stay separate. Closed incomplete fallback is now SLF7SFB2/96 bytes, retaining keeper result/native status/count without inventing errno or complete Error capture. Native regression getter context is caller-owned and uses the retained original reference, removing callback-local context/expired napi_value hazards. Original reference destruction/W exit/reset is not issued. Actual native allocation charges, original adapter lifetime/callsite and full failure graph transport remain incomplete/absent.
+A valid original Error workspace now freezes on identity/API/getter/encoding failure or failed native graph submission. A later attempt to reuse it returns conflict before resetting partial originals or reevaluating getters. The native regression source requires four independently pre-reserved original caller workspaces and checks failed-workspace text/node counts/getter invocation remain unchanged. Strong original references remain held. Full per-event allocation charges and actual original native fixture owner/callsite remain absent; all cases are unexecuted and whole unit remains INCOMPLETE.
+Original native capture regression source now calls owning production finalize/worker settlement and ALL native persisted-prefix readback, then reads actual held original RO bytes against independent original fixture inputs. It refuses live producer/writer settlement, missing expected bytes, mismatched EOF/size/content and relabeling INCOMPLETE as complete capture. No object/profile/actor is created, no fixture is weakened, no replay/cleanup occurs. Actual original nine-row owner/catalog/inputs and full authentic fixture wiring remain absent, so this is unexecuted regression source, not nine-row execution or whole U1 completion.
+Owning production finalize now joins actual raw/witness workers while retaining every original queue pointer/state/native construction fact on success as well as failure. It no longer releases synchronization and clears the owning evidence links before manifest/native regression custody can inspect them. Finalization grants no disposal, original endpoint close or D1 cleanup authority; the independently admitted lifetime owner remains absent.
+Original Linux recvmsg source now verifies actual socket and original already-held same-kernel reference dev/inode/mode plus actual close-on-exec flag before receiving, retaining each native query output/called flag/native failure. It rejects peer/fact/body/control address overflow/aliasing before resetting output bytes. Native credentials, kernel identity and independent ROOT source/lifetime admission remain separate; actual original issuer/copy/capability catalogs absent, no descriptor lookup/open/duplicate or added right. Owning Linux observer/control/raw witness integration remains unfinished.
+
+#1687 selected original failure-capture source continuation: preserve the frozen known original graph data after serializer failure in a closed private binary partial snapshot, with explicit per-node known-field progress and initialized unknown reference slots. The original native producer must transfer its exact known UTF16/reference/native-byte arenas through bounded private fragments while retaining unsent bytes; the O decoder keeps partial capture INCOMPLETE and cannot infer unknown fields, original object authority or complete capture from a snapshot. All buffers/fragment limits must come from original pre-reserved row inputs; actual catalogs/charges/ROOT creator and full original actor/fixture callsites remain ABSENT. This is original selected F7-02/F7-03/F7-09 implementation, not a new unit or public schema/profile/grant. No build/import/parser/native/test execution, cleanup or positive ROOT constructor is authorized. Draft PR1686 remains INCOMPLETE.
+Closed SLF7KNP1 private known-partial codec source now encodes exact known-field progress/UTF16 units/initialized graph reference slots/native-byte prefixes in fixed network order, excluding VM pointers/handles. Unknown fields are explicit 255 and uncaptured references zero; progress never promotes the snapshot to complete capture. Encoder checks entire input/output geometry before mutation and strict decoder checks closed bounds/reserved fields/local IDs/known versus unknown states. All code is unexecuted. Bounded fragment producer/O receiver integration and full actual serialization-exception graph remain unfinished; original actor/caller/resources catalogs absent.
+Known-partial original failure transport is now connected in source: the real native producer materializes the frozen known snapshot without additional Node API/getters, submits a closed fallback then SHA256-bound fixed-size ordered private fragments through the existing single native writer, and retains snapshot bytes/accepted fragment tickets/unsent suffix on any loss. The owning O Error channel validates original fallback correlation, ordered fragments, exact length/digest and strict snapshot data in mandatory disjoint original receiver storage. Snapshot completion keeps capture INCOMPLETE; no decoder can infer missing fields or source/actor authority. Reusing a frozen producer arena cannot misattribute an old snapshot to a new primary. All source/regressions unexecuted; full serialization-exception graph/native PS/helper/caller/charged-budget/authenticated ROOT-SAME integration remain unfinished or absent.
+Exact unresolved owning source dependency/candidate is now durable at tests/native-fixture/ROOT-OWNING-DEPENDENCY.md. Complete entry/callers require the authentic original ROOT source/header/creator and outside-U1 original-W adapter source owner, neither supplied; no U1 data capsule/new U4 caller can substitute. This is separate from explicitly unfinished independent capture/provenance/regression/budget work and does not complete #1687 or request final ENTIRE GO.
+
+#1687 pre-code Linux owning receive continuation: replace the private-error FIFO/read branch with the already-declared original held SOCK_SEQPACKET credential receiver. The original owner must supply disjoint peer/fact/control storage before persistence starts; capture retains native receive facts and ancillary bytes privately before frame interpretation, rejects incomplete or unauthenticated datagrams, and preserves every received body prefix in the existing raw member. No path, socket creation, PID discovery, original ROOT source admission or positive constructor is added. Native zero recvmsg is not pipe EOF; until authentic original producer closure/control binding is supplied, the private channel remains INCOMPLETE. Missing creator/catalog/keys/grants/real row charges and complete source/regression/manifest/SAME integration remain ABSENT or unfinished; no execution is authorized.
+
+#1687 Linux observer source now consumes the original held credential socket in its production poll loop, with disjoint caller-owned peer/fact/ancillary storage included before persistence construction. Each native query/recvmsg fact and actual ancillary prefix is retained inline in private witness events 19/20 before frame interpretation; each datagram must contain exactly one closed frame. Unauthenticated/truncated/unknown-ancillary messages preserve the actual raw body prefix and stop that channel before overwriting its held facts/capabilities. Other original streams continue draining. Zero recvmsg cannot set natural EOF; authentic original producer closure/control/lifetime/ROOT bindings remain ABSENT, so complete owning Linux capture is still pending. The private witness reader recognizes the two closed native record event types. No execution or whole-unit completion/GO claim.
+
+#1687 continued source integrity: ALL original normal/emergency witness bytes are now required native readback regression inputs, separately from negative capture status. Decoder state/input geometry rejects overflow/aliasing before mutation. Native receive errno remains separate from logical credential/frame acceptance. Failed budget derivation preserves original retained input/output instead of clearing it; accepted-byte outputs cannot alias reservation authority. Whole original producer delivery/workspace/native queue-state geometry is preflighted before any output reset or Node-API call. These are source changes only; actual charges, source-bound actor/allocator/root/caller catalogs and complete selected unit remain pending. No compiler/import/parser/test/native/activation execution or complete/source-GO claim.
+
+Preserved actual source batch at 2782bee96380f88cc80515d5546036e3c562e32d / tree2281a25d56c64f4e746e6d6dfec6e4e4164965c4: D:/projects/service-lasso/_audit/f7-u1-1687-source-checkpoint-2782bee9-oct05-01 contains1177 tracked physical byte copies,1935 exact verified raw Git bodies and3124 manifest members. MANIFEST SHA256 3A13AD572AE132EA3F64028144F56B0BD484294F4577E86F8FBB484BC1B97A40; retained REPORT SHA256255B15C1A28A580BA5E51CCF7CC6C5803894BC4C9DD94651460943550C3D9F17. Prior packets/natural failures untouched. This is INCOMPLETE preservation, not finalENTIRE/sourceGO or end of authorized implementation.
+Before continued recovery source correction: parsing retained journal bytes requires fresh disjoint caller-owned parse state, distinct from the original writer journal. Failure or a prior parse cannot be reset/reused to erase original parsed prefix facts; native writer reserve/persist/freeze must reject parse-state journals. No issuer/custodian/T/SAME authority is created by parser integrity or flags. Actual original recovery source owner/keys/held admissions remain absent; execution prohibited.
+
+#1687 pre-code owning native readback continuation: remove the hidden 65536-byte automatic ALL-byte readback buffer. Each original source-owned member must bind independently pre-reserved disjoint readback storage/capacity before any readback; absence fails closed, no fallback allocation/stack/default. The original ROOT creator/adopter must supply it from the actual complete row reservation (still ABSENT); this binding is memory storage, never a source/actor/key/grant/capability receipt. Capture pre-worker geometry and whole package preflight must include those buffers so later readback cannot overwrite raw queue/cipher/secret/native facts. Native size-query failures must retain actual error/result separately from byte/identity mismatch. Full selected source remains INCOMPLETE and no runtime/native/test/activation is authorized.
+
+#1687 U1 continued original native-error source boundary: connect the already declared original native graph serializer to the original admitted W queue, preserving untouched native record bytes and primary/secondary graph order in caller-owned storage. This supplies no PowerShell/helper owner, endpoint, actor or ROOT grant; those original production callers remain pending. Before graph output writes, reject overlap with all original nodes, UTF16/native bytes and reference arrays. ROOT repair02 bootstrap/ingress is pending architecture review and is excluded from this implementation. Entire U1 remains INCOMPLETE and unexecuted.
+
+#1687 original member constructor dependency: tests/native-fixture/MEMBER-ADOPTION-STORAGE-PROPOSAL.md at c7fc9c1a records the exact proposed before-first-effect storage/observation ABI, complete identity-query caller map, original SD ownership/LocalFree failures, Linux protection gap and all nine actual row rounding obligations (catalogs ABSENT). It is SOURCE pre-code only, pending parent audit and NEW different whole architecture decision. No changed constructor, ROOT issuer/ingress or physical reservation is implemented or admitted; independent authorized U1 implementation continues and the entire unit remains INCOMPLETE.
+
+#1687 independent ONCE source correction before code: retain exact generated ciphertext and signature in the original per-object caller-owned workspace across append/flush/readback/journal failure and success. No retry, re-encryption, re-signing, issuer, cleanup or new resource grant is added. Signature storage must independently fit its native 64-byte output plus domain message, rejecting absent capacity; actual row reservations remain ABSENT. This preserves original generated bytes and actual crypto result/known-output state, not admission or authenticated SAME authority. Member-adoption/ROOT constructor decision remains separately pending; whole U1 remains INCOMPLETE and unexecuted.
+
+#1687 continued full original native-output source: tests/native-fixture/ORIGINAL-ENDPOINT-RAW-OUTPUT-PROPOSAL.md at 560d1670 maps existing endpoint/construction callers, every original Linux/Windows raw output and knownness, SDK/layout/source and before-effect storage/physical-charge obligations, existing v1 native-byte carrier versus new typed record choice, and unresolved original terminal persistence recursion/custody. Compact SLF7EFC1 scalar history is not complete raw SDK capture. This is an exact material proposal for separate whole architecture review; no v2/type11/kind23/manifest2/adoption/ROOT constructor or fake observation is implemented. Independent approved v1 producer/serializer/queue/capture/manifest/index/journal/package/recovery/regression source continues. Entire U1 remains INCOMPLETE, draft and UNEXECUTED; all nine actual catalogs/reservations and authentic caller/source grants remain ABSENT. No execution or cap/deadline/fixture weakening is authorized.
+
+#1687 pre-code approved v1 journal storage continuation: replace hidden automatic journal record/readback payload arrays with the existing original member.readback_storage arena. Require two complete existing 192-byte v1 record extents, checked and disjoint from journal/member/entries/status/key/object source before any native effect; no fallback allocation, default cap or new persistent member. Recovery and package whole storage graphs must include that same original arena. This preserves failed record bytes and uses existing source-owned storage fields; it supplies no actual physical reservation or ROOT admission. SDK/raw-output proposal and amendment04 remain separately pending, whole U1 INCOMPLETE and UNEXECUTED.
