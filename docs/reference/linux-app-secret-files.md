@@ -1,4 +1,9 @@
-# Linux app secret files
+# Linux tmpfs secret-file alternative
+
+Broker-owned RAM WebDAV is the default extracted secret-file provider and needs
+no administrator-mounted directory. See [RAM WebDAV delivery](ram-webdav-secret-files-review.md).
+This guide applies only when Core's environment explicitly sets
+`SERVICE_LASSO_SECRET_FILES_TRANSPORT=tmpfs` for a native Linux filesystem path.
 
 Service Lasso normally supplies resolved Secrets Broker values through a fresh
 process environment on every launch. Keep using that mechanism when the app

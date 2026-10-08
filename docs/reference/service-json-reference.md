@@ -374,13 +374,16 @@ Finite lifecycle actions continue to use their existing bounded runtime behavior
 
 ### Install/config materialization
 
-For Linux app secrets that require files, `config.files[]` and
+For app secrets that require files, `config.files[]` and
 `config.templates[]` can set boolean `ephemeral: true`. These outputs are
-recreated before fresh launch under Core's private tmpfs secrets directory,
+recreated before fresh launch in Broker's RAM WebDAV store by default,
 outside the app directory, and are excluded from persistent artifact/preimage
 state. Pass their paths through `${SERVICE_LASSO_SECRETS_DIR}` in app-supported
 environment variables. Install outputs do not support this flag. See
-[Linux app secret files](linux-app-secret-files.md) for deployment requirements.
+[RAM WebDAV secret files](ram-webdav-secret-files-review.md) for URL/UNC delivery
+and access controls. Linux native filesystem delivery is an explicit
+`SERVICE_LASSO_SECRET_FILES_TRANSPORT=tmpfs` alternative; see
+[Linux tmpfs setup](linux-app-secret-files.md).
 
 `install.files[]` and `config.files[]` materialize inline content:
 

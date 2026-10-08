@@ -39,6 +39,7 @@ import {
   resolveSecretsBrokerLaunchLeaseIssuer,
 } from "../broker/launch-lookup.js";
 import { SECRETSBROKER_SERVICE_ID } from "../broker/operator-config.js";
+import { createRAMSecretFileGrant, revokeRAMSecretFileGrant, type RAMSecretFileGrant } from "../broker/ram-webdav.js";
 import { onboardMissingProducerSecrets } from "../broker/onboard.js";
 import {
   mergeServiceVariableResolutionOptions,
@@ -593,6 +594,8 @@ async function resolveBrokerLaunchContext(
 ): Promise<{
   scopedBrokerIdentity: Awaited<ReturnType<typeof issueScopedBrokerIdentity>>;
   variableResolution: ServiceVariableResolutionOptions | undefined;
+  brokerRuntime: SecretsBrokerRuntimeContext | null | undefined;
+  launchLeaseIssuer: Awaited<ReturnType<typeof resolveSecretsBrokerLaunchLeaseIssuer>>;
 }> {
   const brokerService = registry?.getById(SECRETSBROKER_SERVICE_ID);
   // A production broker has no public loopback port. Reuse its persisted
@@ -624,6 +627,8 @@ async function resolveBrokerLaunchContext(
 
   return {
     scopedBrokerIdentity,
+    brokerRuntime,
+    launchLeaseIssuer,
     variableResolution: await resolveLaunchVariableResolution(service, {
       ...options,
       brokerLookup,
@@ -1448,7 +1453,7 @@ async function startServiceSerialized(
     ? collectRuntimeGlobalEnv(registry.list())
     : {};
   revokeServiceScopedBrokerIdentities(serviceId);
-  const { scopedBrokerIdentity, variableResolution } = await resolveBrokerLaunchContext(
+  const { scopedBrokerIdentity, variableResolution, brokerRuntime, launchLeaseIssuer } = await resolveBrokerLaunchContext(
     service,
     registry,
     options,
@@ -1573,16 +1578,20 @@ async function startServiceSerialized(
     },
   }));
   let handle: Awaited<ReturnType<typeof startManagedProcess>>;
+  let secretFileGrant: RAMSecretFileGrant | undefined;
   try {
-    await materializeEphemeralSecretFiles(service, sharedGlobalEnv, resolvedPorts,
-      variableResolution ?? {}, options.expectedTemplateDigests);
+    const directory = await materializeEphemeralSecretFiles(service, sharedGlobalEnv, resolvedPorts,
+      variableResolution ?? {}, options.expectedTemplateDigests, async (outputs) => {
+        secretFileGrant = await createRAMSecretFileGrant(service, brokerRuntime, launchLeaseIssuer, outputs);
+        return secretFileGrant.directory;
+      });
     handle = await startManagedProcess({
       service,
       executionPlan,
       sharedGlobalEnv,
       resolvedPorts,
       secureEnv: secureLaunchEnv,
-      variableResolution,
+      variableResolution: { ...variableResolution, ...(directory ? { secretFilesDirectory: directory } : {}) },
       workspaceRoot: options.workspaceRoot,
       runtimeGenerationId: options.runtimeGenerationId,
       runtimeInstanceId: options.runtimeInstanceId,
@@ -1590,6 +1599,7 @@ async function startServiceSerialized(
       verifyBeforeSpawn: verifyApprovedExecutable,
       guardedExecutableLaunch,
       onExit: async ({ exitCode, signal, wasStopping }) => {
+        await secretFileGrant?.revoke();
         if (wasStopping) {
           return;
         }
@@ -1631,6 +1641,7 @@ async function startServiceSerialized(
       }));
       await writeServiceState(service, retainedState);
     } else {
+      await secretFileGrant?.revoke();
       revokeServiceScopedBrokerIdentities(serviceId);
     }
     recordStartTraceEvent(serviceId, trace, "process_spawn", "failed", message, {
@@ -1794,6 +1805,7 @@ export async function stopService(
     options.newWindowsInspectionEpisode,
   );
   const finishedAt = new Date().toISOString();
+  const secretFilesRevoked = await revokeRAMSecretFileGrant(service);
   const revokedIdentities = revokeServiceScopedBrokerIdentities(serviceId, {
     now: new Date(finishedAt),
   });
@@ -1814,7 +1826,7 @@ export async function stopService(
         brokerIdentity: revokedIdentity,
       },
     },
-    message: stopped.message,
+    message: secretFilesRevoked ? stopped.message : `${stopped.message} Secret-file grant revocation is pending Broker availability.`,
   }));
 }
 
@@ -1921,7 +1933,7 @@ export async function restartService(
   const sharedGlobalEnv = registry
     ? collectRuntimeGlobalEnv(registry.list())
     : {};
-  const { scopedBrokerIdentity, variableResolution } = await resolveBrokerLaunchContext(
+  const { scopedBrokerIdentity, variableResolution, brokerRuntime, launchLeaseIssuer } = await resolveBrokerLaunchContext(
     service,
     registry,
     options,
@@ -1970,14 +1982,20 @@ export async function restartService(
     },
   }));
   let handle: Awaited<ReturnType<typeof startManagedProcess>>;
+  let secretFileGrant: RAMSecretFileGrant | undefined;
   try {
+    const directory = await materializeEphemeralSecretFiles(service, sharedGlobalEnv, resolvedPorts,
+      variableResolution ?? {}, options.expectedTemplateDigests, async (outputs) => {
+        secretFileGrant = await createRAMSecretFileGrant(service, brokerRuntime, launchLeaseIssuer, outputs);
+        return secretFileGrant.directory;
+      });
     handle = await startManagedProcess({
       service,
       executionPlan,
       sharedGlobalEnv,
       resolvedPorts,
       secureEnv: secureLaunchEnv,
-      variableResolution,
+      variableResolution: { ...variableResolution, ...(directory ? { secretFilesDirectory: directory } : {}) },
       workspaceRoot: options.workspaceRoot,
       runtimeInstanceId: options.runtimeInstanceId,
       runtimeGenerationId: options.runtimeGenerationId,
@@ -1985,6 +2003,7 @@ export async function restartService(
       verifyBeforeSpawn: verifyApprovedExecutable,
       guardedExecutableLaunch,
       onExit: async ({ exitCode, signal, wasStopping }) => {
+        await secretFileGrant?.revoke();
         if (wasStopping) {
           return;
         }
@@ -2028,6 +2047,7 @@ export async function restartService(
       }));
       await writeServiceState(service, retainedState);
     } else {
+      await secretFileGrant?.revoke();
       revokeServiceScopedBrokerIdentities(serviceId);
     }
     throw new LifecycleStateError(message);

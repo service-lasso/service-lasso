@@ -1,145 +1,97 @@
-# RAM-backed local WebDAV secret files: design review
+# Broker-owned RAM WebDAV secret files
 
-Reviewed 2026-10-08 for #1730. This is a proposed optional Windows delivery
-adapter, not an implemented server, verified UNC integration or deployment.
-The Linux tmpfs feature remains independent. The owner requested per-service
-tokens, strict local access and use of UNC paths without drive mapping.
+Declared `config.files[]` and `config.templates[]` with `ephemeral: true` use
+Broker-owned RAM WebDAV by default on every platform. Core resolves current
+Broker values, renders outputs, and sends them through authenticated local IPC
+with a fresh service/workspace/peer-bound launch lease. Broker keeps the outputs
+in its bounded memory store. It creates no plaintext filesystem outputs.
+Direct environment-variable secret delivery remains supported.
 
-The owner's requested ownership for this proposed adapter is **Broker ownership**:
-Broker populates its own in-memory WebDAV store from its encrypted vault and
-issues each app a restricted per-launch grant. Core orchestrates readiness,
-path delivery and grant revocation; apps cannot write to the store. This does
-not change the implemented Linux Core-owned tmpfs file profile.
+```json
+{
+  "broker": {
+    "imports": [{ "namespace": "shared/database", "ref": "database.PASSWORD", "required": true }]
+  },
+  "config": {
+    "files": [{ "path": "db-password", "content": "${database.PASSWORD}", "ephemeral": true }]
+  },
+  "env": {
+    "DB_PASSWORD_FILE": "${SERVICE_LASSO_SECRETS_DIR}/db-password",
+    "DB_PASSWORD": "${database.PASSWORD}"
+  }
+}
+```
 
-## Feasibility and recommendation
+Before each fresh start or restart, Core prepares a new grant and passes its
+directory through the declared service environment. Already-running/adopted
+processes keep their existing grant. Broker replacement atomically invalidates
+the previous grant for the same service/workspace/instance. Stop, observed exit
+and ordinary spawn failure revoke the exact grant, without affecting a successor.
+Broker restart loses all RAM grants; fresh app launch recreates them from the
+current vault values. It does not generate a new vault value just because an
+extracted file disappeared. If Broker IPC is unavailable, process stop still
+completes and reports pending grant revocation; the capability stays in Core
+memory for an explicit retry. Replacement or Broker restart invalidates it.
+Core crash does not itself revoke Broker grants;
+replacement or Broker restart invalidates them. No raw token or output enters
+Core lifecycle state, materialization preimages or config drift.
 
-`webdav-server` supports a virtual filesystem in server memory. Its source
-defaults to a virtual root, but also defaults to an all-interface hostname and
-optional authentication. A secret provider must explicitly override those
-defaults and disable persistence/serialization and request-body logging.
-The currently published npm version inspected is 2.6.3; adopting it still
-requires dependency/security and exact-version compatibility verification.
-[Upstream source](https://github.com/OpenMarshal/npm-WebDAV-Server/blob/master/src/server/v2/WebDAVServerOptions.ts),
-[virtual filesystem implementation](https://github.com/OpenMarshal/npm-WebDAV-Server/blob/master/src/manager/v2/instances/VirtualFileSystem.ts).
+Broker chooses an available port and binds its separate file listener strictly
+to `127.0.0.1`. The authenticated IPC grant response supplies the actual port;
+8080 is only an example. No administrator mount or drive mapping is required.
+File delivery offers GET, HEAD, OPTIONS and depth 0/1 PROPFIND. File creation,
+updates and revocation are available only over authenticated operator IPC.
+Foreign Host/Origin, external peers, forwarding headers, traversal, write
+methods and unbounded requests are denied. Anonymous root OPTIONS advertises
+protocol methods only; it exposes no directory or file. Responses set no-store.
 
-The proposed plain-HTTP UNC shape is
-`\\127.0.0.1@8080\DavWWWRoot\<service-namespace>\<file>`.
-It avoids a drive letter. The optional TLS shape is
-`\\127.0.0.1@SSL@<port>\DavWWWRoot\<service-namespace>\<file>`;
-its server certificate must be trusted and valid for the exact host used.
-These paths need native Windows WebClient validation under the actual app
-identity. For services, prefer a UNC path over `net use T:` because drive
-letters belong to logon sessions. `/persistent:no` controls connection
-recreation, not file-content storage.
-[Microsoft service guidance](https://learn.microsoft.com/en-us/windows/win32/services/services-and-redirected-drives),
-[net use semantics](https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-server-2012-r2-and-2012/gg651155(v=ws.11)).
+Each instance receives a fresh random 256-bit capability. Broker indexes its
+SHA-256 digest and never logs token-bearing URLs. Treat paths as credentials:
+keep them in the child environment, away from command arguments, globals,
+operator screenshots and logs. Grant metadata validation rejects non-loopback
+endpoints. File names use letters, digits, dot, underscore and hyphen in bounded
+relative segments; traversal, absolute names, duplicates and directory/file
+conflicts are rejected. Limits are 128 files, 256 KiB per file, 768 KiB per grant,
+1024 live grants and 64 MiB of total file content. IPC requests remain bounded to
+1 MiB. No disk fallback occurs if RAM delivery is unavailable.
 
-**Server RAM storage does not establish end-to-end RAM-only access.** Windows
-documents a local WebDAV file cache; invalidation marks a cached file for
-deletion and fails while it is open. This review has not established that
-WebClient avoids disk backing. Cache headers alone are not sufficient proof.
-Node memory can also be paged or dumped under host policy. For a strict
-no-plaintext-on-disk requirement, native Windows RAM-filesystem delivery or
-direct IPC/env remains preferable until the complete WebDAV client path is
-qualified. WebClient is deprecated and not started by default on Windows;
-deployment must check supported versions and actual availability.
-[WebDAV cache API](https://learn.microsoft.com/en-us/windows/win32/api/davclnt/nf-davclnt-davinvalidatecache),
-[Windows deprecation record](https://learn.microsoft.com/en-us/windows/whats-new/deprecated-features).
+On Windows the supplied directory has this form:
 
-## Required security design
+```text
+\\127.0.0.1@<port>\DavWWWRoot\<token>
+```
 
-1. Broker creates an independent random token with at least 256 bits of entropy
-   per service launch. Bind it to the service ID, folder-instance identity and
-   launch generation. Keep it in memory, pass it only to that app's authorized
-   launch context, revoke on stop/replacement and recreate after provider restart.
-   In the preferred header/credential profile, never put tokens in URLs or UNC
-   paths. In every profile, exclude tokens from persistent credentials, logs
-   and status. The separately considered capability-path adapter below has
-   additional exposure requirements.
-2. Bind exclusively to `127.0.0.1`; add `::1` only with an equally constrained
-   separate listener. Reject non-loopback peers, unexpected Host/Origin values,
-   proxy/forwarded identities and unauthenticated requests. Do not use wildcard
-   binding or accept a forwarded localhost assertion. Being local does not
-   authorize another user/process on the machine.
-3. Authenticate every content/listing request and authorize the exact service
-   namespace after decoding and normalization. Default deny, no anonymous
-   access, cross-service listing, traversal, aliases or redirects. A token for
-   A must never read B. Random path names alone are not authorization.
-4. App credentials permit read/list operations only. Disable client PUT, DELETE,
-   MOVE, COPY, MKCOL, PROPPATCH and writable locking behaviour. Only Core's
-   Broker provisioning interface may populate or replace content.
-   Set bounded file/count/total-memory and request limits; errors stay secret-free.
-5. Direct HTTP clients can send a bearer token. Windows UNC clients cannot
-   attach an arbitrary Authorization header when opening a filename. Their
-   credential adapter must use a Windows-supported authentication scheme, such
-   as Digest with the token as its password, and be proven under the exact app
-   account/logon session. Prefer TLS with a correctly trusted local certificate.
-   Do not weaken machine-wide BasicAuth policy or embed the token in net-use
-   command arguments. Native credential/session integration is missing work.
-6. A shared endpoint can encounter Windows credential reuse across services.
-   Qualify distinct service logon identities and namespace authorization, or
-   provision distinct loopback endpoints per service. Do not assume one account
-   can bind several passwords to the same WebDAV host transparently.
+On Linux and macOS Core supplies the HTTP directory:
 
-## Proposed startup flow
+```text
+http://127.0.0.1:<port>/<token>
+```
 
-Core requests delivery using its existing scoped launch identity. Broker
-resolves current vault values, renders only declared disposable outputs into
-its in-memory filesystem, reserves a service namespace and token, and returns
-the restricted grant after an authenticated readiness check. Supply the app the
-Broker-granted `_FILE` UNC path or
-direct HTTPS URL. Establish the required native client credential context before
-spawning the app; an env token alone does not authenticate WebClient. Fail before
-spawn if authentication, provider readiness or native path access fails. A restart
-recreates values from Broker, never from a serialized WebDAV tree on disk.
+Linux file managers can use `dav://127.0.0.1:<port>/<token>/`. HTTP/DAV-capable
+apps can consume the supplied URL directly. A URL is not a POSIX filesystem path.
+Windows UNC consumption requires Windows WebClient support under the service's
+account. A native Windows WebClient read through the token path passed under
+the qualification account without drive mapping. App handling after receiving a secret is outside the
+delivery contract.
 
-## Optional capability-path adapter requested by the owner
+For an HTTP client using headers, send `Authorization: Bearer <token>` to
+`http://127.0.0.1:<port>/files/<relative-path>`. Native WebDAV clients use the
+capability-path form because they do not offer arbitrary Bearer headers.
 
-The proposed paths are `\\127.0.0.1@8080\DavWWWRoot\<token>\` on Windows and
-`dav://127.0.0.1:8080/<token>/` in a supporting Linux file manager. This can
-support clients that cannot set `Authorization: Bearer`. The server must
-explicitly authenticate the first path segment; a filesystem mapping alone
-does not implement authorization. These are client-specific syntax candidates,
-not paths validated by this review.
+Core's production Broker control API stays on its authenticated Unix socket or
+Windows named pipe. This read-only listener does not expose the control API.
+The new delivery requires a Broker build with `/v1/file-grants`; an older Broker
+fails before app spawn. Source landing is separate from release publication.
 
-Treat the token as a short-lived bearer capability, not a directory name. Hash
-tokens for the in-memory lookup, issue unpredictable independent service tokens,
-and bind each to only its service namespace and generation. The virtual root
-must not enumerate tokens. Ignore caller-supplied service IDs as authority;
-resolve the namespace from the authenticated token. Reject malformed encodings,
-traversal, cross-namespace COPY/MOVE and all writable operations. Do not redirect
-requests. Rotate/revoke on replacement and provider shutdown.
+For apps requiring a native Linux filesystem path, explicitly select
+`SERVICE_LASSO_SECRET_FILES_TRANSPORT=tmpfs` and follow
+[Linux tmpfs setup](linux-app-secret-files.md). The default `webdav` profile
+requires no tmpfs configuration. Environment-secret delivery works in either
+profile.
 
-The complete token-bearing path is secret. It can enter file-manager history,
-WebClient caches, request access logs, exception text, diagnostic traces and app
-configuration. Disable raw URI/body logging and redact the segment at ingress;
-pass the path only in the intended launch environment, never persistent command
-arguments or state. Qualify client-side history/cache/credential handling before
-selecting this adapter for secrets. Loopback-only binding does not address a
-stolen token or automatically authorize a local process.
-
-For an HTTP-capable app, prefer `Authorization: Bearer <token>` on a stable URL;
-native UNC/file-manager access requires the adapter above or supported credential
-authentication. WinHTTP's documented built-in schemes do not include automatic
-Bearer credentials. A token placed in the path is **not** the Bearer header
-scheme. [WinHTTP authentication schemes](https://learn.microsoft.com/en-us/windows/win32/api/winhttp/nf-winhttp-winhttpqueryauthschemes),
-[Bearer-token specification](https://www.rfc-editor.org/rfc/rfc6750.html).
-
-## Qualification required before implementation claims
-
-- Real app reads through the UNC path under its actual service identity, without
-  an interactive drive mapping or administrator-session credential dependency.
-- Valid A token reads A; anonymous, wrong, expired/revoked and B tokens fail for A.
-  Test concurrent services and normalized/encoded traversal/namespace aliases.
-- Confirm only loopback listeners/peers and blocked unexpected Host/Origin;
-  prove write methods cannot mutate contents. No request-body or token logging.
-- Synthetic markers are traced through WebClient/cache/temp/pagefile/dump and
-  app paths on the exact Windows build before making a RAM-only claim. Test
-  rotation while files are open and ensure a stale client cache cannot supply
-  the prior secret to a replacement launch.
-- Provider death/restart, empty memory store, token revocation and app restart
-  regenerate current Broker values or block launch safely.
-
-Read-only local inventory found WebClient running on this machine. No WebDAV
-provider was installed, listener started, drive mapped, credentials changed,
-registry policy weakened or plaintext production secret exposed by this review.
+Verification maps SPEC-011 ESM-7..10 to
+`tests/ram-webdav-secret-files.test.js`, including an actual production Broker,
+peer-bound Unix IPC, fresh managed-child HTTP reads, environment compatibility,
+replacement rotation, stop revocation and persisted-state privacy. Broker issue
+#196 owns its real HTTP isolation, safety and bounds tests. These checks do not
+claim qualification of all Windows service accounts, packaged release or deployment.
