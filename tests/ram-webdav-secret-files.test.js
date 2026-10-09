@@ -61,7 +61,7 @@ test("ESM-7 default refuses unavailable RAM provider without creating disk outpu
 
 // Runs actual source-built Broker over production peer-bound OS IPC, then an
 // actual managed child consumes the separate RAM HTTP endpoint. Synthetic values.
-test("ESM-7..10 native Broker/Core launch, env compatibility, replacement rotation and stop revocation",{
+test("ESM-7..15 native Broker/Core files and templates, ordinary config, rotation and revocation",{
  skip:!process.env.SERVICE_LASSO_TEST_BROKER_BIN && process.env.SERVICE_LASSO_REQUIRE_SECRET_FILES_NATIVE !== "1",
 },async()=>{
  const binary=process.env.SERVICE_LASSO_TEST_BROKER_BIN;
@@ -90,13 +90,23 @@ test("ESM-7..10 native Broker/Core launch, env compatibility, replacement rotati
   let ready=false;for(let i=0;i<100;i++){try{const result=await request({method:"GET",pathWithQuery:"/health",headers:{},timeoutMs:200});if(result.status===200){ready=true;break;}}catch{}await new Promise(r=>setTimeout(r,50));}
   assert.equal(ready,true,`source Broker did not become available: ${brokerDiagnostics}`);
   const root=path.join(servicesRoot,"ram-app");await mkdir(root);
-  await writeFile(path.join(root,"service.json"),JSON.stringify({id:"ram-app",name:"RAM app",description:"Synthetic RAM consumer",executable:process.execPath,args:["app.mjs"],env:{PASSWORD:"${database.PASSWORD}",PASSWORD_FILE:"${SERVICE_LASSO_SECRETS_DIR}/password"},broker:{imports:[{namespace:"shared/database",ref:"database.PASSWORD",required:true}],files:[{path:"password",content:"${database.PASSWORD}"}]}}));
-  await writeFile(path.join(root,"app.mjs"),`import {writeFileSync} from 'node:fs';
-    const location=process.env.PASSWORD_FILE,parts=location.split(String.fromCharCode(92));
-    const endpoint=parts.find(p=>p.startsWith("127.0.0.1@"));
-    const url=endpoint ? "http://127.0.0.1:"+endpoint.split("@")[1]+"/"+parts.at(-1) : location;
-    const response=await fetch(url);const content=await response.text();
-    writeFileSync('consumed.json',JSON.stringify({matches:response.ok&&content===process.env.PASSWORD}));setInterval(()=>{},1000);`);
+  await writeFile(path.join(root,"service.json"),JSON.stringify({
+   id:"ram-app",name:"RAM app",description:"Synthetic mixed ordinary/RAM consumer",executable:process.execPath,args:["app.mjs"],
+   env:{PASSWORD:"${database.PASSWORD}",PASSWORD_FILE:"${SERVICE_LASSO_SECRETS_DIR}/password",TEMPLATE_FILE:"${SERVICE_LASSO_SECRETS_DIR}/nested/credential"},
+   config:{files:[{path:"ordinary.json",content:'{"mode":"ordinary"}'}],templates:[{source:"ordinary.tpl",target:"ordinary.txt"}]},
+   broker:{imports:[{namespace:"shared/database",ref:"database.PASSWORD",required:true}],files:[{path:"password",content:"${database.PASSWORD}"}],templates:[{source:"secret.tpl",target:"nested/credential"}]},
+  }));
+  await writeFile(path.join(root,"ordinary.tpl"),"ordinary-template");
+  await writeFile(path.join(root,"secret.tpl"),"credential=${database.PASSWORD}");
+  await writeFile(path.join(root,"app.mjs"),`import {readFileSync,writeFileSync} from 'node:fs';
+    const readSecret=async location=>{
+      const parts=location.split(String.fromCharCode(92));
+      const endpoint=parts.find(p=>p.startsWith("127.0.0.1@"));
+      const url=endpoint ? "http://127.0.0.1:"+endpoint.split("@")[1]+"/"+parts.at(-1) : location;
+      const response=await fetch(url);if(!response.ok)throw Error('Secret file unavailable');return response.text();
+    };
+    const content=await readSecret(process.env.PASSWORD_FILE),template=await readSecret(process.env.TEMPLATE_FILE);
+    writeFileSync('consumed.json',JSON.stringify({matches:content===process.env.PASSWORD,templateMatches:template==='credential='+process.env.PASSWORD,ordinaryMatches:JSON.parse(readFileSync('ordinary.json','utf8')).mode==='ordinary'&&readFileSync('ordinary.txt','utf8')==='ordinary-template'}));setInterval(()=>{},1000);`);
   const registry=createServiceRegistry(await discoverServices(servicesRoot));service=registry.getById("ram-app");
   const issuer={workspaceId:"test-workspace",command:{command:binary,env:{...process.env,SECRETSBROKER_LAUNCH_IDENTITY_SIGNING_KEY:signingKey}}};
   const lookup=async({refs,identityLease,service:lookupService})=>{
@@ -109,6 +119,12 @@ test("ESM-7..10 native Broker/Core launch, env compatibility, replacement rotati
    if(denyRevocation&&input.pathWithQuery==="/v1/file-grants/revoke")throw new Error("Synthetic IPC outage");
    if(input.pathWithQuery==="/v1/file-grants") {
     const body=JSON.parse(input.body.toString());
+    if(body.serviceId==="ram-app") {
+     assert.deepEqual(body.files.map(file=>file.path),["password","nested/credential"]);
+     assert.equal(body.files[1].content,await readFile(path.join(root,"secret.tpl"),"utf8"));
+     assert.equal(input.body.toString().includes("synthetic-first"),false);
+     assert.equal(input.body.toString().includes("synthetic-replacement"),false);
+    }
     if(body.serviceId==="echo-webdav") {
      const selector=body.bindings[0].selector;assert.ok(["echo.DEMO_CREDENTIAL","echo.MISSING"].includes(selector));
      assert.deepEqual(body.bindings,[{selector,ref:`shared/echo/${selector}`,required:true}]);
@@ -122,19 +138,26 @@ test("ESM-7..10 native Broker/Core launch, env compatibility, replacement rotati
   const options={brokerRuntime:runtime};
   assert.equal((await post("/v1/secrets",{ref:"shared/database/database.PASSWORD",value:"synthetic-first"})).status,200);
   await installService(service,registry);await configService(service,registry,options);
+  assert.equal(await readFile(path.join(root,"ordinary.json"),"utf8"),'{"mode":"ordinary"}');
+  assert.equal(await readFile(path.join(root,"ordinary.txt"),"utf8"),"ordinary-template");
   const consume=async()=>{for(let i=0;i<100;i++){try{return JSON.parse(await readFile(path.join(root,"consumed.json"),"utf8"));}catch{}await new Promise(r=>setTimeout(r,50));}throw new Error("child did not consume RAM secret");};
-  let started=await startService(service,registry,options);assert.equal((await consume()).matches,true);const firstURL=latestURL;
+  const consumedExpected={matches:true,templateMatches:true,ordinaryMatches:true};
+  let started=await startService(service,registry,options);assert.deepEqual(await consume(),consumedExpected);const firstURL=latestURL;
   assert.equal(JSON.stringify(started.state).includes(firstURL.split("/")[3]),false);assert.equal(JSON.stringify(started.state).includes("synthetic-first"),false);
   await rm(path.join(root,"consumed.json"));assert.equal((await post("/v1/secrets",{ref:"shared/database/database.PASSWORD",value:"synthetic-replacement"})).status,200);
-  await restartService(service,registry,options);assert.equal((await consume()).matches,true);assert.notEqual(latestURL,firstURL);assert.equal((await fetch(firstURL)).status,404);
+  await restartService(service,registry,options);assert.deepEqual(await consume(),consumedExpected);assert.notEqual(latestURL,firstURL);assert.equal((await fetch(firstURL)).status,404);
   await stopService(service);assert.equal((await fetch(latestURL)).status,404);await assert.rejects(readFile(path.join(root,"password")),{code:"ENOENT"});
+  assert.equal((await fetch(firstURL.replace(/password$/,"nested/credential"))).status,404);
+  assert.equal((await fetch(latestURL.replace(/password$/,"nested/credential"))).status,404);
+  await assert.rejects(readFile(path.join(root,"nested","credential")),{code:"ENOENT"});
   for(const file of ["vault.json","audit.jsonl"]){const data=await readFile(path.join(tempRoot,file),"utf8");assert.equal(data.includes("synthetic-first"),false);assert.equal(data.includes("synthetic-replacement"),false);assert.equal(data.includes(latestURL.split("/")[3]),false);}
   // A secret file may also contain local/environment inputs with no Broker refs;
   // its grant lease has only a service-specific file namespace and resolve scope.
-  service.manifest.broker = { files: service.manifest.broker.files };service.manifest.env.PASSWORD="synthetic-static";
+  service.manifest.broker = { files: service.manifest.broker.files, templates: service.manifest.broker.templates };service.manifest.env.PASSWORD="synthetic-static";
+  await writeFile(path.join(root,"secret.tpl"),"credential=synthetic-static");
   service.manifest.broker.files[0].content="synthetic-static";await rm(path.join(root,"consumed.json"));
   const staticOptions={...options,brokerLookup:()=>[]};
-  await startService(service,registry,staticOptions);assert.equal((await consume()).matches,true);
+  await startService(service,registry,staticOptions);assert.deepEqual(await consume(),consumedExpected);
   denyRevocation=true;const stopped=await stopService(service);assert.equal(stopped.state.running,false);assert.match(stopped.message,/revocation is pending/);
   denyRevocation=false;assert.equal(await revokeRAMSecretFileGrant(service),true);assert.equal((await fetch(latestURL)).status,404);
   service.manifest.args=["${SERVICE_LASSO_SECRETS_DIR}"];

@@ -305,3 +305,23 @@ assertions; #1681/native-owner source review and NEW ROOT admission boundaries
 remain in force. No native fixture regeneration, release repin, CI cancellation,
 provider bypass, promotion or deployment occurred. Goal remains active pending
 natural CI for this continuation and resolution of relevant upstream blockers.
+
+## #1747 native template completion audit (2026-10-09)
+
+The actual native consumer previously read broker.files only; broker.templates
+had lower-level coverage. Extend the same native regression to consume a nested
+Broker-rendered template beside its inline secret file and ordinary Core inline
+and template config outputs. Assert both secret values rotate, secret outputs
+are absent from the service root, outgoing dynamic templates contain selectors
+rather than resolved values, and revoked grants deny both outputs. Preserve the
+static no-import case, privacy, IPC outage, Echo checker and missing-ref gates.
+SPEC-011 ESM-14/15 covers this completed end-to-end obligation.
+
+Executed revised native test selection: Windows4/4, Linux4/4 and authorized
+macOS11.7.11 Intel4/4, zero failures/skips; same exact pinned Broker/Echo binaries
+and isolated toolchains as preceding evidence. Logs: qualification1747/
+windows-templates4.log, linux-templates4.log and remote owned mac-templates4.log.
+The preceding5317462 three-platform hosted source qualification was GREEN;
+new exact-head natural CI must qualify the strengthened cumulative candidate.
+Inherited protected native/published-release failures remain prerequisites;
+no gate/assertion weakening, release pin change or binary regeneration occurred.

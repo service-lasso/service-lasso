@@ -5,6 +5,8 @@
   builds on Windows named pipes and Linux/macOS Unix sockets. Exercise file-only
   reference privacy, env compatibility, replacement, revocation, missing refs
   and safe Echo reads using broker.files. A configured native-test requirement
+  must exercise broker.templates beside ordinary config.files/templates in a
+  real managed consumer, including template rotation and grant revocation, and
   must fail for missing binary inputs rather than silently skip. Windows Echo
   converts its supplied UNC selector to loopback file access;
   this is not Windows WebClient qualification. macOS 11 tests explicitly use
