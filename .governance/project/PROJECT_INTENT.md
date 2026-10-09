@@ -1385,3 +1385,9 @@ Owner correction 2026-10-09: SPEC-011 ESM-14 places secret file/template request
 under broker. Ordinary config/install materialization remains Core-owned.
 Legacy ephemeral flags fail with migration guidance before plaintext writes.
 No release or documentation publication is authorized by this fix.
+
+SPEC-011 ESM-15 adds required pinned real Broker/Core/Echo source qualification
+on Windows, Linux and macOS, with missing native inputs failing the lane.
+Preserve published-release and protected native-admission gates independently.
+Actual Mac11 compatibility tests use the documented isolated toolchain; no
+release or Windows WebClient qualification is implied.

@@ -266,3 +266,42 @@ because /tmp is tmpfs here; it now proves a non-tmpfs fixture before rejection.
 Docs build passed with existing image-dimension-parser warnings; diff check passed.
 No Windows native WebClient, release, publication or deployment qualification.
 Next action: review the Core and companion Echo develop PRs and their checks.
+
+## #1747 required native qualification continuation (2026-10-09)
+
+SPEC-011 ESM-15 requires pinned real Broker/Core/Echo source qualification on
+Windows named pipes and Linux/macOS Unix sockets. broker.files/templates own
+secret provisioning; ordinary config.files/templates retain Core behavior.
+New Broker secret files CI matrix requires binaries, manifest and checker;
+missing inputs fail instead of silently skipping. This additional source-build
+lane does not substitute for pinned published-release or protected native gates.
+
+Executed real integration: Windows 4/4, WSL Ubuntu-26.04 4/4, macOS 11.7.11
+Intel via authorized ssh maxbarrasssMBP2 4/4, no skips in these runs. Full new
+Windows matrix selection: 100 passed, five Linux tmpfs skips, zero failures.
+Earlier Mac focused contracts: 124 passed, ten platform/input skips, zero
+failures. Broker source 2fd98ee8e18395e28d402e00ab7e6e8911675600; Echo source
+7bcee7cf9e3e9a352eb59beb4a9afcde4a307584. Mac uses isolated Node22.23.3 and
+Broker's documented private Go1.26.8 macOS11 compatibility build. Tested Mac
+Broker SHA256 823f8e6f233c6ed6331c87b55557c2b4865d8045277903b51abd8c4058ba2b16;
+Echo SHA256 b1c64590b4cefc36949c06eda459dc87a8bc7e113230ec7f07f65eebafd54022.
+Local/remote binary hashes match. Owned remote evidence is retained beneath
+/Users/maxbarrass/service-lasso-1747-20261009; local logs/provenance beneath
+D:/projects/service-lasso/qualification1747. Windows loopback reads verify the
+UNC selector/consumer adapter, not Windows WebClient mounting.
+
+Core 88aa46d5 full CI remains FAILED, not complete acceptance. Source suite has
+seven failures: three verified-filesystem evidence cases, hard-crash terminal
+removal, missing ROOT foreign-owner fixture, stale managed launcher provenance,
+and already-closing Admin fixture teardown. MCP/Windows native gates also fail
+normalized native binary/source matching and original_privacy response_unavailable.
+Base develop d994acf3 independently reproduces stale managed provenance,
+normalized binary mismatch and Broker management-route failures. Published Broker
+pin 2026.8.31-f340883 lacks /v1/file-grants/status; source-built feature success
+does not repair that published-package incompatibility. Packaged Admin fails
+first_custody_native_helper_incomplete (Windows), native journal invalid (Mac)
+and browser pre-readiness (Linux). Preserve exact failed evidence and protected
+assertions; #1681/native-owner source review and NEW ROOT admission boundaries
+remain in force. No native fixture regeneration, release repin, CI cancellation,
+provider bypass, promotion or deployment occurred. Goal remains active pending
+natural CI for this continuation and resolution of relevant upstream blockers.

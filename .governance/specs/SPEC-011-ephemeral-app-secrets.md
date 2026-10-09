@@ -1,5 +1,17 @@
 # SPEC-011: Ephemeral app secret files
 
+- **ESM-15 (#1747, 2026-10-09 verification continuation):** Require real
+  Broker/Core/Echo provisioning regression coverage with exact pinned source
+  builds on Windows named pipes and Linux/macOS Unix sockets. Exercise file-only
+  reference privacy, env compatibility, replacement, revocation, missing refs
+  and safe Echo reads using broker.files. A configured native-test requirement
+  must fail for missing binary inputs rather than silently skip. Windows Echo
+  converts its supplied UNC selector to loopback file access;
+  this is not Windows WebClient qualification. macOS 11 tests explicitly use
+  Broker's documented custom compatibility toolchain and record its identity.
+  Preserve all existing protected release/IPC/native fixture gates; inherited
+  native source-admission failures remain separate prerequisites.
+
 - **ESM-14 (#1747, owner correction 2026-10-09):** Declare disposable secret
   outputs in `broker.files[]` ({path, content}) and `broker.templates[]`
   ({source, target}), without an ephemeral flag. Broker owns default RAM
