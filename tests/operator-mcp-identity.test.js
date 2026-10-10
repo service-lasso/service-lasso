@@ -2,10 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createServer, request as httpRequest } from "node:http";
 import { once } from "node:events";
-import { rm } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
-import { createApiServer, startApiServer } from "../dist/server/index.js";
+import { createApiServer, startApiServer, waitForApiServerInitialization } from "../dist/server/index.js";
 import { readAuditEvents } from "../dist/runtime/audit/store.js";
+import { getLifecycleDocumentPath, RECONCILIATION_CONTEXT_AUTHORITY_POLICY } from "../dist/runtime/state/lifecycle-persistence.js";
 import {
   MCP_MAX_REQUEST_BODY_BYTES,
   resolveMcpOperatingMode,
@@ -69,8 +71,14 @@ async function signAccessToken(privateKey, overrides = {}) {
   return token.sign(privateKey);
 }
 
-async function startDirectApiServer(options) {
+async function startDirectApiServer(options, onInitializationFailure) {
   const server = createApiServer(options);
+  try {
+    await waitForApiServerInitialization(server);
+  } catch (error) {
+    onInitializationFailure?.(server);
+    throw error;
+  }
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   const address = server.address();
@@ -554,6 +562,27 @@ test("#860 enforces guarded-mode profile evidence plus independent actor and cli
   } finally {
     await apiServer?.stop();
     await jwks.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("#1553 direct MCP fixture rejects reconciliation initialization before binding a listener", async () => {
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot("service-lasso-mcp-identity-initialization-");
+  const authorityPath = getLifecycleDocumentPath(workspaceRoot, RECONCILIATION_CONTEXT_AUTHORITY_POLICY);
+  await mkdir(path.dirname(authorityPath), { recursive: true });
+  await writeFile(authorityPath, "{malformed", "utf8");
+  let observedUnbound = false;
+  try {
+    await assert.rejects(
+      () => startDirectApiServer({ servicesRoot, workspaceRoot }, (server) => {
+        observedUnbound = true;
+        assert.equal(server.listening, false);
+      }),
+      /reconciliation/i,
+    );
+    assert.equal(observedUnbound, true);
+    await assert.doesNotReject(() => writeFile(authorityPath, "{malformed", "utf8"));
+  } finally {
     await rm(tempRoot, { recursive: true, force: true });
   }
 });

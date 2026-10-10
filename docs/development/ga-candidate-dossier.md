@@ -4,9 +4,11 @@ title: GA candidate dossier
 
 # GA candidate dossier
 
-Prepared for Core #1321. This dossier is a decision input, not a GA approval.
+Prepared for Core #1321. This dossier is a decision input, not a GA approval. Apply [canonical release authority](https://github.com/service-lasso/service-lasso/blob/develop/.governance/rules/gov-09-release-authority.mdc) to any new candidate. Its historical reviewer-routing notes below record the former decision context and do not impose an independent-approval gate on a new candidate.
 
-## Current matched candidate: d0f68e3
+For current Mac work, use the [Mac readiness activities](macos-readiness.md). The matched candidate below is historical September 2026 evidence and does not qualify current develop or change the current Windows/Linux GA scope.
+
+## Historical matched candidate: d0f68e3
 
 Windows and Linux full paired newcomer proofs are Verified at exact Core source
 `d0f68e3fc47b0bebc22a0cb55bf63c672b589637`. PR #1396 merged into `develop`

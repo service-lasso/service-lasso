@@ -1,0 +1,139 @@
+# SPEC-011: Ephemeral app secret files
+
+- **ESM-15 (#1747, 2026-10-09 verification continuation):** Require real
+  Broker/Core/Echo provisioning regression coverage with exact pinned source
+  builds on Windows named pipes and Linux/macOS Unix sockets. Exercise file-only
+  reference privacy, env compatibility, replacement, revocation, missing refs
+  and safe Echo reads using broker.files. A configured native-test requirement
+  must exercise broker.templates beside ordinary config.files/templates in a
+  real managed consumer, including template rotation and grant revocation, and
+  must fail for missing binary inputs rather than silently skip. Windows Echo
+  converts its supplied UNC selector to loopback file access;
+  this is not Windows WebClient qualification. macOS 11 tests explicitly use
+  Broker's documented custom compatibility toolchain and record its identity.
+  Preserve all existing protected release/IPC/native fixture gates; inherited
+  native source-admission failures remain separate prerequisites.
+
+- **ESM-14 (#1747, owner correction 2026-10-09):** Declare disposable secret
+  outputs in `broker.files[]` ({path, content}) and `broker.templates[]`
+  ({source, target}), without an ephemeral flag. Broker owns default RAM
+  provisioning, scoped imports, rendering and returned-directory delivery.
+  Preserve ESM-13 file-only privacy and existing grant replacement/revocation.
+  `config.files/templates` and `install.files/templates` exclusively retain
+  ordinary Core materialization beneath the service root, transaction hooks,
+  lifecycle metadata and drift behavior. Reject the removed `ephemeral` field
+  with a migration diagnostic before any write; never silently persist legacy
+  secret outputs. The explicit Linux tmpfs transport uses the same broker
+  declarations and retains its existing Core-owned delivery adapter. Include
+  Broker templates in guarded definition digests and Broker inline selectors
+  in dependency/audit planning. Update runnable examples and references. Verify
+  mixed ordinary/Broker declarations, secret-free outgoing requests, fresh
+  launch/revocation, legacy rejection, malformed declarations and guarded
+  template changes. This supersedes declaration placement in ESM-1/7/13;
+  unchanged transport/security requirements remain applicable.
+
+
+
+- **ESM-13 (#1743, Broker #201, Echo #14):** the owner corrects default file
+  provisioning ownership: Core sends secret references and secret-free file
+  templates to Broker, which resolves under the fresh scoped launch lease,
+  renders in its RAM store and returns the WebDAV directory. File-only imports
+  must not return plaintext through Core's startup lookup; direct environment
+  imports and the explicit tmpfs alternative retain their existing semantics.
+  Validate declared bindings, missing/denied refs, bounded rendering, returned
+  paths, replacement/revocation and privacy with an executed complete Echo
+  example. Supply executable setup/check code and a complete manifest, then
+  correct/publish ESM-12 docs. This supersedes the original ESM-7 Core-rendered flow.
+  The installed Node type declarations require an explicit three-argument
+  default spawn adapter; preserve command/argument/options behavior and every
+  existing managed-process acceptance check while restoring source compilation.
+
+- **ESM-12 (#1740):** publish an advanced getting-started lesson explaining
+  explicit file/template opt-in, scoped Broker imports, fresh launch resolution,
+  supplied app paths, safe inventory/read evidence and restart/revocation.
+  Use the real Echo sample and distinguish source features from installed
+  release prerequisites. Reconcile tmpfs/default-WebDAV reference wording.
+  Verify lesson navigation, docs build and the owner-authorized Pages publication
+  receipt plus live index/article. Documentation publication is not a binary
+  release or GA decision.
+  Existing architecture-page MDX literals that block this publication may
+  receive markup-only escapes outside code, preserving their exact text and
+  normative contracts; no parser, audit or publication gate is weakened.
+
+- **ESM-11 (#1738):** authenticated workspace-read management exposes Broker
+  RAM WebDAV metadata at `operations/webdav`: listener state, RAM usage, active
+  grants and paginated filenames, service/workspace ownership, sizes and read
+  counters. Only GET is allowed; bounded numeric limit/cursor are forwarded.
+  Secret values, capability tokens and URLs remain excluded. Service Admin
+  supplies a usage dashboard; Echo supplies an opt-in file consumer example.
+  Verify allowlists, permission mapping, query bounds, real Broker IPC and
+  positive/negative file consumption without durable secret disclosure.
+
+Status: Active development. Owner request: 2026-10-08. Issues: #1730 (landed), #1732.
+
+Service Lasso owns declared plaintext app secret files and passes their paths to
+apps. Existing environment-variable secret delivery remains supported. The app
+does not own the output directory. The Broker vault and startup recovery state
+remain durable; app-owned configuration/data and test-harness cleanup are out of
+scope. This is not selection of the #1724 Option B custody proposal.
+
+Broker RAM WebDAV is the default provider (ESM-7..10 below). The original Linux
+requirements ESM-1..6 apply to the explicitly selected tmpfs alternative only.
+
+- **ESM-1:** `config.files[]` and `config.templates[]` may declare boolean
+  `ephemeral: true`. Their relative output paths resolve beneath a Core-owned
+  per-service directory, derived from service identity and resolved service root,
+  under `SERVICE_LASSO_SECRETS_ROOT` (default `/run/service-lasso/secrets`).
+  `${SERVICE_LASSO_SECRETS_DIR}` supplies that directory to declared app env
+  variables, such as `DB_PASSWORD_FILE`. This Linux-only profile rejects use on
+  other platforms and in install materialization. Ordinary artifacts are unchanged.
+- **ESM-2:** Before every fresh managed launch, recreate every declared ephemeral
+  output with the launch's current scoped Broker resolution, even with persisted
+  installed/configured flags or an empty secrets directory. Do not rewrite files
+  for an already-running/adopted process. Do not generate/rotate Broker values
+  merely because an output file disappeared.
+- **ESM-3:** Unresolved/denied content or path selectors, unavailable required
+  imports, unsafe output paths, missing mount or non-tmpfs storage prevent launch.
+  Core validates a private, current-user-owned secrets root and output directories,
+  rejects symlinks/aliased files, and publishes regular files with mode 0600.
+  Parent directories use 0700. The deployment administrator is trusted to maintain
+  mount/ancestor integrity; no hostile same-UID writer exclusion claim is made.
+- **ESM-4:** Ephemeral output contents never enter persistent materialization
+  preimages, config drift/snapshots or lifecycle metadata. Only ordinary generated
+  artifact metadata is persisted. Current env delivery remains unchanged.
+- **ESM-5:** Deployment provisions a private, bounded tmpfs with `noswap`, orders
+  it before Core starts and exposes Core's paths read-only into containers when
+  needed. Document UID compatibility, empty-mount restart, memory limits and
+  continued durable Broker/recovery storage. Core verifies tmpfs; deployment owns
+  noswap, mounts, namespace mapping and app access policy.
+- **ESM-6:** Verify actual child consumption before/after deleting the disposable
+  output directory, current Broker values on replacement launch, env compatibility,
+  failure before spawn for unresolved inputs/disk storage, manifest validation,
+  private permissions and redirected/aliased targets on native Ubuntu. Record
+  build limitations independently; no full-suite/release/deployment claim.
+
+Verification maps ESM-1/3 to discovery and file safety checks; ESM-2/4 to real
+managed child launch and transaction-hook/privacy assertions; ESM-5 to deployment
+examples and official Linux/systemd docs; ESM-6 to recorded exact-source checks.
+
+## Default RAM WebDAV delivery (issue #1732)
+
+Owner approved default Broker-owned RAM WebDAV for all extracted secret files.
+ESM-7 (owner-corrected by ESM-13): WebDAV is the default on every platform.
+Core sends scoped refs and secret-free templates over authenticated Broker IPC
+with a distinct scoped resolve lease. Broker resolves and renders internally,
+returning the private WebDAV directory, capability and loopback endpoint. Core passes
+its URL/Windows UNC directory through SERVICE_LASSO_SECRETS_DIR before spawn.
+No plaintext file or token enters lifecycle snapshots, drift or durable state.
+ESM-8: Broker enforces RAM-only, strict 127.0.0.1, read-only grant isolation,
+256-bit token rotation and bounded requests/storage. Core revokes the exact grant
+on stop, ordinary exit or failed launch; replacement cannot be revoked by an old
+exit callback. No fallback to disk or tmpfs when Broker is unavailable.
+ESM-9: Linux tmpfs remains explicitly selectable with
+SERVICE_LASSO_SECRET_FILES_TRANSPORT=tmpfs. Existing ESM-1/3/5 Linux mount rules
+apply only to that alternative. Default WebDAV needs no administrator mount.
+ESM-10: Preserve environment-secret delivery; verify managed child HTTP reads,
+replacement launch and revocation, native Broker HTTP isolation/denial/bounds,
+and safe errors/state. URL clients and native Windows WebClient are distinct
+consumption mechanisms; Linux DAV URLs are not POSIX filesystem paths. App
+behaviour after receiving secrets and harness cleanup remain outside acceptance.

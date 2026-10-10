@@ -867,7 +867,7 @@ function canonicalFetch({
         contractVersion: "service-lasso-mcp.v1",
         protocolVersion: "2025-11-25",
         supportedProtocolVersions: ["2025-11-25", "2024-11-05"],
-        sdk: { packageName: "@modelcontextprotocol/sdk", version: "1.30.0" },
+        sdk: { packageName: "@modelcontextprotocol/sdk", version: "1.31.0" },
         policy: { operatingMode: "guarded" },
       });
     }
@@ -1426,7 +1426,7 @@ test("canonical demo verifier accepts live metadata matching checked-in release 
       endpoint: "http://demo.example.test:17883/api/mcp",
       protocolVersion: "2025-11-25",
       supportedProtocolVersions: ["2025-11-25", "2024-11-05"],
-      sdkVersion: "1.30.0",
+      sdkVersion: "1.31.0",
       operatingMode: "guarded",
       toolCount: 3,
       resourceCount: 1,

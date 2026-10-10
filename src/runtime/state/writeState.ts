@@ -103,6 +103,7 @@ export async function writeServiceState(
           variables: lifecycle.runtime.variables,
           brokerIdentity: lifecycle.runtime.brokerIdentity,
           startTrace: lifecycle.runtime.startTrace,
+          restartTrace: lifecycle.runtime.restartTrace,
           supervision: lifecycle.runtime.supervision,
           lastAction: lifecycle.lastAction,
           actionHistory: lifecycle.actionHistory,

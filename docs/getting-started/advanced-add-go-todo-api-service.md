@@ -4,135 +4,172 @@ title: Advanced — Add a Go Todo API service
 
 # Advanced — Add a Go Todo API service
 
-Insert a small **Go web API** between your Todo UI and PostgreSQL. Service Lasso manages that API as a normal service: install, start, health, endpoints, and logs. The browser talks to the Go API; the Go API talks to the database.
+**Lesson code:** [03 — API](https://github.com/service-lasso/lesson-todo/tree/develop/lessons/03-api).
+The folder contains the managed App → API → Database inventory, architecture,
+standalone run instructions and changes from the Database checkpoint.
+Use the runnable checkpoint below, or continue the Core demo authoring route later in this article.
 
-Complete first:
-
-1. [Beginner — Todo app](beginner-todo-app.md)
-2. [Intermediate — Make the Todo app durable](intermediate-make-todo-app-durable.md)
-
-This article is a worked architecture + authoring guide. It shows the shape you should build. Pair it with the [Service authoring overview](../service-authoring/overview.md) when you turn the sketch into a released `lasso-*` package.
+Continue the managed [Todo](beginner-todo-app.md) and
+[PostgreSQL](intermediate-make-todo-app-durable.md) lessons. Add a Go API as the
+third application service in the same Service Lasso inventory. Keep the Todo UI
+service, move database access into the API and learn dependency chains and
+managed API recovery.
 
 ## Outcome
 
-```text
-Browser Todo UI
-    -> Go Todo API  (managed service, HTTP JSON)
-        -> PostgreSQL  (managed service from the intermediate guide)
+**Stage 3: Add the API.** The App calls the API, which reads and writes the Database.
+
+This stage deliberately uses `TODO_API_AUTH_MODE=anonymous` for the local
+learning workspace. Other local programs can call its API. The next
+[SSO lesson](zitadel-sso-hub.md) secures **both** the App and API with Zitadel;
+keep this anonymous stage confined to your tutorial environment.
+
+<div className="tutorial-architecture">
+
+```mermaid
+%%{init: {"flowchart": {"nodeSpacing": 24, "rankSpacing": 28, "padding": 18, "subGraphTitleMargin": {"top": 10, "bottom": 20}}, "themeVariables": {"fontFamily": "system-ui, sans-serif"}}}%%
+flowchart TB
+  accTitle: Stage 3: Add the API
+  accDescr: The App calls the API, which reads and writes the Database. All application services run inside the Service Lasso boundary. Existing management and runtime services are listed in the adjacent table.
+  browser(["Browser"])
+  subgraph lasso["Service Lasso"]
+    todo("<b>App</b><br/><small>(lasso-todo)</small>")
+    api("<b>API</b><br/><small>(lasso-todo-api)</small>")
+    db[("<b>Database</b><br/><small>(lasso-postgres)</small>")]
+  end
+  browser --> todo
+  todo --> api
+  api --> db
+  classDef service stroke-width:1.5px
+  classDef added stroke-width:2.5px
+  class todo,db,api service
+  class api added
 ```
 
-Success checks:
+</div>
 
-- Service Admin shows the Go API service **healthy**
-- `GET /healthz` on the API returns ok
-- Todo UI create/list goes through the API, not straight to Postgres
-- Refresh still shows todos (API + DB path)
+The highlighted service is new in this lesson. Everything inside the boundary is managed by Service Lasso.
 
-## Why a Go API in the middle
+| Purpose | Service | Responsibility / data path |
+| --- | --- | --- |
+| App | `lasso-todo` (`todo`) | Serve the browser UI and proxy `/todos` to the API's allocated HTTP endpoint. |
+| API | `lasso-todo-api` (`todo-api`) | Validate requests and read/write SQL through the Database's allocated endpoint. |
+| Database | `lasso-postgres` (`postgres`) | Retain todos in `${SERVICE_ROOT}/runtime/data` across service restarts. |
 
-- Keeps SQL and connection strings out of the browser
-- Gives you a stable JSON contract for the Todo UI
-- Lets Lasso own lifecycle, ports, and health for both API and database
-- Is the smallest “add a new service” exercise that is still a real app shape
+<details>
+<summary>Existing platform services</summary>
 
-## 1. Plan the new service
+These services also run inside Service Lasso. They support the application path shown above.
 
-Decide ownership:
+| Purpose | Service | Responsibility |
+| --- | --- | --- |
+| Management | `lasso-serviceadmin` (`@serviceadmin`) | Install, configure, start and stop services; show health and endpoints. |
+| Secrets | `lasso-secretsbroker` (`@secretsbroker`) | Provide the platform's managed secret delivery. |
+| Example | `echo-service` | The starter service already included in the demo. |
+| Runtime | `lasso-node` (`@node`) | Run the App's packaged JavaScript. |
 
-| Piece | Owner |
+</details>
+
+
+## Run the published lesson checkpoint
+
+In the lesson repository from the previous article, prepare this separate checkpoint:
+
+```sh
+npm ci
+npm run setup -- 03
+npm run lesson:03
+```
+
+The host uses published Core and Admin and acquires the pinned service archives;
+no sibling build is needed. Open the printed loopback Admin URL, complete
+**Initialize Secrets Broker**, privately save and acknowledge its recovery
+material, and continue as local-root. Install/configure/start the application
+services in Admin, dependencies first, then open Todo's allocated Network URL.
+
+Fresh Intel macOS 11 checkpoints automatically select compatible Broker and
+managed Node 22 profiles for the machine's OS and CPU. Apple Silicon is a separate
+compatibility case; consult the [lesson platform prerequisites](https://github.com/service-lasso/lesson-todo#platform-prerequisites).
+Setup preserves existing manifests and data: retained Node 24 requires macOS
+13.5 or newer, and the older Broker requires macOS 12. Use a separate fresh
+learning folder for the new pins; do not overwrite a retained workspace.
+
+To carry SQL history forward, stop both checkpoint stacks and use a verified PostgreSQL backup/restore into the new checkpoint before starting the API. Never copy a running database directory. Start PostgreSQL, then the API, then Todo. Confirm your items, add and refresh an item, then stop only the API: Todo must report an unavailable API without saving a new row. Restart the API and confirm recovery.
+
+Type `shutdown` in the host terminal to stop this owned checkpoint. Restart
+with `npm run lesson:03`, then start managed services in Admin again,
+dependencies first. Host restart preserves data and does not automatically
+start the application stack. Do not run two hosts against one checkpoint.
+Checkpoints have separate state and do not copy data automatically.
+
+The first three stages use local learning access. [SSO](zitadel-sso-hub.md)
+has separate identity and platform prerequisites; this route does not establish
+Mac SSO support. The [desktop stage](package-todo-tauri.md) builds on Windows x64.
+
+## Core demo authoring route
+
+The steps below teach source packaging and manual imports in the Core demo.
+Their existing provider pins are separate from the fresh lesson checkpoint's
+Mac-compatible selection. On Intel macOS 11, use the checkpoint above.
+
+## 1. Inspect and package another template-derived service
+
+Use Go1.22+ and Node22+. In your Core checkout terminal:
+
+```powershell
+git clone --branch develop --single-branch https://github.com/service-lasso/lasso-todo-api.git ../lasso-todo-api
+gh api repos/service-lasso/lasso-todo-api --jq '.template_repository.full_name'
+npm --prefix ../lasso-todo-api ci
+npm --prefix ../lasso-todo-api test
+npm --prefix ../lasso-todo-api run package
+npm --prefix ../lasso-todo-api run verify
+```
+
+The query must print <code>service-lasso/service-template</code>. This separate service repository owns real Go source, manifest, packaging, verification and CI. Its template package/test/verify entrypoints are adapted for Go.
+
+| Manifest field | What this service adds |
 | --- | --- |
-| Todo UI / host app | Your app repo (`services/` inventory) |
-| Go Todo API | New managed service (app-owned first; later a `lasso-todo-api` release repo) |
-| PostgreSQL | Existing managed service from the intermediate example |
+| id: todo-api | A separately managed API |
+| artifact.platforms | Native archive and command matching the packaged binary |
+| depend_on: postgres | Start the database before its consumer |
+| endpoints.web | An allocated loopback HTTP API |
+| env | API port and actual PostgreSQL runtime allocation |
+| healthchecks | HTTP readiness includes a real database ping |
 
-Name the service something stable, for example `todo-api`.
+[Go source](https://github.com/service-lasso/lasso-todo-api/blob/develop/src/main.go) implements health, create/list and parameterized SQL using the same <code>tutorial_todos</code> table as stage two. The API limits titles to 200 bytes; a long non-ASCII title can therefore receive an API validation error even when the UI's character check accepts it.
 
-Follow [Plan the service](../service-authoring/01-plan-service.md): managed daemon, HTTP endpoint, depends on PostgreSQL.
+Local verification checks native archive structure. Real SQL verification uses <code>TODO_VERIFY_DATABASE_STATE</code>; CI separately executes the held Linux archive against PostgreSQL. Compilation does not qualify runtime behavior on other platforms.
 
-## 2. Build a minimal Go webserver API
+## 2. Import the API and switch Todo to its proxy
 
-Create a small module (sketch):
+Stop Todo in Admin, preserving data. From Core:
+
+```powershell
+node dist/cli.js services import service-lasso/lasso-todo-api --tag 2026.10.4-02ef566 --services-root workspace/canonical-services-root --workspace-root workspace/demo-instance
+node ../lasso-todo/scripts/configure-stage.mjs workspace/canonical-services-root/todo api
+```
+
+Refresh Admin. Install/Configure the API, then start PostgreSQL, API and Todo in dependency order, waiting for healthy. Lasso acquires the pinned checksum-verified native binary and supplies ports, environment, ownership and health. Todo reads the API's runtime allocation when it starts. Do not launch the Go binary manually.
 
 ```text
-todo-api/
-  go.mod
-  main.go
-  service.json   # when you wire it for Lasso
+Todo → Go Todo API → PostgreSQL
 ```
 
-`main.go` responsibilities:
+Inspect dependencies, acquired release/checksum, processes, logs and Network views. The browser receives no database credentials. Open Todo's resolved UI URL.
 
-1. Read listen address and database URL from environment (Lasso injects these).
-2. Serve JSON over HTTP:
-   - `GET /healthz` — process up (and optionally DB ping)
-   - `GET /todos` — list todos
-   - `POST /todos` — create a todo `{ "title": "..." }`
-3. Use the normal PostgreSQL driver against the allocated DB endpoint.
-4. Do **not** open Admin ports or embed Service Admin in this binary.
+## 3. Verify the request path and recovery
 
-Example shape (illustrative):
+1. Confirm todos from stages one and two remain.
+2. Add another todo through the browser and refresh.
+3. Find <code>Created todo through Go API</code> in API logs to prove the proxy path.
+4. Stop only the API through Admin, confirming the action. Create/list must fail; inspect dependency health. A running proxy returns503 while the API is down.
+5. Start the API, then Todo if needed, and confirm recovery with all saved IDs.
+6. Stop Todo, API and PostgreSQL through Admin; restart in dependency order and confirm the complete set again.
 
-```go
-// Listen on TODO_API_ADDR (for example 127.0.0.1:18600).
-// Connect with DATABASE_URL from Lasso-resolved Postgres endpoint + secrets.
-// GET /healthz -> 200 {"status":"ok"}
-// GET /todos   -> 200 [{"id":"...","title":"..."}]
-// POST /todos  -> 201 {"id":"...","title":"..."}
-```
+**Pass:** three managed services recover without losing data and actual requests reach the acquired Go API. A separately launched binary is not a pass.
 
-Keep the first cut single-binary, loopback-only, no public TLS. Production packaging comes from the service-template release path later.
+## What the template workflow gave you
 
-## 3. Write `service.json` for the Go API
+Both application services own their GitHub template provenance, source, manifests, platform packages, tests, verification and explicit candidate publication. Consumer manifests pin real development prereleases. Source builds, acquired bytes, runtime evidence, docs publication and GA are separate claims. Follow [validate and release](../service-authoring/05-validate-release.md) when authoring your own service.
 
-Minimum ideas to encode (exact fields: [service.json reference](../reference/service-json-reference.md)):
-
-- Identity: `id`, `name`, `serviceType`, `runtime`, `version`
-- Start command: run the Go binary (or `go run` only for a private local spike — prefer a built artifact for anything you share)
-- `endpoints[]` for the HTTP API (for example `web`)
-- `env` that binds:
-  - listen address from `${endpoint.web...}`
-  - database host/port/user/password from the Postgres service selectors / secret policy
-- Health check against `GET /healthz`
-- Dependency on the Postgres service so Lasso starts DB before API
-
-Validate in Service Admin after install: **Services**, **Runtime**, **Network**, logs on failure. See [How to create a basic service](../components/service-admin/how-to-create-a-basic-service.md).
-
-## 4. Point the Todo UI at the API
-
-Change the beginner Todo host so it:
-
-1. Stops talking to Postgres (or a local JSON file) directly for create/list
-2. Calls the Go API base URL from config / allocated endpoint
-3. Still uses the same login / local session story from the beginner guide
-
-Verify:
-
-1. Sign in
-2. Create a todo in the UI
-3. Confirm `POST /todos` hits the Go API (API logs or a quick `curl`)
-4. Refresh the UI — todo still present
-5. Stop and start the Go API service in Admin — UI recovers once healthy
-
-## 5. Promote from sketch to released service (when ready)
-
-When the local spike works:
-
-1. Create a `lasso-todo-api` (or similar) repo from [`service-template`](https://github.com/service-lasso/service-template)
-2. Publish release artifacts with the Go binary for your platforms
-3. Pin that release in the Todo app’s `services/todo-api/service.json`
-4. Run [Validate and release](../service-authoring/05-validate-release.md)
-
-Until that exists, keep the Go API as an app-owned service folder under your Todo host’s `services/` inventory.
-
-## Boundaries
-
-- Do not put Postgres credentials in frontend code
-- Do not skip health checks on the Go API
-- Do not treat `go run` + laptop paths as a release
-- Do not bypass Lasso and start the binary by hand for the “managed service” proof — Admin start/stop is part of the exercise
-
-## Next
-
-- [Wire consumers](../service-authoring/04-wire-consumers.md)
-- [Package your app](../package-your-app.md)
-- [Service catalog](../service-catalog.md)
+Stop services through Admin and keep data. Whole-demo shutdown/recycle remains unqualified [#1665](https://github.com/service-lasso/service-lasso/issues/1665). Next: [Advanced — Add Zitadel SSO to Todo](zitadel-sso-hub.md), [wire consumers](../service-authoring/04-wire-consumers.md), or [package your app](../package-your-app.md).

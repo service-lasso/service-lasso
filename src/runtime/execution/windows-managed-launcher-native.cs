@@ -12,6 +12,11 @@ using System.Web.Script.Serialization;
 public static class ServiceLassoManagedLauncherNative
 {
     private const uint CreateSuspended = 0x00000004;
+    private const uint GenericRead = 0x80000000;
+    private const uint ShareRead = 0x00000001;
+    private const uint ShareWrite = 0x00000002;
+    private const uint OpenExisting = 3;
+    private const uint FileFlagBackupSemantics = 0x02000000;
     private const uint JobObjectLimitKillOnJobClose = 0x00002000;
     private const int JobObjectExtendedLimitInformationClass = 9;
     private const uint Infinite = 0xFFFFFFFF;
@@ -41,10 +46,21 @@ public static class ServiceLassoManagedLauncherNative
     private const int FailureExitCodeTargetFilenameTooLong = 112;
     private const int FailureExitCodeResolvedExecutableMissing = 113;
     private const int FailureExitCodeWorkingDirectoryMissing = 114;
+    private const int DirectorySyncLaunchPayloadInvalid = 120;
+    private const int DirectorySyncLaunchBindingInvalid = 121;
+    private const int DirectorySyncLaunchCreateFailed = 122;
+    private const int DirectorySyncLaunchChildFailed = 123;
     private const string ProgressPrefix = "__SERVICE_LASSO_LAUNCHER_PROGRESS__:";
     private const string PayloadEnvironmentName = "SERVICE_LASSO_MANAGED_LAUNCH_PAYLOAD";
+    private const string DirectorySyncPayloadEnvironmentName = "SERVICE_LASSO_DIRECTORY_SYNC_LAUNCH_PAYLOAD";
     private const string GateEnvironmentName = "SERVICE_LASSO_MANAGED_LAUNCH_GATE";
     private const string ProgressEnvironmentName = "SERVICE_LASSO_MANAGED_LAUNCH_PROGRESS_TOKEN";
+    // The directory-sync helper is a reviewed package-adjacent asset.  This
+    // launcher never accepts a caller-selected helper identity: the relative
+    // location, byte length, and digest are all part of this native boundary.
+    private const string DirectorySyncHelperRelativePath = "..\\operator\\windows-directory-sync-helper.exe";
+    private const string DirectorySyncHelperSha256 = "b2e1fd8fd2ff08d8fb2cbc69ca89d454da0fd3fdcb397d26bb22f2f156a79c91";
+    private const long DirectorySyncHelperByteLength = 4608;
 
     private static readonly UTF8Encoding StrictUtf8 = new UTF8Encoding(false, true);
     private static string progressToken;
@@ -87,6 +103,16 @@ public static class ServiceLassoManagedLauncherNative
         string currentDirectory,
         ref StartupInfo startupInfo,
         out ProcessInformation processInformation);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern IntPtr CreateFileW(
+        string fileName,
+        uint desiredAccess,
+        uint shareMode,
+        IntPtr securityAttributes,
+        uint creationDisposition,
+        uint flagsAndAttributes,
+        IntPtr templateFile);
 
     [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
@@ -235,25 +261,136 @@ public static class ServiceLassoManagedLauncherNative
         public int bindingIndex { get; set; }
     }
 
-    private sealed class EnvironmentOverride
+    internal sealed class EnvironmentOverride
     {
         public string name { get; set; }
         public string value { get; set; }
     }
 
+    private sealed class DirectorySyncLaunchPayload
+    {
+        public string directory { get; set; }
+    }
+
+    // Same-invocation original observations, never a durable receipt standing in
+    // for live ownership. Failed/unknown releases retain their original objects.
+    internal sealed class OriginalObservation
+    {
+        internal string Site;
+        internal int Ordinal;
+        internal IntPtr Handle;
+        internal FileStream File;
+        internal object Resource;
+        internal bool Attempted, Closed, Failed;
+        internal int NativeStatus;
+        internal Exception Exception;
+    }
+    internal sealed class ManagedInvocation
+    {
+        internal readonly List<OriginalObservation> Outcomes = new List<OriginalObservation>();
+        internal readonly List<FileStream> Files;
+        internal IntPtr Job, Process, Thread, Directory;
+        internal Exception Primary;
+        internal Exception RecordingFailure;
+        internal Exception UnrecordedException;
+        internal int PrimaryResult;
+        internal int PrimaryNativeStatus;
+        internal bool KnownPrimaryFailure;
+        // Failed governs unresolved closure/retirement/release, not an ordinary
+        // known failed initiating operation. Its original observation survives.
+        internal bool Failed;
+        internal bool ChildIssuanceUnresolved;
+        // false/no observation means not yet issued; true means pending or
+        // unavailable; false/original observation means actually observed.
+        internal bool PrimaryWaitPending;
+        internal bool PrimaryWaitFailed;
+        internal HMACSHA256 Progress;
+        internal readonly List<EnvironmentOverride> EnvironmentOwners = new List<EnvironmentOverride>();
+        internal ManagedInvocation(List<FileStream> files) { Files = files; }
+        internal void Observe(string site, int status, bool failed, Exception exception)
+        {
+            Failed |= failed;
+            try { Outcomes.Add(new OriginalObservation { Site = site, Ordinal = Outcomes.Count,
+                NativeStatus = status, Failed = failed, Exception = exception }); }
+            catch (Exception recording) { UnrecordedException = exception; RecordingFailure = recording; Failed = true; }
+        }
+        internal void ObservePrimary(string site, int status, bool failed, Exception exception)
+        {
+            try { Outcomes.Add(new OriginalObservation { Site = site, Ordinal = Outcomes.Count,
+                NativeStatus = status, Failed = failed, Exception = exception }); }
+            catch (Exception recording) { UnrecordedException = exception; RecordingFailure = recording; Failed = true; }
+        }
+        internal bool Release(ref IntPtr handle, string site, int ordinal)
+        {
+            OriginalObservation previous = Outcomes.Find(o => o.Site == site && o.Ordinal == ordinal && o.Attempted);
+            if (previous != null) return previous.Closed; // no retry, including unknown return
+            if (handle == IntPtr.Zero) return true;
+            OriginalObservation original = new OriginalObservation { Site = site, Ordinal = ordinal,
+                Handle = handle, Attempted = true };
+            Outcomes.Add(original);
+            try
+            {
+                original.Closed = CloseHandle(original.Handle);
+                original.NativeStatus = original.Closed ? 0 : Marshal.GetLastWin32Error();
+                original.Failed = !original.Closed;
+            }
+            catch (Exception failure) { original.Exception = failure; original.Failed = true; }
+            Failed |= original.Failed;
+            if (original.Closed) handle = IntPtr.Zero;
+            return original.Closed;
+        }
+        internal bool ReleaseFile(FileStream file, int ordinal)
+        {
+            OriginalObservation previous = Outcomes.Find(o => o.Site == "bound-file-release" && o.Ordinal == ordinal && o.Attempted);
+            if (previous != null) return previous.Closed;
+            OriginalObservation original = new OriginalObservation { Site = "bound-file-release", Ordinal = ordinal,
+                File = file, Attempted = true };
+            Outcomes.Add(original);
+            try { file.Dispose(); original.Closed = true; }
+            catch (Exception failure) { original.Exception = failure; original.Failed = true; }
+            Failed |= original.Failed;
+            return original.Closed;
+        }
+    }
+    internal static void RetainManagedInvocation(ManagedInvocation owner)
+    {
+        for (;;)
+        {
+            try { Thread.Sleep(Timeout.Infinite); }
+            catch (Exception failure) { owner.Observe("retention-interrupted", 0, true, failure); }
+            GC.KeepAlive(owner);
+        }
+    }
+
     public static int Main()
+    {
+        // Check this before either launch mode consumes a payload.  The
+        // JavaScript caller also removes these names, so the trusted loader
+        // environment has both an inheritance and a native fail-closed guard.
+        try { AssertBootstrapEnvironmentSanitized(); }
+        catch { return FailureExitCodeUnknown; }
+        string directorySyncPayload = Environment.GetEnvironmentVariable(DirectorySyncPayloadEnvironmentName, EnvironmentVariableTarget.Process);
+        if (!String.IsNullOrWhiteSpace(directorySyncPayload))
+        {
+            return RunDirectorySyncLaunch(directorySyncPayload);
+        }
+        return RunManagedInvocation(new ManagedInvocation(new List<FileStream>()));
+    }
+
+    // The actual managed Main route, with the same invocation available to an
+    // independently admitted fixture owner rather than a global inspection slot.
+    internal static int RunManagedInvocation(ManagedInvocation invocation)
     {
         IntPtr jobHandle = IntPtr.Zero;
         IntPtr processHandle = IntPtr.Zero;
         IntPtr threadHandle = IntPtr.Zero;
         bool targetAssignedToJob = false;
-        List<FileStream> boundFiles = new List<FileStream>();
+        List<FileStream> boundFiles = invocation.Files;
         int failureExitCode = FailureExitCodeUnknown;
 
         try
         {
             ValidateNativeLayouts();
-            AssertBootstrapEnvironmentSanitized();
             InitializeProgress();
             SetProgress("launcher_initialization");
             SetProgress("launcher_native_asset_validation");
@@ -267,31 +404,69 @@ public static class ServiceLassoManagedLauncherNative
                 String.IsNullOrWhiteSpace(gatePath) ||
                 !IsFullyQualifiedWindowsPath(gatePath))
             {
+                SetProgress("launcher_payload_validation", "launch_evidence");
                 throw new InvalidOperationException("Managed launch evidence was missing.");
             }
 
-            byte[] payloadBytes = Convert.FromBase64String(encodedPayload);
+            byte[] payloadBytes;
+            try
+            {
+                payloadBytes = Convert.FromBase64String(encodedPayload);
+            }
+            catch
+            {
+                SetProgress("launcher_payload_validation", "canonical_encoding");
+                throw;
+            }
             string payloadJson;
             try
             {
                 if (!String.Equals(Convert.ToBase64String(payloadBytes), encodedPayload, StringComparison.Ordinal))
                 {
+                    SetProgress("launcher_payload_validation", "canonical_encoding");
                     throw new InvalidOperationException("Managed launch payload encoding was invalid.");
                 }
-                payloadJson = StrictUtf8.GetString(payloadBytes);
+                try
+                {
+                    payloadJson = StrictUtf8.GetString(payloadBytes);
+                }
+                catch
+                {
+                    SetProgress("launcher_payload_validation", "strict_utf8");
+                    throw;
+                }
             }
             finally
             {
                 Array.Clear(payloadBytes, 0, payloadBytes.Length);
             }
-            LaunchPayload payload = ParseLaunchPayload(payloadJson);
-            ValidatePayload(payload);
-            ClearLaunchEnvironment();
+            LaunchPayload payload;
+            try
+            {
+                payload = ParseLaunchPayload(payloadJson);
+            }
+            catch
+            {
+                SetProgress("launcher_payload_validation", "json_or_schema");
+                throw;
+            }
+            try
+            {
+                ValidatePayload(payload);
+            }
+            catch
+            {
+                SetProgress("launcher_payload_validation", "semantic_payload");
+                throw;
+            }
+            ClearLaunchEnvironment(invocation);
+            if (invocation.Failed) ThrowOriginalRetirementFailure(invocation);
 
             SetProgress("launcher_gate_observation");
             WaitForGate(gatePath, payload.releaseToken, TimeSpan.FromSeconds(45));
 
             string[] boundFilePaths = new string[payload.approvedFiles.Length];
+            boundFiles.Capacity = checked(boundFiles.Count + payload.approvedFiles.Length);
             for (int index = 0; index < payload.approvedFiles.Length; index += 1)
             {
                 ApprovedFile approvedFile = payload.approvedFiles[index];
@@ -360,7 +535,8 @@ public static class ServiceLassoManagedLauncherNative
             }
 
             SetProgress("launcher_binding_publication");
-            RetireProgress();
+            RetireProgress(invocation);
+            if (invocation.Failed) ThrowOriginalRetirementFailure(invocation);
             File.WriteAllText(payload.filesBoundPath, payload.filesBoundToken, StrictUtf8);
             WaitForGate(payload.continuePath, payload.continueToken, TimeSpan.FromSeconds(45));
 
@@ -394,9 +570,10 @@ public static class ServiceLassoManagedLauncherNative
                 failureExitCode = FailureExitCodeWorkingDirectoryMissing;
                 throw new InvalidOperationException("Managed target working directory disappeared before creation.");
             }
-            ApplyTargetEnvironmentOverrides(payload.targetEnvironmentOverrides);
+            ApplyTargetEnvironmentOverrides(payload.targetEnvironmentOverrides, invocation);
             try
             {
+                invocation.ChildIssuanceUnresolved = true;
                 targetCreated = CreateProcessW(
                     resolvedExecutable,
                     commandLine,
@@ -412,25 +589,42 @@ public static class ServiceLassoManagedLauncherNative
                 {
                     targetCreationError = Marshal.GetLastWin32Error();
                     failureExitCode = TargetCreationFailureExitCode(targetCreationError);
+                    invocation.PrimaryNativeStatus = targetCreationError;
+                    invocation.PrimaryResult = failureExitCode;
+                    invocation.KnownPrimaryFailure = true;
+                    invocation.ChildIssuanceUnresolved = false;
+                    Win32Exception original = new Win32Exception(targetCreationError, "Managed target creation failed.");
+                    invocation.Primary = original;
+                    invocation.ObservePrimary("target-original-create", targetCreationError, true, original);
+                    throw original;
                 }
                 if (targetCreated)
                 {
                     processHandle = processInformation.hProcess;
                     threadHandle = processInformation.hThread;
+                    invocation.Observe("target-original-create", 0, false, null);
                 }
+            }
+            catch (Exception original)
+            {
+                if (!invocation.KnownPrimaryFailure && invocation.Primary == null)
+                {
+                    invocation.Primary = original;
+                    invocation.Observe("target-original-create-throw", 0, true, original);
+                }
+                throw;
             }
             finally
             {
-                ClearTargetEnvironmentOverrides(payload.targetEnvironmentOverrides);
-            }
-            if (!targetCreated)
-            {
-                throw new Win32Exception(targetCreationError, "Managed target creation failed.");
+                try { ClearTargetEnvironmentOverrides(payload.targetEnvironmentOverrides, invocation, payload.targetEnvironmentOverrides.Length); }
+                catch (Exception later) { invocation.Observe("target-environment-retirement-unknown-return", 0, true, later); }
             }
             if (processHandle == IntPtr.Zero || threadHandle == IntPtr.Zero || processInformation.dwProcessId == 0)
             {
                 throw new InvalidOperationException("Managed target process evidence was invalid.");
             }
+            invocation.ChildIssuanceUnresolved = false;
+            if (invocation.Failed) ThrowOriginalRetirementFailure(invocation);
             failureExitCode = FailureExitCodeJobAssignment;
             if (!AssignProcessToJobObject(jobHandle, processHandle))
             {
@@ -447,65 +641,88 @@ public static class ServiceLassoManagedLauncherNative
                 Thread.Sleep(payload.postResumeDelayMilliseconds);
             }
             failureExitCode = FailureExitCodeTargetThreadClose;
-            if (!CloseHandle(threadHandle))
+            if (!invocation.Release(ref threadHandle, "target-thread-release", 0))
             {
-                throw new Win32Exception(Marshal.GetLastWin32Error(), "Managed target thread handle close failed.");
+                OriginalObservation original = invocation.Outcomes.Find(o => o.Site == "target-thread-release" && o.Attempted);
+                if (original.Exception != null) throw original.Exception;
+                throw new Win32Exception(original.NativeStatus, "Managed target thread handle close failed.");
             }
-            threadHandle = IntPtr.Zero;
             failureExitCode = FailureExitCodeAcknowledgmentWrite;
             string acknowledgment = "{\"token\":\"" + payload.ackToken + "\",\"pid\":" +
                 processInformation.dwProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture) + "}";
             File.WriteAllText(payload.ackPath, acknowledgment, StrictUtf8);
 
-            if (WaitForSingleObject(processHandle, Infinite) != WaitObject0)
+            invocation.PrimaryWaitPending = true;
+            uint targetWait = WaitForSingleObject(processHandle, Infinite);
+            int targetWaitError = targetWait == UInt32.MaxValue ? Marshal.GetLastWin32Error() : unchecked((int)targetWait);
+            invocation.PrimaryWaitFailed = targetWait != WaitObject0;
+            invocation.Observe("target-primary-wait", targetWaitError, targetWait != WaitObject0, null);
+            invocation.PrimaryWaitPending = false;
+            if (targetWait != WaitObject0)
             {
-                throw new InvalidOperationException("Managed target wait failed.");
+                throw new Win32Exception(targetWaitError, "Managed target wait failed.");
             }
             uint exitCode;
             if (!GetExitCodeProcess(processHandle, out exitCode))
             {
-                throw new Win32Exception(Marshal.GetLastWin32Error(), "Managed target exit-code query failed.");
+                int targetExitError = Marshal.GetLastWin32Error();
+                invocation.PrimaryNativeStatus = targetExitError;
+                invocation.PrimaryResult = failureExitCode;
+                invocation.KnownPrimaryFailure = true;
+                Win32Exception original = new Win32Exception(targetExitError, "Managed target exit-code query failed.");
+                invocation.Primary = original;
+                throw original;
             }
-            return unchecked((int)exitCode);
+            invocation.PrimaryResult = unchecked((int)exitCode);
+            return invocation.PrimaryResult;
         }
-        catch
+        catch (Exception primary)
         {
-            return failureExitCode;
+            if (!invocation.KnownPrimaryFailure && invocation.Primary == null) invocation.Primary = primary;
+            if (!invocation.KnownPrimaryFailure) invocation.PrimaryResult = failureExitCode;
+            if (invocation.KnownPrimaryFailure && invocation.Primary != primary) invocation.RecordingFailure = primary;
+            if (invocation.PrimaryWaitPending)
+                invocation.Observe("target-primary-wait-unavailable", 0, true, primary);
+            return invocation.PrimaryResult;
         }
         finally
         {
             try
             {
-                ClearLaunchEnvironment();
+                ClearLaunchEnvironment(invocation);
             }
-            catch
+            catch (Exception failure)
             {
-                // Cleanup continues through handle closure even if environment retirement fails.
+                invocation.Observe("launch-environment-retirement", 0, true, failure);
             }
-            RetireProgress();
-            if (threadHandle != IntPtr.Zero)
+            try { RetireProgress(invocation); }
+            catch (Exception failure) { invocation.Observe("progress-retirement", 0, true, failure); }
+            invocation.Job = jobHandle; invocation.Process = processHandle; invocation.Thread = threadHandle;
+            // Retain on unknown child closure before any file release. Once actual
+            // closure is known, a failed original release does not hide later safe ones.
+            try { ContainManagedJobBeforeFileRelease(ref jobHandle, processHandle, targetAssignedToJob, invocation); }
+            catch (Exception failure)
             {
-                CloseHandle(threadHandle);
-                threadHandle = IntPtr.Zero;
+                invocation.Observe("managed-containment-unknown-return", 0, true, failure);
+                RetainManagedInvocation(invocation);
             }
-            ContainManagedJobBeforeFileRelease(ref jobHandle, processHandle, targetAssignedToJob);
-            if (processHandle != IntPtr.Zero)
-            {
-                CloseHandle(processHandle);
-                processHandle = IntPtr.Zero;
-            }
-            foreach (FileStream boundFile in boundFiles)
-            {
-                try
-                {
-                    boundFile.Dispose();
-                }
-                catch
-                {
-                    // Handle and Job cleanup remain authoritative.
-                }
-            }
+            FinishManagedReleases(invocation, ref threadHandle, ref processHandle);
         }
+    }
+
+    // Caller establishes genuine original child/job closure before this seam.
+    internal static void FinishManagedReleases(ManagedInvocation invocation, ref IntPtr thread, ref IntPtr process)
+    {
+        try { invocation.Release(ref thread, "target-thread-release", 0); }
+        catch (Exception recording) { invocation.RecordingFailure = recording; invocation.Failed = true; }
+        try { invocation.Release(ref process, "target-process-release", 0); }
+        catch (Exception recording) { invocation.RecordingFailure = recording; invocation.Failed = true; }
+        for (int ordinal = 0; ordinal < invocation.Files.Count; ordinal++)
+        {
+            try { invocation.ReleaseFile(invocation.Files[ordinal], ordinal); }
+            catch (Exception recording) { invocation.RecordingFailure = recording; invocation.Failed = true; }
+        }
+        if (invocation.Failed) RetainManagedInvocation(invocation);
     }
 
     private static int TargetCreationFailureExitCode(int errorCode)
@@ -1144,61 +1361,99 @@ public static class ServiceLassoManagedLauncherNative
         }
     }
 
-    private static void ApplyTargetEnvironmentOverrides(EnvironmentOverride[] environmentOverrides)
+    internal static void ApplyTargetEnvironmentOverrides(EnvironmentOverride[] environmentOverrides, ManagedInvocation invocation)
     {
         int appliedCount = 0;
         try
         {
             foreach (EnvironmentOverride environmentOverride in environmentOverrides)
             {
+                invocation.EnvironmentOwners.Add(environmentOverride);
                 Environment.SetEnvironmentVariable(
                     environmentOverride.name,
                     environmentOverride.value,
                     EnvironmentVariableTarget.Process);
                 appliedCount += 1;
+                try { invocation.Outcomes.Add(new OriginalObservation { Site = "target-environment-apply", Ordinal = appliedCount - 1,
+                    Resource = environmentOverride, Attempted = true, Closed = true }); }
+                catch (Exception recording) { invocation.RecordingFailure = recording; invocation.Failed = true; }
             }
         }
-        catch
+        catch (Exception primary)
         {
-            for (int index = 0; index < appliedCount; index += 1)
-            {
-                try
-                {
-                    Environment.SetEnvironmentVariable(
-                        environmentOverrides[index].name,
-                        null,
-                        EnvironmentVariableTarget.Process);
-                }
-                catch
-                {
-                    // The launch remains failed closed; outer Job cleanup is authoritative.
-                }
-            }
+            invocation.Primary = primary;
+            try { invocation.Outcomes.Add(new OriginalObservation { Site = "target-environment-apply", Ordinal = appliedCount,
+                Resource = environmentOverrides[appliedCount], Attempted = true, Failed = true, Exception = primary }); }
+            catch (Exception recording) { invocation.RecordingFailure = recording; invocation.Failed = true; }
+            // Include the attempted original name even when its application
+            // outcome is unknown. Each safe rollback has its own disposition.
+            try { ClearTargetEnvironmentOverrides(environmentOverrides, invocation, appliedCount + 1); }
+            catch (Exception later) { invocation.Observe("target-environment-rollback-unknown-return", 0, true, later); }
             throw;
         }
     }
 
-    private static void ClearTargetEnvironmentOverrides(EnvironmentOverride[] environmentOverrides)
+    internal static void ClearTargetEnvironmentOverrides(EnvironmentOverride[] environmentOverrides, ManagedInvocation invocation, int count)
     {
-        List<Exception> failures = new List<Exception>();
-        foreach (EnvironmentOverride environmentOverride in environmentOverrides)
+        for (int index = 0; index < count; index++)
         {
-            try
-            {
-                Environment.SetEnvironmentVariable(
-                    environmentOverride.name,
-                    null,
-                    EnvironmentVariableTarget.Process);
-            }
-            catch (Exception error)
-            {
-                failures.Add(error);
-            }
+            EnvironmentOverride environmentOverride = environmentOverrides[index];
+            try { RetireEnvironmentName(invocation, environmentOverride.name, environmentOverride, "target-environment-clear", index); }
+            catch (Exception recording) { invocation.RecordingFailure = recording; invocation.Failed = true; }
         }
-        if (failures.Count > 0)
+    }
+
+    private static void RetireEnvironmentName(ManagedInvocation invocation, string name, object resource, string site, int ordinal)
+    {
+        if (invocation.Outcomes.Exists(o => o.Site == site && o.Ordinal == ordinal && o.Attempted)) return;
+        OriginalObservation original = new OriginalObservation { Site = site, Ordinal = ordinal, Resource = resource, Attempted = true };
+        invocation.Outcomes.Add(original);
+        try
         {
-            throw new AggregateException("Managed target environment cleanup failed.", failures);
+            Environment.SetEnvironmentVariable(name, null, EnvironmentVariableTarget.Process);
+            original.Closed = true;
         }
+        catch (Exception failure)
+        {
+            original.Exception = failure; original.Failed = true; invocation.Failed = true;
+        }
+    }
+
+    internal static void RetireProgress(ManagedInvocation invocation)
+    {
+        progressToken = null;
+        RetireProgressOwned(invocation, ref progressHmac);
+    }
+    internal static void RetireProgressOwned(ManagedInvocation invocation, ref HMACSHA256 originalHmac)
+    {
+        if (invocation.Outcomes.Exists(o => o.Site == "progress-retirement" && o.Attempted)) return;
+        if (originalHmac == null) return;
+        invocation.Progress = originalHmac;
+        OriginalObservation original = new OriginalObservation { Site = "progress-retirement", Ordinal = 0,
+            Resource = originalHmac, Attempted = true };
+        invocation.Outcomes.Add(original);
+        try { invocation.Progress.Dispose(); original.Closed = true; originalHmac = null; }
+        catch (Exception failure)
+        {
+            original.Exception = failure; original.Failed = true; invocation.Failed = true;
+        }
+    }
+
+    private static void ClearLaunchEnvironment(ManagedInvocation invocation)
+    {
+        string[] names = { PayloadEnvironmentName, GateEnvironmentName, ProgressEnvironmentName };
+        for (int index = 0; index < names.Length; index++)
+        {
+            try { RetireEnvironmentName(invocation, names[index], names[index], "launch-environment-clear", index); }
+            catch (Exception recording) { invocation.RecordingFailure = recording; invocation.Failed = true; }
+        }
+    }
+
+    private static void ThrowOriginalRetirementFailure(ManagedInvocation invocation)
+    {
+        OriginalObservation original = invocation.Outcomes.Find(o => o.Failed && o.Exception != null);
+        if (original != null) throw original.Exception;
+        throw new InvalidOperationException("Managed original retirement failed.");
     }
 
     private static string BoundPathAt(string[] boundFilePaths, int index)
@@ -1237,23 +1492,32 @@ public static class ServiceLassoManagedLauncherNative
     private static void ContainManagedJobBeforeFileRelease(
         ref IntPtr jobHandle,
         IntPtr processHandle,
-        bool targetAssignedToJob)
+        bool targetAssignedToJob,
+        ManagedInvocation invocation)
     {
+        // An unavailable create return or malformed issued child cannot become
+        // no child merely because a local handle is zero. A failed original wait
+        // cannot be retried by containment and then laundered into closure.
+        if (invocation.ChildIssuanceUnresolved || invocation.Outcomes.Exists(o => o.Site == "target-primary-wait" && o.Failed) || invocation.PrimaryWaitFailed || invocation.PrimaryWaitPending)
+            RetainManagedInvocation(invocation);
         if (!targetAssignedToJob && processHandle != IntPtr.Zero)
         {
-            if (!TerminateProcess(processHandle, 1) || WaitForSingleObject(processHandle, Infinite) != WaitObject0)
-            {
-                FailClosedWithLaunchFilesHeld();
-            }
+            bool terminated = TerminateProcess(processHandle, 1);
+            int terminateError = terminated ? 0 : Marshal.GetLastWin32Error();
+            invocation.Observe("unassigned-process-terminate", terminateError, !terminated, null);
+            uint waited = WaitForSingleObject(processHandle, Infinite);
+            int waitError = waited == UInt32.MaxValue ? Marshal.GetLastWin32Error() : unchecked((int)waited);
+            invocation.Observe("unassigned-process-wait", waitError, waited != WaitObject0, null);
+            if (!terminated || waited != WaitObject0) RetainManagedInvocation(invocation);
         }
         if (jobHandle == IntPtr.Zero)
         {
             return;
         }
-        if (!TerminateJobObject(jobHandle, 1))
-        {
-            FailClosedWithLaunchFilesHeld();
-        }
+        bool jobTerminated = TerminateJobObject(jobHandle, 1);
+        int jobError = jobTerminated ? 0 : Marshal.GetLastWin32Error();
+        invocation.Observe("managed-job-terminate", jobError, !jobTerminated, null);
+        if (!jobTerminated) RetainManagedInvocation(invocation);
         while (true)
         {
             JobObjectBasicAccountingInformation accounting;
@@ -1264,7 +1528,9 @@ public static class ServiceLassoManagedLauncherNative
                 (uint)Marshal.SizeOf(typeof(JobObjectBasicAccountingInformation)),
                 IntPtr.Zero))
             {
-                FailClosedWithLaunchFilesHeld();
+                int accountingError = Marshal.GetLastWin32Error();
+                invocation.Observe("managed-job-accounting", accountingError, true, null);
+                RetainManagedInvocation(invocation);
             }
             if (accounting.ActiveProcesses == 0)
             {
@@ -1272,15 +1538,15 @@ public static class ServiceLassoManagedLauncherNative
             }
             Thread.Sleep(10);
         }
-        if (processHandle != IntPtr.Zero && WaitForSingleObject(processHandle, Infinite) != WaitObject0)
+        if (processHandle != IntPtr.Zero)
         {
-            FailClosedWithLaunchFilesHeld();
+            uint waited = WaitForSingleObject(processHandle, Infinite);
+            int waitError = waited == UInt32.MaxValue ? Marshal.GetLastWin32Error() : unchecked((int)waited);
+            invocation.Observe("managed-process-wait", waitError, waited != WaitObject0, null);
+            if (waited != WaitObject0) RetainManagedInvocation(invocation);
         }
-        if (!CloseHandle(jobHandle))
-        {
-            FailClosedWithLaunchFilesHeld();
-        }
-        jobHandle = IntPtr.Zero;
+        try { invocation.Release(ref jobHandle, "managed-job-release", 0); }
+        catch (Exception recording) { invocation.RecordingFailure = recording; invocation.Failed = true; }
     }
 
     private static void FailClosedWithLaunchFilesHeld()
@@ -1388,6 +1654,219 @@ public static class ServiceLassoManagedLauncherNative
         return false;
     }
 
+    // The reviewed native launcher holds the exact helper image and target
+    // directory without write/delete sharing while it creates and waits for
+    // the helper. CreateProcess receives final paths obtained from those held
+    // handles, so a replacement or reparse race cannot exchange verified
+    // bytes for a different executable.
+    private static int RunDirectorySyncLaunch(string encodedPayload)
+    {
+        FileStream helperHandle = null;
+        IntPtr directoryHandle = IntPtr.Zero;
+        IntPtr childProcess = IntPtr.Zero;
+        IntPtr childThread = IntPtr.Zero;
+        ManagedInvocation invocation = new ManagedInvocation(new List<FileStream>());
+        bool childClosed = false;
+        try
+        {
+            byte[] payloadBytes = Convert.FromBase64String(encodedPayload);
+            string payloadJson;
+            try
+            {
+                if (!String.Equals(Convert.ToBase64String(payloadBytes), encodedPayload, StringComparison.Ordinal)) return DirectorySyncLaunchPayloadInvalid;
+                payloadJson = StrictUtf8.GetString(payloadBytes);
+            }
+            finally { Array.Clear(payloadBytes, 0, payloadBytes.Length); }
+            DirectorySyncLaunchPayload payload = ParseDirectorySyncLaunchPayload(payloadJson);
+            if (payload == null || !IsFullyQualifiedWindowsPath(payload.directory)) return DirectorySyncLaunchPayloadInvalid;
+
+            string requestedHelper = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(typeof(ServiceLassoManagedLauncherNative).Assembly.Location), DirectorySyncHelperRelativePath));
+            string requestedDirectory = Path.GetFullPath(payload.directory);
+            if ((File.GetAttributes(requestedHelper) & FileAttributes.ReparsePoint) != 0) return DirectorySyncLaunchBindingInvalid;
+            invocation.Files.Capacity = 1;
+            helperHandle = new FileStream(requestedHelper, FileMode.Open, FileAccess.Read, FileShare.Read);
+            invocation.Files.Add(helperHandle);
+            if (helperHandle.Length != DirectorySyncHelperByteLength) return DirectorySyncLaunchBindingInvalid;
+            string helperDigest;
+            using (SHA256 sha256 = SHA256.Create()) { helperDigest = ToLowerHex(sha256.ComputeHash(helperHandle)); }
+            if (!String.Equals(helperDigest, DirectorySyncHelperSha256, StringComparison.Ordinal)) return DirectorySyncLaunchBindingInvalid;
+            string helperFinalPath = FinalPathForHandle(helperHandle.SafeFileHandle.DangerousGetHandle());
+            if (!SameWindowsPath(helperFinalPath, requestedHelper)) return DirectorySyncLaunchBindingInvalid;
+
+            directoryHandle = CreateFileW(requestedDirectory, GenericRead, ShareRead | ShareWrite, IntPtr.Zero, OpenExisting, FileFlagBackupSemantics, IntPtr.Zero);
+            if (directoryHandle == new IntPtr(-1)) { directoryHandle = IntPtr.Zero; return DirectorySyncLaunchBindingInvalid; }
+            string directoryFinalPath = FinalPathForHandle(directoryHandle);
+            if (!SameWindowsPath(directoryFinalPath, requestedDirectory)) return DirectorySyncLaunchBindingInvalid;
+
+            WaitForDirectorySyncTestGate();
+
+            StartupInfo startupInfo = new StartupInfo();
+            startupInfo.cb = Marshal.SizeOf(typeof(StartupInfo));
+            ProcessInformation processInformation;
+            StringBuilder commandLine = new StringBuilder(BuildCommandLine(helperFinalPath, new[] { directoryFinalPath }));
+            invocation.ChildIssuanceUnresolved = true;
+            bool childCreated = CreateProcessW(helperFinalPath, commandLine, IntPtr.Zero, IntPtr.Zero, false, 0, IntPtr.Zero, null, ref startupInfo, out processInformation);
+            if (!childCreated)
+            {
+                int createError = Marshal.GetLastWin32Error();
+                invocation.PrimaryNativeStatus = createError;
+                invocation.PrimaryResult = DirectorySyncLaunchCreateFailed;
+                invocation.KnownPrimaryFailure = true;
+                invocation.ChildIssuanceUnresolved = false;
+                Win32Exception original = new Win32Exception(createError, "Directory sync child creation failed.");
+                invocation.Primary = original;
+                invocation.ObservePrimary("directory-sync-child-create", createError, true, original);
+                return DirectorySyncLaunchCreateFailed;
+            }
+            childProcess = processInformation.hProcess;
+            childThread = processInformation.hThread;
+            invocation.ObservePrimary("directory-sync-child-create", 0, false, null);
+            if (childProcess == IntPtr.Zero || childThread == IntPtr.Zero || processInformation.dwProcessId == 0)
+                throw new InvalidOperationException("Directory sync child process evidence was invalid.");
+            invocation.ChildIssuanceUnresolved = false;
+            childClosed = ObserveDirectorySyncChildWait(invocation, childProcess);
+            if (!childClosed) { invocation.PrimaryResult = DirectorySyncLaunchChildFailed; return DirectorySyncLaunchChildFailed; }
+            uint exitCode;
+            bool exitKnown = ObserveDirectorySyncChildExit(invocation, childProcess, out exitCode);
+            if (!exitKnown || exitCode != 0) { invocation.PrimaryResult = DirectorySyncLaunchChildFailed; return DirectorySyncLaunchChildFailed; }
+            invocation.PrimaryResult = 0;
+            return 0;
+        }
+        catch (Exception primary)
+        {
+            if (!invocation.KnownPrimaryFailure && invocation.Primary == null) invocation.Primary = primary;
+            if (!invocation.KnownPrimaryFailure) invocation.PrimaryResult = DirectorySyncLaunchBindingInvalid;
+            if (invocation.KnownPrimaryFailure && invocation.Primary != primary) invocation.RecordingFailure = primary;
+            return invocation.PrimaryResult;
+        }
+        finally
+        {
+            invocation.Process = childProcess; invocation.Thread = childThread; invocation.Directory = directoryHandle;
+            FinishDirectorySyncInvocation(invocation, childClosed, ref childThread, ref childProcess, ref directoryHandle);
+        }
+    }
+
+    internal static bool ObserveDirectorySyncChildWait(ManagedInvocation invocation, IntPtr childProcess)
+    {
+        uint waited = WaitForSingleObject(childProcess, Infinite);
+        int status = waited == UInt32.MaxValue ? Marshal.GetLastWin32Error() : unchecked((int)waited);
+        invocation.Observe("directory-sync-child-wait", status, waited != WaitObject0, null);
+        return waited == WaitObject0;
+    }
+    internal static bool ObserveDirectorySyncChildExit(ManagedInvocation invocation, IntPtr childProcess, out uint exitCode)
+    {
+        bool exitKnown = GetExitCodeProcess(childProcess, out exitCode);
+        int exitError = exitKnown ? 0 : Marshal.GetLastWin32Error();
+        if (!exitKnown)
+        {
+            invocation.PrimaryNativeStatus = exitError;
+            invocation.PrimaryResult = DirectorySyncLaunchChildFailed;
+            invocation.KnownPrimaryFailure = true;
+        }
+        Win32Exception original = exitKnown ? null : new Win32Exception(exitError, "Directory sync child exit-code query failed.");
+        if (!exitKnown) invocation.Primary = original;
+        invocation.ObservePrimary("directory-sync-child-exit-query", exitError, !exitKnown, original);
+        return exitKnown;
+    }
+    internal static void FinishDirectorySyncInvocation(ManagedInvocation invocation, bool childClosed,
+        ref IntPtr childThread, ref IntPtr childProcess, ref IntPtr directory)
+    {
+        // Failed/unknown original wait is not child closure. Hold all original
+        // inputs and handles on this same live stack; no wait/kill retry.
+        if (invocation.ChildIssuanceUnresolved || (childProcess != IntPtr.Zero && !childClosed)) RetainManagedInvocation(invocation);
+        try { invocation.Release(ref childThread, "directory-sync-thread-release", 0); }
+        catch (Exception recording) { invocation.RecordingFailure = recording; invocation.Failed = true; }
+        try { invocation.Release(ref childProcess, "directory-sync-process-release", 0); }
+        catch (Exception recording) { invocation.RecordingFailure = recording; invocation.Failed = true; }
+        try { invocation.Release(ref directory, "directory-sync-directory-release", 0); }
+        catch (Exception recording) { invocation.RecordingFailure = recording; invocation.Failed = true; }
+        for (int ordinal = 0; ordinal < invocation.Files.Count; ordinal++)
+        {
+            try { invocation.ReleaseFile(invocation.Files[ordinal], ordinal); }
+            catch (Exception recording) { invocation.RecordingFailure = recording; invocation.Failed = true; }
+        }
+        if (invocation.Failed) RetainManagedInvocation(invocation);
+    }
+
+    private static DirectorySyncLaunchPayload ParseDirectorySyncLaunchPayload(string payloadJson)
+    {
+        // Validate before JavaScriptSerializer so duplicate escaped keys never
+        // collapse into a trusted value.  The byte-for-byte reconstruction
+        // rejects whitespace, reordered members, escaped member names, and
+        // alternate string spellings before any helper handle is opened.
+        ValidateStrictJsonSyntax(payloadJson);
+        IDictionary<string, object> root = RequireObject(new JavaScriptSerializer().DeserializeObject(payloadJson), "directory sync payload");
+        RequireExactKeys(root, new string[] { "directory" }, "directory sync payload");
+        string directory = RequireString(root["directory"], "directory sync directory", false);
+        string canonical = "{\"directory\":" + CanonicalJsonString(directory) + "}";
+        if (!String.Equals(payloadJson, canonical, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("Directory sync payload was not canonical.");
+        }
+        return new DirectorySyncLaunchPayload { directory = directory };
+    }
+
+    private static string CanonicalJsonString(string value)
+    {
+        StringBuilder result = new StringBuilder();
+        result.Append('"');
+        foreach (char character in value)
+        {
+            switch (character)
+            {
+                case '"': result.Append("\\\""); break;
+                case '\\': result.Append("\\\\"); break;
+                case '\b': result.Append("\\b"); break;
+                case '\f': result.Append("\\f"); break;
+                case '\n': result.Append("\\n"); break;
+                case '\r': result.Append("\\r"); break;
+                case '\t': result.Append("\\t"); break;
+                default:
+                    if (character < 0x20) result.Append("\\u").Append(((int)character).ToString("x4"));
+                    else result.Append(character);
+                    break;
+            }
+        }
+        result.Append('"');
+        return result.ToString();
+    }
+
+    private static string FinalPathForHandle(IntPtr handle)
+    {
+        StringBuilder buffer = new StringBuilder(32768);
+        uint length = GetFinalPathNameByHandleW(handle, buffer, (uint)buffer.Capacity, 0);
+        if (length == 0 || length >= buffer.Capacity) throw new Win32Exception(Marshal.GetLastWin32Error(), "Final path query failed.");
+        return NormalizeFinalPath(buffer.ToString());
+    }
+
+    private static bool SameWindowsPath(string left, string right)
+    {
+        return String.Equals(Path.GetFullPath(left).TrimEnd('\\'), Path.GetFullPath(right).TrimEnd('\\'), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void WaitForDirectorySyncTestGate()
+    {
+        if (!String.Equals(Environment.GetEnvironmentVariable("SERVICE_LASSO_ENABLE_TEST_HOOKS"), "1", StringComparison.Ordinal)) return;
+        string readyPath = Environment.GetEnvironmentVariable("SERVICE_LASSO_DIRECTORY_SYNC_TEST_READY_PATH");
+        string continuePath = Environment.GetEnvironmentVariable("SERVICE_LASSO_DIRECTORY_SYNC_TEST_CONTINUE_PATH");
+        string token = Environment.GetEnvironmentVariable("SERVICE_LASSO_DIRECTORY_SYNC_TEST_TOKEN");
+        if (String.IsNullOrWhiteSpace(readyPath) && String.IsNullOrWhiteSpace(continuePath) && String.IsNullOrWhiteSpace(token)) return;
+        if (!IsFullyQualifiedWindowsPath(readyPath) || !IsFullyQualifiedWindowsPath(continuePath) || !IsLowerHex64(token)) throw new InvalidOperationException("Directory-sync test gate was invalid.");
+        File.WriteAllText(readyPath, token, StrictUtf8);
+        DateTime deadline = DateTime.UtcNow.AddSeconds(5);
+        while (DateTime.UtcNow < deadline)
+        {
+            try
+            {
+                if (String.Equals(File.ReadAllText(continuePath, StrictUtf8), token, StringComparison.Ordinal)) return;
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+            Thread.Sleep(10);
+        }
+        throw new InvalidOperationException("Directory-sync test gate did not release.");
+    }
+
     private static string NormalizeFinalPath(string value)
     {
         if (value.StartsWith(@"\\?\UNC\", StringComparison.OrdinalIgnoreCase))
@@ -1424,15 +1903,19 @@ public static class ServiceLassoManagedLauncherNative
         }
     }
 
-    private static void SetProgress(string phase)
+    private static void SetProgress(string phase, string payloadFailureBoundary = null)
     {
         try
         {
-            if (progressHmac == null || !IsProgressPhase(phase))
+            if (progressHmac == null || !IsProgressPhase(phase) ||
+                (payloadFailureBoundary != null &&
+                 (!String.Equals(phase, "launcher_payload_validation", StringComparison.Ordinal) ||
+                  !IsPayloadFailureBoundary(payloadFailureBoundary))))
             {
                 return;
             }
-            byte[] phaseBytes = StrictUtf8.GetBytes(phase);
+            string authenticatedRecord = payloadFailureBoundary == null ? phase : phase + ":" + payloadFailureBoundary;
+            byte[] phaseBytes = StrictUtf8.GetBytes(authenticatedRecord);
             byte[] digest;
             try
             {
@@ -1444,7 +1927,7 @@ public static class ServiceLassoManagedLauncherNative
             }
             try
             {
-                Console.Error.WriteLine(ProgressPrefix + phase + ":" + ToLowerHex(digest));
+                Console.Error.WriteLine(ProgressPrefix + authenticatedRecord + ":" + ToLowerHex(digest));
             }
             finally
             {
@@ -1457,32 +1940,6 @@ public static class ServiceLassoManagedLauncherNative
         }
     }
 
-    private static void RetireProgress()
-    {
-        progressToken = null;
-        try
-        {
-            if (progressHmac != null)
-            {
-                progressHmac.Dispose();
-            }
-        }
-        catch
-        {
-            // Diagnostic cleanup cannot change launch or containment behavior.
-        }
-        finally
-        {
-            progressHmac = null;
-        }
-    }
-
-    private static void ClearLaunchEnvironment()
-    {
-        Environment.SetEnvironmentVariable(PayloadEnvironmentName, null, EnvironmentVariableTarget.Process);
-        Environment.SetEnvironmentVariable(GateEnvironmentName, null, EnvironmentVariableTarget.Process);
-        Environment.SetEnvironmentVariable(ProgressEnvironmentName, null, EnvironmentVariableTarget.Process);
-    }
 
     private static bool IsProgressPhase(string phase)
     {
@@ -1495,6 +1952,16 @@ public static class ServiceLassoManagedLauncherNative
             String.Equals(phase, "launcher_file_hash", StringComparison.Ordinal) ||
             String.Equals(phase, "launcher_file_final_path", StringComparison.Ordinal) ||
             String.Equals(phase, "launcher_binding_publication", StringComparison.Ordinal);
+    }
+
+    private static bool IsPayloadFailureBoundary(string boundary)
+    {
+        return
+            String.Equals(boundary, "launch_evidence", StringComparison.Ordinal) ||
+            String.Equals(boundary, "canonical_encoding", StringComparison.Ordinal) ||
+            String.Equals(boundary, "strict_utf8", StringComparison.Ordinal) ||
+            String.Equals(boundary, "json_or_schema", StringComparison.Ordinal) ||
+            String.Equals(boundary, "semantic_payload", StringComparison.Ordinal);
     }
 
     private static bool IsLowerHex64(string value)

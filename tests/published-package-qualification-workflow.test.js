@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { strictJson } from "../scripts/consume-admin-trusted-unlock-receipt.mjs";
+import { ADMIN_HARNESS_REVISION } from "../scripts/published-package-qualification-lib.mjs";
 
 const workflowUrl = new URL(
   "../.github/workflows/published-package-qualification.yml",
@@ -40,10 +42,13 @@ test("AC-4BZ.1 workflow qualifies only exact downloaded publications on all thre
     workflow,
     /os: ubuntu-latest[\s\S]*?platform: linux[\s\S]*?os: windows-latest[\s\S]*?platform: win32[\s\S]*?os: macos-latest[\s\S]*?platform: darwin/,
   );
+  assert.match(workflow,/QUALIFICATION_CANDIDATE_SHA: \$\{\{ github\.sha \}\}/u);
   assert.match(workflow, /ref: \$\{\{ github\.sha \}\}/);
+  assert.match(workflow, /QUALIFICATION_SAFE_STATE_PATH="\$QUALIFICATION_PRIVATE_CUSTODY_ROOT\/qualification-state\.json"/u);
+  assert.doesNotMatch(workflow, /QUALIFICATION_SAFE_STATE_PATH="\$QUALIFICATION_EVIDENCE_ROOT\//u);
   assert.match(
     workflow,
-    /ADMIN_HARNESS_REVISION: f7abf981f8f0bbbbd7fdf352237fd84950d95ca3/,
+    new RegExp(`ADMIN_HARNESS_REVISION: ${ADMIN_HARNESS_REVISION}(?:\\r?\\n|$)`, "u"),
   );
   assert.match(
     workflow,
@@ -57,6 +62,17 @@ test("AC-4BZ.1 workflow qualifies only exact downloaded publications on all thre
     workflow,
     /node scripts\/prepare-published-package-qualification\.mjs/,
   );
+  assert.match(workflow, /consume-admin-trusted-unlock-receipt\.mjs/);
+  assert.match(
+    workflow,
+    /consume-admin-trusted-unlock-receipt\.mjs[\s\S]*?--receipt[\s\S]*?-- "\$ADMIN_PNPM_NODE" "\$ADMIN_PNPM_ENTRYPOINT" test:secrets:real-browser/,
+  );
+  assert.match(workflow, /id: pnpm-action-pinned-entrypoint[\s\S]*?dest: \$\{\{ runner\.temp \}\}\/pnpm-action-pinned-entrypoint/);
+  assert.match(workflow, /PNPM_ACTION_BIN_DEST: \$\{\{ steps\.pnpm-action-pinned-entrypoint\.outputs\.bin_dest \}\}/);
+  assert.match(workflow, /QUALIFICATION_PLATFORM: \$\{\{ matrix\.platform \}\}/);
+  assert.match(workflow, /node "\$GITHUB_WORKSPACE\/scripts\/establish-admin-trusted-unlock-receipt-caller\.mjs"/);
+  assert.doesNotMatch(workflow, /PNPM_HOME\/pnpm\.cjs|node_modules\/pnpm\/bin\/pnpm\.cjs/);
+  assert.doesNotMatch(workflow, /npm install --prefix "\$ADMIN_PNPM_PREFIX"/);
   assert.doesNotMatch(
     workflow,
     /\bnpm ci\b|\bnpm run build\b|\bcontinue-on-error\b|\bmain\b|--force|screenshots|videos/iu,
@@ -70,19 +86,24 @@ test("AC-4BZ.1 workflow qualifies only exact downloaded publications on all thre
     "\n    steps:",
     aggregateJobStart,
   );
-  assert.doesNotMatch(
-    workflow.slice(matrixJobStart, matrixStepsStart),
-    /runner\.temp/,
-  );
+  const matrixJob = workflow.slice(matrixJobStart, matrixStepsStart);
+  for (const marker of [
+    "SERVICE_LASSO_INSTANCE_REGISTRY_PATH",
+    "SERVICE_LASSO_HOST_PORT_REGISTRY_PATH",
+    "QUALIFICATION_EVIDENCE_ROOT",
+    "QUALIFICATION_INITIAL_RECEIPT_PATH",
+  ]) assert.doesNotMatch(matrixJob, new RegExp(`${marker}:`));
   assert.doesNotMatch(
     workflow.slice(aggregateJobStart, aggregateStepsStart),
     /runner\.temp/,
   );
-  assert.equal((workflow.match(/\$\{\{ runner\.temp \}\}/g) ?? []).length, 4);
+  assert.match(
+    workflow,
+    /Establish unique qualification custody before dependencies[\s\S]*?qualification_root="\$RUNNER_TEMP\/published-package-qualification-\$GITHUB_RUN_ID-\$GITHUB_JOB-\$GITHUB_RUN_ATTEMPT-\$QUALIFICATION_PLATFORM"[\s\S]*?SERVICE_LASSO_INSTANCE_REGISTRY_PATH=\$SERVICE_LASSO_INSTANCE_REGISTRY_PATH[\s\S]*?SERVICE_LASSO_HOST_PORT_REGISTRY_PATH=\$SERVICE_LASSO_HOST_PORT_REGISTRY_PATH[\s\S]*?record-packaged-admin-first-custody[\s\S]*?project-packaged-admin-first-custody[\s\S]*?test -s "\$QUALIFICATION_INITIAL_PROJECTION_PATH"/,
+  );
 
   for (const command of [
     "pnpm test:secrets:real-first-run-browser",
-    "pnpm test:secrets:real-browser",
     "pnpm test:secrets:real-stopped-lifecycle-browser",
     "pnpm test:secrets:real-lockout-browser",
   ]) {
@@ -92,6 +113,7 @@ test("AC-4BZ.1 workflow qualifies only exact downloaded publications on all thre
       1,
     );
   }
+  assert.doesNotMatch(workflow, /-- pnpm test:secrets:real-browser/);
   assert.match(
     workflow,
     /id: cleanup[\s\S]*?if: always\(\)[\s\S]*?cleanup-published-package-qualification\.mjs/,
@@ -100,6 +122,7 @@ test("AC-4BZ.1 workflow qualifies only exact downloaded publications on all thre
     workflow,
     /actions\/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a[\s\S]*?if-no-files-found: error[\s\S]*?retention-days: 90/,
   );
+  assert.match(workflow, /ADMIN_TRUSTED_UNLOCK_RECEIPT_PATH: \$\{\{ runner\.temp \}\}\/admin-trusted-unlock-receipt\.json/);
   assert.equal(
     (
       workflow.match(
@@ -168,7 +191,26 @@ test("AC-4BZ.1 aggregate verifies current-attempt artifacts and retains prior-at
   const source = await readFile(aggregateUrl, "utf8");
   assert.match(source, /selectCurrentAttemptArtifacts\(artifacts, runId, runAttempt\)/);
   assert.match(source, /validateRetainedArtifactMetadata\(artifact/);
-  assert.match(source, /entries\.length !== 1/);
+  assert.match(source, /entries\.length !== 3/);
+  assert.match(source, /admin-trusted-unlock-receipt\.json/);
+  assert.match(source, /initial-projection\.json/);
   assert.match(source, /validateTerminalJobMetadata\(matchingJobs\[0\]/);
+  assert.match(source, /requireTerminalPrebrowserJob\(jobs, platform, runId, runAttempt\)/);
   assert.match(source, /validateRetainedEvidence\(evidence/);
+  assert.match(source, /parseStrictJson\(/);
+  assert.match(source, /parseStrictJson\([\s\S]*?retained trusted-unlock receipt/);
+  assert.match(source,/import \{ validInitialProjection \} from "\.\/public-first-custody-projection-lib\.mjs"/u);
+  const shared=await readFile(new URL("../scripts/public-first-custody-projection-lib.mjs",import.meta.url),"utf8");assert.match(shared,/qualification-first-custody-projection\.v2/u);assert.match(shared,/privateVersion === "v3"/u);assert.match(source,/validInitialProjection\(initial, platform, runId, runAttempt, workflowSha\)/u);
+});
+
+test("AC-4BZ.1 downloaded aggregate JSON rejects raw and escaped duplicate keys before closed-shape validation", () => {
+  for (const source of [
+    '{"platform":"linux","platform":"linux"}',
+    '{"platform":"linux","plat\\u0066orm":"linux"}',
+    '{"trustedUnlock":{"classification":"closed","receipt":{"status":"observed","status":"observed"}}}',
+  ]) assert.equal(strictJson(source), null);
+  // These are syntactically strict, but must still be rejected by the aggregate's
+  // exact closed-shape and metadata-only validators after decoding.
+  assert.ok(strictJson('{"platform":"linux","private":true}'));
+  assert.ok(strictJson('{"platform":"linux","retained":{"extra":true}}'));
 });

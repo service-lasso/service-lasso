@@ -1,5 +1,10 @@
 # Release 1 GA decision
 
+
+## Current GA applicability (2026-10-04, #1613)
+
+The owner's current GA delivery scope is Windows and Linux under [current GA platform scope](https://github.com/service-lasso/service-lasso/blob/develop/.governance/project/CURRENT_GA_PLATFORM_SCOPE.md). Older three-platform/macOS obligations below retain their historical/default meaning; macOS is Deferred / Not applicable for this GA, never PASS. All Windows/Linux product, native, operator, template, immutable-publication and same-byte evidence remains required. Existing executable three-platform gates are unchanged and require coherent separately reviewed propagation before two-platform readiness can be claimed. No current exact qualified candidate or deployment is established by this scope decision.
+
 Decision: **GA approved with accepted residuals for Core/npm `2026.9.22-f3de461`** (AC-7H recorded 2026-09-23). The prior decision bound AC-7H to `462f837` and treated operator-promoted `1bffd1b` as a post-review delta; both remain history below.
 Prepared: `2026-09-14`; revised: `2026-09-23`
 Tracking issue: [#1151](https://github.com/service-lasso/service-lasso/issues/1151)
@@ -43,6 +48,9 @@ operator authorized promotion.
   success.
 - Admin `2026.8.31-f015b44` and Broker `2026.8.31-f340883` remain the pinned
   release artifacts.
+- Promotion: `develop` `9b43f17` was promoted to `main` in PR #1406 (merged
+  `7582076d351cb03a12d89aec771566d5c1eaf5c4`); `main` and `develop` trees were
+  verified identical after promotion.
 
 Accepted residuals: single-operator control limitation (no enforced required
 approvals, CODEOWNERS, last-push approval, or required status checks on

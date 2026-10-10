@@ -1,19 +1,19 @@
 import { access, rm } from "node:fs/promises";
 
 const DEFAULT_ADMIN_GRACEFUL_EXIT_TIMEOUT_MS = 5_000;
-const DEFAULT_ADMIN_FORCED_EXIT_TIMEOUT_MS = 5_000;
 const DEFAULT_SERVER_CLOSE_TIMEOUT_MS = 5_000;
 const DEFAULT_TEMP_CLEANUP_TIMEOUT_MS = 90_000;
 
 const SAFE_TEARDOWN_PHASES = new Set([
   "admin_terminate",
-  "admin_force_kill",
   "admin_exit_wait",
   "api_server_stop",
   "managed_process_convergence",
   "api_server_close",
   "broker_ipc_close",
   "vault_server_close",
+  "vault_provider_server_close",
+  "receipt_work_settlement",
   "lifecycle_reset",
   "temp_root_cleanup",
 ]);
@@ -86,27 +86,7 @@ async function stopAdminProcess(child, timeouts) {
     );
   }
 
-  const forcedExit = waitForChildExit(child, timeouts.adminForcedExitTimeoutMs);
-  try {
-    if (!child.kill("SIGKILL") && !childHasExited(child)) {
-      failures.push(
-        safeFailure("admin_force_kill", null, "admin_force_kill_failed"),
-      );
-    }
-  } catch (error) {
-    failures.push(
-      safeFailure("admin_force_kill", error, "admin_force_kill_failed"),
-    );
-  }
-  try {
-    if (!(await forcedExit)) {
-      failures.push(safeFailure("admin_exit_wait", null, "admin_exit_timeout"));
-    }
-  } catch (error) {
-    failures.push(
-      safeFailure("admin_exit_wait", error, "admin_exit_wait_failed"),
-    );
-  }
+  failures.push(safeFailure("admin_exit_wait", null, "admin_exit_timeout"));
   return { exited: childHasExited(child), failures };
 }
 
@@ -144,30 +124,22 @@ async function closeServer(server, timeoutMs) {
 }
 
 async function removeTempRootBoundedly(tempRoot, timeoutMs, removeTempRoot) {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    try {
-      await removeTempRoot(tempRoot, {
-        recursive: true,
-        force: true,
-        maxRetries: 8,
-        retryDelay: 250,
-      });
-      try {
-        await access(tempRoot);
-        const error = new Error(
-          "Temporary root still exists after fixture teardown.",
-        );
-        error.code = "temp_root_still_present";
-        throw error;
-      } catch (error) {
-        if (error?.code === "ENOENT") return;
-        throw error;
-      }
-    } catch (error) {
-      if (Date.now() >= deadline) throw error;
-      await new Promise((resolve) => setTimeout(resolve, 500));
-    }
+  await removeTempRoot(tempRoot, {
+    recursive: true,
+    force: false,
+    maxRetries: 0,
+    retryDelay: 0,
+  });
+  try {
+    await access(tempRoot);
+    const error = new Error(
+      "Temporary root still exists after fixture teardown.",
+    );
+    error.code = "temp_root_still_present";
+    throw error;
+  } catch (error) {
+    if (error?.code === "ENOENT") return;
+    throw error;
   }
 }
 
@@ -203,11 +175,12 @@ export async function teardownRealAdminBrowserFixture({
   resetLifecycle,
   tempRoot,
   removeTempRoot = rm,
+  settleOwnedWork = async () => {},
+  beforeTempRemoval = async () => {},
   timeouts: timeoutOverrides = {},
 }) {
   const timeouts = {
     adminGracefulExitTimeoutMs: DEFAULT_ADMIN_GRACEFUL_EXIT_TIMEOUT_MS,
-    adminForcedExitTimeoutMs: DEFAULT_ADMIN_FORCED_EXIT_TIMEOUT_MS,
     serverCloseTimeoutMs: DEFAULT_SERVER_CLOSE_TIMEOUT_MS,
     tempCleanupTimeoutMs: DEFAULT_TEMP_CLEANUP_TIMEOUT_MS,
     ...timeoutOverrides,
@@ -277,6 +250,14 @@ export async function teardownRealAdminBrowserFixture({
       ),
     );
   }
+  let ownedWorkSettled = false;
+  try {
+    await settleOwnedWork();
+    ownedWorkSettled = true;
+  } catch (error) {
+    if (error instanceof RealAdminBrowserTeardownError) failures.push(...error.failures);
+    else failures.push(safeFailure("receipt_work_settlement", error, "receipt_work_failed"));
+  }
   try {
     resetLifecycle();
   } catch (error) {
@@ -290,9 +271,11 @@ export async function teardownRealAdminBrowserFixture({
     apiServerClosed &&
     brokerIPCClosed &&
     vaultServerClosed &&
-    vaultProviderServerClosed
+    vaultProviderServerClosed &&
+    ownedWorkSettled && failures.length === 0
   ) {
     try {
+      await beforeTempRemoval();
       await removeTempRootBoundedly(
         tempRoot,
         timeouts.tempCleanupTimeoutMs,
@@ -306,4 +289,16 @@ export async function teardownRealAdminBrowserFixture({
   }
 
   if (failures.length > 0) throw new RealAdminBrowserTeardownError(failures);
+  return {
+    admin: {
+      exited: adminStop.exited,
+      exitCode: adminProcess?.exitCode ?? null,
+      signalCode: adminProcess?.signalCode ?? null,
+    },
+    apiServerClosed,
+    managedProcessesConverged,
+    brokerIPCClosed,
+    vaultServerClosed,
+    vaultProviderServerClosed,
+  };
 }

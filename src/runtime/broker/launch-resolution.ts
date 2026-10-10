@@ -161,6 +161,23 @@ function setToArray(values: Set<string>): string[] | undefined {
   return values.size > 0 ? [...values] : undefined;
 }
 
+/** File-only imports are resolved by Broker's file-provisioning request. */
+function deferredFileRefs(service: DiscoveredService): Set<string> {
+  const broker = service.manifest.broker;
+  if (process.env.SERVICE_LASSO_SECRET_FILES_TRANSPORT === "tmpfs" ||
+      !((broker?.files?.length ?? 0) + (broker?.templates?.length ?? 0))) return new Set();
+  const direct = compileCachedServiceSelectorPlan(
+    `service:${service.manifestPath}:${service.manifest.id}:direct-broker`,
+    [JSON.stringify({ ...service.manifest,
+      broker: { ...broker, imports: [], files: [], templates: [] },
+    })],
+  );
+  const generated = new Set(service.manifest.broker?.writeback?.generatedSecrets?.map((entry) => entry.ref) ?? []);
+  return new Set((service.manifest.broker?.imports ?? [])
+    .filter((entry) => !entry.as && !direct.brokerRefs.includes(entry.ref) && !generated.has(entry.ref))
+    .map((entry) => entry.ref));
+}
+
 function mergeRecords(
   left: Record<string, string> | undefined,
   right: Record<string, string> | undefined,
@@ -222,6 +239,7 @@ export function compileServiceStartupBrokerPlan(
   service: DiscoveredService,
 ): ServiceStartupBrokerPlan {
   const broker = service.manifest.broker;
+  const deferred = deferredFileRefs(service);
   const imports = (service.manifest.broker?.imports ?? []).map(normalizeImport);
   const importTemplates = imports.map((entry) => `\${${entry.ref}}`);
   const exportsByRef = new Map((broker?.exports ?? []).map((entry) => [entry.ref, entry]));
@@ -248,6 +266,11 @@ export function compileServiceStartupBrokerPlan(
     `service:${service.manifestPath}:${service.manifest.id}:startup-broker`,
     {
       env: JSON.stringify(service.manifest.env ?? {}),
+      // Include inline file selectors even when no equivalent env import exists.
+      materializedFiles: JSON.stringify([
+        ...(service.manifest.config?.files ?? []),
+        ...(service.manifest.broker?.files ?? []),
+      ]),
       imports: JSON.stringify(imports),
       importTemplates: importTemplates.join("\n"),
       generatedSecrets: JSON.stringify(
@@ -269,7 +292,7 @@ export function compileServiceStartupBrokerPlan(
     brokerRefs: unique([
       ...selectorPlan.brokerRefs,
       ...imports.map((entry) => entry.ref),
-    ]),
+    ]).filter((ref) => !deferred.has(ref)),
     buckets: (broker?.buckets ?? []).map(normalizeBucket),
     imports,
     writeback: {
@@ -300,7 +323,8 @@ export async function resolveServiceStartupBrokerResolution(
   identityLease?: unknown,
 ): Promise<ServiceStartupBrokerResolution> {
   const plan = compileServiceStartupBrokerPlan(service);
-  const decisions = await lookup({ service, refs: plan.brokerRefs, identityLease });
+  const decisions = plan.brokerRefs.length > 0
+    ? await lookup({ service, refs: plan.brokerRefs, identityLease }) : [];
   const expectedRefs = new Set(plan.brokerRefs);
   const importMap = importByRef(plan.imports);
   const brokerValues: Record<string, string> = {};

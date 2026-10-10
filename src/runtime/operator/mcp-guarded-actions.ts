@@ -37,6 +37,12 @@ export interface McpGuardedActionPlan {
   skippedReason: string | null;
   /** Internal revision binding used by the shared facade; never exposed raw. */
   revision?: string;
+  /**
+   * Immutable execution-context binding. Unlike executable/skipped state, this
+   * remains stable after a successful mutation so an exact HTTP retry can be
+   * recognised without admitting a changed manifest or execution input.
+   */
+  contextRevision?: string;
 }
 
 export interface McpGuardedActionServiceState {
@@ -137,6 +143,9 @@ interface StoredConfirmation {
   targetFingerprint: string;
   parameterFingerprint: string;
   planFingerprint: string;
+  liveTargetFingerprint: string;
+  semanticTargetFingerprint: string;
+  contextFingerprint: string;
   phraseHash: string;
   issuedAt: string;
   expiresAt: string;
@@ -222,6 +231,7 @@ export type McpGuardedActionErrorCode =
   | "confirmation_parameter_mismatch"
   | "confirmation_phrase_mismatch"
   | "confirmation_plan_mismatch"
+  | "confirmation_context_mismatch"
   | "confirmation_required"
   | "confirmation_state_unavailable"
   | "confirmation_target_mismatch"
@@ -304,9 +314,12 @@ export async function preflightMcpGuardedActionExecution(input: {
   workspaceRoot: string;
   operatingMode: "disabled" | "read-only" | "guarded";
   authorization: McpHttpAuthorization | undefined;
+  facade: McpGuardedActionFacade | undefined;
   action: McpGuardedActionName;
   parameters: McpGuardedActionInput;
-}): Promise<{ guardedExecutionId: string }> {
+  /** Checks the durable HTTP claim under its independent cross-process lock. */
+  hasDurableClaim?: (guardedExecutionId: string) => Promise<boolean>;
+}): Promise<{ guardedExecutionId: string; requestFingerprint: string }> {
   const correlationId = `mcp-action-${randomUUID()}`;
   await assertMcpGuardedActionAuthorization({
     workspaceRoot: input.workspaceRoot,
@@ -317,15 +330,101 @@ export async function preflightMcpGuardedActionExecution(input: {
   });
   const authorization = input.authorization;
   if (!authorization) throw new McpGuardedActionError("authorization_required", "A validated MCP identity is required.");
+  if (!input.facade) throw new McpGuardedActionError("feature_unavailable", "Guarded actions are unavailable for this runtime.");
   try {
-    normalizeParameters(input.action, input.parameters);
     const idempotencyKey = normalizeIdempotencyKey(input.parameters.idempotencyKey);
+    const executionId = guardedActionExecutionId(
+      authorization.actor.actorId,
+      authorization.actor.clientId,
+      idempotencyKey,
+    );
+    const normalized = normalizeParameters(input.action, input.parameters);
+    const statePath = guardedActionStatePath(input.workspaceRoot);
+    const idempotencyPath = guardedActionIdempotencyPath(
+      input.workspaceRoot,
+      authorization.actor.actorId,
+      authorization.actor.clientId,
+      idempotencyKey,
+    );
+    const existing = await withStateLock(statePath, async () =>
+      await readIdempotencyRecord(input.workspaceRoot, idempotencyPath));
+    if (existing && existing.requestFingerprint !== fingerprint({ action: input.action, parameters: normalized })) {
+      throw new McpGuardedActionError("idempotency_conflict", "The idempotency key is already bound to different action parameters.");
+    }
+    const authoritativePlan = await input.facade.preflight(input.action, normalized);
+    const plan = normalizePlan(input.action, authoritativePlan);
+    const planFingerprint = fingerprint({
+      action: authoritativePlan.action,
+      targets: authoritativePlan.targets,
+      effects: authoritativePlan.effects,
+      executable: authoritativePlan.executable,
+      skippedReason: authoritativePlan.skippedReason,
+      revision: authoritativePlan.revision ?? null,
+    });
+    const liveTargetFingerprint = fingerprint(plan.targets);
+    const semanticTargetFingerprint = fingerprint({
+      action: input.action,
+      serviceId: normalized.serviceId ?? null,
+      stepId: normalized.stepId ?? null,
+    });
+    const parameterFingerprint = fingerprint(normalized);
+    const contextFingerprint = immutableContextFingerprint(plan, planFingerprint);
+    let confirmationBinding: { id: string; phrase: string } | null = null;
+    if (
+      guardedActionPolicy(input.action).confirmationRequired &&
+      (
+        plan.executable ||
+        typeof input.parameters.confirmationId === "string" ||
+        typeof input.parameters.confirmationPhrase === "string"
+      )
+    ) {
+      const confirmationId = normalizeConfirmationId(input.parameters.confirmationId);
+      const confirmationPhrase = normalizeConfirmationPhrase(input.parameters.confirmationPhrase);
+      await withStateLock(statePath, async () => {
+        const state = await readState(input.workspaceRoot, statePath);
+        const record = state.confirmations.find((entry) => entry.id === confirmationId);
+        try {
+          validateConfirmation(record, {
+            action: input.action,
+            authorization,
+            liveTargetFingerprint,
+            semanticTargetFingerprint,
+            parameterFingerprint,
+            planFingerprint,
+            contextFingerprint,
+            phrase: confirmationPhrase,
+            now: new Date(),
+          }, { allowClaimedReplay: true });
+        } catch (error) {
+          if (record?.status === "expired") await writeState(input.workspaceRoot, statePath, state);
+          if (
+            error instanceof McpGuardedActionError &&
+            isClaimBoundConfirmationMismatch(error.code) &&
+            (existing || await input.hasDurableClaim?.(executionId))
+          ) {
+            throw new McpGuardedActionError("idempotency_conflict", "The idempotency key is already bound to different action parameters or governed context.");
+          }
+          throw error;
+        }
+      });
+      confirmationBinding = { id: confirmationId, phrase: confirmationPhrase };
+    }
+    const requestFingerprint = fingerprint({
+      action: input.action,
+      parameters: normalized,
+      confirmation: confirmationBinding,
+      authorization: {
+        actorId: authorization.actor.actorId,
+        clientId: authorization.actor.clientId,
+        permissionProfile: authorization.actor.permissionProfile,
+        scopes: [...authorization.actor.scopes].sort(),
+      },
+      workspaceIdentity: fingerprint({ workspaceRoot: path.resolve(input.workspaceRoot) }),
+      preflight: { contextFingerprint },
+    });
     return {
-      guardedExecutionId: guardedActionExecutionId(
-        authorization.actor.actorId,
-        authorization.actor.clientId,
-        idempotencyKey,
-      ),
+      guardedExecutionId: executionId,
+      requestFingerprint,
     };
   } catch (error) {
     await audit(
@@ -525,6 +624,7 @@ export async function invokeMcpGuardedAction(input: {
     skippedReason: authoritativePlan.skippedReason,
     revision: authoritativePlan.revision ?? null,
   });
+  const contextFingerprint = immutableContextFingerprint(plan, planFingerprint);
   const safePlanFingerprint = fingerprint({
     action: input.action,
     targets: plan.targets,
@@ -534,7 +634,12 @@ export async function invokeMcpGuardedAction(input: {
   });
   const planId = `mcp-plan-${safePlanFingerprint.slice(0, 32)}`;
   const parameterFingerprint = fingerprint(normalized);
-  const targetFingerprint = fingerprint(plan.targets);
+  const liveTargetFingerprint = fingerprint(plan.targets);
+  const semanticTargetFingerprint = fingerprint({
+    action: input.action,
+    serviceId: normalized.serviceId ?? null,
+    stepId: normalized.stepId ?? null,
+  });
   const preflight = {
     planId,
     targets: plan.targets,
@@ -552,9 +657,11 @@ export async function invokeMcpGuardedAction(input: {
             workspaceRoot,
             action: input.action,
             authorization,
-            targetFingerprint,
+            liveTargetFingerprint,
+            semanticTargetFingerprint,
             parameterFingerprint,
             planFingerprint,
+            contextFingerprint,
             correlationId,
             ttlSeconds: normalizeTtl(input.parameters.confirmationTtlSeconds),
             now,
@@ -654,9 +761,11 @@ export async function invokeMcpGuardedAction(input: {
         validateConfirmation(record, {
           action: input.action,
           authorization,
-          targetFingerprint,
+          liveTargetFingerprint,
+          semanticTargetFingerprint,
           parameterFingerprint,
           planFingerprint,
+          contextFingerprint,
           phrase,
           now: now(),
         });
@@ -890,6 +999,9 @@ function normalizePlan(action: McpGuardedActionName, plan: McpGuardedActionPlan)
   if (plan.revision !== undefined && !/^[A-Za-z0-9][A-Za-z0-9._:-]{7,199}$/u.test(plan.revision)) {
     throw new McpGuardedActionError("preflight_failed", "The guarded action preflight revision is invalid.");
   }
+  if (plan.contextRevision !== undefined && !/^[A-Za-z0-9][A-Za-z0-9._:-]{7,199}$/u.test(plan.contextRevision)) {
+    throw new McpGuardedActionError("preflight_failed", "The guarded action immutable context revision is invalid.");
+  }
   return {
     action,
     targets,
@@ -897,16 +1009,25 @@ function normalizePlan(action: McpGuardedActionName, plan: McpGuardedActionPlan)
     executable: plan.executable === true,
     skippedReason: plan.executable ? null : safeSummary(plan.skippedReason, "no_mutation_required"),
     ...(plan.revision ? { revision: plan.revision } : {}),
+    ...(plan.contextRevision ? { contextRevision: plan.contextRevision } : {}),
   };
+}
+
+function immutableContextFingerprint(plan: McpGuardedActionPlan, fallbackPlanFingerprint: string): string {
+  return plan.contextRevision
+    ? fingerprint({ action: plan.action, contextRevision: plan.contextRevision })
+    : fallbackPlanFingerprint;
 }
 
 async function issueConfirmation(input: {
   workspaceRoot: string;
   action: McpGuardedActionName;
   authorization: McpHttpAuthorization;
-  targetFingerprint: string;
+  liveTargetFingerprint: string;
+  semanticTargetFingerprint: string;
   parameterFingerprint: string;
   planFingerprint: string;
+  contextFingerprint: string;
   correlationId: string;
   ttlSeconds: number;
   now: () => Date;
@@ -920,9 +1041,12 @@ async function issueConfirmation(input: {
     action: input.action,
     actorId: input.authorization.actor.actorId,
     clientId: input.authorization.actor.clientId,
-    targetFingerprint: input.targetFingerprint,
+    targetFingerprint: input.liveTargetFingerprint,
+    liveTargetFingerprint: input.liveTargetFingerprint,
+    semanticTargetFingerprint: input.semanticTargetFingerprint,
     parameterFingerprint: input.parameterFingerprint,
     planFingerprint: input.planFingerprint,
+    contextFingerprint: input.contextFingerprint,
     phraseHash: fingerprint(phrase),
     issuedAt: issuedAt.toISOString(),
     expiresAt: expiresAt.toISOString(),
@@ -933,9 +1057,9 @@ async function issueConfirmation(input: {
   await withStateLock(statePath, async () => {
     const state = await readState(input.workspaceRoot, statePath);
     state.confirmations = state.confirmations.filter((entry) =>
-      entry.status === "pending" && Date.parse(entry.expiresAt) > issuedAt.getTime()
+      entry.status !== "pending" || Date.parse(entry.expiresAt) > issuedAt.getTime()
     );
-    if (state.confirmations.length >= MAX_CONFIRMATIONS) {
+    if (state.confirmations.filter((entry) => entry.status === "pending").length >= MAX_CONFIRMATIONS) {
       throw new McpGuardedActionError("confirmation_capacity", "Too many guarded confirmations are pending; allow one to expire or complete before retrying.");
     }
     state.confirmations.unshift(record);
@@ -956,16 +1080,20 @@ function validateConfirmation(
   expected: {
     action: McpGuardedActionName;
     authorization: McpHttpAuthorization;
-    targetFingerprint: string;
+    liveTargetFingerprint: string;
+    semanticTargetFingerprint: string;
     parameterFingerprint: string;
     planFingerprint: string;
+    contextFingerprint: string;
     phrase: string;
     now: Date;
   },
+  options: { allowClaimedReplay?: boolean } = {},
 ): asserts record is StoredConfirmation {
   if (!record) throw new McpGuardedActionError("confirmation_not_found", "The server confirmation was not found.");
-  if (record.status !== "pending") throw new McpGuardedActionError("confirmation_already_used", "The server confirmation is no longer pending.");
-  if (Date.parse(record.expiresAt) <= expected.now.getTime()) {
+  const replayingClaimedConfirmation = options.allowClaimedReplay && (record.status === "claimed" || record.status === "completed");
+  if (record.status !== "pending" && !replayingClaimedConfirmation) throw new McpGuardedActionError("confirmation_already_used", "The server confirmation is no longer pending.");
+  if (!replayingClaimedConfirmation && Date.parse(record.expiresAt) <= expected.now.getTime()) {
     record.status = "expired";
     throw new McpGuardedActionError("confirmation_expired", "The server confirmation expired before execution.");
   }
@@ -973,10 +1101,21 @@ function validateConfirmation(
     throw new McpGuardedActionError("confirmation_actor_mismatch", "The server confirmation is bound to another validated actor or client.");
   }
   if (record.action !== expected.action) throw new McpGuardedActionError("confirmation_action_mismatch", "The server confirmation is bound to another action.");
-  if (record.targetFingerprint !== expected.targetFingerprint) throw new McpGuardedActionError("confirmation_target_mismatch", "The server confirmation targets changed after preflight.");
+  if (!replayingClaimedConfirmation && record.liveTargetFingerprint !== expected.liveTargetFingerprint) throw new McpGuardedActionError("confirmation_target_mismatch", "The server confirmation targets changed after preflight.");
   if (record.parameterFingerprint !== expected.parameterFingerprint) throw new McpGuardedActionError("confirmation_parameter_mismatch", "The server confirmation parameters changed after preflight.");
-  if (record.planFingerprint !== expected.planFingerprint) throw new McpGuardedActionError("confirmation_plan_mismatch", "The authoritative preflight changed before execution.");
+  if (record.semanticTargetFingerprint !== expected.semanticTargetFingerprint) throw new McpGuardedActionError("confirmation_target_mismatch", "The server confirmation target changed after preflight.");
+  if (!replayingClaimedConfirmation && record.planFingerprint !== expected.planFingerprint) throw new McpGuardedActionError("confirmation_plan_mismatch", "The authoritative preflight changed before execution.");
+  if (record.contextFingerprint !== expected.contextFingerprint) throw new McpGuardedActionError("confirmation_context_mismatch", "The immutable guarded execution context changed before replay.");
   if (record.phraseHash !== fingerprint(expected.phrase)) throw new McpGuardedActionError("confirmation_phrase_mismatch", "The server confirmation phrase did not match.");
+}
+
+function isClaimBoundConfirmationMismatch(code: McpGuardedActionErrorCode): boolean {
+  return code === "confirmation_action_mismatch" ||
+    code === "confirmation_parameter_mismatch" ||
+    code === "confirmation_phrase_mismatch" ||
+    code === "confirmation_plan_mismatch" ||
+    code === "confirmation_context_mismatch" ||
+    code === "confirmation_target_mismatch";
 }
 
 function normalizeIdempotencyKey(value: unknown): string {
@@ -1205,8 +1344,11 @@ function isStoredConfirmation(value: unknown): value is StoredConfirmation {
     typeof record.actorId === "string" &&
     typeof record.clientId === "string" &&
     typeof record.targetFingerprint === "string" &&
+    typeof record.liveTargetFingerprint === "string" &&
+    typeof record.semanticTargetFingerprint === "string" &&
     typeof record.parameterFingerprint === "string" &&
     typeof record.planFingerprint === "string" &&
+    typeof record.contextFingerprint === "string" &&
     typeof record.phraseHash === "string" &&
     typeof record.issuedAt === "string" &&
     typeof record.expiresAt === "string" &&

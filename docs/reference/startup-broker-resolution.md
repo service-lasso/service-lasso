@@ -72,6 +72,18 @@ Policy-denied refs are intentionally separate from missing refs. Operators shoul
 
 ## Cache invalidation
 
+Apps that require a file opt into Broker-owned RAM WebDAV outputs with
+`broker.files[]` or `broker.templates[]`, then pass
+`${SERVICE_LASSO_SECRETS_DIR}/<name>` through an app-supported environment
+variable. Core asks Broker to provision using scoped refs and secret-free templates.
+Broker resolves internally and returns the WebDAV directory before each fresh spawn;
+file-only imports skip Core's plaintext lookup. Explicit env imports continue using
+the startup resolution pipeline above. An import by itself does
+not create a file. See the [secure provisioning lesson](../getting-started/advanced-provision-service-secrets-securely.md)
+and [RAM WebDAV delivery](ram-webdav-secret-files-review.md). Linux native paths
+require the explicitly selected [tmpfs alternative](linux-app-secret-files.md);
+environment delivery stays supported.
+
 Selector plans are cached by service manifest path/id and the effective `env` + `broker.imports` content. The cache invalidates when:
 
 - an env template changes

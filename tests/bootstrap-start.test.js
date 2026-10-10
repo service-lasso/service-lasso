@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
 import { readFile, rm } from "node:fs/promises";
+import { lifecycleFailureDiagnostic } from "./lifecycle-failure-diagnostics.js";
 import { bootstrapBaselineServices } from "../dist/runtime/cli/bootstrap.js";
 import { stopAllManagedProcesses } from "../dist/runtime/execution/supervisor.js";
 import { getLifecycleState, resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
@@ -253,6 +254,15 @@ test("bootstrapBaselineServices skips managed start for provider-role baseline s
     assert.equal(result.services.find((service) => service.serviceId === "@secretsbroker")?.state.running, true);
     assert.equal(result.services.find((service) => service.serviceId === "@traefik")?.state.running, true);
     assert.equal(result.services.find((service) => service.serviceId === "@serviceadmin")?.state.running, true);
+  } catch (error) {
+    // The bootstrap summary drops structured causes; retain closed trace metadata only.
+    for (const serviceId of ["@traefik", "@secretsbroker", "echo-service", "@serviceadmin"]) {
+      const state = getLifecycleState(serviceId);
+      if (state?.runtime?.startTrace?.current?.status === "failed") {
+        console.log(lifecycleFailureDiagnostic({ state, error }));
+      }
+    }
+    throw error;
   } finally {
     await stopAllManagedProcesses();
     resetLifecycleState();

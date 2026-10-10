@@ -64,6 +64,7 @@ export type EndpointCutoverArtifact =
   | "healthchecks"
   | "install"
   | "config"
+  | "broker"
   | "setup"
   | "actions";
 
@@ -479,6 +480,13 @@ function serviceSelectorValuesByArtifact(service: DiscoveredService): Array<{ ar
       values: [
         ...(manifest.config?.files ?? []).flatMap((file) => [file.path, file.content]),
         ...(manifest.config?.templates ?? []).map((template) => template.target),
+      ],
+    },
+    {
+      artifact: "broker",
+      values: [
+        ...(manifest.broker?.files ?? []).flatMap((file) => [file.path, file.content]),
+        ...(manifest.broker?.templates ?? []).flatMap((template) => [template.source, template.target]),
       ],
     },
     {

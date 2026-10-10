@@ -21,9 +21,14 @@ test("GET /api/runtime/ports/conflict explains ledger-owned port conflicts", asy
   resetLifecycleState();
   const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-port-conflict-ledger-");
   const workspaceRoot = path.join(tempRoot, "workspace");
-  const apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
+  const previousHostRegistry = process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH;
+  const previousInstanceRegistry = process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH;
+  process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH = path.join(tempRoot, "host", "endpoint-allocations.json");
+  process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH = path.join(tempRoot, "host", "instances.json");
+  let apiServer;
 
   try {
+    apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
     await reservePorts(workspaceRoot, [
       {
         kind: "service-negotiated",
@@ -47,9 +52,13 @@ test("GET /api/runtime/ports/conflict explains ledger-owned port conflicts", asy
     assert.equal(result.body.liveListener.checked, true);
     assert.ok(result.body.remediation.some((hint) => hint.includes("owning Service Lasso service")));
   } finally {
-    await apiServer.stop();
+    await apiServer?.stop();
     resetLifecycleState();
     await rm(tempRoot, { recursive: true, force: true });
+    if (previousHostRegistry === undefined) delete process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH;
+    else process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH = previousHostRegistry;
+    if (previousInstanceRegistry === undefined) delete process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH;
+    else process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH = previousInstanceRegistry;
   }
 });
 
@@ -63,9 +72,14 @@ test("GET /api/runtime/ports/conflict reports unknown live-listener conflicts wi
 
   const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-port-conflict-live-");
   const workspaceRoot = path.join(tempRoot, "workspace");
-  const apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
+  const previousHostRegistry = process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH;
+  const previousInstanceRegistry = process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH;
+  process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH = path.join(tempRoot, "host", "endpoint-allocations.json");
+  process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH = path.join(tempRoot, "host", "instances.json");
+  let apiServer;
 
   try {
+    apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
     const result = await getJson(
       `${apiServer.url}/api/runtime/ports/conflict?host=127.0.0.1&port=${address.port}`,
     );
@@ -80,10 +94,14 @@ test("GET /api/runtime/ports/conflict reports unknown live-listener conflicts wi
     assert.equal(JSON.stringify(result.body).includes("pid"), false);
     assert.equal(JSON.stringify(result.body).includes("process"), false);
   } finally {
-    await apiServer.stop();
+    await apiServer?.stop();
     await new Promise((resolve) => listener.close(() => resolve()));
     resetLifecycleState();
     await rm(tempRoot, { recursive: true, force: true });
+    if (previousHostRegistry === undefined) delete process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH;
+    else process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH = previousHostRegistry;
+    if (previousInstanceRegistry === undefined) delete process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH;
+    else process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH = previousInstanceRegistry;
   }
 });
 
@@ -91,9 +109,14 @@ test("GET /api/runtime/ports/conflict separates stale ledger state from active c
   resetLifecycleState();
   const { tempRoot, servicesRoot } = await makeTempServicesRoot("service-lasso-port-conflict-stale-");
   const workspaceRoot = path.join(tempRoot, "workspace");
-  const apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
+  const previousHostRegistry = process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH;
+  const previousInstanceRegistry = process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH;
+  process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH = path.join(tempRoot, "host", "endpoint-allocations.json");
+  process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH = path.join(tempRoot, "host", "instances.json");
+  let apiServer;
 
   try {
+    apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
     await reservePorts(workspaceRoot, [
       {
         kind: "service-fixed",
@@ -114,8 +137,12 @@ test("GET /api/runtime/ports/conflict separates stale ledger state from active c
     assert.equal(result.body.ledger.staleReservations[0].ownerId, "stale-service");
     assert.equal(result.body.liveListener.occupied, false);
   } finally {
-    await apiServer.stop();
+    await apiServer?.stop();
     resetLifecycleState();
     await rm(tempRoot, { recursive: true, force: true });
+    if (previousHostRegistry === undefined) delete process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH;
+    else process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH = previousHostRegistry;
+    if (previousInstanceRegistry === undefined) delete process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH;
+    else process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH = previousInstanceRegistry;
   }
 });

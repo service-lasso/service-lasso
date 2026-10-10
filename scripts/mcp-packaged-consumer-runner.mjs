@@ -8,7 +8,9 @@ import {
   MCP_PACKAGED_COVERAGE_KEYS,
   MCP_PACKAGED_SAFE_AUDIT_DIAGNOSTIC_REASONS,
   fetchBoundedDiagnosticJson,
+  projectPackagedWindowsTreeInspection,
   runInspector,
+  owningResourceObservations,
   supportedMcpVersions,
 } from "./mcp-product-acceptance-lib.mjs";
 
@@ -292,6 +294,14 @@ async function diagnoseGuardedPreflightComponents(installedRoot, acceptanceConfi
   }
 }
 
+const allocateResource = owningResourceObservations("consumer");
+const httpServerObservation = allocateResource("http_server");
+const httpTransportObservation = allocateResource("http_transport");
+const httpClientObservation = allocateResource("http_client");
+const stdioTransportObservation = allocateResource("stdio_transport");
+const stdioClientObservation = allocateResource("stdio_client");
+const inspectorObservations = Array.from({ length: 3 }, () => allocateResource("inspector_command"));
+
 const configuration = JSON.parse(requiredEnvironment("MCP_PACKAGE_ACCEPTANCE_CONFIGURATION"));
 const consumerRoot = process.cwd();
 const forbiddenSourceRoot = requiredEnvironment("MCP_PACKAGE_ACCEPTANCE_FORBIDDEN_SOURCE_ROOT");
@@ -344,16 +354,16 @@ let httpServer;
 let stdioClient;
 try {
   reportStage("http-start");
-  httpServer = await packaged.startApiServer({
+  httpServer = await httpServerObservation.create(() => packaged.startApiServer({
     port: 0,
     servicesRoot: configuration.servicesRoot,
     workspaceRoot: configuration.httpWorkspaceRoot,
     version: configuration.version,
     mcpHttpIdentity: { env: { SERVICE_LASSO_MCP_MODE: "guarded" } },
-  });
+  }));
   const endpoint = new URL(`${httpServer.url}/api/mcp`);
-  const transport = new StreamableHTTPClientTransport(endpoint);
-  httpClient = new Client({ name: "service-lasso-packaged-acceptance", version: "1.0.0" });
+  const transport = await httpTransportObservation.create(() => new StreamableHTTPClientTransport(endpoint));
+  httpClient = await httpClientObservation.create(() => new Client({ name: "service-lasso-packaged-acceptance", version: "1.0.0" }));
   await httpClient.connect(transport);
 
   reportStage("http-read-surface");
@@ -398,17 +408,20 @@ try {
   const inspectorTools = payload(await runInspector({
     serverUrl: endpoint.toString(),
     method: "tools/list",
+    resourceObservation: inspectorObservations[0],
     strict: true,
     env: inspectorEnvironment,
   }));
   const inspectorResources = payload(await runInspector({
     serverUrl: endpoint.toString(),
     method: "resources/list",
+    resourceObservation: inspectorObservations[1],
     env: inspectorEnvironment,
   }));
   const inspectorRead = payload(await runInspector({
     serverUrl: endpoint.toString(),
     method: "tools/call",
+    resourceObservation: inspectorObservations[2],
     toolName: "service_lasso_runtime_status",
     toolArgs: {},
     env: inspectorEnvironment,
@@ -509,6 +522,7 @@ try {
               failedEvent.metadata.processStartFailurePhase,
               SAFE_PROCESS_START_FAILURE_PHASES,
             ),
+        windowsTreeInspection: projectPackagedWindowsTreeInspection(failedEvent?.metadata),
       };
     } catch {
       lifecycleDiagnostic = {
@@ -518,6 +532,7 @@ try {
         readinessAttribution: null,
         healthcheckFailed: null,
         processStartFailurePhase: null,
+        windowsTreeInspection: null,
       };
     }
     const summarize = (result) => ({
@@ -544,14 +559,14 @@ try {
     });
   }
 
-  await httpClient.close();
+  await httpClientObservation.close(() => httpClient.close());
   httpClient = null;
-  await httpServer.stop();
+  await httpServerObservation.close(() => httpServer.stop());
   httpServer = null;
 
   reportStage("stdio-start");
   const stdioCredential = "packaged-stdio-capability-not-protocol-data";
-  const stdioTransport = new StdioClientTransport({
+  const stdioTransport = await stdioTransportObservation.create(() => new StdioClientTransport({
     command: process.execPath,
     args: [path.join(installedRoot, "dist", "index.js")],
     cwd: consumerRoot,
@@ -568,8 +583,8 @@ try {
       SERVICE_LASSO_HOST_PORT_REGISTRY_PATH: configuration.portRegistryPath,
     }),
     stderr: "pipe",
-  });
-  stdioClient = new Client({ name: "service-lasso-packaged-stdio", version: "1.0.0" });
+  }));
+  stdioClient = await stdioClientObservation.create(() => new Client({ name: "service-lasso-packaged-stdio", version: "1.0.0" }));
   await stdioClient.connect(stdioTransport);
   const [stdioTools, stdioStatus] = await Promise.all([
     stdioClient.listTools(),
@@ -583,7 +598,7 @@ try {
   ) {
     throw new Error("Fresh consumer packaged stdio acceptance failed.");
   }
-  await stdioClient.close();
+  await stdioClientObservation.close(() => stdioClient.close());
   stdioClient = null;
   reportStage("complete");
 
@@ -624,7 +639,9 @@ try {
   process.stderr.write(`[mcp-package-acceptance-error] ${JSON.stringify(diagnostic)}\n`);
   process.exitCode = 1;
 } finally {
-  await stdioClient?.close().catch(() => undefined);
-  await httpClient?.close().catch(() => undefined);
-  await httpServer?.stop().catch(() => undefined);
+  if (stdioClient) await stdioClientObservation.close(() => stdioClient.close()).catch(() => undefined);
+  if (httpClient) await httpClientObservation.close(() => httpClient.close()).catch(() => undefined);
+  if (httpServer) await httpServerObservation.close(() => httpServer.stop()).catch(() => undefined);
+  httpTransportObservation.unavailableIfCreated();
+  stdioTransportObservation.unavailableIfCreated();
 }

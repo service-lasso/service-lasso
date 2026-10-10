@@ -11,6 +11,10 @@ release artifact, but the consuming app owns the decision to include ZITADEL,
 the database, domain, issuer, client registrations, redirect URIs, and secret
 lifecycle.
 
+For a worked local HTTPS setup with application sign-in verification, start
+with [Advanced — Add Zitadel SSO to Todo](../getting-started/zitadel-sso-hub.md). This page remains
+the reference contract for ownership and the minimal fixture.
+
 Do not add ZITADEL to the core baseline just because an app needs SSO. Commit it
 inside that app's `services/` inventory instead.
 
@@ -67,6 +71,16 @@ local SSO. Keep the service inventory committed so reviewers can see that the
 app, not the Service Lasso baseline, owns the identity dependency.
 
 ## Required app-owned inputs
+
+The [Todo SSO tutorial](../getting-started/zitadel-sso-hub.md) is a concrete
+App + API consumer. It registers a public Web PKCE client and a separate
+Basic API client in the same Zitadel project. Todo requests the project
+audience and forwards the server-held access token. The API introspects it
+over trusted HTTPS, validates its issuer, audience, issuing Web client and
+lifetime, and rejects direct unauthenticated requests. Its API client secret
+is in a private runtime file; manifests contain the path only. The public
+health endpoint remains separate from protected data routes. App login alone
+does not secure an API, even on loopback.
 
 The consuming app must supply these before `zitadel/start`:
 

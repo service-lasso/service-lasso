@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { types } from "node:util";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -6,6 +7,14 @@ import { LATEST_PROTOCOL_VERSION, SUPPORTED_PROTOCOL_VERSIONS } from "@modelcont
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const MAX_CAPTURE_BYTES = 2 * 1024 * 1024;
+const RUN_COMMAND_FAILURE_KINDS = new Set([
+  "deadline_exceeded",
+  "close_unresolved",
+  "output_capture_exceeded",
+  "spawn_failed",
+  "exit_nonzero",
+  "unknown",
+]);
 const SAFE_DIAGNOSTIC_CODE = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/u;
 const PACKAGED_ACCEPTANCE_ERROR_PREFIX = "[mcp-package-acceptance-error] ";
 const DEFAULT_DIAGNOSTIC_TIMEOUT_MS = 5_000;
@@ -62,6 +71,52 @@ const GUARDED_DIAGNOSTIC_PROCESS_START_PHASES = new Set([
   "launcher_acknowledgement_write",
   "unclassified_error",
 ]);
+const GUARDED_DIAGNOSTIC_WINDOWS_TREE_INSPECTION_PHASES = new Set([
+  "queue_wait",
+  "native_snapshot",
+  "retry_delay",
+]);
+const GUARDED_DIAGNOSTIC_WINDOWS_TREE_INSPECTION_RETRIES = new Set([
+  "helper_failed", "malformed", "incomplete", "invalid_ancestry", "inconsistent_root",
+  "ancestry_invalid_parent", "ancestry_predates_root", "ancestry_cycle",
+  "ancestry_missing_parent", "ancestry_predates_parent",
+  "ancestry_predates_parent_before_root", "ancestry_predates_parent_within_root",
+  "snapshot_create", "snapshot_enumerate", "snapshot_close", "changed_ancestry",
+  ...["root", "descendant"].flatMap((subject) => [
+    "open", "identity", "time", "image", "parent", "command_size", "command_query",
+    "command_bounds", "command_empty", "handle_close", "open_denied", "command_denied",
+    "command_length_changed", "command_unsupported", "command_native_failure",
+    "command_result_length", "command_buffer_small", "command_partial_copy",
+    "command_terminating", "command_unsuccessful", "command_buffer_overflow",
+  ].map((stage) => `${subject}_${stage}`)),
+]);
+
+const boundedDiagnosticInteger = (value, maximum) =>
+  typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= maximum ? value : null;
+
+// Keep the packaged runner's failure receipt aligned with the runtime's closed
+// tree-inspection projection. This function intentionally drops every value
+// outside the six diagnostic fields, including process identities and text.
+export function projectPackagedWindowsTreeInspection(value) {
+  if (!isRecord(value) || !GUARDED_DIAGNOSTIC_WINDOWS_TREE_INSPECTION_PHASES.has(value.windowsTreeInspectionPhase)) return null;
+  return {
+    windowsTreeInspectionPhase: value.windowsTreeInspectionPhase,
+    windowsTreeInspectionAttempts: boundedDiagnosticInteger(value.windowsTreeInspectionAttempts, 1000),
+    windowsTreeInspectionRetries: boundedDiagnosticInteger(value.windowsTreeInspectionRetries, 1000),
+    windowsTreeInspectionQueueMs: boundedDiagnosticInteger(value.windowsTreeInspectionQueueMs, 600000),
+    windowsTreeInspectionNativeMs: boundedDiagnosticInteger(value.windowsTreeInspectionNativeMs, 600000),
+    windowsTreeInspectionLastRetry: GUARDED_DIAGNOSTIC_WINDOWS_TREE_INSPECTION_RETRIES.has(value.windowsTreeInspectionLastRetry)
+      ? value.windowsTreeInspectionLastRetry
+      : null,
+  };
+}
+
+function isPackagedWindowsTreeInspection(value) {
+  const projected = projectPackagedWindowsTreeInspection(value);
+  return projected !== null &&
+    hasOnlyKeys(value, new Set(Object.keys(projected))) &&
+    Object.entries(projected).every(([key, expected]) => value[key] === expected);
+}
 export const MCP_PACKAGED_SAFE_AUDIT_DIAGNOSTIC_REASONS = Object.freeze([
   "audit_event_not_found",
   "audit_probe_failed",
@@ -69,11 +124,15 @@ export const MCP_PACKAGED_SAFE_AUDIT_DIAGNOSTIC_REASONS = Object.freeze([
   "confirmation_private_state_acl_failed",
   "confirmation_private_state_commit_failed",
   "confirmation_private_state_protect_failed",
+  "confirmation_private_state_protect_helper_timeout",
+  "confirmation_private_state_protect_integrity_timeout",
   "confirmation_private_state_protect_timeout",
   "confirmation_private_state_protect_unavailable",
   "confirmation_private_state_sid_failed",
   "confirmation_private_state_system_utilities_unavailable",
   "confirmation_private_state_unprotect_failed",
+  "confirmation_private_state_unprotect_helper_timeout",
+  "confirmation_private_state_unprotect_integrity_timeout",
   "confirmation_private_state_unprotect_timeout",
   "confirmation_private_state_unprotect_unavailable",
   "confirmation_state_unavailable",
@@ -215,6 +274,7 @@ export function parsePackagedAcceptanceFailure(stderr) {
         "readinessAttribution",
         "healthcheckFailed",
         "processStartFailurePhase",
+        "windowsTreeInspection",
       ])) ||
       !(parsed.guardedProbe.lifecycle.attemptStatus === null || GUARDED_DIAGNOSTIC_TRACE_STATUSES.has(parsed.guardedProbe.lifecycle.attemptStatus)) ||
       !(parsed.guardedProbe.lifecycle.phase === null || GUARDED_DIAGNOSTIC_TRACE_PHASES.has(parsed.guardedProbe.lifecycle.phase)) ||
@@ -222,7 +282,9 @@ export function parsePackagedAcceptanceFailure(stderr) {
       !(parsed.guardedProbe.lifecycle.readinessAttribution === null || GUARDED_DIAGNOSTIC_READINESS.has(parsed.guardedProbe.lifecycle.readinessAttribution)) ||
       !(parsed.guardedProbe.lifecycle.healthcheckFailed === null || typeof parsed.guardedProbe.lifecycle.healthcheckFailed === "boolean") ||
       !(parsed.guardedProbe.lifecycle.processStartFailurePhase === null ||
-        GUARDED_DIAGNOSTIC_PROCESS_START_PHASES.has(parsed.guardedProbe.lifecycle.processStartFailurePhase))
+        GUARDED_DIAGNOSTIC_PROCESS_START_PHASES.has(parsed.guardedProbe.lifecycle.processStartFailurePhase)) ||
+      !(parsed.guardedProbe.lifecycle.windowsTreeInspection === null ||
+        isPackagedWindowsTreeInspection(parsed.guardedProbe.lifecycle.windowsTreeInspection))
     ) return null;
     diagnostic.guardedProbe = {
       completed: { ...parsed.guardedProbe.completed },
@@ -262,31 +324,184 @@ export async function supportedMcpVersions() {
   };
 }
 
+const RESOURCE_FAMILIES = Object.freeze({
+  verifier: Object.freeze({ candidate_command: "command", provenance_command: "command", install_command: "command", pack_command: "command", stage_lock: "awaited", consumer_command: "command" }),
+  consumer: Object.freeze({ inspector_command: "command", http_server: "awaited", http_transport: "transport", http_client: "awaited", stdio_transport: "transport", stdio_client: "awaited" }),
+});
+const RESOURCE_STATUSES = new Set(["not_created", "creation_attempted", "created", "creation_rejected", "close_attempted", "close_resolved", "close_rejected", "exit_observed", "close_observed", "unavailable"]);
+const RESOURCE_SCHEMA = "service-lasso.owning-resource-observation.v1";
+const RESOURCE_PREFIX = "[owning-resource-observation] ";
+
+function resourceFamily(boundary, role) {
+  if (typeof boundary !== "string" || typeof role !== "string") return undefined;
+  const roles = RESOURCE_FAMILIES[boundary];
+  return roles && Object.hasOwn(roles, role) ? roles[role] : undefined;
+}
+
+// One grammar for owning emission and untrusted relay. Returned command children
+// retain independent once-only error/exit/unavailable observations until close,
+// including actual late events after a bounded wait reported unavailable.
+function nextResourceState(family, prior, status) {
+  if (!RESOURCE_STATUSES.has(status)) return undefined;
+  if (prior === undefined) return status === "not_created" ? { status } : undefined;
+  if (prior.status === "not_created") return status === "creation_attempted" ? { status } : undefined;
+  if (prior.status === "creation_attempted") {
+    return status === "created" || status === "creation_rejected" ? { status, returned: status === "created" } : undefined;
+  }
+  if (family === "command") {
+    if (!prior.returned || prior.status === "close_observed") return undefined;
+    const flag = { creation_rejected: "rejected", exit_observed: "exited", unavailable: "unavailable", close_observed: "closed" }[status];
+    return flag && !prior[flag] ? { ...prior, status, [flag]: true } : undefined;
+  }
+  if (family === "transport") return prior.status === "created" && status === "unavailable" ? { status } : undefined;
+  const allowed = prior.status === "created" || prior.status === "close_resolved" || prior.status === "close_rejected"
+    ? ["close_attempted"] : prior.status === "close_attempted" ? ["close_resolved", "close_rejected"] : [];
+  return allowed.includes(status) ? { status } : undefined;
+}
+
+export function ownedCommandStderr(error) {
+  if (!error || typeof error !== "object" || types.isProxy(error)) return undefined;
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(error, "stderr");
+    return descriptor && "value" in descriptor && typeof descriptor.value === "string" ? descriptor.value : undefined;
+  } catch { return undefined; }
+}
+
+// Each factory belongs to one actual verifier/consumer invocation. It receives
+// no resource identity or exception and cannot grant acceptance authority.
+export function owningResourceObservations(boundary, report = value => process.stderr.write(value)) {
+  if (boundary !== "verifier" && boundary !== "consumer") throw new Error("Invalid resource observation boundary.");
+  let sequence = 0;
+  return role => {
+    const family = resourceFamily(boundary, role);
+    if (!family || sequence === 32) throw new Error("Invalid resource observation role.");
+    const ordinal = ++sequence;
+    let created = false;
+    let state;
+    const record = status => {
+      const next = nextResourceState(family, state, status);
+      if (!next) return;
+      state = next;
+      if (status === "created") created = true;
+      try { report(`${RESOURCE_PREFIX}${JSON.stringify({ schema: RESOURCE_SCHEMA, boundary, role, sequence: ordinal, status })}\n`); } catch { /* Observation must preserve the original result. */ }
+    };
+    record("not_created");
+    return Object.freeze({
+      record,
+      unavailableIfCreated() { if (created) record("unavailable"); },
+      async create(action) {
+        record("creation_attempted");
+        try { const resource = await action(); record("created"); return resource; }
+        catch (error) { record("creation_rejected"); throw error; }
+      },
+      async close(action) {
+        record("close_attempted");
+        try { const result = await action(); record("close_resolved"); return result; }
+        catch (error) { record("close_rejected"); throw error; }
+      },
+    });
+  };
+}
+
+// Consumer stderr is untrusted. Relay only this exact finite grammar; never
+// forward its surrounding output or let observations become evidence fields.
+export function relayOwningResourceObservations(serialized, report = value => process.stderr.write(value)) {
+  if (typeof serialized !== "string" || serialized.length > MAX_CAPTURE_BYTES) return;
+  let records = 0;
+  const roles = new Map();
+  const states = new Map();
+  for (const line of serialized.split("\n")) {
+    if (!line.startsWith(RESOURCE_PREFIX) || line.length > 512 || records === 256) continue;
+    let value;
+    try { value = JSON.parse(line.slice(RESOURCE_PREFIX.length)); } catch { continue; }
+    if (!value || Array.isArray(value) || Object.keys(value).join(",") !== "schema,boundary,role,sequence,status" ||
+      value.schema !== RESOURCE_SCHEMA || value.boundary !== "consumer" || !resourceFamily(value.boundary, value.role) ||
+      !RESOURCE_STATUSES.has(value.status) || !Number.isInteger(value.sequence) || value.sequence < 1 || value.sequence > 32) continue;
+    if (line !== RESOURCE_PREFIX + JSON.stringify(value)) continue;
+    if (roles.has(value.sequence) && roles.get(value.sequence) !== value.role) continue;
+    const prior = states.get(value.sequence);
+    const next = nextResourceState(resourceFamily(value.boundary, value.role), prior, value.status);
+    if (!next || (prior === undefined && value.sequence !== roles.size + 1)) continue;
+    roles.set(value.sequence, value.role);
+    states.set(value.sequence, next);
+    records++;
+    try { report(`${RESOURCE_PREFIX}${JSON.stringify(value)}\n`); } catch { /* Preserve verifier behavior. */ }
+  }
+}
+
 export async function runCommand(command, args, options = {}) {
   const timeoutMs = options.timeoutMs ?? 60_000;
+  const closeWaitTimeoutMs = options.closeWaitTimeoutMs ?? 5_000;
+  const observeResource = status => { try { options.resourceObservation?.record(status); } catch { /* Preserve primary command behavior. */ } };
   return await new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
+    observeResource("creation_attempted");
+    let child;
+    try { child = spawn(command, args, {
       cwd: options.cwd ?? repoRoot,
       env: options.env ?? process.env,
       windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"],
-    });
+    }); } catch (error) {
+      observeResource("creation_rejected");
+      reject(error);
+      return;
+    }
+    observeResource("created");
     const stdout = [];
     const stderr = [];
     let stdoutBytes = 0;
     let stderrBytes = 0;
     let settled = false;
-    const timer = setTimeout(() => {
+    let pendingFailure;
+    let rootExitObserved = false;
+    let closeWaitTimer;
+    let terminationWaitTimer;
+    const observedResult = (closeObserved) => ({
+      code: child.exitCode,
+      signal: child.signalCode,
+      pid: child.pid ?? null,
+      rootExitObserved,
+      closeObserved,
+      stdout: Buffer.concat(stdout).toString("utf8"),
+      stderr: Buffer.concat(stderr).toString("utf8"),
+    });
+    const startCloseWait = () => {
+      if (!rootExitObserved || closeWaitTimer || settled) return;
+      closeWaitTimer = setTimeout(() => {
+        const failure = pendingFailure ?? markRunCommandFailure(
+          new Error("Command root exited but its owned output streams did not close within the bounded wait."),
+          "close_unresolved",
+        );
+        finish(failure, observedResult(false));
+      }, closeWaitTimeoutMs);
+      closeWaitTimer.unref?.();
+    };
+    const startTerminationWait = () => {
+      if (rootExitObserved || terminationWaitTimer || settled) return;
+      terminationWaitTimer = setTimeout(() => {
+        // No root exit was observed. Preserve the primary causal failure
+        // rather than fabricating an exit or calling this an unresolved close.
+        finish(pendingFailure, observedResult(false));
+      }, closeWaitTimeoutMs);
+      terminationWaitTimer.unref?.();
+    };
+    const terminateOwnedChild = (failure) => {
+      failAfterClose(failure);
+      // `child` is the direct process this invocation created. Descendants and
+      // unrelated processes are never selected or terminated here.
       child.kill("SIGKILL");
-      finish(new Error(`Command did not complete within ${timeoutMs}ms.`));
+      if (rootExitObserved) startCloseWait();
+      else startTerminationWait();
+    };
+    const timer = setTimeout(() => {
+      terminateOwnedChild(markRunCommandFailure(new Error(`Command did not complete within ${timeoutMs}ms.`), "deadline_exceeded"));
     }, timeoutMs);
     timer.unref?.();
 
     const append = (chunks, chunk, kind) => {
       const next = kind === "stdout" ? stdoutBytes + chunk.length : stderrBytes + chunk.length;
       if (next > MAX_CAPTURE_BYTES) {
-        child.kill("SIGKILL");
-        finish(new Error(`Command ${kind} exceeded the bounded capture limit.`));
+        terminateOwnedChild(markRunCommandFailure(new Error(`Command ${kind} exceeded the bounded capture limit.`), "output_capture_exceeded"));
         return;
       }
       chunks.push(chunk);
@@ -295,22 +510,49 @@ export async function runCommand(command, args, options = {}) {
     };
     child.stdout.on("data", (chunk) => append(stdout, chunk, "stdout"));
     child.stderr.on("data", (chunk) => append(stderr, chunk, "stderr"));
-    child.once("error", finish);
-    child.once("exit", (code, signal) => {
+    child.once("error", (error) => {
+      observeResource("creation_rejected");
+      failAfterClose(markRunCommandFailure(error, "spawn_failed"));
+    });
+    child.once("exit", () => {
+      observeResource("exit_observed");
+      rootExitObserved = true;
+      if (terminationWaitTimer) clearTimeout(terminationWaitTimer);
+      startCloseWait();
+    });
+    child.once("close", (code, signal) => {
+      observeResource("close_observed");
       const result = {
         code,
         signal,
+        pid: child.pid ?? null,
+        rootExitObserved,
+        closeObserved: true,
         stdout: Buffer.concat(stdout).toString("utf8"),
         stderr: Buffer.concat(stderr).toString("utf8"),
       };
+      if (pendingFailure) {
+        finish(pendingFailure, result);
+        return;
+      }
       if (code === 0) finish(null, result);
-      else finish(new Error(`Command failed with exit code ${code ?? "none"} and signal ${signal ?? "none"}.`), result);
+      else finish(markRunCommandFailure(
+        new Error(`Command failed with exit code ${code ?? "none"} and signal ${signal ?? "none"}.`),
+        typeof code === "number" && code !== 0 ? "exit_nonzero" : "unknown",
+      ), result);
     });
+
+    function failAfterClose(error) {
+      if (!pendingFailure) pendingFailure = error;
+    }
 
     function finish(error, result) {
       if (settled) return;
       settled = true;
+      if (!result?.closeObserved) observeResource("unavailable");
       clearTimeout(timer);
+      if (closeWaitTimer) clearTimeout(closeWaitTimer);
+      if (terminationWaitTimer) clearTimeout(terminationWaitTimer);
       if (error) {
         if (result) Object.assign(error, result);
         reject(error);
@@ -319,6 +561,33 @@ export async function runCommand(command, args, options = {}) {
       }
     }
   });
+}
+
+function markRunCommandFailure(error, kind) {
+  if (!error || typeof error !== "object" || !RUN_COMMAND_FAILURE_KINDS.has(kind)) return error;
+  try {
+    Object.defineProperty(error, "runCommandFailureKind", {
+      configurable: false,
+      enumerable: false,
+      value: kind,
+      writable: false,
+    });
+  } catch {
+    // The receipt stays closed when an unexpected frozen error cannot carry the
+    // wrapper observation.
+  }
+  return error;
+}
+
+export function runCommandFailureKind(error) {
+  if (!error || typeof error !== "object") return "unknown";
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(error, "runCommandFailureKind");
+    const kind = descriptor && "value" in descriptor ? descriptor.value : undefined;
+    return typeof kind === "string" && RUN_COMMAND_FAILURE_KINDS.has(kind) ? kind : "unknown";
+  } catch {
+    return "unknown";
+  }
 }
 
 async function inspectorEntrypoint() {
@@ -338,6 +607,7 @@ export async function runInspector({
   strict = false,
   timeoutMs = 60_000,
   env,
+  resourceObservation,
 }) {
   const nodeArgs = [
     await inspectorEntrypoint(),
@@ -356,7 +626,7 @@ export async function runInspector({
   if (toolName) nodeArgs.push("--tool-name", toolName);
   if (toolArgs !== undefined) nodeArgs.push("--tool-args-json", JSON.stringify(toolArgs));
   if (strict) nodeArgs.push("--strict");
-  const result = await runCommand(process.execPath, nodeArgs, { timeoutMs, env });
+  const result = await runCommand(process.execPath, nodeArgs, { timeoutMs, env, resourceObservation });
   const serialized = result.stdout.trim();
   if (!serialized) throw new Error("MCP Inspector returned no JSON output.");
   try {
@@ -445,7 +715,7 @@ export function validateMcpProductEvidence(evidence, options = {}) {
     !/^[0-9a-f]{64}$/u.test(evidence.packageArchiveSha256) ||
     !hasExactKeys(evidence.sdk, ["packageName", "version", "protocolVersion", "supportedProtocolVersions"]) ||
     evidence.sdk.packageName !== "@modelcontextprotocol/sdk" ||
-    evidence.sdk.version !== "1.30.0" ||
+    evidence.sdk.version !== "1.31.0" ||
     evidence.sdk.protocolVersion !== "2025-11-25" ||
     JSON.stringify(evidence.sdk.supportedProtocolVersions) !== JSON.stringify([
       "2025-11-25",

@@ -1,6 +1,8 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { validInitialProjection } from "./public-first-custody-projection-lib.mjs";
+import { lstat, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
+import { isDeepStrictEqual } from "node:util";
 import {
   ADMIN_HARNESS_REVISION,
   ADMIN_RELEASE,
@@ -13,7 +15,10 @@ import {
   requirePositiveInteger,
   requireSha,
   requireSha256,
+  retainAdminTrustedUnlockReceipt,
 } from "./published-package-qualification-lib.mjs";
+import { parsePrebrowserFailure } from "./record-admin-trusted-unlock-prebrowser-failure.mjs";
+import { strictJson } from "./consume-admin-trusted-unlock-receipt.mjs";
 
 function env(name, pattern = /^.*$/u) {
   return requirePattern(process.env[name], pattern, name);
@@ -41,8 +46,24 @@ async function findCurrentJobId({ repo, runId, runAttempt, jobName, token }) {
 }
 
 const platform = env("QUALIFICATION_PLATFORM", /^(?:win32|linux|darwin)$/u);
-const safeStatePath = path.resolve(env("QUALIFICATION_SAFE_STATE_PATH", /^.+$/u));
 const evidenceRoot = path.resolve(env("QUALIFICATION_EVIDENCE_ROOT", /^.+$/u));
+const runIdForInitialReceipt = requirePositiveInteger(env("GITHUB_RUN_ID", /^[1-9][0-9]*$/u), "GITHUB_RUN_ID");
+const runAttemptForInitialReceipt = requirePositiveInteger(env("GITHUB_RUN_ATTEMPT", /^[1-9][0-9]*$/u), "GITHUB_RUN_ATTEMPT");
+const initialProjectionPath = path.resolve(env("QUALIFICATION_INITIAL_PROJECTION_PATH", /^.+$/u));
+const initialProjectionSource = await readFile(initialProjectionPath, "utf8").catch(() => null);
+const initialProjection = initialProjectionSource && strictJson(initialProjectionSource) ? JSON.parse(initialProjectionSource) : null;
+if (!validInitialProjection(initialProjection, platform, runIdForInitialReceipt, runAttemptForInitialReceipt, process.env.QUALIFICATION_CANDIDATE_SHA)) throw new Error("Initial qualification projection custody is invalid.");
+const prebrowserPath = process.env.ADMIN_TRUSTED_UNLOCK_PREBROWSER_FAILURE_PATH;
+if (prebrowserPath) {
+  const source = await readFile(path.resolve(prebrowserPath), "utf8").catch(() => null);
+  const prebrowser = source && parsePrebrowserFailure(source);
+  if (!prebrowser || prebrowser.platform !== platform || prebrowser.run.id !== Number(process.env.GITHUB_RUN_ID) || prebrowser.run.attempt !== Number(process.env.GITHUB_RUN_ATTEMPT)) throw new Error("Pre-browser failure custody is invalid.");
+  await mkdir(evidenceRoot, { recursive: true });
+  if (!initialProjectionSource) throw new Error("Initial qualification projection custody is invalid.");
+  await writeFile(path.join(evidenceRoot, "admin-trusted-unlock-prebrowser-failure.json"), `${JSON.stringify(prebrowser)}\n`);
+  process.exit(0);
+}
+const safeStatePath = path.resolve(env("QUALIFICATION_SAFE_STATE_PATH", /^.+$/u));
 const repo = env("GITHUB_REPOSITORY", /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u);
 const token = env("GITHUB_TOKEN", /^.+$/u);
 const runId = String(requirePositiveInteger(env("GITHUB_RUN_ID", /^[1-9][0-9]*$/u), "GITHUB_RUN_ID"));
@@ -50,6 +71,7 @@ const runAttempt = String(
   requirePositiveInteger(env("GITHUB_RUN_ATTEMPT", /^[1-9][0-9]*$/u), "GITHUB_RUN_ATTEMPT"),
 );
 const workflowSha = requireSha(env("GITHUB_SHA"), "GITHUB_SHA");
+if (process.env.QUALIFICATION_CANDIDATE_SHA !== workflowSha) throw new Error("Initial qualification candidate is not the workflow candidate.");
 const coreReleaseId = env("CORE_RELEASE_ID", /^[1-9][0-9]*$/u);
 const coreTag = env("CORE_RELEASE_TAG", /^20[0-9]{2}\.[1-9][0-9]*\.[1-9][0-9]*-[0-9a-f]{7}$/u);
 const coreRevision = requireSha(env("CORE_REVISION"), "CORE_REVISION");
@@ -67,6 +89,18 @@ const adminHarnessRevision = requireSha(
 if (adminHarnessRevision !== ADMIN_HARNESS_REVISION) {
   throw new Error("Admin browser harness revision is not canonical.");
 }
+const trustedUnlockSourcePath = process.env.ADMIN_TRUSTED_UNLOCK_RECEIPT_PATH;
+if (typeof trustedUnlockSourcePath !== "string" || !trustedUnlockSourcePath) throw new Error("Admin trusted-unlock consumer receipt path is required.");
+const trustedUnlockSourceInfo = await lstat(path.resolve(trustedUnlockSourcePath)).catch(() => null);
+if (!trustedUnlockSourceInfo?.isFile() || trustedUnlockSourceInfo.isSymbolicLink() || trustedUnlockSourceInfo.size <= 0 || trustedUnlockSourceInfo.size > 2048) throw new Error("Admin trusted-unlock consumer receipt is missing, private, or out of bounds.");
+const trustedUnlockSource = await readFile(path.resolve(trustedUnlockSourcePath), "utf8");
+const adminTrustedUnlockReceipt = retainAdminTrustedUnlockReceipt(trustedUnlockSource, {
+  platform,
+  coreRevision,
+  adminReleaseId: ADMIN_RELEASE.id,
+  adminRevision: ADMIN_RELEASE.revision,
+  adminHarnessRevision,
+});
 
 let evidence;
 try {
@@ -77,6 +111,7 @@ try {
     retainedContent: "metadata_only",
     outcome: "failure",
     platform,
+    firstCustody: initialProjection,
     core: {
       releaseId: coreReleaseId,
       tag: coreTag,
@@ -115,6 +150,10 @@ try {
   };
 }
 
+if (!validInitialProjection(evidence.firstCustody, platform, runId, runAttempt, workflowSha) || !isDeepStrictEqual(evidence.firstCustody, initialProjection)) {
+  throw new Error("Prepared first-custody projection does not match current initial projection.");
+}
+
 let jobId = 0;
 try {
   jobId = await findCurrentJobId({
@@ -134,6 +173,7 @@ evidence.run = {
   jobId,
   workflowSha,
 };
+evidence.adminTrustedUnlockReceipt = adminTrustedUnlockReceipt;
 evidence.scenarios ??= {};
 evidence.scenarios.firstRun = process.env.QUALIFICATION_FIRST_RUN === "success" ? "success" : "blocked";
 const lifecycleOutcome = process.env.QUALIFICATION_LIFECYCLE === "success" ? "success" : "blocked";
@@ -240,6 +280,7 @@ try {
       checksumSource: "SHA256SUMS.txt",
     },
     adminHarnessRevision,
+    adminTrustedUnlockReceipt,
     retentionDays: RETENTION_DAYS,
     mutationRetry: false,
     acquisitionRetry: false,
@@ -252,6 +293,10 @@ try {
 }
 
 await mkdir(evidenceRoot, { recursive: true });
+await writeFile(
+  path.join(evidenceRoot, "admin-trusted-unlock-receipt.json"),
+  `${JSON.stringify(adminTrustedUnlockReceipt, null, 2)}\n`,
+);
 await writeFile(
   path.join(evidenceRoot, `published-package-qualification-${platform}.json`),
   `${JSON.stringify(evidence, null, 2)}\n`,

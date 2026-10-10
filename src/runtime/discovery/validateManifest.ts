@@ -360,7 +360,7 @@ function readHealthcheckRecord(
 
 function readActionMaterialization(
   value: unknown,
-  field: "install" | "config",
+  field: "install" | "config" | "broker",
   manifestPath: string,
 ): ServiceManifest["install"] | undefined {
   if (value === undefined) {
@@ -372,6 +372,15 @@ function readActionMaterialization(
   }
 
   const record = value as Record<string, unknown>;
+  for (const entries of [record.files, record.templates]) {
+    if (!Array.isArray(entries)) continue;
+    for (const entry of entries) {
+      if (!entry || typeof entry !== "object") continue;
+      if (Object.prototype.hasOwnProperty.call(entry, "ephemeral")) {
+        throw new Error(`Invalid service manifest at ${manifestPath}: removed ${field} ephemeral field; declare secret outputs in broker.files or broker.templates without ephemeral.`);
+      }
+    }
+  }
   if (
     record.files !== undefined &&
     (!Array.isArray(record.files) ||
@@ -1819,6 +1828,7 @@ function readBrokerPolicy(value: unknown, manifestPath: string, serviceId: strin
   validateUniqueEntries(parsedBuckets?.map((entry) => entry.namespace) ?? [], "broker.buckets.namespace", manifestPath);
 
   return {
+    ...readActionMaterialization({ files: record.files, templates: record.templates }, "broker", manifestPath),
     enabled: expectOptionalBoolean(record.enabled, "broker.enabled", manifestPath),
     namespace: record.namespace === undefined ? undefined : expectBrokerNamespace(record.namespace, "broker.namespace", manifestPath),
     buckets: parsedBuckets,

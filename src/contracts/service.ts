@@ -73,6 +73,7 @@ export interface ServicePortMappingDeclaration {
 export interface ServiceMaterializedFile {
   path: string;
   content: string;
+  /** Secret config output recreated in Broker RAM before each launch (explicit Linux tmpfs alternative). */
 }
 
 export interface ServiceMaterializedTemplate {
@@ -422,6 +423,9 @@ export interface ServiceBrokerWritebackPolicy {
 }
 
 export interface ServiceBrokerPolicy {
+  /** Disposable secret outputs provisioned by Broker at fresh launch. */
+  files?: ServiceMaterializedFile[];
+  templates?: ServiceMaterializedTemplate[];
   enabled?: boolean;
   namespace?: string;
   buckets?: ServiceBrokerBucket[];

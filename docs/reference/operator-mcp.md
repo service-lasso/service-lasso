@@ -10,7 +10,7 @@ The runtime currently exposes:
 - discovery and compatibility metadata at `GET /api/mcp/info`
 - a bounded migration response at `GET /api/mcp` that returns `405 Method Not Allowed`
 - negotiated protocol revision `2025-11-25`, with the complete SDK-supported set advertised by `GET /api/mcp/info` (`2025-11-25`, `2025-06-18`, `2025-03-26`, `2024-11-05`, and `2024-10-07`)
-- `@modelcontextprotocol/sdk` `1.30.0` pinned for MCP server registration and Streamable HTTP handling
+- `@modelcontextprotocol/sdk` `1.31.0` pinned for MCP server registration and Streamable HTTP handling
 - `@modelcontextprotocol/inspector` `2.4.0` pinned as the blocking official Inspector client
 - RFC 9728 protected-resource metadata at `GET /.well-known/oauth-protected-resource` when MCP OAuth is fully configured
 - asymmetric JWT signature, issuer, expiry, configured-audience, and scope validation for configured Streamable HTTP
@@ -28,6 +28,7 @@ The runtime currently exposes:
 - secret-metadata tool that never returns secret values
 - durable, actor/client-bound idempotency results and expiring single-use server confirmations for actions that require confirmation
 - durable long-running operation records with actor/workspace isolation, bounded retention, restart reconciliation, safe progress, and cancellation where the underlying action supports it
+- a versioned Core reconciliation-context read for durable HTTP lifecycle clients
 
 The original prototype was delivered by [issue #592](https://github.com/service-lasso/service-lasso/issues/592) and [PR #604](https://github.com/service-lasso/service-lasso/pull/604). The production programme is governed by `SPEC-006` and issues `#858`–`#864`; the release gate now tests the current surface from both source and a fresh package consumer.
 
@@ -95,6 +96,12 @@ Install, configuration, setup, update, and runtime-wide actions enter the durabl
 Operation records contain only the action, status, bounded phase and progress, safe summary, timestamps, allowlisted target ids, one shared Audit correlation id, cancellation support, terminal outcome, and whether the caller owns the record. They never retain action parameters, idempotency keys, confirmation material, configuration bodies, paths, raw output, logs, credentials, secret values, or unbounded errors. State is scoped to the active workspace and protected with the runtime's private-state storage. An actor sees only its own records unless an Administrator explicitly requests cross-actor inspection.
 
 Only update checks and update downloads are safely cancellable. `service_lasso_cancel_operation` returns `requested`, `unsupported`, or `too_late`; a request cancellation signal uses the same safe path while the MCP request remains active. A live runner owns cancellation through its durable heartbeat, so another MCP process requests cancellation through state and cannot claim success merely from the action name. Client disconnect does not repeat or orphan the guarded mutation. After Core restart, a terminal result is accepted only from the operation's opaque, correlation-bound guarded execution record or an explicit authoritative adapter; ambient install, configuration, or running snapshots never prove that a particular operation completed. An unproven non-terminal operation remains honestly `detached` and expires as `interrupted` rather than consuming capacity forever.
+
+### Durable reconciliation context
+
+`GET /api/operator/lifecycle/reconciliation-context` is a read-only Core contract for clients that retain durable-operation metadata. It returns `service-lasso-durable-reconciliation-context.v1` and exactly four opaque bindings: `instanceBinding`, `workspaceBinding`, `actorBinding`, and `clientBinding`. The route uses the same validated MCP HTTP `service-lasso:read` authorization as other protected reads: configured OAuth requires a valid JWT/JWKS identity and read scope; an unconfigured runtime permits only an authenticated loopback actor.
+
+Core creates one random, versioned noncredential authority record at its server-initialization boundary under the workspace lifecycle lock, with a separately committed digest-only custody record. That retained custody—not path, port, URL, token, credential hash, or runtime generation—is the source for every binding. A supported credential rotation and restart of the same runtime lane retain the values; a changed actor/client or a replacement workspace/lane produces distinct values, including a newly Core-initialized workspace recreated at the same paths and HTTP URL. The read only consumes the initialized authority: it never creates, resets, rotates, or repairs it. Missing, malformed, legacy, duplicate-key, or custody-mismatched state fails closed; Core does not regenerate an existing authority from paths or restore it from a prior backup. An arbitrary byte-for-byte copy that includes both retained authority records preserves that authority and is outside this replacement distinction. The response contains no access or local-admin token material, JWT payload, path, hostname, command, runtime-generation data, or lifecycle state, and the request does not mutate operation, journal, or runtime state.
 
 Terminal records are retained for 24 hours by default, with an implementation maximum of seven days and a bounded store of 48 records. Active runners publish a generation identity through one coalesced workspace heartbeat, so concurrent operations share one bounded encrypted-state update instead of multiplying writes per operation. Terminal Audit publication uses a deterministic event identity under the operation-state claim and a cross-process Audit append lock so reconciliation cannot duplicate an outcome or fork the hash chain. Cleanup and interrupted-operation reconciliation occur during later operation reads, lists, and mutations. The operation domain is independent of experimental MCP Tasks.
 

@@ -1,0 +1,12 @@
+import { execFileSync } from "node:child_process";
+import { appendFile } from "node:fs/promises";
+import { assertDevelopIdentity, assertPolicyEnvironment, POLICY_SHA256, readSourceScope } from "./ga-platform-scope-lib.mjs";
+assertDevelopIdentity();
+if (!["win32", "linux"].includes(process.platform) || process.arch !== "x64") throw new Error("scoped workflow native host platform/architecture differs");
+await readSourceScope();
+const candidate = process.env.CANDIDATE_SHA ?? process.env.QUALIFICATION_CANDIDATE_SHA;
+const head = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+if (head !== candidate || process.env.GITHUB_SHA !== candidate) throw new Error("scoped checkout/workflow does not match the same exact candidate");
+if (process.env.SCOPE_POLICY_SHA256 !== undefined) assertPolicyEnvironment();
+if (!process.env.GITHUB_ENV) throw new Error("scoped source binding requires workflow environment output");
+await appendFile(process.env.GITHUB_ENV, `SCOPE_POLICY_SHA256=${POLICY_SHA256}\n`, "utf8");

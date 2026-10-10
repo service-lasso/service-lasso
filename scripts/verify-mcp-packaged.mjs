@@ -1,27 +1,46 @@
 import { createHash } from "node:crypto";
-import { copyFile, lstat, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { copyFile, lstat, mkdir, mkdtemp, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { stagePublishedPackage } from "./publish-package-lib.mjs";
+import { getNpmCommand } from "./npm-command-lib.mjs";
+import { takeBootstrappedReleaseMetadataToken, operatorToolFailureDiagnostic } from "./operator-tool-packaging-lib.mjs";
 import {
   MCP_PRODUCT_EVIDENCE_CONTRACT,
   parsePackagedAcceptanceFailure,
   runCommand,
+  owningResourceObservations,
+  relayOwningResourceObservations,
+  ownedCommandStderr,
+  runCommandFailureKind,
   validateMcpProductEvidence,
 } from "./mcp-product-acceptance-lib.mjs";
 
+import { dependencyAcquisitionReceipt, packagedVerificationDiagnostic } from "./packaged-verification-diagnostics.mjs";
+import { ownedTempCleanupObservation, removeOwnedTempRoot } from "./owned-temp-cleanup.mjs";
+
+const allocateResource = owningResourceObservations("verifier");
+const candidateObservation = allocateResource("candidate_command");
+const provenanceObservations = Array.from({ length: 4 }, () => allocateResource("provenance_command"));
+const packObservation = allocateResource("pack_command");
+const stageLockObservation = allocateResource("stage_lock");
+const installObservation = allocateResource("install_command");
+const consumerObservation = allocateResource("consumer_command");
+let provenanceOrdinal = 0;
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const platform = process.platform;
-const npmEntrypoint = process.env.npm_execpath?.trim();
-if (!npmEntrypoint) {
-  throw new Error("Packaged MCP acceptance must run through the governed npm script entrypoint.");
-}
+const releaseMetadataToken = takeBootstrappedReleaseMetadataToken();
+const npmEntrypoint = process.platform === "win32"
+  ? getNpmCommand([]).args[0]
+  : (process.env.SERVICE_LASSO_NPM_ENTRYPOINT?.trim() || process.env.npm_execpath?.trim()
+    || path.resolve(path.dirname(process.execPath), "..", "lib", "node_modules", "npm", "bin", "npm-cli.js"));
+try { await stat(npmEntrypoint); } catch { throw new Error("Packaged MCP acceptance could not resolve the governed npm entrypoint."); }
 
 async function exactCandidateSha() {
   const configured = process.env.CANDIDATE_SHA?.trim().toLowerCase();
   if (configured) return configured;
-  return (await runCommand("git", ["rev-parse", "HEAD"], { cwd: repoRoot })).stdout.trim().toLowerCase();
+  return (await runCommand("git", ["rev-parse", "HEAD"], { cwd: repoRoot, resourceObservation: candidateObservation })).stdout.trim().toLowerCase();
 }
 
 async function requirePathAbsent(candidatePath, label) {
@@ -32,6 +51,16 @@ async function requirePathAbsent(candidatePath, label) {
     throw error;
   }
   throw new Error(`${label} must be absent.`);
+}
+
+function ownPackagedAcceptanceDiagnostic(error) {
+  if (!error || typeof error !== "object") return undefined;
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(error, "packagedAcceptanceDiagnostic");
+    return descriptor && "value" in descriptor ? descriptor.value : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 async function runWindowsProvenanceVerifier(scriptName, label, scriptArgs = []) {
@@ -59,7 +88,7 @@ async function runWindowsProvenanceVerifier(scriptName, label, scriptArgs = []) 
       path.join(repoRoot, "scripts", scriptName),
       ...scriptArgs,
     ],
-    { cwd: repoRoot, timeoutMs: 60_000 },
+    { cwd: repoRoot, timeoutMs: 60_000, resourceObservation: provenanceObservations[provenanceOrdinal++] },
   );
   process.stderr.write(`[mcp-package-provenance:${label}] ${verification.stdout.trim()}\n`);
 }
@@ -80,6 +109,10 @@ async function verifyWindowsDpapiHelperProvenance() {
   await runWindowsProvenanceVerifier("verify-windows-dpapi-helper.ps1", "dpapi-helper");
 }
 
+async function verifyWindowsDirectorySyncHelperProvenance() {
+  await runWindowsProvenanceVerifier("verify-windows-process-inspector.ps1", "directory-sync-helper", ["-DirectorySyncHelper"]);
+}
+
 function isolatedConsumerEnvironment(overrides) {
   const allowedNames = ["PATH", "Path", "PATHEXT", "SystemRoot", "WINDIR", "ComSpec", "TEMP", "TMP", "TMPDIR"];
   const environment = Object.fromEntries(
@@ -91,20 +124,6 @@ function isolatedConsumerEnvironment(overrides) {
     ? { PSModulePath: path.join(process.env.SystemRoot, "System32", "WindowsPowerShell", "v1.0", "Modules") }
     : {};
   return { ...environment, ...platformEnvironment, ...overrides };
-}
-
-async function removeOwnedTempRoot(tempRoot) {
-  for (let attempt = 1; attempt <= 8; attempt += 1) {
-    try {
-      await rm(tempRoot, { recursive: true, force: true });
-      return;
-    } catch (error) {
-      if (!error || typeof error !== "object" || !["EBUSY", "ENOTEMPTY", "EPERM"].includes(error.code) || attempt === 8) {
-        throw error;
-      }
-      await new Promise((resolve) => setTimeout(resolve, attempt * 100));
-    }
-  }
 }
 
 async function writeCanonicalService(servicesRoot) {
@@ -157,6 +176,7 @@ async function writeCanonicalService(servicesRoot) {
 await verifyWindowsProcessInspectorProvenance();
 await verifyWindowsManagedLauncherNativeProvenance();
 await verifyWindowsDpapiHelperProvenance();
+await verifyWindowsDirectorySyncHelperProvenance();
 await Promise.all([
   requirePathAbsent(
     path.join(repoRoot, "src", "runtime", "execution", "windows-managed-launcher.ps1"),
@@ -172,6 +192,10 @@ if (!/^[0-9a-f]{40}$/u.test(candidateSha)) {
   throw new Error("Packaged MCP acceptance requires an exact candidate SHA.");
 }
 const version = process.env.SERVICE_LASSO_RELEASE_VERSION?.trim() || `0.1.0-mcp-${candidateSha.slice(0, 7)}`;
+const pinnedSdkVersion = JSON.parse(await readFile(path.join(repoRoot, "package.json"), "utf8")).dependencies?.["@modelcontextprotocol/sdk"];
+if (typeof pinnedSdkVersion !== "string" || !/^\d+\.\d+\.\d+/.test(pinnedSdkVersion)) {
+  throw new Error("Packaged MCP acceptance requires an exact pinned MCP SDK version.");
+}
 const evidencePath = path.resolve(
   process.env.MCP_PRODUCT_EVIDENCE_PATH?.trim() || path.join(repoRoot, "artifacts", `mcp-product-${platform}.json`),
 );
@@ -191,6 +215,7 @@ const servicesRoot = path.join(tempRoot, "services");
 const httpWorkspaceRoot = path.join(tempRoot, "workspace-http");
 const stdioWorkspaceRoot = path.join(tempRoot, "workspace-stdio");
 let verificationFailure = null;
+let verificationStage = "consumer_setup";
 
 try {
   await Promise.all([
@@ -200,19 +225,24 @@ try {
     mkdir(stdioWorkspaceRoot, { recursive: true }),
   ]);
   const serviceId = await writeCanonicalService(servicesRoot);
-  const staged = await stagePublishedPackage({ repoRoot, outputRoot: packageOutputRoot, version });
+  verificationStage = "package_staging";
+  const staged = await stagePublishedPackage({ repoRoot, outputRoot: packageOutputRoot, version, releaseMetadataToken, resourceObservation: packObservation, stageLockObservation });
   const packageArchiveBytes = await readFile(staged.packageArchivePath);
   const packageArchiveSha256 = createHash("sha256").update(packageArchiveBytes).digest("hex");
   await writeFile(path.join(consumerRoot, "package.json"), `${JSON.stringify({ private: true, type: "module" }, null, 2)}\n`);
+  verificationStage = "dependency_acquisition";
   await runCommand(process.execPath, [npmEntrypoint,
     "install",
+    "--json",
     "--ignore-scripts",
     "--no-audit",
     "--no-fund",
     "--save-exact",
     staged.packageArchivePath,
     "@modelcontextprotocol/inspector@2.4.0",
-  ], { cwd: consumerRoot, timeoutMs: 300_000 });
+    `@modelcontextprotocol/sdk@${pinnedSdkVersion}`,
+  ], { cwd: consumerRoot, timeoutMs: 300_000, resourceObservation: installObservation });
+  verificationStage = "installed_package_binding";
   const installedRoot = path.join(consumerRoot, "node_modules", "@service-lasso", "service-lasso");
   const installedManifest = JSON.parse(await readFile(path.join(installedRoot, "package.json"), "utf8"));
   if (installedManifest.name !== "@service-lasso/service-lasso" || installedManifest.version !== version) {
@@ -231,6 +261,14 @@ try {
     installedManagedLauncherNativeProvenance,
     reviewedManagedLauncherNative,
     reviewedManagedLauncherNativeProvenance,
+    installedManagedLauncher,
+    installedManagedLauncherProvenance,
+    reviewedManagedLauncher,
+    reviewedManagedLauncherProvenance,
+    installedDirectorySyncHelper,
+    installedDirectorySyncHelperProvenance,
+    reviewedDirectorySyncHelper,
+    reviewedDirectorySyncHelperProvenance,
   ] = await Promise.all([
     readFile(path.join(installedRoot, "dist", "runtime", "security", "windows-dpapi-helper.exe")),
     readFile(path.join(installedRoot, "dist", "runtime", "security", "windows-dpapi-helper.provenance.json")),
@@ -240,13 +278,25 @@ try {
     readFile(path.join(installedRoot, "dist", "runtime", "execution", "windows-managed-launcher-native.provenance.json")),
     readFile(path.join(repoRoot, "src", "runtime", "execution", "windows-managed-launcher-native.exe")),
     readFile(path.join(repoRoot, "src", "runtime", "execution", "windows-managed-launcher-native.provenance.json")),
+    readFile(path.join(installedRoot, "dist", "runtime", "execution", "windows-managed-launcher-managed.exe")),
+    readFile(path.join(installedRoot, "dist", "runtime", "execution", "windows-managed-launcher-managed.provenance.json")),
+    readFile(path.join(repoRoot, "src", "runtime", "execution", "windows-managed-launcher-managed.exe")),
+    readFile(path.join(repoRoot, "src", "runtime", "execution", "windows-managed-launcher-managed.provenance.json")),
+    readFile(path.join(installedRoot, "dist", "runtime", "operator", "windows-directory-sync-helper.exe")),
+    readFile(path.join(installedRoot, "dist", "runtime", "operator", "windows-directory-sync-helper.provenance.json")),
+    readFile(path.join(repoRoot, "src", "runtime", "operator", "windows-directory-sync-helper.exe")),
+    readFile(path.join(repoRoot, "src", "runtime", "operator", "windows-directory-sync-helper.provenance.json")),
   ]);
   try {
     if (
       !installedDpapiHelper.equals(reviewedDpapiHelper) ||
       !installedDpapiProvenance.equals(reviewedDpapiProvenance) ||
       !installedManagedLauncherNative.equals(reviewedManagedLauncherNative) ||
-      !installedManagedLauncherNativeProvenance.equals(reviewedManagedLauncherNativeProvenance)
+      !installedManagedLauncherNativeProvenance.equals(reviewedManagedLauncherNativeProvenance) ||
+      !installedManagedLauncher.equals(reviewedManagedLauncher) ||
+      !installedManagedLauncherProvenance.equals(reviewedManagedLauncherProvenance) ||
+      !installedDirectorySyncHelper.equals(reviewedDirectorySyncHelper) ||
+      !installedDirectorySyncHelperProvenance.equals(reviewedDirectorySyncHelperProvenance)
     ) {
       throw new Error("Fresh consumer installed unbound Windows native helper assets.");
     }
@@ -259,7 +309,16 @@ try {
     installedManagedLauncherNativeProvenance.fill(0);
     reviewedManagedLauncherNative.fill(0);
     reviewedManagedLauncherNativeProvenance.fill(0);
+    installedManagedLauncher.fill(0);
+    installedManagedLauncherProvenance.fill(0);
+    reviewedManagedLauncher.fill(0);
+    reviewedManagedLauncherProvenance.fill(0);
+    installedDirectorySyncHelper.fill(0);
+    installedDirectorySyncHelperProvenance.fill(0);
+    reviewedDirectorySyncHelper.fill(0);
+    reviewedDirectorySyncHelperProvenance.fill(0);
   }
+  verificationStage = "consumer_setup";
   const consumerRunnerPath = path.join(consumerRoot, "mcp-packaged-consumer-runner.mjs");
   const consumerLibraryPath = path.join(consumerRoot, "mcp-product-acceptance-lib.mjs");
   await Promise.all([
@@ -280,9 +339,11 @@ try {
   ];
   let runnerResult;
   try {
+    verificationStage = "consumer_runner";
     runnerResult = await runCommand(process.execPath, [...permissionOptions, consumerRunnerPath], {
       cwd: consumerRoot,
       timeoutMs: 900_000,
+      resourceObservation: consumerObservation,
       env: isolatedConsumerEnvironment({
         NODE_OPTIONS: permissionOptions.join(" "),
         MCP_PACKAGE_ACCEPTANCE_CONFIGURATION: JSON.stringify({
@@ -299,8 +360,14 @@ try {
         MCP_PACKAGE_ACCEPTANCE_FORBIDDEN_SOURCE_ROOT: repoRoot,
       }),
     });
+    relayOwningResourceObservations(runnerResult.stderr);
+    if (runnerResult.closeObserved !== true) {
+      throw new Error("Fresh-consumer MCP acceptance runner did not reach a closed subprocess boundary.");
+    }
   } catch (error) {
-    const runner = parsePackagedAcceptanceFailure(error?.stderr);
+    const stderr = ownedCommandStderr(error);
+    relayOwningResourceObservations(stderr);
+    const runner = parsePackagedAcceptanceFailure(stderr);
     const safe = new Error("Fresh-consumer MCP acceptance failed safely.");
     safe.packagedAcceptanceDiagnostic = {
       stage: "consumer_runner",
@@ -309,6 +376,7 @@ try {
     };
     throw safe;
   }
+  verificationStage = "consumer_result";
   let acceptance;
   try {
     acceptance = JSON.parse(runnerResult.stdout.trim());
@@ -337,7 +405,9 @@ try {
     assertions: acceptance.assertions,
     generatedAt: new Date().toISOString(),
   };
+  verificationStage = "evidence_validation";
   validateMcpProductEvidence(evidence, { candidateSha, platform });
+  verificationStage = "evidence_write";
   await mkdir(path.dirname(evidencePath), { recursive: true });
   await writeFile(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
   process.stdout.write(`${JSON.stringify({
@@ -351,17 +421,20 @@ try {
     result: "passed",
   })}\n`);
 } catch (error) {
-  verificationFailure = error?.packagedAcceptanceDiagnostic ?? {
-    stage: "packaged_verification",
-    errorCode: "verification_failed",
-  };
+  verificationFailure = ownPackagedAcceptanceDiagnostic(error) ?? packagedVerificationDiagnostic(
+    verificationStage,
+    operatorToolFailureDiagnostic(error),
+    verificationStage === "dependency_acquisition" ? dependencyAcquisitionReceipt(error, runCommandFailureKind(error)) : undefined,
+  );
 } finally {
   try {
     await removeOwnedTempRoot(tempRoot);
-  } catch {
+  } catch (error) {
+    const cleanup = ownedTempCleanupObservation(error);
     verificationFailure = {
       stage: "temp_cleanup",
       errorCode: "cleanup_failed",
+      ...(cleanup ? { cleanup } : {}),
       ...(verificationFailure
         ? {
             verificationStage: verificationFailure.stage,

@@ -426,11 +426,54 @@ function parseLegacyProcessOwnershipRegistry(workspaceRoot: string, value: unkno
 }
 
 export async function readProcessOwnershipRegistry(workspaceRoot: string): Promise<ProcessOwnershipRegistry> {
-  const result = await readLifecycleDocument(workspaceRoot, PROCESS_OWNERSHIP_POLICY, {
+  const result = await readProcessOwnershipDocument(workspaceRoot);
+  return result.document ?? emptyRegistry(workspaceRoot);
+}
+
+function readProcessOwnershipDocument(workspaceRoot: string) {
+  return readLifecycleDocument(workspaceRoot, PROCESS_OWNERSHIP_POLICY, {
     parseCurrent: (value) => parseCurrentProcessOwnershipRegistry(workspaceRoot, value),
     parseLegacy: (value) => parseLegacyProcessOwnershipRegistry(workspaceRoot, value),
   });
-  return result.document ?? emptyRegistry(workspaceRoot);
+}
+
+// Fixture-only evidence reader. Production initialization keeps its existing
+// empty-registry behavior; absence must never become fixture cleanup authority.
+export async function readProcessOwnershipCustodyForTest(workspaceRoot: string) {
+  if (process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS !== "1") {
+    throw new Error("Process custody test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
+  }
+  // Validate the actual bytes within the existing held lifecycle read, before
+  // lossy production normalization. No second path read or empty fallback.
+  const strict = (value: unknown, legacy: boolean): ProcessOwnershipRegistry | null => {
+    const parsed = legacy ? parseLegacyProcessOwnershipRegistry(workspaceRoot, value)
+      : parseCurrentProcessOwnershipRegistry(workspaceRoot, value);
+    if (!parsed || !isRecord(value) || !Array.isArray(value.entries)
+      || parsed.entries.length !== value.entries.length) return null;
+    const owners = new Set<string>();
+    for (const row of value.entries) {
+      if (!isRecord(row)) return null;
+      const normalized = normalizeEntry(row, parsed.workspaceId);
+      if (!normalized) return null;
+      // Invalid non-null PID must not normalize to null. Running ownership
+      // requires a consistent complete fingerprint, even if other rows pass.
+      if (row.pid !== null && (typeof row.pid !== "number" || !Number.isSafeInteger(row.pid) || row.pid <= 0)) return null;
+      if (row.identity !== null && !normalizeFingerprint(row.identity)) return null;
+      if (row.pid === null && row.identity !== null) return null;
+      if (row.lifecycleState !== "stopped" && (row.pid === null || row.identity === null)) return null;
+      if (row.identityStatus === "owned" && (row.pid === null || row.identity === null)) return null;
+      const key = ownerKey(normalized.ownerType, normalized.ownerId);
+      if (owners.has(key)) return null;
+      owners.add(key);
+    }
+    return parsed;
+  };
+  const result = await readLifecycleDocument(workspaceRoot, PROCESS_OWNERSHIP_POLICY, {
+    parseCurrent: value => strict(value, false),
+    parseLegacy: value => strict(value, true),
+    allowCrashBackup: false,
+  });
+  return { classification: result.inspection.classification, registry: result.document };
 }
 
 async function atomicWriteRegistry(workspaceRoot: string, registry: ProcessOwnershipRegistry): Promise<void> {

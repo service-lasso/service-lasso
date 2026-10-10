@@ -55,12 +55,24 @@ jobs:
       - name: Audit tooling dependencies
         run: npm run audit:tooling
 
+      - name: Establish complete-suite custody
+        shell: bash
+        run: |
+          set -euo pipefail
+          qualification_root="${RUNNER_TEMP}/release-qualification-${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}"
+          mkdir -p "$qualification_root/workspace"
+          test ! -e "$qualification_root/instances.json"
+          test ! -e "$qualification_root/ports.json"
+
       - name: Run complete test suite
-        # The complete suite reports its assertions before Node can retain a
-        # test-harness handle on hosted runners. Force exit only after the
-        # runner has produced its terminal test result; failures still fail
-        # this step and product process-control deadlines are unchanged.
-        run: npm run build && node --test --test-concurrency=1 --test-force-exit tests/**/*.test.js
+        # The suite gets its own fresh custody paths.  Tests must close their
+        # owned work naturally; a force-exit would hide retained handles.
+        env:
+          SERVICE_LASSO_RELEASE_METADATA_TOKEN: ${{ github.token }}
+          SERVICE_LASSO_WORKSPACE_ROOT: ${{ runner.temp }}/release-qualification-${{ github.run_id }}-${{ github.job }}-${{ github.run_attempt }}/workspace
+          SERVICE_LASSO_INSTANCE_REGISTRY_PATH: ${{ runner.temp }}/release-qualification-${{ github.run_id }}-${{ github.job }}-${{ github.run_attempt }}/instances.json
+          SERVICE_LASSO_HOST_PORT_REGISTRY_PATH: ${{ runner.temp }}/release-qualification-${{ github.run_id }}-${{ github.job }}-${{ github.run_attempt }}/ports.json
+        run: npm run build && node --test --test-concurrency=1 tests/**/*.test.js
 
       - name: Write exact-head guarded MCP evidence
         env:
@@ -107,9 +119,13 @@ jobs:
         run: node scripts/verify-mcp-operation-artifact.mjs
 
       - name: Verify release artifacts
+        env:
+          SERVICE_LASSO_RELEASE_METADATA_TOKEN: ${{ github.token }}
         run: npm run release:verify
 
       - name: Verify publishable package
+        env:
+          SERVICE_LASSO_RELEASE_METADATA_TOKEN: ${{ github.token }}
         run: npm run package:verify
 
       - name: Validate release asset policy
@@ -305,10 +321,31 @@ jobs:
           $dateUtc = [DateTime]::UtcNow.ToString('yyyy.M.d')
           "SERVICE_LASSO_RELEASE_VERSION=$dateUtc-$shortSha" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
+      - name: Build packaged MCP verifier
+        run: npm run build
+
+      - name: Set up hash-pinned Windows ConPTY host
+        if: matrix.platform == 'win32'
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          architecture: "x64"
+
+      - name: Install hash-pinned Windows ConPTY host
+        if: matrix.platform == 'win32'
+        run: "python -m pip install --require-hashes --only-binary=:all: --no-deps -r scripts/requirements-conpty.txt"
+
+      - name: Verify attached-terminal TUI behavior (Windows ConPTY)
+        if: matrix.platform == 'win32'
+        env:
+          SERVICE_LASSO_RELEASE_METADATA_TOKEN: ${{ github.token }}
+        run: node scripts/verify-operator-tui-conpty.mjs
+
       - name: Verify fresh-consumer packaged MCP
         env:
           MCP_PRODUCT_EVIDENCE_PATH: artifacts/mcp-product-${{ matrix.platform }}.json
-        run: npm run verify:mcp:packaged
+          SERVICE_LASSO_RELEASE_METADATA_TOKEN: ${{ github.token }}
+        run: node scripts/verify-mcp-packaged-bootstrap.mjs
 
       - name: Upload exact-SHA release MCP evidence
         id: release_mcp_artifact

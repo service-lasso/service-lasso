@@ -10,11 +10,15 @@ import {
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { createHash } from "node:crypto";
+import { assertScope } from "./ga-platform-scope-lib.mjs";
 import { setTimeout as delay } from "node:timers/promises";
+import { getNpmCommand } from "./npm-command-lib.mjs";
 import {
   createTemporaryOutputRoot,
   ensureBuildOutput,
   runCommand,
+  runNpmCommand,
   writeArtifactSBOM,
 } from "./release-artifact-lib.mjs";
 import {
@@ -22,32 +26,32 @@ import {
   readRootPackageJson,
   RELEASE_VERSION_ENV,
 } from "./release-version-lib.mjs";
+import {
+  consumeReleaseMetadataToken,
+  stageOperatorTools,
+  verifyRetainedOperatorTools,
+} from "./operator-tool-packaging-lib.mjs";
 
-const NPM_COMMAND = process.platform === "win32" ? "npm.cmd" : "npm";
+
 export const NPMJS_REGISTRY = "https://registry.npmjs.org";
 const PACKAGE_STAGE_LOCK_TIMEOUT_MS = 120_000;
 const PACKAGE_STAGE_LOCK_STALE_MS = 600_000;
 
-function escapeWindowsCmdArg(value) {
-  if (/^[A-Za-z0-9_./:=@-]+$/.test(value)) {
-    return value;
-  }
-
-  return `"${value.replace(/"/g, '""')}"`;
-}
-
-function runNpmCommand(args, options = {}) {
-  if (process.platform !== "win32") {
-    return runCommand(NPM_COMMAND, args, options);
-  }
-
-  const comspec = process.env.ComSpec ?? "cmd.exe";
-  const commandLine = [NPM_COMMAND, ...args].map(escapeWindowsCmdArg).join(" ");
-
-  return runCommand(comspec, ["/d", "/s", "/c", commandLine], options);
-}
-
 export const PUBLISH_FILES = ["LICENSE", "README.md", "dist"];
+
+// Emit data from the same descriptor, never archive bytes in command source.
+// The probe is launched by the generating Node image in verifyPublishedPackage.
+export function publishedConsumerNpmInstallSource() {
+  const descriptor = getNpmCommand(["install"]);
+  return [
+    `const npmCommand = ${JSON.stringify(descriptor)};`,
+    ...(process.platform === "win32" ? [
+      `if (process.execPath !== ${JSON.stringify(process.execPath)}) throw new Error("consumer Node distribution changed");`,
+    ] : []),
+    'const install = spawn(npmCommand.command, [...npmCommand.args, cliArchive], { cwd: toolRootPath, stdio: "inherit", shell: false, windowsVerbatimArguments: false });',
+    'await new Promise((resolve, reject) => { install.on("error", reject); install.on("close", (code) => code === 0 ? resolve() : reject(new Error(`operator CLI install exited ${code}`))); });',
+  ];
+}
 
 export function getPublishedPackageArtifactName(version) {
   return `service-lasso-package-${version}`;
@@ -111,12 +115,15 @@ async function acquirePackageStageLock(outputRoot) {
   );
 }
 
-async function withPackageStageLock(outputRoot, callback) {
-  const release = await acquirePackageStageLock(outputRoot);
+export async function withPackageStageLock(outputRoot, callback, resourceObservation) {
+  const release = resourceObservation
+    ? await resourceObservation.create(() => acquirePackageStageLock(outputRoot))
+    : await acquirePackageStageLock(outputRoot);
   try {
     return await callback();
   } finally {
-    await release();
+    if (resourceObservation) await resourceObservation.close(() => release());
+    else await release();
   }
 }
 
@@ -146,6 +153,7 @@ function buildPublishedPackageJson(version, rootPackageJson) {
       "cli.js",
       "publish-artifact.json",
       "sbom.cdx.json",
+      "operator-tools",
     ],
     engines: {
       node: ">=22",
@@ -174,7 +182,7 @@ async function copyPublishPath(repoRoot, artifactRoot, relativePath) {
   await cp(sourcePath, targetPath, { recursive: true });
 }
 
-async function writePublishScaffold({ repoRoot, artifactRoot, version }) {
+async function writePublishScaffold({ repoRoot, artifactRoot, version, operatorTools }) {
   const rootPackageJson = await readRootPackageJson(repoRoot);
   const packageJson = buildPublishedPackageJson(version, rootPackageJson);
   const manifest = {
@@ -194,12 +202,14 @@ async function writePublishScaffold({ repoRoot, artifactRoot, version }) {
       "package.json",
       "publish-artifact.json",
       "sbom.cdx.json",
+      "operator-tools",
     ],
     entrypoints: {
       library: "index.js",
       cli: "cli.js",
       runtime: "dist/index.js",
     },
+    operatorToolsManifest: operatorTools ? "operator-tools/manifest.json" : undefined,
     notes: [
       "This payload is self-contained and publishable to the public npm registry.",
       "Consumers must still provide servicesRoot and workspaceRoot at runtime.",
@@ -281,58 +291,85 @@ export async function stagePublishedPackage({
   repoRoot,
   outputRoot = path.join(repoRoot, "artifacts", "npm"),
   version,
+  releaseMetadataToken,
+  scope,
+  // Tests may provide a deterministic release-response fixture. It substitutes
+  // acquisition bytes only; stageOperatorTools still validates the release
+  // identity, inventory, manifests, and retained digests.
+  testOnlyOperatorToolFixture,
+  // This test-only observer brackets the complete locked staging transaction.
+  // It cannot alter staging or verification behavior.
+  testOnlyStageObserver,
+  resourceObservation,
+  stageLockObservation,
 } = {}) {
+  const metadataToken = releaseMetadataToken ?? consumeReleaseMetadataToken();
   return await withPackageStageLock(outputRoot, async () => {
-    const resolvedVersion = version ?? (await getReleaseVersion(repoRoot));
-    const artifactName = getPublishedPackageArtifactName(resolvedVersion);
-    const artifactRoot = path.join(outputRoot, artifactName);
+    await testOnlyStageObserver?.({ phase: "entered" });
+    try {
+      const resolvedVersion = version ?? (await getReleaseVersion(repoRoot));
+      const artifactName = getPublishedPackageArtifactName(resolvedVersion);
+      const artifactRoot = path.join(outputRoot, artifactName);
 
-    await ensureBuildOutput(repoRoot);
-    await rm(artifactRoot, { recursive: true, force: true });
-    await mkdir(outputRoot, { recursive: true });
+      await ensureBuildOutput(repoRoot);
+      await rm(artifactRoot, { recursive: true, force: true });
+      await mkdir(outputRoot, { recursive: true });
 
-    for (const relativePath of PUBLISH_FILES) {
-      await copyPublishPath(repoRoot, artifactRoot, relativePath);
+      for (const relativePath of PUBLISH_FILES) {
+        await copyPublishPath(repoRoot, artifactRoot, relativePath);
+      }
+
+      await stageOperatorTools({
+        artifactRoot,
+        releaseMetadataToken: metadataToken,
+        ...testOnlyOperatorToolFixture,
+        ...(scope ? { scope } : {}),
+      });
+      await verifyRetainedOperatorTools({ artifactRoot });
+
+      const manifest = await writePublishScaffold({
+        repoRoot,
+        artifactRoot,
+        version: resolvedVersion,
+        operatorTools: true,
+      });
+
+      await writeArtifactSBOM({
+        artifactRoot,
+        artifactName,
+        version: resolvedVersion,
+        artifactKind: manifest.artifactKind,
+        lockPath: path.join(repoRoot, "package-lock.json"),
+      });
+
+      const packResult = await runNpmCommand(["pack"], {
+        cwd: artifactRoot,
+        resourceObservation,
+      });
+
+      const packageArchiveName = packResult.stdout
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .at(-1);
+
+      if (!packageArchiveName) {
+        throw new Error("npm pack did not report the generated archive name.");
+      }
+
+      const packageArchivePath = path.join(artifactRoot, packageArchiveName);
+      await stat(packageArchivePath);
+
+      return {
+        artifactName,
+        artifactRoot,
+        packageArchivePath,
+        manifest,
+      };
+    } finally {
+      await testOnlyStageObserver?.({ phase: "leaving" });
     }
-
-    const manifest = await writePublishScaffold({
-      repoRoot,
-      artifactRoot,
-      version: resolvedVersion,
-    });
-
-    await writeArtifactSBOM({
-      artifactRoot,
-      artifactName,
-      version: resolvedVersion,
-      artifactKind: manifest.artifactKind,
-      lockPath: path.join(repoRoot, "package-lock.json"),
-    });
-
-    const packResult = await runNpmCommand(["pack"], {
-      cwd: artifactRoot,
-    });
-
-    const packageArchiveName = packResult.stdout
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .at(-1);
-
-    if (!packageArchiveName) {
-      throw new Error("npm pack did not report the generated archive name.");
-    }
-
-    const packageArchivePath = path.join(artifactRoot, packageArchiveName);
-    await stat(packageArchivePath);
-
-    return {
-      artifactName,
-      artifactRoot,
-      packageArchivePath,
-      manifest,
-    };
-  });
+  }, stageLockObservation);
 }
 
 export async function verifyPublishedPackage({
@@ -341,6 +378,7 @@ export async function verifyPublishedPackage({
   packageArchivePath,
   version,
   bootPort = 18191,
+  scope,
 } = {}) {
   const resolvedVersion = version ?? (await getReleaseVersion(repoRoot));
   const artifactName = getPublishedPackageArtifactName(resolvedVersion);
@@ -359,6 +397,12 @@ export async function verifyPublishedPackage({
   await stat(path.join(stagedRoot, "index.js"));
   await stat(path.join(stagedRoot, "cli.js"));
   await stat(path.join(stagedRoot, "index.d.ts"));
+  await stat(path.join(stagedRoot, "operator-tools", "manifest.json"));
+  if (scope) {
+    assertScope(scope);
+    const retained = await verifyRetainedOperatorTools({ artifactRoot: stagedRoot, requireProtected: true });
+    if (retained.manifest.schemaVersion !== "service-lasso.operator-tools.v3" || JSON.stringify(retained.manifest.scope) !== JSON.stringify(scope)) throw new Error("scoped staged npm operator identity differs");
+  }
   const sbom = JSON.parse(
     await readFile(path.join(stagedRoot, "sbom.cdx.json"), "utf8"),
   );
@@ -421,15 +465,53 @@ export async function verifyPublishedPackage({
       cwd: consumerRoot,
     });
 
+    const installedToolsRoot = path.join(consumerRoot, "node_modules", "@service-lasso", "service-lasso", "operator-tools");
+    await verifyRetainedOperatorTools({ artifactRoot: path.join(consumerRoot, "node_modules", "@service-lasso", "service-lasso") });
+    if (scope) {
+      const installedRoot = path.join(consumerRoot, "node_modules", "@service-lasso", "service-lasso");
+      const retained = await verifyRetainedOperatorTools({ artifactRoot: installedRoot, requireProtected: true });
+      if (retained.manifest.schemaVersion !== "service-lasso.operator-tools.v3" || !(await readFile(path.join(stagedRoot, "operator-tools", "manifest.json"))).equals(await readFile(path.join(installedRoot, "operator-tools", "manifest.json")))) throw new Error("scoped installed npm original operator manifest differs");
+    }
+    const installedTools = JSON.parse(await readFile(path.join(installedToolsRoot, "manifest.json"), "utf8"));
+    if (!Array.isArray(installedTools.tools) || installedTools.tools.length !== 2 || installedTools.tools.some((tool) => tool.status !== "available")) {
+      throw new Error("consumer-installed package does not retain both available operator tools");
+    }
+    for (const tool of installedTools.tools) {
+      for (const asset of tool.assets ?? []) {
+        const bytes = await readFile(path.join(consumerRoot, "node_modules", "@service-lasso", "service-lasso", asset.relativePath));
+        const actual = createHash("sha256").update(bytes).digest("hex");
+        if (actual !== asset.sha256) throw new Error(`consumer-installed operator tool checksum mismatch for ${asset.name}`);
+      }
+    }
+
     await writeFile(
       probePath,
       [
         'import { startApiServer } from "@service-lasso/service-lasso";',
+        'import { spawn } from "node:child_process";',
+        'import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";',
+        'import { fileURLToPath } from "node:url";',
         "",
         `const servicesRoot = ${JSON.stringify(servicesRoot)};`,
         `const workspaceRoot = ${JSON.stringify(workspaceRoot)};`,
         `const port = ${bootPort};`,
         `const expectedVersion = ${JSON.stringify(resolvedVersion)};`,
+        `const packagedRoot = ${JSON.stringify(path.join(consumerRoot, "node_modules", "@service-lasso", "service-lasso"))};`,
+        "const toolRoot = new URL(\"./operator-cli/\", import.meta.url);",
+        "const toolRootPath = fileURLToPath(toolRoot);",
+        "await mkdir(toolRoot, { recursive: true });",
+        "await writeFile(new URL(\"./package.json\", toolRoot), JSON.stringify({ private: true, type: \"module\" }));",
+        "",
+        "function runCli(args) {",
+        "  return new Promise((resolve, reject) => {",
+        "    const child = spawn(process.execPath, args, { cwd: toolRootPath, stdio: [\"ignore\", \"pipe\", \"pipe\"] });",
+        "    let stdout = \"\"; let stderr = \"\";",
+        "    child.stdout.on(\"data\", (value) => { stdout += value; });",
+        "    child.stderr.on(\"data\", (value) => { stderr += value; });",
+        "    child.on(\"error\", reject);",
+        "    child.on(\"close\", (code) => resolve({ code, stdout, stderr }));",
+        "  });",
+        "}",
         "",
         "const api = await startApiServer({ servicesRoot, workspaceRoot, port });",
         "const healthResponse = await fetch(`${api.url}/api/health`);",
@@ -437,6 +519,20 @@ export async function verifyPublishedPackage({
         "if (health.api.version !== expectedVersion) {",
         "  throw new Error(`runtime health version ${health.api.version} did not match ${expectedVersion}`);",
         "}",
+        "const cliArchive = fileURLToPath(new URL(\"./operator-cli/service-lassoctl.tgz\", import.meta.url));",
+        "const retainedTools = JSON.parse(await readFile(`${packagedRoot}/operator-tools/manifest.json`, \"utf8\"));",
+        "const retainedCli = retainedTools.tools.find(tool => tool.command === \"service-lassoctl\");",
+        "const portable = retainedCli.assets.find(asset => asset.name === retainedCli.asset.name);",
+        "if (!portable || portable.relativePath !== `operator-tools/service-lassoctl/${portable.name}`) throw new Error(\"retained portable CLI identity is invalid\");",
+        "await copyFile(`${packagedRoot}/${portable.relativePath}`, cliArchive);",
+        ...publishedConsumerNpmInstallSource(),
+        "const cliPath = fileURLToPath(new URL(\"./operator-cli/node_modules/@service-lasso/cli/dist/index.js\", import.meta.url));",
+        "const success = await runCli([cliPath, \"--core-url\", api.url, \"instance\", \"status\", \"--json\"]);",
+        "if (success.code !== 0 || JSON.parse(success.stdout).api?.version !== expectedVersion) throw new Error(`operator CLI JSON status failed: ${success.stderr}`);",
+        "const unreachable = await runCli([cliPath, \"--core-url\", \"http://127.0.0.1:1\", \"instance\", \"status\", \"--json\"]);",
+        "if (unreachable.code !== 1 || !unreachable.stderr.includes(\"core_unreachable\")) throw new Error(`operator CLI safe error failed: ${unreachable.stderr}`);",
+        "const confirmation = await runCli([cliPath, \"--core-url\", api.url, \"service\", \"start\", \"missing-service\", \"--json\"]);",
+        "if (confirmation.code !== 1 || !confirmation.stderr.includes(\"confirmation_required\")) throw new Error(`operator CLI confirmation guard failed: ${confirmation.stderr}`);",
         "console.log(JSON.stringify({ ok: true, url: api.url, version: health.api.version }));",
         "await api.stop();",
         "",
@@ -488,6 +584,7 @@ export async function verifyPublishedPackage({
       summary: {
         ...summary,
         cliVersion: reportedVersion,
+        operatorTools: installedTools.tools.map((tool) => ({ command: tool.command, status: tool.status, receiptKind: tool.receiptKind })),
       },
     };
   } finally {

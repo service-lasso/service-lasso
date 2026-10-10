@@ -49,8 +49,8 @@ const profileRank: Record<McpPermissionProfile, number> = {
   administrator: 3,
 };
 
-export type McpOperationStatus = "queued" | "running" | "cancelling" | "succeeded" | "failed" | "cancelled" | "skipped";
-export type McpOperationOutcome = "succeeded" | "failed" | "cancelled" | "skipped";
+export type McpOperationStatus = "queued" | "running" | "cancelling" | "succeeded" | "failed" | "cancelled" | "skipped" | "unknown_after_crash";
+export type McpOperationOutcome = "succeeded" | "failed" | "cancelled" | "skipped" | "unknown_after_crash";
 export type McpOperationCancellationResult = "requested" | "unsupported" | "too_late";
 
 export interface McpOperationPublicRecord {
@@ -114,7 +114,7 @@ export interface McpOperationSafety {
 
 interface PendingTerminal {
   status: McpOperationOutcome;
-  phase: "completed" | "failed" | "cancelled" | "skipped" | "replayed" | "interrupted";
+  phase: "completed" | "failed" | "cancelled" | "skipped" | "replayed" | "interrupted" | "unknown_after_crash";
   progress: 100;
   summary: string;
   completedAt: string;
@@ -142,6 +142,11 @@ interface StoredOperation {
   runnerInstanceId: string;
   heartbeatAt: string;
   guardedExecutionId: string | null;
+  /**
+   * Immutable validated request identity for HTTP durable-operation claims.
+   * Older records without it may be read for recovery, but never replayed.
+   */
+  requestFingerprint: string | null;
   pendingTerminal: PendingTerminal | null;
 }
 
@@ -173,6 +178,12 @@ export interface McpOperationServiceOptions {
   now?: () => Date;
   recoverDetached?: (operation: McpOperationRecoveryRecord) => Promise<McpOperationRecoveryResult | null>;
   cancelDetached?: (operation: McpOperationPublicRecord) => Promise<"cancelled" | "unsupported" | "too_late">;
+  /** Test-only synchronization point after a durable claim is audited and before guarded dispatch. */
+  afterDurableClaim?: (operation: McpOperationPublicRecord) => Promise<void>;
+  /** Test-only synchronization point after cancellation wins the durable state lock. */
+  afterCancellationAccepted?: (operation: McpOperationPublicRecord) => Promise<void>;
+  /** Test-only synchronization point after a guarded action responds and before its terminal state is staged. */
+  beforeTerminalStage?: (operation: McpOperationPublicRecord, outcome: McpOperationOutcome) => Promise<void>;
 }
 
 export class McpOperationError extends Error {
@@ -180,6 +191,7 @@ export class McpOperationError extends Error {
     public readonly code:
       | "authorization_required"
       | "forbidden"
+      | "idempotency_conflict"
       | "invalid_cursor"
       | "invalid_request"
       | "operation_capacity"
@@ -201,6 +213,9 @@ export class McpOperationService {
   readonly now: () => Date;
   private readonly recoverDetached?: McpOperationServiceOptions["recoverDetached"];
   private readonly cancelDetached?: McpOperationServiceOptions["cancelDetached"];
+  private readonly afterDurableClaim?: McpOperationServiceOptions["afterDurableClaim"];
+  private readonly afterCancellationAccepted?: McpOperationServiceOptions["afterCancellationAccepted"];
+  private readonly beforeTerminalStage?: McpOperationServiceOptions["beforeTerminalStage"];
 
   constructor(options: McpOperationServiceOptions) {
     this.workspaceRoot = path.resolve(options.workspaceRoot);
@@ -209,6 +224,33 @@ export class McpOperationService {
     this.now = options.now ?? (() => new Date());
     this.recoverDetached = options.recoverDetached;
     this.cancelDetached = options.cancelDetached;
+    this.afterDurableClaim = options.afterDurableClaim;
+    this.afterCancellationAccepted = options.afterCancellationAccepted;
+    this.beforeTerminalStage = options.beforeTerminalStage;
+  }
+
+  /**
+   * Reads the durable actor/client/key claim under the operation-state lock.
+   * Guarded preflight uses this only to classify an already-admitted changed
+   * confirmation before its own idempotency journal has been created.
+   */
+  async hasGuardedExecutionClaim(input: {
+    authorization: McpHttpAuthorization | undefined;
+    guardedExecutionId: string;
+  }): Promise<boolean> {
+    const authorization = requiredAuthorization(input.authorization);
+    const guardedExecutionId = normalizeGuardedExecutionId(input.guardedExecutionId);
+    if (!guardedExecutionId) return false;
+    const actorId = storedIdentity(authorization.actor.actorId, "actor");
+    const clientId = storedIdentity(authorization.actor.clientId, "client");
+    return await withStateLock(this.workspaceRoot, async () => {
+      const state = await readState(this.workspaceRoot, { fresh: true });
+      return state.operations.some((operation) =>
+        operation.actorId === actorId &&
+        operation.clientId === clientId &&
+        operation.guardedExecutionId === guardedExecutionId
+      );
+    });
   }
 
   async submit(input: {
@@ -217,7 +259,17 @@ export class McpOperationService {
     targetIds: string[];
     cancellationSupported: boolean;
     guardedExecutionId?: string | null;
+    /** Validated action-and-parameters fingerprint for an HTTP claim. */
+    requestFingerprint?: string | null;
     requestSignal?: AbortSignal;
+    /**
+     * HTTP operation clients need an opaque record even when a local action
+     * finishes inside the request budget. MCP tool calls retain their
+     * existing synchronous response unless they opt into this mode.
+     */
+    alwaysAccept?: boolean;
+    /** Restrict operation-record replay to the HTTP lifecycle adapter. */
+    deduplicateByGuardedExecution?: boolean;
     execute: (
       signal: AbortSignal,
       reportProgress: (update: McpGuardedActionProgressUpdate) => Promise<void>,
@@ -226,6 +278,13 @@ export class McpOperationService {
   }): Promise<{ kind: "completed"; response: McpGuardedActionResponse } | { kind: "accepted"; payload: McpOperationAcceptedPayload }> {
     const authorization = requiredAuthorization(input.authorization);
     const createdAt = this.now();
+    const guardedExecutionId = normalizeGuardedExecutionId(input.guardedExecutionId);
+    const requestFingerprint = input.deduplicateByGuardedExecution
+      ? normalizeRequestFingerprint(input.requestFingerprint)
+      : null;
+    // The durable operation-state lock is the replay authority. Keeping a
+    // process-local mirror here would make same-key behavior depend on which
+    // daemon instance received the request after a restart or failover.
     const priorState = await this.readAndCleanState();
     for (const prior of priorState.operations.filter((operation) =>
       !isTerminal(operation.status) && Date.parse(operation.expiresAt) <= createdAt.getTime()
@@ -256,16 +315,40 @@ export class McpOperationService {
       runnerPid: process.pid,
       runnerInstanceId: randomUUID(),
       heartbeatAt: createdAt.toISOString(),
-      guardedExecutionId: normalizeGuardedExecutionId(input.guardedExecutionId),
+      guardedExecutionId,
+      requestFingerprint,
       pendingTerminal: null,
     };
 
+    let existingOperationId: string | null = null;
     await this.mutateState((state) => {
+      const existing = input.deduplicateByGuardedExecution ? state.operations.find((operation) =>
+        operation.actorId === record.actorId &&
+        operation.clientId === record.clientId &&
+        guardedExecutionId !== null && operation.guardedExecutionId === guardedExecutionId
+      ) : undefined;
+      if (existing) {
+        // The operation record is the first durable claim. The guarded-action
+        // journal is written later, so compare the validated fingerprint here
+        // while holding the cross-process operation-state lock.
+        if (existing.requestFingerprint !== requestFingerprint) {
+          throw new McpOperationError(
+            "idempotency_conflict",
+            "The idempotency key is already bound to different action parameters.",
+          );
+        }
+        existingOperationId = existing.operationId;
+        return;
+      }
       if (state.operations.filter((operation) => !isTerminal(operation.status)).length >= MAX_MCP_OPERATIONS) {
         throw new McpOperationError("operation_capacity", "Too many durable MCP operations are active.");
       }
       state.operations.push(record);
     });
+    if (existingOperationId) {
+      const current = await this.get(existingOperationId, authorization);
+      return acceptedOperationPayload(this.now(), current.operation);
+    }
     try {
       await auditOperation(this.workspaceRoot, record, "started", "accepted");
     } catch (error) {
@@ -274,6 +357,7 @@ export class McpOperationService {
       }).catch(() => undefined);
       throw error;
     }
+    await this.afterDurableClaim?.(publicRecord(record, authorization.actor.actorId));
 
     const controller = new AbortController();
     const activeKey = operationKey(this.workspaceRoot, operationId);
@@ -302,7 +386,22 @@ export class McpOperationService {
     ]);
     if (settled !== budgetElapsed) {
       input.requestSignal?.removeEventListener("abort", requestCancellation);
-      if (settled.error === null && settled.response) return { kind: "completed", response: settled.response };
+      if (settled.error === null && settled.response && !input.alwaysAccept) {
+        return { kind: "completed", response: settled.response };
+      }
+      if (settled.error === null && settled.response) {
+        const current = await this.get(operationId, authorization);
+        return {
+          kind: "accepted",
+          payload: {
+            contractVersion: MCP_OPERATION_ACCEPTED_CONTRACT_VERSION,
+            generatedAt: this.now().toISOString(),
+            accepted: true,
+            operation: current.operation,
+            safety: operationSafety(true),
+          },
+        };
+      }
       throw settled.error instanceof Error
         ? settled.error
         : new McpOperationError("invalid_request", "The durable MCP operation failed safely.");
@@ -442,6 +541,8 @@ export class McpOperationService {
       return cancellationPayload(record, identity.actor.actorId, "too_late", this.now());
     }
 
+    await this.afterCancellationAccepted?.(publicRecord(record, identity.actor.actorId));
+
     const active = activeOperations.get(operationKey(this.workspaceRoot, normalizedId));
     if (active) {
       active.controller.abort(new Error("MCP operation cancellation requested."));
@@ -547,6 +648,7 @@ export class McpOperationService {
           : response.ok
             ? "succeeded"
             : "failed";
+        await this.beforeTerminalStage?.(publicRecord(initial, initial.actorId), outcome);
         await this.stageTerminal(
           initial.operationId,
           outcome,
@@ -620,6 +722,10 @@ export class McpOperationService {
   ): Promise<void> {
     await this.updateRecord(operationId, (record) => {
       if (isTerminal(record.status) || record.pendingTerminal) return;
+      // Cancellation admission is not a terminal-effect claim. The shared
+      // guarded action remains authoritative: it may report a real successful
+      // completion after cancellation was requested, in which case that
+      // committed result must be retained rather than rewritten as cancelled.
       const completedAt = this.now().toISOString();
       record.phase = "finalizing";
       record.progress = 99;
@@ -684,6 +790,22 @@ export class McpOperationService {
         });
         return;
       }
+      if (Date.parse(record.expiresAt) <= this.now().getTime()) {
+        await this.stageTerminal(
+          operationId,
+          "failed",
+          "The interrupted durable MCP operation expired without an authoritative terminal result.",
+          "interrupted",
+        );
+        await this.finalizePendingTerminal(operationId);
+        return;
+      }
+      await this.updateRecord(operationId, (current) => {
+        current.phase = "detached";
+        current.summary = "Durable runtime work continues outside this MCP process; poll for reconciliation.";
+        current.updatedAt = this.now().toISOString();
+      });
+      return;
     }
     if (Date.parse(record.expiresAt) <= this.now().getTime()) {
       await this.stageTerminal(
@@ -700,7 +822,6 @@ export class McpOperationService {
       current.summary = "Durable runtime work continues outside this MCP process; poll for reconciliation.";
       current.updatedAt = this.now().toISOString();
     });
-    record = await this.readRecord(operationId);
   }
 
   private async readRecord(operationId: string): Promise<StoredOperation> {
@@ -720,7 +841,11 @@ export class McpOperationService {
 
   private async readAndCleanState(): Promise<OperationState> {
     return await withStateLock(this.workspaceRoot, async () => {
-      const state = await readState(this.workspaceRoot);
+      // A locked mutation decision must read the persisted state, rather than
+      // a process-local cache. Another Core process can commit a guarded
+      // execution record between requests, and using a stale snapshot here
+      // would let its operation record be overwritten before deduplication.
+      const state = await readState(this.workspaceRoot, { fresh: true });
       const changed = cleanupState(state, this.now());
       if (changed) await writeState(this.workspaceRoot, state);
       return state;
@@ -729,7 +854,9 @@ export class McpOperationService {
 
   private async mutateState(update: (state: OperationState) => void): Promise<void> {
     await withStateLock(this.workspaceRoot, async () => {
-      const state = await readState(this.workspaceRoot);
+      // See readAndCleanState: this is the claim point for durable operation
+      // records, so it must observe a concurrent process's committed record.
+      const state = await readState(this.workspaceRoot, { fresh: true });
       cleanupState(state, this.now());
       update(state);
       trimState(state);
@@ -807,6 +934,13 @@ function normalizeGuardedExecutionId(value: string | null | undefined): string |
   return value;
 }
 
+function normalizeRequestFingerprint(value: string | null | undefined): string {
+  if (typeof value !== "string" || !/^[0-9a-f]{64}$/u.test(value)) {
+    throw new McpOperationError("invalid_request", "Durable operation request identity is invalid.");
+  }
+  return value;
+}
+
 function sameTargets(left: string[], right: string[]): boolean {
   return left.length === right.length && left.every((value, index) => value === right[index]);
 }
@@ -824,7 +958,7 @@ function publicRecord(record: StoredOperation, actorId: string): McpOperationPub
     status: record.status,
     phase: record.phase,
     progress: record.progress,
-    summary: record.summary,
+    summary: safeSummary(record.summary, "Durable MCP operation state is redacted."),
     createdAt: record.createdAt,
     startedAt: record.startedAt,
     updatedAt: record.updatedAt,
@@ -857,6 +991,22 @@ function operationSafety(mutating: boolean): McpOperationSafety {
       "absolute workspace, service, artifact, and log paths",
       "confirmation phrases and idempotency keys",
     ],
+  };
+}
+
+function acceptedOperationPayload(
+  now: Date,
+  operation: McpOperationPublicRecord,
+): { kind: "accepted"; payload: McpOperationAcceptedPayload } {
+  return {
+    kind: "accepted",
+    payload: {
+      contractVersion: MCP_OPERATION_ACCEPTED_CONTRACT_VERSION,
+      generatedAt: now.toISOString(),
+      accepted: true,
+      operation,
+      safety: operationSafety(true),
+    },
   };
 }
 
@@ -906,11 +1056,12 @@ function terminalSummary(outcome: McpOperationOutcome): string {
   if (outcome === "succeeded") return "Durable MCP operation completed.";
   if (outcome === "cancelled") return "Durable MCP operation cancelled.";
   if (outcome === "skipped") return "Durable MCP operation skipped safely.";
+  if (outcome === "unknown_after_crash") return "Durable MCP operation outcome is unknown after runtime recovery.";
   return "Durable MCP operation failed safely.";
 }
 
 function isTerminal(status: McpOperationStatus): status is McpOperationOutcome {
-  return status === "succeeded" || status === "failed" || status === "cancelled" || status === "skipped";
+  return status === "succeeded" || status === "failed" || status === "cancelled" || status === "skipped" || status === "unknown_after_crash";
 }
 
 function operationKey(workspaceRoot: string, operationId: string): string {
@@ -937,7 +1088,7 @@ function trimState(state: OperationState): void {
   state.operations = [...active, ...terminal.slice(0, Math.max(0, MAX_MCP_OPERATIONS - active.length))];
 }
 
-async function readState(workspaceRoot: string): Promise<OperationState> {
+async function readState(workspaceRoot: string, options: { fresh?: boolean } = {}): Promise<OperationState> {
   const statePath = mcpOperationStatePath(workspaceRoot);
   let identity: string | null = null;
   try {
@@ -953,7 +1104,7 @@ async function readState(workspaceRoot: string): Promise<OperationState> {
     return { version: STATE_VERSION, operations: [] };
   }
   const cached = stateCache.get(statePath);
-  if (cached?.identity === identity) return structuredClone(cached.state);
+  if (!options.fresh && cached?.identity === identity) return structuredClone(cached.state);
   let raw: unknown;
   try {
     raw = await readPrivateJson(workspaceRoot, statePath);
@@ -984,7 +1135,7 @@ function parseStoredOperation(raw: unknown): StoredOperation {
     typeof record.clientId !== "string" || !record.clientId || record.clientId.length > 200 ||
     typeof record.action !== "string" ||
     !["service_start", "service_stop", "service_restart", "service_install", "service_configure", "setup_step_run", "update_check", "update_download", "update_install", "runtime_start_all", "runtime_stop_all"].includes(record.action) ||
-    typeof record.status !== "string" || !["queued", "running", "cancelling", "succeeded", "failed", "cancelled", "skipped"].includes(record.status) ||
+    typeof record.status !== "string" || !["queued", "running", "cancelling", "succeeded", "failed", "cancelled", "skipped", "unknown_after_crash"].includes(record.status) ||
     typeof record.phase !== "string" || !/^[a-z][a-z0-9_]{0,63}$/u.test(record.phase) ||
     typeof record.progress !== "number" || !Number.isInteger(record.progress) || record.progress < 0 || record.progress > 100 ||
     typeof record.summary !== "string" || !record.summary || record.summary.length > 300 ||
@@ -994,22 +1145,23 @@ function parseStoredOperation(raw: unknown): StoredOperation {
     new Set(record.targetIds).size !== record.targetIds.length ||
     typeof record.correlationId !== "string" || !/^mcp-operation-correlation-[0-9a-f-]{36}$/u.test(record.correlationId) ||
     typeof record.cancellationSupported !== "boolean" ||
-    !(record.outcome === null || (typeof record.outcome === "string" && ["succeeded", "failed", "cancelled", "skipped"].includes(record.outcome))) ||
+    !(record.outcome === null || (typeof record.outcome === "string" && ["succeeded", "failed", "cancelled", "skipped", "unknown_after_crash"].includes(record.outcome))) ||
     typeof record.runnerPid !== "number" || !Number.isSafeInteger(record.runnerPid) || record.runnerPid <= 0 ||
     typeof record.runnerInstanceId !== "string" || !/^[0-9a-f-]{36}$/u.test(record.runnerInstanceId) ||
     !isIso(record.heartbeatAt) ||
     !(record.guardedExecutionId === null || typeof record.guardedExecutionId === "string" && /^[0-9a-f]{64}$/u.test(record.guardedExecutionId)) ||
+    !(record.requestFingerprint === undefined || record.requestFingerprint === null || typeof record.requestFingerprint === "string" && /^[0-9a-f]{64}$/u.test(record.requestFingerprint)) ||
     !(record.pendingTerminal === null || isPendingTerminal(record.pendingTerminal))
   ) throw invalidState();
-  return record as StoredOperation;
+  return { ...record, requestFingerprint: record.requestFingerprint ?? null } as StoredOperation;
 }
 
 function isPendingTerminal(value: unknown): value is PendingTerminal {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const pending = value as Partial<PendingTerminal>;
   return (
-    typeof pending.status === "string" && ["succeeded", "failed", "cancelled", "skipped"].includes(pending.status) &&
-    typeof pending.phase === "string" && ["completed", "failed", "cancelled", "skipped", "replayed", "interrupted"].includes(pending.phase) &&
+    typeof pending.status === "string" && ["succeeded", "failed", "cancelled", "skipped", "unknown_after_crash"].includes(pending.status) &&
+    typeof pending.phase === "string" && ["completed", "failed", "cancelled", "skipped", "replayed", "interrupted", "unknown_after_crash"].includes(pending.phase) &&
     pending.progress === 100 && typeof pending.summary === "string" && pending.summary.length > 0 && pending.summary.length <= 300 &&
     isIso(pending.completedAt)
   );
@@ -1052,8 +1204,8 @@ async function auditOperation(
       subject: record.operationId,
       method: "MCP",
       routeTemplate: `operation:${event}`,
-      outcome: event === "failed" || options.denied ? "failure" : "success",
-      statusCode: options.denied ? 403 : event === "failed" ? 500 : 200,
+      outcome: event === "failed" || event === "unknown_after_crash" || options.denied ? "failure" : "success",
+      statusCode: options.denied ? 403 : event === "failed" || event === "unknown_after_crash" ? 500 : 200,
       summary: event === "cancellation" ? "Durable MCP operation cancellation attempted." : `Durable MCP operation ${event}.`,
       reason,
       correlationId: record.correlationId,
