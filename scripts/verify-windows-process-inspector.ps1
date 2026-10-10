@@ -10,6 +10,7 @@ param(
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 . (Join-Path $PSScriptRoot "windows-compiler-process-budget.ps1")
+. (Join-Path $PSScriptRoot "managed-pe-normalization.ps1")
 
 if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
   throw "Windows process-inspector provenance verification requires Windows."
@@ -292,26 +293,6 @@ function Invoke-ProvenanceNegativeTests(
   return 15
 }
 
-function Find-UniqueByteSequence([byte[]]$Bytes, [byte[]]$Sequence) {
-  $matches = New-Object Collections.Generic.List[int]
-  for ($offset = 0; $offset -le $Bytes.Length - $Sequence.Length; $offset += 1) {
-    $equal = $true
-    for ($index = 0; $index -lt $Sequence.Length; $index += 1) {
-      if ($Bytes[$offset + $index] -ne $Sequence[$index]) {
-        $equal = $false
-        break
-      }
-    }
-    if ($equal) {
-      $matches.Add($offset)
-    }
-  }
-  if ($matches.Count -ne 1) {
-    throw "The compiled process-inspector module identifier was not uniquely locatable."
-  }
-  return $matches[0]
-}
-
 function Get-NormalizedAssemblyBytes([string]$AssemblyPath) {
   [byte[]]$bytes = [IO.File]::ReadAllBytes($AssemblyPath)
   if ($bytes.Length -lt 512 -or $bytes[0] -ne 0x4d -or $bytes[1] -ne 0x5a) {
@@ -329,12 +310,10 @@ function Get-NormalizedAssemblyBytes([string]$AssemblyPath) {
     throw "The compiled process inspector had invalid PE headers."
   }
 
-  $assembly = [Reflection.Assembly]::Load([IO.File]::ReadAllBytes($AssemblyPath))
-  [byte[]]$moduleVersionId = $assembly.ManifestModule.ModuleVersionId.ToByteArray()
-  $moduleVersionIdOffset = Find-UniqueByteSequence $bytes $moduleVersionId
+  $normalization = Get-ManagedPeNormalizationOffsets $bytes
 
   [Array]::Clear($bytes, $peOffset + 8, 4)
-  [Array]::Clear($bytes, $moduleVersionIdOffset, 16)
+  [Array]::Clear($bytes, $normalization.mvid, 16)
   return $bytes
 }
 
