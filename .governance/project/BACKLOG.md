@@ -1,10 +1,10 @@
 # Backlog
 
-- #1749, in_review: SPEC-011 ESM-12/13/14/15. Current contract reviewed;
+- #1749, done: SPEC-011 ESM-12/13/14/15. Current contract reviewed;
   corrected Echo PR #17 merged. Ubuntu native selection passed 105/105, zero
   skips; real setup and unchanged sample passed missing-ref denial, reads,
   inventory, recreation, privacy and revocation. Lesson clarified; docs checks
-  passed. [Evidence](BROKER_FILES_REVIEW_1749.md). Land this docs follow-up.
+  passed. [Evidence](BROKER_FILES_REVIEW_1749.md). Documentation closure: PR #1752.
 
 - #1743, done: SPEC-011 ESM-13; Core PR #1744, Broker PR #202 and Echo PR #15 merged.
   Correct vault-to-file ownership and execute a complete runnable reference.
