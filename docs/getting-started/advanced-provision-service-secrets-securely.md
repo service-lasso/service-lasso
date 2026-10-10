@@ -225,6 +225,15 @@ Packaged secret-free templates use `broker.templates[]`.
 Broker substitutes text; it does not JSON-escape arbitrary credentials.
 The lesson value is JSON-safe. Arbitrary raw values suit a single-value file.
 
+`path: "demo-config.json"` names the file inside the private Broker directory;
+it does not select a disk location. At launch, Core asks Broker to provision
+that file through `/v1/file-grants`. Broker returns the directory, which Core
+places in `ECHO_SECRET_FILES_DIR` using `${SERVICE_LASSO_SECRETS_DIR}`.
+Echo then reads `demo-config.json` from that directory. Neither the port nor
+the private token is configured in the manifest; Broker supplies them afresh.
+Use `config.files` for ordinary application configuration saved under the
+service root, and `broker.files` for these Broker-provisioned secret files.
+
 ## 3. Start through Core
 
 Refresh discovery; Install, Configure and Start `echo-webdav` in Admin.
@@ -254,8 +263,14 @@ $echoOrigin = Read-Host 'Echo Service HTTP origin (http://127.0.0.1:<port>)'
 node examples/webdav/check.mjs $echoOrigin
 ```
 
-Linux/macOS: `node examples/webdav/check.mjs "$echoOrigin"` with the allocated
-origin. Do not assume port 4010. The executable checker verifies startup loaded
+Linux/macOS:
+
+```bash
+read -r -p 'Echo Service HTTP origin (http://127.0.0.1:<port>): ' echoOrigin
+node examples/webdav/check.mjs "$echoOrigin"
+```
+
+Use the allocated origin; do not assume port 4010. The executable checker verifies startup loaded
 a file, rereads it and requires the successful read counter to advance.
 For this exact synthetic value, a first check on an idle instance prints:
 

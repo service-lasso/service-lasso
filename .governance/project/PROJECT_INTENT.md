@@ -1,5 +1,14 @@
 # Project Intent
 
+## Current Broker example review (#1749)
+
+Review SPEC-011 ESM-13/14/15 against current develop, correct and merge Echo
+PR #17, explain broker.files provisioning and returned-directory delivery,
+and execute the complete prepared example on authorized Ubuntu cs-int-01.
+Preserve ordinary config behavior, protected gates and inherited workspaces.
+Record exact source/build/test evidence; this is source verification and docs
+maintenance, with no binary release or installed-host deployment.
+
 ## Broker-owned vault-to-file provisioning (#1743)
 
 Owner correction: ask Broker for a secret in a file and receive its WebDAV

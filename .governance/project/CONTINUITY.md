@@ -1,5 +1,16 @@
 # Continuity Operating Guide
 
+## #1749 current Broker contract review (2026-10-11)
+
+Reviewed latest Core #1748; corrected and merged Echo PR #17. Ubuntu cs-int-01
+native selection passed 105/105 with no skips. The actual prepare command and
+unchanged resulting full manifest passed missing-ref denial, two launch/check/stop
+generations, inventory counts, privacy and revocation. Exact identities, hashes,
+retained receipts and scope limits: [review record](BROKER_FILES_REVIEW_1749.md).
+Lesson now explains broker.files provisioning/returned directory and complete
+Linux checker input. Documentation follow-up #1749 owns this source closure;
+primary inherited files and other owners' checkouts remain unchanged.
+
 ## Purpose
 
 This repository keeps concise, factual continuity in versioned artifacts so work can resume safely without depending on chat history.
