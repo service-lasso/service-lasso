@@ -168,3 +168,11 @@ deployment. Preserve ESM-14/15 ownership, privacy and full native contracts.
   exact reviewed candidates; preserve all outcomes. Deliver implementation and
   proof through develop PRs, push every commit, record source/review/admission,
   runtime and publication statuses separately. Close only on sufficient proof.
+- ESM-16.6: Repair the independently identified bootstrap standard-stream gap
+  using only duplicates of actual original standard handles and an explicit
+  inherited-handle whitelist. Preserve NULL absence, immediate native results,
+  original ordered ownership and once-only safe releases under CORE1681 C1-C3.
+  Never inherit private control/file/job handles or synthesize replacement pipes.
+  ConPTY requires actual original stdout/stderr. Source cases remain unrun until
+  complete relevant review and new actual-input admission; prior binary pins and
+  timeout failures remain unchanged until a genuine admitted rebuild.

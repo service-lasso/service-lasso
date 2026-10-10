@@ -1405,3 +1405,8 @@ remain evidence. Ownership transfer permits implementation/review work, not
 metadata-only provenance repair or target execution without exact source review
 and NEW complete actual-input admission. Native reviewer native_review audits
 whole relevant source; root owns implementation, review adoption and admission.
+The reviewed bootstrap standard-stream inheritance gap is now a source repair
+under ESM-16.6. Explicit original-handle whitelist and once-only native resource
+observations must preserve C1-C3 and all existing protected assertions. Compiler
+driver failure retention and real binary/pin rebuild remain separate unfinished
+work; no source edit updates a binary identity or admits target execution.
