@@ -124,7 +124,7 @@ function rememberServiceIdentity(serviceId: string, identityId: string): void {
 
 export function serviceNeedsScopedBrokerIdentity(service: DiscoveredService): boolean {
   return (service.manifest.broker?.imports?.length ?? 0) > 0 || service.manifest.broker?.writeback !== undefined ||
-    [...(service.manifest.config?.files ?? []), ...(service.manifest.config?.templates ?? [])].some((entry) => entry.ephemeral);
+    [...(service.manifest.broker?.files ?? []), ...(service.manifest.broker?.templates ?? [])].length > 0;
 }
 
 function normalizeTransportBinding(
@@ -165,7 +165,7 @@ function collectLaunchLeaseScope(service: DiscoveredService): {
   const operations = new Set<ServiceBrokerAccessOperation>();
   const namespaces = new Set<string>();
   const refs: string[] = [];
-  if ([...(service.manifest.config?.files ?? []), ...(service.manifest.config?.templates ?? [])].some((entry) => entry.ephemeral)) {
+  if ([...(service.manifest.broker?.files ?? []), ...(service.manifest.broker?.templates ?? [])].length > 0) {
     operations.add("resolve");
     if (imports.length === 0 && !writeback) namespaces.add(`services/${service.manifest.id}/secret-files`);
   }

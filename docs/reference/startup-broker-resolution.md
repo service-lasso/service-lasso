@@ -73,7 +73,7 @@ Policy-denied refs are intentionally separate from missing refs. Operators shoul
 ## Cache invalidation
 
 Apps that require a file opt into Broker-owned RAM WebDAV outputs with
-`config.files[].ephemeral` or `config.templates[].ephemeral`, then pass
+`broker.files[]` or `broker.templates[]`, then pass
 `${SERVICE_LASSO_SECRETS_DIR}/<name>` through an app-supported environment
 variable. Core asks Broker to provision using scoped refs and secret-free templates.
 Broker resolves internally and returns the WebDAV directory before each fresh spawn;

@@ -18,15 +18,23 @@ a convention, not automatic conversion by Core.
 {
   "broker": {
     "imports": [
-      { "namespace": "shared/database", "ref": "database.PASSWORD", "required": true }
-    ]
-  },
-  "config": {
+      {
+        "namespace": "shared/database",
+        "ref": "database.PASSWORD",
+        "required": true
+      }
+    ],
     "files": [
-      { "path": "db-password", "content": "${database.PASSWORD}", "ephemeral": true }
+      {
+        "path": "db-password",
+        "content": "${database.PASSWORD}"
+      }
     ],
     "templates": [
-      { "source": "templates/credentials.conf", "target": "credentials.conf", "ephemeral": true }
+      {
+        "source": "templates/credentials.conf",
+        "target": "credentials.conf"
+      }
     ]
   },
   "env": {
@@ -41,8 +49,8 @@ ref used in template contents in `broker.imports` as required. Keep template
 sources secret-free in the service package. Literal file contents are written
 exactly as rendered; Core does not add a newline.
 
-In this explicitly selected tmpfs profile, `ephemeral: true` applies only to
-config files/templates on Linux. Its relative
+In this explicitly selected tmpfs profile, `broker.files` and `broker.templates`
+request disposable outputs on Linux. Each relative
 output path is beneath a Core-owned directory, **not** the app's service root.
 Core derives the directory name from the service ID and resolved service root,
 so separate folder instances do not share secret files. Use the supplied

@@ -7,6 +7,7 @@ export type SecretReferenceAuditSource =
   | "globalenv"
   | "install"
   | "config"
+  | "broker.files"
   | "broker.import"
   | "broker.export"
   | "broker.writeback";
@@ -315,6 +316,10 @@ function collectCandidates(service: DiscoveredService): CandidateRef[] {
 
   for (const [index, file] of (service.manifest.config?.files ?? []).entries()) {
     addSelectorCandidates(candidates, declaredRefs, file.content, "config", "config.files[" + index + "].content");
+  }
+
+  for (const [index, file] of (service.manifest.broker?.files ?? []).entries()) {
+    addSelectorCandidates(candidates, declaredRefs, file.content, "broker.files", "broker.files[" + index + "].content");
   }
 
   return candidates;

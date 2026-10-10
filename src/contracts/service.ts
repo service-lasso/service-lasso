@@ -74,13 +74,11 @@ export interface ServiceMaterializedFile {
   path: string;
   content: string;
   /** Secret config output recreated in Broker RAM before each launch (explicit Linux tmpfs alternative). */
-  ephemeral?: boolean;
 }
 
 export interface ServiceMaterializedTemplate {
   source: string;
   target: string;
-  ephemeral?: boolean;
 }
 
 export interface ServiceActionMaterialization {
@@ -425,6 +423,9 @@ export interface ServiceBrokerWritebackPolicy {
 }
 
 export interface ServiceBrokerPolicy {
+  /** Disposable secret outputs provisioned by Broker at fresh launch. */
+  files?: ServiceMaterializedFile[];
+  templates?: ServiceMaterializedTemplate[];
   enabled?: boolean;
   namespace?: string;
   buckets?: ServiceBrokerBucket[];

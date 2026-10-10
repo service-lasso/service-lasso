@@ -176,15 +176,6 @@ This is the complete Linux/macOS manifest produced by the setup command:
       "type": "process"
     }
   ],
-  "config": {
-    "files": [
-      {
-        "path": "demo-config.json",
-        "content": "{\"demoCredential\":\"${echo.DEMO_CREDENTIAL}\"}",
-        "ephemeral": true
-      }
-    ]
-  },
   "broker": {
     "imports": [
       {
@@ -192,10 +183,23 @@ This is the complete Linux/macOS manifest produced by the setup command:
         "ref": "echo.DEMO_CREDENTIAL",
         "required": true
       }
+    ],
+    "files": [
+      {
+        "path": "demo-config.json",
+        "content": "{\"demoCredential\":\"${echo.DEMO_CREDENTIAL}\"}"
+      }
     ]
   }
 }
 ```
+
+Secret files are declared in `broker.files`; packaged templates use
+`broker.templates`. Neither needs an `ephemeral` flag. `config.files` and
+`config.templates` retain ordinary Core configuration beneath the service root.
+Older `config` declarations with `ephemeral` are rejected: move the whole entry
+to `broker` and remove that flag before launching. Use Core with #1747 and Echo's
+updated runnable example together.
 
 ## 2. Create the demo secret in Broker
 
@@ -208,16 +212,16 @@ actual credentials belong in Broker, not in checked-in manifests.
 | --- | --- |
 | `broker.imports[].namespace` and `ref` | Bind the template selector to its permitted stored reference. |
 | `required: true` | Broker must find and authorize this reference; failure prevents spawn. |
-| `config.files[].ephemeral: true` | Ask Broker to provision the named file in RAM. |
+| `broker.files[]` | Ask Broker to provision the named file in RAM. |
 | `content` | A secret-free template; Broker substitutes the reference internally. |
 | `${SERVICE_LASSO_SECRETS_DIR}` | The private WebDAV directory returned by Broker and supplied at launch. |
 | `ECHO_SECRET_FILE_NAME` | Echo appends `demo-config.json` and reads it. |
 
-An import alone does not create a file. The ephemeral declaration requests
+An import alone does not create a file. The `broker.files` declaration requests
 provisioning. `_FILE` names are app conventions; choose variables your consumer
 understands. Single-value files can use `${database.PASSWORD}` as content and
 `${SERVICE_LASSO_SECRETS_DIR}/password` as an app-supported path variable.
-Packaged secret-free templates use `config.templates[].ephemeral: true`.
+Packaged secret-free templates use `broker.templates[]`.
 Broker substitutes text; it does not JSON-escape arbitrary credentials.
 The lesson value is JSON-safe. Arbitrary raw values suit a single-value file.
 

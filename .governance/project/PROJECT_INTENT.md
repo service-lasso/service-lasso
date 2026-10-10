@@ -1378,3 +1378,16 @@ The user directed the Linux repair chat on 2026-10-07 to perform the eleven-fail
 ### #1724 reviewed Linux source preparation
 
 ADR-003 selects the complete original-isolate drain/exclusion protocol after DIFFERENT ENTIRE architecture GO at171473fd4feed3c60b89db3e30272936ba953a6e. The current repair chat owns source preparation on fix/1724-linux-native-fixture-removal. Import reviewed prospective PR1721 row extraction through the governed source path; implement the genuine Linux native adapter without weakening protected assertions or claiming absent F7 dependencies. Complete cumulative source/protected-test review and NEW actual-input ROOT admission remain before execution. All eleven failures remain unresolved until natural native/full-suite acceptance.
+
+## Broker file declaration ownership (#1747)
+
+Owner correction 2026-10-09: SPEC-011 ESM-14 places secret file/template requests
+under broker. Ordinary config/install materialization remains Core-owned.
+Legacy ephemeral flags fail with migration guidance before plaintext writes.
+No release or documentation publication is authorized by this fix.
+
+SPEC-011 ESM-15 adds required pinned real Broker/Core/Echo source qualification
+on Windows, Linux and macOS, with missing native inputs failing the lane.
+Preserve published-release and protected native-admission gates independently.
+Actual Mac11 compatibility tests use the documented isolated toolchain; no
+release or Windows WebClient qualification is implied.

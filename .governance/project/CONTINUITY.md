@@ -242,3 +242,86 @@ Fresh sole source author39 accepts the retained issue checkout and unchanged bra
 The existing full compiler/proof/caller programme in PROJECT_INTENT, SPEC-002 AC-4DI.4/R3/C3/G1, SPEC-007 AC-7G, BACKLOG, INIT and source-admission traceability remains operative without narrowing. ENTIRE reviewer37 NO_GO ROOT8db05809d7e2bc0be0e011673234bd0b126d03719658cd119444a5d2dc202258 remains effective. Author39 must finish actual selected producer, independent K2, all original callers and connected owned-operation/release/supervisor source obligations. After the genuinely complete cumulative source freeze, a fresh DIFFERENT reviewer40, NEW full actual-input ROOT and parent admission precede every target effect. The earlier planned reviewer39 number is superseded only by this author/reviewer separation; no historical review claim changes.
 
 Current natural51bd source and release failures remain failed evidence, including stale managed source provenance and normalized managed launcher length mismatch. No rebuild, repin, target execution, provider rerun/cancel or unapproved foreign-owner root may repair evidence by assertion. Original protected tests, all75 foundation bodies/raw68778 prefix/six protected files, native32 pins/39936, full1602 lock except admitted tuple, receiving ancestry/contributions and every retained failure remain required. Source implementation is ACTIVE, not SOURCE_GO or full delivery completion. Parent owns tracking/review/admission/landing; no main, branch rename, history rewrite, settings, publication, deployment or GA authority.
+
+## #1747 Broker file declaration correction (2026-10-09)
+
+Owner requires broker.files/templates without ephemeral; config/install return
+to ordinary Core materialization. SPEC-011 ESM-14 supersedes old declaration
+placement and requires legacy rejection before plaintext writes. Work is isolated
+on fix/1747-broker-file-declarations from develop d994acf3; inherited primary
+deleted packages and untracked evidence are retained, outside this work unit.
+Echo companion #16 updates the runnable manifest and preparation assertions.
+
+Verification: Windows build passed. Isolated Windows focused regressions passed
+48/48 with six Linux-only skips (54 total); Linux WSL Ubuntu-26.04 passed all
+11/11, including native source-built Broker/Core/Echo file-only provisioning,
+replacement, stop/revocation, missing refs, tmpfs restart and disk rejection.
+Broker source is immutable PR202 head 2fd98ee; Echo preparation/checker 2/2.
+Final contract/discovery/selector/audit/dependency regression checks passed 91/91.
+Companion Echo PR17 is pushed at 7bcee7c and targets develop.
+The first Windows unisolated test run hit the existing oversized host registry;
+retry used three fresh explicit workspace/instance/port-registry paths without
+changing retained host state. The Linux disk-negative fixture was corrected
+because /tmp is tmpfs here; it now proves a non-tmpfs fixture before rejection.
+Docs build passed with existing image-dimension-parser warnings; diff check passed.
+No Windows native WebClient, release, publication or deployment qualification.
+Next action: review the Core and companion Echo develop PRs and their checks.
+
+## #1747 required native qualification continuation (2026-10-09)
+
+SPEC-011 ESM-15 requires pinned real Broker/Core/Echo source qualification on
+Windows named pipes and Linux/macOS Unix sockets. broker.files/templates own
+secret provisioning; ordinary config.files/templates retain Core behavior.
+New Broker secret files CI matrix requires binaries, manifest and checker;
+missing inputs fail instead of silently skipping. This additional source-build
+lane does not substitute for pinned published-release or protected native gates.
+
+Executed real integration: Windows 4/4, WSL Ubuntu-26.04 4/4, macOS 11.7.11
+Intel via authorized ssh maxbarrasssMBP2 4/4, no skips in these runs. Full new
+Windows matrix selection: 100 passed, five Linux tmpfs skips, zero failures.
+Earlier Mac focused contracts: 124 passed, ten platform/input skips, zero
+failures. Broker source 2fd98ee8e18395e28d402e00ab7e6e8911675600; Echo source
+7bcee7cf9e3e9a352eb59beb4a9afcde4a307584. Mac uses isolated Node22.23.3 and
+Broker's documented private Go1.26.8 macOS11 compatibility build. Tested Mac
+Broker SHA256 823f8e6f233c6ed6331c87b55557c2b4865d8045277903b51abd8c4058ba2b16;
+Echo SHA256 b1c64590b4cefc36949c06eda459dc87a8bc7e113230ec7f07f65eebafd54022.
+Local/remote binary hashes match. Owned remote evidence is retained beneath
+/Users/maxbarrass/service-lasso-1747-20261009; local logs/provenance beneath
+D:/projects/service-lasso/qualification1747. Windows loopback reads verify the
+UNC selector/consumer adapter, not Windows WebClient mounting.
+
+Core 88aa46d5 full CI remains FAILED, not complete acceptance. Source suite has
+seven failures: three verified-filesystem evidence cases, hard-crash terminal
+removal, missing ROOT foreign-owner fixture, stale managed launcher provenance,
+and already-closing Admin fixture teardown. MCP/Windows native gates also fail
+normalized native binary/source matching and original_privacy response_unavailable.
+Base develop d994acf3 independently reproduces stale managed provenance,
+normalized binary mismatch and Broker management-route failures. Published Broker
+pin 2026.8.31-f340883 lacks /v1/file-grants/status; source-built feature success
+does not repair that published-package incompatibility. Packaged Admin fails
+first_custody_native_helper_incomplete (Windows), native journal invalid (Mac)
+and browser pre-readiness (Linux). Preserve exact failed evidence and protected
+assertions; #1681/native-owner source review and NEW ROOT admission boundaries
+remain in force. No native fixture regeneration, release repin, CI cancellation,
+provider bypass, promotion or deployment occurred. Goal remains active pending
+natural CI for this continuation and resolution of relevant upstream blockers.
+
+## #1747 native template completion audit (2026-10-09)
+
+The actual native consumer previously read broker.files only; broker.templates
+had lower-level coverage. Extend the same native regression to consume a nested
+Broker-rendered template beside its inline secret file and ordinary Core inline
+and template config outputs. Assert both secret values rotate, secret outputs
+are absent from the service root, outgoing dynamic templates contain selectors
+rather than resolved values, and revoked grants deny both outputs. Preserve the
+static no-import case, privacy, IPC outage, Echo checker and missing-ref gates.
+SPEC-011 ESM-14/15 covers this completed end-to-end obligation.
+
+Executed revised native test selection: Windows4/4, Linux4/4 and authorized
+macOS11.7.11 Intel4/4, zero failures/skips; same exact pinned Broker/Echo binaries
+and isolated toolchains as preceding evidence. Logs: qualification1747/
+windows-templates4.log, linux-templates4.log and remote owned mac-templates4.log.
+The preceding5317462 three-platform hosted source qualification was GREEN;
+new exact-head natural CI must qualify the strengthened cumulative candidate.
+Inherited protected native/published-release failures remain prerequisites;
+no gate/assertion weakening, release pin change or binary regeneration occurred.

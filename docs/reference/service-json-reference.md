@@ -374,15 +374,21 @@ Finite lifecycle actions continue to use their existing bounded runtime behavior
 
 ### Install/config materialization
 
-For app secrets that require files, `config.files[]` and
-`config.templates[]` can set boolean `ephemeral: true`. These outputs are
+`config.files[]` and `config.templates[]` are ordinary Core configuration
+materialized beneath the service root. For app secrets that require files,
+declare `broker.files[]` or `broker.templates[]`, without an `ephemeral` flag.
+`broker.files[]` entries use `{ path, content }`; `broker.templates[]` entries
+use `{ source, target }`. Paths are relative to the supplied secret directory,
+and template sources remain secret-free files in the service package.
+These outputs are
 provisioned before fresh launch in Broker's RAM WebDAV store by default.
 Core sends declared references and secret-free templates; Broker resolves
 internally and returns the private directory. File-only imports do not return
 plaintext to Core. These outputs stay
 outside the app directory, and are excluded from persistent artifact/preimage
 state. Pass their paths through `${SERVICE_LASSO_SECRETS_DIR}` in app-supported
-environment variables. Install outputs do not support this flag. See
+environment variables. Legacy `ephemeral` fields are rejected with migration
+guidance; move those declarations into `broker`. See
 [Provision Service Secrets Securely](../getting-started/advanced-provision-service-secrets-securely.md)
 for a real Echo consumer, its opt-in manifest and safe usage checks, and
 [RAM WebDAV secret files](ram-webdav-secret-files-review.md) for URL/UNC delivery
