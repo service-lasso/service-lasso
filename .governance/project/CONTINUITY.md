@@ -377,3 +377,22 @@ Whole cumulative native review, actual ROOT, retained compiler repair, genuine
 managed/bootstrap rebuild and all source/image pin propagation remain unfinished.
 Existing images and historical failures remain unchanged; no compiler/native
 execution is admitted by this source checkpoint.
+
+## #1750 full qualification resumption 2026-10-11
+
+Owner explicitly requests full qualification, retaining the prohibition on
+publication/deployment. The earlier managed worktree is missing; existing owned
+branch fix/1750-native-acceptance and PR1751 still point to78ba8a9. Recovered that
+exact branch into D:/projects/service-lasso/1750-native-qualification-resume as an
+ongoing-work recovery exception, without resetting shared develop or changing
+other workers. This is continuation of the existing work unit, not a new branch
+from another issue branch. The recovered tree was clean before edits.
+ESM-16.7 selects concrete compiler transaction/passive normalizer source repair.
+Independent native_review remains reviewer; source and exact compiler-only ROOT
+must be closed before any parser/compiler/test execution. No existing lab is
+available; owner custodian/destination selection remains pending under SPEC-010.
+Echo17 is now independently verified merged e3abd085 on2026-10-10. Broker204 head
+9be8354 has terminal hosted validation and bounded Mac11 trust evidence; full
+native16/publication/integration and intermittent local Windows failures remain
+separate unresolved claims. Existing images, provenance pins and failed evidence
+remain preserved. This checkpoint creates no native or release admission.

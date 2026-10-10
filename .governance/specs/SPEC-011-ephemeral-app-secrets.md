@@ -176,3 +176,13 @@ deployment. Preserve ESM-14/15 ownership, privacy and full native contracts.
   ConPTY requires actual original stdout/stderr. Source cases remain unrun until
   complete relevant review and new actual-input admission; prior binary pins and
   timeout failures remain unchanged until a genuine admitted rebuild.
+- ESM-16.7: Close the managed compiler transaction before rebuild: use passive,
+  bounds-checked PE/CLI metadata parsing for the single Module MVID instead of
+  loading the generated assembly. Preserve timestamp/MVID-only normalization,
+  all-byte shipped comparisons and existing negative provenance cases. For the
+  managed launcher compiler, retain raw stdout/stderr, original launch/exit and
+  natural EOF, explicit environment and same-live unresolved resource owners;
+  retain the unique temporary root on success or failure. No compiler rerun,
+  fabricated closure, changed protected deadline or metadata-only image update.
+  Whole relevant review and NEW compiler-only input admission precede execution;
+  this source repair cannot admit product Main, fixtures or full F7 activation.
