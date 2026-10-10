@@ -361,3 +361,19 @@ stderr, exit and original source/review/input records remain retained.
 This bounded JS fix does not admit Core native/compiler or fixture-isolation
 execution. Complete inherited native programme and privacy/raw observer
 prerequisites remain unfinished and active under SPEC-011 ESM-16.
+
+## #1750 bootstrap original standard-stream repair source
+
+The complete native launcher audit independently identified missing explicit
+bootstrap-to-managed stdio inheritance. ESM-16.6 source now duplicates actual
+original standard handles into an explicit HANDLE_LIST and preserves absent
+slots, rejects missing required ConPTY output, records native acquisitions and
+attribute lifecycle, and retires only parent duplicates once immediately after
+CreateProcess. Private custody/control/file/job handles stay outside that list.
+Original endpoints and child-side copies retain their separate original owners.
+Prospective source cases inspect exact slot/whitelist relations, prefix refusal
+and once-only copy/attribute retirement; they are NOT executed native evidence.
+Whole cumulative native review, actual ROOT, retained compiler repair, genuine
+managed/bootstrap rebuild and all source/image pin propagation remain unfinished.
+Existing images and historical failures remain unchanged; no compiler/native
+execution is admitted by this source checkpoint.

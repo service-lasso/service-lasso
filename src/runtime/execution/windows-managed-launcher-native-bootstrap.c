@@ -104,6 +104,14 @@ typedef struct {
   PROCESS_INFORMATION originalChild;
   HANDLE originalHeldFile, originalHeldDirectories[PACKAGE_DIRECTORY_HANDLE_CAPACITY];
   DWORD originalHeldDirectoryCount;
+  HANDLE standardOriginals[3], standardCopies[3], standardIssuedCopies[3];
+  HANDLE standardHandleList[3];
+  DWORD standardHandleCount;
+  int standardCloseAttempted[3];
+  STARTUPINFOEXW standardStartup;
+  SIZE_T standardAttributeCapacity;
+  LPPROC_THREAD_ATTRIBUTE_LIST standardAttributes;
+  int standardAttributesInitialized, standardAttributesDeleted, standardFreeAttempted;
 } ConptyControl;
 
 enum { BOOTSTRAP_RESULT_WIN32 = 1, BOOTSTRAP_RESULT_NTSTATUS = 2,
@@ -495,6 +503,95 @@ static void ReleasePackageDirectories(ConptyControl* control, HANDLE* handles, D
   if (control->releaseFailed) RetainConpty();
 }
 
+/* Only invocation-owned duplicates enter the child inheritance whitelist.
+ * The original parent endpoints are never closed or made inheritable here. */
+static int PrepareBootstrapStdio(ConptyControl* control, int requiredOutput) {
+  const DWORD roles[3] = { STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE };
+  ZeroMemory(&control->standardStartup,sizeof(control->standardStartup));
+  control->standardStartup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+  for (DWORD index = 0; index < 3; ++index) {
+    HANDLE original = GetStdHandle(roles[index]);
+    DWORD error = original == INVALID_HANDLE_VALUE ? GetLastError() : 0;
+    control->standardOriginals[index] = original;
+    ObserveBootstrap(control,"stdio-original-acquire",(ULONG_PTR)original,
+      index,error,BOOTSTRAP_RESULT_WIN32,original == INVALID_HANDLE_VALUE);
+    if (original == INVALID_HANDLE_VALUE) return 0;
+    /* NULL is actual absence, not a Win32 failure or a replacement NUL pipe. */
+    if (original == NULL) {
+      if (requiredOutput && index != 0) {
+        ObserveBootstrap(control,"stdio-required-output",0,index,0,BOOTSTRAP_RESULT_VALUE,1);
+        return 0;
+      }
+      continue;
+    }
+    BOOL duplicated = DuplicateHandle(GetCurrentProcess(),original,GetCurrentProcess(),
+      &control->standardCopies[index],0,TRUE,DUPLICATE_SAME_ACCESS);
+    error = duplicated ? 0 : GetLastError();
+    control->standardIssuedCopies[index] = control->standardCopies[index];
+    if (duplicated) control->standardHandleList[control->standardHandleCount++] = control->standardCopies[index];
+    ObserveBootstrap(control,"stdio-original-duplicate",(ULONG_PTR)control->standardCopies[index],
+      duplicated,error,BOOTSTRAP_RESULT_WIN32,!duplicated);
+    if (!duplicated) return 0;
+  }
+  control->standardStartup.StartupInfo.hStdInput = control->standardCopies[0];
+  control->standardStartup.StartupInfo.hStdOutput = control->standardCopies[1];
+  control->standardStartup.StartupInfo.hStdError = control->standardCopies[2];
+  control->standardStartup.StartupInfo.cb = sizeof(STARTUPINFOW);
+  if (control->standardHandleCount == 0) return 1;
+  BOOL probed = InitializeProcThreadAttributeList(NULL,1,0,&control->standardAttributeCapacity);
+  DWORD error = probed ? 0 : GetLastError();
+  int expectedProbe = !probed && error == ERROR_INSUFFICIENT_BUFFER && control->standardAttributeCapacity > 0;
+  ObserveBootstrap(control,"stdio-attribute-size",0,probed,error,BOOTSTRAP_RESULT_WIN32,!expectedProbe);
+  if (!expectedProbe) return 0;
+  control->standardAttributes = (LPPROC_THREAD_ATTRIBUTE_LIST)HeapAlloc(GetProcessHeap(),
+    HEAP_ZERO_MEMORY,control->standardAttributeCapacity);
+  ObserveBootstrap(control,"stdio-attribute-storage",(ULONG_PTR)control->standardAttributes,
+    control->standardAttributes != NULL,0,BOOTSTRAP_RESULT_HEAP,control->standardAttributes == NULL);
+  if (control->standardAttributes == NULL) return 0;
+  BOOL initialized = InitializeProcThreadAttributeList(control->standardAttributes,1,0,&control->standardAttributeCapacity);
+  error = initialized ? 0 : GetLastError();
+  control->standardAttributesInitialized = initialized;
+  ObserveBootstrap(control,"stdio-attribute-initialize",(ULONG_PTR)control->standardAttributes,
+    initialized,error,BOOTSTRAP_RESULT_WIN32,!initialized);
+  if (!initialized) return 0;
+  BOOL updated = UpdateProcThreadAttribute(control->standardAttributes,0,
+    PROC_THREAD_ATTRIBUTE_HANDLE_LIST,control->standardHandleList,
+    sizeof(HANDLE) * control->standardHandleCount,NULL,NULL);
+  error = updated ? 0 : GetLastError();
+  ObserveBootstrap(control,"stdio-attribute-whitelist",(ULONG_PTR)control->standardAttributes,
+    updated,error,BOOTSTRAP_RESULT_WIN32,!updated);
+  if (!updated) return 0;
+  control->standardStartup.lpAttributeList = control->standardAttributes;
+  control->standardStartup.StartupInfo.cb = sizeof(STARTUPINFOEXW);
+  return 1;
+}
+
+static void ReleaseBootstrapStdio(ConptyControl* control) {
+  /* CreateProcess has synchronously consumed the attribute list. Parent copies
+   * retire immediately so they cannot independently delay original output EOF.
+   * Failed releases remain owned and are never attempted for a second time. */
+  for (DWORD index = 0; index < 3; ++index) {
+    if (!control->standardCloseAttempted[index] && control->standardCopies[index] != NULL) {
+      control->standardCloseAttempted[index] = 1;
+      ReleaseBootstrapHandle(control,&control->standardCopies[index],"release-stdio-copy",index);
+    }
+  }
+  if (control->standardAttributesInitialized && !control->standardAttributesDeleted) {
+    DeleteProcThreadAttributeList(control->standardAttributes); /* void API */
+    control->standardAttributesDeleted = 1;
+    ObserveBootstrap(control,"stdio-attribute-delete",(ULONG_PTR)control->standardAttributes,
+      0,0,BOOTSTRAP_RESULT_VALUE,0);
+  }
+  if (control->standardAttributes != NULL && !control->standardFreeAttempted) {
+    control->standardFreeAttempted = 1;
+    BOOL freed = HeapFree(GetProcessHeap(),0,control->standardAttributes);
+    ObserveBootstrap(control,"stdio-attribute-free",(ULONG_PTR)control->standardAttributes,
+      freed,0,BOOTSTRAP_RESULT_HEAP,!freed);
+    if (freed) control->standardAttributes = NULL;
+    else control->allocationReleaseFailed = 1;
+  }
+}
+
 static int VerifyPackageDirectory(ConptyControl* control, const wchar_t* requestedDirectory, wchar_t* finalDirectory, DWORD capacity, HANDLE* handles, DWORD* handleCount) {
   wchar_t canonical[32768];
   wchar_t packageFinalPath[32768];
@@ -644,6 +741,7 @@ cleanup:
  * Pipe is deliberately separate: it is the last release after provisional terminal. */
 static void ReleaseBootstrapResources(ConptyControl* control, PROCESS_INFORMATION* process,
     HANDLE* reader, HANDLE* heldFile, HANDLE* directories, DWORD count) {
+  ReleaseBootstrapStdio(control);
   ReleaseBootstrapHandle(control,reader,"release-control-reader",0);
   ReleaseBootstrapHandle(control,&process->hThread,"release-managed-thread",0);
   ReleaseBootstrapHandle(control,&process->hProcess,"release-managed-process",0);
@@ -662,7 +760,6 @@ static int RunBootstrapInvocation(ConptyControl* control) {
   HANDLE heldHandle = INVALID_HANDLE_VALUE;
   HANDLE heldDirectories[PACKAGE_DIRECTORY_HANDLE_CAPACITY];
   DWORD heldDirectoryCount = 0;
-  STARTUPINFOW startupInfo;
   PROCESS_INFORMATION processInformation;
   DWORD exitCode = BOOTSTRAP_FAILURE_UNKNOWN;
   HANDLE controlThread = NULL;
@@ -680,13 +777,17 @@ static int RunBootstrapInvocation(ConptyControl* control) {
   conptyMode = OpenConptyControl(control);
   if (conptyMode < 0) { exitCode = BOOTSTRAP_FAILURE_BINDING; goto release; }
   if (_snwprintf_s(commandLine, _countof(commandLine), _TRUNCATE, L"\"%s\"", managedPath) < 0) { exitCode = BOOTSTRAP_FAILURE_CREATE; goto release; }
-  ZeroMemory(&startupInfo, sizeof(startupInfo));
   ZeroMemory(&processInformation, sizeof(processInformation));
-  startupInfo.cb = sizeof(startupInfo);
-  BOOL created = CreateProcessW(managedPath, commandLine, NULL, NULL, FALSE, conptyMode ? CREATE_SUSPENDED : 0, NULL, NULL, &startupInfo, &processInformation);
+  if (!PrepareBootstrapStdio(control,conptyMode > 0)) { exitCode = BOOTSTRAP_FAILURE_CREATE; goto release; }
+  DWORD creationFlags = conptyMode ? CREATE_SUSPENDED : 0;
+  BOOL inheritStdio = control->standardHandleCount != 0;
+  if (inheritStdio) creationFlags |= EXTENDED_STARTUPINFO_PRESENT;
+  BOOL created = CreateProcessW(managedPath, commandLine, NULL, NULL, inheritStdio,
+    creationFlags,NULL,NULL,&control->standardStartup.StartupInfo,&processInformation);
   DWORD createError = created ? 0 : GetLastError();
   control->originalChild = processInformation;
   ObserveBootstrap(control,"managed-child-create",(ULONG_PTR)processInformation.hProcess,created,createError,BOOTSTRAP_RESULT_WIN32,!created);
+  ReleaseBootstrapStdio(control);
   if (!created) { exitCode = BOOTSTRAP_FAILURE_CREATE; goto release; }
   if (conptyMode) {
     BOOL assigned = AssignProcessToJobObject(control->job, processInformation.hProcess);
@@ -743,7 +844,7 @@ release:
     if (!WriteControlLine(control,"terminal",GetCurrentProcessId(),exitCode)) exitCode = BOOTSTRAP_FAILURE_WAIT;
   }
   ReleaseBootstrapHandle(control,&control->pipe,"release-control-pipe",0);
-  if (control->releaseFailed) RetainConpty();
+  if (control->releaseFailed || control->allocationReleaseFailed) RetainConpty();
   return (int)exitCode;
 }
 
