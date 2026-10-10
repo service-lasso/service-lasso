@@ -1200,6 +1200,61 @@ test("real Admin browser runner waits for normal Admin exit and late managed fin
   }
 });
 
+test("teardown handles a never-started server without retaining close listeners", async () => {
+  const server = net.createServer();
+  let removed = false;
+  await teardownRealAdminBrowserFixture({
+    adminProcess: null, apiServer: { server, async stop() {} },
+    async stopManagedProcesses() {}, brokerIPCClient: null, vaultServer: null,
+    resetLifecycle() {},
+    tempRoot: path.join(os.tmpdir(), `never-started-absent-${process.pid}-${Date.now()}`),
+    async removeTempRoot() { removed = true; },
+  });
+  assert.equal(removed, true);
+  assert.equal(server.listenerCount("close"), 0);
+});
+
+test("teardown retains the root when lifecycle reset fails after resource closure", async () => {
+  await assert.rejects(teardownRealAdminBrowserFixture({
+    adminProcess: null, apiServer: null, async stopManagedProcesses() {},
+    brokerIPCClient: null, vaultServer: null,
+    resetLifecycle() { const error = new Error("private-reset-sentinel"); error.code = "ERESET_TEST"; throw error; },
+    tempRoot: path.join(os.tmpdir(), `reset-failed-absent-${process.pid}-${Date.now()}`),
+    async removeTempRoot() { assert.fail("Failed reset cannot permit removal"); },
+  }), error => {
+    assert.deepEqual(createSafeRealAdminBrowserTeardownFailure(error).failures,
+      [{ phase: "lifecycle_reset", code: "ereset_test" }]);
+    return true;
+  });
+});
+
+test("teardown awaits a server already closing at entry with a live connection", async () => {
+  const server = net.createServer();
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  const client = net.createConnection(server.address().port, "127.0.0.1");
+  await new Promise(resolve => client.once("connect", resolve));
+  let closed = false, removed = false;
+  server.once("close", () => { closed = true; });
+  server.close();
+  assert.equal(server.listening, false);
+  const timer = setTimeout(() => client.destroy(), 100);
+  try {
+    await teardownRealAdminBrowserFixture({
+      adminProcess: null, apiServer: { server, async stop() {} },
+      async stopManagedProcesses() {}, brokerIPCClient: null, vaultServer: null,
+      resetLifecycle() {},
+      tempRoot: path.join(os.tmpdir(), `already-closing-absent-${process.pid}-${Date.now()}`),
+      async removeTempRoot() { assert.equal(closed, true); removed = true; },
+    });
+    assert.equal(removed, true);
+    assert.equal(closed, true);
+    assert.equal(server.listenerCount("close"), 0);
+  } finally {
+    clearTimeout(timer); client.destroy();
+    if (!closed) await new Promise(resolve => server.once("close", resolve));
+  }
+});
+
 test("teardown preserves both stop failures as metadata and skips unsafe removal", async () => {
   const phases = [];
   const apiServer = {
