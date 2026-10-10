@@ -349,8 +349,15 @@ connections under the unchanged close deadline, and permits removal only after
 all owned resources and lifecycle reset have settled. Original API stop errors
 remain reported. Failed process convergence, reset or close still retains roots.
 Original protected tests are unchanged; supplemental cases cover never-started
-servers, a server already closing at entry and reset failure. No tests executed
-yet: request independent whole JS-unit review and exact input binding first.
+servers, a server already closing at entry and reset failure. Reviewer
+native_review read the complete closed JS unit and issued bounded source GO for
+exactly five anchored `^teardown ` tests at5609823. Parent adopted that bounded
+verdict and recorded controlled environment/source/runtime inputs externally in
+qualification1747/1750-admin-execution-20261011. One Windows Node22.23.2 execution
+passed5/5, zero failures/skips, with original assertions/deadlines. This small
+packet records initial runtime modules, not complete native descendant/loaded
+image lifetime proof; it is not reusable native-programme admission. Raw stdout,
+stderr, exit and original source/review/input records remain retained.
 This bounded JS fix does not admit Core native/compiler or fixture-isolation
 execution. Complete inherited native programme and privacy/raw observer
 prerequisites remain unfinished and active under SPEC-011 ESM-16.
