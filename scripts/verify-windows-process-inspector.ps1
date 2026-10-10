@@ -11,6 +11,7 @@ $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 . (Join-Path $PSScriptRoot "windows-compiler-process-budget.ps1")
 . (Join-Path $PSScriptRoot "managed-pe-normalization.ps1")
+. (Join-Path $PSScriptRoot "managed-compiler-transaction.ps1")
 
 if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
   throw "Windows process-inspector provenance verification requires Windows."
@@ -321,7 +322,8 @@ $temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) ("service-lasso-native-pro
 # The held-exit compiler phase has one 15-second absolute budget. Retain this
 # uniquely-created compiler root rather than run an unbounded Remove-Item after
 # that phase; retention is conservative evidence, including successful runs.
-$retainTemporaryRoot = $HeldExitFixture
+# Managed launcher attempts likewise preserve the raw image and compiler records.
+$retainTemporaryRoot = $HeldExitFixture -or $ManagedLauncherNative
 try {
   $null = New-Item -ItemType Directory -Path $temporaryRoot
   $compiledPath = Join-Path $temporaryRoot (Split-Path -Leaf $binaryRelativePath)
@@ -363,6 +365,20 @@ try {
     } finally {
       $compilerProcess.Dispose()
     }
+  } elseif ($ManagedLauncherNative) {
+    # Preserve the original framework compiler defaults, including csc.rsp.
+    # The compiler receives only these explicit variables and closed stdin.
+    $frameworkDirectory = Split-Path -Parent $compilerPath
+    $systemDirectory = Join-Path $env:WINDIR 'System32'
+    $compilerEnvironment = [ordered]@{
+      SystemRoot = $env:WINDIR
+      WINDIR = $env:WINDIR
+      PATH = $frameworkDirectory + ';' + $systemDirectory
+      TEMP = $temporaryRoot
+      TMP = $temporaryRoot
+      COMSPEC = Join-Path $systemDirectory 'cmd.exe'
+    }
+    Invoke-RetainedManagedCompiler $compilerPath $compilerArguments $compilerEnvironment $temporaryRoot
   } else {
     & $compilerPath @compilerArguments
   }

@@ -1410,3 +1410,11 @@ under ESM-16.6. Explicit original-handle whitelist and once-only native resource
 observations must preserve C1-C3 and all existing protected assertions. Compiler
 driver failure retention and real binary/pin rebuild remain separate unfinished
 work; no source edit updates a binary identity or admits target execution.
+
+ESM-16.7 compiler continuation uses the managed-only retained compiler helper:
+explicit closed stdin/environment, independent raw stdout/stderr and natural
+exit/EOF ownership, and retained attempt roots on all outcomes. The original
+held-exit 15000ms route is unchanged. The passive metadata corpus passed all28
+cases at9e8ed504 after correcting two newly introduced fixture offsets; the
+original61e74f80 failure remains retained. No compiler or native execution is
+admitted by that result. Compiler inputs/review and genuine rebuild remain open.
