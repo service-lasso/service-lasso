@@ -70,8 +70,9 @@ $cases=@(
   @{name='zero GUID index';change={param($b) Set-U16 $b 752 0}},
   @{name='out-of-range GUID index';change={param($b) Set-U16 $b 752 3}},
   @{name='invalid GUID heap size';change={param($b) Set-U32 $b 632 31}},
-  @{name='overlapping raw sections';change={param($b) Set-U16 $b 134 2; Set-U32 $b 440 64; Set-U32 $b 444 8192; Set-U32 $b 448 64; Set-U32 $b 452 512}},
-  @{name='overlapping virtual sections';change={param($b) Set-U16 $b 134 2; Set-U32 $b 440 64; Set-U32 $b 444 4096; Set-U32 $b 448 64; Set-U32 $b 452 1472}}
+  # PE32 optional header starts152, length224: section2 starts416.
+  @{name='overlapping raw sections';change={param($b) Set-U16 $b 134 2; Set-U32 $b 424 64; Set-U32 $b 428 8192; Set-U32 $b 432 64; Set-U32 $b 436 512}},
+  @{name='overlapping virtual sections';change={param($b) Set-U16 $b 134 2; Set-U32 $b 424 64; Set-U32 $b 428 4096; Set-U32 $b 432 0; Set-U32 $b 436 1536}}
 )
 foreach ($case in $cases) {
   [byte[]]$b=New-PassiveFixture
