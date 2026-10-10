@@ -1,5 +1,11 @@
 # Backlog
 
+- #1749, done: SPEC-011 ESM-12/13/14/15. Current contract reviewed;
+  corrected Echo PR #17 merged. Ubuntu native selection passed 105/105, zero
+  skips; real setup and unchanged sample passed missing-ref denial, reads,
+  inventory, recreation, privacy and revocation. Lesson clarified; docs checks
+  passed. [Evidence](BROKER_FILES_REVIEW_1749.md). Documentation closure: PR #1752.
+
 - #1743, done: SPEC-011 ESM-13; Core PR #1744, Broker PR #202 and Echo PR #15 merged.
   Correct vault-to-file ownership and execute a complete runnable reference.
   Corrected full-manifest Echo preparation/launch/check and missing-secret denial
@@ -1749,4 +1755,4 @@ The user directed the Linux repair chat on 2026-10-07 to perform the eleven-fail
 
 ADR-003 selects the complete original-isolate drain/exclusion protocol after DIFFERENT ENTIRE architecture GO at171473fd4feed3c60b89db3e30272936ba953a6e. The current repair chat owns source preparation on fix/1724-linux-native-fixture-removal. Import reviewed prospective PR1721 row extraction through the governed source path; implement the genuine Linux native adapter without weakening protected assertions or claiming absent F7 dependencies. Complete cumulative source/protected-test review and NEW actual-input ROOT admission remain before execution. All eleven failures remain unresolved until natural native/full-suite acceptance.
 
-| `ISS-1747` | `in_review` | Restore ordinary config; declare secret files in broker | `SPEC-011 ESM-14/15` | Contract/runtime/docs corrected; required three-OS native source qualification added. Published/native admission failures retained. |
+| `ISS-1747` | `done` | Restore ordinary config; declare secret files in broker | `SPEC-011 ESM-14/15` | Core #1748 and Echo #17 merged; #1749 records current Ubuntu verification. Published/native admission failures retained. |
