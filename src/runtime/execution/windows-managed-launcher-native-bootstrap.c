@@ -105,9 +105,11 @@ typedef struct {
   HANDLE originalHeldFile, originalHeldDirectories[PACKAGE_DIRECTORY_HANDLE_CAPACITY];
   DWORD originalHeldDirectoryCount;
   HANDLE standardOriginals[3], standardCopies[3], standardIssuedCopies[3];
+  HANDLE standardDuplicateOutputs[3];
   HANDLE standardHandleList[3];
   DWORD standardHandleCount;
-  int standardCloseAttempted[3];
+  int standardCloseAttempted[3], standardClosed[3];
+  DWORD standardCloseStatus[3];
   STARTUPINFOEXW standardStartup;
   SIZE_T standardAttributeCapacity;
   LPPROC_THREAD_ATTRIBUTE_LIST standardAttributes;
@@ -524,14 +526,22 @@ static int PrepareBootstrapStdio(ConptyControl* control, int requiredOutput) {
       }
       continue;
     }
+    HANDLE duplicate = NULL;
     BOOL duplicated = DuplicateHandle(GetCurrentProcess(),original,GetCurrentProcess(),
-      &control->standardCopies[index],0,TRUE,DUPLICATE_SAME_ACCESS);
+      &duplicate,0,TRUE,DUPLICATE_SAME_ACCESS);
     error = duplicated ? 0 : GetLastError();
-    control->standardIssuedCopies[index] = control->standardCopies[index];
-    if (duplicated) control->standardHandleList[control->standardHandleCount++] = control->standardCopies[index];
-    ObserveBootstrap(control,"stdio-original-duplicate",(ULONG_PTR)control->standardCopies[index],
+    control->standardDuplicateOutputs[index] = duplicate;
+    if (duplicated) {
+      control->standardIssuedCopies[index] = duplicate;
+      control->standardCopies[index] = duplicate;
+    }
+    ObserveBootstrap(control,"stdio-original-duplicate",(ULONG_PTR)duplicate,
       duplicated,error,BOOTSTRAP_RESULT_WIN32,!duplicated);
     if (!duplicated) return 0;
+    /* FALSE output is not issued ownership. TRUE without the promised valid
+     * handle is an unresolved original acquisition, never a fabricated close. */
+    if (duplicate == NULL || duplicate == INVALID_HANDLE_VALUE) RetainConpty();
+    control->standardHandleList[control->standardHandleCount++] = duplicate;
   }
   control->standardStartup.StartupInfo.hStdInput = control->standardCopies[0];
   control->standardStartup.StartupInfo.hStdOutput = control->standardCopies[1];
@@ -573,7 +583,15 @@ static void ReleaseBootstrapStdio(ConptyControl* control) {
   for (DWORD index = 0; index < 3; ++index) {
     if (!control->standardCloseAttempted[index] && control->standardCopies[index] != NULL) {
       control->standardCloseAttempted[index] = 1;
-      ReleaseBootstrapHandle(control,&control->standardCopies[index],"release-stdio-copy",index);
+      HANDLE original = control->standardCopies[index];
+      BOOL closed = CloseHandle(original);
+      DWORD error = closed ? 0 : GetLastError();
+      control->standardClosed[index] = closed;
+      control->standardCloseStatus[index] = error;
+      ObserveBootstrap(control,"release-stdio-copy",(ULONG_PTR)original,
+        closed,error,BOOTSTRAP_RESULT_WIN32,!closed);
+      if (closed) control->standardCopies[index] = NULL;
+      else control->releaseFailed = 1;
     }
   }
   if (control->standardAttributesInitialized && !control->standardAttributesDeleted) {

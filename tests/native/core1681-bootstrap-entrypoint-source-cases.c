@@ -138,22 +138,38 @@ static int InspectOriginalStandardWhitelist(ConptyControl* sameOwner) {
 static int InspectOriginalStandardCopiesReleasedOnce(ConptyControl* sameOwner) {
   for (DWORD index = 0; index < 3; ++index) {
     if (!sameOwner->standardIssuedCopies[index]) continue;
-    if (!sameOwner->standardCloseAttempted[index] || sameOwner->standardCopies[index]) return 0;
+    if (!sameOwner->standardCloseAttempted[index] || sameOwner->standardCopies[index] ||
+        !sameOwner->standardClosed[index]) return 0;
     unsigned closes = 0;
-    for (unsigned release = 0; release < sameOwner->releaseCount; ++release) {
-      if (strcmp(sameOwner->releases[release].site,"release-stdio-copy") != 0 ||
-          sameOwner->releases[release].ordinal != index) continue;
-      if (sameOwner->releases[release].original != sameOwner->standardIssuedCopies[index] ||
-          !sameOwner->releases[release].closed) return 0;
+    for (BootstrapObservation* row = sameOwner->bootstrapHead; row; row = row->next) {
+      if (strcmp(row->site,"release-stdio-copy") != 0 ||
+          row->original != (ULONG_PTR)sameOwner->standardIssuedCopies[index]) continue;
+      if (!row->result || row->failure) return 0;
       ++closes;
     }
     if (closes != 1) return 0;
   }
-  return !sameOwner->standardHandleCount ||
-    (sameOwner->standardAttributesDeleted && sameOwner->standardFreeAttempted &&
-     !sameOwner->standardAttributes && CountOriginalBootstrapSite(sameOwner,"stdio-attribute-free") == 1);
+  if (sameOwner->standardAttributes ||
+      (sameOwner->standardAttributesInitialized && !sameOwner->standardAttributesDeleted)) return 0;
+  if (CountOriginalBootstrapSite(sameOwner,"stdio-attribute-storage") == 1 &&
+      !OriginalBootstrapSiteFailed(sameOwner,"stdio-attribute-storage"))
+    return sameOwner->standardFreeAttempted &&
+      CountOriginalBootstrapSite(sameOwner,"stdio-attribute-free") == 1 &&
+      !OriginalBootstrapSiteFailed(sameOwner,"stdio-attribute-free");
+  return !sameOwner->standardFreeAttempted &&
+    CountOriginalBootstrapSite(sameOwner,"stdio-attribute-free") == 0;
 }
 static int InspectOriginalStandardPrefixRefusal(ConptyControl* sameOwner, const char* actualFailureSite) {
   return OriginalBootstrapSiteFailed(sameOwner,actualFailureSite) &&
     CountOriginalBootstrapSite(sameOwner,"managed-child-create") == 0;
+}
+static int InspectOriginalStandardPrefixReleased(ConptyControl* sameOwner, const char* actualFailureSite) {
+  return InspectOriginalStandardPrefixRefusal(sameOwner,actualFailureSite) &&
+    InspectOriginalStandardCopiesReleasedOnce(sameOwner);
+}
+static int InspectOriginalStandardCloseRetention(ConptyControl* sameOwner, DWORD slot) {
+  return slot < 3 && sameOwner->standardIssuedCopies[slot] &&
+    sameOwner->standardCloseAttempted[slot] && !sameOwner->standardClosed[slot] &&
+    sameOwner->standardCopies[slot] == sameOwner->standardIssuedCopies[slot] &&
+    sameOwner->releaseFailed;
 }
