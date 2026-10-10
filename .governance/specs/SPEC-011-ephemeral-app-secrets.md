@@ -137,3 +137,34 @@ replacement launch and revocation, native Broker HTTP isolation/denial/bounds,
 and safe errors/state. URL clients and native Windows WebClient are distinct
 consumption mechanisms; Linux DAV URLs are not POSIX filesystem paths. App
 behaviour after receiving secrets and harness cleanup remain outside acceptance.
+
+## ESM-16: Owner-authorized acceptance and candidate recovery (#1750)
+
+Owner authorization 2026-10-11 permits native repairs, independent review and
+preparation of a compatible Broker release candidate without publication or
+deployment. Preserve ESM-14/15 ownership, privacy and full native contracts.
+
+- ESM-16.1: Start from current develop in a fresh typed issue worktree. Capture
+  exact failed baseline and actual input identities. Preserve historical failed
+  gates, original assertion bodies, native absence/error/retention semantics and
+  existing deadlines. No skip, alias, simulated native proof or metadata repin.
+- ESM-16.2: Diagnose and repair complete connected native source, normalization,
+  binary/provenance, fixture isolation/lifetime/foreign-owner and Admin bootstrap
+  obligations using approved SPEC-002/006/007/008/010 architecture. Historical
+  complete source/typed-lowering/caller programme remains operative. Obtain
+  different whole relevant cumulative source review, NEW full actual-input ROOT
+  and parent adoption before protected imports/build/compiler/test/native or
+  fixture provisioning. Repair implementation when review finds defects.
+- ESM-16.3: Prepare immutable Broker source/toolchain-bound candidate assets,
+  resolver, manifests, SBOMs, checksums and inventory with file-grants/status.
+  Qualify actual packaged bytes on Windows/Linux and authorized Mac. Record
+  macOS11 compatibility separately from modern universal artifacts. Missing
+  harness/tool/admission inputs remain actual failures, not bypasses.
+- ESM-16.4: Retain existing published-package gates distinctly. Prepublication
+  artifacts are candidate evidence only; they never prove publication identity
+  or alter the protected published pin by assertion. No release creation,
+  upload/publication, promotion, deployment or provider-setting changes.
+- ESM-16.5: Execute original appropriate full/source/native/packaged gates against
+  exact reviewed candidates; preserve all outcomes. Deliver implementation and
+  proof through develop PRs, push every commit, record source/review/admission,
+  runtime and publication statuses separately. Close only on sufficient proof.

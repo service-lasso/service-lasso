@@ -325,3 +325,17 @@ The preceding5317462 three-platform hosted source qualification was GREEN;
 new exact-head natural CI must qualify the strengthened cumulative candidate.
 Inherited protected native/published-release failures remain prerequisites;
 no gate/assertion weakening, release pin change or binary regeneration occurred.
+
+## Owner-authorized native acceptance recovery (#1750, 2026-10-11)
+
+Owner explicitly transfers the inherited repair work to this chat and requests
+independent review, a compatible Broker release candidate, and proper test
+passing. Publication/deployment remain prohibited. Continue from current develop
+7d3fe9a0 in fix/1750-native-acceptance; PR1748 is merged and its branch is not reused.
+Preserve unrelated issue branches and primary deleted-package state.
+SPEC-011 ESM-16 binds the resumed acceptance work and full existing native
+SPEC-002/006/007/008/010 obligations. Historical SOURCE_NO_GO and original failures
+remain evidence. Ownership transfer permits implementation/review work, not
+metadata-only provenance repair or target execution without exact source review
+and NEW complete actual-input admission. Native reviewer native_review audits
+whole relevant source; root owns implementation, review adoption and admission.
