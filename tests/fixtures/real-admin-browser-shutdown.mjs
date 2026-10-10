@@ -90,20 +90,50 @@ async function stopAdminProcess(child, timeouts) {
   return { exited: childHasExited(child), failures };
 }
 
-async function closeServer(server, timeoutMs) {
+function observeServerClose(server) {
+  if (!server?.once) return null;
+  let resolve;
+  const observation = {
+    observed: false,
+    wasListening: server.listening === true,
+    closed: new Promise((done) => { resolve = done; }),
+    dispose: () => server.off("close", onClose),
+  };
+  const onClose = () => { observation.observed = true; resolve(); };
+  server.once("close", onClose);
+  return observation;
+}
+
+async function closeServer(server, timeoutMs, observation) {
   if (!server) return;
+  if (observation?.observed) { observation.dispose(); return; }
   let timer;
   const closed = new Promise((resolve, reject) => {
+    observation?.closed.then(resolve);
+    const onError = (error) => {
+      if (error?.code !== "ERR_SERVER_NOT_RUNNING" || !observation) {
+        reject(error);
+      } else if (!observation.wasListening && typeof server.getConnections === "function") {
+        // A server supplied after close began may still own live connections.
+        // Only an initially non-listening, empty server needs no new close event.
+        try {
+          server.getConnections((queryError, count) => {
+            if (queryError) reject(queryError);
+            else if (count === 0) resolve();
+          });
+        } catch (queryError) { reject(queryError); }
+      }
+      // Otherwise retain the original close observer through the deadline.
+    };
     try {
       server.close((error) => {
-        if (!error || error.code === "ERR_SERVER_NOT_RUNNING") resolve();
-        else reject(error);
+        if (!error) resolve();
+        else onError(error);
       });
       server.closeIdleConnections?.();
       server.closeAllConnections?.();
     } catch (error) {
-      if (error?.code === "ERR_SERVER_NOT_RUNNING") resolve();
-      else reject(error);
+      onError(error);
     }
   });
   const timeout = new Promise((_, reject) => {
@@ -120,6 +150,7 @@ async function closeServer(server, timeoutMs) {
     await Promise.race([closed, timeout]);
   } finally {
     clearTimeout(timer);
+    observation?.dispose();
   }
 }
 
@@ -185,6 +216,10 @@ export async function teardownRealAdminBrowserFixture({
     tempCleanupTimeoutMs: DEFAULT_TEMP_CLEANUP_TIMEOUT_MS,
     ...timeoutOverrides,
   };
+  // Observe the original servers before stop() can initiate asynchronous close.
+  const apiClose = observeServerClose(apiServer?.server);
+  const vaultClose = observeServerClose(vaultServer);
+  const vaultProviderClose = observeServerClose(vaultProviderServer);
   const adminStop = await stopAdminProcess(adminProcess, timeouts);
   const failures = [...adminStop.failures];
 
@@ -212,7 +247,7 @@ export async function teardownRealAdminBrowserFixture({
   }
   let apiServerClosed = !apiServer?.server;
   try {
-    await closeServer(apiServer?.server, timeouts.serverCloseTimeoutMs);
+    await closeServer(apiServer?.server, timeouts.serverCloseTimeoutMs, apiClose);
     apiServerClosed = true;
   } catch (error) {
     failures.push(
@@ -230,7 +265,7 @@ export async function teardownRealAdminBrowserFixture({
   }
   let vaultServerClosed = !vaultServer;
   try {
-    await closeServer(vaultServer, timeouts.serverCloseTimeoutMs);
+    await closeServer(vaultServer, timeouts.serverCloseTimeoutMs, vaultClose);
     vaultServerClosed = true;
   } catch (error) {
     failures.push(
@@ -239,7 +274,7 @@ export async function teardownRealAdminBrowserFixture({
   }
   let vaultProviderServerClosed = !vaultProviderServer;
   try {
-    await closeServer(vaultProviderServer, timeouts.serverCloseTimeoutMs);
+    await closeServer(vaultProviderServer, timeouts.serverCloseTimeoutMs, vaultProviderClose);
     vaultProviderServerClosed = true;
   } catch (error) {
     failures.push(
@@ -258,8 +293,10 @@ export async function teardownRealAdminBrowserFixture({
     if (error instanceof RealAdminBrowserTeardownError) failures.push(...error.failures);
     else failures.push(safeFailure("receipt_work_settlement", error, "receipt_work_failed"));
   }
+  let lifecycleReset = false;
   try {
     resetLifecycle();
+    lifecycleReset = true;
   } catch (error) {
     failures.push(
       safeFailure("lifecycle_reset", error, "lifecycle_reset_failed"),
@@ -272,7 +309,7 @@ export async function teardownRealAdminBrowserFixture({
     brokerIPCClosed &&
     vaultServerClosed &&
     vaultProviderServerClosed &&
-    ownedWorkSettled && failures.length === 0
+    ownedWorkSettled && lifecycleReset
   ) {
     try {
       await beforeTempRemoval();

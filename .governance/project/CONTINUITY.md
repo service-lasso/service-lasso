@@ -339,3 +339,18 @@ remain evidence. Ownership transfer permits implementation/review work, not
 metadata-only provenance repair or target execution without exact source review
 and NEW complete actual-input admission. Native reviewer native_review audits
 whole relevant source; root owns implementation, review adoption and admission.
+
+## #1750 Admin deterministic source repair checkpoint
+
+Independent preliminary reviewer native_review confirmed the failure-conjunction
+bug and close-observation race in real-admin-browser-shutdown.mjs. Source now
+observes original server close before stop, waits through already-closing live
+connections under the unchanged close deadline, and permits removal only after
+all owned resources and lifecycle reset have settled. Original API stop errors
+remain reported. Failed process convergence, reset or close still retains roots.
+Original protected tests are unchanged; supplemental cases cover never-started
+servers, a server already closing at entry and reset failure. No tests executed
+yet: request independent whole JS-unit review and exact input binding first.
+This bounded JS fix does not admit Core native/compiler or fixture-isolation
+execution. Complete inherited native programme and privacy/raw observer
+prerequisites remain unfinished and active under SPEC-011 ESM-16.
