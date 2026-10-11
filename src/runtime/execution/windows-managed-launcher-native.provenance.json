@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "compiler": {
     "family": "Microsoft Visual C++ Build Tools native compiler",
-    "path": "Visual Studio 2022 Build Tools via VsDevCmd",
+    "path": "Visual Studio 2022 Build Tools via BOOTSTRAP-NATIVE-VCVARS-ENV-2",
     "options": [
       "/nologo",
       "/TC",
@@ -17,17 +17,17 @@
   },
   "source": {
     "path": "src/runtime/execution/windows-managed-launcher-native-bootstrap.c",
-    "sha256": "fdf92155b1e1b04d9f3e75e4276ae92e9bb2b90cfa7d676626ae218217dc2d5e"
+    "sha256": "f197992fa1b6240226473e49653913e73c22b93af1b41cf87d55807071248c51"
   },
   "managedLauncher": {
     "path": "src/runtime/execution/windows-managed-launcher-managed.exe",
-    "sha256": "ff1f7fdf44a4419f681e5cd7fe23bd59b495153ad6342ccd321d2c36de3228fa",
-    "byteLength": 39936
+    "sha256": "fb95c81d858ec9b0f4c5432b1d279d37161bcfe45c2911c1ec966548d3e74bfd",
+    "byteLength": 47616
   },
   "binary": {
     "path": "src/runtime/execution/windows-managed-launcher-native.exe",
-    "sha256": "401699f683f56e081236e550ab59c06f888929ec5e30588f4e27cce972d4364c",
-    "byteLength": 141824,
+    "sha256": "9b9869b9227007fcfe8ef2a9afae0f572c8da488f94fa3d495f60d423b5aa1e9",
+    "byteLength": 169984,
     "peTimestamp": "zero",
     "clrMetadata": "absent"
   }
