@@ -186,3 +186,9 @@ deployment. Preserve ESM-14/15 ownership, privacy and full native contracts.
   fabricated closure, changed protected deadline or metadata-only image update.
   Whole relevant review and NEW compiler-only input admission precede execution;
   this source repair cannot admit product Main, fixtures or full F7 activation.
+- ESM-16.8: After the independently read-back genuine managed rebuild, bind the
+  bootstrap C length/all32 digest bytes and compiler precheck to that actual
+  image. Rebuild the native bootstrap only after fresh whole source review and
+  native compiler input admission. Its provenance and supervisor/test consumer
+  pins follow actual generated native bytes, never the earlier managed result.
+  Preserve historical images/failures and all existing identity assertions.

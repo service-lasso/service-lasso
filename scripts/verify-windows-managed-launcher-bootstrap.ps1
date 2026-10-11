@@ -94,7 +94,7 @@ $managedSha256 = Get-Sha256Hex $managedBytes
 $sourceText = [Text.Encoding]::UTF8.GetString($sourceBytes)
 $digestDeclaration = [regex]::Match($sourceText, 'MANAGED_LAUNCHER_SHA256\[32\]\s*=\s*\{([^}]+)\}', [Text.RegularExpressions.RegexOptions]::Singleline)
 $digestValues = @([regex]::Matches($digestDeclaration.Groups[1].Value, '0x([a-fA-F0-9]{2})') | ForEach-Object { $_.Groups[1].Value.ToLowerInvariant() })
-if ($managedBytes.Length -ne 39936 -or $sourceText -notmatch 'MANAGED_LAUNCHER_BYTE_LENGTH\s+39936LL' -or $digestValues.Count -ne 32 -or ($digestValues -join '') -cne $managedSha256) {
+if ($managedBytes.Length -ne 47616 -or $sourceText -notmatch 'MANAGED_LAUNCHER_BYTE_LENGTH\s+47616LL' -or $digestValues.Count -ne 32 -or ($digestValues -join '') -cne $managedSha256) {
   throw "Native bootstrap source did not pin the managed launcher identity."
 }
 $script:NativeToolOwners = [Collections.Generic.Dictionary[string,object]]::new([StringComparer]::Ordinal)

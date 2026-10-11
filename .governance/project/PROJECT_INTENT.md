@@ -1418,3 +1418,9 @@ held-exit 15000ms route is unchanged. The passive metadata corpus passed all28
 cases at9e8ed504 after correcting two newly introduced fixture offsets; the
 original61e74f80 failure remains retained. No compiler or native execution is
 admitted by that result. Compiler inputs/review and genuine rebuild remain open.
+The original admitted managed rebuild at616d5c4b completed naturally with both
+raw streams closed, all18 provenance negatives passing and behavioral count0.
+Independent readback confirmed normalized image47616/SHA256
+fb95c81d858ec9b0f4c5432b1d279d37161bcfe45c2911c1ec966548d3e74bfd.
+ESM-16.8 now binds bootstrap source pins to these actual bytes; native rebuild,
+native consumer identities and runtime/full qualification remain open.

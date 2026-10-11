@@ -1151,6 +1151,7 @@ ADR-003 selects the complete original-isolate drain/exclusion protocol after DIF
 - [ ] #1750 owner-authorized native acceptance recovery: preserve complete source/admission contracts, repair actual failed gates, independently review, prepare compatible Broker candidate; no publication/deployment. SPEC-011 ESM-16.
 # #1750 full qualification continuation
 
-- [ ] ESM-16.7: passively parse managed MVID and retain complete managed compiler transaction; independent source review and new compiler-only ROOT before execution.
+- [x] ESM-16.7: passive MVID corpus28 and admitted managed compiler rebuild/provenance18 passed, independently read back. No behavioral/native qualification.
+- [ ] ESM-16.8: bind actual rebuilt managed bytes in bootstrap source, then independently admit genuine native rebuild before updating native consumers.
 - [ ] Complete existing full native/F7 gates with actual owner-selected independent custodian/destination; preserve missing-input refusal and historical failures.
 
