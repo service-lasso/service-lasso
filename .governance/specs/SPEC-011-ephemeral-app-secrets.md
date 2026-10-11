@@ -192,3 +192,7 @@ deployment. Preserve ESM-14/15 ownership, privacy and full native contracts.
   native compiler input admission. Its provenance and supervisor/test consumer
   pins follow actual generated native bytes, never the earlier managed result.
   Preserve historical images/failures and all existing identity assertions.
+  The native compiler driver must close redirected stdin, avoid an unreleased
+  per-owner wait gate, and retain unresolved evidence-recording ownership just
+  as the reviewed managed compiler driver does. Review the entire native driver
+  before initialization or compiler execution; no input discovery by execution.
