@@ -1429,3 +1429,9 @@ without rerunning it. Independent readback confirmed native image169984/SHA256
 9b9869b9227007fcfe8ef2a9afae0f572c8da488f94fa3d495f60d423b5aa1e9.
 Update the existing supervisor/ConPTY source integrity pins and explicit test
 assertions to those actual bytes. No behavioral/native/F7 qualification transfers.
+The owner selected this repair agent as custodian and directed continuation.
+SPEC-010 needs no second human approver. Separate native actors, protected keys,
+provider identities, persistence proofs and independent review still apply.
+The D8 receiver/receipt and native transport implementations are absent; existing
+U1 worker ownership is preserved. Authorized Mac SSH can support bounded receiver
+preparation, but does not supply missing implementations or full F7 admission.
