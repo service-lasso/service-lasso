@@ -1152,6 +1152,6 @@ ADR-003 selects the complete original-isolate drain/exclusion protocol after DIF
 # #1750 full qualification continuation
 
 - [x] ESM-16.7: passive MVID corpus28 and admitted managed compiler rebuild/provenance18 passed, independently read back. No behavioral/native qualification.
-- [ ] ESM-16.8: bind actual rebuilt managed bytes in bootstrap source, then independently admit genuine native rebuild before updating native consumers.
+- [x] ESM-16.8 compiler portion: genuine managed/bootstrap rebuilds independently admitted and read back; exact native source pins follow actual169984-byte output. Runtime integration remains unqualified.
 - [ ] Complete existing full native/F7 gates with actual owner-selected independent custodian/destination; preserve missing-input refusal and historical failures.
 

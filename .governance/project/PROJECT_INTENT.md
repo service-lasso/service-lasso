@@ -1424,3 +1424,8 @@ Independent readback confirmed normalized image47616/SHA256
 fb95c81d858ec9b0f4c5432b1d279d37161bcfe45c2911c1ec966548d3e74bfd.
 ESM-16.8 now binds bootstrap source pins to these actual bytes; native rebuild,
 native consumer identities and runtime/full qualification remain open.
+The admitted bootstrap compiler reused the exact retained initializer environment
+without rerunning it. Independent readback confirmed native image169984/SHA256
+9b9869b9227007fcfe8ef2a9afae0f572c8da488f94fa3d495f60d423b5aa1e9.
+Update the existing supervisor/ConPTY source integrity pins and explicit test
+assertions to those actual bytes. No behavioral/native/F7 qualification transfers.
