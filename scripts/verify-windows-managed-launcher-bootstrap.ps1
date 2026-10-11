@@ -1,9 +1,10 @@
 [CmdletBinding()]
-param([switch]$Update, [switch]$InitializeOnly)
+param([switch]$Update, [switch]$InitializeOnly, [string]$InitializedEnvironmentPath)
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 if ($Update -and $InitializeOnly) { throw "Initialization-only cannot update package outputs." }
+if ($InitializeOnly -and $InitializedEnvironmentPath) { throw "Initialization-only cannot reuse prior initialization." }
 if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
   throw "Windows managed-launcher bootstrap verification requires Windows."
 }
@@ -252,15 +253,32 @@ $temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) ("service-lasso-native-boo
   }
   $cmdImage = [IO.Path]::GetFullPath((Join-Path $env:SystemRoot 'System32\cmd.exe'))
   $cmdArguments = Get-NativeCmdInitializerArguments $initializePath
-  Invoke-RetainedNativeTool $cmdImage @() $childEnvironment 'initialize' $cmdArguments
   $initialized = [Collections.Generic.Dictionary[string,string]]::new([StringComparer]::OrdinalIgnoreCase)
-  $rawEnvironment = [IO.File]::ReadAllBytes((Join-Path $temporaryRoot "initialize.stdout.raw"))
-  if ($rawEnvironment.Length % 2 -ne 0) { throw "The initialized environment output was not UTF16LE." }
-  foreach ($line in ([Text.UnicodeEncoding]::new($false, $false, $true).GetString($rawEnvironment) -split "\r?\n")) {
-    if ($line.Length -eq 0) { continue }
-    $separator = $line.IndexOf('=')
-    if ($separator -lt 1) { throw "The initialized environment contained an invalid record." }
-    $initialized.Add($line.Substring(0, $separator), $line.Substring($separator + 1))
+  if ($InitializedEnvironmentPath) {
+    if (-not [IO.Path]::IsPathFullyQualified($InitializedEnvironmentPath)) { throw "Retained initialization input must be absolute." }
+    $inputItem = Get-Item -LiteralPath $InitializedEnvironmentPath -ErrorAction Stop
+    if ($inputItem.PSIsContainer -or ($inputItem.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw "Retained initialization input must be a regular non-reparse file." }
+    [byte[]]$inputBytes = [IO.File]::ReadAllBytes($InitializedEnvironmentPath)
+    $inputText = [Text.UTF8Encoding]::new($false, $true).GetString($inputBytes)
+    $inputJson = [Text.Json.JsonDocument]::Parse($inputText)
+    try {
+      if ($inputJson.RootElement.ValueKind -ne [Text.Json.JsonValueKind]::Object) { throw "Retained initialization must be a JSON object." }
+      foreach ($property in $inputJson.RootElement.EnumerateObject()) {
+        if ($property.Value.ValueKind -ne [Text.Json.JsonValueKind]::String) { throw "Retained initialization values must be strings." }
+        $initialized.Add($property.Name, $property.Value.GetString())
+      }
+    } finally { $inputJson.Dispose() }
+    [IO.File]::WriteAllBytes((Join-Path $temporaryRoot 'retained-initializer-input.json'), $inputBytes)
+  } else {
+    Invoke-RetainedNativeTool $cmdImage @() $childEnvironment 'initialize' $cmdArguments
+    $rawEnvironment = [IO.File]::ReadAllBytes((Join-Path $temporaryRoot "initialize.stdout.raw"))
+    if ($rawEnvironment.Length % 2 -ne 0) { throw "The initialized environment output was not UTF16LE." }
+    foreach ($line in ([Text.UnicodeEncoding]::new($false, $false, $true).GetString($rawEnvironment) -split "\r?\n")) {
+      if ($line.Length -eq 0) { continue }
+      $separator = $line.IndexOf('=')
+      if ($separator -lt 1) { throw "The initialized environment contained an invalid record." }
+      $initialized.Add($line.Substring(0, $separator), $line.Substring($separator + 1))
+    }
   }
   if ($initialized['VSCMD_ARG_HOST_ARCH'] -ne 'x64' -or $initialized['VSCMD_ARG_TGT_ARCH'] -ne 'x64') { throw "The initialized native architecture was invalid." }
   foreach ($name in @('CL', '_CL_', 'LINK', '_LINK_')) { if ($initialized.ContainsKey($name)) { throw "An undeclared compiler override was present." } }

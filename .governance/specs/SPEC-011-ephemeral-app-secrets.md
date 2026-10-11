@@ -200,3 +200,9 @@ deployment. Preserve ESM-14/15 ownership, privacy and full native contracts.
   environment initializer and retain its original output without invoking cl or
   updating package outputs. A later compiler ROOT must bind the actual retained
   environment and complete selected compiler/SDK bytes before native compilation.
+  InitializedEnvironmentPath may reuse exact retained initializer JSON without
+  re-running initialization: absolute regular non-reparse file, strict UTF8
+  object/string grammar and case-insensitive duplicate refusal. Retain original
+  input bytes in the compiler root; preserve literal TEMP/TMP pointing to the
+  already retained initializer-owned directory. All existing architecture,
+  compiler-override and required dependency checks remain mandatory.
