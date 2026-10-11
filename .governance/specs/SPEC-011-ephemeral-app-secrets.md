@@ -196,3 +196,7 @@ deployment. Preserve ESM-14/15 ownership, privacy and full native contracts.
   per-owner wait gate, and retain unresolved evidence-recording ownership just
   as the reviewed managed compiler driver does. Review the entire native driver
   before initialization or compiler execution; no input discovery by execution.
+  An explicitly selected InitializeOnly stage may run the separately admitted
+  environment initializer and retain its original output without invoking cl or
+  updating package outputs. A later compiler ROOT must bind the actual retained
+  environment and complete selected compiler/SDK bytes before native compilation.

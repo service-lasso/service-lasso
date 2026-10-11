@@ -1,8 +1,9 @@
 [CmdletBinding()]
-param([switch]$Update)
+param([switch]$Update, [switch]$InitializeOnly)
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
+if ($Update -and $InitializeOnly) { throw "Initialization-only cannot update package outputs." }
 if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
   throw "Windows managed-launcher bootstrap verification requires Windows."
 }
@@ -267,6 +268,10 @@ $temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) ("service-lasso-native-boo
     if (-not $initialized.ContainsKey($name) -or [string]::IsNullOrEmpty($initialized[$name])) { throw "A selected native dependency was unavailable: $name" }
   }
   [IO.File]::WriteAllText((Join-Path $temporaryRoot "PRIVATE-initialized-environment.json"), ($initialized | ConvertTo-Json -Depth 3), [Text.UTF8Encoding]::new($false))
+  if ($InitializeOnly) {
+    [pscustomobject]@{ result = "initialized_only"; recipe = $recipe; retainedRoot = $temporaryRoot; compilerInvoked = $false; packageOutputsUpdated = $false } | ConvertTo-Json -Compress
+    return
+  }
   $cl = Join-Path $initialized['VCToolsInstallDir'] "bin/Hostx64/x64/cl.exe"
   if (-not [IO.File]::Exists($cl)) { throw "The selected absolute native compiler was unavailable." }
   $compiledPath = Join-Path $temporaryRoot "windows-managed-launcher-native.exe"
