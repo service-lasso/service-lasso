@@ -73,7 +73,7 @@
     "verify:release-governance": "node scripts/validate-release-governance.mjs && node --test tests/release-governance.test.js"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.31.0",
+    "@modelcontextprotocol/sdk": "1.32.1",
     "fflate": "0.8.3",
     "jose": "6.2.12",
     "tar": "7.5.22",
