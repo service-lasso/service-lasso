@@ -1400,3 +1400,8 @@ on Windows, Linux and macOS, with missing native inputs failing the lane.
 Preserve published-release and protected native-admission gates independently.
 Actual Mac11 compatibility tests use the documented isolated toolchain; no
 release or Windows WebClient qualification is implied.
+
+#1753 U2 native F7 G/P transport source preparation (SPEC-010 F7-04/05/07/09)
+proceeds on its own develop issue branch under owner root. Source codecs and
+regressions remain UNEXECUTED until different whole review and NEW exact ROOT;
+no provisioning, provider experiment, publication or deployment.

@@ -1147,3 +1147,12 @@ The user directed the Linux repair chat on 2026-10-07 to perform the eleven-fail
 ### #1724 reviewed Linux source preparation
 
 ADR-003 selects the complete original-isolate drain/exclusion protocol after DIFFERENT ENTIRE architecture GO at171473fd4feed3c60b89db3e30272936ba953a6e. The current repair chat owns source preparation on fix/1724-linux-native-fixture-removal. Import reviewed prospective PR1721 row extraction through the governed source path; implement the genuine Linux native adapter without weakening protected assertions or claiming absent F7 dependencies. Complete cumulative source/protected-test review and NEW actual-input ROOT admission remain before execution. All eleven failures remain unresolved until natural native/full-suite acceptance.
+
+### Native F7 G/P transport U2 (#1753)
+
+SPEC-010 F7-04/F7-05/F7-07/F7-09 and D8 inventory U2. Owner root (custodian selected by the project owner on 2026-10-11) under parent #1750. Pre-code mapping: U1 #1686 landed shared protocol.h roles/results/u64 framing; libsodium SHA256 is admitted-pending, SHA1 and inflate are absent from U1, so U2 supplies bounded source-owned SHA1, RFC1950/1951 inflate and stored-block deflate rather than ambient zlib/Git. Seed blob30/tree41/commit168 OIDs independently re-derived from SPEC-010 text on 2026-10-13 and match.
+- [ ] Bounded seed object/framing/PACK writer and pkt-line/v0 advertisement/request/NAK/sideband codecs with source regressions.
+- [ ] PACKv2 reader: trailer, object headers, zlib consumption, OFS_DELTA/REF_DELTA same-pack bases, depth<=64, checked S quotas, exact reachable inventory.
+- [ ] TLS/HTTP/persistence/read-broker integration (U1 caller/broker schemas ABSENT; do not invent).
+- [ ] P receive-pack initial push/unknown-outcome reconciliation source; no provider experiment.
+- [ ] DIFFERENT whole U2 source review, then NEW exact actual-input ROOT before any compile/execute.
