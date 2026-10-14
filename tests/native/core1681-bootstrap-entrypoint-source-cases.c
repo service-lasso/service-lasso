@@ -109,3 +109,67 @@ static int InspectOriginalEnvironmentRetention(ConptyControl* sameOwner) {
     CountOriginalBootstrapSite(sameOwner,"loader-environment-release") == 1 &&
     OriginalBootstrapSiteFailed(sameOwner,"loader-environment-release");
 }
+
+/* Source-only added matrix. Actual original standard endpoints, child-side
+ * pipe identity/bytes/EOF and private-handle non-inheritance still require an
+ * independently admitted native fixture; no synthetic API result is supplied. */
+static int InspectOriginalStandardWhitelist(ConptyControl* sameOwner) {
+  if (CountOriginalBootstrapSite(sameOwner,"stdio-original-acquire") != 3) return 0;
+  DWORD count = 0;
+  HANDLE slots[3] = { sameOwner->standardStartup.StartupInfo.hStdInput,
+    sameOwner->standardStartup.StartupInfo.hStdOutput,
+    sameOwner->standardStartup.StartupInfo.hStdError };
+  for (DWORD index = 0; index < 3; ++index) {
+    HANDLE original = sameOwner->standardOriginals[index];
+    HANDLE duplicate = sameOwner->standardIssuedCopies[index];
+    if (original == INVALID_HANDLE_VALUE) return 0;
+    if (original == NULL) { if (duplicate != NULL || slots[index] != NULL) return 0; continue; }
+    if (!duplicate || slots[index] != duplicate ||
+        sameOwner->standardHandleList[count] != duplicate) return 0;
+    for (DWORD earlier = 0; earlier < count; ++earlier)
+      if (sameOwner->standardHandleList[earlier] == duplicate) return 0;
+    ++count;
+  }
+  return count == sameOwner->standardHandleCount &&
+    CountOriginalBootstrapSite(sameOwner,"stdio-original-duplicate") == (int)count &&
+    (!count || (CountOriginalBootstrapSite(sameOwner,"stdio-attribute-whitelist") == 1 &&
+      !OriginalBootstrapSiteFailed(sameOwner,"stdio-attribute-whitelist")));
+}
+static int InspectOriginalStandardCopiesReleasedOnce(ConptyControl* sameOwner) {
+  for (DWORD index = 0; index < 3; ++index) {
+    if (!sameOwner->standardIssuedCopies[index]) continue;
+    if (!sameOwner->standardCloseAttempted[index] || sameOwner->standardCopies[index] ||
+        !sameOwner->standardClosed[index]) return 0;
+    unsigned closes = 0;
+    for (BootstrapObservation* row = sameOwner->bootstrapHead; row; row = row->next) {
+      if (strcmp(row->site,"release-stdio-copy") != 0 ||
+          row->original != (ULONG_PTR)sameOwner->standardIssuedCopies[index]) continue;
+      if (!row->result || row->failure) return 0;
+      ++closes;
+    }
+    if (closes != 1) return 0;
+  }
+  if (sameOwner->standardAttributes ||
+      (sameOwner->standardAttributesInitialized && !sameOwner->standardAttributesDeleted)) return 0;
+  if (CountOriginalBootstrapSite(sameOwner,"stdio-attribute-storage") == 1 &&
+      !OriginalBootstrapSiteFailed(sameOwner,"stdio-attribute-storage"))
+    return sameOwner->standardFreeAttempted &&
+      CountOriginalBootstrapSite(sameOwner,"stdio-attribute-free") == 1 &&
+      !OriginalBootstrapSiteFailed(sameOwner,"stdio-attribute-free");
+  return !sameOwner->standardFreeAttempted &&
+    CountOriginalBootstrapSite(sameOwner,"stdio-attribute-free") == 0;
+}
+static int InspectOriginalStandardPrefixRefusal(ConptyControl* sameOwner, const char* actualFailureSite) {
+  return OriginalBootstrapSiteFailed(sameOwner,actualFailureSite) &&
+    CountOriginalBootstrapSite(sameOwner,"managed-child-create") == 0;
+}
+static int InspectOriginalStandardPrefixReleased(ConptyControl* sameOwner, const char* actualFailureSite) {
+  return InspectOriginalStandardPrefixRefusal(sameOwner,actualFailureSite) &&
+    InspectOriginalStandardCopiesReleasedOnce(sameOwner);
+}
+static int InspectOriginalStandardCloseRetention(ConptyControl* sameOwner, DWORD slot) {
+  return slot < 3 && sameOwner->standardIssuedCopies[slot] &&
+    sameOwner->standardCloseAttempted[slot] && !sameOwner->standardClosed[slot] &&
+    sameOwner->standardCopies[slot] == sameOwner->standardIssuedCopies[slot] &&
+    sameOwner->releaseFailed;
+}

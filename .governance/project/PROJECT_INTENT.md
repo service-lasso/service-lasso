@@ -1405,3 +1405,46 @@ release or Windows WebClient qualification is implied.
 proceeds on its own develop issue branch under owner root. Source codecs and
 regressions remain UNEXECUTED until different whole review and NEW exact ROOT;
 no provisioning, provider experiment, publication or deployment.
+## Owner-authorized native acceptance recovery (#1750, 2026-10-11)
+
+Owner explicitly transfers the inherited repair work to this chat and requests
+independent review, a compatible Broker release candidate, and proper test
+passing. Publication/deployment remain prohibited. Continue from current develop
+7d3fe9a0 in fix/1750-native-acceptance; PR1748 is merged and its branch is not reused.
+Preserve unrelated issue branches and primary deleted-package state.
+SPEC-011 ESM-16 binds the resumed acceptance work and full existing native
+SPEC-002/006/007/008/010 obligations. Historical SOURCE_NO_GO and original failures
+remain evidence. Ownership transfer permits implementation/review work, not
+metadata-only provenance repair or target execution without exact source review
+and NEW complete actual-input admission. Native reviewer native_review audits
+whole relevant source; root owns implementation, review adoption and admission.
+The reviewed bootstrap standard-stream inheritance gap is now a source repair
+under ESM-16.6. Explicit original-handle whitelist and once-only native resource
+observations must preserve C1-C3 and all existing protected assertions. Compiler
+driver failure retention and real binary/pin rebuild remain separate unfinished
+work; no source edit updates a binary identity or admits target execution.
+
+ESM-16.7 compiler continuation uses the managed-only retained compiler helper:
+explicit closed stdin/environment, independent raw stdout/stderr and natural
+exit/EOF ownership, and retained attempt roots on all outcomes. The original
+held-exit 15000ms route is unchanged. The passive metadata corpus passed all28
+cases at9e8ed504 after correcting two newly introduced fixture offsets; the
+original61e74f80 failure remains retained. No compiler or native execution is
+admitted by that result. Compiler inputs/review and genuine rebuild remain open.
+The original admitted managed rebuild at616d5c4b completed naturally with both
+raw streams closed, all18 provenance negatives passing and behavioral count0.
+Independent readback confirmed normalized image47616/SHA256
+fb95c81d858ec9b0f4c5432b1d279d37161bcfe45c2911c1ec966548d3e74bfd.
+ESM-16.8 now binds bootstrap source pins to these actual bytes; native rebuild,
+native consumer identities and runtime/full qualification remain open.
+The admitted bootstrap compiler reused the exact retained initializer environment
+without rerunning it. Independent readback confirmed native image169984/SHA256
+9b9869b9227007fcfe8ef2a9afae0f572c8da488f94fa3d495f60d423b5aa1e9.
+Update the existing supervisor/ConPTY source integrity pins and explicit test
+assertions to those actual bytes. No behavioral/native/F7 qualification transfers.
+The owner selected this repair agent as custodian and directed continuation.
+SPEC-010 needs no second human approver. Separate native actors, protected keys,
+provider identities, persistence proofs and independent review still apply.
+The D8 receiver/receipt and native transport implementations are absent; existing
+U1 worker ownership is preserved. Authorized Mac SSH can support bounded receiver
+preparation, but does not supply missing implementations or full F7 admission.

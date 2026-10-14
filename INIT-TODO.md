@@ -1156,3 +1156,9 @@ SPEC-010 F7-04/F7-05/F7-07/F7-09 and D8 inventory U2. Owner root (custodian sele
 - [ ] TLS/HTTP/persistence/read-broker integration (U1 caller/broker schemas ABSENT; do not invent).
 - [ ] P receive-pack initial push/unknown-outcome reconciliation source; no provider experiment.
 - [ ] DIFFERENT whole U2 source review, then NEW exact actual-input ROOT before any compile/execute.
+- [ ] #1750 owner-authorized native acceptance recovery: preserve complete source/admission contracts, repair actual failed gates, independently review, prepare compatible Broker candidate; no publication/deployment. SPEC-011 ESM-16.
+# #1750 full qualification continuation
+
+- [x] ESM-16.7: passive MVID corpus28 and admitted managed compiler rebuild/provenance18 passed, independently read back. No behavioral/native qualification.
+- [x] ESM-16.8 compiler portion: genuine managed/bootstrap rebuilds independently admitted and read back; exact native source pins follow actual169984-byte output. Runtime integration remains unqualified.
+- [ ] Complete existing full native/F7 gates with actual owner-selected independent custodian/destination; preserve missing-input refusal and historical failures.

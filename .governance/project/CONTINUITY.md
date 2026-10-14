@@ -336,3 +336,74 @@ The preceding5317462 three-platform hosted source qualification was GREEN;
 new exact-head natural CI must qualify the strengthened cumulative candidate.
 Inherited protected native/published-release failures remain prerequisites;
 no gate/assertion weakening, release pin change or binary regeneration occurred.
+
+## Owner-authorized native acceptance recovery (#1750, 2026-10-11)
+
+Owner explicitly transfers the inherited repair work to this chat and requests
+independent review, a compatible Broker release candidate, and proper test
+passing. Publication/deployment remain prohibited. Continue from current develop
+7d3fe9a0 in fix/1750-native-acceptance; PR1748 is merged and its branch is not reused.
+Preserve unrelated issue branches and primary deleted-package state.
+SPEC-011 ESM-16 binds the resumed acceptance work and full existing native
+SPEC-002/006/007/008/010 obligations. Historical SOURCE_NO_GO and original failures
+remain evidence. Ownership transfer permits implementation/review work, not
+metadata-only provenance repair or target execution without exact source review
+and NEW complete actual-input admission. Native reviewer native_review audits
+whole relevant source; root owns implementation, review adoption and admission.
+
+## #1750 Admin deterministic source repair checkpoint
+
+Independent preliminary reviewer native_review confirmed the failure-conjunction
+bug and close-observation race in real-admin-browser-shutdown.mjs. Source now
+observes original server close before stop, waits through already-closing live
+connections under the unchanged close deadline, and permits removal only after
+all owned resources and lifecycle reset have settled. Original API stop errors
+remain reported. Failed process convergence, reset or close still retains roots.
+Original protected tests are unchanged; supplemental cases cover never-started
+servers, a server already closing at entry and reset failure. Reviewer
+native_review read the complete closed JS unit and issued bounded source GO for
+exactly five anchored `^teardown ` tests at5609823. Parent adopted that bounded
+verdict and recorded controlled environment/source/runtime inputs externally in
+qualification1747/1750-admin-execution-20261011. One Windows Node22.23.2 execution
+passed5/5, zero failures/skips, with original assertions/deadlines. This small
+packet records initial runtime modules, not complete native descendant/loaded
+image lifetime proof; it is not reusable native-programme admission. Raw stdout,
+stderr, exit and original source/review/input records remain retained.
+This bounded JS fix does not admit Core native/compiler or fixture-isolation
+execution. Complete inherited native programme and privacy/raw observer
+prerequisites remain unfinished and active under SPEC-011 ESM-16.
+
+## #1750 bootstrap original standard-stream repair source
+
+The complete native launcher audit independently identified missing explicit
+bootstrap-to-managed stdio inheritance. ESM-16.6 source now duplicates actual
+original standard handles into an explicit HANDLE_LIST and preserves absent
+slots, rejects missing required ConPTY output, records native acquisitions and
+attribute lifecycle, and retires only parent duplicates once immediately after
+CreateProcess. Private custody/control/file/job handles stay outside that list.
+Original endpoints and child-side copies retain their separate original owners.
+Prospective source cases inspect exact slot/whitelist relations, prefix refusal
+and once-only copy/attribute retirement; they are NOT executed native evidence.
+Whole cumulative native review, actual ROOT, retained compiler repair, genuine
+managed/bootstrap rebuild and all source/image pin propagation remain unfinished.
+Existing images and historical failures remain unchanged; no compiler/native
+execution is admitted by this source checkpoint.
+
+## #1750 full qualification resumption 2026-10-11
+
+Owner explicitly requests full qualification, retaining the prohibition on
+publication/deployment. The earlier managed worktree is missing; existing owned
+branch fix/1750-native-acceptance and PR1751 still point to78ba8a9. Recovered that
+exact branch into D:/projects/service-lasso/1750-native-qualification-resume as an
+ongoing-work recovery exception, without resetting shared develop or changing
+other workers. This is continuation of the existing work unit, not a new branch
+from another issue branch. The recovered tree was clean before edits.
+ESM-16.7 selects concrete compiler transaction/passive normalizer source repair.
+Independent native_review remains reviewer; source and exact compiler-only ROOT
+must be closed before any parser/compiler/test execution. No existing lab is
+available; owner custodian/destination selection remains pending under SPEC-010.
+Echo17 is now independently verified merged e3abd085 on2026-10-10. Broker204 head
+9be8354 has terminal hosted validation and bounded Mac11 trust evidence; full
+native16/publication/integration and intermittent local Windows failures remain
+separate unresolved claims. Existing images, provenance pins and failed evidence
+remain preserved. This checkpoint creates no native or release admission.
