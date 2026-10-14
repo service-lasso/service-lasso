@@ -769,7 +769,7 @@ test("#864 retained evidence verifies downloaded content, exact SHA, three OSes,
     );
     const inspectorProvenanceVerifier = await readFile("scripts/verify-windows-process-inspector.ps1", "utf8");
     assert.match(inspectorProvenanceVerifier, /Framework64[\s\S]*?v4\.0\.30319[\s\S]*?csc\.exe/u);
-    assert.match(inspectorProvenanceVerifier, /Get-NormalizedAssemblyBytes[\s\S]*?peOffset \+ 8[\s\S]*?moduleVersionIdOffset/u);
+    assert.match(inspectorProvenanceVerifier, /Get-NormalizedAssemblyBytes[\s\S]*?peOffset \+ 8[\s\S]*?normalization\.mvid/u);
     assert.match(inspectorProvenanceVerifier, /shippedBytes\[\$index\] -ne \$normalizedBytes\[\$index\]/u);
     assert.match(inspectorProvenanceVerifier, /Assert-CanonicalProvenanceBytes/u);
     assert.match(inspectorProvenanceVerifier, /Assert-ExactPropertyNames/u);
