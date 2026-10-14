@@ -98,7 +98,7 @@ test("entire scoped verifier owns nested staging, installation, consumer relay a
       else { assert.equal(options.shell, undefined); assert.equal(options.windowsVerbatimArguments, undefined); }
       const child = new EventEmitter(); child.stdout = new EventEmitter(); child.stderr = new EventEmitter(); child.exitCode = null; child.signalCode = null; child.kill = () => true;
       queueMicrotask(() => {
-        child.stdout.emit("data", Buffer.from(phase === "pack" ? "fixture.tgz\n" : phase === "consumer" ? JSON.stringify({ sdk: { protocolVersion: "test", version: "1.0.0" }, inspector: { version: "2.4.0" }, packagedRuntime: {}, canonical: {}, coverage: {}, assertions: {} }) : ""));
+        child.stdout.emit("data", Buffer.from(phase === "pack" ? "fixture.tgz\n" : phase === "consumer" ? JSON.stringify({ sdk: { protocolVersion: "test", version: "1.0.0" }, inspector: { version: "2.10.1" }, packagedRuntime: {}, canonical: {}, coverage: {}, assertions: {} }) : ""));
         if (phase === "consumer") child.stderr.emit("data", Buffer.from(consumerStderr));
         if (scenario === phase || phase === "consumer" && scenario === "consumer_and_cleanup" || phase === "pack" && scenario === "pack_and_release") child.emit("error", primary);
         child.emit("exit", 0, null); child.emit("close", 0, null);
