@@ -85,7 +85,7 @@
     "@docusaurus/preset-classic": "3.10.2",
     "@docusaurus/theme-mermaid": "3.10.2",
     "@mdx-js/react": "^3.1.1",
-    "@mermaid-js/layout-elk": "1.0.1",
+    "@mermaid-js/layout-elk": "0.1.9",
     "@modelcontextprotocol/inspector": "2.10.1",
     "@playwright/test": "1.64.0",
     "@types/node": "^26.6.4",
