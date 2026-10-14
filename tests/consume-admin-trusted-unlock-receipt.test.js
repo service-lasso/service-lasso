@@ -295,10 +295,13 @@ test("AC-4BY.2 preserves actual child signal metadata while only propagating all
   const root = await mkdtemp(path.join(os.tmpdir(), "admin-receipt-signals-"));
   try {
     const consumer = fileURLToPath(new URL("../scripts/consume-admin-trusted-unlock-receipt.mjs", import.meta.url));
-    const run = async (signal, source = `process.kill(process.pid, ${JSON.stringify(signal)});`) => {
+    const run = async (signal, action = "kill") => {
       const fixture = path.join(root, `${signal}.mjs`), output = path.join(root, `${signal}.json`);
-      await writeFile(fixture, `process.stderr.write(${JSON.stringify(`${valid}\n`)}, () => { ${source} });`);
-      const child = spawn(process.execPath, [consumer, "--receipt", output, "--", process.execPath, fixture], { stdio: "ignore" });
+      const fixtureBody = action === "abort"
+        ? `process.stderr.write(${JSON.stringify(`${valid}\n`)}, () => { process.abort(); });`
+        : `process.stderr.write(${JSON.stringify(`${valid}\n`)}, () => { process.kill(process.pid, process.env.ADMIN_RECEIPT_TEST_SIGNAL); });`;
+      await writeFile(fixture, fixtureBody);
+      const child = spawn(process.execPath, [consumer, "--receipt", output, "--", process.execPath, fixture], { stdio: "ignore", env: { ...process.env, ADMIN_RECEIPT_TEST_SIGNAL: signal } });
       const result = await new Promise((resolve, reject) => { child.once("error", reject); child.once("close", (code, childSignal) => resolve({ code, signal: childSignal })); });
       return { result, receipt: JSON.parse(await readFile(output, "utf8")) };
     };
@@ -314,7 +317,7 @@ test("AC-4BY.2 preserves actual child signal metadata while only propagating all
     }
 
     for (const signal of ["SIGKILL", "SIGABRT"]) {
-      const unsafe = await run(signal, signal === "SIGABRT" ? "process.abort();" : `process.kill(process.pid, ${JSON.stringify(signal)});`);
+      const unsafe = await run(signal, signal === "SIGABRT" ? "abort" : "kill");
       assert.notEqual(unsafe.result.code, 0);
       assert.equal(unsafe.result.signal, null);
       assert.notEqual(unsafe.receipt.outcome, "success");
