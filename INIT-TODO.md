@@ -1147,3 +1147,11 @@ The user directed the Linux repair chat on 2026-10-07 to perform the eleven-fail
 ### #1724 reviewed Linux source preparation
 
 ADR-003 selects the complete original-isolate drain/exclusion protocol after DIFFERENT ENTIRE architecture GO at171473fd4feed3c60b89db3e30272936ba953a6e. The current repair chat owns source preparation on fix/1724-linux-native-fixture-removal. Import reviewed prospective PR1721 row extraction through the governed source path; implement the genuine Linux native adapter without weakening protected assertions or claiming absent F7 dependencies. Complete cumulative source/protected-test review and NEW actual-input ROOT admission remain before execution. All eleven failures remain unresolved until natural native/full-suite acceptance.
+
+- [ ] #1750 owner-authorized native acceptance recovery: preserve complete source/admission contracts, repair actual failed gates, independently review, prepare compatible Broker candidate; no publication/deployment. SPEC-011 ESM-16.
+# #1750 full qualification continuation
+
+- [x] ESM-16.7: passive MVID corpus28 and admitted managed compiler rebuild/provenance18 passed, independently read back. No behavioral/native qualification.
+- [x] ESM-16.8 compiler portion: genuine managed/bootstrap rebuilds independently admitted and read back; exact native source pins follow actual169984-byte output. Runtime integration remains unqualified.
+- [ ] Complete existing full native/F7 gates with actual owner-selected independent custodian/destination; preserve missing-input refusal and historical failures.
+
