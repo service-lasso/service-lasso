@@ -51,3 +51,14 @@ add_executable(f7_protocol_regression protocol-native-regression.c)
 target_include_directories(f7_protocol_regression PRIVATE "${F7_ADMITTED_SODIUM_INCLUDE}")
 target_link_libraries(f7_protocol_regression PRIVATE f7_u1_native)
 # No add_test/launch/profile/installation/cleanup/publication action exists.
+# U2 #1753 G/P transport codec SOURCE ONLY. Same admission refusal above
+# applies; no add_test/launch/provisioning/push. HTTP/TLS/broker/persistence
+# integration (http-tls.c, bootstrap-sender.c, broker-protocol.c) is ABSENT.
+add_library(f7_u2_transport STATIC
+  git-sha1.c git-inflate.c delta-reader.c pack-reader.c git-protocol.c
+  seed-objects.c git-reader.c)
+target_include_directories(f7_u2_transport PRIVATE "${F7_ADMITTED_SODIUM_INCLUDE}")
+target_link_libraries(f7_u2_transport PUBLIC "${F7_ADMITTED_SODIUM_LIBRARY}")
+add_executable(f7_u2_transport_regression git-transport-native-regression.c)
+target_include_directories(f7_u2_transport_regression PRIVATE "${F7_ADMITTED_SODIUM_INCLUDE}")
+target_link_libraries(f7_u2_transport_regression PRIVATE f7_u2_transport)

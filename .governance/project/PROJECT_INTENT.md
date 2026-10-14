@@ -1401,6 +1401,10 @@ Preserve published-release and protected native-admission gates independently.
 Actual Mac11 compatibility tests use the documented isolated toolchain; no
 release or Windows WebClient qualification is implied.
 
+#1753 U2 native F7 G/P transport source preparation (SPEC-010 F7-04/05/07/09)
+proceeds on its own develop issue branch under owner root. Source codecs and
+regressions remain UNEXECUTED until different whole review and NEW exact ROOT;
+no provisioning, provider experiment, publication or deployment.
 ## Owner-authorized native acceptance recovery (#1750, 2026-10-11)
 
 Owner explicitly transfers the inherited repair work to this chat and requests
