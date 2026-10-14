@@ -433,11 +433,11 @@ function evidence(candidateSha, platform) {
     packageArchiveSha256: "a".repeat(64),
     sdk: {
       packageName: "@modelcontextprotocol/sdk",
-      version: "1.31.0",
+      version: "1.32.1",
       protocolVersion: "2025-11-25",
       supportedProtocolVersions: ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05", "2024-10-07"],
     },
-    inspector: { packageName: "@modelcontextprotocol/inspector", version: "2.4.0", result: "passed", strictSchema: "passed" },
+    inspector: { packageName: "@modelcontextprotocol/inspector", version: "2.10.1", result: "passed", strictSchema: "passed" },
     packagedRuntime: {
       sourceCheckoutRequired: false,
       sourceCheckoutAccess: "denied-by-node-permission-model",
