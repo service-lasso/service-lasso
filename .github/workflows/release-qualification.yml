@@ -167,11 +167,11 @@ jobs:
           - os: ubuntu-latest
             asset: secretsbroker-linux.tar.gz
             binary: secretsbroker
-            sha256: 3466c9adf01d14b202fd084705bfda11fef627206587a0ad1f62dbb6a6a4f295
+            sha256: 5827a621bca6173d2d578e1acf9a4f074fc836bc5c89e73a15aedbf259124614
           - os: windows-latest
             asset: secretsbroker-win32.zip
             binary: secretsbroker.exe
-            sha256: e64ee6a85c053c6dd68e2713477dae0620a458496bbd41077b55cc4c2df3f966
+            sha256: 0be11e53feb902871c407bd4bed7f557ec5aa11b52e769e703f9f7555350c852
 
     steps:
       - name: Check out repo
@@ -199,7 +199,7 @@ jobs:
           $expected = '${{ matrix.sha256 }}'
           $archive = Join-Path $env:RUNNER_TEMP $asset
           $extractRoot = Join-Path $env:RUNNER_TEMP 'secretsbroker-ipc-qualification'
-          $url = "https://github.com/service-lasso/lasso-secretsbroker/releases/download/2026.8.31-f340883/$asset"
+          $url = "https://github.com/service-lasso/lasso-secretsbroker/releases/download/2026.10.15-3590178/$asset"
           $downloaded = $false
           $maxAttempts = 4
           for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
