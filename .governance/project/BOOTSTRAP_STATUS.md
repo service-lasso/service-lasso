@@ -1,6 +1,3 @@
-# Bootstrap Status
+# Legacy Bootstrap Status Pointer
 
-Latest timestamped run artifact: `.governance/project/bootstrap-runs/2026-04-05T14-56-09+10-00-status.md`
-
-## Summary
-This file is the stable pointer for bootstrap status. See the latest timestamped status artifact for the reconciled live git/GitHub state.
+This flat file is retained as historical migration context. The current reporting surface is [bootstrap/STATUS.md](bootstrap/STATUS.md); the current run evidence is grouped under `bootstrap/history/2026-10-02T07-53-15Z/`.

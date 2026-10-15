@@ -1,0 +1,69 @@
+---
+description: self-review, feedback loops, and completion discipline for governed agent work
+alwaysApply: true
+---
+# Governance: Review Loops and Completion Discipline
+
+Implemented is not complete.
+
+Governed agent work should close the loop through review, evidence, and feedback incorporation before claiming completion.
+
+## Core Principle
+
+- `GOV-13-REV-001` A first-pass implementation is an intermediate state, not a trustworthy completion signal.
+- `GOV-13-REV-002` Completion requires explicit review of the produced change and its evidence, not only confidence in the act of producing it.
+- `GOV-13-REV-003` Review loops should be designed to strengthen correctness, maintainability, and harness learning.
+
+## Required Review Loop
+
+- `GOV-13-REV-004` Before claiming a governed work unit complete, the agent should perform a targeted self-review against intent, scope, diff quality, evidence quality, and residual risk.
+- `GOV-13-REV-005` The review should ask at minimum:
+  - does the change satisfy the intended requirement or issue,
+  - does the diff stay inside scope,
+  - is the evidence direct enough,
+  - are docs/spec/traceability updated where required,
+  - what remains unverified, blocked, or deferred.
+- `GOV-13-REV-006` If the review reveals material weakness, the agent should continue the loop rather than claiming done and hoping later review catches it.
+
+## Feedback Incorporation
+
+- `GOV-13-REV-007` Human, automated, or agent review feedback should be incorporated as part of the same governed work loop until the active review scope is honestly resolved, re-scoped, or blocked.
+- `GOV-13-REV-008` Responding to feedback should include updating affected evidence, docs, and traceability when those artifacts are impacted.
+- `GOV-13-REV-009` Repeated feedback themes should be considered candidates for governance or harness promotion.
+
+## Feedback Assimilation and Self-Improvement
+
+- `GOV-13-REV-010` When approved or edited feedback reveals a reusable lesson, the agent should compare the original draft with the approved or edited version and identify the concrete pattern of change.
+- `GOV-13-REV-011` That pattern should be translated into a short future rule, drafting rule, governance rule, or harness adjustment when the lesson is durable enough to matter again.
+- `GOV-13-REV-012` Material feedback lessons should be persisted to the relevant governed artifact before long posting phases, long continuation phases, or likely context-loss transitions when practical.
+- `GOV-13-REV-013` New learned rules should be checked against existing rules for contradiction, overlap, or duplication and then merged or reconciled instead of appended blindly.
+
+## Completion Semantics
+
+- `GOV-13-REV-014` Completion claims should distinguish clearly between implemented, verified, reviewed, and released states rather than collapsing them into one vague "done".
+- `GOV-13-REV-015` A governed work unit is not complete if review, evidence, or follow-up handling is still materially open.
+- `GOV-13-REV-016` If confidence is partial, the claimed state should say so explicitly, for example blocked, partial, scoped-complete, or awaiting review.
+
+## Escalation and Stop Conditions
+
+- `GOV-13-REV-017` When repeated review/fix loops stop producing clear progress, the agent should escalate the blocker, ambiguity, or missing capability instead of performing aimless churn.
+- `GOV-13-REV-018` When judgment is required beyond the current governance and evidence, the agent should make the decision boundary visible instead of silently guessing.
+- `GOV-13-REV-019` Review/fix progress must be judged by evidence movement, not mutation count, token use, lines changed, commits, or confident status prose.
+- `GOV-13-REV-020` Equivalent failures should be classified by stable failure signature so superficial message changes do not reset the circuit-breaker count.
+- `GOV-13-REV-021` A repeated attempt counts as progress only when it narrows the hypothesis, adds diagnostic evidence, restores a regressed gate, or improves direct verification against the governed claim.
+- `GOV-13-REV-022` When a circuit breaker triggers, the current work unit must enter scoped blocking and produce the incident evidence required by `gov-02` before another implementation attempt begins.
+- `GOV-13-REV-023` A fresh session, worker, or prompt does not itself satisfy a resume condition; materially new evidence or constraints must change the recovery path.
+
+## Anti-Patterns
+
+Avoid these failure modes:
+- equating implementation with completion
+- claiming done immediately after the first passing check
+- leaving review comments or feedback themes unincorporated without explicit state change
+- treating approved edits as one-off fixes with no learning loop when they reveal a reusable pattern
+- adding duplicate learned rules without contradiction checking
+- resetting a failed-loop counter because the same failure was reworded
+- treating more code, commits, tokens, or tests as proof of progress
+- restarting the same blocked approach in a fresh session without new evidence
+- using a summary as a substitute for a real review loop
+- moving on while material review debt remains hidden

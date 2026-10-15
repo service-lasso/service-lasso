@@ -9,7 +9,8 @@ import { resolveRuntimeConfig } from "../dist/runtime/config.js";
 import { discoverServices } from "../dist/runtime/discovery/discoverServices.js";
 import { getLifecycleState, resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import { stopManagedProcess } from "../dist/runtime/execution/supervisor.js";
-import { findProcessOwnership } from "../dist/runtime/process/registry.js";
+import { classifyRegisteredProcess, findProcessOwnership } from "../dist/runtime/process/registry.js";
+import { terminateOwnedProcessTree } from "../dist/runtime/process/tree.js";
 import { readRuntimeGenerationRegistry } from "../dist/runtime/instance/registry.js";
 import { readRuntimeEndpointAllocationPlan } from "../dist/runtime/ports/allocation.js";
 import { inspectStartupRecovery } from "../dist/runtime/startup/recovery.js";
@@ -33,6 +34,9 @@ async function withStartupEnvironment(prefix, action) {
   try {
     await action(fixture);
   } finally {
+    await cleanupPersistedServiceOwner(fixture.workspaceRoot, "alpha-service");
+    await cleanupPersistedServiceOwner(fixture.workspaceRoot, "bravo-service");
+    await cleanupPersistedServiceOwner(fixture.workspaceRoot, "resume-service");
     if (previous.hostRegistry === undefined) delete process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH;
     else process.env.SERVICE_LASSO_HOST_PORT_REGISTRY_PATH = previous.hostRegistry;
     if (previous.instanceRegistry === undefined) delete process.env.SERVICE_LASSO_INSTANCE_REGISTRY_PATH;
@@ -43,6 +47,26 @@ async function withStartupEnvironment(prefix, action) {
     else process.env.SERVICE_LASSO_RUNTIME_API_BASE_URL = previous.runtimeApiBaseUrl;
     resetLifecycleState();
     await rm(fixture.tempRoot, { recursive: true, force: true });
+  }
+}
+
+async function cleanupPersistedServiceOwner(workspaceRoot, serviceId) {
+  await stopManagedProcess(serviceId).catch(() => undefined);
+  const owner = await findProcessOwnership(workspaceRoot, "service", serviceId).catch(() => null);
+  if (!owner?.pid || !owner.identity) return;
+  const classification = await classifyRegisteredProcess(owner).catch(() => "unknown_owner");
+  if (classification !== "owned") {
+    if (classification !== "not_running") throw new Error(`Fixture owner ${serviceId} cannot be verified for cleanup.`);
+    return;
+  }
+  await terminateOwnedProcessTree({
+    rootPid: owner.pid,
+    rootIdentity: owner.identity,
+    processGroup: owner.processGroup,
+  }, 5_000);
+  const after = await findProcessOwnership(workspaceRoot, "service", serviceId).catch(() => null);
+  if (after?.identity && (await classifyRegisteredProcess(after).catch(() => "unknown_owner")) === "owned") {
+    throw new Error(`Fixture owner ${serviceId} remained live after precise terminal cleanup.`);
   }
 }
 

@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { mkdir } from "node:fs/promises";
+import { extractZipSafely } from "../dist/runtime/files/safe-zip.js";
 
 function run(command, args) {
   return new Promise((resolve, reject) => {
@@ -16,20 +17,6 @@ function run(command, args) {
 }
 
 export function extractionCommand(platform, archivePath, extractionRoot) {
-  if (platform === "win32") {
-    return {
-      command: "powershell.exe",
-      args: [
-        "-NoLogo",
-        "-NoProfile",
-        "-NonInteractive",
-        "-Command",
-        "& { param([string]$ArchivePath, [string]$DestinationPath) $ErrorActionPreference = 'Stop'; Expand-Archive -LiteralPath $ArchivePath -DestinationPath $DestinationPath -Force }",
-        archivePath,
-        extractionRoot,
-      ],
-    };
-  }
   if (platform === "linux" || platform === "darwin") {
     return {
       command: "tar",
@@ -45,9 +32,15 @@ export async function extractPublishedPackageArchive(
   platform,
 ) {
   await mkdir(extractionRoot, { recursive: true });
-  const plan = extractionCommand(platform, archivePath, extractionRoot);
   try {
-    await run(plan.command, plan.args);
+    if (platform === "win32") {
+      await extractZipSafely(archivePath, extractionRoot, archivePath, {
+        rejectUnsafeEntries: true,
+      });
+    } else {
+      const plan = extractionCommand(platform, archivePath, extractionRoot);
+      await run(plan.command, plan.args);
+    }
   } catch (cause) {
     const error = new Error(
       "Verified Core release archive extraction failed.",

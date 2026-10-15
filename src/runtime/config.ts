@@ -2,6 +2,7 @@ import path from "node:path";
 import { mkdir, stat } from "node:fs/promises";
 import { DEFAULT_SERVICES_ROOT, DEFAULT_WORKSPACE_ROOT, type ServiceRootConfig } from "../contracts/service-root.js";
 import { resolveRuntimeVersion } from "./version.js";
+import { ensureWorkspaceAuthority } from "./workspace/authority.js";
 
 export interface RuntimeConfigOptions {
   servicesRoot?: string;
@@ -58,6 +59,7 @@ export async function ensureRuntimeConfig(config: RuntimeConfig): Promise<Runtim
   }
 
   await mkdir(config.workspaceRoot, { recursive: true });
+  await ensureWorkspaceAuthority(config);
 
   return config;
 }

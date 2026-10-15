@@ -2,6 +2,10 @@
 
 A small app with a managed database and a real write/read success check.
 
+This supplementary sample retains its historical PostgreSQL pin and local
+launcher adapter. The current [Todo learning path](../../docs/getting-started/intermediate-make-todo-app-durable.md)
+uses the corrected `lasso-postgres` package directly, with no adapter prerequisite.
+
 ```sh
 npm ci
 npm run setup

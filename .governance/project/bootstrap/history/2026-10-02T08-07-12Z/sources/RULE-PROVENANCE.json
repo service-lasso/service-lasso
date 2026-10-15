@@ -1,0 +1,142 @@
+[
+  {
+    "readCompletedUtc": "2026-10-02T08:07:44.7427397Z",
+    "rawSha256": "4D91C3D7FDF989DF2875A2E8DCB1652B8BAD2CD2779D5A0A65480FC62378163E",
+    "normalization": "None: raw source bytes and installed working-tree bytes have identical SHA-256; exact UTF-8 text equality confirmed.",
+    "rule": "gov-01-instructions.mdc",
+    "readStartedUtc": "2026-10-02T08:07:44.4773284Z",
+    "sourceUrl": "https://raw.githubusercontent.com/governance-foundation/vibegov.io/main/.governance/rules/gov-01-instructions.mdc",
+    "textEquality": true,
+    "installedSha256": "4D91C3D7FDF989DF2875A2E8DCB1652B8BAD2CD2779D5A0A65480FC62378163E"
+  },
+  {
+    "readCompletedUtc": "2026-10-02T08:07:45.7923641Z",
+    "rawSha256": "E986A31339C2ED0B11AB16FAA6CB1B38BFD7CEF434D71AEA2611DFCB148C83CD",
+    "normalization": "None: raw source bytes and installed working-tree bytes have identical SHA-256; exact UTF-8 text equality confirmed.",
+    "rule": "gov-02-workflow.mdc",
+    "readStartedUtc": "2026-10-02T08:07:44.743195Z",
+    "sourceUrl": "https://raw.githubusercontent.com/governance-foundation/vibegov.io/main/.governance/rules/gov-02-workflow.mdc",
+    "textEquality": true,
+    "installedSha256": "E986A31339C2ED0B11AB16FAA6CB1B38BFD7CEF434D71AEA2611DFCB148C83CD"
+  },
+  {
+    "readCompletedUtc": "2026-10-02T08:07:45.8353939Z",
+    "rawSha256": "F4C3FCD77A11897514B52E8885D481E0E7A8C718EC12459D3BBC8542EA199E33",
+    "normalization": "None: raw source bytes and installed working-tree bytes have identical SHA-256; exact UTF-8 text equality confirmed.",
+    "rule": "gov-03-communication.mdc",
+    "readStartedUtc": "2026-10-02T08:07:45.7924244Z",
+    "sourceUrl": "https://raw.githubusercontent.com/governance-foundation/vibegov.io/main/.governance/rules/gov-03-communication.mdc",
+    "textEquality": true,
+    "installedSha256": "F4C3FCD77A11897514B52E8885D481E0E7A8C718EC12459D3BBC8542EA199E33"
+  },
+  {
+    "readCompletedUtc": "2026-10-02T08:07:45.868753Z",
+    "rawSha256": "CB7F8A2B0DD510CCAC865BE84BB2092C11E05A2A9849C14299F945AF7289EC71",
+    "normalization": "None: raw source bytes and installed working-tree bytes have identical SHA-256; exact UTF-8 text equality confirmed.",
+    "rule": "gov-04-quality.mdc",
+    "readStartedUtc": "2026-10-02T08:07:45.8354609Z",
+    "sourceUrl": "https://raw.githubusercontent.com/governance-foundation/vibegov.io/main/.governance/rules/gov-04-quality.mdc",
+    "textEquality": true,
+    "installedSha256": "CB7F8A2B0DD510CCAC865BE84BB2092C11E05A2A9849C14299F945AF7289EC71"
+  },
+  {
+    "readCompletedUtc": "2026-10-02T08:07:45.910585Z",
+    "rawSha256": "6E6918D9A43D2432EA5EDB3F69CC7B71CA6383041272A7AAD05A4820D15C05E6",
+    "normalization": "None: raw source bytes and installed working-tree bytes have identical SHA-256; exact UTF-8 text equality confirmed.",
+    "rule": "gov-05-testing.mdc",
+    "readStartedUtc": "2026-10-02T08:07:45.8688144Z",
+    "sourceUrl": "https://raw.githubusercontent.com/governance-foundation/vibegov.io/main/.governance/rules/gov-05-testing.mdc",
+    "textEquality": true,
+    "installedSha256": "6E6918D9A43D2432EA5EDB3F69CC7B71CA6383041272A7AAD05A4820D15C05E6"
+  },
+  {
+    "readCompletedUtc": "2026-10-02T08:07:45.9876943Z",
+    "rawSha256": "966E203749885688E82027A2F078700EB786A7BDBB8F66CD64D25E452EC2B4BF",
+    "normalization": "None: raw source bytes and installed working-tree bytes have identical SHA-256; exact UTF-8 text equality confirmed.",
+    "rule": "gov-06-issues.mdc",
+    "readStartedUtc": "2026-10-02T08:07:45.9106515Z",
+    "sourceUrl": "https://raw.githubusercontent.com/governance-foundation/vibegov.io/main/.governance/rules/gov-06-issues.mdc",
+    "textEquality": true,
+    "installedSha256": "966E203749885688E82027A2F078700EB786A7BDBB8F66CD64D25E452EC2B4BF"
+  },
+  {
+    "readCompletedUtc": "2026-10-02T08:07:46.0651667Z",
+    "rawSha256": "080AC1549F3B236152071567DEE094339440E6EEE3B869D75841D200D4D60430",
+    "normalization": "None: raw source bytes and installed working-tree bytes have identical SHA-256; exact UTF-8 text equality confirmed.",
+    "rule": "gov-07-tasks.mdc",
+    "readStartedUtc": "2026-10-02T08:07:45.9877619Z",
+    "sourceUrl": "https://raw.githubusercontent.com/governance-foundation/vibegov.io/main/.governance/rules/gov-07-tasks.mdc",
+    "textEquality": true,
+    "installedSha256": "080AC1549F3B236152071567DEE094339440E6EEE3B869D75841D200D4D60430"
+  },
+  {
+    "readCompletedUtc": "2026-10-02T08:07:46.114108Z",
+    "rawSha256": "FD40CA6A074D34B1BDBB38B073EC3995EA4894634FEB9EC210FB3981A4FAD329",
+    "normalization": "None: raw source bytes and installed working-tree bytes have identical SHA-256; exact UTF-8 text equality confirmed.",
+    "rule": "gov-08-exploratory-review.mdc",
+    "readStartedUtc": "2026-10-02T08:07:46.0652993Z",
+    "sourceUrl": "https://raw.githubusercontent.com/governance-foundation/vibegov.io/main/.governance/rules/gov-08-exploratory-review.mdc",
+    "textEquality": true,
+    "installedSha256": "FD40CA6A074D34B1BDBB38B073EC3995EA4894634FEB9EC210FB3981A4FAD329"
+  },
+  {
+    "readCompletedUtc": "2026-10-02T08:07:46.1805214Z",
+    "rawSha256": "0965CF634AFF361867FC9D39958E4F1A6588FB676B19071A92290FE3F15102CF",
+    "normalization": "None: raw source bytes and installed working-tree bytes have identical SHA-256; exact UTF-8 text equality confirmed.",
+    "rule": "gov-09-agent-continuity-bootstrap.mdc",
+    "readStartedUtc": "2026-10-02T08:07:46.1141642Z",
+    "sourceUrl": "https://raw.githubusercontent.com/governance-foundation/vibegov.io/main/.governance/rules/gov-09-agent-continuity-bootstrap.mdc",
+    "textEquality": true,
+    "installedSha256": "0965CF634AFF361867FC9D39958E4F1A6588FB676B19071A92290FE3F15102CF"
+  },
+  {
+    "readCompletedUtc": "2026-10-02T08:07:46.273401Z",
+    "rawSha256": "A87E45DE086F5F6DAD1AE2887EA6224ACE3CB715006F4C9B0367DF7F342653A9",
+    "normalization": "None: raw source bytes and installed working-tree bytes have identical SHA-256; exact UTF-8 text equality confirmed.",
+    "rule": "gov-10-agent-state-closure-git-hygiene.mdc",
+    "readStartedUtc": "2026-10-02T08:07:46.1805855Z",
+    "sourceUrl": "https://raw.githubusercontent.com/governance-foundation/vibegov.io/main/.governance/rules/gov-10-agent-state-closure-git-hygiene.mdc",
+    "textEquality": true,
+    "installedSha256": "A87E45DE086F5F6DAD1AE2887EA6224ACE3CB715006F4C9B0367DF7F342653A9"
+  },
+  {
+    "readCompletedUtc": "2026-10-02T08:07:46.3163141Z",
+    "rawSha256": "F99893D83327E79E5A903AEDD5F618B3BC17EB1A34D8EB9A4DB3AED92DAB29AC",
+    "normalization": "None: raw source bytes and installed working-tree bytes have identical SHA-256; exact UTF-8 text equality confirmed.",
+    "rule": "gov-11-agent-legibility-in-repo-truth.mdc",
+    "readStartedUtc": "2026-10-02T08:07:46.2734661Z",
+    "sourceUrl": "https://raw.githubusercontent.com/governance-foundation/vibegov.io/main/.governance/rules/gov-11-agent-legibility-in-repo-truth.mdc",
+    "textEquality": true,
+    "installedSha256": "F99893D83327E79E5A903AEDD5F618B3BC17EB1A34D8EB9A4DB3AED92DAB29AC"
+  },
+  {
+    "readCompletedUtc": "2026-10-02T08:07:46.3681759Z",
+    "rawSha256": "10BB58120F4048F42E87BD34A9552ACF2325B5543354A257C9A17FD63E8C37C1",
+    "normalization": "None: raw source bytes and installed working-tree bytes have identical SHA-256; exact UTF-8 text equality confirmed.",
+    "rule": "gov-12-drift-control-garbage-collection.mdc",
+    "readStartedUtc": "2026-10-02T08:07:46.3164088Z",
+    "sourceUrl": "https://raw.githubusercontent.com/governance-foundation/vibegov.io/main/.governance/rules/gov-12-drift-control-garbage-collection.mdc",
+    "textEquality": true,
+    "installedSha256": "10BB58120F4048F42E87BD34A9552ACF2325B5543354A257C9A17FD63E8C37C1"
+  },
+  {
+    "readCompletedUtc": "2026-10-02T08:07:46.4172614Z",
+    "rawSha256": "6EB2B62A1FF2DD03AC1710A698486F706BEF28D569AF8EE677052F7364FB25FE",
+    "normalization": "None: raw source bytes and installed working-tree bytes have identical SHA-256; exact UTF-8 text equality confirmed.",
+    "rule": "gov-13-review-loops-completion-discipline.mdc",
+    "readStartedUtc": "2026-10-02T08:07:46.3682479Z",
+    "sourceUrl": "https://raw.githubusercontent.com/governance-foundation/vibegov.io/main/.governance/rules/gov-13-review-loops-completion-discipline.mdc",
+    "textEquality": true,
+    "installedSha256": "6EB2B62A1FF2DD03AC1710A698486F706BEF28D569AF8EE677052F7364FB25FE"
+  },
+  {
+    "readCompletedUtc": "2026-10-02T08:07:46.466862Z",
+    "rawSha256": "B9F05C73E158C3874C53E55E5CACEAD6C884B74544562D9CD7F51536D93D5F07",
+    "normalization": "None: raw source bytes and installed working-tree bytes have identical SHA-256; exact UTF-8 text equality confirmed.",
+    "rule": "gov-14-architect-conductor-boundaries.mdc",
+    "readStartedUtc": "2026-10-02T08:07:46.4173287Z",
+    "sourceUrl": "https://raw.githubusercontent.com/governance-foundation/vibegov.io/main/.governance/rules/gov-14-architect-conductor-boundaries.mdc",
+    "textEquality": true,
+    "installedSha256": "B9F05C73E158C3874C53E55E5CACEAD6C884B74544562D9CD7F51536D93D5F07"
+  }
+]

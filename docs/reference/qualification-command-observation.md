@@ -1,0 +1,42 @@
+# Qualification command observation contract
+
+Issue #1598, child of #1594 / #1562, binds SPEC-006 AC-6G.qualification-observation.
+
+The retained qualification failure does not establish a production runCommand defect. runCommand already preserves its first failure while separately observing root exit and pipe close. A deadline can validly have either closed or unresolved output. Its production source remains unchanged.
+
+The protected fixture now owns a dedicated unpredictable local control channel. Its root spawns the holder with inherited stdout/stderr and an IPC acknowledgement; the holder positively reports writable pipe readiness before root exit. The test selects release on root disconnect (deadline plus closed) or release after bounded command settlement (deadline plus unresolved). Both retain300ms/100ms. The ordinary successful-close and unresolved-close neighbors use the same explicit fixture. Cold startup that misses readiness is a setup failure, not evidence of an unresolved inherited pipe. The holder has a bounded5-second fallback and the fixture observes requested release, writable ends and control closure before successful file removal. Failed assertions or closure retain the private event trace and files. This channel identity is test ownership evidence, not independent native descendant absence.
+
+The deterministic event-order regression complements those actual process fixtures. It protects first capture/deadline failure, observed root exit versus no observed exit, bounded termination/close settlement, and late close without rewriting the settled observation. It is surrogate event evidence. Existing real spawn/nonzero/capture/deadline and privacy assertions remain protected.
+
+ENTIRE d166 F1 repair snapshots failed closure observations to the retained private trace before destroying the fixture-owned accepted TCP handle and closing its listener. That local close is never reported as successful protocol closure or native holder absence. Original primary and cleanup errors remain aggregated. Three new actual subprocess negatives connect malformed, unauthenticated nonclosing, and closed control endpoints without launching a legitimate holder. Each requires the child's natural `close` with zero status and the retained failure trace within9000ms, above the unchanged5500ms fixture cleanup bound. Bound failure reports failure and detaches only local observation handles; it sends no process signal and makes no child-absence claim. Failed fixture files remain retained.
+
+## External harness preparation
+
+The copied external wrapper returns exactly one typed same-process completion only after a reserved completion receipt is serialized, flushed and disposed. It records success, nonzero, unqualified observation, or exception separately from native child exit. A nested script exit is no longer used to stand for outer driver exit. Native same-handle identity, caller/parent birth bounds, both original pipe EOFs, log inventories, reserved native receipts and natural closure remain unchanged. Missing or failed completion writes produce failure, never guessed status.
+
+The copied driver keeps the whole preflight audit: every tracked source and raw Git blob digest, HEAD/tree/full index/clean status, every sealed row, tool digests, physical regular chains, ACL rows, derived-link boundaries and literal environment. Historical969source/2146sealed rows remain historical; fresh counts and manifest hashes must come from a new final-candidate ROOT admission. Existing stage evidence is rejected before writes. Driver completion binds the unique invocation and preflight, the durable wrapper digest/outcome, and the exit it will propagate. Its own outer exit remains unobserved until external readback.
+
+ENTIRE d166 F2 repair adds a distinct `diagnostics` stage. The existing product script enumerates eight other files and does not discover this diagnostics file. Product success cannot qualify the fixture repair. The separate stage launches the admitted physical Node executable with exactly `--test --test-concurrency=1 tests/packaged-verification-diagnostics.test.js` from admitted source. This executes the full diagnostics file, including actual generated pipe fixtures, three negative subprocess cases and actual extracted runCommand/verifier-body surrogate cases. It does not compile, implicitly run npm product, or prove compiler/descendant custody. The literal `npm run test:mcp:product` gate and package.json are unchanged.
+
+Fresh `issue1598-root-admission-v2` retains all previous root/evidence/head/tree/count/manifests/environment fields and additionally requires a `commands` object with exactly these stage keys. Every command has literal `fileName` equal to the pinned physical Node path, literal `workingDirectory` equal to the admitted source path, and a string-array `arguments` matching this table. `postflight` is a command-map binding with an empty array; it launches nothing.
+
+| Stage | Exact arguments (npm means the admitted npm-cli physical path) |
+| --- | --- |
+| install | `[npm, "ci"]` |
+| build | `[npm, "run", "build"]` |
+| typecheck | `[npm, "run", "typecheck"]` |
+| product | `[npm, "run", "test:mcp:product"]` |
+| diagnostics | `["--test", "--test-concurrency=1", "tests/packaged-verification-diagnostics.test.js"]` |
+| postflight | `[]` |
+
+Every preflight compares the entire admitted command map against these literal argv, then stores the selected command and whole map in the retained audit. Selected command is bound in preflight, native initial receipt, driver completion and independent readback. Readback rejects admitted/preflight/audit/driver command disagreement and map disagreement. ROOT v1 is rejected; this source does not issue ROOT admission. Suggested future admitted sequence is install, build, typecheck, diagnostics, product, postflight, with separate external status/readback for each launched stage; no sequence has been executed here.
+
+Readback requires the external native session exit explicitly as OuterDriverExitCode. It checks driver/wrapper/preflight binding and stability, then the full original native receipt, identity, environment, natural wait, EOF, raw-log and terminal stability contract. Partial checks do not produce an all-true report. Missing completion, observer error, native nonzero, inconsistent success, terminal/completion/driver/readback write failure or absent externally observed outer exit fails closed. New receipt paths use CreateNew. Receipt-write failure may prevent durable status itself; absence remains failure, not synthetic successful evidence.
+
+## Review and unmet proof
+
+This is source preparation only. No syntax, import, compiler, install, test, helper, lifecycle, ACL, qualification or rerun was performed. The full cumulative source, generated fixture source, copied wrapper/driver/readback and failure scenario matrix need a fresh independent entire review, followed by a new exact complete-input ROOT admission before execution. Any process-boundary change requires new caller/parent/native admission review.
+
+Top-level node/npm custody and status do not independently bind compiler or npm lifecycle descendants or establish true descendant native closure. That required delivery coverage is UNMET. Channel/pipe closure is not native process absence. Windows/Linux/macOS package, compiled CLI/TUI operator, publication and identical-byte integration acceptance remain separate unmet gates. The retained source candidate stays failed/unqualified; no unchanged retry or later success attributes its historical cause. The same historical nested-status attribution risk in #1591 receives only an additive disposition; original receipts/audits are retained, without a hidden-failure claim. The launcher regex repair stays with #1593 and integrates through its governed develop landing path.
+
+The source mirrors in scripts/qualification/owned-command are byte-identical to the new external review copies at freeze. They are reviewed preparation artifacts; no workflow or product imports invoke them. An admitted external copy is still required for qualification.

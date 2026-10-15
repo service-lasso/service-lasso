@@ -1,0 +1,13 @@
+# ADR-005: original native Linux fixture entry (#1728)
+
+Status: selected for Development SOURCE PREPARATION by this repair chat's conductor on 2026-10-07 after a different WHOLE PROPOSAL / RECEIVING-CONTRACT GO at 5c980205c2e9a439780c001db5124df5e4f2c8eb. No implementation, build, admission or native acceptance GO follows.
+
+Select the ENTIRE [Linux original creator contract](../project/F7_ROOT_CREATOR_LINUX_SOURCE_CONTRACT.md), including post-seal independent RO views, per-producer/readability backing, original Error capture through source-owned SDK slots from inception, honest partial failure custody and the complete BASE_CAPTURE_READY/W_PRELOAD_HELD/W_VIEW_HELD/O_READY/ENTRY_ACTIVE chronology. Preserve ADR-003, whole ADR-004 Alternative A, the opaque creator/observer boundary and existing #1640/#1687 ownership.
+
+The concrete entry is a fixture-only full Node22.23.2 source variant whose original UNIX main calls the private native gate once immediately before its unchanged node::Start(argc, argv). The original process, full Node runtime, argv, isolate, Error references and protected callbacks remain. This is before Node initialization, not before ELF/libc/C++ constructors; all actual source/startup/constructor facts remain required inputs. No interposition, LD_PRELOAD, injected executable patch, replacement JS callback or broader filter is selected. Ordinary product binaries and public Node/W1 schemas remain unchanged.
+
+This is a new fixture native runtime input. Bind its complete upstream source/archive, exact native patch, compiler/linker/SDK/ICU/build/loaded identity, literal ENV and original startup semantics before qualification. Ordinary Node qualification cannot cover it. The source hook/header alone is an incomplete prerequisite, never a working creator or passing repair.
+
+The current U1 endpoint/queue sender is incompatible with Linux bootstrap poll denial and is NOT_CREATED in W0 under this profile. The U1 owner must deliver its compatible receiving/producer adapter against the reviewed exact U0 source. SDK5 fields/carrier/geometry, manifest3/prefix/live distinctions, no SDK journal checkpoints, original Error identity, real EOF and native writer exclusion remain mandatory. No unreviewed control ERROR message is added.
+
+Missing source/private issuer/creator/entry/receiver and actual role/key/resource/layout/allocator/all-nine/four-custody inputs remain explicit prerequisites. Different cumulative complete source review and NEW complete exact-input ROOT precede any compiler/import/build/test/native activation. This selection authorizes source preparation only, not resource provisioning, merge, release or deployment.

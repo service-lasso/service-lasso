@@ -25,6 +25,8 @@ export interface OwnedProcessTreeTarget {
   rootIdentity: ProcessFingerprint | null;
   processGroup: ProcessTreeGroup;
   knownMembers?: ProcessFingerprint[];
+  // A lifetime-filtered snapshot cannot authorize independent /T discovery.
+  verifiedMembersOnly?: boolean;
   rootExitObserved?: boolean;
   rootOwnershipProbe?: () => "owned" | "exited" | "unverifiable";
   forceImmediately?: boolean;
@@ -423,7 +425,7 @@ async function requirePostSignalIdentity(
   // not spend the caller's remaining deadline launching another CIM helper.
   // A still-present or ambiguous PID continues through full fingerprint
   // verification, preserving fail-closed PID-reuse protection.
-  if ((dependencies.platform ?? process.platform) === "win32" && await verifyPostSignalExit(identity.pid, dependencies)) {
+  if (await verifyPostSignalExit(identity.pid, dependencies)) {
     return "exited";
   }
   const classification = classifyProcessIdentity(identity, await processInspector(dependencies)(identity.pid));
@@ -584,7 +586,10 @@ async function signalOwnedProcessTree(
         // monitor keeps the richer descendant snapshot for root-exit cleanup.
         ? [target.rootIdentity]
         : [];
-    if (rootStatus === "exited") {
+    if (target.verifiedMembersOnly && rootStatus === "owned" && !members.some((member) => member.pid === target.rootPid)) {
+      throw new Error(`Cannot control lifetime-filtered process tree ${target.rootPid} without its verified root member.`);
+    }
+    if (rootStatus === "exited" || target.verifiedMembersOnly) {
       await signalVerifiedMembers(members, signal, dependencies);
       return {
         kind: "verified-members",

@@ -17,7 +17,7 @@ import {
   emitInboxUpdateFailure,
   emitInboxUpdateInstallOutcome,
 } from "../dist/runtime/operator/inbox-emit.js";
-import { createApiServer } from "../dist/server/index.js";
+import { createApiServer, waitForApiServerInitialization } from "../dist/server/index.js";
 import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import { makeTempServicesRoot, writeManifest } from "./test-helpers.js";
 
@@ -34,6 +34,7 @@ async function startInboxEmitApiServer(options) {
   const listening = once(server, "listening");
   server.listen(0, "127.0.0.1");
   await listening;
+  await waitForApiServerInitialization(server);
   const address = server.address();
   assert.equal(typeof address, "object");
   assert.notEqual(address, null);

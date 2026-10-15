@@ -91,6 +91,13 @@ function cloneStartTrace(trace: ServiceLifecycleState["runtime"]["startTrace"]):
   };
 }
 
+function cloneRestartTrace(trace: ServiceLifecycleState["runtime"]["restartTrace"]): ServiceLifecycleState["runtime"]["restartTrace"] {
+  return {
+    current: trace.current ? { ...trace.current, events: trace.current.events.map((event) => ({ ...event })) } : null,
+    history: trace.history.map((attempt) => ({ ...attempt, events: attempt.events.map((event) => ({ ...event })) })),
+  };
+}
+
 function createInitialState(): ServiceLifecycleState {
   return {
     installed: false,
@@ -155,6 +162,10 @@ function createInitialState(): ServiceLifecycleState {
       variables: {},
       brokerIdentity: null,
       startTrace: {
+        current: null,
+        history: [],
+      },
+      restartTrace: {
         current: null,
         history: [],
       },
@@ -241,6 +252,7 @@ export function getLifecycleState(serviceId: string): ServiceLifecycleState {
       ),
       brokerIdentity: cloneBrokerIdentity(current.runtime.brokerIdentity),
       startTrace: cloneStartTrace(current.runtime.startTrace),
+      restartTrace: cloneRestartTrace(current.runtime.restartTrace),
       supervision: current.runtime.supervision
         ? { ...current.runtime.supervision }
         : createInitialSupervisionState(),
@@ -320,6 +332,7 @@ export function setLifecycleState(serviceId: string, nextState: ServiceLifecycle
       ),
       brokerIdentity: cloneBrokerIdentity(nextState.runtime.brokerIdentity),
       startTrace: cloneStartTrace(nextState.runtime.startTrace),
+      restartTrace: cloneRestartTrace(nextState.runtime.restartTrace),
       supervision: nextState.runtime.supervision
         ? { ...nextState.runtime.supervision }
         : createInitialSupervisionState(),

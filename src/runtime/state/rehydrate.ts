@@ -1,3 +1,4 @@
+import { observeFixtureStartupPath } from "../startup/fixture-path-observation.js";
 import type { DiscoveredService } from "../../contracts/service.js";
 import { adoptManagedProcess, hasManagedProcess } from "../execution/supervisor.js";
 import { getLifecycleState, setLifecycleState } from "../lifecycle/store.js";
@@ -30,6 +31,7 @@ import {
   type ProcessOwnershipEntry,
 } from "../process/registry.js";
 import type { ProcessInspectorDependencies, ProcessIdentityClassification } from "../process/identity.js";
+import { windowsTreeInspectionFailureMetadata } from "../process/windows-tree-inspection-diagnostics.js";
 import { readStoredState } from "./readState.js";
 import { resolveServiceRootPath } from "./paths.js";
 import { SERVICE_STATE_SCHEMA_VERSIONS, writeServiceState } from "./writeState.js";
@@ -112,6 +114,7 @@ interface StoredRuntimeState {
   variables?: unknown;
   brokerIdentity?: ServiceLifecycleState["runtime"]["brokerIdentity"];
   startTrace?: unknown;
+  restartTrace?: unknown;
   supervision?: unknown;
   lastAction?: LifecycleAction | null;
   actionHistory?: LifecycleAction[];
@@ -326,6 +329,25 @@ function parseStartTraceState(value: unknown): ServiceLifecycleState["runtime"][
       ? record.history.map(parseStartTraceAttempt).filter((attempt): attempt is ServiceStartTraceAttempt => attempt !== null)
       : [],
   };
+}
+
+function parseRestartTraceState(value: unknown): ServiceLifecycleState["runtime"]["restartTrace"] {
+  const parseAttempt = (candidate: unknown): ServiceLifecycleState["runtime"]["restartTrace"]["current"] => {
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return null;
+    const record = candidate as { status?: unknown; events?: unknown };
+    if (!(record.status === "running" || record.status === "succeeded" || record.status === "failed" || record.status === "blocked") || !Array.isArray(record.events)) return null;
+    const events = record.events.slice(0, 7).flatMap((event, index) => {
+      if (!event || typeof event !== "object" || Array.isArray(event)) return [];
+      const value = event as { stage?: unknown; status?: unknown; oldNewProcessRelation?: unknown };
+      if (!(value.stage === "precheck" || value.stage === "stop_request" || value.stage === "finalization_settled" || value.stage === "finalization_failed" || value.stage === "replacement_spawn" || value.stage === "readiness" || value.stage === "response")) return [];
+      if (!(value.status === "completed" || value.status === "blocked" || value.status === "failed" || value.status === "skipped")) return [];
+      return [{ order: index + 1, stage: value.stage, status: value.status, oldNewProcessRelation: value.oldNewProcessRelation === "prior_generation_running" || value.oldNewProcessRelation === "replacement_spawned" ? value.oldNewProcessRelation : "unavailable" }];
+    });
+    return { status: record.status, events } as ServiceLifecycleState["runtime"]["restartTrace"]["current"];
+  };
+  if (!value || typeof value !== "object" || Array.isArray(value)) return { current: null, history: [] };
+  const record = value as { current?: unknown; history?: unknown };
+  return { current: parseAttempt(record.current), history: Array.isArray(record.history) ? record.history.slice(0, 4).map(parseAttempt).filter((attempt): attempt is NonNullable<typeof attempt> => attempt !== null) : [] };
 }
 
 function parseRuntimeVariables(value: unknown): ServiceLifecycleState["runtime"]["variables"] {
@@ -682,6 +704,7 @@ function parseLifecycleState(service: DiscoveredService, snapshot: {
       variables: parseRuntimeVariables(runtime?.variables),
       brokerIdentity: parseBrokerIdentity(runtime?.brokerIdentity),
       startTrace: parseStartTraceState(runtime?.startTrace),
+      restartTrace: parseRestartTraceState(runtime?.restartTrace),
       supervision: parseSupervisionState(runtime?.supervision),
     },
   };
@@ -781,6 +804,51 @@ function buildBlockedRehydrateState(
   reason: string,
 ): ServiceLifecycleState {
   return buildReconcileEvidenceState(service, state, status, pid, reason);
+}
+
+// Retain only the closed native-inspection receipt when adoption fails. The
+// original error still controls rehydration, ownership, and deadline behavior.
+function buildRehydrateInspectionFailureState(
+  service: DiscoveredService,
+  state: ServiceLifecycleState,
+  error: unknown,
+): ServiceLifecycleState {
+  const now = new Date().toISOString();
+  const serviceId = service.manifest.id;
+  const attempt: ServiceStartTraceAttempt = {
+    attemptId: `rehydrate-${serviceId}-${now.replace(/[:.]/g, "-")}`,
+    serviceId,
+    action: "start",
+    startedAt: now,
+    finishedAt: now,
+    status: "failed",
+    events: [{
+      order: 1,
+      phase: "process_spawn",
+      status: "failed",
+      serviceId,
+      startedAt: now,
+      finishedAt: now,
+      message: "Persisted process owner adoption did not complete.",
+      metadata: {
+        rehydrateFailure: "registry_owner_adoption",
+        ...windowsTreeInspectionFailureMetadata(error),
+      },
+    }],
+  };
+  return {
+    ...state,
+    runtime: {
+      ...state.runtime,
+      startTrace: {
+        current: attempt,
+        history: [
+          attempt,
+          ...state.runtime.startTrace.history.filter((entry) => entry.attemptId !== attempt.attemptId),
+        ].slice(0, 5),
+      },
+    },
+  };
 }
 
 /**
@@ -899,7 +967,21 @@ export async function reconcilePersistedServiceOwner(
 
   const status = await classifyRegisteredProcess(ownership, options.processInspectorDependencies);
   if (status === "owned") {
-    const adoptedState = await adoptVerifiedRegistryOwner(service, state, ownership, workspaceRoot);
+    let adoptedState: ServiceLifecycleState;
+    try {
+      adoptedState = await adoptVerifiedRegistryOwner(service, state, ownership, workspaceRoot);
+    } catch (error) {
+      // Do not turn a failed inspection into an ownership decision. Persist a
+      // closed diagnostic receipt when possible, then preserve the original
+      // failure even when the receipt cannot be written.
+      try {
+        await writeServiceState(service, buildRehydrateInspectionFailureState(service, state, error));
+      } catch {
+        // Receipt persistence is diagnostic only. The original inspection
+        // failure remains the fail-closed outcome.
+      }
+      throw error;
+    }
     await writeServiceState(service, adoptedState);
     return { status: "owned", state: adoptedState };
   }
@@ -956,6 +1038,7 @@ export async function rehydrateLifecycleState(
       (!options.adoptServiceIds || options.adoptServiceIds.has(serviceId)) &&
       !options.excludeAdoptServiceIds?.has(serviceId) &&
       !hasManagedProcess(serviceId);
+    observeFixtureStartupPath("adoption", options.excludeAdoptServiceIds?.has(serviceId) ? "excluded" : mayAdopt ? "selected" : "not_selected", serviceId);
     const registryOwner = mayAdopt && options.workspaceRoot
       ? await findProcessOwnership(options.workspaceRoot, "service", serviceId)
       : null;

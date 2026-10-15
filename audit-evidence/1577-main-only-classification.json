@@ -1,0 +1,1821 @@
+{
+  "schema": "service-lasso.pr-1577.main-only-classification.v1",
+  "base": "7582076d351cb03a12d89aec771566d5c1eaf5c4",
+  "head": "a5a5f07ceddbdef890477549381a8752eb023715",
+  "mergeBase": "c3a454a8c5f00615c4f92aee8e49339f01e94d97",
+  "entries": [
+    {
+      "path": ".gitattributes",
+      "mainStatus": "M",
+      "area": "support",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": ".github/branch-protection-checklist.md",
+      "mainStatus": "M",
+      "area": "support",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": ".github/pull_request_template.md",
+      "mainStatus": "M",
+      "area": "support",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": ".github/workflows/codeql.yml",
+      "mainStatus": "M",
+      "area": "ci",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": ".github/workflows/core-development-candidate.yml",
+      "mainStatus": "D",
+      "area": "ci",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": ".github/workflows/lifecycle-process-tree.yml",
+      "mainStatus": "M",
+      "area": "ci",
+      "classification": "superseded-by-current-develop",
+      "decision": "retain develop Windows provenance and lifecycle process-tree coverage"
+    },
+    {
+      "path": ".github/workflows/mcp-product-acceptance.yml",
+      "mainStatus": "M",
+      "area": "ci",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": ".github/workflows/packaged-admin-lifecycle.yml",
+      "mainStatus": "M",
+      "area": "ci",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": ".github/workflows/publish-package.yml",
+      "mainStatus": "M",
+      "area": "ci",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": ".github/workflows/published-package-qualification.yml",
+      "mainStatus": "M",
+      "area": "ci",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": ".github/workflows/release-archive-producer-fixtures.yml",
+      "mainStatus": "D",
+      "area": "ci",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": ".github/workflows/release-artifact.yml",
+      "mainStatus": "M",
+      "area": "ci",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": ".github/workflows/release-governance.yml",
+      "mainStatus": "D",
+      "area": "ci",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": ".github/workflows/release-qualification.yml",
+      "mainStatus": "M",
+      "area": "ci",
+      "classification": "superseded-by-current-develop",
+      "decision": "retain develop exact-head qualification custody and native/ConPTY checks"
+    },
+    {
+      "path": ".governance/project/BACKLOG.md",
+      "mainStatus": "M",
+      "area": "governance",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": ".governance/project/PROJECT_INTENT.md",
+      "mainStatus": "M",
+      "area": "governance",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": ".governance/project/RELEASE_TRACEABILITY.md",
+      "mainStatus": "D",
+      "area": "governance",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": ".governance/rules/gov-01-instructions.mdc",
+      "mainStatus": "M",
+      "area": "governance",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": ".governance/rules/gov-09-release-authority.mdc",
+      "mainStatus": "D",
+      "area": "governance",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": ".governance/specs/SPEC-002-core-standalone-runtime.md",
+      "mainStatus": "M",
+      "area": "governance",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": ".governance/specs/SPEC-006-operator-mcp.md",
+      "mainStatus": "M",
+      "area": "governance",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": ".governance/specs/SPEC-007-secrets-capability-ledger.md",
+      "mainStatus": "M",
+      "area": "governance",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": ".governance/specs/SPEC-008-host-runner-service.md",
+      "mainStatus": "D",
+      "area": "governance",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "AGENTS.md",
+      "mainStatus": "M",
+      "area": "support",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "INIT-TODO.md",
+      "mainStatus": "M",
+      "area": "support",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "audit-evidence/continuation-20260930-1520/core1551-5115-windows-browser-artifacts.json",
+      "mainStatus": "D",
+      "area": "evidence",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "audit-evidence/continuation-20260930-1520/core1551-5115-windows-browser-failure.md",
+      "mainStatus": "D",
+      "area": "evidence",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "audit-evidence/continuation-20260930-1520/core1551-5115-windows-browser-failure.raw.log",
+      "mainStatus": "D",
+      "area": "evidence",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "audit-evidence/continuation-20260930-1520/windows-artifact/packaged-admin-lifecycle-win32.json",
+      "mainStatus": "D",
+      "area": "evidence",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "audit-evidence/core1566-owned-runner-gate-20261002.md",
+      "mainStatus": "D",
+      "area": "evidence",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "audit-evidence/core1566-windows-journal-prelaunch-20261002.md",
+      "mainStatus": "D",
+      "area": "evidence",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "audit-evidence/handover-20261001-cli-tui/core1463-9da-independent-entire-held-launcher-and-transfer-qualification-review-20261002.md",
+      "mainStatus": "D",
+      "area": "evidence",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "audit-evidence/handover-audit/core1538-pr1551-d349-independent-cumulative-review-20261001.md",
+      "mainStatus": "D",
+      "area": "evidence",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "audit-evidence/handover-audit/core1538-pr1551-d349-packaged-browser-qualification-20261001.md",
+      "mainStatus": "D",
+      "area": "evidence",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "docs/README.md",
+      "mainStatus": "M",
+      "area": "documentation",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "docs/api/staged-service-transfer.md",
+      "mainStatus": "D",
+      "area": "documentation",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "docs/components/README.md",
+      "mainStatus": "M",
+      "area": "documentation",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "docs/components/app-owned-service-workflows.md",
+      "mainStatus": "M",
+      "area": "documentation",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "docs/components/app-service-migration-decisions.json",
+      "mainStatus": "D",
+      "area": "documentation",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "docs/components/app-service-tasks.md",
+      "mainStatus": "D",
+      "area": "documentation",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "docs/components/authoring-migration-decisions.json",
+      "mainStatus": "D",
+      "area": "documentation",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "docs/components/broker-migration-decisions.json",
+      "mainStatus": "D",
+      "area": "documentation",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "docs/components/documentation-migration.md",
+      "mainStatus": "M",
+      "area": "documentation",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "docs/components/reader-guide-classification.json",
+      "mainStatus": "M",
+      "area": "documentation",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "docs/components/repository-docs-audit.json",
+      "mainStatus": "M",
+      "area": "documentation",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "docs/development/core-1509-admin-pin-current-qualification.md",
+      "mainStatus": "D",
+      "area": "documentation",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "docs/development/ga-candidate-dossier.md",
+      "mainStatus": "M",
+      "area": "documentation",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "docs/development/newcomer-candidate-qualification.md",
+      "mainStatus": "M",
+      "area": "documentation",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "docs/documentation-map.md",
+      "mainStatus": "M",
+      "area": "documentation",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "docs/getting-started/README.md",
+      "mainStatus": "M",
+      "area": "documentation",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "docs/getting-started/zitadel-sso-hub.md",
+      "mainStatus": "D",
+      "area": "documentation",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "docs/operations/evidence/host-runner-1570-initial-inputs.json",
+      "mainStatus": "D",
+      "area": "documentation",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "docs/operations/evidence/host-runner-1570-owner-preflight-20261002.json",
+      "mainStatus": "D",
+      "area": "documentation",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "docs/operations/host-runner-service-owner-package.md",
+      "mainStatus": "D",
+      "area": "documentation",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "docs/operator-ui/capture-manifest.md",
+      "mainStatus": "M",
+      "area": "documentation",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "docs/operator-ui/evidence/622-literal-1440-proof.zip",
+      "mainStatus": "D",
+      "area": "documentation",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "docs/reference-apps.md",
+      "mainStatus": "M",
+      "area": "documentation",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "docs/reference/README.md",
+      "mainStatus": "M",
+      "area": "documentation",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "docs/reference/operator-mcp.md",
+      "mainStatus": "M",
+      "area": "documentation",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "docs/reference/operator-tool-packaging.md",
+      "mainStatus": "D",
+      "area": "documentation",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "docs/reference/release-1-ga-decision.md",
+      "mainStatus": "M",
+      "area": "documentation",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "docs/reference/release-1-security-review-packet.md",
+      "mainStatus": "M",
+      "area": "documentation",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "docs/reference/service-producer-release-policy.md",
+      "mainStatus": "D",
+      "area": "documentation",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "docs/reference/source-safe-template-admission.md",
+      "mainStatus": "D",
+      "area": "documentation",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "docs/reference/staged-service-transfer-acceptance-matrix.md",
+      "mainStatus": "D",
+      "area": "documentation",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "docs/reference/startup-endpoint-allocation.md",
+      "mainStatus": "M",
+      "area": "documentation",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "docs/reference/zitadel-consumer-integration.md",
+      "mainStatus": "M",
+      "area": "documentation",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "docs/release-asset-policy.md",
+      "mainStatus": "M",
+      "area": "documentation",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "docs/releases/README.md",
+      "mainStatus": "M",
+      "area": "documentation",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "docs/security/README.md",
+      "mainStatus": "M",
+      "area": "documentation",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "docs/security/broker-operator-tasks.md",
+      "mainStatus": "D",
+      "area": "documentation",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "docs/service-authoring/harness-starter.md",
+      "mainStatus": "D",
+      "area": "documentation",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "docs/service-authoring/overview.md",
+      "mainStatus": "M",
+      "area": "documentation",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "docs/service-authoring/start-reference-host.md",
+      "mainStatus": "D",
+      "area": "documentation",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "docs/sidebars.js",
+      "mainStatus": "M",
+      "area": "documentation",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "fixtures/service-producer-release-policy/valid-policy.json",
+      "mainStatus": "D",
+      "area": "support",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "package-lock.json",
+      "mainStatus": "M",
+      "area": "packages",
+      "classification": "superseded-by-current-develop",
+      "decision": "retain lockfile resolving the current develop dependency graph"
+    },
+    {
+      "path": "package.json",
+      "mainStatus": "M",
+      "area": "packages",
+      "classification": "superseded-by-current-develop",
+      "decision": "retain current develop scripts/dependency policy, removing only duplicate JSON keys"
+    },
+    {
+      "path": "scripts/admin-receipt-provider-bootstrap.mjs",
+      "mainStatus": "D",
+      "area": "support",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "scripts/admin-receipt-provider-observer.mjs",
+      "mainStatus": "D",
+      "area": "support",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "scripts/audit-request-observation.mjs",
+      "mainStatus": "D",
+      "area": "support",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "scripts/cancel-github-actions-runs.ps1",
+      "mainStatus": "D",
+      "area": "support",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "scripts/check-service-producer-release-policy-contract.mjs",
+      "mainStatus": "D",
+      "area": "support",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "scripts/check-staged-service-transfer-contract.mjs",
+      "mainStatus": "D",
+      "area": "support",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "scripts/consume-admin-trusted-unlock-receipt.mjs",
+      "mainStatus": "D",
+      "area": "support",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "scripts/copy-runtime-assets.mjs",
+      "mainStatus": "M",
+      "area": "support",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "scripts/create-development-candidate.mjs",
+      "mainStatus": "D",
+      "area": "support",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "scripts/create-release-archive-producer-fixture.mjs",
+      "mainStatus": "D",
+      "area": "support",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "scripts/demo-instance-lib.mjs",
+      "mainStatus": "M",
+      "area": "support",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "scripts/establish-admin-trusted-unlock-receipt-caller.mjs",
+      "mainStatus": "D",
+      "area": "support",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "scripts/host-runner-service/contract-v1.json",
+      "mainStatus": "D",
+      "area": "support",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "scripts/host-runner-service/darwin/build.sh",
+      "mainStatus": "D",
+      "area": "support",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "scripts/host-runner-service/darwin/com.service-lasso.host-runner.plist.in",
+      "mainStatus": "D",
+      "area": "support",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "scripts/host-runner-service/darwin/install.sh",
+      "mainStatus": "D",
+      "area": "support",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "scripts/host-runner-service/darwin/service-lasso-host-runner-client.c",
+      "mainStatus": "D",
+      "area": "native-artifact",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "scripts/host-runner-service/darwin/service-lasso-host-runner.c",
+      "mainStatus": "D",
+      "area": "native-artifact",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "scripts/host-runner-service/darwin/uninstall.sh",
+      "mainStatus": "D",
+      "area": "support",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "scripts/host-runner-service/darwin/verify.sh",
+      "mainStatus": "D",
+      "area": "support",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "scripts/host-runner-service/linux/sealed-fd-contract.c",
+      "mainStatus": "D",
+      "area": "native-artifact",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "scripts/host-runner-service/qualification.mjs",
+      "mainStatus": "D",
+      "area": "support",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "scripts/host-runner-service/windows/HeldHandleContract.cs",
+      "mainStatus": "D",
+      "area": "native-artifact",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "scripts/lifecycle-failure-diagnostics.mjs",
+      "mainStatus": "M",
+      "area": "support",
+      "classification": "superseded-by-current-develop",
+      "decision": "retain develop bounded closed diagnostic projection for lifecycle and Windows-tree failures"
+    },
+    {
+      "path": "scripts/mcp-packaged-consumer-runner.mjs",
+      "mainStatus": "M",
+      "area": "support",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "scripts/mcp-product-acceptance-lib.mjs",
+      "mainStatus": "M",
+      "area": "support",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "scripts/operator-tool-packaging-lib.mjs",
+      "mainStatus": "D",
+      "area": "support",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "scripts/operator-tui-conpty-endpoint.mjs",
+      "mainStatus": "D",
+      "area": "support",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "scripts/operator-tui-conpty-result.mjs",
+      "mainStatus": "D",
+      "area": "support",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "scripts/operator-tui-conpty-runner.mjs",
+      "mainStatus": "D",
+      "area": "support",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "scripts/packaged-verification-diagnostics.mjs",
+      "mainStatus": "D",
+      "area": "support",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "scripts/publish-package-lib.mjs",
+      "mainStatus": "M",
+      "area": "support",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "scripts/published-package-archive.mjs",
+      "mainStatus": "M",
+      "area": "support",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "scripts/published-package-qualification-lib.mjs",
+      "mainStatus": "M",
+      "area": "support",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "scripts/record-admin-trusted-unlock-prebrowser-failure.mjs",
+      "mainStatus": "D",
+      "area": "support",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "scripts/record-packaged-admin-first-custody.mjs",
+      "mainStatus": "D",
+      "area": "support",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "scripts/record-published-package-qualification.mjs",
+      "mainStatus": "M",
+      "area": "support",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "scripts/release-artifact-lib.mjs",
+      "mainStatus": "M",
+      "area": "support",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "scripts/release-artifact.mjs",
+      "mainStatus": "M",
+      "area": "support",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "scripts/release-verify.mjs",
+      "mainStatus": "M",
+      "area": "support",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "scripts/requirements-conpty.txt",
+      "mainStatus": "D",
+      "area": "support",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "scripts/resolve-pnpm-action-entrypoint.mjs",
+      "mainStatus": "D",
+      "area": "support",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "scripts/retain-packaged-admin-lifecycle-receipt.mjs",
+      "mainStatus": "D",
+      "area": "support",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "scripts/run-tests-isolated.mjs",
+      "mainStatus": "D",
+      "area": "support",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "scripts/validate-release-governance.mjs",
+      "mainStatus": "D",
+      "area": "support",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "scripts/verify-development-candidate-artifact.mjs",
+      "mainStatus": "D",
+      "area": "support",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "scripts/verify-development-candidate.mjs",
+      "mainStatus": "D",
+      "area": "support",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "scripts/verify-mcp-packaged-bootstrap.mjs",
+      "mainStatus": "D",
+      "area": "support",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "scripts/verify-mcp-packaged.mjs",
+      "mainStatus": "M",
+      "area": "support",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "scripts/verify-operator-tui-conpty.mjs",
+      "mainStatus": "D",
+      "area": "support",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "scripts/verify-operator-tui-conpty.py",
+      "mainStatus": "D",
+      "area": "support",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "scripts/verify-operator-tui-pty.mjs",
+      "mainStatus": "D",
+      "area": "support",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "scripts/verify-packaged-admin-lifecycle-artifacts.mjs",
+      "mainStatus": "D",
+      "area": "support",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "scripts/verify-published-package-qualification-artifacts.mjs",
+      "mainStatus": "M",
+      "area": "support",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "scripts/verify-windows-managed-launcher-bootstrap.ps1",
+      "mainStatus": "D",
+      "area": "support",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "scripts/verify-windows-process-inspector.ps1",
+      "mainStatus": "M",
+      "area": "support",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "scripts/windows-compiler-process-budget.ps1",
+      "mainStatus": "D",
+      "area": "support",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "src/runtime/cli/importService.ts",
+      "mainStatus": "M",
+      "area": "runtime",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "src/runtime/config.ts",
+      "mainStatus": "M",
+      "area": "runtime",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "src/runtime/execution/native-ack-containment.ts",
+      "mainStatus": "D",
+      "area": "runtime",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "src/runtime/execution/supervisor.ts",
+      "mainStatus": "M",
+      "area": "runtime",
+      "classification": "superseded-by-current-develop",
+      "decision": "retain develop managed-process containment, serialized workspace finalization, and its paired lifecycle/process-ownership tests"
+    },
+    {
+      "path": "src/runtime/execution/windows-managed-launcher-managed.exe",
+      "mainStatus": "D",
+      "area": "runtime",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "src/runtime/execution/windows-managed-launcher-managed.provenance.json",
+      "mainStatus": "D",
+      "area": "runtime",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "src/runtime/execution/windows-managed-launcher-native-bootstrap.c",
+      "mainStatus": "D",
+      "area": "runtime",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "src/runtime/execution/windows-managed-launcher-native.cs",
+      "mainStatus": "M",
+      "area": "runtime",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "src/runtime/execution/windows-managed-launcher-native.exe",
+      "mainStatus": "M",
+      "area": "runtime",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "src/runtime/execution/windows-managed-launcher-native.provenance.json",
+      "mainStatus": "M",
+      "area": "runtime",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "src/runtime/lifecycle/actions.ts",
+      "mainStatus": "M",
+      "area": "runtime",
+      "classification": "superseded-by-current-develop",
+      "decision": "retain develop restart trace, explicit Windows inspection-episode control, and paired lifecycle-action tests"
+    },
+    {
+      "path": "src/runtime/lifecycle/store.ts",
+      "mainStatus": "M",
+      "area": "runtime",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "src/runtime/lifecycle/types.ts",
+      "mainStatus": "M",
+      "area": "runtime",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "src/runtime/operator/mcp-auth.ts",
+      "mainStatus": "M",
+      "area": "runtime",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "src/runtime/operator/mcp-guarded-actions.ts",
+      "mainStatus": "M",
+      "area": "runtime",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "src/runtime/operator/mcp-operations.ts",
+      "mainStatus": "M",
+      "area": "runtime",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "src/runtime/operator/mcp.ts",
+      "mainStatus": "M",
+      "area": "runtime",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "src/runtime/operator/reconciliation-context-identity.ts",
+      "mainStatus": "D",
+      "area": "runtime",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "src/runtime/operator/remote-service-registration.ts",
+      "mainStatus": "D",
+      "area": "runtime",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "src/runtime/operator/secret-rotation-execution.ts",
+      "mainStatus": "M",
+      "area": "runtime",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "src/runtime/operator/windows-directory-sync-helper.cs",
+      "mainStatus": "D",
+      "area": "runtime",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "src/runtime/operator/windows-directory-sync-helper.exe",
+      "mainStatus": "D",
+      "area": "runtime",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "src/runtime/operator/windows-directory-sync-helper.provenance.json",
+      "mainStatus": "D",
+      "area": "runtime",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "src/runtime/permissions/durable-http.ts",
+      "mainStatus": "M",
+      "area": "runtime",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "src/runtime/ports/allocation.ts",
+      "mainStatus": "M",
+      "area": "runtime",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "src/runtime/process/deadline.ts",
+      "mainStatus": "M",
+      "area": "runtime",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "src/runtime/process/identity.ts",
+      "mainStatus": "M",
+      "area": "runtime",
+      "classification": "superseded-by-current-develop",
+      "decision": "retain develop fail-closed native Windows tree-snapshot diagnostics and paired ownership tests"
+    },
+    {
+      "path": "src/runtime/process/tree.ts",
+      "mainStatus": "M",
+      "area": "runtime",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "src/runtime/process/windows-process-inspector.cs",
+      "mainStatus": "M",
+      "area": "runtime",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "src/runtime/process/windows-process-inspector.exe",
+      "mainStatus": "M",
+      "area": "runtime",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "src/runtime/process/windows-process-inspector.provenance.json",
+      "mainStatus": "M",
+      "area": "runtime",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "src/runtime/process/windows-tree-control-snapshot.ts",
+      "mainStatus": "D",
+      "area": "runtime",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "src/runtime/process/windows-tree-inspection-diagnostics.ts",
+      "mainStatus": "D",
+      "area": "runtime",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "src/runtime/release/release-archive-preflight.ts",
+      "mainStatus": "D",
+      "area": "runtime",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "src/runtime/release/service-producer-release-resolver.ts",
+      "mainStatus": "D",
+      "area": "runtime",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "src/runtime/release/staged-service-transfer.ts",
+      "mainStatus": "D",
+      "area": "runtime",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "src/runtime/security/private-json.ts",
+      "mainStatus": "M",
+      "area": "runtime",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "src/runtime/state/lifecycle-persistence.ts",
+      "mainStatus": "M",
+      "area": "runtime",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "src/runtime/state/rehydrate.ts",
+      "mainStatus": "M",
+      "area": "runtime",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "src/runtime/state/writeState.ts",
+      "mainStatus": "M",
+      "area": "runtime",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "src/runtime/workspace/authority.ts",
+      "mainStatus": "D",
+      "area": "runtime",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "src/server/index.ts",
+      "mainStatus": "M",
+      "area": "server",
+      "classification": "superseded-by-current-develop",
+      "decision": "retain develop staged-transfer and durable operation routes; repair the malformed transfer parser boundary directly from ad781db3"
+    },
+    {
+      "path": "tests/admin-receipt-provider-observer.test.js",
+      "mainStatus": "D",
+      "area": "tests",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "tests/api-port-conflicts.test.js",
+      "mainStatus": "M",
+      "area": "tests",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "tests/api-spine.test.js",
+      "mainStatus": "M",
+      "area": "tests",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "tests/audit-request-observation.test.js",
+      "mainStatus": "D",
+      "area": "tests",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "tests/bootstrap-start.test.js",
+      "mainStatus": "M",
+      "area": "tests",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "tests/cancel-github-actions-runs.test.js",
+      "mainStatus": "D",
+      "area": "tests",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "tests/consume-admin-trusted-unlock-receipt.test.js",
+      "mainStatus": "D",
+      "area": "tests",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "tests/core-development-candidate-workflow.test.js",
+      "mainStatus": "D",
+      "area": "tests",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "tests/development-candidate-script.test.js",
+      "mainStatus": "D",
+      "area": "tests",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "tests/development-candidate-verifier.test.js",
+      "mainStatus": "D",
+      "area": "tests",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "tests/development-dependency-security.test.js",
+      "mainStatus": "M",
+      "area": "tests",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "tests/durable-lifecycle-http.test.js",
+      "mainStatus": "D",
+      "area": "tests",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "tests/durable-reconciliation-context-http.test.js",
+      "mainStatus": "D",
+      "area": "tests",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "tests/endpoint-allocation.test.js",
+      "mainStatus": "M",
+      "area": "tests",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "tests/fixtures/durable-lifecycle-http-peer.mjs",
+      "mainStatus": "D",
+      "area": "tests",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "tests/fixtures/mcp-operation-claim-runner.mjs",
+      "mainStatus": "D",
+      "area": "tests",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "tests/fixtures/operator-tool-release-response.mjs",
+      "mainStatus": "D",
+      "area": "tests",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "tests/fixtures/real-admin-browser-runner.mjs",
+      "mainStatus": "M",
+      "area": "tests",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "tests/fixtures/real-admin-browser-shutdown-runner.mjs",
+      "mainStatus": "M",
+      "area": "tests",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "tests/fixtures/real-admin-browser-shutdown.mjs",
+      "mainStatus": "M",
+      "area": "tests",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "tests/fixtures/staged-transfer-hard-exit.mjs",
+      "mainStatus": "D",
+      "area": "tests",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "tests/fixtures/windows-held-exit-probe.cs",
+      "mainStatus": "D",
+      "area": "tests",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "tests/fixtures/windows-held-exit-probe.exe",
+      "mainStatus": "D",
+      "area": "tests",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "tests/fixtures/windows-held-exit-probe.provenance.json",
+      "mainStatus": "D",
+      "area": "tests",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "tests/hard-crash-child-exit.js",
+      "mainStatus": "D",
+      "area": "tests",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "tests/hard-crash-child-exit.test.js",
+      "mainStatus": "D",
+      "area": "tests",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "tests/host-runner-native-contract.test.js",
+      "mainStatus": "D",
+      "area": "tests",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "tests/host-runner-service-package.test.js",
+      "mainStatus": "D",
+      "area": "tests",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "tests/isolated-runner-receipt.test.js",
+      "mainStatus": "D",
+      "area": "tests",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "tests/lifecycle-actions.test.js",
+      "mainStatus": "M",
+      "area": "tests",
+      "classification": "superseded-by-current-develop",
+      "decision": "retain develop coverage for lifecycle action/restart behavior paired with lifecycle/actions.ts"
+    },
+    {
+      "path": "tests/lifecycle-failure-diagnostics.test.js",
+      "mainStatus": "M",
+      "area": "tests",
+      "classification": "superseded-by-current-develop",
+      "decision": "retain develop closed diagnostic-projection coverage paired with lifecycle-failure-diagnostics.mjs"
+    },
+    {
+      "path": "tests/lifecycle-permission-routes.test.js",
+      "mainStatus": "M",
+      "area": "tests",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "tests/mcp-product-artifact.test.js",
+      "mainStatus": "M",
+      "area": "tests",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "tests/native-ack-containment.test.js",
+      "mainStatus": "D",
+      "area": "tests",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "tests/node-sample-broker-fixture.test.js",
+      "mainStatus": "M",
+      "area": "tests",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "tests/operator-command-confirmations.test.js",
+      "mainStatus": "M",
+      "area": "tests",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "tests/operator-inbox-emit.test.js",
+      "mainStatus": "M",
+      "area": "tests",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "tests/operator-inbox.test.js",
+      "mainStatus": "M",
+      "area": "tests",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "tests/operator-mcp-identity.test.js",
+      "mainStatus": "M",
+      "area": "tests",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "tests/operator-mcp-operations.test.js",
+      "mainStatus": "M",
+      "area": "tests",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "tests/operator-tool-packaging.test.js",
+      "mainStatus": "D",
+      "area": "tests",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "tests/operator-tui-conpty-helper.test.js",
+      "mainStatus": "D",
+      "area": "tests",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "tests/package-staging-lock.test.js",
+      "mainStatus": "M",
+      "area": "tests",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "tests/packaged-admin-lifecycle-first-custody-execution.test.js",
+      "mainStatus": "D",
+      "area": "tests",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "tests/packaged-admin-lifecycle-receipt-custody.test.js",
+      "mainStatus": "D",
+      "area": "tests",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "tests/packaged-admin-lifecycle-workflow.test.js",
+      "mainStatus": "M",
+      "area": "tests",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "tests/packaged-verification-diagnostics.test.js",
+      "mainStatus": "D",
+      "area": "tests",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "tests/prebrowser-failure-execution.test.js",
+      "mainStatus": "D",
+      "area": "tests",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "tests/private-json.test.js",
+      "mainStatus": "M",
+      "area": "tests",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "tests/process-ownership.test.js",
+      "mainStatus": "M",
+      "area": "tests",
+      "classification": "superseded-by-current-develop",
+      "decision": "retain develop coverage for process identity, containment, finalization, and rehydration paired with supervisor.ts and identity.ts"
+    },
+    {
+      "path": "tests/process-tree-exit-race.test.js",
+      "mainStatus": "M",
+      "area": "tests",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "tests/publish-package.test.js",
+      "mainStatus": "M",
+      "area": "tests",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "tests/published-package-archive.test.js",
+      "mainStatus": "M",
+      "area": "tests",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "tests/published-package-qualification-workflow.test.js",
+      "mainStatus": "M",
+      "area": "tests",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "tests/published-package-qualification.test.js",
+      "mainStatus": "M",
+      "area": "tests",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "tests/real-admin-browser-rollback-fixture.test.js",
+      "mainStatus": "M",
+      "area": "tests",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "tests/real-admin-browser-runner-shutdown.test.js",
+      "mainStatus": "M",
+      "area": "tests",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "tests/registry-runtime-state.test.js",
+      "mainStatus": "M",
+      "area": "tests",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "tests/release-archive-preflight.test.js",
+      "mainStatus": "D",
+      "area": "tests",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "tests/release-archive-producer-fixture.test.js",
+      "mainStatus": "D",
+      "area": "tests",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "tests/release-artifact.test.js",
+      "mainStatus": "M",
+      "area": "tests",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "tests/release-governance.test.js",
+      "mainStatus": "D",
+      "area": "tests",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "tests/remote-service-registration.test.js",
+      "mainStatus": "D",
+      "area": "tests",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "tests/resolve-pnpm-action-entrypoint.test.js",
+      "mainStatus": "D",
+      "area": "tests",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "tests/secret-rotation-execution.test.js",
+      "mainStatus": "M",
+      "area": "tests",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "tests/service-producer-release-policy-contract.test.js",
+      "mainStatus": "D",
+      "area": "tests",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "tests/service-producer-release-resolver.test.js",
+      "mainStatus": "D",
+      "area": "tests",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "tests/staged-service-transfer-contract.test.js",
+      "mainStatus": "D",
+      "area": "tests",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "tests/staged-service-transfer-http.test.js",
+      "mainStatus": "D",
+      "area": "tests",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "tests/staged-service-transfer.test.js",
+      "mainStatus": "D",
+      "area": "tests",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "tests/startup-hard-crash-matrix.test.js",
+      "mainStatus": "M",
+      "area": "tests",
+      "classification": "superseded-by-current-develop",
+      "decision": "main carries an earlier divergent variant; retain the later develop control"
+    },
+    {
+      "path": "tests/verify-windows-process-inspector-powershell-compatibility.test.ps1",
+      "mainStatus": "D",
+      "area": "tests",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "tests/windows-compiler-process-budget-real-adapter.test.ps1",
+      "mainStatus": "D",
+      "area": "tests",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "tests/windows-compiler-process-budget.test.ps1",
+      "mainStatus": "D",
+      "area": "tests",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "tests/windows-confirmed-exit.test.js",
+      "mainStatus": "D",
+      "area": "tests",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "tests/windows-directory-sync-helper.test.js",
+      "mainStatus": "D",
+      "area": "tests",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "tests/windows-filtered-lifecycle.test.js",
+      "mainStatus": "D",
+      "area": "tests",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "tests/windows-parent-lifetime-diagnostics.test.js",
+      "mainStatus": "D",
+      "area": "tests",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "tests/windows-process-inspector-command-line-retry-harness.cs",
+      "mainStatus": "D",
+      "area": "tests",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "tests/windows-process-inspector-command-line-retry.test.js",
+      "mainStatus": "D",
+      "area": "tests",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "tests/windows-tree-control-snapshot.test.js",
+      "mainStatus": "D",
+      "area": "tests",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    },
+    {
+      "path": "tests/windows-tree-inspection-diagnostics.test.js",
+      "mainStatus": "D",
+      "area": "tests",
+      "classification": "retained-current-develop",
+      "decision": "main omitted this current develop path; retain the current develop control"
+    }
+  ]
+}

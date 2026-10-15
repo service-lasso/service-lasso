@@ -63,6 +63,23 @@ actor and can require a one-time confirmation. Record only safe identifiers,
 outcomes and timestamps; never copy a value, recovery material, credential,
 token, private key or raw request/log payload.
 
+### RAM file usage
+
+**Secrets Broker → RAM files** (`/secrets-broker/webdav`) opens directly on the
+inventory panel. It shows listener state, RAM capacity/use, active grants,
+filenames, service/workspace owners, sizes, completed downloads, bytes served
+and last access. The same panel appears in the Broker service's Secrets tab.
+It never offers content reveal, upload or download controls.
+
+Refresh manually or wait for the 30-second poll. Service filters, search and
+sorting apply to the current page; pagination reaches the remaining inventory.
+Counters reset when grants are replaced/revoked or Broker restarts. HEAD and
+directory listings are excluded from completed downloads. Use the
+[secure provisioning lesson](../getting-started/advanced-provision-service-secrets-securely.md)
+to compare these server counters with Echo's safe consumer read status.
+Workspace-read permission and matching Core/Broker/Admin builds are required;
+live failures do not substitute demo inventory.
+
 ## Refreshing the documentation tour
 
 Use the [capture manifest and refresh guide](capture-manifest.md) to run the

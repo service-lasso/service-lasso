@@ -1,0 +1,20 @@
+{
+  "purpose": "pre-build isolated qualification input capture",
+  "workspace": "slhr-1570-workspace-20261002-7e8b",
+  "instance": "slhr-1570-instance-20261002-6a31",
+  "ports": "24157,24158",
+  "head": "0c91311556cb75577b1b45618022ed2ff49083d1",
+  "tree": "a14b5df9236d9e8b27d36c016f80a855116676db",
+  "os": "Microsoft Windows 11 Pro|10.0.26200",
+  "process_birth_utc": "2026-10-01T22:01:08.8490617Z",
+  "initial_native_assets": [
+    "darwin/com.service-lasso.host-runner.plist.in|85d59d9a7516d7457cd55fab4e6055983e5c6b8790725dfe358ba5cbfd7c9e2e|788",
+    "darwin/install.sh|a1553b1fa0ec81111f66dfd36af8e97dd2fb186580ab912867d576ddf878b816|825",
+    "darwin/service-lasso-host-runner.c|11b1b52f0798c3d959de1faa51d1c6e8a7cdb7c692ecdefd671c0c0f89565c8d|3415",
+    "darwin/uninstall.sh|4e625a7377b1a9bd603631b9ef993d0de95582fcbbb720546f968e10a3e2fa70|488",
+    "darwin/verify.sh|6bbd95040f813aaee79956c92bbf48143da45506e216a05c9300b36eff6486d5|654",
+    "linux/sealed-fd-contract.c|e9ed2282914441bf016679f9114c9499c32185b178b84b41c82d525806bc7264|426",
+    "windows/HeldHandleContract.cs|7581f9a93648c8124f4e915972d79b5e989fce9fb76e1b66cd2790eac2f8e9c5|580"
+  ],
+  "close": "No host installation, provider mutation, publication, or activation occurred."
+}

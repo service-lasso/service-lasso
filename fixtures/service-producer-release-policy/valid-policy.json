@@ -1,0 +1,41 @@
+{
+  "schema": "service-lasso.service-producer-release-policy/v1",
+  "serviceId": "fixture-service",
+  "release": {
+    "tag": "2026.10.1-0123456",
+    "targetSha": "0123456789abcdef0123456789abcdef01234567"
+  },
+  "manifest": {
+    "assetName": "service.json",
+    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "platforms": {
+    "win32": {
+      "assetName": "fixture-service-win32.zip",
+      "archiveType": "zip",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "checksum": {
+        "assetName": "SHA256SUMS.txt",
+        "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      }
+    },
+    "linux": {
+      "assetName": "fixture-service-linux.tar.gz",
+      "archiveType": "tar.gz",
+      "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "checksum": {
+        "assetName": "SHA256SUMS.txt",
+        "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      }
+    },
+    "darwin": {
+      "assetName": "fixture-service-darwin.tgz",
+      "archiveType": "tgz",
+      "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "checksum": {
+        "assetName": "SHA256SUMS.txt",
+        "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      }
+    }
+  }
+}

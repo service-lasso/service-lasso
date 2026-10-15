@@ -606,6 +606,22 @@ export function selectCurrentAttemptArtifacts(artifacts, runId, runAttempt) {
   return { current, retainedPriorAttempts, extras, currentComplete };
 }
 
+// Separate source-owned scoped route. Prior attempt receipts stay retained,
+// but can never satisfy either of this attempt's two required platforms.
+export function selectScopedCurrentAttemptArtifacts(artifacts, runId, runAttempt) {
+  const expected = ["win32", "linux"].map(platform => `published-package-qualification-${platform}-${runId}-${runAttempt}`);
+  const current = [], retainedPriorAttempts = [], extras = [];
+  for (const artifact of Array.isArray(artifacts) ? artifacts : []) {
+    const match = QUALIFICATION_ARTIFACT_NAME.exec(String(artifact?.name ?? ""));
+    if (!match || match[1] === "darwin" || match[2] !== String(runId)) { extras.push(artifact); continue; }
+    if (match[3] === String(runAttempt)) current.push(artifact);
+    else if (Number(match[3]) < Number(runAttempt)) retainedPriorAttempts.push(artifact);
+    else extras.push(artifact);
+  }
+  const names = current.map(artifact => artifact.name).sort();
+  return { current, retainedPriorAttempts, extras, currentComplete: extras.length === 0 && names.length === 2 && new Set(names).size === 2 && JSON.stringify(names) === JSON.stringify(expected.sort()) };
+}
+
 /**
  * Validate metadata-only reliability fields on retained success evidence.
  *

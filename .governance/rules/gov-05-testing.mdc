@@ -27,6 +27,22 @@ Each important claim should map to verifiable evidence.
 
 Not every change needs every layer, but critical paths must be covered.
 
+## Unit-Test Expectations
+
+Unit tests are expected when the scoped behavior can be proved meaningfully at the isolated-logic layer, especially for:
+- pure functions, transforms, selectors, parsers, validators, and mappers
+- branching business logic with clear input/output behavior
+- bug fixes where the failure can be reproduced below the integration/UI layer
+- boundary conditions and edge cases in deterministic code paths
+
+Unit tests are not sufficient by themselves when the governed claim depends on:
+- persistence, refresh, sync, or deletion behavior
+- cross-component or cross-service contracts
+- user-visible workflows, permissions, or navigation
+- environment/runtime wiring, startup, deployment, or release-readiness behavior
+
+When unit tests are the right layer, they should be preferred over slower broad tests for proving isolated logic. When the claim extends beyond isolated logic, pair unit coverage with the higher-layer evidence the claim actually needs.
+
 ## Test-to-Intent Traceability
 
 For governed delivery, link tests back to:
@@ -36,6 +52,16 @@ For governed delivery, link tests back to:
 
 OpenSpec-first rule:
 - if required behavior is not represented in OpenSpec, add/update requirement IDs before marking coverage complete.
+
+## Protected Acceptance Evidence
+
+Requirement-bound acceptance, integration, end-to-end, regression, and release-gate tests are protected evidence.
+
+- An implementing agent must not weaken, delete, skip, narrow, or rewrite protected evidence merely to make its implementation pass.
+- A material change to protected evidence requires an explicit requirement or acceptance-criteria change, documented justification, and review separate from the implementation claim.
+- New tests written by the implementing agent may support completion, but they must not be the sole proof when an existing protected gate covers the claim.
+- If implementation and protected evidence disagree, treat the disagreement as a failed gate or requirement ambiguity; do not silently redefine success.
+- Record relevant baseline results before mutation-heavy work so introduced regressions can be distinguished from pre-existing failures.
 
 ## Test Execution Expectations
 
@@ -98,6 +124,8 @@ UI-only success must not be treated as sufficient proof for mutation-heavy work.
 
 - run targeted tests during iteration
 - run appropriate regression checks before completion
+- add or update unit tests when isolated logic is changed and unit coverage is the right proving layer
+- do not treat unit tests as sufficient when the governed claim depends on higher-layer behavior
 - capture failing output when blocked
 - avoid marking complete without evidence
 - generated tests only count when they actually prove the intended behavior or requirement
@@ -110,5 +138,7 @@ UI-only success must not be treated as sufficient proof for mutation-heavy work.
 - broad snapshot assertions without intent
 - coverage metrics used without behavioral relevance
 - tests that pass but do not prove the requirement
+- tests weakened or rewritten to match broken output
+- implementation-authored tests used as the sole proof while protected acceptance evidence is failing
 - partial coverage reported as full validation
 - surrogate-only proof reported as direct proof

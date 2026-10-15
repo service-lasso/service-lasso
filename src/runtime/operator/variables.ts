@@ -3,6 +3,7 @@ import type { DiscoveredService, ServiceEnvMap, ServiceEnvValue } from "../../co
 import { getLifecycleState } from "../lifecycle/store.js";
 import path from "node:path";
 import { buildEndpointVariables } from "./endpoints.js";
+import { hasEphemeralSecretFiles, serviceSecretsDirectory } from "../broker/secret-files.js";
 
 export interface ServiceVariableEntry {
   key: string;
@@ -63,6 +64,8 @@ export interface ServiceSelectorDiagnostic {
 }
 
 export interface ServiceTextResolutionOptions {
+  /** Launch-only Broker capability directory; never persisted. */
+  secretFilesDirectory?: string;
   brokerValues?: Record<string, string>;
   diagnostics?: ServiceSelectorDiagnostic[];
   diagnosticKey?: string;
@@ -526,6 +529,12 @@ export function buildServiceVariables(
   );
 
   const derivedVariables: ServiceVariableEntry[] = [
+    ...(hasEphemeralSecretFiles(service) ? [{
+      key: "SERVICE_LASSO_SECRETS_DIR",
+      value: options.secretFilesDirectory ?? (process.env.SERVICE_LASSO_SECRET_FILES_TRANSPORT === "tmpfs"
+        ? serviceSecretsDirectory(service) : "[available-at-launch]"),
+      scope: "derived" as const,
+    }] : []),
     {
       key: "SERVICE_ID",
       value: service.manifest.id,
@@ -605,7 +614,8 @@ export function buildServiceVariables(
     scope: "manifest" as const,
     value: replaceEnvValueSelectors(
       value,
-      [...rawManifestVariables, ...globalVariables, ...derivedVariables],
+      [...derivedVariables.filter((entry) => entry.key === "SERVICE_LASSO_SECRETS_DIR"),
+        ...rawManifestVariables, ...globalVariables, ...derivedVariables],
       { ...brokerResolutionOptions, diagnosticKey: key },
     ),
   }));
@@ -678,6 +688,7 @@ export function buildServiceVariables(
   return {
     serviceId: service.manifest.id,
     variables: [
+      ...derivedVariables.filter((entry) => entry.key === "SERVICE_LASSO_SECRETS_DIR"),
       ...manifestVariables,
       ...brokerImportVariables,
       ...globalVariables,
@@ -718,6 +729,7 @@ export function compileServiceMaterializationSelectorPlan(
 ): ServiceSelectorPlan {
   const installFiles = service.manifest.install?.files ?? [];
   const configFiles = service.manifest.config?.files ?? [];
+  const brokerFiles = service.manifest.broker?.files ?? [];
   const cacheKey = `service:${service.manifestPath}:${service.manifest.id}:materialization`;
   const fingerprintValues = {
     env: JSON.stringify(service.manifest.env ?? {}),
@@ -726,6 +738,7 @@ export function compileServiceMaterializationSelectorPlan(
     exports: JSON.stringify(service.manifest.broker?.exports ?? []),
     install: JSON.stringify(installFiles),
     config: JSON.stringify(configFiles),
+    brokerFiles: JSON.stringify(brokerFiles),
   };
   const fingerprint = fingerprintSelectorValues(fingerprintValues);
   const cached = selectorPlanCache.get(cacheKey);
@@ -769,6 +782,10 @@ export function compileServiceMaterializationSelectorPlan(
     compileCachedServiceSelectorPlan(
       `${cacheKey}:config`,
       configFiles.flatMap((file) => [file.path, file.content]),
+    ),
+    compileCachedServiceSelectorPlan(
+      `${cacheKey}:broker-files`,
+      brokerFiles.flatMap((file) => [file.path, file.content]),
     ),
   ]);
 

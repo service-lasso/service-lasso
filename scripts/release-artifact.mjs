@@ -1,11 +1,16 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { stageBundledReleaseArtifact, stageReleaseArtifact } from "./release-artifact-lib.mjs";
+import { consumeReleaseMetadataToken } from "./operator-tool-packaging-lib.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+// Consume the step-scoped credential before either child stager runs. The same
+// bounded local is deliberately shared by the sequential normal and bundled
+// stagers; neither stager may reacquire it from process-wide environment state.
+const releaseMetadataToken = consumeReleaseMetadataToken();
 
-const result = await stageReleaseArtifact({ repoRoot });
-const bundled = await stageBundledReleaseArtifact({ repoRoot });
+const result = await stageReleaseArtifact({ repoRoot, releaseMetadataToken });
+const bundled = await stageBundledReleaseArtifact({ repoRoot, releaseMetadataToken });
 
 console.log("[service-lasso] staged bounded release artifact");
 console.log(`- artifact: ${result.artifactName}`);

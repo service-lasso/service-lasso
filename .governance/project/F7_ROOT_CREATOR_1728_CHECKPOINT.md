@@ -1,0 +1,21 @@
+# Original creator source checkpoint (#1728)
+
+2026-10-08 current disposition: BLOCKED / LOCAL_MINIMUM. The user authorized
+the first allocation_reserved fix, but live readback still confirms missing
+creator/entry/U1 bodies and zero improved Linux verification. The growing
+design/header diff meets the gov-02/gov-13 circuit breaker. See
+[retained incident and resume conditions](1728-LINUX-CLEANUP-LOCAL-MINIMUM.md).
+Historical next-implementation guidance below is not permission to bypass
+this stop. No code or test was changed in the circuit-breaker audit.
+
+Development source preparation; sole author is the current repair chat. Dedicated managed checkout C:/Users/maxbarrass/.codex/worktrees/f7-root-creator-1728/service-lasso, branch feature/1728-original-root-creator, base developce56f592. Draft PR #1729 targets develop. Existing Linux #1724/#1725 and #1640/#1687 owner branches remain retained.
+
+Different reviewer review_1728_native_profile completed WHOLE PROPOSAL / RECEIVING-CONTRACT GO for frozen5c980205c2e9a439780c001db5124df5e4f2c8eb. Originalc0eb6ced partial NO_GO is preserved: premature RO mappings, incorrect executable-memory implication and producer ordering. Subsequent complete graph review also exposed incompatible bootstrap/terminal W error sending, circular SDK/readiness startup, missing actual entry mechanism and pre-SDK failure-custody overclaim. All are resolved in the reviewed receiving contract, not proven as executable behavior.
+
+Reviewed dependencies include the complete original opaque creator contract, inherited native1640 blueprint, seven amendment06 contracts, ADR-003/004, all fifteen Linux native pairs, U1 observer/budget/producer/Node/error codec graph, actual fixture/privacy/custody/matrix/identity/tree/deadline/listener callers, complete intended memfd/procfd/header captures and relevant complete mprotect/mremap functions. The complete original Node main source was read and its SHA matched. No actual executable creator/issuer/entry/receiving graph exists to qualify.
+
+ADR-005 selects whole receiving architecture and the fixture-only original Node native entry for source preparation. Header and exact upstream source patch are prepared at270b7919; intent/spec/backlog/INIT align at a80397db. Neither native entry body nor ROOT creator/source issuer nor U1 receiving implementation is delivered. No unavailable-only stub, weak implementation, source-grant factory, mock receiver or compiler action was added. Source patch has been inspected as text only; no apply/parser/build/Node/native execution has run.
+
+Next owned implementation: complete root-creator.h/.cpp, actual private issuer receiving/source graph and Linux connected entry body using the selected exact once-only operation/order and original typed native resource cells, then U1's compatible owned adapter. Bind complete fixture Node source/build/loaded/constructor/startup inputs, actual native layouts/allocator domains and all-nine/four-custody reservations. Missing actual source owner/roles/resources/keys/receiver remain receiving/admission dependencies, never defaults. Complete source/protected evidence review plus NEW complete exact-input ROOT precede compilation/import/build/test/native activation.
+
+All eleven Linux failures remain unresolved. Last relevant natural full receipt is1954tests/1856pass/11fail/87skip; this changed source has no test result. Preserve the retained D-state container, private failures, copied originals and all original Error/Map/ENV/native assertions. No merge/release/resource provisioning/deployment or goal completion is claimed.

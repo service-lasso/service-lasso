@@ -31,6 +31,8 @@ export interface ImportServiceManifestCliOptions {
   dryRun?: boolean;
   /** Test override. Production leftover CLI mutations use `cli-local-root`. */
   permissionActor?: PermissionActor;
+  /** Optional caller-owned release policy applied before the manifest is written. */
+  validateReleasedManifest?: (manifest: ServiceManifest) => void;
 }
 
 export interface ImportServiceManifestCliResult {
@@ -101,6 +103,16 @@ async function lstatIfPresent(targetPath: string) {
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw error;
+  }
+}
+
+async function removeOwnedManifest(targetPath: string, expectedBytes: string): Promise<boolean> {
+  try {
+    if ((await readFile(targetPath, "utf8")) !== expectedBytes) return false;
+    await rm(targetPath, { force: false });
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -330,6 +342,7 @@ export async function importServiceManifestFromCli(
     tag: options.tag,
     apiBaseUrl: options.apiBaseUrl,
   });
+  options.validateReleasedManifest?.(manifest);
   const serviceRoot = resolveDirectServiceRoot(servicesRoot, manifest.id);
   const targetPath = path.join(serviceRoot, "service.json");
   await assertSafeImportDestination(servicesRoot, serviceRoot);
@@ -344,10 +357,16 @@ export async function importServiceManifestFromCli(
   if (!options.dryRun) {
     await mkdir(serviceRoot, { recursive: true });
     await assertSafeImportDestination(servicesRoot, serviceRoot);
-    await writeFile(targetPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
-    const discovered = await discoverServices(servicesRoot);
-    if (!discovered.some((service) => service.manifest.id === manifest.id && service.manifestPath === targetPath)) {
-      throw new Error(`Imported manifest for "${manifest.id}" could not be rediscovered from ${servicesRoot}.`);
+    const manifestBytes = `${JSON.stringify(manifest, null, 2)}\n`;
+    await writeFile(targetPath, manifestBytes, "utf8");
+    try {
+      const discovered = await discoverServices(servicesRoot);
+      if (!discovered.some((service) => service.manifest.id === manifest.id && service.manifestPath === targetPath)) {
+        throw new Error(`Imported manifest for "${manifest.id}" could not be rediscovered from ${servicesRoot}.`);
+      }
+    } catch (error) {
+      if (!exists) await removeOwnedManifest(targetPath, manifestBytes);
+      throw error;
     }
   }
 

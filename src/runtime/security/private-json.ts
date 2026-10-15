@@ -20,11 +20,15 @@ export type PrivateJsonErrorCode =
   | "private_state_acl_failed"
   | "private_state_commit_failed"
   | "private_state_protect_failed"
+  | "private_state_protect_helper_timeout"
+  | "private_state_protect_integrity_timeout"
   | "private_state_protect_timeout"
   | "private_state_protect_unavailable"
   | "private_state_sid_failed"
   | "private_state_system_utilities_unavailable"
   | "private_state_unprotect_failed"
+  | "private_state_unprotect_helper_timeout"
+  | "private_state_unprotect_integrity_timeout"
   | "private_state_unprotect_timeout"
   | "private_state_unprotect_unavailable";
 
@@ -147,13 +151,15 @@ async function assertWindowsDpapiHelperIntegrity(signal: AbortSignal): Promise<s
 async function runWindowsDpapiHelper(operation: "protect" | "unprotect", input: string): Promise<string> {
   const code = (suffix: "failed" | "timeout" | "unavailable"): PrivateJsonErrorCode =>
     `private_state_${operation}_${suffix}` as PrivateJsonErrorCode;
+  const timeoutCode = (phase: "integrity" | "helper"): PrivateJsonErrorCode =>
+    `private_state_${operation}_${phase}_timeout` as PrivateJsonErrorCode;
   const deadline = Date.now() + WINDOWS_DPAPI_OPERATION_TIMEOUT_MS;
   const integrityAbort = new AbortController();
   let integrityTimeout: NodeJS.Timeout;
   const integrityDeadline = new Promise<never>((_resolve, reject) => {
     integrityTimeout = setTimeout(() => {
       integrityAbort.abort();
-      reject(new PrivateJsonError(code("timeout"), "Windows private-state protection timed out."));
+      reject(new PrivateJsonError(timeoutCode("integrity"), "Windows private-state protection timed out."));
     }, WINDOWS_DPAPI_OPERATION_TIMEOUT_MS);
     integrityTimeout.unref?.();
   });
@@ -165,10 +171,10 @@ async function runWindowsDpapiHelper(operation: "protect" | "unprotect", input: 
     ]);
   } catch (error) {
     const timedOut = integrityAbort.signal.aborted ||
-      (error instanceof PrivateJsonError && error.code === code("timeout"));
+      (error instanceof PrivateJsonError && error.code === timeoutCode("integrity"));
     integrityAbort.abort();
     if (timedOut) {
-      throw new PrivateJsonError(code("timeout"), "Windows private-state protection timed out.");
+      throw new PrivateJsonError(timeoutCode("integrity"), "Windows private-state protection timed out.");
     }
     throw new PrivateJsonError(code("unavailable"), "Windows private-state protection is unavailable.");
   } finally {
@@ -176,7 +182,7 @@ async function runWindowsDpapiHelper(operation: "protect" | "unprotect", input: 
   }
   const remainingMs = deadline - Date.now();
   if (remainingMs <= 0) {
-    throw new PrivateJsonError(code("timeout"), "Windows private-state protection timed out.");
+    throw new PrivateJsonError(timeoutCode("integrity"), "Windows private-state protection timed out.");
   }
   return await new Promise((resolve, reject) => {
     const child = spawn(helperPath, [operation], {
@@ -193,14 +199,14 @@ async function runWindowsDpapiHelper(operation: "protect" | "unprotect", input: 
       child.stdout.resume();
       child.stderr.resume();
       child.kill();
-      reject(new PrivateJsonError(code("timeout"), "Windows private-state protection timed out."));
+      reject(new PrivateJsonError(timeoutCode("helper"), "Windows private-state protection timed out."));
       return;
     }
     const timeout = setTimeout(() => {
       if (settled) return;
       settled = true;
       child.kill();
-      reject(new PrivateJsonError(code("timeout"), "Windows private-state protection timed out."));
+      reject(new PrivateJsonError(timeoutCode("helper"), "Windows private-state protection timed out."));
     }, remainingAfterSpawnMs);
     timeout.unref?.();
     child.stdout.on("data", (chunk: Buffer) => {

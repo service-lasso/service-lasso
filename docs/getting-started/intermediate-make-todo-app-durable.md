@@ -1,84 +1,182 @@
 ---
-title: Intermediate — Make the Todo app durable
+title: Intermediate — Add PostgreSQL to the Todo service
 ---
 
-# Intermediate — Make the Todo app durable
-# Intermediate — Make the Todo app durable
+# Intermediate — Add PostgreSQL to the Todo service
 
-Attach a managed PostgreSQL service so application data survives stop and start. Complete the [Beginner — Todo app](beginner-todo-app.md) first (sign in, create a todo, refresh, persist). Use the [Admin and Echo demo](../quick-start.md) only if you want a visual Service Admin introduction.
+**Lesson code:** [02 — Database](https://github.com/service-lasso/lesson-todo/tree/develop/lessons/02-database).
+The folder contains this stage's complete service inventory, architecture and
+standalone run instructions, with the changes from the App checkpoint.
+Use the runnable checkpoint below, or continue the Core demo authoring route later in this article.
 
-This page replaces the old “first useful service” PostgreSQL article. PostgreSQL is the durability step, not the first newcomer step.
+Continue the [managed Todo app lesson](beginner-todo-app.md). Add a second service,
+PostgreSQL, to the same Lasso inventory and make the Todo service depend on it.
+You will learn release import, install, dependency startup, runtime allocation,
+health, database storage and restart recovery.
 
-## Platform note
+## Outcome
 
-The pinned PostgreSQL macOS archive contains Intel (`x64`) binaries. The automated macOS journey uses an Intel runner; Apple Silicon execution has not been qualified.
+**Stage 2: Add the Database.** The same App now saves todos in the Database.
 
-## Run the example
+<div className="tutorial-architecture">
 
-You need Node.js 22+, npm, Git, and internet access. From your Service Lasso checkout:
+```mermaid
+%%{init: {"flowchart": {"nodeSpacing": 24, "rankSpacing": 28, "padding": 18, "subGraphTitleMargin": {"top": 10, "bottom": 20}}, "themeVariables": {"fontFamily": "system-ui, sans-serif"}}}%%
+flowchart TB
+  accTitle: Stage 2: Add the Database
+  accDescr: The same App now saves todos in the Database. All application services run inside the Service Lasso boundary. Existing management and runtime services are listed in the adjacent table.
+  browser(["Browser"])
+  subgraph lasso["Service Lasso"]
+    todo("<b>App</b><br/><small>(lasso-todo)</small>")
+    db[("<b>Database</b><br/><small>(lasso-postgres)</small>")]
+  end
+  browser --> todo
+  todo --> db
+  classDef service stroke-width:1.5px
+  classDef added stroke-width:2.5px
+  class todo,db service
+  class db added
+```
+
+</div>
+
+The highlighted service is new in this lesson. Everything inside the boundary is managed by Service Lasso.
+
+| Purpose | Service | Responsibility / data path |
+| --- | --- | --- |
+| App | `lasso-todo` (`todo`) | Serve the UI; migrate the original JSON todos and read/write SQL. |
+| Database | `lasso-postgres` (`postgres`) | Persist todos in `${SERVICE_ROOT}/runtime/data`; the App connects to its allocated SQL endpoint. |
+
+<details>
+<summary>Existing platform services</summary>
+
+These services also run inside Service Lasso. They support the application path shown above.
+
+| Purpose | Service | Responsibility |
+| --- | --- | --- |
+| Management | `lasso-serviceadmin` (`@serviceadmin`) | Install, configure, start and stop services; show health and endpoints. |
+| Secrets | `lasso-secretsbroker` (`@secretsbroker`) | Provide the platform's managed secret delivery. |
+| Example | `echo-service` | The starter service already included in the demo. |
+| Runtime | `lasso-node` (`@node`) | Run the App's packaged JavaScript. |
+
+</details>
+
+
+## Run the published lesson checkpoint
+
+In the lesson repository from the previous article, prepare this separate checkpoint:
 
 ```sh
-cd examples/postgres-app
 npm ci
-npm run setup
-npm start
+npm run setup -- 02
+npm run lesson:02
 ```
 
-The example supplies a small foreground launcher for the pinned package: it initializes an empty directory and keeps the database process attached so Lasso can verify ownership. The PostgreSQL binaries remain the released artifact.
+The host uses published Core and Admin and acquires the pinned service archives;
+no sibling build is needed. Open the printed loopback Admin URL, complete
+**Initialize Secrets Broker**, privately save and acknowledge its recovery
+material, and continue as local-root. Install/configure/start the application
+services in Admin, dependencies first, then open Todo's allocated Network URL.
 
-Setup imports PostgreSQL **15.17**, release **2026.5.3-ddd9e47**, into this example's own `workspace/services`. It pins the artifact tag and installs the package for your platform. The runtime and database state stay under this example's `workspace/`. The example uses the published npm runtime pinned in its lockfile.
+Fresh Intel macOS 11 checkpoints automatically select compatible Broker and
+managed Node 22 profiles for the machine's OS and CPU. Apple Silicon is a separate
+compatibility case; consult the [lesson platform prerequisites](https://github.com/service-lasso/lesson-todo#platform-prerequisites).
+Setup preserves existing manifests and data: retained Node 24 requires macOS
+13.5 or newer, and the older Broker requires macOS 12. Use a separate fresh
+learning folder for the new pins; do not overwrite a retained workspace.
 
-The terminal prints the app URL and the **actual allocated database port**. Only the database port is dynamic. The example API uses fixed port `18550` and the app uses fixed port `18552`. Open [http://127.0.0.1:18552](http://127.0.0.1:18552). Expect `"database":"connected"`.
+To carry your JSON history forward, stop both checkpoint hosts and back up `.workspace/01-app/services/todo/data/todos.json`. Copy it to `.workspace/02-database/services/todo/data/todos.json` before the first SQL start, only when the destination does not exist. Start PostgreSQL before Todo. Confirm the original items, add a new item, refresh and restart both services in dependency order.
 
-In a second terminal in the same example folder:
+Type `shutdown` in the host terminal to stop this owned checkpoint. Restart
+with `npm run lesson:02`, then start managed services in Admin again,
+dependencies first. Host restart preserves data and does not automatically
+start the application stack. Do not run two hosts against one checkpoint.
+Checkpoints have separate state and do not copy data automatically.
 
-```sh
-npm run check
+The first three stages use local learning access. [SSO](zitadel-sso-hub.md)
+has separate identity and platform prerequisites; this route does not establish
+Mac SSO support. The [desktop stage](package-todo-tauri.md) builds on Windows x64.
+
+## Core demo authoring route
+
+The steps below teach source packaging and manual imports in the Core demo.
+Their existing provider pins are separate from the fresh lesson checkpoint's
+Mac-compatible selection. On Intel macOS 11, use the checkpoint above.
+
+## 1. Import PostgreSQL into the same inventory
+
+Keep the <code>todo</code> service and JSON data from the first lesson. Stop Todo through Admin and confirm its endpoint is unavailable. In your Core checkout terminal:
+
+```powershell
+node dist/cli.js services import service-lasso/lasso-postgres --tag 2026.10.4-1af7982 --services-root workspace/canonical-services-root --workspace-root workspace/demo-instance
 ```
 
-**Success:** `PASS: database write + read and app HTTP response.` Refresh the app to see `Hello from Service Lasso`. This checks a real database round trip, not just an open port.
+This corrected package includes the foreground launcher and managed `@node`
+provider dependency. Its install files stay outside the database cluster. You
+do not need to copy a launcher into the inventory or change the artifact command.
 
-## What did Lasso do?
+Refresh Admin, select PostgreSQL, Install/Configure if offered, then Start and
+wait for healthy. Inspect its process tree, logs, archive checksum and allocated
+SQL port. The actual PostgreSQL process remains beneath the managed launcher.
+The database is retained at `${SERVICE_ROOT}/runtime/data` across restarts.
 
-The [example source](https://github.com/service-lasso/service-lasso/tree/develop/examples/postgres-app) imports a service manifest, downloads its release, configures it, waits for readiness, and records its process and allocated endpoints. Your app uses a normal PostgreSQL driver. It does not need to know how to install or launch PostgreSQL.
+An older failed installation containing only its generated empty `.keep` can be
+recovered by the package: it retains that placeholder outside the cluster.
+Other nonempty contents remain untouched and initialization fails with logs.
+Use an ordinary Windows user token; PostgreSQL refuses administrative tokens.
 
-| Connection field | This example |
+<details>
+<summary>Upgrade an existing inventory that used the old adapter</summary>
+
+1. Stop Todo and the API, then PostgreSQL, confirming their listeners close.
+2. Back up the installed PostgreSQL manifest and its **actual** database directory.
+   The older adapter used `data/database`; keep that existing path.
+3. Download `service.json` from the corrected release linked in the import command.
+   Before replacing the installed manifest, copy your existing
+   `POSTGRES_DATA_DIR`, database credentials, requested database names and other
+   custom environment settings into it. Preserve your allocated port request.
+4. Replace only `postgres/service.json`. Keep `.state`, runtime files and all data.
+   Refresh Admin, install the corrected archive, configure and start PostgreSQL.
+5. Confirm the original rows remain, then start the API and Todo in dependency order.
+
+The new manifest runs its acquired launcher; the old `tutorial-runtime` files
+can remain unused. Import protects existing manifests by default, so replaying
+the fresh-install command is not an upgrade. Changing a manifest password does
+not rotate an initialized database account.
+
+</details>
+
+## 2. Configure the template-derived Todo service for SQL
+
+While Todo remains stopped, from Core:
+
+```powershell
+node ../lasso-todo/scripts/configure-stage.mjs workspace/canonical-services-root/todo postgres
+```
+
+Inspect <code>todo/service.json</code>: dependencies now include <code>@node</code> and <code>postgres</code>, and <code>TODO_DATABASE_STATE</code> points to the database runtime allocation file. Refresh Admin and start Todo. It reads the real SQL port, creates <code>tutorial_todos</code> and seeds saved JSON rows with their original IDs. Repeated starts do not duplicate them. JSON remains for recovery; new writes go to SQL. The locked SQL driver is already in Todo's acquired package.
+
+| Service | Responsibility |
 | --- | --- |
-| Host | `127.0.0.1` |
-| Port | Printed by `npm start`; read from the running service's state (dynamic) |
-| Database | `postgres` |
-| User / password | `pgadmin` / `pgadmin`, public local tutorial defaults |
+| todo, from lasso-todo | UI/API, validation, migration and SQL queries |
+| postgres, from lasso-postgres | Persist Todo rows |
+| @node | Managed runtime provider for Todo and the packaged PostgreSQL launcher |
 
-Keep this example on loopback. These credentials are for trying the released package locally; use [secret references and access policies](../reference/service-secret-access-policy.md) for an application you distribute.
+The isolated tutorial uses <code>pgadmin</code> / <code>pgadmin</code> and database <code>postgres</code>. These are public local defaults. A distributed application needs [secret references and policies](../reference/service-secret-access-policy.md). The pinned PostgreSQL macOS archive is Intel; Apple Silicon is not qualified.
 
-## Change a setting
+## 3. Prove persistence and dependency recovery
 
-1. Stop with `npm run stop` in the second terminal (equivalent to `Ctrl+C` in the app terminal for owned-workspace shutdown).
-2. In `workspace/services/postgres/service.json`, add `"POSTGRES_MAX_CONNECTIONS": "120"` inside `env`. The example's foreground launcher passes this setting to PostgreSQL.
-3. Run `npm start`, then `npm run check` again.
+1. Open Todo's allocated UI URL and confirm the beginner todo remains.
+2. Add a new SQL-backed todo and refresh.
+3. Stop Todo, then PostgreSQL through Admin, confirming the actions.
+4. Confirm both are stopped and their listeners are unavailable.
+5. Start PostgreSQL, then Todo, waiting for healthy.
+6. Confirm old and new IDs remain.
 
-The check should now print `PostgreSQL max_connections: 120` as well as the passing database check. The app reads the runtime allocation rather than assuming the preferred database port was available. If `18550` or `18552` is occupied, stop this example's previous run or choose another environment. Do not kill an unrelated service.
+For a configuration exercise, stop both services, set <code>POSTGRES_MAX_CONNECTIONS</code> to <code>120</code> under PostgreSQL's environment, refresh Admin and restart in dependency order. Preserve the database directory. Changing a manifest password does not rotate an initialized database account.
 
-To declare a secret rather than a literal environment value, follow [Configure and recover a service](../operate-your-service.md). Changing a manifest password does not rotate an already initialized PostgreSQL account.
+**Pass:** the template-derived Todo package uses a second managed service and data survives service-specific restart. An HTTP200 from the UI alone does not prove SQL persistence. Record the exact release tag, checksum and retained IDs in your evidence.
 
-## Stop and keep your data
+The separate <code>examples/postgres-app</code> smoke app is supplementary; its unmanaged HTTP wrapper is not the main Todo journey. Todo source is owned by [lasso-todo](https://github.com/service-lasso/lasso-todo).
 
-```sh
-npm run stop
-```
-
-This stops this example's managed database and API. The app also closes when its runtime exits. `Ctrl+C` in the app terminal runs the same owned-workspace shutdown. Run `npm start` to resume; do not repeat setup or delete your database to restart.
-
-## If it fails
-
-Open `workspace/services/postgres/logs/runtime/service.log` and look at the last startup attempt. The pinned PostgreSQL release creates a placeholder under `runtime/data`; setup deliberately chooses `runtime/database`, because PostgreSQL requires an empty directory for first initialization. Preserve any existing database directory.
-
-An app response of **503 / database unavailable** means the web process is alive but its dependency is unavailable. Check the database's health and logs, restore it, restart the example, and rerun the write/read check. See [diagnosis and recovery](../operate-your-service.md).
-
-## Next
-
-Insert a Go API between the Todo UI and Postgres: [Advanced — Add a Go Todo API service](advanced-add-go-todo-api-service.md).
-
-[Package this app for another machine](../package-your-app.md), [give the task to an agent](../agent-prompts.md), or [browse more services](../service-catalog.md).
-
-[Measured results and platform limitations](../development/newcomer-verification.md).
+Next: [add the template-derived Go API](advanced-add-go-todo-api-service.md). Stop services through Admin when finished and keep data. Whole-demo shutdown/recycle remains unqualified [#1665](https://github.com/service-lasso/service-lasso/issues/1665).

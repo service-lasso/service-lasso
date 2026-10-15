@@ -1,0 +1,56 @@
+name: Release Archive Producer Fixtures Scoped
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_revision:
+        description: Full exact candidate SHA already selected for review
+        required: true
+        type: string
+      release_id:
+        description: Server-resolved published release ID for the selected asset
+        required: true
+        type: string
+      linux_asset_id:
+        description: Server-resolved selected Linux TAR asset ID
+        required: true
+        type: string
+
+env:
+  CANDIDATE_SHA: ${{ inputs.source_revision }}
+
+jobs:
+  capture-native-tar-fixture:
+    if: ${{ github.ref == 'refs/heads/develop' }}
+    name: native-tar-fixture (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_revision }}
+      - name: Bind exact source-owned policy
+        run: node scripts/bind-scoped-workflow-source.mjs
+
+      - name: Generate native producer fixture and receipt
+        env:
+          RELEASE_ARCHIVE_FIXTURE_OUTPUT: artifacts/release-archive-producer-fixture-${{ matrix.platform }}
+          RELEASE_ARCHIVE_SOURCE_REVISION: ${{ inputs.source_revision }}
+          RELEASE_ARCHIVE_RELEASE_ID: ${{ inputs.release_id }}
+          RELEASE_ARCHIVE_ASSET_ID: ${{ inputs.linux_asset_id }}
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/create-release-archive-producer-fixture.mjs
+      - name: Retain fixture parser proof only
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-archive-producer-fixture-${{ matrix.platform }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/release-archive-producer-fixture-${{ matrix.platform }}
+          if-no-files-found: error
+          retention-days: 90

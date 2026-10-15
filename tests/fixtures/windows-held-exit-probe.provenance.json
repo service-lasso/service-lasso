@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "compiler": {
+    "family": "Microsoft .NET Framework 4.8 C# compiler",
+    "path": "%WINDIR%/Microsoft.NET/Framework64/v4.0.30319/csc.exe",
+    "options": [
+      "/nologo",
+      "/target:exe",
+      "/platform:anycpu",
+      "/optimize+",
+      "/debug-"
+    ]
+  },
+  "source": {
+    "path": "tests/fixtures/windows-held-exit-probe.cs",
+    "sha256": "df7af2cb89af9cbc0312b97d5253c0032c1166b0c3a91e66e224d6b83e8d3ae0"
+  },
+  "binary": {
+    "path": "tests/fixtures/windows-held-exit-probe.exe",
+    "sha256": "ff01a96acf4c8fffbe2b780f6fee9d03160053e4a78ecb4b98f1a20771a7ce07",
+    "byteLength": 6656,
+    "peTimestamp": "zero",
+    "moduleVersionId": "zero"
+  }
+}
