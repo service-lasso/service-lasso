@@ -117,23 +117,23 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
     /test "\$admin_revision" = "\$ADMIN_HARNESS_REVISION"/,
   );
   assert.match(workflow, /ADMIN_RELEASE_TAG: "2026\.8\.31-f015b44"/);
-  assert.match(workflow, /BROKER_RELEASE_TAG: "2026\.8\.31-f340883"/);
+  assert.match(workflow, /BROKER_RELEASE_TAG: "2026\.10\.15-3590178"/);
   assert.match(
     workflow,
-    /BROKER_REVISION: "f340883056ec3cf74b535fb46490b39382e8c823"/,
+    /BROKER_REVISION: "35901785afe832eb21ba071cc2c4882c7fbbb13b"/,
   );
   assert.equal(ADMIN_RELEASE.id, "380051618");
   assert.equal(ADMIN_RELEASE.revision, "f015b4445b0526546a309301270186a697588166");
   assert.equal(ADMIN_HARNESS_REVISION, "90caf8cf0f8e3c599a1a5022936813ac8bf0983b");
-  assert.equal(BROKER_RELEASE.revision, "f340883056ec3cf74b535fb46490b39382e8c823");
+  assert.equal(BROKER_RELEASE.revision, "35901785afe832eb21ba071cc2c4882c7fbbb13b");
 
   for (const digest of [
     "fe5e5fe01d1202f3874097e6223652d634c94677c765c5f82d20e6d274c0161c",
     "8f80b124967fa1e0efe9fa4c6c0d3aaa9f4f64ffdd15d1180359d2c6185d3e71",
     "2b5cdd80861819a7eb6f92ed5743c208baae8b35e7f4232fd3df928f34bfcb81",
-    "e64ee6a85c053c6dd68e2713477dae0620a458496bbd41077b55cc4c2df3f966",
-    "3466c9adf01d14b202fd084705bfda11fef627206587a0ad1f62dbb6a6a4f295",
-    "567b40bbd42881c5a4e12c2b8984ece9b5225d221ecf2d776fb541e330365ce5",
+    "0be11e53feb902871c407bd4bed7f557ec5aa11b52e769e703f9f7555350c852",
+    "5827a621bca6173d2d578e1acf9a4f074fc836bc5c89e73a15aedbf259124614",
+    "bfb5cf5a3f80964dbc947f84d6129c3b1d6caa39effe9af49c0090ba2c509a23",
   ]) {
     assert.match(workflow, new RegExp(digest));
   }
