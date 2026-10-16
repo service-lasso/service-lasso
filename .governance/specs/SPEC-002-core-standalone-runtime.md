@@ -1546,3 +1546,12 @@ current-base identity are CORE1562_CLIENT_RELEASE_HELPER_TRANSFER.json. Full
 source binding remains incomplete/unqualified; these helpers confer no ROOT or
 native authority. Different entire cumulative review and NEW complete actual-input
 ROOT admission precede execution. Natural CI remains the next failure observation.
+
+#1562 F25 source-evidence amendment is PROPOSED in
+CORE1562_F25_SOURCE_EVIDENCE_AMENDMENT_PROPOSAL.md under AC-4DI.4/R3/C3/G1.
+The stale gate.Wait witness disagrees with the actual shielded infinite Thread.Sleep
+barrier. The proposal specifies exact same-invocation/rooted-owner requirements
+and finite/return/unshielded adversaries; it changes no test or selected criterion.
+Different entire review and explicit durable selection precede witness mutation;
+NEW complete ROOT admission precedes local execution. Current cumulative source
+is frozen for the parent-arranged different entire review, not qualified.
