@@ -159,6 +159,9 @@ jobs:
           export SERVICE_LASSO_TEST_SERVICES_ROOT="$qualification_root/runtime-services"
           export SERVICE_LASSO_TEST_EVIDENCE_ROOT="$qualification_root/runtime-evidence"
           export SERVICE_LASSO_TEST_SUPPORT_ROOT="$qualification_root/runtime-support"
+          # The Core real-browser runner requires these caller-owned runtime
+          # roots to exist before it starts; create them here.
+          mkdir -p "$SERVICE_LASSO_TEST_SERVICES_ROOT" "$SERVICE_LASSO_TEST_EVIDENCE_ROOT" "$SERVICE_LASSO_TEST_SUPPORT_ROOT"
           export QUALIFICATION_WORKSPACE_ROOT="$SERVICE_LASSO_WORKSPACE_ROOT"
           export QUALIFICATION_EVIDENCE_ROOT="$qualification_root/evidence"
           export QUALIFICATION_PRIVATE_CUSTODY_ROOT="$qualification_root/private"
