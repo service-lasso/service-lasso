@@ -1,27 +1,67 @@
 // SPEC-002 AC-4DI.4/R3/C3. Pure source foundation; no file/process/native effects.
+const sourceDenialCodes = new WeakMap();
 export class SourceDenial extends Error {
   constructor(code, detail, origin = null) {
     super(`${code}: ${detail}`);
+    sourceDenialCodes.set(this, code);
     this.name = 'SourceDenial'; this.code = code; this.origin = origin;
   }
 }
+// Classification observes only this module's actual constructed denial. It
+// neither reads an opaque thrown object's properties nor trusts a copied code.
+export function isSourceDenialCode(original, code) {
+  return sourceDenialCodes.has(original) && sourceDenialCodes.get(original) === code;
+}
+export function originalSourceDenialCode(original) { return sourceDenialCodes.get(original); }
 export function deny(code, detail, origin) { throw new SourceDenial(code, detail, origin); }
 export function exactKeys(value, keys, label) {
-  if (!value || Object.getPrototypeOf(value) !== Object.prototype ||
-      Object.keys(value).length !== keys.length || keys.some(key => !Object.hasOwn(value, key))) {
+  if (!value || Object.getPrototypeOf(value) !== Object.prototype) {
     deny('INVALID_INPUT', `${label} requires exactly ${keys.join(',')}`);
+  }
+  const ownKeys = Reflect.ownKeys(value);
+  if (ownKeys.length !== keys.length || ownKeys.some(key => typeof key !== 'string' || !keys.includes(key)))
+    deny('INVALID_INPUT', `${label} requires exactly ${keys.join(',')}`);
+  for (const key of keys) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || !Object.hasOwn(descriptor, 'value') || descriptor.enumerable !== true)
+      deny('INVALID_INPUT', `${label} requires own enumerable data members`);
   }
 }
 
 // Decode every byte ourselves. Retain BOM and CRLF; reject overlong, surrogate,
 // truncated and out-of-range encodings. Interior UTF16 surrogate offsets have no
 // byte endpoint and therefore cannot be used as source range boundaries.
-export function decodeOriginal(bytes) {
+const decoderOccurrences = new WeakMap();
+export function createOriginalDecoderOccurrence() {
+  const token = Object.freeze({});
+  decoderOccurrences.set(token, { issued: false, returned: false, failed: false });
+  return token;
+}
+export function copyOriginalDecoderObservation(token) {
+  const owner = decoderOccurrences.get(token);
+  if (!owner) deny('INVALID_BINDING', 'decoder observation requires original custody');
+  return { phase: owner.phase, returned: owner.returned, failed: owner.failed, original: owner.original,
+    offset: owner.offset, scalar: owner.scalar, text: owner.text, pendingStart: owner.pendingStart,
+    raw: owner.raw ? Uint8Array.from(owner.raw) : undefined,
+    byteAt: owner.byteAt?.slice(), scalarAt: owner.scalarAt?.slice() };
+}
+export function decodeOriginal(bytes, token) {
+  const owner = token === undefined ? undefined : decoderOccurrences.get(token);
+  if (token !== undefined && (!owner || owner.issued)) deny('INVALID_BINDING', 'decoder occurrence is original and once-only');
+  if (owner) { owner.issued = true; owner.input = bytes; owner.phase = 'inputValidation'; }
+  try {
   if (!(bytes instanceof Uint8Array)) deny('INVALID_INPUT', 'raw bytes required');
-  const raw = Uint8Array.from(bytes), byteAt = [0], scalarAt = [0];
+  if (owner) owner.phase = 'rawCopy';
+  const raw = Uint8Array.from(bytes);
+  if (owner) { owner.raw = raw; owner.phase = 'byteMapAllocation'; }
+  const byteAt = [0];
+  if (owner) { owner.byteAt = byteAt; owner.phase = 'scalarMapAllocation'; }
+  const scalarAt = [0];
+  if (owner) { owner.scalarAt = scalarAt; owner.phase = 'decoding'; owner.text = ''; owner.offset = 0; owner.scalar = 0; }
   let text = '', offset = 0, scalar = 0;
   while (offset < raw.length) {
     const start = offset, lead = raw[offset++];
+    if (owner) { owner.pendingStart = start; owner.offset = offset; }
     let value, remaining, minimum;
     if (lead < 0x80) { value = lead; remaining = 0; minimum = 0; }
     else if (lead >= 0xc2 && lead <= 0xdf) { value = lead & 31; remaining = 1; minimum = 0x80; }
@@ -31,9 +71,11 @@ export function decodeOriginal(bytes) {
     for (let n = 0; n < remaining; n++) {
       if (offset === raw.length || (raw[offset] & 0xc0) !== 0x80) deny('INVALID_ENCODING', `invalid continuation at byte ${offset}`);
       value = value * 64 + (raw[offset++] & 63);
+      if (owner) owner.offset = offset;
     }
     if (value < minimum || value > 0x10ffff || (value >= 0xd800 && value <= 0xdfff)) deny('INVALID_ENCODING', `invalid scalar at byte ${start}`);
     text += String.fromCodePoint(value); scalar++;
+    if (owner) { owner.text = text; owner.offset = offset; owner.scalar = scalar; }
     if (value > 0xffff) { byteAt.push(null); scalarAt.push(null); }
     byteAt.push(offset); scalarAt.push(scalar);
   }
@@ -43,7 +85,10 @@ export function decodeOriginal(bytes) {
     return { kind: 'source', byte: [byteAt[start], byteAt[end]], utf16: [start, end],
       rawRanges: [[byteAt[start], byteAt[end]]], mapped: false };
   }
-  return { raw, text, byteAt, scalarAt, bom: text.charCodeAt(0) === 0xfeff, origin };
+  const result = { raw, text, byteAt, scalarAt, bom: text.charCodeAt(0) === 0xfeff, origin };
+  if (owner) { owner.result = result; owner.returned = true; owner.phase = 'returned'; }
+  return result;
+  } catch (original) { if (owner) { owner.original = original; owner.failed = true; } throw original; }
 }
 
 const multi = ['>>>=', '===', '!==', '>>>', '<<=', '>>=', '**=', '??=', '&&=', '||=',
@@ -53,9 +98,26 @@ const first = ch => /[A-Za-z_$]/.test(ch);
 const rest = ch => /[A-Za-z0-9_$]/.test(ch);
 // ASCII identifiers are the currently supported finite subprofile. Other source
 // identifiers, regex/template strings and preprocessing are explicit denials.
-export function lexOriginal(decoded, language) {
+const lexerOccurrences = new WeakMap();
+export function createOriginalLexerOccurrence() {
+  const token = Object.freeze({});
+  lexerOccurrences.set(token, { issued: false, returned: false, failed: false });
+  return token;
+}
+export function copyOriginalLexerObservation(token) {
+  const owner = lexerOccurrences.get(token);
+  if (!owner) deny('INVALID_BINDING', 'lexer observation requires original custody');
+  return { returned: owner.returned, failed: owner.failed, original: owner.original,
+    tokens: structuredClone(owner.tokens ?? []), trivia: structuredClone(owner.trivia ?? []) };
+}
+export function lexOriginal(decoded, language, token) {
+  const owner = token === undefined ? undefined : lexerOccurrences.get(token);
+  if (token !== undefined && (!owner || owner.issued)) deny('INVALID_BINDING', 'lexer occurrence is original and once-only');
+  if (owner) { owner.issued = true; owner.decoded = decoded; owner.language = language; }
+  try {
   if (!['javascript', 'csharp'].includes(language)) deny('UNSUPPORTED_FRONTEND', language);
   const { text, origin } = decoded, tokens = [], trivia = [];
+  if (owner) { owner.tokens = tokens; owner.trivia = trivia; }
   // C# Zs/TAB/VT/FF and its five newline characters are independent from
   // ECMAScript WhiteSpace. In particular interior FEFF is a formatting
   // character, never a keyword/name separator in the supported ASCII profile.
@@ -119,5 +181,8 @@ export function lexOriginal(decoded, language) {
   let end = 0;
   for (const range of ranges) { if (range[0] !== end) deny('INCOMPLETE_INPUT', 'lexer coverage gap/overlap'); end = range[1]; }
   if (end !== decoded.raw.length) deny('INCOMPLETE_INPUT', 'lexer did not consume raw EOF');
-  return { tokens, trivia, consumedBytes: end };
+  const result = { tokens, trivia, consumedBytes: end };
+  if (owner) { owner.result = result; owner.returned = true; }
+  return result;
+  } catch (original) { if (owner) { owner.original = original; owner.failed = true; } throw original; }
 }
