@@ -4,7 +4,7 @@ import { K2_LIMITS } from './core1681-proof-terms.mjs';
 
 const recursiveProductions = ['typeRef', 'initializer', 'knownType', 'primary', 'expression', 'block', 'statement', 'csharpDeclaration',
   'psPrimary', 'psExpression', 'psCommandArgument', 'psBlock', 'psStatement',
-  'jsPattern', 'jsPrimary', 'jsExpression', 'jsBlock', 'jsStatement', 'jsExport',
+  'jsPattern', 'jsPrimary', 'jsExpression', 'jsBlock', 'jsStatement', 'jsExport', 'jsRequireForTarget',
   'cSpecifiers', 'cAggregate', 'cDeclarator', 'declaratorName', 'cInitializer', 'cDeclaration', 'cPrimary', 'cExpression', 'cBlock', 'cStatement'];
 
 export function installSelectedRecursionBounds(parser) {

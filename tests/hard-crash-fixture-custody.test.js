@@ -27,16 +27,17 @@ const execFileAsync = promisify(execFile);
 
 test("closed diagnostic operation observation refuses foreign, copied, primitive and getter tags", () => {
   for (const value of [null, undefined, false, 0, "initialization_diagnostic_hold_acquire", {},
-    { stage: "initialization_diagnostic_hold_acquire" }, { operation: "ready_receipt", childOperation: "bootstrap", transportReason: "stderr_content" }, new Error("initialization_diagnostic_hold_acquire"),
+    { stage: "initialization_diagnostic_hold_acquire" }, { operation: "ready_receipt", childOperation: "bootstrap", transportReason: "stderr_content" },
+    { operation: "ready_receipt", childOperation: "acquire_chain", acquireOperation: "owner_root", transportReason: "stderr_content" }, new Error("initialization_diagnostic_hold_acquire"),
     new Proxy({}, { get() { throw new Error("PRIVATE-GETTER"); } })])
     { assert.equal(fixtureDiagnosticFailureObservation(value), undefined); assert.equal(diagnosticHoldFailureObservation(value), undefined); }
   const foreign = {};
-  for (const key of ["code", "message", "stage", "fixtureInitializationStage", "diagnosticOperation"])
+  for (const key of ["code", "message", "stage", "fixtureInitializationStage", "diagnosticOperation", "acquireOperation", "childOperation"])
     Object.defineProperty(foreign, key, { get() { assert.fail("Foreign thrown properties cannot classify an operation."); } });
   assert.equal(fixtureDiagnosticFailureObservation(foreign), undefined);
   assert.equal(diagnosticHoldFailureObservation(foreign), undefined);
   assert.equal(Object.isFrozen(FIXTURE_DIAGNOSTIC_OPERATION_STAGES), true);
-  assert.equal(FIXTURE_DIAGNOSTIC_OPERATION_STAGES.length, 30);
+  assert.equal(FIXTURE_DIAGNOSTIC_OPERATION_STAGES.length, 38);
 });
 
 const diagnosticProjectionSurrogate = async ({ primary, primaryStage, failures = [], initialize = async () => {} }) => {
@@ -547,6 +548,7 @@ test("actual diagnostic operation catches only its own invocation and does not r
   await mkdir(original); await mkdir(outside); await writeFile(path.join(outside, "must-survive"), "PRIVATE-OPERATION-OUTSIDE");
   const before = await lstat(outside), acl = process.platform === "win32" ? await privateAclReadback(outside) : undefined;
   const boundaries = [];
+  let retainedDiagnosticIdentity;
   const finish = async (boundary, primary) => {
     let summary;
     await assert.rejects(closeFixture({ primary, evidence: boundary, custody: createFixtureCustody(),
@@ -557,13 +559,26 @@ test("actual diagnostic operation catches only its own invocation and does not r
   };
   try {
     const reached = createFixtureEvidenceBoundary(original, { beforeInitializationStep: async (stage, state) => {
-      if (stage === "initialization_diagnostic_privacy")
-        await symlink(outside, path.join(state.diagnosticRoot, "actual-reparse-child"), process.platform === "win32" ? "junction" : "dir");
+      if (stage === "initialization_diagnostic_privacy") {
+        if (process.platform === "win32") await symlink(outside, path.join(state.diagnosticRoot, "actual-reparse-child"), "junction");
+        else {
+          // Linux privacy checks the actual root rather than a recursive child
+          // inventory. Retain that fresh original and redirect only its old name.
+          retainedDiagnosticIdentity = await lstat(state.diagnosticRoot);
+          await rename(state.diagnosticRoot, path.join(parent, "retained-diagnostic-original"));
+          await symlink(outside, state.diagnosticRoot, "dir");
+        }
+      }
     } }); boundaries.push(reached);
     let authentic;
     try { await reached.initialize(); } catch (actual) { authentic = actual; }
     assert.equal(fixtureDiagnosticFailureObservation(authentic), "initialization_diagnostic_privacy_call");
     await finish(reached, authentic);
+    if (retainedDiagnosticIdentity) {
+      const retained = await lstat(path.join(parent, "retained-diagnostic-original"));
+      assert.equal(retained.ino, retainedDiagnosticIdentity.ino); assert.equal(retained.dev, retainedDiagnosticIdentity.dev);
+      assert.equal(retained.uid, retainedDiagnosticIdentity.uid); assert.equal(retained.mode, retainedDiagnosticIdentity.mode);
+    }
     await diagnosticProjectionSurrogate({ primary: authentic,
       primaryStage: "initialization_diagnostic_privacy_call",
       failures: [{ stage: "initialization_diagnostic_privacy_call", error: authentic }],

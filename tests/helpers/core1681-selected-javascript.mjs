@@ -11,6 +11,7 @@ const levels = new Map([['=', 1], ['+=', 1], ['-=', 1], ['*=', 1], ['/=', 1], ['
 export class SelectedJavaScriptSyntax extends SelectedSyntax {
   constructor(rawBytes, counter, decoderOccurrence) {
     super(rawBytes, 'javascript', counter, undefined, decoderOccurrence); this.functionStack = []; this.awaitContexts = []; this.allowIn = true;
+    this.trailingCommaContainers = new WeakSet();
   }
   jsName(property = false) {
     const token = this.consume();
@@ -53,19 +54,19 @@ export class SelectedJavaScriptSyntax extends SelectedSyntax {
         else {
           if (key.kind !== 'jsPropertyName' || reserved.has(key.name.spelling) || ['eval', 'arguments'].includes(key.name.spelling)) deny('INVALID_SYNTAX', 'shorthand binding required', key.origin);
           const binding = this.declaration('jsBinding', { origin: key.name.origin }, { name: key.name });
-          value = this.take('=') ? this.node('jsDefaultPattern', start, { binding, initializer: this.jsExpression(1) }) : binding;
+          value = this.take('=') ? this.node('jsDefaultPattern', start, { binding, initializer: this.jsInExpression(1) }) : binding;
         }
         properties.push(this.node('jsPropertyPattern', start, { key, value }));
         if (!this.take(',')) break;
       }
       this.need('}'); pattern = this.node('jsObjectPattern', first, { properties });
     } else pattern = this.declaration('jsBinding', first, { name: this.jsName() });
-    if (defaults && this.take('=')) pattern = this.node('jsDefaultPattern', first, { binding: pattern, initializer: this.jsExpression(1) });
+    if (defaults && this.take('=')) pattern = this.node('jsDefaultPattern', first, { binding: pattern, initializer: this.jsInExpression(1) });
     return pattern;
   }
   jsPropertyKey() {
     const first = this.peek();
-    if (this.take('[')) { const expression = this.jsExpression(); this.need(']'); return this.node('jsComputedProperty', first, { expression }); }
+    if (this.take('[')) { const expression = this.jsInExpression(0); this.need(']'); return this.node('jsComputedProperty', first, { expression }); }
     if (['number', 'string'].includes(first.kind)) { this.consume(); return this.node('literal', first, { token: first }); }
     return this.node('jsPropertyName', first, { name: this.jsName(true) });
   }
@@ -84,9 +85,13 @@ export class SelectedJavaScriptSyntax extends SelectedSyntax {
   jsAwaitAllowed() { return this.awaitContexts.length ? this.awaitContexts.at(-1) : true; }
   jsFunctionBody(async, arrow = false) {
     const controls = this.controlStack; this.controlStack = []; this.functionStack.push({ async, arrow });
+    const oldAllowIn = this.allowIn;
     this.awaitContexts.push(async);
-    try { return this.word() === '{' ? this.jsBlock() : arrow ? this.jsExpression(1) : (this.need('{'), null); }
-    finally { this.awaitContexts.pop(); this.functionStack.pop(); this.controlStack = controls; }
+    try {
+      if (!arrow || this.word() === '{') this.allowIn = true;
+      return this.word() === '{' ? this.jsBlock() : arrow ? this.jsExpression(1) : (this.need('{'), null);
+    }
+    finally { this.allowIn = oldAllowIn; this.awaitContexts.pop(); this.functionStack.pop(); this.controlStack = controls; }
   }
   jsFunction(first, async, declaration = false) {
     this.need('function');
@@ -99,7 +104,7 @@ export class SelectedJavaScriptSyntax extends SelectedSyntax {
   jsArguments() {
     this.need('('); const arguments_ = [];
     if (this.word() !== ')') do {
-      const first = this.peek(), spread = Boolean(this.take('...')), expression = this.jsExpression(1);
+      const first = this.peek(), spread = Boolean(this.take('...')), expression = this.jsInExpression(1);
       arguments_.push(this.node('jsArgument', first, { spread, expression }));
     } while (this.take(',') && this.word() !== ')');
     this.need(')'); return arguments_;
@@ -111,7 +116,7 @@ export class SelectedJavaScriptSyntax extends SelectedSyntax {
       const part = this.scanner.templatePart(); this.last = part;
       parts.push(this.node('jsTemplateText', part, { token: part }));
       if (part.kind === 'templateTail') break;
-      parts.push(this.jsExpression(0)); this.need('}');
+      parts.push(this.jsInExpression(0)); this.need('}');
     }
     return this.node('jsTemplate', first, { parts });
   }
@@ -147,24 +152,27 @@ export class SelectedJavaScriptSyntax extends SelectedSyntax {
           return this.declaration('jsArrow', first, { async: false, parameters, body: this.jsFunctionBody(false, true) });
         }
       } catch (error) { if (!isSourceDenialCode(error, 'INVALID_SYNTAX') && !isSourceDenialCode(error, 'UNSUPPORTED_FORM')) throw error; }
-      this.restore(mark); const expression = this.jsExpression(0); this.need(')');
+      this.restore(mark); const expression = this.jsInExpression(0); this.need(')');
       return this.node('group', first, { expression });
     }
     if (this.take('[')) {
-      const elements = [];
+      const elements = []; let trailingComma = false;
       while (this.word() !== ']') {
-        if (this.take(',')) { elements.push(null); continue; }
+        if (this.take(',')) { elements.push(null); trailingComma = this.word() === ']'; continue; }
         const start = this.peek(), spread = Boolean(this.take('...'));
-        elements.push(this.node('jsArrayElement', start, { spread, expression: this.jsExpression(1) }));
+        elements.push(this.node('jsArrayElement', start, { spread, expression: this.jsInExpression(1) }));
         if (!this.take(',')) break;
+        trailingComma = this.word() === ']';
       }
-      this.need(']'); return this.node('jsArray', first, { elements });
+      this.need(']'); const result = this.node('jsArray', first, { elements });
+      if (trailingComma) this.trailingCommaContainers.add(result);
+      return result;
     }
     if (this.take('{')) {
-      const properties = [];
+      const properties = []; let trailingComma = false;
       while (this.word() !== '}') {
         const start = this.peek();
-        if (this.take('...')) properties.push(this.node('jsObjectSpread', start, { expression: this.jsExpression(1) }));
+        if (this.take('...')) properties.push(this.node('jsObjectSpread', start, { expression: this.jsInExpression(1) }));
         else {
           let async = false, accessor = null;
           if (['async', 'get', 'set'].includes(this.word())) {
@@ -175,7 +183,7 @@ export class SelectedJavaScriptSyntax extends SelectedSyntax {
             } else this.restore(mark);
           }
           const key = this.jsPropertyKey(); let value, method = false;
-          if (this.take(':')) value = this.jsExpression(1);
+          if (this.take(':')) value = this.jsInExpression(1);
           else if (this.word() === '(') {
             const parameters = this.jsParameters();
             if (accessor === 'get' && parameters.length !== 0 || accessor === 'set' && (parameters.length !== 1 || parameters[0].rest || parameters[0].pattern.kind === 'jsDefaultPattern'))
@@ -187,8 +195,11 @@ export class SelectedJavaScriptSyntax extends SelectedSyntax {
           properties.push(this.node('jsObjectProperty', start, { key, value, method }));
         }
         if (!this.take(',')) break;
+        trailingComma = this.word() === '}';
       }
-      this.need('}'); return this.node('jsObject', first, { properties });
+      this.need('}'); const result = this.node('jsObject', first, { properties });
+      if (trailingComma) this.trailingCommaContainers.add(result);
+      return result;
     }
     if (this.take('import')) {
       if (this.take('.')) { const name = this.jsName(true); if (name.spelling !== 'meta') deny('INVALID_SYNTAX', 'import.meta required', name.origin); return this.node('jsImportMeta', first); }
@@ -214,7 +225,7 @@ export class SelectedJavaScriptSyntax extends SelectedSyntax {
       if (optional && this.word() === '(' || calls && this.word() === '(') {
         left = this.node('jsCall', first, { target: left, optional, arguments: this.jsArguments() }); continue;
       }
-      if (this.take('[')) { const index = this.jsExpression(0); this.need(']'); left = this.node('jsIndex', first, { target: left, optional, index }); continue; }
+      if (this.take('[')) { const index = this.jsInExpression(0); this.need(']'); left = this.node('jsIndex', first, { target: left, optional, index }); continue; }
       if (optional || this.take('.')) { left = this.node('jsMember', first, { target: left, optional, name: this.jsName(true) }); continue; }
       if (this.peek().kind === 'templateStart') deny('UNSUPPORTED_FORM', 'tagged template is outside selected expression production', this.peek().origin);
       if (calls && !this.lineBefore() && ['++', '--'].includes(this.word())) { left = this.node('postfix', first, { operation: this.consume().spelling, operand: left }); continue; }
@@ -236,7 +247,7 @@ export class SelectedJavaScriptSyntax extends SelectedSyntax {
     left = this.jsPostfix(left, first);
     while (true) {
       if (minimum <= 2 && this.take('?')) {
-        const whenTrue = this.jsExpression(1); this.need(':'); const whenFalse = this.jsExpression(1);
+        const whenTrue = this.jsInExpression(1); this.need(':'); const whenFalse = this.jsExpression(1);
         left = this.node('conditional', first, { test: left, whenTrue, whenFalse }); continue;
       }
       if (minimum === 0 && this.take(',')) { left = this.node('jsSequence', first, { left, right: this.jsExpression(1) }); continue; }
@@ -250,6 +261,10 @@ export class SelectedJavaScriptSyntax extends SelectedSyntax {
       left = this.node(level === 1 ? 'assignment' : 'binary', first, { operation, left, right });
     }
     return left;
+  }
+  jsInExpression(minimum) {
+    const before = this.allowIn; this.allowIn = true;
+    try { return this.jsExpression(minimum); } finally { this.allowIn = before; }
   }
   jsBlock() {
     const first = this.need('{'), statements = [];
@@ -270,6 +285,50 @@ export class SelectedJavaScriptSyntax extends SelectedSyntax {
     if (declarations.some(declaration => declaration.initializer === null &&
         (category === 'const' || declaration.pattern.kind !== 'jsBinding')))
       deny('INVALID_SYNTAX', 'lexical declaration requires initializer', first.origin);
+  }
+  jsSimpleAssignmentTarget(expression) {
+    while (expression.kind === 'group') {
+      this.counter.charge('maxInvariantSteps', 'selected-JS-grouped-assignment-target');
+      expression = expression.expression;
+    }
+    if (expression.kind === 'name') return true;
+    if (!['jsMember', 'jsIndex'].includes(expression.kind)) return false;
+    // Optional chains propagate through ungrouped member/index/call segments;
+    // a group ends that chain, so (obj?.value).field remains a simple target.
+    for (let current = expression; ['jsMember', 'jsIndex', 'jsCall'].includes(current.kind); current = current.target) {
+      this.counter.charge('maxInvariantSteps', 'selected-JS-assignment-target-chain');
+      if (current.optional) return false;
+    }
+    return true;
+  }
+  jsRequireForTarget(expression, defaultAllowed = false, patternsAllowed = true) {
+    this.counter.charge('maxInvariantSteps', 'selected-JS-for-assignment-target');
+    if (defaultAllowed && expression.kind === 'assignment' && expression.operation === '=') {
+      this.jsRequireForTarget(expression.left); return;
+    }
+    if (patternsAllowed && expression.kind === 'jsArray') {
+      for (const [index, element] of expression.elements.entries()) {
+        if (element === null) continue;
+        if (element.spread && (index !== expression.elements.length - 1 || this.trailingCommaContainers.has(expression)))
+          deny('INVALID_SYNTAX', 'assignment array rest must be last without comma', element.origin);
+        this.jsRequireForTarget(element.expression, !element.spread);
+      }
+      return;
+    }
+    if (patternsAllowed && expression.kind === 'jsObject') {
+      for (const [index, property] of expression.properties.entries()) {
+        if (property.kind === 'jsObjectSpread') {
+          if (index !== expression.properties.length - 1 || this.trailingCommaContainers.has(expression))
+            deny('INVALID_SYNTAX', 'assignment object rest must be last without comma', property.origin);
+          this.jsRequireForTarget(property.expression, false, false);
+        } else {
+          if (property.method) deny('INVALID_SYNTAX', 'assignment pattern cannot contain method', property.origin);
+          this.jsRequireForTarget(property.value, true);
+        }
+      }
+      return;
+    }
+    if (!this.jsSimpleAssignmentTarget(expression)) deny('INVALID_SYNTAX', 'for-in/of assignment target required', expression.origin);
   }
   jsControl(kind, operation) {
     this.controlStack.push(kind); try { return operation(); } finally { this.controlStack.pop(); }
@@ -308,7 +367,11 @@ export class SelectedJavaScriptSyntax extends SelectedSyntax {
       if (['of', 'in'].includes(this.word())) {
         if (initializer?.kind === 'jsVariableDeclaration' && (initializer.declarations.length !== 1 || initializer.declarations[0].initializer !== null))
           deny('INVALID_SYNTAX', 'for-in/of lexical head requires one uninitialized binding', first.origin);
-        const operation = this.consume().spelling, sequence = this.jsExpression(0); this.need(')');
+        if (initializer?.kind !== 'jsVariableDeclaration') {
+          if (!initializer) deny('INVALID_SYNTAX', 'for-in/of head required', first.origin);
+          this.jsRequireForTarget(initializer);
+        }
+        const operation = this.consume().spelling, sequence = this.jsExpression(operation === 'of' ? 1 : 0); this.need(')');
         if (async && operation !== 'of') deny('INVALID_SYNTAX', 'for await requires of', first.origin);
         return this.node('jsForEach', first, { async, operation, initializer, sequence, body: this.jsControl('loop', () => this.jsStatement(false)) });
       }

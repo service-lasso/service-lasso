@@ -36,7 +36,7 @@ export async function holdDiagnosticRootWindows(root, diagnosticRoot) {
     try { await writeFile(path.join(diagnosticRoot, "diagnostic-guardian-custody.json"), JSON.stringify({
       callerPid, childPid: child.pid, callerIdentity, nativeIdentity, guardianWitness: state.readyWitness,
       closure: { closed: state.closed, exit: state.exit }, stdoutEof: state.stdoutEof, stderrEof: state.stderrEof,
-      stdinFinished: state.stdinFinished, childFailure: state.childFailure,
+      stdinFinished: state.stdinFinished, childFailure: state.childFailure, acquireOperation: state.acquireOperation,
       firstTransportReason: state.firstFailureRecorded ? state.firstFailure.reason : undefined,
       stdout: { bytes: state.stdout.length, observedBytes: state.stdoutCount, sha256: createHash("sha256").update(state.stdout).digest("hex") },
       stderr: { bytes: state.stderr.length, observedBytes: state.stderrCount, sha256: createHash("sha256").update(state.stderr).digest("hex") },
@@ -54,7 +54,7 @@ export async function holdDiagnosticRootWindows(root, diagnosticRoot) {
       const state = transport.failureObservation();
       const transportReason = acquisition.transportFailure && Object.is(acquisition.transportFailure.original, primary)
         ? acquisition.transportFailure.reason : undefined;
-      observationByError.set(aggregate, Object.freeze({ operation: operationFailure.operation, childOperation: state.childFailure, transportReason }));
+      observationByError.set(aggregate, Object.freeze({ operation: operationFailure.operation, childOperation: state.childFailure, acquireOperation: state.acquireOperation, transportReason }));
     }
     throw aggregate;
   }

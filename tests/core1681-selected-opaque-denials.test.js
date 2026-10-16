@@ -2,12 +2,18 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { SelectedSyntax } from './helpers/core1681-selected-syntax.mjs';
 import { SelectedJavaScriptSyntax } from './helpers/core1681-selected-javascript.mjs';
+import { SelectedCSyntax } from './helpers/core1681-selected-c-syntax.mjs';
+import { createSelectedFrontendOccurrence, parseSelectedSourceForest } from './helpers/core1681-selected-forest.mjs';
 import { createProofCounter } from './helpers/core1681-proof-terms.mjs';
 import { SourceDenial, isSourceDenialCode } from './helpers/core1681-source-input.mjs';
 
 const parser = (text, language = 'csharp') => language === 'javascript'
   ? new SelectedJavaScriptSyntax(Buffer.from(text), createProofCounter())
   : new SelectedSyntax(Buffer.from(text), language, createProofCounter());
+const forest = (text, language) => {
+  const counter = createProofCounter();
+  return parseSelectedSourceForest(Buffer.from(text), language, counter, createSelectedFrontendOccurrence(counter));
+};
 const sites = [
   ['lambda type', () => { const p = parser('(x)'); return [p, 'typeRef', () => p.primary()]; }],
   ['lambda declaration', () => { const p = parser('(x)'); return [p, 'declaration', () => p.primary()]; }],
@@ -134,6 +140,78 @@ test('selected CSharp expression grammar excludes foreign operators and incomple
   }
   for (const expression of ['+a', '-a', '!a', '~a', '++a', '--a', 'a++', 'a--', 'a is C', 'a as C', 'a ? b : c', 'new[] { 1 }'])
     assert.equal(parser(`class C { object F() { return ${expression}; } }`).csharpUnit().kind, 'unit');
+});
+
+test('selected JavaScript for-of RHS uses AssignmentExpression while in and grouped commas remain valid', () => {
+  for (const prefix of ['for', 'for await']) for (const head of ['const x', 'let [x]', 'x', 'obj.x', '[x]']) {
+    const invalid = `${prefix} (${head} of xs, ys) {}`;
+    for (const parse of [() => parser(invalid, 'javascript').javascriptUnit(), () => forest(invalid, 'javascript')])
+      assert.throws(parse, error => isSourceDenialCode(error, 'INVALID_SYNTAX'));
+    const source = `${prefix} (${head} of (xs, ys)) {}`;
+    for (const unit of [parser(source, 'javascript').javascriptUnit(), forest(source, 'javascript').root]) {
+      assert.equal(unit.statements[0].sequence.kind, 'group');
+      assert.equal(unit.statements[0].sequence.expression.kind, 'jsSequence');
+    }
+  }
+  for (const head of ['const x', 'let [x]', 'obj.x', '[x]']) {
+    const source = `for (${head} in xs, ys) {}`;
+    assert.equal(parser(source, 'javascript').javascriptUnit().statements[0].sequence.kind, 'jsSequence');
+    assert.equal(forest(source, 'javascript').root.statements[0].sequence.kind, 'jsSequence');
+  }
+  for (const source of ['for (let x = (a in b);;) {}', 'for (let [x = a in b] of xs) {}',
+    'for (obj[a in b] of xs) {}', 'for ({[a in b]: x} of xs) {}',
+    'for (let x = f(a in b);;) {}', 'for (let x = [a in b];;) {}',
+    'for (let x = {a: a in b};;) {}', 'for (let x = `${a in b}`;;) {}',
+    'for (let f = function() { return a in b; };;) {}', 'for (let f = (x => x in xs);;) {}',
+    'for (let x = c ? a in b : d;;) {}']) {
+    assert.equal(parser(source, 'javascript').javascriptUnit().kind, 'unit');
+    assert.equal(forest(source, 'javascript').root.kind, 'unit');
+  }
+});
+
+test('selected JavaScript all for-in/of forms require actual simple or destructuring assignment heads', () => {
+  const invalidHeads = ['1', '"x"', 'true', 'null', 'this', 'f()', 'new C()', 'x + y', 'x = y',
+    'x += y', 'x, y', '(x, y)', 'x ? y : z', '++x', 'x++', 'obj?.x', 'obj?.x.y', 'obj?.[x]',
+    '[1]', '[x + y]', '[...x, y]', '[...x,]', '[...x = y]', '{a: 1}', '{a() {}}',
+    '{...x, a}', '{...x,}', '{...[x]}', '{...{x}}', '([x])', '({x})'];
+  for (const clause of ['in', 'of', 'await-of']) for (const head of invalidHeads) {
+    const source = `${clause === 'await-of' ? 'for await' : 'for'} (${head} ${clause === 'in' ? 'in' : 'of'} xs) {}`;
+    for (const parse of [() => parser(source, 'javascript').javascriptUnit(), () => forest(source, 'javascript')])
+      assert.throws(parse, error => isSourceDenialCode(error, 'INVALID_SYNTAX'));
+  }
+  const validHeads = ['x', '(x)', '((obj.x))', 'obj[x]', 'f().x', '(obj?.x).y',
+    '[x]', '[,x,]', '[x = 1, {a: obj.x}, ...rest]', '[...[x]]',
+    '{x}', '{a: obj[x] = 1, ...rest}', '{[key]: [x]}'];
+  for (const clause of ['in', 'of', 'await-of']) for (const head of validHeads) {
+    const source = `${clause === 'await-of' ? 'for await' : 'for'} (${head} ${clause === 'in' ? 'in' : 'of'} xs) {}`;
+    const unit = parser(source, 'javascript').javascriptUnit(); assert.equal(unit.statements[0].kind, 'jsForEach');
+    assert.equal(forest(source, 'javascript').root.statements[0].kind, 'jsForEach');
+  }
+});
+
+test('selected C11 distinguishes compound block-item declarations from every embedded Statement', () => {
+  for (const statement of ['if (1) int x;', 'if (1) ; else int x;', 'while (1) int x;', 'do int x; while (1);',
+    'for (;;) int x;', 'switch (1) int x;', 'label: int x;', 'switch (1) { case 1: int x; }',
+    'switch (1) { default: typedef int T; }']) {
+    const source = `int f(void) { ${statement} return 0; }`;
+    const p = new SelectedCSyntax(Buffer.from(source), createProofCounter(), new Set());
+    assert.throws(() => p.cUnit(), error => isSourceDenialCode(error, 'INVALID_SYNTAX'));
+    assert.equal(p.typedefScopes.length, 1); assert.deepEqual(p.controls, []);
+    assert.throws(() => forest(source, 'c'), error => isSourceDenialCode(error, 'INVALID_SYNTAX'));
+  }
+  for (const statement of ['int x;', 'typedef int T; T x;', 'if (1) { int x; } else { int y; }',
+    'while (1) { int x; break; }', 'do { int x; } while (0);', 'for (int x = 0; x < 1; x++) { int y; }',
+    'switch (1) { case 1: { int x; break; } default: ; }', 'label: { int x; }',
+    'typedef int T; T: ;', 'label: ; int x;']) {
+    const source = `int f(void) { ${statement} return 0; }`;
+    const p = new SelectedCSyntax(Buffer.from(source), createProofCounter(), new Set());
+    assert.equal(p.cUnit().kind, 'unit'); assert.equal(p.typedefScopes.length, 1); assert.deepEqual(p.controls, []);
+    assert.equal(forest(source, 'c').root.kind, 'unit');
+  }
+  const loop = new SelectedCSyntax(Buffer.from('int f(void) { for (int x = 0; x < 1; x++) { int y; } return 0; }'), createProofCounter(), new Set()).cUnit().declarations[0].body.statements[0];
+  assert.equal(loop.initializer.kind, 'cDeclarationGroup'); assert.equal(loop.initializer.declarations[0].storageCategory, 'local');
+  assert.equal(loop.body.kind, 'block'); assert.equal(loop.body.statements[0].kind, 'cDeclarationGroup');
+  assert.throws(() => forest('int f() { if (true) int x; }', 'cpp'), error => isSourceDenialCode(error, 'UNBOUND_PROFILE'));
 });
 for (const [label, setup] of sites) {
   test(`speculative ${label} consumes only authentic allowed denials`, () => {

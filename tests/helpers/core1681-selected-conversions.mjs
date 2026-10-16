@@ -20,6 +20,9 @@ const integerRanges = new Map([
   ['char', [0n, 65535n]],
 ]);
 export const sameSelectedType = equalSelectedTypes;
+// An absent optional environment root supplies no conversion. Present malformed
+// roots still reach strict identity validation; no catalogue identity is invented.
+const optionalRootMatches = (target, root) => root === undefined ? false : sameSelectedType(target, root);
 
 function nullable(type) { return type.category === 'nullable'; }
 function valueType(type) { return ['primitive', 'enum', 'struct', 'nullable'].includes(type.category) && type.name !== 'void'; }
@@ -45,7 +48,7 @@ function parameterConversion(source, target, environment) {
   if (!row) deny('INVALID_BINDING', 'type parameter conversion lacks independently resolved constraints');
   const result = () => ({ kind: 'typeParameter', representation: row.effectiveReferenceType ? 'reference' : 'boxIfValue',
     allocation: row.effectiveReferenceType ? 'none' : 'freshBoxOnlyForActualValueType', source, target });
-  if (sameSelectedType(target, objectType) || row.valueType && sameSelectedType(target, valueTypeRoot)) return result();
+  if (optionalRootMatches(target, objectType) || row.valueType && optionalRootMatches(target, valueTypeRoot)) return result();
   const pending = [source], seen = new Set();
   while (pending.length) {
     counter.charge('maxInvariantSteps', 'selected-parameter-conversion');
@@ -112,9 +115,9 @@ export function implicitCsharpConversion(source, target, environment, constant =
         return { kind: nullable(source) ? 'liftedNullable' : 'nullable', underlying: conversion };
     }
   }
-  if (referenceType(source) && sameSelectedType(target, objectType))
+  if (referenceType(source) && optionalRootMatches(target, objectType))
     return { kind: 'reference', originalIdentity: 'sameReference' };
-  if (source.category === 'array' && environment.arrayTypeRoot && sameSelectedType(target, environment.arrayTypeRoot))
+  if (source.category === 'array' && optionalRootMatches(target, environment.arrayTypeRoot))
     return { kind: 'reference', originalIdentity: 'sameArray' };
   if (source.category === 'array' && target.category === 'array') {
     if (source.rank !== target.rank || !resolvedReferenceType(source.element, environment) ||
@@ -128,8 +131,8 @@ export function implicitCsharpConversion(source, target, environment, constant =
   if (referenceType(source) && referenceType(target) && derivedFrom(source, target, typeGraph, counter)) return { kind: 'reference' };
   if (valueType(source)) {
     const unwrapped = nullable(source) ? source.element : source;
-    if (sameSelectedType(target, objectType) || sameSelectedType(target, valueTypeRoot) ||
-        unwrapped.category === 'enum' && sameSelectedType(target, enumTypeRoot) ||
+    if (optionalRootMatches(target, objectType) || optionalRootMatches(target, valueTypeRoot) ||
+        unwrapped.category === 'enum' && optionalRootMatches(target, enumTypeRoot) ||
         target.category === 'reference' && derivedFrom(unwrapped, target, typeGraph, counter))
       return { kind: nullable(source) ? 'nullableBoxing' : 'boxing', allocation: 'freshBox', source };
   }

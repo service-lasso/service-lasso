@@ -1,5 +1,6 @@
 export const DIAGNOSTIC_HOLD_PARENT_OPERATIONS = Object.freeze(["ready_receipt", "child_inspection", "caller_inspection"]);
 export const DIAGNOSTIC_HOLD_CHILD_OPERATIONS = Object.freeze(["bootstrap", "acquire_chain", "initial_verify", "ready_emit"]);
+export const DIAGNOSTIC_HOLD_ACQUIRE_OPERATIONS = Object.freeze(["chain_build", "owner_read", "owner_root", "owner_ancestor", "attributes", "open", "identity", "retain"]);
 export const DIAGNOSTIC_HOLD_TRANSPORT_REASONS = Object.freeze(["spawn_error", "stdin_error", "stdout_error", "stderr_error",
   "stdin_write", "stdin_end", "callback_state", "stderr_content", "stdout_capacity", "stdout_bytes", "stdout_framing",
   "child_failure_frame", "ready_decode", "stdout_eof", "exit_status", "close_state", "receipt_state", "not_live"]);
@@ -15,7 +16,7 @@ export function encodeGuardianCommand(source) {
 export function collectDiagnosticHoldTransport(child, callerPid) {
   const originals = [], stdout = [], stderr = [];
   let stdoutCount = 0, stderrCount = 0, buffer = "", pending, firstFrame = false;
-  let readyWitness, childFailureCandidate, stdoutInvalid = false, observationClosure = false, closed = false, stdoutEof = false, stderrEof = false, stdinFinished = false, endAttempted = false;
+  let readyWitness, childFailureCandidate, acquireFailureCandidate, stdoutInvalid = false, observationClosure = false, closed = false, stdoutEof = false, stderrEof = false, stdinFinished = false, endAttempted = false;
   let exit, close;
   let firstFailureRecorded = false, firstFailure;
   let writes = 0, settleWrites;
@@ -45,14 +46,17 @@ export function collectDiagnosticHoldTransport(child, callerPid) {
   const reject = reason => { if (!channelRejected) { channelRejected = true; failure(reason, new Error("Diagnostic guardian channel rejected.")); } };
   const rejectStdout = reason => { stdoutInvalid = true; reject(reason); };
   const observedChildFailure = () => observationClosure && !buffer.length && !stdoutInvalid ? childFailureCandidate : undefined;
+  const observedAcquireFailure = () => observedChildFailure() === "acquire_chain" ? acquireFailureCandidate : undefined;
   const closure = new Promise(resolve => { close = resolve; });
   const ready = line => {
     if (firstFrame) return rejectStdout("stdout_framing");
     firstFrame = true;
     if (line.startsWith("GDH1|fail|")) {
-      const operation = line.slice("GDH1|fail|".length);
-      if (!DIAGNOSTIC_HOLD_CHILD_OPERATIONS.includes(operation)) return rejectStdout("stdout_framing");
+      const fields = line.slice("GDH1|fail|".length).split("|"), operation = fields[0];
+      if (!DIAGNOSTIC_HOLD_CHILD_OPERATIONS.includes(operation) || fields.length > 2 ||
+          (fields.length === 2 && (operation !== "acquire_chain" || !DIAGNOSTIC_HOLD_ACQUIRE_OPERATIONS.includes(fields[1])))) return rejectStdout("stdout_framing");
       childFailureCandidate = operation;
+      acquireFailureCandidate = fields.length === 2 ? fields[1] : undefined;
       return reject("child_failure_frame");
     }
     let row;
@@ -145,10 +149,10 @@ export function collectDiagnosticHoldTransport(child, callerPid) {
       if (originals.length) throw new AggregateError([...originals], "Diagnostic guardian settlement failed.");
       return result;
     },
-    snapshot() { return { originals: [...originals], firstFailureRecorded, firstFailure: firstFailure && { ...firstFailure }, readyWitness, childFailure: observedChildFailure(), closed, exit,
+    snapshot() { return { originals: [...originals], firstFailureRecorded, firstFailure: firstFailure && { ...firstFailure }, readyWitness, childFailure: observedChildFailure(), acquireOperation: observedAcquireFailure(), closed, exit,
       stdoutEof, stderrEof, stdinFinished, stdoutCount, stderrCount,
       stdout: Buffer.concat(stdout), stderr: Buffer.concat(stderr) }; },
-    failureObservation() { return { firstFailureRecorded, firstFailure: firstFailure && { ...firstFailure }, childFailure: observedChildFailure() }; },
+    failureObservation() { return { firstFailureRecorded, firstFailure: firstFailure && { ...firstFailure }, childFailure: observedChildFailure(), acquireOperation: observedAcquireFailure() }; },
   };
 }
 

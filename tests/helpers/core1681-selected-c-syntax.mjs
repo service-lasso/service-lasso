@@ -352,7 +352,7 @@ export class SelectedCSyntax {
   cBlock(parameterNames = [], parameters = [], parameterScope = null) {
     const first = this.need('{'), statements = [];
     this.typedefScopes.push(parameterScope?.names ?? new Map(parameterNames.map((name, ordinal) => [name, parameters[ordinal]?.bindingOriginal ?? false])));
-    try { while (this.word() !== '}') { if (this.peek().kind === 'eof') deny('INVALID_SYNTAX', 'unterminated C block', first.origin); statements.push(this.cStatement()); } this.need('}'); }
+    try { while (this.word() !== '}') { if (this.peek().kind === 'eof') deny('INVALID_SYNTAX', 'unterminated C block', first.origin); statements.push(this.cStatement(true)); } this.need('}'); }
     finally { this.typedefScopes.pop(); }
     return this.node('block', first, { statements });
   }
@@ -374,12 +374,15 @@ export class SelectedCSyntax {
     }
     return null;
   }
-  cStatement() {
+  cStatement(blockItem = false) {
     const first = this.peek(), word = this.word();
     if (word === '{') return this.cBlock();
     if (this.take(';')) return this.node('empty', first);
     if (this.peek().kind === 'identifier' && !keywords.has(word) && this.peek(1)?.spelling === ':') { const name = this.name(); this.need(':'); return this.declaration('cLabel', first, { name, statement: this.cStatement() }); }
-    if (this.isTypeStart()) return this.cDeclaration('local');
+    if (this.isTypeStart()) {
+      if (!blockItem) deny('INVALID_SYNTAX', 'C declaration requires compound block-item context', first.origin);
+      return this.cDeclaration('local');
+    }
     if (this.take('if')) { this.need('('); const test = this.cExpression(0); this.need(')'); const body = this.cStatement(), alternative = this.take('else') ? this.cStatement() : null; return this.node('if', first, { test, body, alternative }); }
     if (this.take('while')) { this.need('('); const test = this.cExpression(0); this.need(')'); const targetOriginal = this.cControlTarget('loop', first); return this.node('while', first, { test, targetOriginal, body: this.cControl(targetOriginal) }); }
     if (this.take('do')) { const targetOriginal = this.cControlTarget('loop', first), body = this.cControl(targetOriginal); this.need('while'); this.need('('); const test = this.cExpression(0); this.need(')'); this.need(';'); return this.node('do', first, { body, test, targetOriginal }); }

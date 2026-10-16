@@ -1,6 +1,7 @@
 
 $originals = [System.Collections.Generic.List[object]]::new()
 $held = [System.Collections.Generic.List[object]]::new()
+$acquireObservation = @{ Recorded=$false; Original=$null; Operation=$null }
 $failed = $false
 function Remember-Original($original) {
   foreach ($prior in $script:originals) {
@@ -8,10 +9,29 @@ function Remember-Original($original) {
   }
   $script:originals.Add($original)
 }
-function Record-DiagnosticFailure($operation, $original) {
+function Remember-AcquireFailure($operation, [System.Management.Automation.ErrorRecord]$original) {
+  Remember-Original $original
+  try {
+    if (-not $script:acquireObservation.Recorded) {
+      $script:acquireObservation.Original = $original
+      $script:acquireObservation.Operation = $operation
+      $script:acquireObservation.Recorded = $true
+    }
+  } catch { Remember-Original $_ }
+}
+function Same-AcquireOriginal([System.Management.Automation.ErrorRecord]$left, [System.Management.Automation.ErrorRecord]$right) {
+  if ([object]::ReferenceEquals($left,$right)) { return $true }
+  $leftException=$left.Exception; $rightException=$right.Exception
+  return $null -ne $leftException -and [object]::ReferenceEquals($leftException,$rightException)
+}
+function Record-DiagnosticFailure($operation, $original, $suboperation=$null) {
   Remember-Original $original
   $script:failed = $true
-  try { [Console]::Out.Write("GDH1|fail|$operation`n"); [Console]::Out.Flush() }
+  try {
+    if ($operation -ceq 'acquire_chain' -and $null -ne $suboperation) { [Console]::Out.Write("GDH1|fail|$operation|$suboperation`n") }
+    else { [Console]::Out.Write("GDH1|fail|$operation`n") }
+    [Console]::Out.Flush()
+  }
   catch { Remember-Original $_ }
 }
 try {
@@ -59,11 +79,14 @@ public static class FixtureHandle {
 $root = $env:SERVICE_LASSO_HELD_FIXTURE_ROOT
 $sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 } catch { Record-DiagnosticFailure 'bootstrap' $_ }
-function Check-Owner($p, $isRoot) {
-  $owner = (Get-Acl -LiteralPath $p).GetOwner([System.Security.Principal.SecurityIdentifier]).Value
+function Read-Owner($p) {
+  return (Get-Acl -LiteralPath $p).GetOwner([System.Security.Principal.SecurityIdentifier]).Value
+}
+function Assert-Owner($owner, $isRoot) {
   if ($isRoot) { if ($owner -ne $sid) { throw 'Unknown fixture owner' } }
   elseif ($owner -notin @($sid,'S-1-5-18','S-1-5-32-544','S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464')) { throw 'Unknown fixture ancestor owner' }
 }
+function Check-Owner($p, $isRoot) { Assert-Owner (Read-Owner $p) $isRoot }
 function Verify-Held {
   foreach($entry in $held) {
     $named = [FixtureHandle]::Named($entry.Path)
@@ -86,22 +109,45 @@ function Read-DiagnosticCommand {
   }
 }
 if (-not $failed) { try {
-  $chain = New-Object System.Collections.Generic.List[string]
-  $p = $root
-  while($p) { $chain.Insert(0,$p); $parent = [System.IO.Directory]::GetParent($p); if($null -eq $parent) { break }; $p=$parent.FullName }
+  try {
+    $chain = New-Object System.Collections.Generic.List[string]
+    $p = $root
+    while($p) { $chain.Insert(0,$p); $parent = [System.IO.Directory]::GetParent($p); if($null -eq $parent) { break }; $p=$parent.FullName }
+  } catch { $caught=$_; Remember-AcquireFailure 'chain_build' $caught; throw $caught }
   foreach($p in $chain) {
-    Check-Owner $p ($p -eq $root)
-    if (([System.IO.File]::GetAttributes($p) -band [System.IO.FileAttributes]::Directory) -eq 0) { throw 'Unsupported fixture ancestor type' }
-    $handle = [FixtureHandle]::Open($p)
+    try { $owner = Read-Owner $p }
+    catch { $caught=$_; Remember-AcquireFailure 'owner_read' $caught; throw $caught }
+    if ($p -eq $root) {
+      try { Assert-Owner $owner $true }
+      catch { $caught=$_; Remember-AcquireFailure 'owner_root' $caught; throw $caught }
+    } else {
+      try { Assert-Owner $owner $false }
+      catch { $caught=$_; Remember-AcquireFailure 'owner_ancestor' $caught; throw $caught }
+    }
+    try { if (([System.IO.File]::GetAttributes($p) -band [System.IO.FileAttributes]::Directory) -eq 0) { throw 'Unsupported fixture ancestor type' } }
+    catch { $caught=$_; Remember-AcquireFailure 'attributes' $caught; throw $caught }
+    try { $handle = [FixtureHandle]::Open($p) }
+    catch { $caught=$_; Remember-AcquireFailure 'open' $caught; throw $caught }
     try { $identity = [FixtureHandle]::Identity($handle) }
     catch {
-      $primary = $_; Remember-Original $primary
+      $primary = $_; Remember-AcquireFailure 'identity' $primary
       try { $handle.Dispose() } catch { Remember-Original $_ }
       throw $primary
     }
-    $held.Add([pscustomobject]@{Path=$p; Handle=$handle; Identity=$identity})
+    try { $held.Add([pscustomobject]@{Path=$p; Handle=$handle; Identity=$identity}) }
+    catch {
+      $primary = $_; Remember-AcquireFailure 'retain' $primary
+      try { $handle.Dispose() } catch { Remember-Original $_ }
+      throw $primary
+    }
   }
-} catch { Record-DiagnosticFailure 'acquire_chain' $_ } }
+} catch {
+  $primary = $_; Remember-Original $primary; $suboperation = $null
+  try {
+    if ($acquireObservation.Recorded -and (Same-AcquireOriginal $acquireObservation.Original $primary)) { $suboperation = $acquireObservation.Operation }
+  } catch { Remember-Original $_ }
+  Record-DiagnosticFailure 'acquire_chain' $primary $suboperation
+} }
 if (-not $failed) { try { Verify-Held } catch { Record-DiagnosticFailure 'initial_verify' $_ } }
 if (-not $failed) { try {
   $receipt = @{kind='ready'; pid=[FixtureHandle]::GetCurrentProcessId(); parentPid=[FixtureHandle]::ParentPid(); ownerSid=$sid}

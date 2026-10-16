@@ -18,6 +18,16 @@ import { SelectedCSyntax } from './helpers/core1681-selected-c-syntax.mjs';
 import { isSourceDenialCode } from './helpers/core1681-source-input.mjs';
 import { copySelectedCTypeObservation, resolveSelectedCSourceHead } from './helpers/core1681-selected-c-types.mjs';
 
+const symbolicFixture = `namespace System {
+ public class Object { public bool Equals(object value) { return false; } }
+ public class ValueType : Object {} public class Enum : ValueType {}
+ public class MulticastDelegate : Object {}
+ public struct Int32 {} public struct Double {} public struct Void {}
+ public struct Boolean {} public struct UInt32 {} public struct Int64 {} public struct UInt64 {}
+ public struct SByte {} public struct Byte {} public struct Int16 {} public struct UInt16 {} public struct Char {}
+ public struct Single {} public struct Decimal {} public class String : Object {}
+}`;
+
 test('finite proof counters keep their once-acquired limits after public mutation', () => {
   const limits = { ...K2_LIMITS, maxInvariantSteps: 1 };
   const counter = createProofCounter(limits);
@@ -43,9 +53,10 @@ test('finite proof counters keep their once-acquired limits after public mutatio
 
 test('private proof rebind reuses only its same-counter snapshot while public aliases stay independent', () => {
   const raw = Buffer.from('class C { int F() { return 1; } }', 'utf8');
-  const extent = raw.length, counter = createProofCounter();
+  const extent = raw.length + Buffer.byteLength(symbolicFixture), counter = createProofCounter();
   const compilation = bindSelectedCsharpCompilation([
     { unit: 'private-rebind.cs', compilation: 'private-rebind', role: 'source', rawBytes: raw },
+    { unit: 'symbolic.cs', compilation: 'fixture-symbolic', role: 'catalogue', rawBytes: Buffer.from(symbolicFixture) },
   ], counter);
   raw.fill(0);
   compilation.decodedUnits.get('private-rebind.cs').raw.fill(0);
@@ -77,7 +88,8 @@ test('actual compilation consumes each own-data source value once without Proxy 
       return Reflect.getOwnPropertyDescriptor(target, key);
     },
   });
-  const roster = new Proxy([source], { get() { throw opaque; } });
+  const roster = new Proxy([source,
+    { unit: 'symbolic.cs', compilation: 'fixture-symbolic', role: 'catalogue', rawBytes: Buffer.from(symbolicFixture) }], { get() { throw opaque; } });
   const compilation = bindSelectedCsharpCompilation(roster, createProofCounter());
   assert.equal(compilation.originals[0].unit, 'once.cs');
   assert.deepEqual([...descriptors.keys()], ['unit', 'compilation', 'role', 'rawBytes']);
@@ -96,6 +108,7 @@ test('actual compilation frontend borrow keeps public decoded and original input
   const counter = createProofCounter();
   const compilation = bindSelectedCsharpCompilation([
     { unit: 'private.cs', compilation: 'actual-private-copy', role: 'source', rawBytes },
+    { unit: 'symbolic.cs', compilation: 'fixture-symbolic', role: 'catalogue', rawBytes: Buffer.from(symbolicFixture) },
   ], counter);
   rawBytes.fill(0);
   compilation.originals[0].parser.scanner.decoded.raw.fill(0);
@@ -447,15 +460,7 @@ test('closed source/proof record keys reject accessors and hidden or symbol memb
   assert.equal(keyReads, 0);
 });
 
-const symbolicFixture = `namespace System {
- public class Object { public bool Equals(object value) { return false; } }
- public class ValueType : Object {} public class Enum : ValueType {}
- public class MulticastDelegate : Object {}
- public struct Int32 {} public struct Double {} public struct Void {}
- public struct Boolean {} public struct UInt32 {} public struct Int64 {} public struct UInt64 {}
- public struct SByte {} public struct Byte {} public struct Int16 {} public struct UInt16 {} public struct Char {}
- public struct Single {} public struct Decimal {} public class String : Object {}
-}`;
+
 
 test('original cast disambiguation follows grammar before identifier type lookup', () => {
   for (const [expression, expected] of [
@@ -2531,4 +2536,42 @@ test('string concatenation retains required virtual call binding rather than dec
   assert.equal(selected.semantics.requiresOriginalVirtualCallBinding, true);
   assert.deepEqual(selected.semantics.virtualObjectToStringOperands, [1]);
   assert.equal(selected.semantics.resultNonNull, true);
+});
+
+test('optional conversion roots preserve actual catalogue identities without rejecting unrelated scalar candidates', () => {
+  const counter = createProofCounter();
+  const compilation = bindSelectedCsharpCompilation([
+    { unit: 'optional-roots.cs', compilation: 'optional-roots', role: 'source', rawBytes: Buffer.from('enum E { A } class C { int F(int value) { return value; } }') },
+    { unit: 'symbolic.cs', compilation: 'fixture-symbolic', role: 'catalogue', rawBytes: Buffer.from(symbolicFixture) },
+  ], counter);
+  const method = compilation.enumeration.find(row => row.syntax.kind === 'method' && row.syntax.name.spelling === 'F');
+  const context = compilation.context(method), origin = method.origin;
+  const primitive = name => compilation.index.primitive(name, context, origin);
+  const integer = primitive('int'), boolean = primitive('bool'), object = primitive('object');
+  const valueType = compilation.index.catalogueType(['System'], 'ValueType', context, origin);
+  const enumType = compilation.index.catalogueType(['System'], 'Enum', context, origin);
+  const enumeration = compilation.types.find(type => type.category === 'enum');
+  assert.ok(enumeration);
+  const environment = { counter, typeGraph: compilation.typeGraph, parameterConstraints: compilation.bound.parameterConstraints };
+  for (const roots of [{}, { objectType: object }, { valueTypeRoot: valueType, enumTypeRoot: enumType },
+    { objectType: object, valueTypeRoot: valueType, enumTypeRoot: enumType },
+    { objectType: primitive('long'), valueTypeRoot: primitive('long'), enumTypeRoot: primitive('long') }]) {
+    assert.equal(implicitCsharpConversion(integer, boolean, { ...environment, ...roots }), null);
+    assert.equal(implicitCsharpConversion(boolean, integer, { ...environment, ...roots }), null);
+    assert.equal(implicitCsharpConversion(integer, primitive('long'), { ...environment, ...roots }).kind, 'numeric');
+    assert.equal(implicitCsharpConversion(boolean, boolean, { ...environment, ...roots }).kind, 'identity');
+  }
+  const array = { category: 'array', rank: 1, element: integer };
+  assert.equal(implicitCsharpConversion(array, boolean, environment), null);
+  for (const root of [null, {}]) assert.throws(() => implicitCsharpConversion(array, boolean, { ...environment, arrayTypeRoot: root }), original => isSourceDenialCode(original, 'INVALID_BINDING'));
+  assert.equal(implicitCsharpConversion(enumeration, enumType, { ...environment, enumTypeRoot: enumType }).kind, 'boxing');
+  for (const root of [null, {}]) assert.throws(() => implicitCsharpConversion(enumeration, boolean, { ...environment, enumTypeRoot: root }), original => isSourceDenialCode(original, 'INVALID_BINDING'));
+  assert.equal(implicitCsharpConversion(integer, object, { ...environment, objectType: object }).kind, 'boxing');
+  assert.equal(implicitCsharpConversion(integer, valueType, { ...environment, valueTypeRoot: valueType }).kind, 'boxing');
+  for (const roots of [{ objectType: null }, { valueTypeRoot: null }, { objectType: {} }, { valueTypeRoot: {} }]) {
+    let caught = false;
+    try { implicitCsharpConversion(integer, boolean, { ...environment, ...roots }); }
+    catch (original) { caught = true; assert.equal(isSourceDenialCode(original, 'INVALID_BINDING'), true); }
+    assert.equal(caught, true, 'Present malformed roots cannot become absent roots.');
+  }
 });

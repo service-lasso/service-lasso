@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { readFile } from "node:fs/promises";
 import { collectDiagnosticHoldTransport, acquireDiagnosticHoldCorrespondence, encodeGuardianCommand,
-  GUARDIAN_ENCODED_COMMAND_LIMIT, DIAGNOSTIC_HOLD_PARENT_OPERATIONS, DIAGNOSTIC_HOLD_CHILD_OPERATIONS, DIAGNOSTIC_HOLD_TRANSPORT_REASONS } from "./fixture-diagnostic-hold-protocol.js";
+  GUARDIAN_ENCODED_COMMAND_LIMIT, DIAGNOSTIC_HOLD_PARENT_OPERATIONS, DIAGNOSTIC_HOLD_CHILD_OPERATIONS, DIAGNOSTIC_HOLD_ACQUIRE_OPERATIONS, DIAGNOSTIC_HOLD_TRANSPORT_REASONS } from "./fixture-diagnostic-hold-protocol.js";
 
 const ready = JSON.stringify({ kind: "ready", pid: 20, parentPid: 10, ownerSid: "S-1-5-21-1" }) + "\n";
 const surrogate = () => {
@@ -20,7 +20,7 @@ const surrogate = () => {
   return { child, transport, callbacks, complete };
 };
 const failureOf = async promise => {
-  try { await promise; } catch (original) { return original; }
+  try { await promise; } catch (original) { return { original }; }
   assert.fail("Failure was required.");
 };
 
@@ -49,7 +49,7 @@ for (const operation of DIAGNOSTIC_HOLD_CHILD_OPERATIONS) test(`guardian ${opera
   const { child, transport, callbacks, complete } = surrogate();
   const pending = failureOf(transport.ready());
   child.stdout.emit("data", Buffer.from(`GDH1|fail|${operation}\n`));
-  const original = await pending;
+  const { original } = await pending;
   assert.strictEqual(transport.snapshot().originals[0], original);
   assert.equal(transport.snapshot().childFailure, undefined);
   assert.equal(transport.snapshot().firstFailure.reason, "child_failure_frame");
@@ -63,7 +63,7 @@ for (const operation of DIAGNOSTIC_HOLD_CHILD_OPERATIONS) test(`stderr-first ${o
   const { child, transport, callbacks, complete } = surrogate();
   const pending = failureOf(transport.ready());
   child.stderr.emit("data", Buffer.from("PRIVATE-ORIGINAL"));
-  const original = await pending;
+  const { original } = await pending;
   child.stdout.emit("data", Buffer.from(`GDH1|fail|${operation}\n`));
   assert.equal(transport.failureObservation().childFailure, undefined);
   assert.equal(transport.snapshot().readyWitness, undefined);
@@ -81,7 +81,7 @@ test("late negative-frame SURROGATE rejects all incomplete or contaminated stdou
   for (const suffix of ["extra\n", "GDH1|fail|bootstrap\n", ready, "partial", "\0", "\r", "é", "x".repeat(481)]) {
     const { child, transport, callbacks, complete } = surrogate();
     const pending = failureOf(transport.ready());
-    child.stderr.emit("data", Buffer.from("PRIVATE")); const original = await pending;
+    child.stderr.emit("data", Buffer.from("PRIVATE")); const { original } = await pending;
     child.stdout.emit("data", Buffer.from("GDH1|fail|initial_verify\n"));
     child.stdout.emit("data", Buffer.from(suffix));
     const closing = failureOf(transport.release()); callbacks.shift()(); complete(); await closing;
@@ -107,7 +107,7 @@ test("late negative-frame SURROGATE rejects all incomplete or contaminated stdou
 test("settled negative-frame SURROGATE never overwrites null or undefined first originals", async () => {
   for (const first of [null, undefined]) {
     const { child, transport, callbacks, complete } = surrogate(); const pending = failureOf(transport.ready());
-    child.stdin.emit("error", first); assert.strictEqual(await pending, first);
+    child.stdin.emit("error", first); assert.strictEqual((await pending).original, first);
     const later = new Proxy({}, { get() { assert.fail("late opaque original observed"); } });
     child.stderr.emit("error", later);
     child.stdout.emit("data", Buffer.from("GDH1|fail|acquire_chain\n"));
@@ -121,10 +121,10 @@ test("settled negative-frame SURROGATE never overwrites null or undefined first 
 
 test("guardian script SOURCE witness binds all4 failure frames to complete actual catch blocks", async () => {
   const source = await readFile(new URL("./fixture-diagnostic-hold.ps1", import.meta.url), "utf8");
-  for (const operation of DIAGNOSTIC_HOLD_CHILD_OPERATIONS)
+  for (const operation of DIAGNOSTIC_HOLD_CHILD_OPERATIONS.filter(operation => operation !== "acquire_chain"))
     assert.equal(source.split(`Record-DiagnosticFailure '${operation}' $_`).length - 1, 1);
   assert.match(source, /try \{\s*\$ErrorActionPreference = 'Stop'[\s\S]*Add-Type -TypeDefinition[\s\S]*\$sid =[\s\S]*\} catch \{ Record-DiagnosticFailure 'bootstrap' \$_ \}/);
-  assert.match(source, /foreach\(\$p in \$chain\)[\s\S]*\} catch \{ Record-DiagnosticFailure 'acquire_chain' \$_ \}/);
+  assert.match(source, /foreach\(\$p in \$chain\)[\s\S]*\} catch \{\s*\$primary = \$_; Remember-Original \$primary; \$suboperation = \$null[\s\S]*Same-AcquireOriginal \$acquireObservation\.Original \$primary[\s\S]*Record-DiagnosticFailure 'acquire_chain' \$primary \$suboperation/);
   assert.match(source, /try \{ Verify-Held \} catch \{ Record-DiagnosticFailure 'initial_verify' \$_ \}/);
   assert.match(source, /\$receipt = [\s\S]*Out\.Write[\s\S]*\} catch \{ Record-DiagnosticFailure 'ready_emit' \$_ \}/);
   assert.match(source, /Remember-Original \$original[\s\S]*Out\.Write[\s\S]*catch \{ Remember-Original \$_ \}/);
@@ -133,6 +133,84 @@ test("guardian script SOURCE witness binds all4 failure frames to complete actua
   assert.match(source, /catch \{ Remember-Original \$_; if \(\$null -eq \$primary\) \{ throw \} \}/);
   assert.match(source, /AggregateException\]::new\('Diagnostic guardian failed\.', \$exceptions\.ToArray\(\)\)/);
   assert.doesNotMatch(source, /ProgressPreference|ReadLine\(|kill|SIGTERM|SIGKILL/);
+});
+
+for (const operation of DIAGNOSTIC_HOLD_ACQUIRE_OPERATIONS) for (const stderrFirst of [false, true])
+  test(`acquire ${operation} ${stderrFirst ? 'stderr-first' : 'frame-first'} SURROGATE is settled negative observation only`, async () => {
+    const { child, transport, callbacks, complete } = surrogate(); const pending = failureOf(transport.ready());
+    const frame = `GDH1|fail|acquire_chain|${operation}\n`;
+    assert.ok(Buffer.byteLength(frame) < 480);
+    if (stderrFirst) child.stderr.emit("data", Buffer.from("PRIVATE"));
+    child.stdout.emit("data", Buffer.from(frame.slice(0, 7))); child.stdout.emit("data", Buffer.from(frame.slice(7)));
+    const { original: first } = await pending;
+    if (!stderrFirst) child.stderr.emit("data", Buffer.from("PRIVATE"));
+    assert.equal(transport.failureObservation().acquireOperation, undefined);
+    assert.equal(transport.snapshot().readyWitness, undefined);
+    const closing = failureOf(transport.release()); callbacks.shift()(); complete(); await closing;
+    const observed = transport.failureObservation();
+    assert.equal(observed.childFailure, "acquire_chain"); assert.equal(observed.acquireOperation, operation);
+    assert.equal(observed.firstFailure.reason, stderrFirst ? "stderr_content" : "child_failure_frame");
+    assert.strictEqual(observed.firstFailure.original, first);
+  });
+
+test("acquire suboperation SURROGATE rejects extra/mixed/wrong-phase/unknown/partial/late invalidating frames", async () => {
+  const invalid = ["GDH1|fail|acquire_chain|unknown\n", "GDH1|fail|acquire_chain|\n",
+    ...["bootstrap", "initial_verify", "ready_emit"].map(operation => `GDH1|fail|${operation}|open\n`),
+    "GDH1|fail|acquire_chain|open|identity\n", "GDH1|fail|acquire_chain|Open\n"];
+  for (const operation of DIAGNOSTIC_HOLD_ACQUIRE_OPERATIONS) {
+    const frame = `GDH1|fail|acquire_chain|${operation}\n`;
+    invalid.push(frame + frame, frame + ready, ready + frame, frame.slice(0, -1), frame + "extra\n", frame + "partial",
+      frame + "\r", frame + "\0", frame + "é", frame + "x".repeat(481));
+  }
+  for (const text of invalid) {
+    const { child, transport, callbacks, complete } = surrogate(); const pending = failureOf(transport.ready());
+    child.stderr.emit("data", Buffer.from("PRIVATE")); const { original: first } = await pending;
+    child.stdout.emit("data", Buffer.from(text));
+    const closing = failureOf(transport.release()); callbacks.shift()(); complete(); await closing;
+    assert.equal(transport.failureObservation().childFailure, undefined);
+    assert.equal(transport.failureObservation().acquireOperation, undefined);
+    assert.strictEqual(transport.failureObservation().firstFailure.original, first);
+  }
+});
+
+test("ALL8 acquire suboperation SURROGATES require EOF before matching real close", () => {
+  for (const operation of DIAGNOSTIC_HOLD_ACQUIRE_OPERATIONS) for (const missing of ["stdout", "stderr", "exit", "close", "matching_exit"]) {
+    const { child, transport } = surrogate();
+    child.stdout.emit("data", Buffer.from(`GDH1|fail|acquire_chain|${operation}\n`));
+    if (missing !== "stdout") child.stdout.emit("end");
+    if (missing !== "stderr") child.stderr.emit("end");
+    child.stdin.emit("finish");
+    if (missing !== "exit") child.emit("exit", missing === "matching_exit" ? 2 : 1, null);
+    if (missing !== "close") child.emit("close", 1, null);
+    assert.equal(transport.failureObservation().acquireOperation, undefined);
+    if (missing === "stdout") child.stdout.emit("end");
+    if (missing === "stderr") child.stderr.emit("end");
+    if (missing === "exit") child.emit("exit", 1, null);
+    assert.equal(transport.failureObservation().acquireOperation, undefined);
+  }
+});
+
+test("acquire script SOURCE witness binds ALL8 actual caught roles and preserves verification owner policy", async () => {
+  const source = await readFile(new URL("./fixture-diagnostic-hold.ps1", import.meta.url), "utf8");
+  assert.deepEqual(DIAGNOSTIC_HOLD_ACQUIRE_OPERATIONS, ["chain_build", "owner_read", "owner_root", "owner_ancestor", "attributes", "open", "identity", "retain"]);
+  assert.equal(Object.isFrozen(DIAGNOSTIC_HOLD_ACQUIRE_OPERATIONS), true);
+  for (const operation of DIAGNOSTIC_HOLD_ACQUIRE_OPERATIONS)
+    assert.equal(source.split(`Remember-AcquireFailure '${operation}'`).length - 1, 1);
+  assert.match(source, /function Remember-AcquireFailure\(\$operation, \[System\.Management\.Automation\.ErrorRecord\]\$original\) \{\s*Remember-Original \$original[\s\S]*if \(-not \$script:acquireObservation\.Recorded\)[\s\S]*Recorded = \$true/);
+  assert.match(source, /function Same-AcquireOriginal\(\[System\.Management\.Automation\.ErrorRecord\]\$left, \[System\.Management\.Automation\.ErrorRecord\]\$right\)[\s\S]*ReferenceEquals\(\$left,\$right\)[\s\S]*\$leftException=\$left\.Exception; \$rightException=\$right\.Exception[\s\S]*\$null -ne \$leftException -and \[object\]::ReferenceEquals\(\$leftException,\$rightException\)/);
+  assert.match(source, /New-Object System\.Collections\.Generic\.List\[string\][\s\S]*Directory\]::GetParent[\s\S]*catch \{ \$caught=\$_; Remember-AcquireFailure 'chain_build' \$caught; throw \$caught \}/);
+  for (const [work, operation] of [["Read-Owner $p", "owner_read"], ["Assert-Owner $owner $true", "owner_root"],
+    ["Assert-Owner $owner $false", "owner_ancestor"], ["[FixtureHandle]::Open($p)", "open"]]) {
+    const position = source.indexOf(work, source.indexOf("foreach($p in $chain)"));
+    assert.ok(position >= 0); assert.ok(source.indexOf(`Remember-AcquireFailure '${operation}'`, position) > position);
+  }
+  const verification = source.slice(source.indexOf("function Verify-Held"), source.indexOf("function Read-DiagnosticCommand"));
+  assert.match(verification, /Check-Owner \$entry\.Path \(\$entry\.Path -eq \$root\)/);
+  assert.doesNotMatch(verification, /Remember-AcquireFailure/);
+  assert.match(source, /if \(\$isRoot\) \{ if \(\$owner -ne \$sid\)/);
+  assert.match(source, /\$owner -notin @\(\$sid,'S-1-5-18','S-1-5-32-544','S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464'\)/);
+  assert.match(source, /CreateFile\(p, 0x80U, 3, IntPtr\.Zero, 3, 0x02200000/);
+  assert.match(source, /\$operation -ceq 'acquire_chain' -and \$null -ne \$suboperation/);
 });
 
 for (const operation of DIAGNOSTIC_HOLD_PARENT_OPERATIONS) test(`parent ${operation} correspondence SURROGATE retains exact caught opaque original`, async () => {
@@ -177,7 +255,7 @@ test("guardian transport SURROGATE retains actual first/later stream originals a
   const pending = failureOf(transport.ready());
   const opaque = new Proxy({}, { get() { assert.fail("No raw stream error getters."); } });
   child.emit("error", null); child.stdin.emit("error", undefined); child.stdout.emit("error", opaque); child.stderr.emit("error", 0);
-  assert.strictEqual(await pending, null);
+  assert.strictEqual((await pending).original, null);
   let settled = false;
   const closing = failureOf(transport.release()).then(value => { settled = true; return value; });
   child.emit("exit", 0, null); await Promise.resolve(); assert.equal(settled, false);
@@ -211,7 +289,7 @@ test("guardian transport SURROGATE enforces total480 stdout and preserves synchr
     const { child, transport, complete } = surrogate();
     const pending = transport.ready(); child.stdout.emit("data", Buffer.from(ready)); await pending;
     child.stdin.write = () => { throw original; };
-    assert.strictEqual(await failureOf(transport.verify()), original);
+    assert.strictEqual((await failureOf(transport.verify())).original, original);
     child.stdin.end = (text, done) => done();
     const closing = failureOf(transport.release()); complete(); await closing;
     assert.strictEqual(transport.snapshot().originals[0], original);
@@ -237,7 +315,7 @@ for (const [reason, surface] of [["spawn_error", "child"], ["stdin_error", "stdi
     for (const original of [null, undefined, new Proxy({}, { get() { assert.fail("No first-original getters."); } })]) {
       const state = surrogate(), pending = failureOf(state.transport.ready());
       (surface === "child" ? state.child : state.child[surface]).emit("error", original);
-      assert.strictEqual(await pending, original);
+      assert.strictEqual((await pending).original, original);
       state.child.stderr.emit("data", Buffer.from("PRIVATE-LATER-STDERR"));
       const closing = failureOf(state.transport.release()); state.callbacks.shift()(); state.complete(); await closing;
       const result = state.transport.snapshot();
@@ -251,7 +329,7 @@ for (const [reason, bytes] of [["stdout_capacity", Buffer.alloc(481, 13)], ["std
   test(`first-rejection ${reason} predicate SURROGATE stays failed without interpreting bytes`, async () => {
     const { child, transport, callbacks, complete } = surrogate(), pending = failureOf(transport.ready());
     child[reason === "stderr_content" ? "stderr" : "stdout"].emit("data", bytes);
-    const original = await pending;
+    const { original } = await pending;
     const closing = failureOf(transport.release()); callbacks.shift()(); complete(); await closing;
     assert.equal(transport.snapshot().firstFailure.reason, reason); assert.strictEqual(transport.snapshot().firstFailure.original, original);
   });
@@ -289,7 +367,7 @@ test("first-rejection ready_decode SURROGATE drives actual decoder catch and res
   const original = new Proxy({}, { get() { assert.fail("Decoder original stays opaque."); } }), decode = JSON.parse;
   try { JSON.parse = () => { throw original; }; child.stdout.emit("data", Buffer.from(ready)); }
   finally { JSON.parse = decode; }
-  assert.strictEqual(await pending, original);
+  assert.strictEqual((await pending).original, original);
   const closing = failureOf(transport.release()); callbacks.shift()(); complete(); await closing;
   assert.equal(transport.snapshot().firstFailure.reason, "ready_decode"); assert.strictEqual(transport.snapshot().firstFailure.original, original);
 });
@@ -355,7 +433,7 @@ test("guardian transport SURROGATE retains asynchronous write and end callback o
   const { child, transport, callbacks, complete } = surrogate();
   const pending = transport.ready(); child.stdout.emit("data", Buffer.from(ready)); await pending;
   const first = new Error("PRIVATE-WRITE"), later = new Proxy({}, { get() { assert.fail("No callback error getters."); } });
-  const verified = failureOf(transport.verify()); callbacks.shift()(first); assert.strictEqual(await verified, first);
+  const verified = failureOf(transport.verify()); callbacks.shift()(first); assert.strictEqual((await verified).original, first);
   const closing = failureOf(transport.release()); callbacks.shift()(later); complete(); await closing;
   assert.strictEqual(transport.snapshot().originals[0], first); assert.strictEqual(transport.snapshot().originals[1], later);
 });
