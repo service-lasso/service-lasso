@@ -138,7 +138,9 @@ export class SelectedJavaScriptSyntax extends SelectedSyntax {
     }
     return this.node('jsTemplate', first, { parts });
   }
-  jsPrimary(allowArrow = true) {
+  jsPrimary(allowArrow = true, grammarContext = 'leftHandSide') {
+    if (grammarContext !== 'leftHandSide' && grammarContext !== 'constructorMember')
+      deny('INVALID_INPUT', 'unknown selected JavaScript primary grammar context');
     const first = this.peek('regexp'), word = first.spelling;
     if (['number', 'string', 'regexp'].includes(first.kind) || ['true', 'false', 'null'].includes(word)) {
       this.consume(); return this.node('literal', first, { token: first });
@@ -231,6 +233,8 @@ export class SelectedJavaScriptSyntax extends SelectedSyntax {
     }
     if (this.take('import')) {
       if (this.take('.')) { const name = this.jsName(true); if (name.spelling !== 'meta') deny('INVALID_SYNTAX', 'import.meta required', name.origin); return this.node('jsImportMeta', first); }
+      if (grammarContext === 'constructorMember' && this.word() === '(')
+        deny('INVALID_SYNTAX', 'constructor MemberExpression cannot consume ImportCall', first.origin);
       if (this.take('(')) {
         const argumentFirst = this.peek(), expression = this.jsInExpression(1);
         this.need(')');
@@ -294,7 +298,7 @@ export class SelectedJavaScriptSyntax extends SelectedSyntax {
         deny('INVALID_SYNTAX', 'prefix update requires simple assignment target', operand.origin);
       left = this.node('unary', first, { operation, operand });
     } else if (this.take('new')) {
-      const calleeFirst = this.peek(), target = this.jsPostfix(this.jsPrimary(false), calleeFirst, false);
+      const calleeFirst = this.peek(), target = this.jsPostfix(this.jsPrimary(false, 'constructorMember'), calleeFirst, false);
       const arguments_ = this.word() === '(' ? this.jsArguments() : [];
       left = this.node('jsNew', first, { target, arguments: arguments_ });
     } else left = this.jsPrimary(minimum <= 1);

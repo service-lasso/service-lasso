@@ -468,3 +468,82 @@ test('CSharp variable initializer structure and mixed-rank type association reta
   assert.equal(field.initializer.kind,'initializer');assert.equal(local.initializer.kind,'initializer');
   assert.ok(field.type.rankOrigin.byte[0]<field.type.element.rankOrigin.byte[0]);
 });
+test('constructor MemberExpression admission rejects ImportCall before its operand and preserves original denial provenance',()=>{
+  const expressions=['new import(x)','new import(x)()','new import(x).then()','new import((x,y))','new import /*boundary*/ (x)'];
+  for(const expression of expressions) for(const source of [`${expression};`,`function f(){return ${expression};}`,
+    `for(${expression};;){}`,`const f=()=>${expression};`]) {
+    for(const action of [()=>parser(source,'javascript').javascriptUnit(),()=>forest(source,'javascript')]) {
+      assert.throws(action,original=>{
+        assert.equal(isSourceDenialCode(original,'INVALID_SYNTAX'),true);
+        assert.equal(Buffer.from(source).subarray(...original.origin.byte).toString(),'import');return true;
+      },source);
+    }
+  }
+  const p=parser('new import(mustNotConsume);','javascript');let consumed=false;
+  const opaque=new Proxy({}, {get(){throw 'opaque getter must not run';}});
+  p.jsInExpression=()=>{consumed=true;throw opaque;};
+  assert.throws(()=>p.javascriptUnit(),original=>isSourceDenialCode(original,'INVALID_SYNTAX'));
+  assert.equal(consumed,false);
+  for(const source of ['import(x);','new (import(x))();','new obj[import(x)]();','new C(import(x));']) {
+    const p=parser(source,'javascript');p.jsInExpression=()=>{throw opaque;};let caught=false;
+    try{p.javascriptUnit();}catch(original){caught=true;assert.equal(original,opaque);}
+    assert.equal(caught,true,source);
+  }
+  const unknown=parser('x','javascript');let contextReads=0;
+  const context=new Proxy({}, {get(){contextReads++;throw opaque;}});
+  assert.throws(()=>unknown.jsPrimary(true,context),original=>isSourceDenialCode(original,'INVALID_INPUT'));
+  assert.equal(contextReads,0);
+});
+
+test('selected LHS constructor contexts preserve grouped calls meta heads and ordinary suffix ASTs through EOF',()=>{
+  const cases=[['import(x);','jsDynamicImport'],['import((x,y));','jsDynamicImport'],
+    ['import(x).then(y);','jsCall'],['import(x)[k];','jsIndex'],['import(x)();','jsCall'],
+    ['typeof import(x);','unary'],['await import(x);','unary'],['x+import(y);','binary'],
+    ['import(x).field++;','postfix'],['new C;','jsNew'],['new C();','jsNew'],
+    ['new obj.C(x);','jsNew'],['new obj[k](x);','jsNew'],['new C().m();','jsCall'],
+    ['new C()();','jsCall'],['new C()?.x;','jsMember'],['f().Ctor();','jsCall'],['f()[k]();','jsCall'],
+    ['new import.meta;','jsNew'],['new import.meta();','jsNew'],['new import.meta.x();','jsNew'],
+    ['new import.meta[import(x)]();','jsNew'],['new (import(x))();','jsNew'],
+    ['new (import(x).then)();','jsNew'],['new (f())();','jsNew'],['new (x=>x)();','jsNew'],
+    ['new (obj?.Ctor)();','jsNew'],['new function(x=import(y)){return import(z);};','jsNew'],
+    ['new async function(){return import(z);};','jsNew'],['new (async x=>import(x))();','jsNew']];
+  for(const [source,kind] of cases) {
+    const p=parser(source,'javascript'),root=p.javascriptUnit(),selected=forest(source,'javascript');
+    for(const unit of [root,selected.root]) assert.equal(unit.statements[0].expression.kind,kind,source);
+    for(const active of [p,selected.parser]) {
+      assert.equal(active.last.kind,'eof');assert.equal(active.last.origin.byte[1],Buffer.byteLength(source));
+    }
+    const expression=root.statements[0].expression;
+    assert.equal(expression.origin.byte[0],0);assert.ok(expression.origin.byte[1]<=Buffer.byteLength(source));
+  }
+  const grouped=parser('new (import(x))();','javascript').javascriptUnit().statements[0].expression;
+  assert.equal(grouped.target.kind,'group');assert.equal(grouped.target.expression.kind,'jsDynamicImport');
+  assert.equal(grouped.target.expression.arguments.length,1);assert.equal(grouped.arguments.length,0);
+  const meta=parser('new import.meta.x();','javascript').javascriptUnit().statements[0].expression;
+  assert.equal(meta.target.kind,'jsMember');assert.equal(meta.target.target.kind,'jsImportMeta');
+  const result=parser('new C().m();','javascript').javascriptUnit().statements[0].expression;
+  assert.equal(result.kind,'jsCall');assert.equal(result.target.kind,'jsMember');assert.equal(result.target.target.kind,'jsNew');
+  const index=parser('new obj[import(x)]();','javascript').javascriptUnit().statements[0].expression;
+  assert.equal(index.target.kind,'jsIndex');assert.equal(index.target.index.kind,'jsDynamicImport');
+});
+
+test('constructor contexts stay lexical while grouped plus-In defaults and actual async ownership remain independent',()=>{
+  for(const source of ['for(new C(import(x in y));;){ }','for(new obj[import(x in y)]();;){ }',
+    'for(import(x in y);;){ }','new C();import(x);','const a=[import(x)];',
+    'const o={x:import(y)};','const t=`${import(x)}`;','export default import(x);',
+    'function f(x=import(y)){return new (import(z))();}',
+    'async function f(){return new (await import(x))();}']) {
+    assert.equal(parser(source,'javascript').javascriptUnit().kind,'unit',source);
+    assert.equal(forest(source,'javascript').root.kind,'unit',source);
+  }
+  for(const source of ['new obj?.Ctor();','new obj?.[key]();','new import.meta?.x();','new x=>x;',
+    'import(x)++;','++import(x);','function f(){await import(x);}',
+    'async function f(x=await import(y)){}','import(x,);','import(x,y);','import(...x);']) {
+    assert.throws(()=>parser(source,'javascript').javascriptUnit(),original=>isSourceDenialCode(original,'INVALID_SYNTAX')||isSourceDenialCode(original,'UNSUPPORTED_FORM'),source);
+    assert.throws(()=>forest(source,'javascript'),original=>isSourceDenialCode(original,'INVALID_SYNTAX')||isSourceDenialCode(original,'UNSUPPORTED_FORM'),source);
+  }
+  for(const source of ['new C`tag`;','new class{};','new new C();','new super();','new.target;']) {
+    assert.throws(()=>parser(source,'javascript').javascriptUnit(),original=>isSourceDenialCode(original,'INVALID_SYNTAX')||isSourceDenialCode(original,'UNSUPPORTED_FORM'),source);
+    assert.throws(()=>forest(source,'javascript'),original=>isSourceDenialCode(original,'INVALID_SYNTAX')||isSourceDenialCode(original,'UNSUPPORTED_FORM'),source);
+  }
+});
