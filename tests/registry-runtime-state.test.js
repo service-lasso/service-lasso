@@ -701,8 +701,9 @@ test("GET /api/dependencies returns graph nodes and edges", async () => {
     const body = await response.json();
 
     assert.equal(response.status, 200);
-    assert.equal(body.dependencies.nodes.length, 12);
+    assert.equal(body.dependencies.nodes.length, 13);
     assert.deepEqual(body.dependencies.edges, [
+      { from: "nextcloud", to: "@caddy" },
       { from: "@java", to: "@localcert" },
       { from: "@node", to: "@serviceadmin" },
       { from: "@localcert", to: "@traefik" },
