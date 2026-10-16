@@ -3,7 +3,10 @@ import { constants } from "node:fs";
 import { createHash, randomBytes } from "node:crypto";
 import { execFile } from "node:child_process";
 import path from "node:path";
-import { holdFixtureRoot } from "./fixture-root-custody.js";
+import { holdFixtureRoot, holdDiagnosticFixtureRoot } from "./fixture-root-custody.js";
+import { createPrivateDiagnosticDirectory } from "./fixture-diagnostic-creator.js";
+import { captureFixtureErrors, retainFixtureOriginals, fixtureOriginalsMatch } from "./fixture-private-error-capture.js";
+export { fixtureOriginalsMatch };
 import { verifyDisposableTestFixture, removeDisposableTestFixture } from "./disposable-test-fixture.js";
 import { fixturePrivacyScript } from "./fixture-privacy-custody.js";
 import { fixturePrivacyBootstrap, createFixturePrivacyDecoder, FIXTURE_PRIVACY_FAILURE_OPERATIONS } from "./fixture-privacy-transport.js";
@@ -182,6 +185,8 @@ export function createFixtureEvidenceBoundary(root, { beforeInitializationStep, 
   let rootCustody;
   let rootIdentity;
   let diagnosticRoot;
+  let birthOwner, diagnosticCustody;
+  let originalSettled = false, diagnosticSettled = false, birthSettled = false;
   let initialization;
   let initializationStage;
   let originalRemoved = false;
@@ -268,9 +273,24 @@ export function createFixtureEvidenceBoundary(root, { beforeInitializationStep, 
             throw error;
           }
         };
-        diagnosticRoot = await step("initialization_diagnostic_allocate", () =>
-          mkdtemp(path.join(path.dirname(root), `${path.basename(root)}-diagnostics-`)));
-        await step("initialization_diagnostic_privacy", () => protectOriginalFixture(diagnosticRoot, value => { privacy = value; privacyByBoundary.set(boundary, value); }));
+        diagnosticRoot = await step("initialization_diagnostic_allocate", async () => {
+          if (process.platform !== "win32") return mkdtemp(path.join(path.dirname(root), `${path.basename(root)}-diagnostics-`));
+          const owner = await createPrivateDiagnosticDirectory(path.dirname(root), `${path.basename(root)}-diagnostics-`, partial => {
+            birthOwner = partial; diagnosticRoot = partial.root;
+          });
+          return owner.root;
+        });
+        await step("initialization_diagnostic_privacy", async () => {
+          const protect = () => protectOriginalFixture(diagnosticRoot, value => { privacy = value; privacyByBoundary.set(boundary, value); });
+          if (!birthOwner) { await protect(); return; }
+          await birthOwner.borrow(protect);
+          await birthOwner.borrow(async () => {
+            diagnosticCustody = await holdDiagnosticFixtureRoot(diagnosticRoot, diagnosticRoot);
+            await diagnosticCustody.verify();
+          });
+          await birthOwner.verify();
+          await birthOwner.handoff();
+        });
         await step("initialization_original_privacy", () => protectOriginalFixture(root, value => { privacy = value; privacyByBoundary.set(boundary, value); }));
         rootCustody = await step("initialization_held_acquire", () => holdFixtureRoot(root, diagnosticRoot));
         await step("initialization_original_identity", async () => {
@@ -334,19 +354,41 @@ export function createFixtureEvidenceBoundary(root, { beforeInitializationStep, 
         await verifyDisposableTestFixture(disposableFixture, root);
         // Windows directory guardians intentionally hold handles without
         // DELETE sharing. Settle them before ordinary creator-owned teardown.
-        await this.release();
+        await this.settleOriginal();
         await removeDisposableTestFixture(disposableFixture, root);
       } else await rootCustody.remove();
       originalRemoved = true;
     },
-    async release() { if (rootCustody) { const held = rootCustody; rootCustody = undefined; await held.release(); } },
+    async settleOriginal() { if (rootCustody && !originalSettled) { originalSettled = true; await rootCustody.release(); } },
+    async settleDiagnostic() { if (diagnosticCustody && !diagnosticSettled) { diagnosticSettled = true; await diagnosticCustody.release(); } },
+    async settleBirth() { if (birthOwner && !birthSettled) { birthSettled = true; await birthOwner.release(); } },
+    async prepareReport() {
+      if (birthOwner) { birthOwner.assertLive(); await diagnosticCustody?.verify(); birthOwner.assertLive(); }
+    },
+    async release() {
+      const failures = [];
+      for (const settle of [() => this.settleOriginal(), () => this.settleDiagnostic(), () => this.settleBirth()]) {
+        try { await settle(); } catch (error) { failures.push(error); }
+      }
+      if (failures.length) throw new AggregateError(failures, "Fixture independent holders failed.");
+    },
     async retainErrors(errors) {
       // Full exceptions are private retained bytes; public diagnostics below
       // project closed stage names only. Never use a substituted original name.
       if (!diagnosticRoot) throw new Error("Private diagnostic custody is unresolved.");
+      if (birthOwner) birthOwner.assertLive();
       await evidencePermissions(diagnosticRoot, false);
-      await writeFile(path.join(diagnosticRoot, "fixture-private-errors.json"), JSON.stringify(errors), { flag: "wx", mode: 0o600 });
+      retainFixtureOriginals(boundary, errors);
+      const captured = captureFixtureErrors(errors);
+      await writeFile(path.join(diagnosticRoot, "fixture-private-errors.json"), captured, { flag: "wx", mode: 0o600 });
     },
+    async retainLateErrors(errors) {
+      if (!birthOwner || birthSettled) throw new Error("Late private writer unavailable.");
+      await birthOwner.capture();
+      const captured = captureFixtureErrors(errors);
+      await writeFile(path.join(diagnosticRoot, "fixture-private-late-errors.json"), captured, { flag: "wx", mode: 0o600 });
+    },
+    get diagnosticCustody() { return birthOwner && !birthSettled ? birthOwner.live() ? "pending" : "unavailable" : "settled"; },
     async state(removalAttempted) {
       let fixture;
       let originalIdentityAccepted = true;
@@ -463,7 +505,7 @@ export function createFixtureCustody() {
   };
 }
 
-export async function closeFixture({ primary, primaryStage = "action", failures = [], custody, adapter, restore, reset, remove, report, evidence, recovery = "unknown" }) {
+export async function closeFixture({ primary, primaryOccurred = primary !== undefined, primaryStage = "action", failures = [], custody, adapter, restore, reset, remove, report, evidence, recovery = "unknown" }) {
   let result;
   let removalAttempted = false;
   let resetState = "not_attempted";
@@ -471,15 +513,11 @@ export async function closeFixture({ primary, primaryStage = "action", failures 
   const stages = ["action", "fixture_initialization", ...FIXTURE_INITIALIZATION_STAGES, "crash_spawn", "crash_exit", "interrupted_read", "recovery_inspection", "recovery_startup", "injection_assertions", ...FIXTURE_ASSERTION_STAGES, "post_compensation", "direct_child", "server_stop", "enrollment_observation", "snapshot", "stop", "finalization", "inspection", "absence", "preservation", "removal", "reset", "environment", "custody", "evidence_state", "original_identity", "original_readback", "copy_verification", "privacy", "held_release", "diagnostic", "private_diagnostic"];
   const stageName = (stage) => stages.includes(stage) ? stage : "action";
   const projection = () => Object.fromEntries(stages.map(stage => [stage,
-    failures.some(entry => stageName(entry.stage) === stage) || (primary && stageName(primaryStage) === stage) ? "failed" : "clear"]));
-  const privateError = (error, seen = new Set()) => {
-    if (!error || typeof error !== "object") return String(error);
-    if (seen.has(error)) return { kind: "circular" };
-    seen.add(error);
-    return { name: error.name, message: error.message, stack: error.stack,
-      cause: error.cause === undefined ? undefined : privateError(error.cause, seen),
-      errors: Array.isArray(error.errors) ? error.errors.map(entry => privateError(entry, seen)) : undefined };
-  };
+    failures.some(entry => stageName(entry.stage) === stage) || (primaryOccurred && stageName(primaryStage) === stage) ? "failed" : "clear"]));
+  const originals = () => [
+    ...(primaryOccurred ? [{ stage: stageName(primaryStage), error: primary }] : []),
+    ...failures.map(entry => ({ stage: stageName(entry.stage), error: entry.error })),
+  ];
   try {
     try { await evidence.initialize(); }
     catch (error) {
@@ -491,7 +529,7 @@ export async function closeFixture({ primary, primaryStage = "action", failures 
     result = await custody.settle(adapter);
     failures.push(...result.failures);
     // A failed action retains even successfully settled evidence.
-    if (!primary && failures.length === 0 && result.absent) {
+    if (!primaryOccurred && failures.length === 0 && result.absent) {
       try { await evidence.preserve(); }
       catch (error) { failures.push({ stage: "preservation", error }); }
       if (failures.length === 0) {
@@ -516,28 +554,41 @@ export async function closeFixture({ primary, primaryStage = "action", failures 
     try { await verifyOriginalFixturePrivacy(evidence.originalRoot); }
     catch (error) { failures.push({ stage: "privacy", error }); }
   }
-  try { await evidence.release(); }
+  try { await (evidence.settleOriginal ? evidence.settleOriginal() : evidence.release()); }
   catch (error) { failures.push({ stage: "held_release", error }); }
   if (removalAttempted && state.evidence !== "retained") failures.push({ stage: "evidence_state", error: new Error("Preserved fixture evidence is unresolved.") });
+  try { await evidence.prepareReport?.(); } catch (error) { failures.push({ stage: "held_release", error }); }
   try { report({ kind: "hard-crash-fixture-custody", recovery,
     removalPolicy: evidence.removalPolicy ?? "writer-exclusion",
     stop: failures.some((entry) => entry.stage === "stop") ? "failed" : "settled",
     finalization: failures.some((entry) => entry.stage === "finalization") ? "failed" : "settled",
     absence: result?.absent ? "proven" : "unresolved", reset: resetState, environment, ...state,
-    stages: projection(), privacyObservation: privacyByBoundary.get(evidence) ?? privacyObservation(),
+    stages: projection(), diagnosticCustody: evidence.diagnosticCustody ?? "settled",
+    privacyObservation: privacyByBoundary.get(evidence) ?? privacyObservation(),
     privacyTransportObservation: transportByBoundary.get(evidence) }); }
   catch (error) { failures.push({ stage: "diagnostic", error }); }
-  if (primary || failures.length) {
-    try { await evidence.retainErrors([
-      ...(primary ? [{ stage: stageName(primaryStage), error: privateError(primary) }] : []),
-      ...failures.map(entry => ({ stage: stageName(entry.stage), error: privateError(entry.error) })),
-    ]); } catch (error) { failures.push({ stage: "private_diagnostic", error }); }
+  retainFixtureOriginals(evidence, originals());
+  const lateStart = failures.length;
+  if (primaryOccurred || failures.length) {
+    try { await evidence.retainErrors(originals()); } catch (error) { failures.push({ stage: "private_diagnostic", error }); }
+  }
+  try { await evidence.settleDiagnostic?.(); } catch (error) { failures.push({ stage: "held_release", error }); }
+  if (failures.length > lateStart && evidence.retainLateErrors) {
+    try { await evidence.retainLateErrors(failures.slice(lateStart).map(entry => ({ stage: stageName(entry.stage), error: entry.error }))); }
+    catch (error) { failures.push({ stage: "private_diagnostic", error }); }
+  }
+  try { await evidence.settleBirth?.(); } catch (error) {
+    failures.push({ stage: "held_release", error }, { stage: "private_diagnostic", error: new Error("Final original persistence unavailable.") });
+  }
+  retainFixtureOriginals(evidence, originals());
+  if (primaryOccurred || failures.length) {
     // TAP prints this closed message even when it does not render nested errors.
-    const aggregate = new AggregateError([...(primary ? [primary] : []), ...failures.map(entry => entry.error)],
+    const aggregate = new AggregateError([...(primaryOccurred ? [primary] : []), ...failures.map(entry => entry.error)],
       `Hard-crash fixture failed: ${JSON.stringify(projection())}`);
     aggregate.fixtureStages = projection();
     aggregate.fixturePrivacyObservation = privacyByBoundary.get(evidence) ?? privacyObservation();
     aggregate.fixturePrivacyTransportObservation = transportByBoundary.get(evidence);
+    retainFixtureOriginals(aggregate, originals());
     throw aggregate;
   }
 }
