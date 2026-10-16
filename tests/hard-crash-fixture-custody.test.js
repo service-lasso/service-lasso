@@ -37,6 +37,35 @@ test("closed diagnostic operation observation refuses foreign, copied, primitive
   assert.equal(FIXTURE_DIAGNOSTIC_OPERATION_STAGES.length, 5);
 });
 
+const diagnosticProjectionSurrogate = async ({ primary, primaryStage, failures = [], initialize = async () => {} }) => {
+  let projection, aggregate;
+  const evidence = { initialize, state: async () => ({ fixture: "unresolved", evidence: "none" }),
+    takeStateFailures: () => [], release: async () => {}, retainErrors: async () => {} };
+  try {
+    await closeFixture({ primary, primaryOccurred: true, primaryStage, failures, evidence,
+      custody: { settle: async () => ({ failures: [], absent: false }) }, adapter: {}, restore: () => {},
+      reset: () => assert.fail("Projection surrogate cannot reset."), report: value => { projection = value; } });
+  } catch (actual) { aggregate = actual; }
+  assert.ok(aggregate instanceof AggregateError);
+  assert.equal(aggregate.errors.includes(primary), true);
+  for (const stage of FIXTURE_DIAGNOSTIC_OPERATION_STAGES) {
+    assert.equal(projection.stages[stage], "clear");
+    assert.equal(aggregate.fixtureStages[stage], "clear");
+  }
+};
+
+test("closeFixture projection SURROGATE reserves derived names from generic caller tags", async () => {
+  const getter = new Proxy({}, { get() { assert.fail("Foreign operation tag must remain opaque."); } });
+  const foreign = {};
+  Object.defineProperty(foreign, "stage", { get() { assert.fail("Foreign stage getter cannot classify a derived operation."); } });
+  for (const tag of [...FIXTURE_DIAGNOSTIC_OPERATION_STAGES, null, undefined, false, 0, foreign, getter,
+    { stage: FIXTURE_DIAGNOSTIC_OPERATION_STAGES[0] }]) {
+    const primary = new Error("PRIVATE-PROJECTION-PRIMARY");
+    await diagnosticProjectionSurrogate({ primary, primaryStage: tag, failures: [{ stage: tag, error: getter }],
+      initialize: async () => { throw tag; } });
+  }
+});
+
 test("caller lifecycle SURROGATE captures report before final close and retains independent late originals", async () => {
   const events = [], reportFailure = new Error("PRIVATE-STAGE-diagnostic"), diagnosticClose = new Error("PRIVATE-DIAGNOSTIC-CLOSE"), finalClose = new Error("PRIVATE-FINAL-CLOSE");
   let first, late, reports = 0, summary;
@@ -517,9 +546,12 @@ test("actual diagnostic operation catches only its own invocation and does not r
   const before = await lstat(outside), acl = process.platform === "win32" ? await privateAclReadback(outside) : undefined;
   const boundaries = [];
   const finish = async (boundary, primary) => {
+    let summary;
     await assert.rejects(closeFixture({ primary, evidence: boundary, custody: createFixtureCustody(),
       adapter: { snapshot: async () => [], stop: async () => {}, finalize: async () => {}, inspect: async () => "not_running" },
-      restore: () => {}, reset: () => assert.fail("Failed operation cannot reset."), report: () => {} }), error => error.errors.includes(primary));
+      restore: () => {}, reset: () => assert.fail("Failed operation cannot reset."), report: value => { summary = value; } }), error => error.errors.includes(primary));
+    for (const stage of FIXTURE_DIAGNOSTIC_OPERATION_STAGES)
+      assert.equal(summary.stages[stage], stage === "initialization_diagnostic_privacy_call" ? "failed" : "clear");
   };
   try {
     const reached = createFixtureEvidenceBoundary(original, { beforeInitializationStep: async (stage, state) => {
@@ -530,6 +562,13 @@ test("actual diagnostic operation catches only its own invocation and does not r
     try { await reached.initialize(); } catch (actual) { authentic = actual; }
     assert.equal(fixtureDiagnosticFailureObservation(authentic), "initialization_diagnostic_privacy_call");
     await finish(reached, authentic);
+    await diagnosticProjectionSurrogate({ primary: authentic,
+      primaryStage: "initialization_diagnostic_privacy_call",
+      failures: [{ stage: "initialization_diagnostic_privacy_call", error: authentic }],
+      initialize: async () => { throw authentic; } });
+    const copied = { ...authentic };
+    await diagnosticProjectionSurrogate({ primary: copied, primaryStage: "initialization_diagnostic_privacy_call",
+      failures: [{ stage: "initialization_diagnostic_privacy_call", error: copied }], initialize: async () => { throw copied; } });
     assert.equal(fixtureDiagnosticFailureObservation({ ...authentic }), undefined);
     const opaque = new Proxy({}, { get() { assert.fail("Opaque original getter must not be read."); } });
     for (const thrown of [authentic, opaque, null, undefined]) {

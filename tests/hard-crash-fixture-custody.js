@@ -24,7 +24,7 @@ const transportByBoundary = new WeakMap();
 const diagnosticOperationByError = new WeakMap();
 const weakKey = value => value !== null && (typeof value === "object" || typeof value === "function");
 export function fixturePrivacyTransportFailureObservation(error) { return weakKey(error) ? transportByError.get(error) : undefined; }
-export function fixtureDiagnosticFailureObservation(error) { return weakKey(error) ? diagnosticOperationByError.get(error) : undefined; }
+export function fixtureDiagnosticFailureObservation(error) { return weakKey(error) ? diagnosticOperationByError.get(error)?.stage : undefined; }
 const privacyObservation = (verification = "not_attempted", protection = "not_attempted") =>
   Object.freeze({ schema: "service-lasso.fixture-privacy-observation.v1", verification, protection });
 
@@ -282,7 +282,7 @@ export function createFixtureEvidenceBoundary(root, { beforeInitializationStep, 
             const error = new Error("Fixture initialization rejected.", { cause });
             if (stage === "initialization_diagnostic_privacy" && diagnosticOperationFailure &&
                 Object.is(diagnosticOperationFailure.original, cause))
-              diagnosticOperationByError.set(error, diagnosticOperationFailure.stage);
+              diagnosticOperationByError.set(error, { boundary, stage: diagnosticOperationFailure.stage });
             const transport = transportByError.get(cause);
             if (transport) { transportByError.set(error, transport); transportByBoundary.set(boundary, transport); }
             error.fixtureInitializationStage = stage;
@@ -526,10 +526,12 @@ export async function closeFixture({ primary, primaryOccurred = primary !== unde
   let removalAttempted = false;
   let resetState = "not_attempted";
   let environment = "restored";
+  let ownedDiagnosticOperation;
   const stages = ["action", "fixture_initialization", ...FIXTURE_INITIALIZATION_STAGES, ...FIXTURE_DIAGNOSTIC_OPERATION_STAGES, "crash_spawn", "crash_exit", "interrupted_read", "recovery_inspection", "recovery_startup", "injection_assertions", ...FIXTURE_ASSERTION_STAGES, "post_compensation", "direct_child", "server_stop", "enrollment_observation", "snapshot", "stop", "finalization", "inspection", "absence", "preservation", "removal", "reset", "environment", "custody", "evidence_state", "original_identity", "original_readback", "copy_verification", "privacy", "held_release", "diagnostic", "private_diagnostic"];
-  const stageName = (stage) => stages.includes(stage) ? stage : "action";
+  const stageName = (stage) => stages.includes(stage) && !FIXTURE_DIAGNOSTIC_OPERATION_STAGES.includes(stage) ? stage : "action";
   const projection = () => Object.fromEntries(stages.map(stage => [stage,
-    failures.some(entry => stageName(entry.stage) === stage) || (primaryOccurred && stageName(primaryStage) === stage) ? "failed" : "clear"]));
+    (FIXTURE_DIAGNOSTIC_OPERATION_STAGES.includes(stage) ? ownedDiagnosticOperation === stage :
+      failures.some(entry => stageName(entry.stage) === stage) || (primaryOccurred && stageName(primaryStage) === stage)) ? "failed" : "clear"]));
   const originals = () => [
     ...(primaryOccurred ? [{ stage: stageName(primaryStage), error: primary }] : []),
     ...failures.map(entry => ({ stage: stageName(entry.stage), error: entry.error })),
@@ -541,8 +543,9 @@ export async function closeFixture({ primary, primaryOccurred = primary !== unde
       if (FIXTURE_INITIALIZATION_STAGES.includes(evidence.initializationStage)) {
         failures.push({ stage: evidence.initializationStage, error });
       }
-      const operation = fixtureDiagnosticFailureObservation(error);
-      if (FIXTURE_DIAGNOSTIC_OPERATION_STAGES.includes(operation)) failures.push({ stage: operation, error });
+      const operation = weakKey(error) ? diagnosticOperationByError.get(error) : undefined;
+      if (operation?.boundary === evidence && FIXTURE_DIAGNOSTIC_OPERATION_STAGES.includes(operation.stage))
+        ownedDiagnosticOperation = operation.stage;
     }
     result = await custody.settle(adapter);
     failures.push(...result.failures);
