@@ -10,7 +10,7 @@ const levels = new Map([['=', 1], ['+=', 1], ['-=', 1], ['*=', 1], ['/=', 1], ['
 
 export class SelectedJavaScriptSyntax extends SelectedSyntax {
   constructor(rawBytes, counter, decoderOccurrence) {
-    super(rawBytes, 'javascript', counter, undefined, decoderOccurrence); this.functionStack = []; this.allowIn = true;
+    super(rawBytes, 'javascript', counter, undefined, decoderOccurrence); this.functionStack = []; this.awaitContexts = []; this.allowIn = true;
   }
   jsName(property = false) {
     const token = this.consume();
@@ -70,18 +70,23 @@ export class SelectedJavaScriptSyntax extends SelectedSyntax {
     return this.node('jsPropertyName', first, { name: this.jsName(true) });
   }
   jsParameters() {
-    this.need('('); const parameters = []; let restSeen = false;
-    if (this.word() !== ')') do {
-      const first = this.peek(), rest = Boolean(this.take('...')), pattern = this.jsPattern(!rest);
-      parameters.push(this.node('jsParameter', first, { pattern, rest })); restSeen ||= rest;
-      if (restSeen && this.word() !== ')') deny('INVALID_SYNTAX', 'rest formal must be last', first.origin);
-    } while (this.take(',') && this.word() !== ')');
-    this.need(')'); return parameters;
+    this.awaitContexts.push(false);
+    try {
+      this.need('('); const parameters = []; let restSeen = false;
+      if (this.word() !== ')') do {
+        const first = this.peek(), rest = Boolean(this.take('...')), pattern = this.jsPattern(!rest);
+        parameters.push(this.node('jsParameter', first, { pattern, rest })); restSeen ||= rest;
+        if (restSeen && this.word() !== ')') deny('INVALID_SYNTAX', 'rest formal must be last', first.origin);
+      } while (this.take(',') && this.word() !== ')');
+      this.need(')'); return parameters;
+    } finally { this.awaitContexts.pop(); }
   }
+  jsAwaitAllowed() { return this.awaitContexts.length ? this.awaitContexts.at(-1) : true; }
   jsFunctionBody(async, arrow = false) {
     const controls = this.controlStack; this.controlStack = []; this.functionStack.push({ async, arrow });
+    this.awaitContexts.push(async);
     try { return this.word() === '{' ? this.jsBlock() : arrow ? this.jsExpression(1) : (this.need('{'), null); }
-    finally { this.functionStack.pop(); this.controlStack = controls; }
+    finally { this.awaitContexts.pop(); this.functionStack.pop(); this.controlStack = controls; }
   }
   jsFunction(first, async, declaration = false) {
     this.need('function');
@@ -220,7 +225,7 @@ export class SelectedJavaScriptSyntax extends SelectedSyntax {
     const first = this.peek('regexp'); let left;
     if (['+', '-', '!', '~', 'typeof', 'void', 'delete', '++', '--', 'await'].includes(first.spelling)) {
       const operation = this.consume().spelling;
-      if (operation === 'await' && this.functionStack.length && !this.functionStack.at(-1).async) deny('INVALID_SYNTAX', 'await in ordinary function', first.origin);
+      if (operation === 'await' && !this.jsAwaitAllowed()) deny('INVALID_SYNTAX', 'await outside actual async body/module context', first.origin);
       left = this.node('unary', first, { operation, operand: this.jsExpression(14) });
     } else if (this.take('new')) {
       const calleeFirst = this.peek(), target = this.jsPostfix(this.jsPrimary(false), calleeFirst, false);
@@ -257,32 +262,46 @@ export class SelectedJavaScriptSyntax extends SelectedSyntax {
       const start = this.peek(), pattern = this.jsPattern(false), initializer = this.take('=') ? this.jsExpression(1) : null;
       declarations.push(this.node('jsVariableDeclarator', start, { pattern, initializer }));
     } while (this.take(','));
-    if (terminate && first.spelling === 'const' && declarations.some(declaration => declaration.initializer === null))
-      deny('INVALID_SYNTAX', 'const declaration requires initializer', first.origin);
+    if (terminate) this.jsRequireLexicalInitializers(first.spelling, declarations, first);
     if (terminate) this.semicolon();
     return this.node('jsVariableDeclaration', first, { category: first.spelling, declarations });
+  }
+  jsRequireLexicalInitializers(category, declarations, first) {
+    if (declarations.some(declaration => declaration.initializer === null &&
+        (category === 'const' || declaration.pattern.kind !== 'jsBinding')))
+      deny('INVALID_SYNTAX', 'lexical declaration requires initializer', first.origin);
   }
   jsControl(kind, operation) {
     this.controlStack.push(kind); try { return operation(); } finally { this.controlStack.pop(); }
   }
-  jsStatement() {
+  jsStatement(listItem = true) {
     const first = this.peek(), word = first.spelling;
     if (word === '{') return this.jsBlock();
     if (this.take(';')) return this.node('empty', first);
-    if (['const', 'let'].includes(word)) return this.jsVariables();
-    if (word === 'function') return this.jsFunction(first, false, true);
+    if (['const', 'let'].includes(word)) {
+      if (!listItem) deny('INVALID_SYNTAX', 'lexical declaration requires statement-list context', first.origin);
+      return this.jsVariables();
+    }
+    if (word === 'function') {
+      if (!listItem) deny('INVALID_SYNTAX', 'strict function declaration requires statement-list context', first.origin);
+      return this.jsFunction(first, false, true);
+    }
     if (word === 'async') {
       const mark = this.mark(); this.consume();
-      if (!this.lineBefore() && this.word() === 'function') return this.jsFunction(first, true, true);
+      if (!this.lineBefore() && this.word() === 'function') {
+        if (!listItem) deny('INVALID_SYNTAX', 'async function declaration requires statement-list context', first.origin);
+        return this.jsFunction(first, true, true);
+      }
       this.restore(mark);
     }
     if (this.take('if')) {
-      this.need('('); const test = this.jsExpression(0); this.need(')'); const body = this.jsStatement(), alternative = this.take('else') ? this.jsStatement() : null;
+      this.need('('); const test = this.jsExpression(0); this.need(')'); const body = this.jsStatement(false), alternative = this.take('else') ? this.jsStatement(false) : null;
       return this.node('if', first, { test, body, alternative });
     }
-    if (this.take('while')) { this.need('('); const test = this.jsExpression(0); this.need(')'); return this.node('while', first, { test, body: this.jsControl('loop', () => this.jsStatement()) }); }
+    if (this.take('while')) { this.need('('); const test = this.jsExpression(0); this.need(')'); return this.node('while', first, { test, body: this.jsControl('loop', () => this.jsStatement(false)) }); }
     if (this.take('for')) {
       const async = Boolean(this.take('await')); this.need('('); const oldAllowIn = this.allowIn; this.allowIn = false;
+      if (async && !this.jsAwaitAllowed()) { this.allowIn = oldAllowIn; deny('INVALID_SYNTAX', 'for-await outside actual async body/module context', first.origin); }
       let initializer;
       try { initializer = this.word() === ';' ? null : ['const', 'let'].includes(this.word()) ? this.jsVariables(false) : this.jsExpression(0); }
       finally { this.allowIn = oldAllowIn; }
@@ -291,14 +310,13 @@ export class SelectedJavaScriptSyntax extends SelectedSyntax {
           deny('INVALID_SYNTAX', 'for-in/of lexical head requires one uninitialized binding', first.origin);
         const operation = this.consume().spelling, sequence = this.jsExpression(0); this.need(')');
         if (async && operation !== 'of') deny('INVALID_SYNTAX', 'for await requires of', first.origin);
-        return this.node('jsForEach', first, { async, operation, initializer, sequence, body: this.jsControl('loop', () => this.jsStatement()) });
+        return this.node('jsForEach', first, { async, operation, initializer, sequence, body: this.jsControl('loop', () => this.jsStatement(false)) });
       }
       if (async) deny('INVALID_SYNTAX', 'for await requires of', first.origin);
-      if (initializer?.kind === 'jsVariableDeclaration' && initializer.category === 'const' && initializer.declarations.some(declaration => declaration.initializer === null))
-        deny('INVALID_SYNTAX', 'const declaration requires initializer', first.origin);
+      if (initializer?.kind === 'jsVariableDeclaration') this.jsRequireLexicalInitializers(initializer.category, initializer.declarations, first);
       this.need(';'); const test = this.word() === ';' ? null : this.jsExpression(0); this.need(';');
       const increment = this.word() === ')' ? null : this.jsExpression(0); this.need(')');
-      return this.node('for', first, { initializer, test, increment, body: this.jsControl('loop', () => this.jsStatement()) });
+      return this.node('for', first, { initializer, test, increment, body: this.jsControl('loop', () => this.jsStatement(false)) });
     }
     if (this.take('try')) {
       const body = this.jsBlock(); let handler = null;

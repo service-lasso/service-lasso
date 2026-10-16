@@ -29,7 +29,7 @@ const csKeywords = new Set(('abstract as base bool break byte case catch char ch
 const builtinTypes = new Set('bool byte char decimal double float int long object sbyte short string uint ulong ushort void'.split(' '));
 const precedence = new Map([['=', 1], ['+=', 1], ['-=', 1], ['*=', 1], ['/=', 1], ['%=', 1],
   ['&=', 1], ['|=', 1], ['^=', 1], ['<<=', 1], ['>>=', 1], ['??', 3], ['||', 4], ['&&', 5],
-  ['|', 6], ['^', 7], ['&', 8], ['==', 9], ['!=', 9], ['===', 9], ['!==', 9],
+  ['|', 6], ['^', 7], ['&', 8], ['==', 9], ['!=', 9],
   ['<', 10], ['>', 10], ['<=', 10], ['>=', 10], ['is', 10], ['as', 10],
   ['<<', 11], ['>>', 11], ['+', 12], ['-', 12], ['*', 13], ['/', 13], ['%', 13]]);
 
@@ -233,10 +233,13 @@ export class SelectedSyntax {
       if (this.take('[')) {
         const length = this.word() === ']' ? null : this.expression(); this.need(']');
         const initializer = this.word() === '{' ? this.initializer() : null;
+        if (length === null && initializer === null) deny('INVALID_SYNTAX', 'unsized array creation requires initializer', first.origin);
         return this.node('newArray', first, { type, length, initializer });
       }
-      const arguments_ = this.word() === '(' ? this.arguments() : [];
+      const hasArguments = this.word() === '(';
+      const arguments_ = hasArguments ? this.arguments() : [];
       const initializer = this.word() === '{' ? this.initializer() : null;
+      if (!hasArguments && initializer === null) deny('INVALID_SYNTAX', 'object creation requires arguments or initializer', first.origin);
       return this.node('newObject', first, { type, arguments: arguments_, initializer });
     }
     if (['typeof', 'sizeof', 'default'].includes(spelling)) {

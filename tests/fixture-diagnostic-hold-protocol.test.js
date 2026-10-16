@@ -51,11 +51,72 @@ for (const operation of DIAGNOSTIC_HOLD_CHILD_OPERATIONS) test(`guardian ${opera
   child.stdout.emit("data", Buffer.from(`GDH1|fail|${operation}\n`));
   const original = await pending;
   assert.strictEqual(transport.snapshot().originals[0], original);
-  assert.equal(transport.snapshot().childFailure, operation);
+  assert.equal(transport.snapshot().childFailure, undefined);
   assert.equal(transport.snapshot().firstFailure.reason, "child_failure_frame");
   child.stderr.emit("data", Buffer.from("PRIVATE-LATER-CHILD-ERROR"));
   assert.equal(transport.snapshot().readyWitness, undefined);
   const close = failureOf(transport.release()); callbacks.shift()(); complete(); await close;
+  assert.equal(transport.snapshot().childFailure, operation);
+});
+
+for (const operation of DIAGNOSTIC_HOLD_CHILD_OPERATIONS) test(`stderr-first ${operation} negative-frame SURROGATE requires complete closure`, async () => {
+  const { child, transport, callbacks, complete } = surrogate();
+  const pending = failureOf(transport.ready());
+  child.stderr.emit("data", Buffer.from("PRIVATE-ORIGINAL"));
+  const original = await pending;
+  child.stdout.emit("data", Buffer.from(`GDH1|fail|${operation}\n`));
+  assert.equal(transport.failureObservation().childFailure, undefined);
+  assert.equal(transport.snapshot().readyWitness, undefined);
+  assert.throws(() => transport.assertLive(), value => value === original);
+  const closing = failureOf(transport.release()); callbacks.shift()();
+  child.stdout.emit("end"); child.stderr.emit("end");
+  assert.equal(transport.failureObservation().childFailure, undefined);
+  complete(); await closing;
+  assert.equal(transport.failureObservation().childFailure, operation);
+  assert.equal(transport.failureObservation().firstFailure.reason, "stderr_content");
+  assert.strictEqual(transport.failureObservation().firstFailure.original, original);
+});
+
+test("late negative-frame SURROGATE rejects all incomplete or contaminated stdout observations", async () => {
+  for (const suffix of ["extra\n", "GDH1|fail|bootstrap\n", ready, "partial", "\0", "\r", "é", "x".repeat(481)]) {
+    const { child, transport, callbacks, complete } = surrogate();
+    const pending = failureOf(transport.ready());
+    child.stderr.emit("data", Buffer.from("PRIVATE")); const original = await pending;
+    child.stdout.emit("data", Buffer.from("GDH1|fail|initial_verify\n"));
+    child.stdout.emit("data", Buffer.from(suffix));
+    const closing = failureOf(transport.release()); callbacks.shift()(); complete(); await closing;
+    assert.equal(transport.failureObservation().childFailure, undefined);
+    assert.strictEqual(transport.failureObservation().firstFailure.original, original);
+    assert.equal(transport.failureObservation().firstFailure.reason, "stderr_content");
+  }
+  for (const missing of ["stdout", "stderr", "close"]) {
+    const { child, transport } = surrogate(); const pending = failureOf(transport.ready());
+    child.stderr.emit("data", Buffer.from("PRIVATE")); await pending;
+    child.stdout.emit("data", Buffer.from("GDH1|fail|bootstrap\n"));
+    if (missing !== "stdout") child.stdout.emit("end");
+    if (missing !== "stderr") child.stderr.emit("end");
+    child.stdin.emit("finish"); child.emit("exit", 1, null);
+    if (missing !== "close") child.emit("close", 1, null);
+    assert.equal(transport.failureObservation().childFailure, undefined);
+    if (missing === "stdout") child.stdout.emit("end");
+    if (missing === "stderr") child.stderr.emit("end");
+    assert.equal(transport.failureObservation().childFailure, undefined);
+  }
+});
+
+test("settled negative-frame SURROGATE never overwrites null or undefined first originals", async () => {
+  for (const first of [null, undefined]) {
+    const { child, transport, callbacks, complete } = surrogate(); const pending = failureOf(transport.ready());
+    child.stdin.emit("error", first); assert.strictEqual(await pending, first);
+    const later = new Proxy({}, { get() { assert.fail("late opaque original observed"); } });
+    child.stderr.emit("error", later);
+    child.stdout.emit("data", Buffer.from("GDH1|fail|acquire_chain\n"));
+    const closing = failureOf(transport.release()); callbacks.shift()(); complete(); await closing;
+    const state = transport.snapshot();
+    assert.equal(state.firstFailureRecorded, true); assert.equal(state.firstFailure.reason, "stdin_error");
+    assert.strictEqual(state.firstFailure.original, first); assert.strictEqual(state.originals[1], later);
+    assert.equal(state.childFailure, "acquire_chain"); assert.equal(state.readyWitness, undefined);
+  }
 });
 
 test("guardian script SOURCE witness binds all4 failure frames to complete actual catch blocks", async () => {
@@ -107,6 +168,7 @@ test("guardian transport SURROGATE rejects malformed, duplicate, mixed, extra, p
     await pending;
     const closing = failureOf(transport.release()); callbacks.shift()?.(); complete(); await closing;
     assert.ok(transport.snapshot().originals.length);
+    assert.equal(transport.failureObservation().childFailure, undefined);
   }
 });
 
