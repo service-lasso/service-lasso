@@ -366,3 +366,23 @@ registry replacement/definition/call adversaries are required. Correct baseline
 Exception access is nonstatic; reject STATIC/nullconditional/computed drift.
 Supplementary only: ambient runtime binding remains unproved. Different intent
 review still precedes implementation; tools/provenance/NEW ROOT remain unmet.
+
+#1562 AST implementation after DIFFERENT4d INTENT_GO: author the complete typed
+semantic-role catalogue, fixed real-parser child and strict framed transport.
+No new adapter-owned timer/cancellation/output bound or retry/fallback; retain
+external original admitted supervision and genuine full channel closure.
+Every source adversary must require an authenticated real closed rejection,
+not any infrastructure failure. No local parser/test/native execution until
+NEW entire source GO and complete actual-input ROOT admission. Privacy native
+initialization blocker remains separate and unchanged.
+
+#1562 real-AST source unit: the independently authored semantic catalogue covers
+76 ordered outer roles and all ten definitions. The actual fixed child matches
+whole typed AST operands/blocks; unknown kinds fail closed. Tests await genuine
+closed source denials, and separately test malformed framed input through the
+same fixed child, canonical response framing and complete closure receipts.
+The raw-frame/receipt seams cannot mint authenticated source denials or select
+tools. Original transport errors and raw receipts stay private. Physical signed
+PowerShell/source-tag mismatch remains UNQUALIFIED; fixed platform recipes are
+not ROOT. All parser/tests/native execution remains NOT_RUN pending different
+ENTIRE source review and NEW complete actual-input/tool/environment admission.

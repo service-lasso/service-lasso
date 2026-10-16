@@ -1,12 +1,45 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { assertPowerShellOriginalRetention, assertPowerShellRecorderReleaseRetention } from './helpers/core1562-powershell-retention-source.mjs';
+import { assertPowerShellOriginalRetention, assertPowerShellRecorderReleaseRetention, isF25AstRejection } from './helpers/core1562-powershell-retention-source.mjs';
 const source = () => readFile('scripts/verify-windows-managed-launcher-bootstrap.ps1', 'utf8');
 test('F25 selected actual PowerShell barrier consumes original rooted owner and complete shielded tail', async () => {
   const actual = await source();
-  assert.doesNotThrow(() => assertPowerShellOriginalRetention(actual));
-  assert.doesNotThrow(() => assertPowerShellOriginalRetention(actual.replace('while ($true) { try { [Threading.Thread]', '# inert comment\n      while ($true) { try { [Threading.Thread]')));
+  await assert.doesNotReject(() => assertPowerShellOriginalRetention(actual));
+  await assert.doesNotReject(() => assertPowerShellOriginalRetention(actual.replace('while ($true) { try { [Threading.Thread]', '# inert comment\n      while ($true) { try { [Threading.Thread]')));
+  await assert.doesNotReject(() => assertPowerShellOriginalRetention(actual.replace(
+    "Add-OriginalToolError 'custody-wait' $_.Exception",
+    "Add-OriginalToolError `\n 'custody-wait' $_.Exception")));
+});
+
+test('F25 complete enclosing definitions and actual caller context reject semantic escapes', async () => {
+  const actual = await source();
+  const cases = [
+    ['[CmdletBinding()]', '[CmdletBinding(SupportsShouldProcess)]'],
+    ['[switch]$Update,', '[switch]$Update = $(Write-Output changed),'],
+    ['$script:NativeToolOwners.Add($key, $owner)', '$script:NativeToolOwners.Add($key, $owner); return'],
+    ['$script:NativeToolOwners.Add($key, $owner)', '$script:NativeToolOwners.Add($key, $owner); $script:NativeToolOwners = $null'],
+    ['function Retain-ActiveOriginalOwner', 'Set-Alias Retain-ActiveOriginalOwner Write-Output; function Retain-ActiveOriginalOwner'],
+    ['[StringComparer]::Ordinal', '[StringComparer]::OrdinalIgnoreCase'],
+    ['if ($releaseFailed -or $owner.recordingFailed) { Retain-ActiveOriginalOwner }', ''],
+  ];
+  for (const [needle, replacement] of cases) {
+    assert.ok(actual.includes(needle), `actual enclosing mutation target: ${needle}`);
+    await assert.rejects(() => assertPowerShellOriginalRetention(actual.replace(needle, replacement)), isF25AstRejection);
+  }
+  const namedBlocks = actual.replace('$ErrorActionPreference = "Stop"',
+    'begin { Write-Output changed }\nend {\n$ErrorActionPreference = "Stop"') + '\n}\n';
+  await assert.rejects(() => assertPowerShellOriginalRetention(namedBlocks), isF25AstRejection);
+  const assignment = '$owner.recordingFailure = $_.Exception; $owner.recordingFailed = $true';
+  assert.ok(actual.split(assignment).length > 3);
+  for (const boundary of ['\n', ' # split original member\n']) {
+    // Mutate each actual shield separately so another malformed occurrence
+    // cannot mask a missed original-error assignment.
+    for (let offset = actual.indexOf(assignment); offset !== -1; offset = actual.indexOf(assignment, offset + assignment.length)) {
+      const changed = actual.slice(0, offset) + `$owner.recordingFailure = $_${boundary}.Exception; $owner.recordingFailed = $true` + actual.slice(offset + assignment.length);
+      await assert.rejects(() => assertPowerShellOriginalRetention(changed), isF25AstRejection);
+    }
+  }
 });
 test('F25 finite, escaping, unshielded, unrooted and unreachable-copy mutations deny', async () => {
   const actual = await source();
@@ -34,7 +67,7 @@ test('F25 finite, escaping, unshielded, unrooted and unreachable-copy mutations 
     assert.ok(actual.includes(needle), `actual mutation target: ${needle}`);
     const changed = actual.replace(needle, replacement);
     assert.notEqual(changed, actual);
-    assert.throws(() => assertPowerShellOriginalRetention(changed));
+    await assert.rejects(() => assertPowerShellOriginalRetention(changed), isF25AstRejection);
   }
 });
 
@@ -42,10 +75,10 @@ test('F25 either release or recorder failure retains the original invocation', a
   const actual = await source();
   const gate = 'if ($releaseFailed -or $owner.recordingFailed) { Retain-ActiveOriginalOwner }';
   assert.ok(actual.includes(gate));
-  assert.doesNotThrow(() => assertPowerShellRecorderReleaseRetention(actual));
+  await assert.doesNotReject(() => assertPowerShellRecorderReleaseRetention(actual));
   for (const changedGate of [gate.replace('-or', '-and'), 'if ($releaseFailed) { Retain-ActiveOriginalOwner }',
     'if ($owner.recordingFailed) { Retain-ActiveOriginalOwner }', '']) {
-    assert.throws(() => assertPowerShellRecorderReleaseRetention(actual.replace(gate, changedGate)));
+    await assert.rejects(() => assertPowerShellRecorderReleaseRetention(actual.replace(gate, changedGate)), isF25AstRejection);
   }
 });
 test('F25 all original recorder operands preserve actual command-line boundaries', async () => {
@@ -53,11 +86,11 @@ test('F25 all original recorder operands preserve actual command-line boundaries
   for (const phase of ['retention-copy-observation', 'custody-record', 'custody-wait']) {
     const call = `Add-OriginalToolError '${phase}' $_.Exception`;
     assert.ok(actual.includes(call));
-    for (const separator of ['\n', '\r\n', ' # original operand moved to next command\n', ' `\n']) {
+    for (const separator of ['\n', '\r\n', ' # original operand moved to next command\n']) {
       for (const boundary of [`Add-OriginalToolError '${phase}'`, 'Add-OriginalToolError']) {
         const modified = call.replace(`${boundary} `, `${boundary}${separator}`);
         assert.notEqual(modified, call);
-        assert.throws(() => assertPowerShellOriginalRetention(actual.replace(call, modified)));
+        await assert.rejects(() => assertPowerShellOriginalRetention(actual.replace(call, modified)), isF25AstRejection);
       }
     }
   }

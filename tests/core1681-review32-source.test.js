@@ -88,14 +88,14 @@ test('F25 transitive actual acquisition/MSI/trust boundaries deny unguarded reco
 
 test('F25 PowerShell owns raw initiating exceptions and shields every catch recording before its same-invocation barrier', async () => {
   const [, , , , compiler] = await sources();
-  // Supplementary textual source assertions only. PowerShell's complete finite
-  // frontend/native operator acceptance remain unimplemented/unqualified.
+  // Supplementary source assertions and actual parser witness only. Ambient
+  // binding and native operator acceptance remain unqualified.
   assert.match(compiler, /function Add-OriginalToolError\([\s\S]*?\$owner\.lastOriginalError = \$original[\s\S]*?try \{ \$owner\.errors\.Add[\s\S]*?catch \{ \$owner\.recordingFailure = \$_\.Exception; \$owner\.recordingFailed = \$true \}/u);
   assert.doesNotMatch(compiler, /exception = \$_\.Exception\.ToString\(\)/u);
   assert.match(compiler, /try \{ foreach \(\$name in @\('stdout', 'stderr'\)\)[\s\S]*?catch \{ try \{ Add-OriginalToolError 'retention-copy-observation'/u);
-  assert.doesNotThrow(() => assertPowerShellOriginalRetention(compiler));
+  await assert.doesNotReject(() => assertPowerShellOriginalRetention(compiler));
   assert.match(compiler, /if \(\$owner\.primaryError\) \{ throw \$owner\.primaryError \}/u);
   assert.match(compiler, /\$owner\.errors\.Count -eq 0 -and -not \$owner\.recordingFailed/u);
   assert.match(compiler, /if \(\$owner\.startAttempted -and -not \$owner\.settled\) \{ Retain-ActiveOriginalOwner \}/u);
-  assert.doesNotThrow(() => assertPowerShellRecorderReleaseRetention(compiler));
+  await assert.doesNotReject(() => assertPowerShellRecorderReleaseRetention(compiler));
 });

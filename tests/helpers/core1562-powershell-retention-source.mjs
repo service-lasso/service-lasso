@@ -1,127 +1,129 @@
-// F25 supplementary PowerShell SOURCE grammar. No native/PowerShell execution.
-const refuse = () => { throw new Error('F25 original active retention source is unresolved.'); };
-function lex(source) {
-  const out = [];
-  const spans = [];
-  Object.defineProperty(out, 'spans', { value: spans });
-  const emit = (value, start, end) => { out.push(value); spans.push({ start, end }); };
-  for (let at = 0; at < source.length;) {
-    const ch = source[at];
-    if (/\s/u.test(ch)) { at++; continue; }
-    if (ch === '#') { while (at < source.length && !/[\r\n]/u.test(source[at])) at++; continue; }
-    if (ch === "'" || ch === '"') {
-      const start = at++, quote = ch; let closed = false;
-      while (at < source.length) {
-        if (source[at] === '`' && quote === '"') { at += 2; continue; }
-        if (source[at++] !== quote) continue;
-        if (source[at] === quote) { at++; continue; }
-        closed = true; break;
+// Selected supplementary F25 witness. Only the official parser child interprets
+// PowerShell. No handwritten lexer, source snapshot, hash oracle or fallback.
+import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+const script = fileURLToPath(new URL('./core1562-powershell-retention-ast.ps1', import.meta.url));
+const cwd = fileURLToPath(new URL('../../', import.meta.url));
+const file = 'scripts/verify-windows-managed-launcher-bootstrap.ps1';
+const denials = new WeakSet();
+export const isF25AstRejection = error => error !== null && typeof error === 'object' && denials.has(error);
+const privateFailures = new WeakMap();
+const infrastructure = () => new Error('F25 actual parser/owned transport is unavailable or invalid.');
+function ownedFailure(stage, original) {
+  const failure = infrastructure();
+  privateFailures.set(failure, { primary: original, originals: [{ stage, original }] });
+  return failure;
+}
+export function f25ClosedFailureDiagnostic(error) {
+  const owner = error !== null && typeof error === 'object' ? privateFailures.get(error) : undefined;
+  if (!owner) return undefined;
+  const result = { schema: 'core1562.f25.transport-failure.v1', stages: owner.originals.map(row => row.stage), count: owner.originals.length };
+  if (owner.receipt) {
+    const r = owner.receipt;
+    result.closure = { code: r.code, signal: r.signal, delivered: r.delivered, stdinFinish: r.stdinFinish,
+      stdoutEnd: r.stdoutEnd, stderrEnd: r.stderrEnd, exitObserved: r.exitObserved,
+      stdoutBytes: r.stdout.length, stderrBytes: r.stderr.length };
+  }
+  return result;
+}
+export function decodeF25AstResponse(bytes, digest, exitCode) {
+  let text, result;
+  try { text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes); result = JSON.parse(text); }
+  catch (original) { throw ownedFailure('response_decode', original); }
+  const keys = ['schema', 'status', 'sourceSha256', 'reason'];
+  if (!result || Object.getPrototypeOf(result) !== Object.prototype ||
+      JSON.stringify(Object.keys(result)) !== JSON.stringify(keys) ||
+      `${JSON.stringify(result)}\n` !== text || result.schema !== 'core1562.f25.ast-result.v1' ||
+      result.sourceSha256 !== digest ||
+      !(exitCode === 0 && result.status === 'conformant' && result.reason === 'none' ||
+        exitCode === 2 && result.status === 'rejected' && ['parse_error', 'shape_mismatch'].includes(result.reason))) {
+    throw ownedFailure('response_shape', { bytes: Buffer.from(bytes), digest, exitCode });
+  }
+  return result;
+}
+// Pure receipt validator for transport adversaries. It cannot authenticate a
+// source denial: only check() after the actual owned child can do that.
+export function validateF25AstClosure(receipt) {
+  const { delivered, stdinFinish, stdoutEnd, stderrEnd, exitObserved,
+    exitCode, exitSignal, code, signal, stderr } = receipt;
+  if (!delivered || !stdinFinish || !stdoutEnd || !stderrEnd || !exitObserved ||
+      exitCode !== code || exitSignal !== signal || signal !== null ||
+      !Buffer.isBuffer(stderr) || stderr.length !== 0 || ![0, 2].includes(code)) {
+    const failure = ownedFailure('closure', receipt);
+    throw failure;
+  }
+}
+function configuration() {
+  // Fixed platform recipes only. Actual physical tool/runtime/environment
+  // qualification belongs to NEW external ROOT, never an environment selector.
+  const temp = path.join(cwd, '.tmp', 'f25-ast-runtime');
+  if (process.platform === 'win32') return { executable: 'C:/Program Files/PowerShell/7/pwsh.exe', env: {
+    SystemRoot: 'C:\\Windows', WINDIR: 'C:\\Windows', ComSpec: 'C:\\Windows\\System32\\cmd.exe',
+    TEMP: temp, TMP: temp, PATH: 'C:\\Windows\\System32', PSModulePath: '',
+  } };
+  if (process.platform === 'linux') return { executable: '/opt/microsoft/powershell/7/pwsh', env: {
+    TEMP: temp, TMP: temp, PATH: '/usr/bin:/bin', PSModulePath: '',
+  } };
+  throw infrastructure();
+}
+async function check(source) {
+  let bytes;
+  if (typeof source === 'string') {
+    if (!source.isWellFormed()) throw infrastructure();
+    bytes = Buffer.from(source, 'utf8');
+  } else if (Buffer.isBuffer(source)) {
+    bytes = Buffer.from(source);
+  } else throw infrastructure();
+  try { new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes); } catch (original) { throw ownedFailure('source_decode', original); }
+  const digest = createHash('sha256').update(bytes).digest('hex');
+  const input = Buffer.from(`${JSON.stringify({ schema: 'core1562.f25.ast-input.v1', sourceFile: file,
+    sourceByteLength: bytes.length, sourceSha256: digest, sourceBase64: bytes.toString('base64') })}\n`, 'utf8');
+  const result = await observeF25AstFrame(input, digest);
+  if (result.status === 'rejected') {
+    const denial = new Error(`F25 selected source rejected: ${result.reason}`);
+    denials.add(denial); throw denial;
+  }
+}
+// Raw frame seam exercises the same fixed owned child. It never authenticates
+// source denials and cannot select a different executable, script or environment.
+export async function observeF25AstFrame(input, digest) {
+  if (!Buffer.isBuffer(input) || typeof digest !== 'string' || !/^[a-f0-9]{64}$/u.test(digest)) throw infrastructure();
+  const { executable, env } = configuration();
+  return new Promise((resolve, reject) => {
+    let child;
+    try { child = spawn(executable, ['-NoLogo', '-NoProfile', '-NonInteractive', '-File', script], {
+      cwd, env, shell: false, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'],
+    }); } catch (original) { reject(ownedFailure('spawn', original)); return; }
+    let failure, delivered = false, stdoutEnd = false, stderrEnd = false, stdinFinish = false, exitObserved = false, exitCode, exitSignal;
+    const stdout = [], stderr = [];
+    const fail = (stage, original) => {
+      if (!failure) failure = ownedFailure(stage, original);
+      else privateFailures.get(failure).originals.push({ stage, original });
+    };
+    // No adapter-owned timer/cancellation/retry. External admitted supervision
+    // retains its original bound/authority; this promise requires real closure.
+    child.once('error', original => fail('spawn', original));
+    child.stdin.once('error', original => fail('stdin', original));
+    child.stdin.once('finish', () => { stdinFinish = true; });
+    child.stdout.once('error', original => fail('stdout', original));
+    child.stderr.once('error', original => fail('stderr', original));
+    child.stdout.once('end', () => { stdoutEnd = true; }); child.stderr.once('end', () => { stderrEnd = true; });
+    child.stdout.on('data', chunk => { stdout.push(chunk); });
+    child.stderr.on('data', chunk => { stderr.push(chunk); });
+    child.once('exit', (code, signal) => { exitObserved = true; exitCode = code; exitSignal = signal; });
+    child.once('close', (code, signal) => {
+      const receipt = { delivered, stdinFinish, stdoutEnd, stderrEnd, exitObserved, exitCode, exitSignal, code, signal, stdout: Buffer.concat(stdout), stderr: Buffer.concat(stderr) };
+      try { validateF25AstClosure(receipt); } catch (original) {
+        if (!failure) failure = original;
+        else privateFailures.get(failure).originals.push({ stage: 'closure', original });
       }
-      if (!closed) refuse(); emit(source.slice(start, at), start, at); continue;
-    }
-    const word = /^(?:\$[A-Za-z_][A-Za-z_0-9:]*|[A-Za-z_][A-Za-z_0-9-]*|\d+)/u.exec(source.slice(at));
-    if (word) { emit(word[0], at, at + word[0].length); at += word[0].length; continue; }
-    emit(ch, at, at + 1); at++;
-  }
-  return out;
+      if (failure) { privateFailures.get(failure).receipt = receipt; reject(failure); return; }
+      try { resolve(decodeF25AstResponse(Buffer.concat(stdout), digest, code)); } catch (error) { reject(error); }
+    });
+    try { child.stdin.end(input, error => { if (error) fail('stdin_end', error); else delivered = true; }); } catch (original) { fail('stdin_end', original); }
+  });
 }
-function region(ts, name) {
-  const matches = [];
-  for (let at = 0; at < ts.length - 2; at++) if (ts[at] === 'function' && ts[at + 1] === name) matches.push(at);
-  if (matches.length !== 1) refuse();
-  const start = matches[0]; let open = start + 2;
-  while (open < ts.length && ts[open] !== '{') open++;
-  let depth = 1, end = open + 1;
-  for (; end < ts.length && depth; end++) { if (ts[end] === '{') depth++; if (ts[end] === '}') depth--; }
-  if (depth) refuse();
-  return { start, open, end, body: ts.slice(open + 1, end - 1) };
-}
-function assertCallerPrefix(ts, caller, rootEnd) {
-  let at = caller.open + 1;
-  const need = text => { for (const expected of lex(text)) if (ts[at++] !== expected) refuse(); };
-  need('$start = [Diagnostics.ProcessStartInfo]::new()');
-  for (const [key, value] of [['FileName', '$file'], ['WorkingDirectory', '$temporaryRoot'], ['UseShellExecute', '$false'],
-    ['RedirectStandardInput', '$true'], ['RedirectStandardOutput', '$true'], ['RedirectStandardError', '$true']]) need(`$start.${key} = ${value}`);
-  need('$start.Environment.Clear()');
-  need('foreach ($entry in $environment.GetEnumerator()) { $start.Environment.Add($entry.Key, $entry.Value) }');
-  need('if ([string]::IsNullOrEmpty($nativeArguments)) { foreach ($argument in $arguments) { $start.ArgumentList.Add($argument) } } else { $start.Arguments = $nativeArguments }');
-  need('$key = "$temporaryRoot|$label"');
-  need('if ($script:NativeToolOwners.ContainsKey($key)) { throw "An original tool owner already exists; no retry." }');
-  need('$owner = @{');
-  const fields = [['process', '$null'], ['stdinSource', '$null'], ['stdinClosed', '$false'], ['stdoutRaw', '$null'], ['stderrRaw', '$null'],
-    ['startAttempted', '$false'], ['startReturned', '$false'], ['started', '$null'], ['attached', '$false'], ['exitObserved', '$false'],
-    ['exitCode', '$null'], ['settled', '$false'], ['recordingFailed', '$false'], ['recordingFailure', '$null'], ['lastOriginalError', '$null'],
-    ['primaryError', '$null'], ['errors', '[Collections.Generic.List[object]]::new()']];
-  for (const [key, value] of fields) need(`${key} = ${value};`);
-  need('copies = @{');
-  for (const [index, name] of ['stdout', 'stderr'].entries()) {
-    if (index) need(';');
-    need(`${name} = @{ source = $null; task = $null; terminal = $false; observation = $null }`);
-  }
-  need('} } $script:NativeToolOwners.Add($key, $owner)');
-  if (at !== rootEnd) refuse();
-}
-export function assertPowerShellOriginalRetention(source) {
-  const ts = lex(source), caller = region(ts, 'Invoke-RetainedNativeTool'), retained = region(ts, 'Retain-ActiveOriginalOwner');
-  if (retained.start <= caller.open || retained.end >= caller.end) refuse();
-  const root = lex('$script:NativeToolOwners.Add($key, $owner)');
-  // Rooting must be a direct owning caller statement before nested functions,
-  // never a matching fragment in another function or a conditional/try block.
-  let depth = 0, roots = 0, rootEnd;
-  for (let at = caller.open + 1; at < retained.start; at++) {
-    if (ts[at] === '{') depth++;
-    if (ts[at] === '}') depth--;
-    if (depth === 0 && root.every((value, offset) => ts[at + offset] === value)) { roots++; rootEnd = at + root.length; }
-  }
-  if (roots !== 1) refuse();
-  assertCallerPrefix(ts, caller, rootEnd);
-  let next = rootEnd;
-  for (const name of ['Add-OriginalToolError', 'Write-OriginalToolRecord', 'Observe-OriginalCopy']) {
-    const helper = region(ts, name);
-    if (helper.start !== next || helper.end > retained.start) refuse();
-    next = helper.end;
-  }
-  if (next !== retained.start) refuse();
-  const body = retained.body; let at = 0;
-  const command = text => {
-    const start = at;
-    need(text);
-    const first = ts.spans[retained.open + 1 + start];
-    const last = ts.spans[retained.open + at];
-    // A line break ends a PowerShell command unless an explicitly modeled
-    // continuation applies. This selected grammar admits no continuation.
-    if (!first || !last || /[\r\n\u0085\u2028\u2029#`]/u.test(source.slice(first.start, last.end))) refuse();
-  };
-  const need = text => { for (const expected of lex(text)) if (body[at++] !== expected) refuse(); };
-  const recordingCatch = phase => {
-    need('catch { try {');
-    command(`Add-OriginalToolError '${phase}' $_.Exception`);
-    need('} catch { $owner.recordingFailure = $_.Exception; $owner.recordingFailed = $true } }');
-  };
-  need("try { foreach ($name in @('stdout', 'stderr')) { if ($owner.copies.$name.task -and -not $owner.copies.$name.terminal) { Observe-OriginalCopy $name } } }");
-  recordingCatch('retention-copy-observation');
-  need("try { Write-OriginalToolRecord 'ACTIVE-CUSTODY' @{");
-  const fields = [
-    ['state', "'ACTIVE_INVOCATION_RETAINS_UNRESOLVED_ORIGINAL_RESOURCES'"], ['ownerKey', '$key'], ['invocationPid', '$PID'], ['recipe', '$recipe'],
-    ...['startAttempted', 'startReturned', 'started', 'attached', 'exitObserved', 'exitCode'].map(key => [key, `$owner.${key}`]),
-    ['stdoutCopy', '$owner.copies.stdout.observation'], ['stderrCopy', '$owner.copies.stderr.observation'], ['errors', '@($owner.errors)'],
-    ['returned', '$false'], ['resourcesReleased', '$false'],
-  ];
-  fields.forEach(([name, value], index) => { if (index) need(';'); need(`${name} = ${value}`); });
-  need('} }'); recordingCatch('custody-record');
-  need('while ($true) { try { [Threading.Thread]::Sleep([Threading.Timeout]::Infinite) }');
-  recordingCatch('custody-wait'); need('}');
-  if (at !== body.length) refuse();
-}
-
-export function assertPowerShellRecorderReleaseRetention(source) {
-  const ts = lex(source), caller = region(ts, 'Invoke-RetainedNativeTool');
-  const expected = lex('if ($releaseFailed -or $owner.recordingFailed) { Retain-ActiveOriginalOwner }');
-  let depth = 0, matches = 0;
-  for (let at = caller.open + 1; at < caller.end - 1; at++) {
-    if (depth === 0 && expected.every((value, offset) => ts[at + offset] === value)) matches++;
-    if (ts[at] === '{') depth++;
-    if (ts[at] === '}') depth--;
-  }
-  if (matches !== 1) refuse();
-}
+export const assertPowerShellOriginalRetention = check;
+export const assertPowerShellRecorderReleaseRetention = check;
