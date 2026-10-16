@@ -17,3 +17,5 @@ References:
 - https://learn.microsoft.com/en-us/windows/win32/api/aclapi/nf-aclapi-getnamedsecurityinfow
 
 No tracked mutation or target execution. Owner Core PR1775; retain until parent next-unit disposition/landing closure.
+
+Selected after fresh DIFFERENT whole6d37 bounded INTENT_GO. Body will preserve the finite fallback/null/directtype limits and actual private originals; no native replacement or execution admission.

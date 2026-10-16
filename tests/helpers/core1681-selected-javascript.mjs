@@ -239,16 +239,32 @@ export class SelectedJavaScriptSyntax extends SelectedSyntax {
       if (this.take('[')) { const index = this.jsInExpression(0); this.need(']'); left = this.node('jsIndex', first, { target: left, optional, index }); continue; }
       if (optional || this.take('.')) { left = this.node('jsMember', first, { target: left, optional, name: this.jsName(true) }); continue; }
       if (this.peek().kind === 'templateStart') deny('UNSUPPORTED_FORM', 'tagged template is outside selected expression production', this.peek().origin);
-      if (calls && !this.lineBefore() && ['++', '--'].includes(this.word())) { left = this.node('postfix', first, { operation: this.consume().spelling, operand: left }); continue; }
+      if (calls && !this.lineBefore() && ['++', '--'].includes(this.word())) {
+        if (!this.jsSimpleAssignmentTarget(left)) deny('INVALID_SYNTAX', 'postfix update requires simple assignment target', left.origin);
+        return this.node('postfix', first, { operation: this.consume().spelling, operand: left });
+      }
       return left;
     }
   }
   jsExpression(minimum = 1) {
+    const outer = this.forHeadCoverNames, covers = outer ?? [];
+    this.forHeadCoverNames = covers;
+    try {
+      const expression = this.jsExpressionInner(minimum);
+      if (outer === null && covers.some(value => !this.validatedCoverNames.has(value)))
+        deny('INVALID_SYNTAX', 'initialized shorthand requires actual assignment pattern', expression.origin);
+      return expression;
+    } finally { this.forHeadCoverNames = outer; }
+  }
+  jsExpressionInner(minimum) {
     const first = this.peek('regexp'); let left;
     if (['+', '-', '!', '~', 'typeof', 'void', 'delete', '++', '--', 'await'].includes(first.spelling)) {
       const operation = this.consume().spelling;
       if (operation === 'await' && !this.jsAwaitAllowed()) deny('INVALID_SYNTAX', 'await outside actual async body/module context', first.origin);
-      left = this.node('unary', first, { operation, operand: this.jsExpression(14) });
+      const operand = this.jsExpression(14);
+      if (['++', '--'].includes(operation) && !this.jsSimpleAssignmentTarget(operand))
+        deny('INVALID_SYNTAX', 'prefix update requires simple assignment target', operand.origin);
+      left = this.node('unary', first, { operation, operand });
     } else if (this.take('new')) {
       const calleeFirst = this.peek(), target = this.jsPostfix(this.jsPrimary(false), calleeFirst, false);
       const arguments_ = this.word() === '(' ? this.jsArguments() : [];
@@ -265,6 +281,10 @@ export class SelectedJavaScriptSyntax extends SelectedSyntax {
       const operation = this.word(), level = levels.get(operation);
       if (level === undefined || level < minimum || operation === 'in' && !this.allowIn) break;
       if (operation === '**' && left.kind === 'unary') deny('INVALID_SYNTAX', 'exponentiation requires grouped unary left operand', first.origin);
+      if (level === 1) {
+        if (operation === '=') this.jsRequireForTarget(left);
+        else if (!this.jsSimpleAssignmentTarget(left)) deny('INVALID_SYNTAX', 'compound assignment requires simple target', left.origin);
+      }
       this.consume(); const right = this.jsExpression(level === 1 || operation === '**' ? level : level + 1);
       if ((operation === '??' && [left, right].some(node => node.kind === 'binary' && ['&&', '||'].includes(node.operation))) ||
           (['&&', '||'].includes(operation) && [left, right].some(node => node.kind === 'binary' && node.operation === '??')))

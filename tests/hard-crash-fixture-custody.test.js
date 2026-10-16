@@ -37,7 +37,7 @@ test("closed diagnostic operation observation refuses foreign, copied, primitive
   assert.equal(fixtureDiagnosticFailureObservation(foreign), undefined);
   assert.equal(diagnosticHoldFailureObservation(foreign), undefined);
   assert.equal(Object.isFrozen(FIXTURE_DIAGNOSTIC_OPERATION_STAGES), true);
-  assert.equal(FIXTURE_DIAGNOSTIC_OPERATION_STAGES.length, 41);
+  assert.equal(FIXTURE_DIAGNOSTIC_OPERATION_STAGES.length, 43);
 });
 
 const diagnosticProjectionSurrogate = async ({ primary, primaryStage, failures = [], initialize = async () => {} }) => {

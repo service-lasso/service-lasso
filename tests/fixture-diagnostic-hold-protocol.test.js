@@ -193,9 +193,9 @@ test("ALL8 acquire suboperation SURROGATES require EOF before matching real clos
 test("acquire script SOURCE witness binds ALL8 actual caught roles and preserves verification owner policy", async () => {
   const source = await readFile(new URL("./fixture-diagnostic-hold.ps1", import.meta.url), "utf8");
   assert.deepEqual(DIAGNOSTIC_HOLD_ACQUIRE_OPERATIONS, ["chain_build", "owner_read", "owner_root", "owner_ancestor", "attributes", "open", "identity", "retain",
-    "owner_read_acl_get", "owner_read_owner_get", "owner_read_sid_value"]);
+    "owner_read_acl_get", "owner_read_owner_get", "owner_read_sid_value", "owner_read_acl_command_lookup", "owner_read_acl_other"]);
   assert.equal(Object.isFrozen(DIAGNOSTIC_HOLD_ACQUIRE_OPERATIONS), true);
-  for (const operation of DIAGNOSTIC_HOLD_ACQUIRE_OPERATIONS)
+  for (const operation of DIAGNOSTIC_HOLD_ACQUIRE_OPERATIONS.filter(operation => !['owner_read_acl_get', 'owner_read_acl_command_lookup', 'owner_read_acl_other'].includes(operation)))
     assert.equal(source.split(`Remember-AcquireFailure '${operation}'`).length - 1, 1);
   assert.match(source, /function Remember-AcquireFailure\(\$operation, \[System\.Management\.Automation\.ErrorRecord\]\$original\) \{\s*Remember-Original \$original[\s\S]*if \(-not \$script:acquireObservation\.Recorded\)[\s\S]*Recorded = \$true/);
   assert.match(source, /function Same-AcquireOriginal\(\[System\.Management\.Automation\.ErrorRecord\]\$left, \[System\.Management\.Automation\.ErrorRecord\]\$right\)[\s\S]*ReferenceEquals\(\$left,\$right\)[\s\S]*\$leftException=\$left\.Exception; \$rightException=\$right\.Exception[\s\S]*\$null -ne \$leftException -and \[object\]::ReferenceEquals\(\$leftException,\$rightException\)/);
@@ -213,11 +213,16 @@ test("acquire script SOURCE witness binds ALL8 actual caught roles and preserves
   assert.match(source, /CreateFile\(p, 0x80U, 3, IntPtr\.Zero, 3, 0x02200000/);
   assert.match(source, /\$operation -ceq 'acquire_chain' -and \$null -ne \$suboperation/);
   const reader = source.slice(source.indexOf('function Read-Owner'), source.indexOf('function Assert-Owner'));
-  for (const [work, leaf] of [['$acl = Get-Acl -LiteralPath $p', 'acl_get'],
-    ['$owner = $acl.GetOwner([System.Security.Principal.SecurityIdentifier])', 'owner_get'], ['return $owner.Value', 'sid_value']]) {
+  for (const [work, leaf] of [['$owner = $acl.GetOwner([System.Security.Principal.SecurityIdentifier])', 'owner_get'], ['return $owner.Value', 'sid_value']]) {
     const begin = reader.indexOf(work); assert.ok(begin >= 0);
     assert.ok(reader.indexOf(`if ($acquiring) { Remember-AcquireFailure 'owner_read_${leaf}' $caught }`, begin) > begin);
   }
+  const aclCatch = reader.slice(reader.indexOf('try { $acl = Get-Acl -LiteralPath $p }'), reader.indexOf('try { $owner ='));
+  assert.match(aclCatch, /\[System\.Management\.Automation\.ErrorRecord\]\$caught=\$_\s+Remember-Original \$caught\s+if \(\$acquiring\)/);
+  assert.match(aclCatch, /\$operation='owner_read_acl_get'[\s\S]*\$exception=\$caught\.Exception[\s\S]*if \(\$null -ne \$exception\)[\s\S]*\$exception\.GetType\(\) -eq \[System\.Management\.Automation\.CommandNotFoundException\]/);
+  assert.match(aclCatch, /\$operation='owner_read_acl_command_lookup'[\s\S]*else \{ \$operation='owner_read_acl_other' \}/);
+  assert.match(aclCatch, /catch \{ Remember-Original \$_ \}\s+Remember-AcquireFailure \$operation \$caught[\s\S]*throw \$caught/);
+  assert.doesNotMatch(aclCatch, /InnerException|\.Message|\.Stack|ErrorId|CategoryInfo|TargetObject|Get-Acl.*Get-Acl/s);
   assert.match(source, /function Read-Owner\(\$p, \$acquiring=\$false\)/);
   assert.match(source, /function Check-Owner\(\$p, \$isRoot\) \{ Assert-Owner \(Read-Owner \$p\) \$isRoot \}/);
   assert.match(source, /try \{ \$owner = Read-Owner \$p \$true \}/);
@@ -249,8 +254,11 @@ test("parent correspondence SURROGATE does not relabel a later caller failure as
 });
 
 test("guardian transport SURROGATE rejects malformed, duplicate, mixed, extra, partial and nonASCII framing", async () => {
+  assert.equal(ready.split("\n").length - 1, 1);
+  assert.equal(ready.endsWith("\n"), true);
+  assert.equal(ready.replaceAll("\n", "\r\n").endsWith("\r\n"), true);
   for (const text of ["GDH1|fail|unknown\n", "GDH1|fail|bootstrap\nGDH1|fail|bootstrap\n", ready + ready,
-    ready + "GDH1|fail|initial_verify\n", "GDH1|fail|bootstrap\n" + ready, ready + "extra\n", ready.replace("\n", "\r\n"),
+    ready + "GDH1|fail|initial_verify\n", "GDH1|fail|bootstrap\n" + ready, ready + "extra\n", ready.replaceAll("\n", "\r\n"),
     ready.replace('"kind":', '"kind":"ready","kind":'), ready.replace("ready", "r\u00e9ady"), ready + "\0", ready.slice(0, -1)]) {
     const { child, transport, callbacks, complete } = surrogate();
     const pending = transport.ready().then(() => true, () => false);

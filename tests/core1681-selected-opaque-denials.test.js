@@ -271,3 +271,54 @@ test('for-head shorthand defaults belong only to validated actual assignment-pat
     assert.equal(p.forHeadCoverNames, null); assert.equal(forest(source, 'javascript').root.kind, 'unit');
   }
 });
+
+test('ordinary JavaScript assignment and update require actual targets and one postfix operation', () => {
+  for (const source of ['1 = 2;', 'f() = 2;', 'x + y = 2;', '++1;', '--f();', '1++;',
+    'x++++;', 'x++--;', 'x++.field;', 'x++();', '++x++;', 'obj?.x = 1;', 'obj?.x++;',
+    '++obj?.x;', 'obj?.x[y] += 1;', '(obj?.x) = 1;', '[x] += rows;', '({x}) += row;',
+    '({x: f()} = row);', '({x = {y = 1}} = row);', '([x, ...rest,] = rows);',
+    '({x(){}} = row);', '({eval} = row);', '([arguments] = rows);']) {
+    const p = parser(source, 'javascript');
+    assert.throws(() => p.javascriptUnit(), original => isSourceDenialCode(original, 'INVALID_SYNTAX'));
+    assert.equal(p.forHeadCoverNames, null);
+    assert.throws(() => forest(source, 'javascript'), original => isSourceDenialCode(original, 'INVALID_SYNTAX'));
+  }
+  for (const source of ['x = 1;', '(x) += 1;', 'obj.x++;', '--obj[index];', '(obj.x)++;',
+    '(obj?.x).field = 1;', 'obj.x = y = 2;', '[x, {y = 1}, ...rest] = rows;',
+    '({x = 1, y: [z = 2], ...rest} = row);', 'x++\n++y;', 'x++; obj.x = 2;']) {
+    const p = parser(source.replaceAll('\\n', '\n'), 'javascript');
+    assert.equal(p.javascriptUnit().kind, 'unit', source); assert.equal(p.forHeadCoverNames, null);
+    assert.equal(forest(source.replaceAll('\\n', '\n'), 'javascript').root.kind, 'unit', source);
+  }
+  const root = parser('obj[index] += 1; x++;', 'javascript').javascriptUnit();
+  assert.equal(root.statements[0].expression.kind, 'assignment');
+  assert.equal(root.statements[0].expression.left.kind, 'jsIndex');
+  assert.equal(root.statements[1].expression.kind, 'postfix');
+});
+
+test('selected CSharp declaration categories are checked before enumeration or synthetic suppression', () => {
+  for (const source of ['class C { public static C() {} }', 'class C { abstract int f; }',
+    'static class C { int M() { return 1; } }', 'static class C { C() {} }',
+    'class C { static C(int x) {} }', 'class C { static C():base() {} }',
+    'class C { static C() {} static C() {} }', 'interface C { C() {} }',
+    'class C { static abstract int M(); }', 'class C { private virtual int M() {return 1;} }',
+    'class C { public sealed int M() { return 1; } }', 'class C { public abstract int M(); }',
+    'sealed class C { public virtual int M() {return 1;} }', 'struct C { protected int f; }',
+    'readonly struct C { int f; }', 'class C { const static int f = 1; }',
+    'abstract class C { public abstract int P {get {return 1;}} }',
+    'class C { int P {set;} }', 'class C { int P {get; set {}} }',
+    'class C { void f; }', 'class C { int P {static get;set;} }',
+    'class C { int P {private private get;set;} }', 'static enum C { A }', 'abstract delegate int D();']) {
+    assert.throws(() => parser(source).csharpUnit(), original => isSourceDenialCode(original, 'INVALID_SYNTAX'), source);
+    assert.throws(() => forest(source, 'csharp'), original => isSourceDenialCode(original, 'INVALID_SYNTAX'), source);
+  }
+  for (const source of ['class C { static C() {} public C(int x) {} }',
+    'abstract class C { protected C() {} public abstract int M(); public abstract int P {get;set;} }',
+    'static class C { static int f; public static int M(){return 1;} class Nested {int f;} }',
+    'readonly struct C { readonly int f; static int x; }', 'interface I { int M(); int P {get;set;} }',
+    'class C { int P {get;set;} = 1; int Q {get {return 1;} set {}} }',
+    'public delegate int D(int x);', 'class C { protected internal int f; public class Nested {} }']) {
+    assert.equal(parser(source).csharpUnit().kind, 'unit', source);
+    assert.equal(forest(source, 'csharp').root.kind, 'unit', source);
+  }
+});

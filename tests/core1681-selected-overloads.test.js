@@ -2613,3 +2613,23 @@ test('scalar source-call bridge derives mandatory Object and inheritance from ac
   for (const selected of [[units[0]], [units[0], { ...units[1], rawBytes: Buffer.from(badCatalogue) }]])
     assert.throws(() => bindSelectedCsharpCompilation(selected, createProofCounter()), original => isSourceDenialCode(original, 'INVALID_BINDING'));
 });
+
+test('actual catalogue compilation retains category gates before constructor and initializer slots', () => {
+  const compile = source => bindSelectedCsharpCompilation([
+    { unit: 'category-source.cs', compilation: 'category-fixture', role: 'source', rawBytes: Buffer.from(source) },
+    { unit: 'category-catalogue.cs', compilation: 'category-fixture', role: 'catalogue', rawBytes: Buffer.from(symbolicFixture) },
+  ], createProofCounter());
+  for (const source of ['class C { public static C() {} }', 'class C { abstract int f; }',
+    'static class C { int M(){return 1;} }', 'class C { public static C(){} static int f=1; }'])
+    assert.throws(() => compile(source), original => isSourceDenialCode(original, 'INVALID_SYNTAX'));
+  const compilation = compile('class C { static C(){} static int f=1; public C(int x){} int P {get;set;} }');
+  const entries = compilation.enumeration.filter(entry => entry.declId.unit === 'category-source.cs');
+  assert.equal(entries.filter(entry => entry.syntax.kind === 'constructor' && !entry.generated).length, 2);
+  assert.equal(entries.filter(entry => entry.generated?.role === 'instanceConstructor').length, 0);
+  assert.equal(entries.filter(entry => entry.generated?.role === 'typeInitializer').length, 0);
+  assert.equal(entries.filter(entry => entry.generated?.role === 'backingStorage').length, 1);
+  const implicit = compile('class C { static int f=1; }');
+  const implicitEntries = implicit.enumeration.filter(entry => entry.declId.unit === 'category-source.cs');
+  assert.equal(implicitEntries.filter(entry => entry.generated?.role === 'instanceConstructor').length, 1);
+  assert.equal(implicitEntries.filter(entry => entry.generated?.role === 'typeInitializer').length, 1);
+});

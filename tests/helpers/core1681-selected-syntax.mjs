@@ -469,6 +469,46 @@ export class SelectedSyntax {
     if (declaration) { this.need(';'); return declaration; }
     const expression = this.expression(); this.need(';'); return this.node('expressionStatement', first, { expression });
   }
+  csharpModifiers(category, flags, first, owner) {
+    const access = ['public', 'private', 'internal', 'protected'];
+    const allowed = {
+      class: [...access, 'new', 'static', 'abstract', 'sealed'],
+      struct: [...access, 'new', 'readonly'], interface: [...access, 'new'], enum: [...access, 'new'], delegate: [...access, 'new'],
+      field: [...access, 'new', 'static', 'readonly', 'const'],
+      method: [...access, 'new', 'static', 'virtual', 'sealed', 'override', 'abstract', 'extern'],
+      property: [...access, 'new', 'static', 'virtual', 'sealed', 'override', 'abstract', 'extern'],
+    }[category];
+    const invalid = detail => deny('INVALID_SYNTAX', detail, first.origin);
+    if (!allowed || flags.some(flag => !allowed.includes(flag))) invalid(`modifier outside ${category} production`);
+    const has = flag => flags.includes(flag);
+    const pair = (flag, others) => { if (has(flag) && others.some(has)) invalid(`incompatible ${category} ${flag} modifiers`); };
+    if (['class', 'struct', 'interface', 'enum', 'delegate'].includes(category)) {
+      if (!owner && flags.some(flag => ['private', 'protected', 'new'].includes(flag))) invalid('namespace type modifier');
+      if (owner?.category === 'struct' && has('protected')) invalid('struct nested type accessibility');
+      if (owner?.modifiers.includes('static') && has('protected')) invalid('static type nested accessibility');
+      pair('static', ['abstract', 'sealed']); pair('abstract', ['sealed']); return;
+    }
+    if (owner.category === 'struct' && has('protected')) invalid('struct member accessibility');
+    if (owner.modifiers.includes('static') && !has('static') && !has('const')) invalid('static type requires static members');
+    if (owner.modifiers.includes('static') && has('protected')) invalid('static type protected member');
+    if (category === 'field') {
+      pair('const', ['static', 'readonly']);
+      if (owner.category === 'struct' && owner.modifiers.includes('readonly') && !has('static') && !has('const') && !has('readonly'))
+        invalid('readonly struct instance field requires readonly');
+      if (owner.category === 'interface') deny('UNSUPPORTED_FORM', 'interface field lowering', first.origin);
+      return;
+    }
+    pair('abstract', ['static', 'virtual', 'sealed', 'extern', 'private']);
+    pair('virtual', ['static', 'override', 'private']); pair('override', ['static', 'new', 'private']);
+    if (owner.category !== 'interface' && ['abstract', 'virtual', 'override'].some(has) && !access.some(has))
+      invalid('polymorphic member cannot have implicit private accessibility');
+    if (has('sealed') && !has('override')) invalid('sealed member requires override');
+    if (owner.category === 'struct' && (has('abstract') || has('virtual'))) invalid('struct abstract/virtual member');
+    if (owner.category === 'class' && has('abstract') && !owner.modifiers.includes('abstract')) invalid('abstract member requires abstract class');
+    if (owner.modifiers.includes('sealed') && (has('abstract') || has('virtual'))) invalid('sealed type abstract/virtual member');
+    if (owner.category === 'interface' && flags.some(flag => flag !== 'new'))
+      deny('UNSUPPORTED_FORM', 'explicit interface member modifiers outside retained profile', first.origin);
+  }
   csharpDeclaration(owner = null) {
     const first = this.peek(), attributes = this.attributes(), flags = [];
     while (modifiers.has(this.word())) flags.push(this.consume().spelling);
@@ -493,7 +533,9 @@ export class SelectedSyntax {
       return this.node('namespace', first, { path, declarations });
     }
     if (['class', 'struct', 'interface', 'enum'].includes(this.word())) {
-      const category = this.consume().spelling, name = this.name(), typeParameters = this.genericParameters(), bases = [];
+      const category = this.consume().spelling; this.csharpModifiers(category, flags, first, owner);
+      const name = this.name(), typeParameters = this.genericParameters(), bases = [];
+      if (category === 'enum' && typeParameters.length) deny('INVALID_SYNTAX', 'enum cannot have type parameters', first.origin);
       this.typeNames.add(name.spelling); for (const parameter of typeParameters) this.typeNames.add(parameter.name.spelling);
       if (this.take(':')) do { bases.push(this.typeRef()); } while (this.take(','));
       const constraints = this.constraints(); this.need('{'); const members = [];
@@ -505,11 +547,14 @@ export class SelectedSyntax {
           members.push(this.declaration('enumMember', start, { attributes: entryAttributes, name: entryName, value }));
           if (!this.take(',')) break;
         }
-      } else while (this.word() !== '}') members.push(this.csharpDeclaration({ category, name }));
+      } else while (this.word() !== '}') members.push(this.csharpDeclaration({ category, name, modifiers: flags }));
       this.need('}'); this.typeStack.pop(); this.take(';');
+      if (members.filter(member => member.kind === 'constructor' && member.modifiers.includes('static')).length > 1)
+        deny('INVALID_SYNTAX', 'duplicate static constructor', first.origin);
       return this.declaration('type', first, { category, name, attributes, modifiers: flags, typeParameters, bases, constraints, members });
     }
     if (this.take('delegate')) {
+      this.csharpModifiers('delegate', flags, first, owner);
       const returnType = this.typeRef(), name = this.name(), typeParameters = this.genericParameters();
       const parameters = this.parameters(), constraints = this.constraints(); this.need(';');
       return this.declaration('delegate', first, { attributes, modifiers: flags, name, typeParameters, parameters, constraints, returnType });
@@ -518,12 +563,20 @@ export class SelectedSyntax {
     if (this.word() === this.typeStack.at(-1)) {
       const mark = this.mark(), name = this.name();
       if (this.word() === '(') {
+        const static_ = flags.includes('static');
+        const allowed = static_ ? ['static'] : ['public', 'private', 'internal', 'protected'];
+        if (!['class', 'struct'].includes(owner.category) || flags.some(flag => !allowed.includes(flag)) ||
+            !static_ && owner.modifiers.includes('static') || owner.category === 'struct' && flags.includes('protected'))
+          deny('INVALID_SYNTAX', 'constructor modifiers or owner category differ', first.origin);
         const parameters = this.parameters(); let initializer = null;
         if (this.take(':')) {
           const target = this.consume();
           if (!['base', 'this'].includes(target.spelling)) deny('INVALID_SYNTAX', 'constructor initializer target differs', target.origin);
           initializer = this.node('constructorInitializer', target, { target: target.spelling, arguments: this.arguments() });
         }
+        if (static_ && (parameters.length || initializer)) deny('INVALID_SYNTAX', 'static constructor requires no parameters or initializer', first.origin);
+        if (!static_ && owner.category === 'struct' && !parameters.length && !flags.includes('public'))
+          deny('INVALID_SYNTAX', 'parameterless struct constructor requires public accessibility', first.origin);
         const body = this.block();
         return this.declaration('constructor', first, { name, attributes, modifiers: flags, parameters, initializer, body });
       }
@@ -532,16 +585,25 @@ export class SelectedSyntax {
     const type = this.typeRef(), name = this.name(), typeParameters = this.genericParameters();
     for (const parameter of typeParameters) this.typeNames.add(parameter.name.spelling);
     if (this.word() === '(') {
+      this.csharpModifiers('method', flags, first, owner);
       const parameters = this.parameters(), constraints = this.constraints();
       const body = this.take(';') ? null : this.block();
+      const bodyless = owner.category === 'interface' || flags.some(flag => ['abstract', 'extern'].includes(flag));
+      if ((body === null) !== bodyless) deny('INVALID_SYNTAX', 'method body differs from declaration category', first.origin);
       return this.declaration('method', first, { name, attributes, modifiers: flags, returnType: type, typeParameters, parameters, constraints, body });
     }
     if (typeParameters.length) deny('INVALID_SYNTAX', 'nonmethod member cannot declare type parameters', name.origin);
+    if (type.kind === 'namedType' && type.segments.length === 1 && type.segments[0].name.spelling === 'void')
+      deny('INVALID_SYNTAX', 'void cannot be a property or field type', type.origin);
     if (this.take('{')) {
+      this.csharpModifiers('property', flags, first, owner);
       const accessors = [];
       while (this.word() !== '}') {
         const start = this.peek(), accessorAttributes = this.attributes(), accessorModifiers = [];
         while (modifiers.has(this.word())) accessorModifiers.push(this.consume().spelling);
+        if (new Set(accessorModifiers).size !== accessorModifiers.length ||
+            accessorModifiers.some(modifier => !['public', 'private', 'protected', 'internal'].includes(modifier)))
+          deny('INVALID_SYNTAX', 'accessor requires distinct accessibility modifiers only', start.origin);
         const operation = this.consume();
         if (!['get', 'set'].includes(operation.spelling)) deny('INVALID_SYNTAX', 'selected property accessor required', operation.origin);
         const body = this.take(';') ? null : this.block();
@@ -549,8 +611,22 @@ export class SelectedSyntax {
       }
       this.need('}'); const initializer = this.take('=') ? this.expression() : null;
       if (initializer) this.need(';');
+      const bodyless = owner.category === 'interface' || flags.some(flag => ['abstract', 'extern'].includes(flag));
+      if (!accessors.length || new Set(accessors.map(accessor => accessor.operation)).size !== accessors.length)
+        deny('INVALID_SYNTAX', 'property requires distinct accessor declarations', first.origin);
+      if (bodyless && accessors.some(accessor => accessor.body !== null) ||
+          accessors.some(accessor => accessor.body === null) && accessors.some(accessor => accessor.body !== null))
+        deny('INVALID_SYNTAX', 'accessor body differs from property category', first.origin);
+      if (!bodyless && accessors.every(accessor => accessor.body === null) && !accessors.some(accessor => accessor.operation === 'get'))
+        deny('INVALID_SYNTAX', 'concrete auto property requires getter', first.origin);
+      if (initializer && (bodyless || accessors.some(accessor => accessor.body !== null)))
+        deny('INVALID_SYNTAX', 'initializer requires concrete auto property', first.origin);
+      if (owner.category === 'struct' && owner.modifiers.includes('readonly') && !flags.includes('static') &&
+          accessors.some(accessor => accessor.operation === 'set' && accessor.body === null))
+        deny('INVALID_SYNTAX', 'readonly struct cannot have mutable auto property', first.origin);
       return this.declaration('property', first, { name, attributes, modifiers: flags, type, accessors, initializer });
     }
+    this.csharpModifiers('field', flags, first, owner);
     const fields = [];
     let fieldName = name;
     do {

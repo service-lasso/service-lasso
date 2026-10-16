@@ -82,7 +82,22 @@ $sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 } catch { Record-DiagnosticFailure 'bootstrap' $_ }
 function Read-Owner($p, $acquiring=$false) {
   try { $acl = Get-Acl -LiteralPath $p }
-  catch { $caught=$_; if ($acquiring) { Remember-AcquireFailure 'owner_read_acl_get' $caught }; throw $caught }
+  catch {
+    [System.Management.Automation.ErrorRecord]$caught=$_
+    Remember-Original $caught
+    if ($acquiring) {
+      $operation='owner_read_acl_get'
+      try {
+        $exception=$caught.Exception
+        if ($null -ne $exception) {
+          if ($exception.GetType() -eq [System.Management.Automation.CommandNotFoundException]) { $operation='owner_read_acl_command_lookup' }
+          else { $operation='owner_read_acl_other' }
+        }
+      } catch { Remember-Original $_ }
+      Remember-AcquireFailure $operation $caught
+    }
+    throw $caught
+  }
   try { $owner = $acl.GetOwner([System.Security.Principal.SecurityIdentifier]) }
   catch { $caught=$_; if ($acquiring) { Remember-AcquireFailure 'owner_read_owner_get' $caught }; throw $caught }
   try { return $owner.Value }

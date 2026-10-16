@@ -1,7 +1,7 @@
 export const DIAGNOSTIC_HOLD_PARENT_OPERATIONS = Object.freeze(["ready_receipt", "child_inspection", "caller_inspection"]);
 export const DIAGNOSTIC_HOLD_CHILD_OPERATIONS = Object.freeze(["bootstrap", "acquire_chain", "initial_verify", "ready_emit"]);
 export const DIAGNOSTIC_HOLD_ACQUIRE_OPERATIONS = Object.freeze(["chain_build", "owner_read", "owner_root", "owner_ancestor", "attributes", "open", "identity", "retain",
-  "owner_read_acl_get", "owner_read_owner_get", "owner_read_sid_value"]);
+  "owner_read_acl_get", "owner_read_owner_get", "owner_read_sid_value", "owner_read_acl_command_lookup", "owner_read_acl_other"]);
 export const DIAGNOSTIC_HOLD_TRANSPORT_REASONS = Object.freeze(["spawn_error", "stdin_error", "stdout_error", "stderr_error",
   "stdin_write", "stdin_end", "callback_state", "stderr_content", "stdout_capacity", "stdout_bytes", "stdout_framing",
   "child_failure_frame", "ready_decode", "stdout_eof", "exit_status", "close_state", "receipt_state", "not_live"]);
