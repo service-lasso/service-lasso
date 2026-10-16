@@ -156,7 +156,7 @@ function Acquire-Children($p) {
   finally { try { [FixturePrivacy]::Operation='release'; $enumerator.Dispose() } catch { Record-Failure $_; throw } }
 }
 function Verify-Names {
-  foreach($entry in @($ancestors)+@($held)) {
+  foreach($entry in ($ancestors.ToArray()+$held.ToArray())) {
     $h=[FixturePrivacy]::Named($entry.Path)
     try {
       $namedIdentity=[FixturePrivacy]::Identity($h)
@@ -189,7 +189,7 @@ try {
   Verify-Names
 } catch { Record-Failure $_ }
 } catch { Record-Failure $_ } finally {
-  foreach($entry in @($held)+@($ancestors)) {
+  foreach($entry in ($held.ToArray()+$ancestors.ToArray())) {
     try { [FixturePrivacy]::Operation='release'; $entry.Handle.Dispose() } catch { Record-Failure $_ }
   }
 }

@@ -15,6 +15,7 @@ import { createProofCounter, canonicalData, foldBitvectorComparison, K2_LIMITS }
 import { checkedOriginalLiteral } from './helpers/core1681-selected-literals.mjs';
 import { SelectedCScanner } from './helpers/core1681-selected-c-preprocessor.mjs';
 import { SelectedCSyntax } from './helpers/core1681-selected-c-syntax.mjs';
+import { isSourceDenialCode } from './helpers/core1681-source-input.mjs';
 import { copySelectedCTypeObservation, resolveSelectedCSourceHead } from './helpers/core1681-selected-c-types.mjs';
 
 test('finite proof counters keep their once-acquired limits after public mutation', () => {
@@ -1907,7 +1908,7 @@ test('original sibling namespace participates in using binding without importing
   assert.equal(context.namespacePaths.has(canonicalData(['Empty'])), true);
 });
 
-function bindFixture(source) {
+function bindFixture(source, csharpLanguageVersion = [5, 0]) {
   const counter = createProofCounter();
   const { originals, enumeration, byDeclaration, index, compilationGroups, bound, types, context, typeGraph, decodedUnits } =
     bindSelectedCsharpCompilation([
@@ -1922,7 +1923,7 @@ function bindFixture(source) {
     objectType: index.primitive('object', context(sample), sample.origin),
     valueTypeRoot: index.catalogueType(['System'], 'ValueType', context(sample), sample.origin),
     enumTypeRoot: index.catalogueType(['System'], 'Enum', context(sample), sample.origin),
-    csharpLanguageVersion: [5, 0], resolveOriginalDefaults: row => {
+    csharpLanguageVersion: [...csharpLanguageVersion], resolveOriginalDefaults: row => {
       const original = originals.find(unit => unit.unit === row.declaration.unit);
       assert.ok(original);
       return { ...row, parameters: row.parameters.map(parameter => {
@@ -1952,6 +1953,95 @@ function bindFixture(source) {
   };
   return { types, type, entry, group, invoke, bound, environment, byDeclaration, enumeration };
 }
+
+test('own generic constraints use actual pre7.3 selection and7.3+ candidate pruning', () => {
+  const program = `class C {
+    public int F<T>(T value) where T : class { return 1; }
+    public int F(object value) { return 2; }
+  } class Caller { public int Invoke(C receiver) { return receiver.F(1); } }`;
+  for (const version of [[5, 0], [7, 2], [7, 3], [8, 0]]) {
+    const fixture = bindFixture(program, version);
+    const caller = fixture.entry('Invoke'), call = caller.syntax.body.statements[0].value;
+    const group = fixture.group(fixture.type('C'), call, caller);
+    assert.equal(group.length, 2);
+    if (version[0] < 7 || version[0] === 7 && version[1] < 3) {
+      assert.throws(() => fixture.invoke(group, call, caller), error => isSourceDenialCode(error, 'CONSTRAINT_MISMATCH'));
+    } else {
+      const selected = fixture.invoke(group, call, caller);
+      const originalFallback = group.find(candidate => candidate.genericArity === 0);
+      assert.deepEqual(selected.declaration, originalFallback.declaration);
+      assert.equal(selected.parameters[0].type.name, 'object');
+    }
+    assert.deepEqual(fixture.environment.csharpLanguageVersion, version);
+  }
+});
+
+test('old-profile own constraint failure matters only for the chosen original member', () => {
+  for (const version of [[5, 0], [7, 2], [7, 3], [8, 0]]) {
+    const fixture = bindFixture(`class C {
+      public int F<T>(T value) where T : class { return 1; }
+      public int F(int value) { return 2; }
+    } class Caller { public int Invoke(C receiver) { return receiver.F(1); } }`, version);
+    const caller = fixture.entry('Invoke'), call = caller.syntax.body.statements[0].value;
+    const group = fixture.group(fixture.type('C'), call, caller);
+    const selected = fixture.invoke(group, call, caller);
+    assert.deepEqual(selected.declaration, group.find(candidate => candidate.genericArity === 0).declaration);
+    assert.equal(selected.parameters[0].type.name, 'int');
+  }
+});
+
+test('deferred own constraints preserve the actual enclosing generic substitutions', () => {
+  for (const version of [[5, 0], [7, 3]]) {
+    const fixture = bindFixture(`class C<U> {
+      public int F<T>(T value, U second) where T : class { return 1; }
+      public int F(object value, U second) { return 2; }
+    } class Caller { public int Invoke(C<int> receiver) { return receiver.F(1, 2); } }`, version);
+    const caller = fixture.entry('Invoke'), call = caller.syntax.body.statements[0].value;
+    const receiver = fixture.bound.declarationMetadata.get(canonicalData(caller.declId)).parameters[0].type;
+    const group = fixture.group(receiver, call, caller);
+    if (version[0] === 5) {
+      assert.throws(() => fixture.invoke(group, call, caller), error => isSourceDenialCode(error, 'CONSTRAINT_MISMATCH'));
+    } else {
+      const selected = fixture.invoke(group, call, caller);
+      assert.deepEqual(selected.declaration, group.find(candidate => candidate.genericArity === 0).declaration);
+      assert.equal(selected.parameters[1].type.name, 'int');
+      const enclosing = fixture.bound.declarationMetadata.get(canonicalData(receiver.declaration)).typeParameters[0];
+      assert.equal(selected.substitutions.get(canonicalData(enclosing.declId)).name, 'int');
+    }
+  }
+});
+
+test('valid generic constraints retain the better original generic candidate across versions', () => {
+  for (const version of [[5, 0], [7, 3]]) {
+    const fixture = bindFixture(`class C {
+      public int F<T>(T value) where T : struct { return 1; }
+      public int F(object value) { return 2; }
+    } class Caller { public int Invoke(C receiver) { return receiver.F(1); } }`, version);
+    const caller = fixture.entry('Invoke'), call = caller.syntax.body.statements[0].value;
+    const group = fixture.group(fixture.type('C'), call, caller);
+    const selected = fixture.invoke(group, call, caller);
+    assert.deepEqual(selected.declaration, group.find(candidate => candidate.genericArity === 1).declaration);
+    assert.equal(selected.parameters[0].type.name, 'int');
+  }
+});
+
+test('no generic fallback and missing profile or constraint evidence remain hard failures', () => {
+  const program = `class C { public int F<T>(T value) where T : class { return 1; } }
+    class Caller { public int Invoke(C receiver) { return receiver.F(1); } }`;
+  for (const [version, expected] of [[[5, 0], 'CONSTRAINT_MISMATCH'], [[7, 3], 'INVALID_BINDING']]) {
+    const fixture = bindFixture(program, version);
+    const caller = fixture.entry('Invoke'), call = caller.syntax.body.statements[0].value;
+    const group = fixture.group(fixture.type('C'), call, caller);
+    assert.throws(() => fixture.invoke(group, call, caller), error => isSourceDenialCode(error, expected));
+  }
+  for (const missing of ['csharpLanguageVersion', 'parameterConstraints']) {
+    const fixture = bindFixture(program, [7, 3]);
+    const caller = fixture.entry('Invoke'), call = caller.syntax.body.statements[0].value;
+    const group = fixture.group(fixture.type('C'), call, caller);
+    fixture.environment[missing] = missing === 'parameterConstraints' ? new Map() : undefined;
+    assert.throws(() => fixture.invoke(group, call, caller), error => isSourceDenialCode(error, 'INVALID_BINDING'));
+  }
+});
 
 test('applicable derived declaration suppresses exact base conversion only after applicability', () => {
   const fixture = bindFixture(`class Base { public int F(int value) { return 0; } }

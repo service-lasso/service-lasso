@@ -1670,3 +1670,16 @@ fatal UTF8/BOM preservation. ParseInput may perform module-discovery lookups;
 all actual source/mutants/tool/runtime/ENV remain inputs requiring NEW ROOT.
 Shared Node collector/denial authority is unchanged. SOURCE_UNRUN: complete
 DIFFERENT ENTIRE cumulative source review still precedes target execution.
+#1562 dce8 DIFFERENT ENTIRE all50 source review resolved F25 normative gaps
+and found independent P2 own-generic-constraint version semantics. The selected
+CS-FINITE profile5.0 must select the better generic method then fail its own
+constraint;7.3+ may prune it. CORE1562_DCE8_CONSTRAINT_AND_PRIVACY_REPAIR.md
+records exact caller/profile trace, enclosing-substitution/error identity and
+paired original-source regression obligations. No default profile is added to
+the bridge. Same coherent unit contains only the selected two privacy List
+ToArray snapshots, preserving ancestors->held validation and held->ancestors
+release, original entries/handles/errors and compiler-response assertions.
+Published binder report is a source hypothesis, not current-native cause proof.
+No diagnostic grammar, privileges, ACLs, timeout or privacy authority changes.
+Full fresh ENTIRE review and NEW complete actual-input ROOT remain required;
+all local target execution remains NOT_RUN. Native exact-head CI is separate.

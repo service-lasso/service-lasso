@@ -17,7 +17,12 @@ export function bindSelectedInvocation(methodGroup, actuals, explicitTypes, envi
     deny('INVALID_BINDING', 'invocation requires its original finite call/candidate/type-argument occurrences');
   if (typeof environment.resolveOriginalDefaults !== 'function' || typeof environment.delegateSignature !== 'function')
     deny('INVALID_BINDING', 'invocation requires the independent default and delegate signature binders');
+  const version = environment.csharpLanguageVersion;
+  if (!Array.isArray(version) || version.length !== 2 || version.some(value => !Number.isSafeInteger(value) || value < 0))
+    deny('INVALID_BINDING', 'invocation requires its actual compiler-input language version', originalCall.origin);
+  const pruneOwnConstraintMismatch = version[0] > 7 || version[0] === 7 && version[1] >= 3;
   const candidates = [];
+  const deferredOwnConstraints = new Map();
   for (const original of methodGroup) {
     environment.counter.charge('maxInvariantSteps', 'original-method-invocation');
     const candidate = environment.resolveOriginalDefaults(original);
@@ -65,12 +70,22 @@ export function bindSelectedInvocation(methodGroup, actuals, explicitTypes, envi
       substitutions = inferred.substitutions;
     }
     const actualTypes = parameters.map(parameter => substitutions.get(canonicalData(parameter.declId)));
-    // Constraint violations remove a candidate only when the original checker
-    // reports this specific complete generic-actual mismatch. Missing graph,
-    // metadata or profile evidence remains a hard binding failure.
+    // C#7.3 introduced pruning for a method's own constraint mismatch. Earlier
+    // profiles choose the better member first, then fail that member's original
+    // constraint; they must not silently bind a worse fallback overload.
     const enclosing = selectedDeclaringSubstitutions(candidate.declaringType, environment.declarationMetadata, environment.counter);
+    for (const [declaration, actual] of enclosing) {
+      environment.counter.charge('maxInvariantSteps', 'original-invocation-enclosing-substitution');
+      if (substitutions.has(declaration)) deny('INVALID_BINDING', 'method and enclosing generic declarations overlap');
+      substitutions.set(declaration, actual);
+    }
+    let ownConstraintMismatch;
     try { substitutions = checkSelectedGenericConstraints(parameters, actualTypes, environment, originalCall.origin, enclosing); }
-    catch (error) { if (isSourceDenialCode(error, 'CONSTRAINT_MISMATCH')) continue; throw error; }
+    catch (error) {
+      if (!isSourceDenialCode(error, 'CONSTRAINT_MISMATCH')) throw error;
+      if (pruneOwnConstraintMismatch) continue;
+      ownConstraintMismatch = error;
+    }
     const substitute = type => substituteSelectedType(type, substitutions, environment.counter);
     const constructed = { ...candidate, genericArguments: actualTypes, substitutions,
       parameters: candidate.parameters.map(parameter => ({ ...parameter, type: substitute(parameter.type) })),
@@ -80,6 +95,9 @@ export function bindSelectedInvocation(methodGroup, actuals, explicitTypes, envi
     // delegate conversion or fabricate a typed argument. Until the original
     // body/conversion binder supplies that argument, applicability denies it.
     candidates.push(constructed);
+    if (ownConstraintMismatch) deferredOwnConstraints.set(constructed, ownConstraintMismatch);
   }
-  return selectCsharpOverload(candidates, actuals, environment, originalCall.origin);
+  const selected = selectCsharpOverload(candidates, actuals, environment, originalCall.origin);
+  if (deferredOwnConstraints.has(selected.candidate)) throw deferredOwnConstraints.get(selected.candidate);
+  return selected;
 }
