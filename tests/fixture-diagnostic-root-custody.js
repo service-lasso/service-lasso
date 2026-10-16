@@ -14,7 +14,10 @@ export function diagnosticHoldFailureObservation(error) {
 // Only this actual fixed spawn path can record provenance; shared transport
 // surrogates expose correspondence only, never this private WeakMap writer.
 export async function holdDiagnosticRootWindows(root, diagnosticRoot) {
-  const source = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(await readFile(new URL("./fixture-diagnostic-hold.ps1", import.meta.url)));
+  const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
+  const classifier = decoder.decode(await readFile(new URL("./fixture-acl-get-classifier.ps1", import.meta.url)));
+  const guardian = decoder.decode(await readFile(new URL("./fixture-diagnostic-hold.ps1", import.meta.url)));
+  const source = `${classifier}\n${guardian}`;
   const child = spawn("C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe",
     ["-NoProfile", "-NonInteractive", "-EncodedCommand", encodeGuardianCommand(source)],
     { windowsHide: true, shell: false, cwd: root, stdio: ["pipe", "pipe", "pipe"], env: { ...process.env,

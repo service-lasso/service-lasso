@@ -2633,3 +2633,18 @@ test('actual catalogue compilation retains category gates before constructor and
   assert.equal(implicitEntries.filter(entry => entry.generated?.role === 'instanceConstructor').length, 1);
   assert.equal(implicitEntries.filter(entry => entry.generated?.role === 'typeInitializer').length, 1);
 });
+
+test('volatile catalogue-bound field storage preserves acquire-release and non-atomic compound semantics', () => {
+  const fixture = bindFixture('class C { internal volatile bool CallbackCompleted; public static volatile int Count; readonly int immutable; const int Fixed=1; }');
+  for (const name of ['CallbackCompleted', 'Count']) {
+    const entry = fixture.enumeration.find(row => row.syntax.kind === 'field' && row.syntax.name.spelling === name);
+    assert.ok(entry); const storage = fixture.bound.storageMetadata.get(canonicalData(entry.declId));
+    assert.equal(storage.volatile, true); assert.equal(storage.readOrdering, 'acquire');
+    assert.equal(storage.writeOrdering, 'release'); assert.equal(storage.compoundAtomic, false);
+  }
+  const immutable = fixture.enumeration.find(row => row.syntax.kind === 'field' && row.syntax.name.spelling === 'immutable');
+  const ordinary = fixture.bound.storageMetadata.get(canonicalData(immutable.declId));
+  assert.equal(ordinary.volatile, false); assert.equal(ordinary.readOrdering, 'ordinary'); assert.equal(ordinary.writeOrdering, 'ordinary');
+  for (const source of ['class C { volatile long f; }', 'class C { volatile double f; }'])
+    assert.throws(() => bindFixture(source), original => isSourceDenialCode(original, 'INVALID_BINDING'));
+});

@@ -1376,3 +1376,7 @@ review and NEW complete actual-input admission precede all local target work.
 #1562 b984 ENTIRE100 retained F7/F8 assignment-update target/cardinality + F14 declaration-category repair is mapped in CORE1562_83E7_REPAIR_PRECODE.md; separate CORE1562_ACL_GET_TYPED_INTENT.md requires fresh DIFFERENT bounded intent before diagnostic body. Source/native ROOT unadmitted; preserve protected acceptance and prior actual190/190 evidence.
 
 #1562 bounded6d37 ACL intent GO selected exactdirectCLRtype observation only:13flat acquire codes/43reserved stages, specific+acl_get+owner_read private umbrellas; legacy null/failed fallback. Whole F7/F8/F14+CodeQL fixture repair and new diagnostics still require DIFFERENT ENTIRE/new input admission.
+
+#1562 ENTIRE101 aggregate: retain volatile field modifier/category/ordering and actual acquisition source, plus mandatory genuine CLR shared fixed-classifier semantic cases under approved6d37 intent. Map CORE1562_83E7_REPAIR_PRECODE.md before body; unrun/fresh entire and new script/command admission required. B source-only prospective intent remains separate.
+
+#1562 CORE1562_OWNED_STDIO_FAMILY_INTENT.md maps prospective B only, no body: genuine verifier-held nativebirth/family + fixed earliest barrier/actualNode startupproof, existing consumer permissions unchanged; Linuxfamily/completecost/loadedinputs unresolved, fresh bounded DIFFERENT intent required.

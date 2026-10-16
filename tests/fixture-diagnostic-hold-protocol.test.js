@@ -25,7 +25,8 @@ const failureOf = async promise => {
 };
 
 test("guardian physical source capacity witness keeps fixed32600 limit without normalization", async () => {
-  const source = await readFile(new URL("./fixture-diagnostic-hold.ps1", import.meta.url), "utf8");
+  const classifier = await readFile(new URL("./fixture-acl-get-classifier.ps1", import.meta.url), "utf8");
+  const source = `${classifier}\n${await readFile(new URL("./fixture-diagnostic-hold.ps1", import.meta.url), "utf8")}`;
   const legacy = await readFile(new URL("./fixture-root-custody.js", import.meta.url), "utf8");
   const start = legacy.indexOf("const guardianScript = `") + "const guardianScript = `".length;
   const actualLegacy = legacy.slice(start, legacy.indexOf("`;", start));
@@ -219,9 +220,11 @@ test("acquire script SOURCE witness binds ALL8 actual caught roles and preserves
   }
   const aclCatch = reader.slice(reader.indexOf('try { $acl = Get-Acl -LiteralPath $p }'), reader.indexOf('try { $owner ='));
   assert.match(aclCatch, /\[System\.Management\.Automation\.ErrorRecord\]\$caught=\$_\s+Remember-Original \$caught\s+if \(\$acquiring\)/);
-  assert.match(aclCatch, /\$operation='owner_read_acl_get'[\s\S]*\$exception=\$caught\.Exception[\s\S]*if \(\$null -ne \$exception\)[\s\S]*\$exception\.GetType\(\) -eq \[System\.Management\.Automation\.CommandNotFoundException\]/);
-  assert.match(aclCatch, /\$operation='owner_read_acl_command_lookup'[\s\S]*else \{ \$operation='owner_read_acl_other' \}/);
-  assert.match(aclCatch, /catch \{ Remember-Original \$_ \}\s+Remember-AcquireFailure \$operation \$caught[\s\S]*throw \$caught/);
+  assert.match(aclCatch, /\$operation=Classify-AclGetFailure \$caught\s+Remember-AcquireFailure \$operation \$caught[\s\S]*throw \$caught/);
+  const classifier = await readFile(new URL('./fixture-acl-get-classifier.ps1', import.meta.url), 'utf8');
+  assert.match(classifier, /\$operation='owner_read_acl_get'[\s\S]*\$exception=\$original\.Exception[\s\S]*if \(\$null -ne \$exception\)[\s\S]*\$exception\.GetType\(\) -eq \[System\.Management\.Automation\.CommandNotFoundException\]/);
+  assert.match(classifier, /\$operation='owner_read_acl_command_lookup'[\s\S]*else \{ \$operation='owner_read_acl_other' \}/);
+  assert.match(classifier, /catch \{ Remember-Original \$_ \}\s+return \$operation/);
   assert.doesNotMatch(aclCatch, /InnerException|\.Message|\.Stack|ErrorId|CategoryInfo|TargetObject|Get-Acl.*Get-Acl/s);
   assert.match(source, /function Read-Owner\(\$p, \$acquiring=\$false\)/);
   assert.match(source, /function Check-Owner\(\$p, \$isRoot\) \{ Assert-Owner \(Read-Owner \$p\) \$isRoot \}/);

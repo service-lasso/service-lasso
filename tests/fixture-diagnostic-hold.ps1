@@ -86,14 +86,7 @@ function Read-Owner($p, $acquiring=$false) {
     [System.Management.Automation.ErrorRecord]$caught=$_
     Remember-Original $caught
     if ($acquiring) {
-      $operation='owner_read_acl_get'
-      try {
-        $exception=$caught.Exception
-        if ($null -ne $exception) {
-          if ($exception.GetType() -eq [System.Management.Automation.CommandNotFoundException]) { $operation='owner_read_acl_command_lookup' }
-          else { $operation='owner_read_acl_other' }
-        }
-      } catch { Remember-Original $_ }
+      $operation=Classify-AclGetFailure $caught
       Remember-AcquireFailure $operation $caught
     }
     throw $caught

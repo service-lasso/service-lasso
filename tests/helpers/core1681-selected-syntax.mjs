@@ -474,7 +474,7 @@ export class SelectedSyntax {
     const allowed = {
       class: [...access, 'new', 'static', 'abstract', 'sealed'],
       struct: [...access, 'new', 'readonly'], interface: [...access, 'new'], enum: [...access, 'new'], delegate: [...access, 'new'],
-      field: [...access, 'new', 'static', 'readonly', 'const'],
+      field: [...access, 'new', 'static', 'readonly', 'volatile', 'const'],
       method: [...access, 'new', 'static', 'virtual', 'sealed', 'override', 'abstract', 'extern'],
       property: [...access, 'new', 'static', 'virtual', 'sealed', 'override', 'abstract', 'extern'],
     }[category];
@@ -492,7 +492,7 @@ export class SelectedSyntax {
     if (owner.modifiers.includes('static') && !has('static') && !has('const')) invalid('static type requires static members');
     if (owner.modifiers.includes('static') && has('protected')) invalid('static type protected member');
     if (category === 'field') {
-      pair('const', ['static', 'readonly']);
+      pair('const', ['static', 'readonly', 'volatile']); pair('volatile', ['readonly']);
       if (owner.category === 'struct' && owner.modifiers.includes('readonly') && !has('static') && !has('const') && !has('readonly'))
         invalid('readonly struct instance field requires readonly');
       if (owner.category === 'interface') deny('UNSUPPORTED_FORM', 'interface field lowering', first.origin);

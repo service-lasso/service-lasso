@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { SelectedSyntax } from './helpers/core1681-selected-syntax.mjs';
 import { SelectedJavaScriptSyntax } from './helpers/core1681-selected-javascript.mjs';
 import { SelectedCSyntax } from './helpers/core1681-selected-c-syntax.mjs';
@@ -320,5 +321,26 @@ test('selected CSharp declaration categories are checked before enumeration or s
     'public delegate int D(int x);', 'class C { protected internal int f; public class Nested {} }']) {
     assert.equal(parser(source).csharpUnit().kind, 'unit', source);
     assert.equal(forest(source, 'csharp').root.kind, 'unit', source);
+  }
+});
+
+test('actual acquisition source retains volatile field production before enumeration', async () => {
+  const source = await readFile(new URL('../scripts/native/core1681-acquisition.cs', import.meta.url), 'utf8');
+  assert.match(source, /internal\s+volatile\s+bool\s+CallbackCompleted/);
+  const direct = parser(source).csharpUnit(); const selected = forest(source, 'csharp').root;
+  assert.equal(direct.kind, 'unit'); assert.equal(selected.kind, 'unit');
+  const pending = [selected]; let callback;
+  while (pending.length) {
+    const value = pending.pop(); if (!value || typeof value !== 'object') continue;
+    if (value.kind === 'field' && value.name.spelling === 'CallbackCompleted') callback = value;
+    for (const [key, child] of Object.entries(value)) if (key !== 'origin') {
+      if (Array.isArray(child)) pending.push(...child); else if (child && typeof child === 'object') pending.push(child);
+    }
+  }
+  assert.ok(callback); assert.deepEqual(callback.modifiers, ['internal', 'volatile']);
+  for (const source of ['class C { readonly volatile int f; }', 'class C { const volatile int f=1; }',
+    'class C { volatile int M(){return 1;} }', 'volatile class C {}', 'class C { volatile int P {get;set;} }']) {
+    assert.throws(() => parser(source).csharpUnit(), original => isSourceDenialCode(original, 'INVALID_SYNTAX'));
+    assert.throws(() => forest(source, 'csharp'), original => isSourceDenialCode(original, 'INVALID_SYNTAX'));
   }
 });
