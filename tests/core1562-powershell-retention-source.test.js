@@ -48,3 +48,17 @@ test('F25 either release or recorder failure retains the original invocation', a
     assert.throws(() => assertPowerShellRecorderReleaseRetention(actual.replace(gate, changedGate)));
   }
 });
+test('F25 all original recorder operands preserve actual command-line boundaries', async () => {
+  const actual = await source();
+  for (const phase of ['retention-copy-observation', 'custody-record', 'custody-wait']) {
+    const call = `Add-OriginalToolError '${phase}' $_.Exception`;
+    assert.ok(actual.includes(call));
+    for (const separator of ['\n', '\r\n', ' # original operand moved to next command\n', ' `\n']) {
+      for (const boundary of [`Add-OriginalToolError '${phase}'`, 'Add-OriginalToolError']) {
+        const modified = call.replace(`${boundary} `, `${boundary}${separator}`);
+        assert.notEqual(modified, call);
+        assert.throws(() => assertPowerShellOriginalRetention(actual.replace(call, modified)));
+      }
+    }
+  }
+});

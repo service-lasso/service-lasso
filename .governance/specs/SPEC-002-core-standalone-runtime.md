@@ -1579,3 +1579,15 @@ and reject AND or either omitted condition; recorder failure must never escape
 retention. This requirement/evidence reconciliation preserves original F25
 recording/native obligations and is subject to DIFFERENT final entire review.
 All authored regressions remain locally UNRUN; NEW complete ROOT still required.
+
+#1562 entire173b F25 witness correction: preserve original token source spans
+and require each of the three Add-OriginalToolError command/phase/Exception
+operand regions to remain one uninterrupted physical command line. A newline
+or line-comment boundary cannot be normalized into an argument separator;
+explicit continuations and unknown forms are denied, not treated as equivalent.
+Add actual-source newline/comment operand-boundary adversaries for retention
+copy, custody record and custody wait calls. This is a closed selected source
+witness, never a complete PowerShell parser/native proof. Root-prefix b9fc and
+newline173b are two evidenceful false-positive iterations; another equivalent
+finding requires scoped circuit-break/model reassessment, not blind lexer churn.
+Different final entire review and NEW complete ROOT still precede execution.

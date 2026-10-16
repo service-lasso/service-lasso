@@ -2,6 +2,9 @@
 const refuse = () => { throw new Error('F25 original active retention source is unresolved.'); };
 function lex(source) {
   const out = [];
+  const spans = [];
+  Object.defineProperty(out, 'spans', { value: spans });
+  const emit = (value, start, end) => { out.push(value); spans.push({ start, end }); };
   for (let at = 0; at < source.length;) {
     const ch = source[at];
     if (/\s/u.test(ch)) { at++; continue; }
@@ -14,11 +17,11 @@ function lex(source) {
         if (source[at] === quote) { at++; continue; }
         closed = true; break;
       }
-      if (!closed) refuse(); out.push(source.slice(start, at)); continue;
+      if (!closed) refuse(); emit(source.slice(start, at), start, at); continue;
     }
     const word = /^(?:\$[A-Za-z_][A-Za-z_0-9:]*|[A-Za-z_][A-Za-z_0-9-]*|\d+)/u.exec(source.slice(at));
-    if (word) { out.push(word[0]); at += word[0].length; continue; }
-    out.push(ch); at++;
+    if (word) { emit(word[0], at, at + word[0].length); at += word[0].length; continue; }
+    emit(ch, at, at + 1); at++;
   }
   return out;
 }
@@ -80,9 +83,20 @@ export function assertPowerShellOriginalRetention(source) {
   }
   if (next !== retained.start) refuse();
   const body = retained.body; let at = 0;
+  const command = text => {
+    const start = at;
+    need(text);
+    const first = ts.spans[retained.open + 1 + start];
+    const last = ts.spans[retained.open + at];
+    // A line break ends a PowerShell command unless an explicitly modeled
+    // continuation applies. This selected grammar admits no continuation.
+    if (!first || !last || /[\r\n\u0085\u2028\u2029#`]/u.test(source.slice(first.start, last.end))) refuse();
+  };
   const need = text => { for (const expected of lex(text)) if (body[at++] !== expected) refuse(); };
   const recordingCatch = phase => {
-    need(`catch { try { Add-OriginalToolError '${phase}' $_.Exception } catch { $owner.recordingFailure = $_.Exception; $owner.recordingFailed = $true } }`);
+    need('catch { try {');
+    command(`Add-OriginalToolError '${phase}' $_.Exception`);
+    need('} catch { $owner.recordingFailure = $_.Exception; $owner.recordingFailed = $true } }');
   };
   need("try { foreach ($name in @('stdout', 'stderr')) { if ($owner.copies.$name.task -and -not $owner.copies.$name.terminal) { Observe-OriginalCopy $name } } }");
   recordingCatch('retention-copy-observation');
