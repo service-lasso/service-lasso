@@ -8,7 +8,7 @@ import { assertManagedClosureSourceConformance, assertAcquisitionRecordingSource
 
 const sourcePaths = ['src/runtime/execution/windows-managed-launcher-native.cs', 'scripts/native/core1681-acquisition.cs',
   'scripts/native/core1681-msi.cs', 'scripts/native/core1681-trust.cs', 'scripts/verify-windows-managed-launcher-bootstrap.ps1'];
-const sources = () => Promise.all(sourcePaths.map(path => readFile(path, 'utf8')));
+const sources = () => Promise.all(sourcePaths.map(async path => new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(await readFile(path))));
 function change(source, signature, needle, replacement) {
   const at = source.indexOf(signature);
   assert.ok(at >= 0 && source.slice(at).includes(needle), `actual owner ${signature}: ${needle}`);

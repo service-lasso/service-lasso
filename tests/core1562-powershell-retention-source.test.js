@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { assertPowerShellOriginalRetention, assertPowerShellRecorderReleaseRetention, isF25AstRejection } from './helpers/core1562-powershell-retention-source.mjs';
-const source = () => readFile('scripts/verify-windows-managed-launcher-bootstrap.ps1', 'utf8');
+const source = async () => new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
+  .decode(await readFile('scripts/verify-windows-managed-launcher-bootstrap.ps1'));
 
 test('F25 committed complete definition and command-binding adversary roster', async () => {
   const actual = await source();

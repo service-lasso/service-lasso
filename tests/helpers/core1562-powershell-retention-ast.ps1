@@ -2,6 +2,30 @@
 using namespace System.Management.Automation.Language
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
+$PSModuleAutoLoadingPreference = 'None'
+
+# The fixed semantic catalogue is data. No module auto-load, target evaluation
+# or baseline AST serialization is involved in reading its JSON values.
+function Read-CatalogueValue($element) {
+    switch ($element.ValueKind.ToString()) {
+        'Object' {
+            $value = [Collections.Generic.Dictionary[string,object]]::new([StringComparer]::Ordinal)
+            foreach ($property in $element.EnumerateObject()) { $value.Add($property.Name, (Read-CatalogueValue $property.Value)) }
+            return ,$value
+        }
+        'Array' {
+            $value = [Collections.Generic.List[object]]::new()
+            foreach ($item in $element.EnumerateArray()) { $value.Add((Read-CatalogueValue $item)) }
+            return ,($value.ToArray())
+        }
+        'String' { return $element.GetString() }
+        'Number' { return $element.GetInt64() }
+        'True' { return $true }
+        'False' { return $false }
+        'Null' { return $null }
+        default { throw [InvalidOperationException]::new('invalid_catalogue_value') }
+    }
+}
 
 function Require([bool]$condition) { if (-not $condition) { throw [InvalidOperationException]::new('shape_mismatch') } }
 function Type-Is($node, [string]$name) { return $null -ne $node -and $node.GetType().Name -ceq $name }
@@ -93,7 +117,8 @@ try {
     $inputDoc=[Text.Json.JsonDocument]::Parse($text)
     $root=$inputDoc.RootElement
     Require ($root.ValueKind -eq [Text.Json.JsonValueKind]::Object)
-    $names=@($root.EnumerateObject() | ForEach-Object Name)
+    $names=[Collections.Generic.List[string]]::new()
+    foreach ($property in $root.EnumerateObject()) { $names.Add($property.Name) }
     Require (($names -join '|') -ceq 'schema|sourceFile|sourceByteLength|sourceSha256|sourceBase64')
     $schema=$root.GetProperty('schema').GetString(); $file=$root.GetProperty('sourceFile').GetString()
     $length=$root.GetProperty('sourceByteLength').GetInt32(); $digest=$root.GetProperty('sourceSha256').GetString(); $base64=$root.GetProperty('sourceBase64').GetString()
@@ -104,7 +129,9 @@ try {
     Require ([Convert]::ToBase64String($bytes) -ceq $base64 -and $bytes.Length -eq $length)
     Require ([Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant() -ceq $digest)
     $source=$utf8.GetString($bytes)
-    $catalogue=Get-Content -LiteralPath (Join-Path $PSScriptRoot 'core1562-f25-semantic-roles.json') -Raw | ConvertFrom-Json -AsHashtable
+    $cataloguePath=[IO.Path]::Combine($PSScriptRoot,'core1562-f25-semantic-roles.json')
+    $catalogueDoc=[Text.Json.JsonDocument]::Parse($utf8.GetString([IO.File]::ReadAllBytes($cataloguePath)))
+    $catalogue=Read-CatalogueValue $catalogueDoc.RootElement
     Require ($catalogue.schema -ceq 'core1562.f25.semantic-roles.v1')
 } catch { exit 3 }
 $tokens=$null; $errors=$null

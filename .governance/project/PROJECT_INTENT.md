@@ -1592,3 +1592,16 @@ spawn/stdin/EPIPE/stdout/stderr/repeated/null/undefined/throwing-getter errors,
 channel/exit/close orders and exact first/later private identity without early
 settlement or raw cause/log publication. No selector, timer, kill or execution
 is introduced. This is acceptance coverage, not native/runtime acceptance.
+#1562 repeated incomplete normative adversary roster dc9->39e is iteration2;
+CORE1562_F25_NORMATIVE_COVERAGE_MAP.md now maps each committed coverage clause
+to named actual-source mutants, both real tool calls, registry variants,
+context effects, all four selected helper duplicates/relocations, all three
+recorders and all eighteen original shield assignments. A third same-signature
+gap requires scoped GOV13 circuit/model reassessment; no requirement is removed.
+Close the existing disable-autoload child obligation using None and pure strict
+IO/JsonDocument ordinal-key/exact-Int64/null/nonflattened-array conversion;
+remove implicit module cmdlets. Source consumers decode raw fixture bytes with
+fatal UTF8/BOM preservation. ParseInput may perform module-discovery lookups;
+all actual source/mutants/tool/runtime/ENV remain inputs requiring NEW ROOT.
+Shared Node collector/denial authority is unchanged. SOURCE_UNRUN: complete
+DIFFERENT ENTIRE cumulative source review still precedes target execution.
