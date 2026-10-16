@@ -3,6 +3,24 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { assertPowerShellOriginalRetention, assertPowerShellRecorderReleaseRetention, isF25AstRejection } from './helpers/core1562-powershell-retention-source.mjs';
 const source = () => readFile('scripts/verify-windows-managed-launcher-bootstrap.ps1', 'utf8');
+
+test('F25 real AST rejects generic method binding and script requirement effects', async () => {
+  const actual = await source();
+  await assert.doesNotReject(() => assertPowerShellOriginalRetention(actual));
+  for (const [needle, replacement] of [
+    ['$script:NativeToolOwners.Add($key, $owner)', '$script:NativeToolOwners.Add[int]($key, $owner)'],
+    ['[Threading.Thread]::Sleep([Threading.Timeout]::Infinite)', '[Threading.Thread]::Sleep[int]([Threading.Timeout]::Infinite)'],
+    ['$owner.process.Dispose()', '$owner.process.Dispose[int]()'],
+    ['$owner.copies.$name.source.Dispose()', '$owner.copies.$name.source.Dispose[int]()'],
+    ['$stream.Dispose()', '$stream.Dispose[int]()'],
+  ]) {
+    assert.ok(actual.includes(needle));
+    await assert.rejects(() => assertPowerShellOriginalRetention(actual.replace(needle, replacement)), isF25AstRejection);
+  }
+  for (const requirement of ['#requires -Modules F25ChangedImport', '#requires -Version 999.0', '#requires -RunAsAdministrator']) {
+    await assert.rejects(() => assertPowerShellOriginalRetention(`${requirement}\n${actual}`), isF25AstRejection);
+  }
+});
 test('F25 selected actual PowerShell barrier consumes original rooted owner and complete shielded tail', async () => {
   const actual = await source();
   await assert.doesNotReject(() => assertPowerShellOriginalRetention(actual));

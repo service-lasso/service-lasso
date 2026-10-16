@@ -25,6 +25,7 @@ function Parameters($actual, $expected) {
 }
 function Body($node, $expected, $parameters, $attributes) {
     Require (Type-Is $node 'ScriptBlockAst')
+    Require ($null -eq $node.ScriptRequirements)
     Require ($null -eq $node.DynamicParamBlock -and $null -eq $node.BeginBlock -and $null -eq $node.ProcessBlock -and $null -eq $node.CleanBlock)
     Require ($null -ne $node.EndBlock -and $node.EndBlock.Unnamed)
     Require (@($node.Attributes).Count -eq 0 -and @($node.UsingStatements).Count -eq 0)
@@ -53,7 +54,7 @@ function Match($a, $e) {
         'number' { Require (Type-Is $a 'ConstantExpressionAst'); Require ($a.Value -eq $e.value) }
         'type' { Require (Type-Is $a 'TypeExpressionAst'); Require ($a.TypeName.FullName -ceq $e.name) }
         'member' { Require (Type-Is $a 'MemberExpressionAst'); Require ($a.Static -eq $e.static -and -not $a.NullConditional); Match $a.Expression $e.target; Match $a.Member $e.member }
-        'invokeMember' { Require (Type-Is $a 'InvokeMemberExpressionAst'); Require ($a.Static -eq $e.static -and -not $a.NullConditional); Match $a.Expression $e.target; Match $a.Member $e.member; Sequence $a.Arguments $e.args }
+        'invokeMember' { Require (Type-Is $a 'InvokeMemberExpressionAst'); Require ($a.Static -eq $e.static -and -not $a.NullConditional -and @($a.GenericTypeArguments).Count -eq 0); Match $a.Expression $e.target; Match $a.Member $e.member; Sequence $a.Arguments $e.args }
         'command' { Require (Type-Is $a 'CommandAst'); Require ($a.InvocationOperator.ToString() -ceq 'Unknown' -and @($a.Redirections).Count -eq 0 -and $null -eq $a.DefiningKeyword); Require ($a.CommandElements.Count -eq @($e.args).Count + 1); Match $a.CommandElements[0] @{kind='literal';value=$e.name;form='BareWord'}; for($i=0;$i -lt @($e.args).Count;$i++){ Match $a.CommandElements[$i+1] $e.args[$i] } }
         'parameter' { Require (Type-Is $a 'CommandParameterAst'); Require ($a.ParameterName -ceq $e.name -and $null -eq $a.Argument) }
         'binary' { Require (Type-Is $a 'BinaryExpressionAst'); Require ($a.Operator.ToString() -ceq $e.op); Match $a.Left $e.left; Match $a.Right $e.right }

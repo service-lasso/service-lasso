@@ -1575,3 +1575,10 @@ tools. Original transport errors and raw receipts stay private. Physical signed
 PowerShell/source-tag mismatch remains UNQUALIFIED; fixed platform recipes are
 not ROOT. All parser/tests/native execution remains NOT_RUN pending different
 ENTIRE source review and NEW complete actual-input/tool/environment admission.
+#1562 ENTIRE4c64 first real-AST model iteration NO_GO: close the two confirmed
+P1 omissions for invoked-member GenericTypeArguments and every script body's
+ScriptRequirements. Add actual registry/retention/resource generic-call and
+module/version/administrator requirement adversaries with authentic real-child
+rejection and baseline conformance. This implements the existing selected
+closed model; no new scope or native/ambient claim. Different ENTIRE source
+review and NEW complete actual-input ROOT remain required; parser/tests UNRUN.

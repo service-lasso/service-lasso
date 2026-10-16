@@ -455,3 +455,22 @@ profiles, debugger hooks or OS/process/library interference. No ambient runtime
 binding, native invocation, actual principal/reservation/tool-holder identity,
 publication or GA claim follows. Those require genuine independent current
 runtime/native admission and acceptance. No target or parser has been executed.
+
+## Real-AST implementation iteration 1: ENTIRE4c64 SOURCE_NO_GO
+
+The first real-AST implementation at 4c64b313 had two confirmed P1 closed-model
+omissions: InvokeMemberExpressionAst.GenericTypeArguments and
+ScriptBlockAst.ScriptRequirements. Actual registry Add[int](key,owner) can
+change method binding while preserving the earlier consumed operands; added
+#requires Modules/Version/RunAsAdministrator can change import/prerequisite
+effects outside the ordered statements. This is the first real-AST model
+iteration, separate from the prior three handwritten-lexer circuit-break cases.
+
+Repair the existing approved closed model by requiring no generic type
+arguments on every invoked-member node and no script requirements on root or
+any nested body. Actual registry/retention/resource generic-method mutants and
+module/version/administrator requirement mutants must receive authentic real
+closed source rejection; the actual baseline must conform. These are source
+adversaries, not native execution or ambient binding proof. The independent
+reviewer found no additional concrete AST-property blocker. Full different
+ENTIRE review and NEW exact complete ROOT still precede parser/test execution.
