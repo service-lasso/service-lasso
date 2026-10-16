@@ -1534,3 +1534,15 @@ The user directed the Linux repair chat on 2026-10-07 to perform the eleven-fail
 ### #1724 reviewed Linux source preparation
 
 ADR-003 selects the complete original-isolate drain/exclusion protocol after DIFFERENT ENTIRE architecture GO at171473fd4feed3c60b89db3e30272936ba953a6e. The current repair chat owns source preparation on fix/1724-linux-native-fixture-removal. Import reviewed prospective PR1721 row extraction through the governed source path; implement the genuine Linux native adapter without weakening protected assertions or claiming absent F7 dependencies. Complete cumulative source/protected-test review and NEW actual-input ROOT admission remain before execution. All eleven failures remain unresolved until natural native/full-suite acceptance.
+
+## #1562 retained selected-language helper integration (2026-10-16)
+
+AC-4DI.4/R3/C3 source integration restores the genuine dependency closure of
+already-landed core1681-selected-overloads.test.js from the retained Core121
+checkpoint. Copy 26 absent modules and the three forward helper deltas; bind
+existing foundation test callers to authentic original envelope/counter creation
+without changing any assertion. The complete source/raw hash inventory and
+current-base identity are CORE1562_CLIENT_RELEASE_HELPER_TRANSFER.json. Full
+source binding remains incomplete/unqualified; these helpers confer no ROOT or
+native authority. Different entire cumulative review and NEW complete actual-input
+ROOT admission precede execution. Natural CI remains the next failure observation.

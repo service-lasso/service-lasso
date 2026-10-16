@@ -1770,3 +1770,15 @@ assertions, actual error identities, retained evidence and strong writer-exclusi
 contracts. Different entire source review and NEW complete actual-input ROOT
 admission precede execution. Missing selected-helper source, F25 evidence drift,
 foreign-owner ROOT input and Windows EBUSY remain independent unresolved gates.
+
+## #1562 retained selected-language helper integration (2026-10-16)
+
+AC-4DI.4/R3/C3 source integration restores the genuine dependency closure of
+already-landed core1681-selected-overloads.test.js from the retained Core121
+checkpoint. Copy 26 absent modules and the three forward helper deltas; bind
+existing foundation test callers to authentic original envelope/counter creation
+without changing any assertion. The complete source/raw hash inventory and
+current-base identity are CORE1562_CLIENT_RELEASE_HELPER_TRANSFER.json. Full
+source binding remains incomplete/unqualified; these helpers confer no ROOT or
+native authority. Different entire cumulative review and NEW complete actual-input
+ROOT admission precede execution. Natural CI remains the next failure observation.
