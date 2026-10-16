@@ -2648,3 +2648,32 @@ test('volatile catalogue-bound field storage preserves acquire-release and non-a
   for (const source of ['class C { volatile long f; }', 'class C { volatile double f; }'])
     assert.throws(() => bindFixture(source), original => isSourceDenialCode(original, 'INVALID_BINDING'));
 });
+
+test('bare array initializer declaration plans preserve resolved mixed ranks and same original brace occurrence without executable array claims', () => {
+  const counter=createProofCounter();
+  const compilation=bindSelectedCsharpCompilation([
+    {unit:'arrays.cs',compilation:'arrays',role:'source',rawBytes:Buffer.from('using I=System.Int32; class C { static I[][,] x={}; int[,] y={{1,2},{3,4}}; int M(){I[] z={1};return 1;} }')},
+    {unit:'symbolic.cs',compilation:'symbolic',role:'catalogue',rawBytes:Buffer.from(symbolicFixture)}
+  ],counter);
+  const field=compilation.enumeration.find(row=>row.syntax.kind==='field'&&row.syntax.name.spelling==='x');
+  const row=compilation.bound.storageMetadata.get(canonicalData(field.declId));
+  assert.equal(row.type.category,'array');assert.equal(row.type.rank,1);assert.equal(row.type.element.rank,2);
+  assert.equal(row.type.element.element.name,'int');
+  const owner=compilation.enumeration.find(row=>row.syntax.kind==='type'&&row.syntax.name.spelling==='C');
+  const plan=compilation.bound.initializerPlans.get(canonicalData(owner.declId));
+  assert.equal(plan.static[0].expression,field.syntax.initializer);
+  assert.equal(plan.static[0].originalOccurrence,field.syntax.initializer.origin);
+  assert.equal(plan.static[0].declaration,field.declId);
+  const local=compilation.enumeration.find(row=>row.syntax.kind==='local'&&row.syntax.name.spelling==='z');
+  assert.ok(local);assert.equal(local.syntax.initializer.kind,'initializer');
+  assert.equal(compilation.bound.storageMetadata.has(canonicalData(local.declId)),false);
+  const type=compilation.index.resolve(local.syntax.type,compilation.context(local));
+  assert.equal(type.category,'array');assert.equal(type.rank,1);assert.equal(type.element.name,'int');
+  const method=compilation.enumeration.find(row=>row.syntax.kind==='method'&&row.syntax.name.spelling==='M');
+  assert.throws(()=>bindSelectedCsharpScalarBody(compilation,method.declId,{counter,typeIndex:compilation.index,
+    declarationMetadata:compilation.bound.declarationMetadata,parameterConstraints:compilation.bound.parameterConstraints}),e=>isSourceDenialCode(e,'INCOMPLETE_BODY'));
+  assert.throws(()=>bindSelectedCsharpCompilation([
+    {unit:'bad.cs',compilation:'bad',role:'source',rawBytes:Buffer.from('using I=System.Int32; class C { I x={1}; }')},
+    {unit:'symbolic.cs',compilation:'symbolic',role:'catalogue',rawBytes:Buffer.from(symbolicFixture)}
+  ],createProofCounter()),e=>isSourceDenialCode(e,'INVALID_BINDING'));
+});

@@ -99,9 +99,14 @@ export class SelectedCScanner extends SelectedScanner {
   }
 }
 
+function separated(left, right) {
+  return left.logicalRange[1] < right.logicalRange[0];
+}
+
 function sameReplacement(left, right) {
   return left.parameters?.join('\0') === right.parameters?.join('\0') &&
-    left.tokens.length === right.tokens.length && left.tokens.every((token, index) => token.kind === right.tokens[index].kind && token.spelling === right.tokens[index].spelling);
+    left.tokens.length === right.tokens.length && left.tokens.every((token, index) => token.kind === right.tokens[index].kind && token.spelling === right.tokens[index].spelling &&
+      (index === 0 || separated(left.tokens[index - 1], token) === separated(right.tokens[index - 1], right.tokens[index])));
 }
 
 function targetVersion(macro, counter) {
@@ -239,7 +244,7 @@ export function preprocessSelectedC(rawBytes, counter, token, decoderOccurrence)
       const replacement = expansion.replacement;
       for (let replacementIndex = 0; replacementIndex < macro.tokens.length; replacementIndex++) {
         const item = macro.tokens[replacementIndex];
-        const spaceBefore = replacementIndex > 0 && macro.tokens[replacementIndex - 1].logicalRange[1] < item.logicalRange[0];
+        const spaceBefore = replacementIndex > 0 && separated(macro.tokens[replacementIndex - 1], item);
         if (item.spelling === '#') {
           const formal = macro.tokens[++replacementIndex];
           const argument = arguments_[macro.parameters.indexOf(formal.spelling)];
@@ -416,6 +421,8 @@ export function preprocessSelectedC(rawBytes, counter, token, decoderOccurrence)
         if (tokens[ordinal].spelling === '#' && (parameters === null || !parameters.includes(tokens[ordinal + 1]?.spelling)))
           deny('INVALID_SYNTAX', 'C stringizing requires its following formal parameter', tokens[ordinal].origin);
       }
+      if (parameters === null && tokens.length && !separated(identifier, tokens[0]))
+        deny('INVALID_SYNTAX', 'object-like C macro replacement requires source separator', origin);
       const macro = { name: identifier.spelling, parameters, tokens, origin };
       if (['_UNICODE', 'UNICODE'].includes(macro.name) && (parameters !== null || tokens.length !== 0) ||
           macro.name === '_WIN32_WINNT' && !targetVersion(macro, counter))

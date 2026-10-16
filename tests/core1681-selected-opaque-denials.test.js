@@ -408,3 +408,63 @@ test('C macro formal lists retain complete delimiter and identifier grammar befo
     assert.equal(p.source.tokens.some(token=>token.spelling==='F'),false);
   }
 });
+
+test('selected ECMA2024 ImportCall has exactly one AssignmentExpression while ordinary Arguments stay distinct', () => {
+  for (const source of ['import();','import(...x);','import(x,);','import(x,y);','import(x,y,);','import(x,...y);','import(x,y,z);']) {
+    assert.throws(() => parser(source,'javascript').javascriptUnit(), e=>isSourceDenialCode(e,'INVALID_SYNTAX')||isSourceDenialCode(e,'UNSUPPORTED_FORM'));
+    assert.throws(() => forest(source,'javascript'), e=>isSourceDenialCode(e,'INVALID_SYNTAX')||isSourceDenialCode(e,'UNSUPPORTED_FORM'));
+  }
+  for (const source of ['import(x);','import((x,y));','f();','f(...x);','f(x,y,z);','f(x,);','import.meta;']) {
+    assert.equal(parser(source,'javascript').javascriptUnit().kind,'unit');
+    assert.equal(forest(source,'javascript').root.kind,'unit');
+  }
+  const expression=parser('import((x,y));','javascript').javascriptUnit().statements[0].expression;
+  assert.equal(expression.arguments.length,1); assert.equal(expression.arguments[0].spread,false);
+  assert.equal(expression.arguments[0].expression.kind,'group');
+});
+
+test('C definitions and redefinitions compare phase-three separators after actual phase-two splicing', () => {
+  const c=source=>new SelectedCSyntax(Buffer.from(source),createProofCounter(),new Set());
+  for(const source of ['#define X+1\nint x;','#define X/**/+1\n#define X + 1\nint x;',
+    '#define F(x) x+x\n#define F(x) x +x\nint x;',
+    '#define X +\\\n1\n#define X + 1\nint x;']) {
+    assert.throws(()=>c(source).cUnit(),e=>isSourceDenialCode(e,'INVALID_SYNTAX'));
+    assert.throws(()=>forest(source,'c'),e=>isSourceDenialCode(e,'INVALID_SYNTAX'));
+  }
+  for(const source of ['#define X\nint x;','#define X +1\n#define X\t/**/+1\nint x=X;',
+    '#define F(x) x + x\n#define F(x) x/**/+\t x\nint x=F(1);',
+    '#define X +\\\n1\n#define X +1\nint x=X;',
+    '#define F (1)\nint x=F;','#define F(x) x\nint x=F(2);']) {
+    assert.equal(c(source).cUnit().kind,'unit',source);assert.equal(forest(source,'c').root.kind,'unit',source);
+  }
+});
+
+test('C macro separator equivalence preserves actual stringizing source boundaries',()=>{
+  const source='#define S(x) # x\n#define S(x) #/**/x\nchar *value=S(a/**/+\\\nb);';
+  const p=new SelectedCSyntax(Buffer.from(source),createProofCounter(),new Set());
+  assert.equal(p.cUnit().kind,'unit');assert.equal(forest(source,'c').root.kind,'unit');
+  const string=p.source.tokens.find(token=>token.kind==='string');
+  assert.equal(string.spelling,'"a +b"');
+  assert.ok(string.expansion);assert.ok(string.origin);
+});
+test('CSharp variable initializer structure and mixed-rank type association retain original declarators', () => {
+  for(const source of ['class C { int[] x={1,2,}, z={}; void M(){int[] y={},q={2};} }',
+    'class C { int[,] x={{1,2},{3,4}}; int[,,] empty={}; }',
+    'class C { int[][] x={new int[]{1},new int[]{2,3}}; }',
+    'using A=System.Int32; class C { A[] x={1}; void M(){A[] y={2};} }',
+    'class C { int[][,] x={}; int[,][] y={{new int[]{1}}}; }']) {
+    assert.equal(parser(source).csharpUnit().kind,'unit',source);assert.equal(forest(source,'csharp').root.kind,'unit',source);
+  }
+  for(const source of ['class C { int[,] x={{1},{2,3}}; }','class C { int[,] x={1}; }',
+    'class C { int[][] x={{1}}; }','class C { int[] x={{1}}; }',
+    'class C { void M(){f({1});} }','class C { int M(){return {1};} }']) {
+    assert.throws(()=>parser(source).csharpUnit(),e=>isSourceDenialCode(e,'INVALID_SYNTAX')||isSourceDenialCode(e,'UNSUPPORTED_FORM'));
+    assert.throws(()=>forest(source,'csharp'),e=>isSourceDenialCode(e,'INVALID_SYNTAX')||isSourceDenialCode(e,'UNSUPPORTED_FORM'));
+  }
+  const unit=parser('class C { int[][,] x={}; void M(){int[,][] y={};} }').csharpUnit();
+  const field=unit.declarations[0].members[0].fields[0],local=unit.declarations[0].members[1].body.statements[0].declarations[0];
+  assert.equal(field.type.rank,1);assert.equal(field.type.element.rank,2);
+  assert.equal(local.type.rank,2);assert.equal(local.type.element.rank,1);
+  assert.equal(field.initializer.kind,'initializer');assert.equal(local.initializer.kind,'initializer');
+  assert.ok(field.type.rankOrigin.byte[0]<field.type.element.rankOrigin.byte[0]);
+});

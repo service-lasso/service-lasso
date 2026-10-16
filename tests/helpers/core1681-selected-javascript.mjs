@@ -231,7 +231,11 @@ export class SelectedJavaScriptSyntax extends SelectedSyntax {
     }
     if (this.take('import')) {
       if (this.take('.')) { const name = this.jsName(true); if (name.spelling !== 'meta') deny('INVALID_SYNTAX', 'import.meta required', name.origin); return this.node('jsImportMeta', first); }
-      if (this.word() === '(') return this.node('jsDynamicImport', first, { arguments: this.jsArguments() });
+      if (this.take('(')) {
+        const argumentFirst = this.peek(), expression = this.jsInExpression(1);
+        this.need(')');
+        return this.node('jsDynamicImport', first, { arguments: [this.node('jsArgument', argumentFirst, { spread: false, expression })] });
+      }
       deny('INVALID_SYNTAX', 'import expression requires meta or call', first.origin);
     }
     if (first.kind === 'identifier') {

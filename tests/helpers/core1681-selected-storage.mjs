@@ -1,5 +1,5 @@
 import { deny } from './core1681-source-input.mjs';
-import { canonicalData } from './core1681-proof-terms.mjs';
+import { canonicalData, K2_LIMITS } from './core1681-proof-terms.mjs';
 
 const visibilityWords = new Set(['public', 'private', 'protected', 'internal']);
 const volatilePrimitives = new Set(['bool', 'byte', 'sbyte', 'short', 'ushort', 'int', 'uint', 'char', 'float']);
@@ -90,4 +90,27 @@ export function checkCsharpInitializerSlots(typeEntry, enumeration, storageMetad
   if (staticRequired && key(staticSlots[0].syntax.initializers) !== key(plan.static.map(transfer => transfer.originalOccurrence)))
     invalid('implicit static initializer slots differ from effective storage metadata', type);
   return plan;
+}
+
+// Structural initializer grammar only. Expression conversion and executable
+// array lowering remain separate from this original declarator/type witness.
+export function checkSelectedArrayInitializerShape(value, type, counter) {
+  if (value?.kind !== 'initializer') return;
+  if (type.category !== 'array') deny('INVALID_BINDING', 'brace variable initializer requires resolved array type', value.origin);
+  const pending = [{ value, depth: 1 }], lengths = new Map();
+  while (pending.length) {
+    counter.charge('maxInvariantSteps', 'array-initializer-shape');
+    const row = pending.pop();
+    if (row.depth > K2_LIMITS.maxTermDepth) deny('EXHAUSTED', 'array initializer depth exhausted', row.value.origin);
+    const previous = lengths.get(row.depth), length = row.value.elements.length;
+    if (previous !== undefined && previous !== length) deny('INVALID_SYNTAX', 'array initializer dimensions differ', row.value.origin);
+    lengths.set(row.depth, length);
+    for (const element of row.value.elements) {
+      counter.charge('maxInvariantSteps', 'array-initializer-element');
+      if (row.depth < type.rank) {
+        if (element.kind !== 'initializer') deny('INVALID_SYNTAX', 'array initializer requires nested dimension', element.origin);
+        pending.push({ value: element, depth: row.depth + 1 });
+      } else if (element.kind === 'initializer') deny('INVALID_SYNTAX', 'array initializer leaf requires expression', element.origin);
+    }
+  }
 }

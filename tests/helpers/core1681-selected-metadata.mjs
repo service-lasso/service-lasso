@@ -1,6 +1,6 @@
 import { deny } from './core1681-source-input.mjs';
 import { canonicalData, K2_LIMITS } from './core1681-proof-terms.mjs';
-import { csharpVisibility, csharpStorage, checkCsharpInitializerSlots } from './core1681-selected-storage.mjs';
+import { csharpVisibility, csharpStorage, checkCsharpInitializerSlots, checkSelectedArrayInitializerShape } from './core1681-selected-storage.mjs';
 import { resolveSelectedParameterConstraints } from './core1681-selected-constraints.mjs';
 import { selectedTypeKey, selectedTypeIdentity, genericSubstitution, substituteSelectedType } from './core1681-selected-types.mjs';
 
@@ -167,6 +167,7 @@ export function bindSelectedCsharpDeclarations(enumeration, typeIndex, contextFo
     } else if (['field', 'property', 'parameter', 'catchParameter', 'iterationVariable'].includes(syntax.kind)) {
       if (!syntax.type || syntax.type.kind === 'inferredType') continue; // Body binding supplies inferred locals/iteration types.
       const type = resolve(syntax.type);
+      if (syntax.kind === 'field') checkSelectedArrayInitializerShape(syntax.initializer, type, counter);
       if (type.category === 'enum') type.underlying = metadata.get(key(type.declaration))?.underlying;
       storage.set(key(entry.declId), csharpStorage(syntax, owner?.syntax ?? null, type));
       if (syntax.kind === 'property') {

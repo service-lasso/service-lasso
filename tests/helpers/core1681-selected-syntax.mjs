@@ -1,6 +1,7 @@
 import { deny, isSourceDenialCode } from './core1681-source-input.mjs';
 import { SelectedScanner } from './core1681-selected-scanner.mjs';
 import { K2_LIMITS } from './core1681-proof-terms.mjs';
+import { checkSelectedArrayInitializerShape } from './core1681-selected-storage.mjs';
 
 const recursiveProductions = ['typeRef', 'initializer', 'knownType', 'primary', 'expression', 'block', 'statement', 'csharpDeclaration',
   'psPrimary', 'psExpression', 'psCommandArgument', 'psBlock', 'psStatement',
@@ -95,7 +96,9 @@ export class SelectedSyntax {
     } while (this.take('.'));
     let type = this.node('namedType', first, { segments });
     if (this.take('?')) type = this.node('nullableType', first, { element: type });
+    const ranks = [];
     if (array) while (this.word() === '[') {
+      const rankFirst = this.peek();
       const mark = this.mark(); this.consume();
       let rank = 1;
       while (this.take(',')) {
@@ -103,8 +106,10 @@ export class SelectedSyntax {
         if (++rank > 32) deny('INVALID_SYNTAX', 'array rank exceeds selected CLR extent', this.last.origin);
       }
       if (!this.take(']')) { this.restore(mark); break; }
-      type = this.node('arrayType', first, { element: type, rank });
+      ranks.push({ first: rankFirst, rank });
     }
+    for (let index = ranks.length - 1; index >= 0; index--)
+      type = this.node('arrayType', first, { element: type, rank: ranks[index].rank, rankOrigin: ranks[index].first.origin });
     return type;
   }
   attributes() {
@@ -172,6 +177,12 @@ export class SelectedSyntax {
       if (!this.take(',')) break;
     }
     this.need('}'); return this.node('initializer', first, { elements });
+  }
+  variableInitializer(type) {
+    const value = this.word() === '{' ? this.initializer() : this.expression();
+    if (value.kind === 'initializer' && type.kind === 'arrayType')
+      checkSelectedArrayInitializerShape(value, { category: 'array', rank: type.rank }, this.counter);
+    return value;
   }
   lambda(first, parameters) {
     const previousControl = this.controlStack, previousCatch = this.catchDepth;
@@ -357,7 +368,7 @@ export class SelectedSyntax {
     if (!['=', ',', ';', ')', 'in'].includes(this.word())) { this.restore(mark); return null; }
     const declarations = [];
     do {
-      const initializer = this.take('=') ? this.expression() : null;
+      const initializer = this.take('=') ? this.variableInitializer(type) : null;
       declarations.push(this.declaration('local', { origin: name.origin }, { type, name, constant, initializer }));
       if (!this.take(',')) break;
       name = this.name();
@@ -630,7 +641,7 @@ export class SelectedSyntax {
     const fields = [];
     let fieldName = name;
     do {
-      const initializer = this.take('=') ? this.expression() : null;
+      const initializer = this.take('=') ? this.variableInitializer(type) : null;
       fields.push(this.declaration('field', { origin: fieldName.origin }, { name: fieldName, type, modifiers: flags, attributes, initializer }));
       if (!this.take(',')) break;
       fieldName = this.name();
