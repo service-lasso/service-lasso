@@ -22,3 +22,6 @@ tests/fixtures/windows-held-exit-probe.provenance.json text eol=lf
 tests/fixture-diagnostic-creator.ps1 text eol=lf
 tests/fixture-diagnostic-hold.ps1 text eol=lf
 .governance/project/ga-platform-scope.json -text
+
+tests/helpers/core1562-powershell-retention-bootstrap.ps1 text eol=lf
+tests/helpers/core1562-powershell-retention-ast.ps1 text eol=lf

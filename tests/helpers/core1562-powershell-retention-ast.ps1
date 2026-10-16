@@ -113,7 +113,12 @@ function Optional($actual,$expected){ if($null -eq $expected){ Require ($null -e
 try {
     $utf8=[Text.UTF8Encoding]::new($false,$true)
     $raw=[IO.MemoryStream]::new(); [Console]::OpenStandardInput().CopyTo($raw)
+} catch { Fail-F25Infrastructure 'source_read' $_ }
+try {
     $text=$utf8.GetString($raw.ToArray())
+} catch [Text.DecoderFallbackException] { exit 3 }
+catch { Fail-F25Infrastructure 'source_decode' $_ }
+try {
     $inputDoc=[Text.Json.JsonDocument]::Parse($text)
     $root=$inputDoc.RootElement
     Require ($root.ValueKind -eq [Text.Json.JsonValueKind]::Object)
@@ -125,20 +130,42 @@ try {
     Require ($schema -ceq 'core1562.f25.ast-input.v1' -and $file -ceq 'scripts/verify-windows-managed-launcher-bootstrap.ps1' -and $digest -cmatch '^[0-9a-f]{64}$')
     $canonical='{"schema":"core1562.f25.ast-input.v1","sourceFile":"scripts/verify-windows-managed-launcher-bootstrap.ps1","sourceByteLength":'+$length+',"sourceSha256":"'+$digest+'","sourceBase64":"'+$base64+'"}'+"`n"
     Require ($text -ceq $canonical)
+} catch [Text.Json.JsonException] { exit 3 }
+catch [InvalidOperationException] { exit 3 }
+catch [Collections.Generic.KeyNotFoundException] { exit 3 }
+catch [OverflowException] { exit 3 }
+catch { Fail-F25Infrastructure 'source_frame' $_ }
+try {
     $bytes=[Convert]::FromBase64String($base64)
     Require ([Convert]::ToBase64String($bytes) -ceq $base64 -and $bytes.Length -eq $length)
     Require ([Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant() -ceq $digest)
     $source=$utf8.GetString($bytes)
+} catch [FormatException] { exit 3 }
+catch [Text.DecoderFallbackException] { exit 3 }
+catch [InvalidOperationException] { exit 3 }
+catch { Fail-F25Infrastructure 'source_integrity' $_ }
+try {
     $cataloguePath=[IO.Path]::Combine($PSScriptRoot,'core1562-f25-semantic-roles.json')
-    $catalogueDoc=[Text.Json.JsonDocument]::Parse($utf8.GetString([IO.File]::ReadAllBytes($cataloguePath)))
+    $catalogueBytes=[IO.File]::ReadAllBytes($cataloguePath)
+} catch { Fail-F25Infrastructure 'catalogue_read' $_ }
+try {
+    $catalogueDoc=[Text.Json.JsonDocument]::Parse($utf8.GetString($catalogueBytes))
     $catalogue=Read-CatalogueValue $catalogueDoc.RootElement
+} catch { Fail-F25Infrastructure 'catalogue_decode' $_ }
+try {
     Require ($catalogue.schema -ceq 'core1562.f25.semantic-roles.v1')
-} catch { exit 3 }
+} catch { Fail-F25Infrastructure 'catalogue_shape' $_ }
 $tokens=$null; $errors=$null
-$ast=[Parser]::ParseInput($source,$file,[ref]$tokens,[ref]$errors)
+try { $ast=[Parser]::ParseInput($source,$file,[ref]$tokens,[ref]$errors) }
+catch { Fail-F25Infrastructure 'target_parse' $_ }
 $status='conformant'; $reason='none'; $code=0
 if(@($errors).Count -ne 0){ $status='rejected';$reason='parse_error';$code=2 }
-else { try { Body $ast $catalogue.body $catalogue.parameters $catalogue.attributes } catch { if($_.Exception.Message -cne 'shape_mismatch'){ exit 3 }; $status='rejected';$reason='shape_mismatch';$code=2 } }
+else { try { Body $ast $catalogue.body $catalogue.parameters $catalogue.attributes } catch { if($_.Exception.Message -cne 'shape_mismatch'){ Fail-F25Infrastructure 'semantic_match' $_ }; $status='rejected';$reason='shape_mismatch';$code=2 } }
+try {
 $response='{"schema":"core1562.f25.ast-result.v1","status":"'+$status+'","sourceSha256":"'+$digest+'","reason":"'+$reason+'"}'+"`n"
-$output=$utf8.GetBytes($response); $stream=[Console]::OpenStandardOutput(); $stream.Write($output,0,$output.Length); $stream.Flush()
+$output=$utf8.GetBytes($response)
+} catch { Fail-F25Infrastructure 'response_encode' $_ }
+try { $stream=[Console]::OpenStandardOutput() } catch { Fail-F25Infrastructure 'response_open' $_ }
+try { $stream.Write($output,0,$output.Length) } catch { Fail-F25Infrastructure 'response_write' $_ }
+try { $stream.Flush() } catch { Fail-F25Infrastructure 'response_flush' $_ }
 exit $code

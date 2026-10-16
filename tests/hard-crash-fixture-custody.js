@@ -561,7 +561,11 @@ export async function closeFixture({ primary, primaryOccurred = primary !== unde
           if (DIAGNOSTIC_HOLD_CHILD_OPERATIONS.includes(operation.hold.childOperation))
             ownedDiagnosticOperations.add(`initialization_diagnostic_guardian_${operation.hold.childOperation}`);
           if (operation.hold.childOperation === "acquire_chain" && DIAGNOSTIC_HOLD_ACQUIRE_OPERATIONS.includes(operation.hold.acquireOperation))
+          {
             ownedDiagnosticOperations.add(`initialization_diagnostic_guardian_acquire_${operation.hold.acquireOperation}`);
+            if (["owner_read_acl_get", "owner_read_owner_get", "owner_read_sid_value"].includes(operation.hold.acquireOperation))
+              ownedDiagnosticOperations.add("initialization_diagnostic_guardian_acquire_owner_read");
+          }
           if (DIAGNOSTIC_HOLD_TRANSPORT_REASONS.includes(operation.hold.transportReason))
             ownedDiagnosticOperations.add(`initialization_diagnostic_transport_${operation.hold.transportReason}`);
         }

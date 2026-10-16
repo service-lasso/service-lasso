@@ -192,7 +192,8 @@ test("ALL8 acquire suboperation SURROGATES require EOF before matching real clos
 
 test("acquire script SOURCE witness binds ALL8 actual caught roles and preserves verification owner policy", async () => {
   const source = await readFile(new URL("./fixture-diagnostic-hold.ps1", import.meta.url), "utf8");
-  assert.deepEqual(DIAGNOSTIC_HOLD_ACQUIRE_OPERATIONS, ["chain_build", "owner_read", "owner_root", "owner_ancestor", "attributes", "open", "identity", "retain"]);
+  assert.deepEqual(DIAGNOSTIC_HOLD_ACQUIRE_OPERATIONS, ["chain_build", "owner_read", "owner_root", "owner_ancestor", "attributes", "open", "identity", "retain",
+    "owner_read_acl_get", "owner_read_owner_get", "owner_read_sid_value"]);
   assert.equal(Object.isFrozen(DIAGNOSTIC_HOLD_ACQUIRE_OPERATIONS), true);
   for (const operation of DIAGNOSTIC_HOLD_ACQUIRE_OPERATIONS)
     assert.equal(source.split(`Remember-AcquireFailure '${operation}'`).length - 1, 1);
@@ -211,6 +212,18 @@ test("acquire script SOURCE witness binds ALL8 actual caught roles and preserves
   assert.match(source, /\$owner -notin @\(\$sid,'S-1-5-18','S-1-5-32-544','S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464'\)/);
   assert.match(source, /CreateFile\(p, 0x80U, 3, IntPtr\.Zero, 3, 0x02200000/);
   assert.match(source, /\$operation -ceq 'acquire_chain' -and \$null -ne \$suboperation/);
+  const reader = source.slice(source.indexOf('function Read-Owner'), source.indexOf('function Assert-Owner'));
+  for (const [work, leaf] of [['$acl = Get-Acl -LiteralPath $p', 'acl_get'],
+    ['$owner = $acl.GetOwner([System.Security.Principal.SecurityIdentifier])', 'owner_get'], ['return $owner.Value', 'sid_value']]) {
+    const begin = reader.indexOf(work); assert.ok(begin >= 0);
+    assert.ok(reader.indexOf(`if ($acquiring) { Remember-AcquireFailure 'owner_read_${leaf}' $caught }`, begin) > begin);
+  }
+  assert.match(source, /function Read-Owner\(\$p, \$acquiring=\$false\)/);
+  assert.match(source, /function Check-Owner\(\$p, \$isRoot\) \{ Assert-Owner \(Read-Owner \$p\) \$isRoot \}/);
+  assert.match(source, /try \{ \$owner = Read-Owner \$p \$true \}/);
+  assert.match(source, /\$ownerReadOuter\.Original=\$caught; \$ownerReadOuter\.Recorded=\$true; Remember-AcquireFailure 'owner_read'/);
+  assert.match(source, /elseif \(\$ownerReadOuter\.Recorded -and \(Same-AcquireOriginal \$ownerReadOuter\.Original \$primary\)\) \{ \$suboperation = 'owner_read' \}/);
+  assert.doesNotMatch(source, /GetSecurityInfo|GetNamedSecurityInfo|Set-Acl|SetOwner|ProgressPreference/);
 });
 
 for (const operation of DIAGNOSTIC_HOLD_PARENT_OPERATIONS) test(`parent ${operation} correspondence SURROGATE retains exact caught opaque original`, async () => {

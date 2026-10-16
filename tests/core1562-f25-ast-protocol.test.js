@@ -2,7 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
-import { decodeF25AstResponse, isF25AstRejection, f25ClosedFailureDiagnostic, validateF25AstClosure, observeF25AstFrame, collectF25AstChild, f25FailureHasOriginals } from './helpers/core1562-powershell-retention-source.mjs';
+import { decodeF25AstResponse, isF25AstRejection, f25ClosedFailureDiagnostic, validateF25AstClosure, observeF25AstFrame, collectF25AstChild, f25FailureHasOriginals,
+  F25_INFRASTRUCTURE_OPERATIONS, F25_STDOUT_LIMIT, F25_STDERR_LIMIT, f25TransportFailureObservation, observeF25InfrastructureFixture } from './helpers/core1562-powershell-retention-source.mjs';
+import { F25_INFRASTRUCTURE_CASES } from './helpers/core1562-f25-infrastructure-fixtures.mjs';
+import { readFile } from 'node:fs/promises';
 
 const digest = 'a'.repeat(64);
 const frame = status => `${JSON.stringify({ schema: 'core1562.f25.ast-result.v1', status,
@@ -173,5 +176,177 @@ test('F25 actual child rejects malformed input as infrastructure rather than sou
         stdoutEnd: true, stderrEnd: true, exitObserved: true, stdoutBytes: 0, stderrBytes: 0 });
       return true;
     });
+  }
+});
+
+for (const operation of F25_INFRASTRUCTURE_OPERATIONS) for (const stderrFirst of [false, true])
+  test(`F25 ${operation} ${stderrFirst ? 'stderr-first' : 'frame-first'} transport SURROGATE is settled negative correspondence only`, async () => {
+    const s = surrogate();
+    const pending = collectF25AstChild(s.child, Buffer.from('input'), digest).then(value => ({ value }), error => ({ error }));
+    if (stderrFirst) s.child.stderr.emit('data', Buffer.from('PRIVATE'));
+    const negative = `F25I1|${operation}\n`;
+    s.child.stdout.emit('data', Buffer.from(negative.slice(0, 4)));
+    s.child.stdout.emit('data', Buffer.from(negative.slice(4)));
+    if (!stderrFirst) s.child.stderr.emit('data', Buffer.from('PRIVATE'));
+    s.complete({ code: 3 });
+    let settled = false; void pending.then(() => { settled = true; });
+    await Promise.resolve(); assert.equal(settled, false);
+    s.child.emit('close', 3, null);
+    const { error } = await pending;
+    assert.deepEqual(f25TransportFailureObservation(error), { firstReason: 'stderr_present', childOperation: operation });
+    assert.equal(f25ClosedFailureDiagnostic(error).childOperation, undefined, 'Fake child cannot mint an actual-child observation.');
+    assert.equal(isF25AstRejection(error), false); assert.equal(Object.hasOwn(error, 'cause'), false);
+  });
+
+test('F25 negative correspondence SURROGATE requires exact one bounded frame and complete matching closure', async () => {
+  const valid = 'F25I1|target_parse\n';
+  for (const text of ['', valid.slice(0, -1), valid + valid, valid + 'extra', valid + frame('conformant'),
+    frame('conformant') + valid, 'F25I1|unknown\n', 'F25I1|TARGET_PARSE\n', 'F25I1|target_parse|extra\n',
+    '\ufeff' + valid, valid + '\r', valid + '\0', valid + 'é', valid + 'x'.repeat(F25_STDOUT_LIMIT)]) {
+    const s = surrogate(), pending = collectF25AstChild(s.child, Buffer.from('input'), digest).catch(error => ({ error }));
+    s.child.stderr.emit('data', Buffer.from('PRIVATE')); s.child.stdout.emit('data', Buffer.from(text));
+    s.complete({ code: 3 }); s.child.emit('close', 3, null);
+    const { error } = await pending;
+    assert.equal(f25TransportFailureObservation(error).childOperation, undefined);
+    assert.equal(f25TransportFailureObservation(error).firstReason, 'stderr_present');
+    assert.equal(isF25AstRejection(error), false);
+  }
+  for (const missing of ['delivery', 'finish', 'stdout_end', 'stderr_end', 'exit', 'signal', 'mismatch', 'wrong_code', 'stdout_error']) {
+    const s = surrogate(), pending = collectF25AstChild(s.child, Buffer.from('input'), digest).catch(error => ({ error }));
+    s.child.stdout.emit('data', Buffer.from(valid));
+    if (missing !== 'delivery') s.delivered();
+    if (missing !== 'finish') s.child.stdin.emit('finish');
+    if (missing !== 'stdout_end') s.child.stdout.emit('end');
+    if (missing !== 'stderr_end') s.child.stderr.emit('end');
+    const code = missing === 'wrong_code' ? 1 : 3, signal = missing === 'signal' ? 'SIGTERM' : null;
+    if (missing !== 'exit') s.child.emit('exit', code, signal);
+    if (missing === 'stdout_error') s.child.stdout.emit('error', new Proxy({}, { get() { assert.fail('Private stream error stays opaque.'); } }));
+    s.child.emit('close', missing === 'mismatch' ? 2 : code, signal);
+    assert.equal(f25TransportFailureObservation((await pending).error).childOperation, undefined);
+  }
+});
+
+test('F25 bounded transport SURROGATE retains first null/undefined and later opaque originals without denial authority', async () => {
+  for (const first of [null, undefined]) {
+    const s = surrogate(), pending = collectF25AstChild(s.child, Buffer.from('input'), digest).catch(error => ({ error }));
+    const later = new Proxy({}, { get() { assert.fail('Later original getter.'); } });
+    s.child.emit('error', first); s.child.stderr.emit('error', later);
+    s.child.stdout.emit('data', Buffer.from('F25I1|witness_invocation\n')); s.complete({ code: 3 }); s.child.emit('close', 3, null);
+    const { error } = await pending;
+    assert.equal(f25FailureHasOriginals(error, [first, later], true), true);
+    assert.deepEqual(f25TransportFailureObservation(error), { firstReason: 'spawn', childOperation: 'witness_invocation' });
+    assert.equal(f25ClosedFailureDiagnostic(error).childOperation, undefined); assert.equal(isF25AstRejection(error), false);
+  }
+  for (const channel of ['stdout', 'stderr']) {
+    const s = surrogate(), pending = collectF25AstChild(s.child, Buffer.from('input'), digest).catch(error => ({ error }));
+    const limit = channel === 'stdout' ? F25_STDOUT_LIMIT : F25_STDERR_LIMIT;
+    s.child[channel].emit('data', Buffer.alloc(limit + 20, 65)); s.complete(); s.child.emit('close', 0, null);
+    const { error } = await pending, diagnostic = f25ClosedFailureDiagnostic(error);
+    assert.equal(diagnostic.closure[`${channel}Bytes`], limit);
+    assert.equal(f25TransportFailureObservation(error).childOperation, undefined);
+    assert.equal(isF25AstRejection(error), false);
+  }
+});
+
+test('F25 fixed bootstrap SOURCE witness retains file context, explicit exits and source-as-data boundary', async () => {
+  const source = await readFile(new URL('./helpers/core1562-powershell-retention-bootstrap.ps1', import.meta.url), 'utf8');
+  const witness = await readFile(new URL('./helpers/core1562-powershell-retention-ast.ps1', import.meta.url), 'utf8');
+  const adapter = await readFile(new URL('./helpers/core1562-powershell-retention-source.mjs', import.meta.url), 'utf8');
+  const temp = await readFile(new URL('./helpers/core1562-f25-private-temp.mjs', import.meta.url), 'utf8');
+  assert.match(source, /Combine\(\$PSScriptRoot,'core1562-powershell-retention-ast\.ps1'\)/);
+  assert.match(source, /\$global:LASTEXITCODE=\$null\s*& \$fixedWitness\s*\$forwarded=\$global:LASTEXITCODE/);
+  assert.match(source, /\$forwarded -isnot \[int\] -or \$forwarded -notin @\(0,2,3\)/);
+  assert.match(source, /exit \$forwarded/);
+  assert.doesNotMatch(source + witness, /Invoke-Expression|GetScriptBlock|ScriptBlock\]::Create|& \$source/);
+  assert.match(witness, /\[Parser\]::ParseInput\(\$source,\$file,/);
+  assert.match(source, /\$owner\.Originals\.Add\(\$original\)[\s\S]*-not \$owner\.Recorded[\s\S]*Same-F25Original/);
+  assert.match(source, /\$null -ne \$leftException -and \[object\]::ReferenceEquals\(\$leftException,\$rightException\)/);
+  for (const operation of F25_INFRASTRUCTURE_OPERATIONS)
+    assert.match(source + witness, new RegExp(`Fail-F25Infrastructure '${operation}'`));
+  assert.match(adapter, /core1562-powershell-retention-bootstrap\.ps1/);
+  assert.doesNotMatch(adapter, /process\.env|setTimeout|\.kill\(|f25-ast-runtime/);
+  assert.match(temp, /new URL\('\.\.\/\.\.\/\.tmp', import\.meta\.url\)/);
+  assert.match(temp, /mkdtemp\(path\.join\(parent, 'f25-ast-'\)\)/);
+  assert.match(temp, /O_DIRECTORY \| constants\.O_NOFOLLOW/);
+  assert.match(temp, /createPrivateDiagnosticDirectory\(parent, 'f25-ast-'/);
+  assert.doesNotMatch(temp, /tmpdir|process\.env|\bmkdir\s*\(|\bchmod\s*\(|\bchown\s*\(|Set-Acl/);
+  assert.equal(F25_STDOUT_LIMIT, 4096); assert.equal(F25_STDERR_LIMIT, 16384);
+});
+
+test('F25 transport SURROGATE exercises every first-rejection branch without raw-original inspection', async () => {
+  const rows = ['spawn', 'stdin', 'stdin_end', 'stdout_error', 'stderr_error', 'stdout_overflow', 'stderr_present',
+    'stdin_delivery_missing', 'stdin_finish_missing', 'stdout_end_missing', 'stderr_end_missing', 'exit_missing',
+    'exit_mismatch', 'exit_signal', 'exit_unexpected', 'frame_decode', 'frame_shape'];
+  for (const branch of rows) {
+    const s = surrogate(), pending = collectF25AstChild(s.child, Buffer.from('input'), digest).catch(error => ({ error }));
+    const opaque = new Proxy({}, { get() { assert.fail('Branch original must remain opaque.'); } });
+    if (branch === 'spawn') s.child.emit('error', opaque);
+    if (branch === 'stdin') s.child.stdin.emit('error', opaque);
+    if (branch === 'stdout_error') s.child.stdout.emit('error', opaque);
+    if (branch === 'stderr_error') s.child.stderr.emit('error', opaque);
+    if (branch === 'stderr_present') s.child.stderr.emit('data', Buffer.from('PRIVATE'));
+    const output = branch === 'stdout_overflow' ? Buffer.alloc(F25_STDOUT_LIMIT + 1, 65) :
+      branch === 'frame_decode' ? Buffer.from([255]) : branch === 'frame_shape' ? Buffer.from('{}\n') : Buffer.from(frame('conformant'));
+    s.child.stdout.emit('data', output);
+    if (branch !== 'stdin_delivery_missing') s.delivered(branch === 'stdin_end' ? opaque : undefined);
+    if (branch !== 'stdin_finish_missing') s.child.stdin.emit('finish');
+    if (branch !== 'stdout_end_missing') s.child.stdout.emit('end');
+    if (branch !== 'stderr_end_missing') s.child.stderr.emit('end');
+    const code = branch === 'exit_unexpected' ? 3 : 0, signal = branch === 'exit_signal' ? 'SIGTERM' : null;
+    if (branch !== 'exit_missing') s.child.emit('exit', code, signal);
+    s.child.emit('close', branch === 'exit_mismatch' ? 1 : code, signal);
+    const { error } = await pending;
+    assert.ok(error); assert.equal(isF25AstRejection(error), false);
+    assert.equal(f25TransportFailureObservation(error).firstReason, branch === 'stdin_delivery_missing' ? 'stdin_end' : branch);
+  }
+  const s = surrogate(), pending = collectF25AstChild(s.child, Buffer.from('input'), digest).catch(error => ({ error }));
+  s.child.stderr.emit('data', Buffer.alloc(F25_STDERR_LIMIT + 1, 65));
+  s.child.stdout.emit('data', Buffer.from(frame('conformant'))); s.complete(); s.child.emit('close', 0, null);
+  const { error } = await pending;
+  assert.equal(f25TransportFailureObservation(error).firstReason, 'stderr_present', 'ANY stderr rejects before overflow classification.');
+  assert.ok(f25ClosedFailureDiagnostic(error).stages.includes('stderr_overflow'));
+});
+
+test('F25 negative transport SURROGATE owns frame bytes and rejects repeated input callbacks', async () => {
+  const s = surrogate(), pending = collectF25AstChild(s.child, Buffer.from('input'), digest).catch(error => ({ error }));
+  const bytes = Buffer.from('F25I1|target_parse\n'); s.child.stdout.emit('data', bytes); bytes.fill(0);
+  s.complete({ code: 3 }); s.child.emit('close', 3, null);
+  assert.equal(f25TransportFailureObservation((await pending).error).childOperation, 'target_parse');
+  const duplicate = surrogate(), repeated = collectF25AstChild(duplicate.child, Buffer.from('input'), digest).catch(error => ({ error }));
+  duplicate.delivered(); duplicate.delivered(); duplicate.child.stdout.emit('data', Buffer.from(frame('conformant')));
+  duplicate.complete(); duplicate.child.emit('close', 0, null);
+  assert.equal(f25TransportFailureObservation((await repeated).error).firstReason, 'stdin_end');
+});
+
+for (const fixture of F25_INFRASTRUCTURE_CASES)
+  test(`F25 actual fixed bootstrap infrastructure ${fixture.name} preserves failed outcome and private original boundary`, async () => {
+    const source = await readFile(new URL('../scripts/verify-windows-managed-launcher-bootstrap.ps1', import.meta.url));
+    const sha = createHash('sha256').update(source).digest('hex');
+    const framed = Buffer.from(`${JSON.stringify({ schema: 'core1562.f25.ast-input.v1',
+      sourceFile: 'scripts/verify-windows-managed-launcher-bootstrap.ps1', sourceByteLength: source.length,
+      sourceSha256: sha, sourceBase64: source.toString('base64') })}\n`);
+    // Before-input-read failures use natural empty stdin EOF, ensuring an
+    // expected EPIPE cannot masquerade as the required complete operation frame.
+    const beforeInput = ['bootstrap_setup', 'missing_witness', 'invalid_witness', 'missing_exit', 'unexpected_exit',
+      'source_read', 'source_decode', 'source_frame'].includes(fixture.name);
+    await assert.rejects(() => observeF25InfrastructureFixture(fixture.name, beforeInput ? Buffer.alloc(0) : framed, sha), error => {
+      assert.equal(isF25AstRejection(error), false); assert.equal(Object.hasOwn(error, 'cause'), false);
+      const actual = f25ClosedFailureDiagnostic(error);
+      assert.ok(actual); assert.equal(actual.closure?.code, 3); assert.equal(actual.closure?.signal, null);
+      assert.equal(actual.closure?.delivered, true); assert.equal(actual.closure?.stdinFinish, true);
+      assert.equal(actual.closure?.stdoutEnd, true); assert.equal(actual.closure?.stderrEnd, true);
+      assert.equal(actual.closure?.exitObserved, true);
+      assert.equal(actual.childOperation, fixture.operation);
+      return true;
+    });
+  });
+
+test('F25 negative SURROGATE invalidates bytes after either EOF before actual close', async () => {
+  for (const stream of ['stdout', 'stderr']) {
+    const s = surrogate(), pending = collectF25AstChild(s.child, Buffer.from('input'), digest).catch(error => ({ error }));
+    s.child.stdout.emit('data', Buffer.from('F25I1|target_parse\n')); s.delivered(); s.child.stdin.emit('finish');
+    s.child.stdout.emit('end'); s.child.stderr.emit('end'); s.child[stream].emit('data', Buffer.from('late'));
+    s.child.emit('exit', 3, null); s.child.emit('close', 3, null);
+    assert.equal(f25TransportFailureObservation((await pending).error).childOperation, undefined);
   }
 });

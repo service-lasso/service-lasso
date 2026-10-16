@@ -2457,10 +2457,27 @@ test('normal try finally preserves ordered store effects and independently requi
     const throws = routedBody.finalFrontiers.filter(row => row.kind === 'throw');
     assert.ok(throws.length);
     for (const failure of routedBody.exceptionalCompletions) {
-      const entries = routedBody.edges.filter(edge => edge.from === failure.instruction && edge.completion === 'throw');
+      const siblings = routedBody.edges.filter(edge => edge.from === failure.instruction && edge.completion === 'throw');
+      const originals = routedBody.exceptionalCompletions.filter(row => row.instruction === failure.instruction);
+      assert.equal(siblings.length, originals.length);
+      const ordinals = siblings.map(edge => edge.branch?.outcome?.exception);
+      assert.equal(new Set(ordinals).size, originals.length);
+      assert.deepEqual([...ordinals].sort((a, b) => a - b), originals.map(row => row.ordinal).sort((a, b) => a - b));
+      const entries = siblings.filter(edge => edge.branch?.outcome?.exception === failure.ordinal);
       assert.equal(entries.length, 1);
       assert.equal(routedBody.nodes[entries[0].to].operation, 'pendingException');
+      assert.equal(routedBody.nodes[entries[0].to].exception, failure.ordinal);
+      assert.equal(routedBody.nodes[entries[0].to].sourceInstruction, failure.instruction);
       assert.notEqual(entries[0].to, routedBody.exit);
+      for (const mutation of ['duplicate', 'drop', 'relabel']) {
+        const changed = structuredClone(routedBody);
+        const edgeIndex = routedBody.edges.indexOf(entries[0]);
+        if (mutation === 'duplicate') changed.edges.push(structuredClone(changed.edges[edgeIndex]));
+        else if (mutation === 'drop') changed.edges.splice(edgeIndex, 1);
+        else changed.edges[edgeIndex].branch.outcome.exception = routedBody.exceptionalCompletions.length;
+        assert.throws(() => checkSelectedScalarBody(routed.compilation, changed, createProofCounter()),
+          original => isSourceDenialCode(original, 'INVALID_PROOF'));
+      }
     }
     for (const terminal of throws) {
       assert.equal(routedBody.nodes[terminal.instruction].operation, 'resumeException');

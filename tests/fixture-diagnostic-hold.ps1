@@ -2,6 +2,7 @@
 $originals = [System.Collections.Generic.List[object]]::new()
 $held = [System.Collections.Generic.List[object]]::new()
 $acquireObservation = @{ Recorded=$false; Original=$null; Operation=$null }
+$ownerReadOuter = @{ Recorded=$false; Original=$null }
 $failed = $false
 function Remember-Original($original) {
   foreach ($prior in $script:originals) {
@@ -79,8 +80,13 @@ public static class FixtureHandle {
 $root = $env:SERVICE_LASSO_HELD_FIXTURE_ROOT
 $sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 } catch { Record-DiagnosticFailure 'bootstrap' $_ }
-function Read-Owner($p) {
-  return (Get-Acl -LiteralPath $p).GetOwner([System.Security.Principal.SecurityIdentifier]).Value
+function Read-Owner($p, $acquiring=$false) {
+  try { $acl = Get-Acl -LiteralPath $p }
+  catch { $caught=$_; if ($acquiring) { Remember-AcquireFailure 'owner_read_acl_get' $caught }; throw $caught }
+  try { $owner = $acl.GetOwner([System.Security.Principal.SecurityIdentifier]) }
+  catch { $caught=$_; if ($acquiring) { Remember-AcquireFailure 'owner_read_owner_get' $caught }; throw $caught }
+  try { return $owner.Value }
+  catch { $caught=$_; if ($acquiring) { Remember-AcquireFailure 'owner_read_sid_value' $caught }; throw $caught }
 }
 function Assert-Owner($owner, $isRoot) {
   if ($isRoot) { if ($owner -ne $sid) { throw 'Unknown fixture owner' } }
@@ -115,8 +121,8 @@ if (-not $failed) { try {
     while($p) { $chain.Insert(0,$p); $parent = [System.IO.Directory]::GetParent($p); if($null -eq $parent) { break }; $p=$parent.FullName }
   } catch { $caught=$_; Remember-AcquireFailure 'chain_build' $caught; throw $caught }
   foreach($p in $chain) {
-    try { $owner = Read-Owner $p }
-    catch { $caught=$_; Remember-AcquireFailure 'owner_read' $caught; throw $caught }
+    try { $owner = Read-Owner $p $true }
+    catch { $caught=$_; $ownerReadOuter.Original=$caught; $ownerReadOuter.Recorded=$true; Remember-AcquireFailure 'owner_read' $caught; throw $caught }
     if ($p -eq $root) {
       try { Assert-Owner $owner $true }
       catch { $caught=$_; Remember-AcquireFailure 'owner_root' $caught; throw $caught }
@@ -145,6 +151,7 @@ if (-not $failed) { try {
   $primary = $_; Remember-Original $primary; $suboperation = $null
   try {
     if ($acquireObservation.Recorded -and (Same-AcquireOriginal $acquireObservation.Original $primary)) { $suboperation = $acquireObservation.Operation }
+    elseif ($ownerReadOuter.Recorded -and (Same-AcquireOriginal $ownerReadOuter.Original $primary)) { $suboperation = 'owner_read' }
   } catch { Remember-Original $_ }
   Record-DiagnosticFailure 'acquire_chain' $primary $suboperation
 } }
