@@ -10,7 +10,7 @@ import { checkSelectedScalarBody } from './helpers/core1681-selected-body-checke
 import { SelectedMemberIndex } from './helpers/core1681-selected-members.mjs';
 import { bindSelectedInvocation } from './helpers/core1681-selected-invocation.mjs';
 import { bindSelectedPredefinedOperator } from './helpers/core1681-selected-predefined-operators.mjs';
-import { selectCsharpOverload } from './helpers/core1681-selected-overloads.mjs';
+import { selectCsharpOverload, csharpInvocationForm, selectCsharpInvocationForms } from './helpers/core1681-selected-overloads.mjs';
 import { createProofCounter, canonicalData, foldBitvectorComparison, K2_LIMITS } from './helpers/core1681-proof-terms.mjs';
 import { checkedOriginalLiteral } from './helpers/core1681-selected-literals.mjs';
 import { SelectedCScanner } from './helpers/core1681-selected-c-preprocessor.mjs';
@@ -1974,6 +1974,73 @@ function bindFixture(source, csharpLanguageVersion = [5, 0]) {
   };
   return { types, type, entry, group, invoke, bound, environment, byDeclaration, enumeration };
 }
+
+test('generic params infers each original form and retains normal-array preference and return substitution', () => {
+  const bind = (expression, { fallback = false, constraint = '', version = [5, 0] } = {}) => {
+    const fixture = bindFixture(`class C {
+      public T M<T>(params T[] xs) ${constraint} { return xs[0]; }
+      ${fallback ? 'public object M(object value) { return value; }' : ''}
+    } class Caller { public object Invoke(C receiver, int scalar, int[] values) { return ${expression}; } }`, version);
+    const caller = fixture.entry('Invoke'), call = caller.syntax.body.statements[0].value;
+    const originalTarget = call.target.kind === 'genericMember' ? call.target.target : call.target;
+    const group = fixture.group(fixture.type('C'), { ...call, target: originalTarget }, caller);
+    const signature = fixture.bound.declarationMetadata.get(canonicalData(caller.declId));
+    const actuals = call.arguments.map(argument => {
+      const node = argument.expression;
+      if (node.kind === 'name') {
+        assert.equal(node.name.spelling, 'values');
+        return { direction: argument.direction, name: argument.name, type: signature.parameters[2].type, origin: node.origin };
+      }
+      assert.equal(node.kind, 'literal');
+      return { direction: argument.direction, name: argument.name, type: signature.parameters[1].type,
+        constant: BigInt(node.token.spelling), origin: node.origin };
+    });
+    let explicit = null;
+    if (call.target.kind === 'genericMember') {
+      assert.equal(call.target.typeArguments.length, 1);
+      assert.equal(call.target.typeArguments[0].segments[0].name.spelling, 'int');
+      explicit = [signature.parameters[1].type];
+    }
+    return { fixture, group, actuals, call, bind: () => bindSelectedInvocation(group, actuals, explicit, fixture.environment, call) };
+  };
+  for (const [expression, expanded, count] of [
+    ['receiver.M(1)', true, 1], ['receiver.M(1, 2)', true, 2],
+    ['receiver.M(values)', false, null], ['receiver.M<int>()', true, 0],
+  ]) {
+    for (const fallback of [false, true]) {
+      const row = bind(expression, { fallback }), selected = row.bind();
+      const original = row.group.find(candidate => candidate.genericArity === 1);
+      assert.deepEqual(selected.candidate.declaration, original.declaration);
+      assert.equal(selected.expanded, expanded);
+      assert.equal(selected.candidate.genericArguments[0].name, 'int');
+      assert.equal(selected.candidate.returnType.name, 'int');
+      assert.equal(selected.candidate.parameters[0].type.category, 'array');
+      assert.equal(selected.candidate.parameters[0].type.element.name, 'int');
+      if (expanded) {
+        assert.equal(selected.paramsArray.allocation, 'freshArray'); assert.equal(selected.paramsArray.count, count);
+        assert.equal(selected.paramsArray.elementType.name, 'int'); assert.equal(selected.paramsArray.sourceIndices.length, count);
+      } else assert.equal(selected.paramsArray, null, 'Actual array must stay normal; do not add both forms of one original.');
+      const token = csharpInvocationForm(selected.candidate, row.actuals, row.fixture.environment, expanded);
+      assert.ok(token);
+      assert.strictEqual(selectCsharpInvocationForms([token], row.actuals, row.fixture.environment, row.call.origin).candidate, selected.candidate);
+      for (const fake of [{}, structuredClone(token)])
+        assert.throws(() => selectCsharpInvocationForms([fake], row.actuals, row.fixture.environment, row.call.origin), error => isSourceDenialCode(error, 'INVALID_BINDING'));
+      assert.throws(() => selectCsharpInvocationForms([token], [...row.actuals], row.fixture.environment, row.call.origin), error => isSourceDenialCode(error, 'INVALID_BINDING'));
+      assert.throws(() => selectCsharpInvocationForms([token], row.actuals, { ...row.fixture.environment }, row.call.origin), error => isSourceDenialCode(error, 'INVALID_BINDING'));
+    }
+  }
+  assert.throws(() => bind('receiver.M()').bind(), error => isSourceDenialCode(error, 'INVALID_BINDING'));
+  for (const version of [[5, 0], [7, 2], [7, 3], [8, 0]]) {
+    const row = bind('receiver.M(1)', { fallback: true, constraint: 'where T : class', version });
+    if (version[0] < 7 || version[0] === 7 && version[1] < 3)
+      assert.throws(row.bind, error => isSourceDenialCode(error, 'CONSTRAINT_MISMATCH'));
+    else {
+      const selected = row.bind();
+      assert.deepEqual(selected.candidate.declaration, row.group.find(candidate => candidate.genericArity === 0).declaration);
+      assert.equal(selected.expanded, false); assert.equal(selected.candidate.returnType.name, 'object');
+    }
+  }
+});
 
 test('own generic constraints use actual pre7.3 selection and7.3+ candidate pruning', () => {
   const program = `class C {

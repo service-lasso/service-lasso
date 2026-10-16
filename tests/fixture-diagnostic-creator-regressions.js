@@ -1,10 +1,24 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
+import { readFile } from "node:fs/promises";
 import { captureFixtureErrors, retainFixtureOriginals, fixtureOriginalsMatch } from "./fixture-private-error-capture.js";
 import { collectDiagnosticGuardian } from "./fixture-diagnostic-creator.js";
 
 export function registerDiagnosticCreatorRegressions() {
+  test("physical fixed creator source is LF-pinned and its actual encoded argv fits Windows capacity", async () => {
+    const raw = await readFile(new URL("./fixture-diagnostic-creator.ps1", import.meta.url));
+    const source = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(raw);
+    const attributes = await readFile(new URL("../.gitattributes", import.meta.url), "utf8");
+    assert.equal(attributes.split(/\r?\n/).includes("tests/fixture-diagnostic-creator.ps1 text eol=lf"), true);
+    assert.equal(raw.includes(13), false, "Physical input must already be LF; no normalization before encoding.");
+    const encoded = Buffer.from(source, "utf16le").toString("base64");
+    const actualCommand = `"C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe" -NoProfile -NonInteractive -EncodedCommand ${encoded}`;
+    assert.ok(encoded.length <= 32600); assert.ok(actualCommand.length + 1 <= 32767);
+    const crlfMutant = source.replace(/\n/g, "\r\n");
+    assert.notEqual(crlfMutant, source);
+    assert.ok(Buffer.from(crlfMutant, "utf16le").toString("base64").length > 32600);
+  });
   test("useful private capture retains supported cause content without formatting stack or getters", () => {
     const first = new Error("PRIVATE-FIRST"), later = new AggregateError([first], "PRIVATE-LATER", { cause: first });
     const owner = {}, rows = [{ stage: "action", error: first }, { stage: "diagnostic", error: later }];

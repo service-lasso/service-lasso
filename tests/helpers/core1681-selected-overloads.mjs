@@ -153,6 +153,29 @@ function mostDerivedApplicableForms(forms, environment) {
 // independent resolver steps. These inputs are its private resolved rows, not
 // accepted annotations in a producer proof. Extension candidate lookup is a
 // separate source lookup stage and runs only after ordinary lookup permits it.
+const invocationForms = new WeakMap();
+// Call-local applicability tokens carry only independently resolved source
+// binding correspondence. They issue no proof/native/denial authority.
+export function csharpInvocationForm(candidate, actuals, environment, expanded) {
+  if (typeof expanded !== 'boolean') deny('INVALID_BINDING', 'invocation form requires a closed normal/expanded choice');
+  environment.counter.charge('maxInvariantSteps', 'selected-overload-candidate');
+  const form = applicable(candidate, actuals, environment, expanded);
+  if (!form) return null;
+  const token = Object.freeze({});
+  invocationForms.set(token, { form, actuals, environment });
+  return token;
+}
+export function selectCsharpInvocationForms(tokens, actuals, environment, occurrence) {
+  if (!Array.isArray(tokens) || tokens.length > K2_LIMITS.maxDeclarations)
+    deny('INVALID_BINDING', 'invocation form roster must be finite', occurrence);
+  const forms = tokens.map(token => {
+    const row = invocationForms.get(token);
+    if (!row || row.actuals !== actuals || row.environment !== environment)
+      deny('INVALID_BINDING', 'invocation form lost its actual call correspondence', occurrence);
+    return row.form;
+  });
+  return selectApplicableForms(forms, actuals, environment, occurrence);
+}
 export function selectCsharpOverload(candidates, actuals, environment, occurrence) {
   const forms = [];
   for (const candidate of candidates) {
@@ -161,6 +184,9 @@ export function selectCsharpOverload(candidates, actuals, environment, occurrenc
     const form = normal ?? applicable(candidate, actuals, environment, true);
     if (form) forms.push(form);
   }
+  return selectApplicableForms(forms, actuals, environment, occurrence);
+}
+function selectApplicableForms(forms, actuals, environment, occurrence) {
   if (!forms.length) deny('INVALID_BINDING', 'no applicable selected overload', occurrence);
   // Applicability is established first. Only then do the actual most-derived
   // declaring types suppress applicable base/interface candidates (§12.8.10.2).
