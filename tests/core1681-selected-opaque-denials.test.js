@@ -1,11 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { SelectedSyntax } from './helpers/core1681-selected-syntax.mjs';
-import './helpers/core1681-selected-javascript.mjs';
+import { SelectedJavaScriptSyntax } from './helpers/core1681-selected-javascript.mjs';
 import { createProofCounter } from './helpers/core1681-proof-terms.mjs';
 import { SourceDenial } from './helpers/core1681-source-input.mjs';
 
-const parser = (text, language = 'csharp') => new SelectedSyntax(Buffer.from(text), language, createProofCounter());
+const parser = (text, language = 'csharp') => language === 'javascript'
+  ? new SelectedJavaScriptSyntax(Buffer.from(text), createProofCounter())
+  : new SelectedSyntax(Buffer.from(text), language, createProofCounter());
 const sites = [
   ['lambda type', () => { const p = parser('(x)'); return [p, 'typeRef', () => p.primary()]; }],
   ['lambda declaration', () => { const p = parser('(x)'); return [p, 'declaration', () => p.primary()]; }],

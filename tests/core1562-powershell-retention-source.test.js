@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { assertPowerShellOriginalRetention } from './helpers/core1562-powershell-retention-source.mjs';
+import { assertPowerShellOriginalRetention, assertPowerShellRecorderReleaseRetention } from './helpers/core1562-powershell-retention-source.mjs';
 const source = () => readFile('scripts/verify-windows-managed-launcher-bootstrap.ps1', 'utf8');
 test('F25 selected actual PowerShell barrier consumes original rooted owner and complete shielded tail', async () => {
   const actual = await source();
@@ -25,6 +25,7 @@ test('F25 finite, escaping, unshielded, unrooted and unreachable-copy mutations 
     [barrier, barrier.replace("'custody-wait' $_.Exception", "'custody-wait' $replacement")],
     [barrier, `if ($false) { ${barrier} }`],
     [barrier, `return; function UnreachableCopy { ${barrier} }`],
+    ['$script:NativeToolOwners.Add($key, $owner)', 'return; $script:NativeToolOwners.Add($key, $owner)'],
     ['$script:NativeToolOwners.Add($key, $owner)', ''],
     ['$script:NativeToolOwners.Add($key, $owner)', '$script:NativeToolOwners.Add($key, $owner); return'],
     ["Write-OriginalToolRecord 'ACTIVE-CUSTODY'", "Write-OriginalToolRecord 'OTHER'"],
@@ -34,5 +35,16 @@ test('F25 finite, escaping, unshielded, unrooted and unreachable-copy mutations 
     const changed = actual.replace(needle, replacement);
     assert.notEqual(changed, actual);
     assert.throws(() => assertPowerShellOriginalRetention(changed));
+  }
+});
+
+test('F25 either release or recorder failure retains the original invocation', async () => {
+  const actual = await source();
+  const gate = 'if ($releaseFailed -or $owner.recordingFailed) { Retain-ActiveOriginalOwner }';
+  assert.ok(actual.includes(gate));
+  assert.doesNotThrow(() => assertPowerShellRecorderReleaseRetention(actual));
+  for (const changedGate of [gate.replace('-or', '-and'), 'if ($releaseFailed) { Retain-ActiveOriginalOwner }',
+    'if ($owner.recordingFailed) { Retain-ActiveOriginalOwner }', '']) {
+    assert.throws(() => assertPowerShellRecorderReleaseRetention(actual.replace(gate, changedGate)));
   }
 });

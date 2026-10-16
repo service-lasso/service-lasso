@@ -1566,3 +1566,16 @@ review: implement complete rooted-owner/same-invocation/infinite shielded tail
 witness and all proposed adversaries; preserve native obligations. New final
 source requires another different entire review and NEW complete ROOT before
 local execution. No whole SOURCE_GO or native acceptance follows selection.
+
+#1562 entire b9fc review correction (2026-10-16): JavaScript catch regressions
+must instantiate the real SelectedJavaScriptSyntax subclass. F25 requires a
+reachable original caller prefix from function entry through direct owner rooting;
+consume every selected initialization/conditional/owner field before the root,
+and reject inserted return before it, then preserve complete same-invocation tail.
+Separate protected supplementary evidence correction: the actual post-release
+retention guard is releaseFailed OR owner.recordingFailed, which is stronger
+than the stale releaseFailed-only witness. Require both alternatives with OR
+and reject AND or either omitted condition; recorder failure must never escape
+retention. This requirement/evidence reconciliation preserves original F25
+recording/native obligations and is subject to DIFFERENT final entire review.
+All authored regressions remain locally UNRUN; NEW complete ROOT still required.

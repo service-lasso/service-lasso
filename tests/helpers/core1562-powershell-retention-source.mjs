@@ -33,6 +33,31 @@ function region(ts, name) {
   if (depth) refuse();
   return { start, open, end, body: ts.slice(open + 1, end - 1) };
 }
+function assertCallerPrefix(ts, caller, rootEnd) {
+  let at = caller.open + 1;
+  const need = text => { for (const expected of lex(text)) if (ts[at++] !== expected) refuse(); };
+  need('$start = [Diagnostics.ProcessStartInfo]::new()');
+  for (const [key, value] of [['FileName', '$file'], ['WorkingDirectory', '$temporaryRoot'], ['UseShellExecute', '$false'],
+    ['RedirectStandardInput', '$true'], ['RedirectStandardOutput', '$true'], ['RedirectStandardError', '$true']]) need(`$start.${key} = ${value}`);
+  need('$start.Environment.Clear()');
+  need('foreach ($entry in $environment.GetEnumerator()) { $start.Environment.Add($entry.Key, $entry.Value) }');
+  need('if ([string]::IsNullOrEmpty($nativeArguments)) { foreach ($argument in $arguments) { $start.ArgumentList.Add($argument) } } else { $start.Arguments = $nativeArguments }');
+  need('$key = "$temporaryRoot|$label"');
+  need('if ($script:NativeToolOwners.ContainsKey($key)) { throw "An original tool owner already exists; no retry." }');
+  need('$owner = @{');
+  const fields = [['process', '$null'], ['stdinSource', '$null'], ['stdinClosed', '$false'], ['stdoutRaw', '$null'], ['stderrRaw', '$null'],
+    ['startAttempted', '$false'], ['startReturned', '$false'], ['started', '$null'], ['attached', '$false'], ['exitObserved', '$false'],
+    ['exitCode', '$null'], ['settled', '$false'], ['recordingFailed', '$false'], ['recordingFailure', '$null'], ['lastOriginalError', '$null'],
+    ['primaryError', '$null'], ['errors', '[Collections.Generic.List[object]]::new()']];
+  for (const [key, value] of fields) need(`${key} = ${value};`);
+  need('copies = @{');
+  for (const [index, name] of ['stdout', 'stderr'].entries()) {
+    if (index) need(';');
+    need(`${name} = @{ source = $null; task = $null; terminal = $false; observation = $null }`);
+  }
+  need('} } $script:NativeToolOwners.Add($key, $owner)');
+  if (at !== rootEnd) refuse();
+}
 export function assertPowerShellOriginalRetention(source) {
   const ts = lex(source), caller = region(ts, 'Invoke-RetainedNativeTool'), retained = region(ts, 'Retain-ActiveOriginalOwner');
   if (retained.start <= caller.open || retained.end >= caller.end) refuse();
@@ -46,6 +71,7 @@ export function assertPowerShellOriginalRetention(source) {
     if (depth === 0 && root.every((value, offset) => ts[at + offset] === value)) { roots++; rootEnd = at + root.length; }
   }
   if (roots !== 1) refuse();
+  assertCallerPrefix(ts, caller, rootEnd);
   let next = rootEnd;
   for (const name of ['Add-OriginalToolError', 'Write-OriginalToolRecord', 'Observe-OriginalCopy']) {
     const helper = region(ts, name);
@@ -72,4 +98,16 @@ export function assertPowerShellOriginalRetention(source) {
   need('while ($true) { try { [Threading.Thread]::Sleep([Threading.Timeout]::Infinite) }');
   recordingCatch('custody-wait'); need('}');
   if (at !== body.length) refuse();
+}
+
+export function assertPowerShellRecorderReleaseRetention(source) {
+  const ts = lex(source), caller = region(ts, 'Invoke-RetainedNativeTool');
+  const expected = lex('if ($releaseFailed -or $owner.recordingFailed) { Retain-ActiveOriginalOwner }');
+  let depth = 0, matches = 0;
+  for (let at = caller.open + 1; at < caller.end - 1; at++) {
+    if (depth === 0 && expected.every((value, offset) => ts[at + offset] === value)) matches++;
+    if (ts[at] === '{') depth++;
+    if (ts[at] === '}') depth--;
+  }
+  if (matches !== 1) refuse();
 }

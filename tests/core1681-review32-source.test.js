@@ -3,7 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { assertPowerShellOriginalRetention } from './helpers/core1562-powershell-retention-source.mjs';
+import { assertPowerShellOriginalRetention, assertPowerShellRecorderReleaseRetention } from './helpers/core1562-powershell-retention-source.mjs';
 import { assertManagedClosureSourceConformance, assertAcquisitionRecordingSourceConformance } from './helpers/core1681-managed-closure-source-contract.mjs';
 
 const sourcePaths = ['src/runtime/execution/windows-managed-launcher-native.cs', 'scripts/native/core1681-acquisition.cs',
@@ -97,5 +97,5 @@ test('F25 PowerShell owns raw initiating exceptions and shields every catch reco
   assert.match(compiler, /if \(\$owner\.primaryError\) \{ throw \$owner\.primaryError \}/u);
   assert.match(compiler, /\$owner\.errors\.Count -eq 0 -and -not \$owner\.recordingFailed/u);
   assert.match(compiler, /if \(\$owner\.startAttempted -and -not \$owner\.settled\) \{ Retain-ActiveOriginalOwner \}/u);
-  assert.match(compiler, /if \(\$releaseFailed\) \{ Retain-ActiveOriginalOwner \}/u);
+  assert.doesNotThrow(() => assertPowerShellRecorderReleaseRetention(compiler));
 });
