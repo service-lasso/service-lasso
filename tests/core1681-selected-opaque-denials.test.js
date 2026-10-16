@@ -344,3 +344,67 @@ test('actual acquisition source retains volatile field production before enumera
     assert.throws(() => forest(source, 'csharp'), original => isSourceDenialCode(original, 'INVALID_SYNTAX'));
   }
 });
+
+test('strict module delete validates actual unqualified references through every group boundary', () => {
+  for (const source of ['delete x;', 'delete (x);', 'delete (((x)));', 'typeof delete (x);',
+    'const value = delete name;', 'function f(){return delete (x);}', '({m(){delete x;}});',
+    'for (; delete x;) {}', 'delete /*group*/ (/*name*/x);']) {
+    assert.throws(() => parser(source, 'javascript').javascriptUnit(), original => isSourceDenialCode(original, 'INVALID_SYNTAX'));
+    assert.throws(() => forest(source, 'javascript'), original => isSourceDenialCode(original, 'INVALID_SYNTAX'));
+  }
+  for (const source of ['delete obj.x;', 'delete (obj.x);', 'delete obj[index];', 'delete obj?.x;',
+    'delete 1;', 'delete (x + y);', 'delete (0, x);', 'delete f();', 'delete (x = 1);', 'delete (() => x);']) {
+    assert.equal(parser(source, 'javascript').javascriptUnit().kind, 'unit', source);
+    assert.equal(forest(source, 'javascript').root.kind, 'unit', source);
+  }
+});
+
+test('strict actual BoundNames are unique across parameters and recursive binding patterns', () => {
+  for (const source of ['function f(x,x){}', '(function(x,x){});', 'async function f(x,x){}',
+    'const f=(x,x)=>x;', 'const f=async(x,x)=>x;', '({m(x,x){}});', '({async m(x,x){}});',
+    'function f({a:x},[x]){}', 'function f(x,...x){}', 'function f({a:x,b:x}){}',
+    '({set p({a:x,b:x}){}});', 'let x,x;', 'const {a:x,b:x}=row;', 'for(let [x,x] of rows){}',
+    'try{}catch({a:x,b:x}){}', 'const f=async [x]=>x;', 'const f=async {x}=>x;']) {
+    assert.throws(() => parser(source, 'javascript').javascriptUnit(), original => isSourceDenialCode(original, 'INVALID_SYNTAX'));
+    assert.throws(() => forest(source, 'javascript'), original => isSourceDenialCode(original, 'INVALID_SYNTAX'));
+  }
+  for (const source of ['function f({key:x,key:y},[z]){}', 'function f(x,y=x){}',
+    'function f(x=()=>{let x;}){}', 'function f(x){function g(x){return x;}}',
+    'const f=async x=>x;', 'const f=async([x])=>x;', 'let x; {let x;}',
+    '({get p(){return 1;},set p(value=1){},set q({a:x,b:y}){},m(x,y){}});',
+    'try{}catch({a:x,b:y}){}']) {
+    assert.equal(parser(source, 'javascript').javascriptUnit().kind, 'unit', source);
+    assert.equal(forest(source, 'javascript').root.kind, 'unit', source);
+  }
+  for (const source of ['({get p(x){}});', '({set p(){}});', '({set p(x,y){}});', '({set p(...x){}});']) {
+    assert.throws(() => parser(source, 'javascript').javascriptUnit(), original => isSourceDenialCode(original, 'INVALID_SYNTAX'));
+    assert.throws(() => forest(source, 'javascript'), original => isSourceDenialCode(original, 'INVALID_SYNTAX'));
+  }
+});
+
+test('C macro formal lists retain complete delimiter and identifier grammar before expansion', () => {
+  const c = source => new SelectedCSyntax(Buffer.from(source), createProofCounter(), new Set());
+  for (const directive of ['#define F(x,) x', '#define F(,x) x', '#define F(x,,y) x', '#define F(x x) x',
+    '#define F(x,x) x', '#define F(x', '#define F(x,9) x', '#define F(,) 1']) {
+    const source = `${directive}\nint value;`;
+    assert.throws(() => c(source).cUnit(), original => isSourceDenialCode(original, 'INVALID_SYNTAX'));
+    assert.throws(() => forest(source, 'c'), original => isSourceDenialCode(original, 'INVALID_SYNTAX'));
+  }
+  for (const source of ['#define F(...) 1\nint value;', '#define F(x,...) x\nint value;',
+    '#define F(x) x ## x\nint value;']) {
+    assert.throws(() => c(source).cUnit(), original => isSourceDenialCode(original, 'INVALID_SYNTAX') || isSourceDenialCode(original, 'UNSUPPORTED_FORM'));
+    assert.throws(() => forest(source, 'c'), original => isSourceDenialCode(original, 'INVALID_SYNTAX') || isSourceDenialCode(original, 'UNSUPPORTED_FORM'));
+  }
+  for (const [source, parameters, values] of [['#define F() 3\nint value=F();', [], ['3']],
+    ['#define F(x) x\nint value=F(7);', ['x'], ['7']],
+    ['#define F(x,y) ((x)+(y))\nint value=F(7,11);', ['x','y'], ['7','11']],
+    ['#define F(int) int\nint value=F(9);', ['int'], ['9']]]) {
+    const p=c(source); assert.equal(p.cUnit().kind,'unit'); assert.equal(forest(source,'c').root.kind,'unit');
+    const macro=p.source.directives.find(row=>row.kind==='cDefine').macro;
+    assert.deepEqual(macro.parameters,parameters);
+    assert.deepEqual(p.source.tokens.filter(token=>token.kind==='number').map(token=>token.spelling),values);
+    assert.ok(p.source.tokens.some(token=>token.expansion?.macro===macro.name));
+    assert.equal(new Set(macro.parameters).size,macro.parameters.length);
+    assert.equal(p.source.tokens.some(token=>token.spelling==='F'),false);
+  }
+});

@@ -81,8 +81,24 @@ export class SelectedJavaScriptSyntax extends SelectedSyntax {
         parameters.push(this.node('jsParameter', first, { pattern, rest })); restSeen ||= rest;
         if (restSeen && this.word() !== ')') deny('INVALID_SYNTAX', 'rest formal must be last', first.origin);
       } while (this.take(',') && this.word() !== ')');
-      this.need(')'); return parameters;
+      this.need(')'); this.jsUniqueBoundNames(parameters.map(parameter => parameter.pattern)); return parameters;
     } finally { this.awaitContexts.pop(); }
+  }
+  jsUniqueBoundNames(patterns) {
+    const names = new Set(), pending = [...patterns];
+    while (pending.length) {
+      this.counter.charge('maxInvariantSteps', 'selected-JS-unique-bound-name');
+      const pattern = pending.pop();
+      if (pattern.kind === 'jsBinding') {
+        if (names.has(pattern.name.spelling)) deny('INVALID_SYNTAX', 'duplicate strict binding name', pattern.origin);
+        names.add(pattern.name.spelling);
+      } else if (pattern.kind === 'jsDefaultPattern') pending.push(pattern.binding);
+      else if (pattern.kind === 'jsArrayPattern') {
+        for (const element of pattern.elements) if (element) pending.push(element.element);
+      } else if (pattern.kind === 'jsObjectPattern') {
+        for (const property of pattern.properties) pending.push(property.kind === 'jsRestPattern' ? property.binding : property.value);
+      } else deny('INVALID_SYNTAX', 'unknown actual binding pattern category', pattern.origin);
+    }
   }
   jsAwaitAllowed() { return this.awaitContexts.length ? this.awaitContexts.at(-1) : true; }
   jsFunctionBody(async, arrow = false) {
@@ -135,7 +151,8 @@ export class SelectedJavaScriptSyntax extends SelectedSyntax {
       if (!this.lineBefore() && this.word() === 'function') return this.jsFunction(first, true);
       if (!this.lineBefore()) {
         try {
-          const parameters = this.word() === '(' ? this.jsParameters() : [this.node('jsParameter', this.peek(), { pattern: this.jsPattern(false), rest: false })];
+          const parameters = this.word() === '(' ? this.jsParameters() : [this.node('jsParameter', this.peek(), {
+            pattern: this.declaration('jsBinding', this.peek(), { name: this.jsName() }), rest: false })];
           if (!this.lineBefore() && this.take('=>')) {
             if (!allowArrow) deny('INVALID_SYNTAX', 'ungrouped arrow requires assignment-expression context', first.origin);
             return this.declaration('jsArrow', first, { async: true, parameters, body: this.jsFunctionBody(true, true) });
@@ -188,7 +205,7 @@ export class SelectedJavaScriptSyntax extends SelectedSyntax {
           if (this.take(':')) value = this.jsInExpression(1);
           else if (this.word() === '(') {
             const parameters = this.jsParameters();
-            if (accessor === 'get' && parameters.length !== 0 || accessor === 'set' && (parameters.length !== 1 || parameters[0].rest || parameters[0].pattern.kind === 'jsDefaultPattern'))
+            if (accessor === 'get' && parameters.length !== 0 || accessor === 'set' && (parameters.length !== 1 || parameters[0].rest))
               deny('INVALID_SYNTAX', 'object accessor formal count differs', start.origin);
             value = this.declaration('jsMethod', start, { key, parameters, async, accessor, body: this.jsFunctionBody(async) }); method = true;
           }
@@ -262,6 +279,13 @@ export class SelectedJavaScriptSyntax extends SelectedSyntax {
       const operation = this.consume().spelling;
       if (operation === 'await' && !this.jsAwaitAllowed()) deny('INVALID_SYNTAX', 'await outside actual async body/module context', first.origin);
       const operand = this.jsExpression(14);
+      if (operation === 'delete') {
+        let reference = operand;
+        while (reference.kind === 'group') {
+          this.counter.charge('maxInvariantSteps', 'selected-JS-strict-delete-reference'); reference = reference.expression;
+        }
+        if (reference.kind === 'name') deny('INVALID_SYNTAX', 'strict delete cannot target unqualified identifier', reference.origin);
+      }
       if (['++', '--'].includes(operation) && !this.jsSimpleAssignmentTarget(operand))
         deny('INVALID_SYNTAX', 'prefix update requires simple assignment target', operand.origin);
       left = this.node('unary', first, { operation, operand });
@@ -308,6 +332,7 @@ export class SelectedJavaScriptSyntax extends SelectedSyntax {
       const start = this.peek(), pattern = this.jsPattern(false), initializer = this.take('=') ? this.jsExpression(1) : null;
       declarations.push(this.node('jsVariableDeclarator', start, { pattern, initializer }));
     } while (this.take(','));
+    this.jsUniqueBoundNames(declarations.map(declaration => declaration.pattern));
     if (terminate) this.jsRequireLexicalInitializers(first.spelling, declarations, first);
     if (terminate) this.semicolon();
     return this.node('jsVariableDeclaration', first, { category: first.spelling, declarations });
@@ -422,7 +447,7 @@ export class SelectedJavaScriptSyntax extends SelectedSyntax {
     }
     if (this.take('try')) {
       const body = this.jsBlock(); let handler = null;
-      if (this.take('catch')) { const start = this.last, parameter = this.take('(') ? (() => { const pattern = this.jsPattern(false); this.need(')'); return pattern; })() : null; handler = this.node('jsCatch', start, { parameter, body: this.jsBlock() }); }
+      if (this.take('catch')) { const start = this.last, parameter = this.take('(') ? (() => { const pattern = this.jsPattern(false); this.need(')'); this.jsUniqueBoundNames([pattern]); return pattern; })() : null; handler = this.node('jsCatch', start, { parameter, body: this.jsBlock() }); }
       const finalizer = this.take('finally') ? this.jsBlock() : null;
       if (!handler && !finalizer) deny('INVALID_SYNTAX', 'try requires catch or finally', first.origin);
       return this.node('try', first, { body, handler, finalizer });

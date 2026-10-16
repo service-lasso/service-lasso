@@ -1731,3 +1731,5 @@ AC-4DI.4/R3/C3 #1562 selected353 guardian diagnostic body mapping: CORE1562_DIAG
 #1562 ENTIRE101 aggregate: retain volatile field modifier/category/ordering and actual acquisition source, plus mandatory genuine CLR shared fixed-classifier semantic cases under approved6d37 intent. Map CORE1562_83E7_REPAIR_PRECODE.md before body; unrun/fresh entire and new script/command admission required. B source-only prospective intent remains separate.
 
 #1562 CORE1562_OWNED_STDIO_FAMILY_INTENT.md maps prospective B only, no body: genuine verifier-held nativebirth/family + fixed earliest barrier/actualNode startupproof, existing consumer permissions unchanged; Linuxfamily/completecost/loadedinputs unresolved, fresh bounded DIFFERENT intent required.
+
+#1562 whole104 follow-up mapped CORE1562_83E7_REPAIR_PRECODE.md: strictdelete AST/context; Cmacro unique identifier-list delimiter; shared actual BoundNames parameter/lexical/catch +singleasyncbinding grammar; retained accessorarity/defaultformal semantics. Native CLR authoredUNRUN; Bprecode only; newENTIRE/inputadmission stillrequired.

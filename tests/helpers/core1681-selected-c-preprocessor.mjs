@@ -407,6 +407,7 @@ export function preprocessSelectedC(rawBytes, counter, token, decoderOccurrence)
           parameters.push(parameter.spelling);
           if (tokens[0]?.spelling !== ',') break;
           tokens.shift();
+          if (tokens[0]?.kind !== 'identifier') deny('INVALID_SYNTAX', 'C macro comma requires following formal identifier', origin);
         }
         if (tokens.shift()?.spelling !== ')') deny('INVALID_SYNTAX', 'C macro formal terminator required', origin);
       }
