@@ -297,7 +297,7 @@ In addition to every retained actual-source adversary, reject actual mutations
 adding function defaults/parameter attributes, Begin/Process/DynamicParam/Clean
 or traps, alternate parameter/body definitions, post-root escape, owner/key/
 registry rebinding, duplicate/relocated helper and moved post-release condition.
-Reject nonstatic/null-conditional/computed or differently scoped Exception
+Reject static/null-conditional/computed or differently scoped Exception
 references and malformed assignment wrappers. Test all original command and
 inner-assignment newline/comment splits, including the exact third incident.
 Genuine continuation/comment positives require the actual admitted parser AST
@@ -320,3 +320,138 @@ correspondence, reproducible distribution build, held tool or loaded runtime
 occurrence is established. Actual observation JSON is retained in the owned
 .tmp proposal custody. This remains an unqualified input for parent disposition;
 no installation, substitute tool, source-mapping inference or self-issued ROOT.
+
+## Normative revision 2: entire enclosing script context
+
+This revision addresses independent272 intent REVISIONS_REQUIRED. Implementation
+remains prohibited until a new DIFFERENT intent review. The witness consumes the
+WHOLE actual enclosing script's ordered AST role tree, including all nested
+branches and all ten selected function definitions. It does not merely find a
+correct inner function or blacklist a few alias commands. No source-body/hash/
+AST-baseline snapshot is a conformance oracle: the implementation must encode
+the following independently specified role/operand catalogue and consume every
+actual node within it. Digests remain transport custody only.
+
+The complete unnamed outer EndBlock must contain, in this order, only these
+roles, with no ignored statements between or after them:
+
+1. Original Stop/SilentlyContinue preference assignments and the two conflicting
+   option guards, followed by the Windows platform guard. Root CmdletBinding/
+   parameters/named-block/trap restrictions from revision1 remain complete.
+2. Repository root from Split-Path -Parent PSScriptRoot; the four original source,
+   managed-image, native-image and provenance relative identities and Join-Path
+   bindings; fixed VisualStudio2022 BuildTools VsDevCmd path and vcvars extension;
+   BOOTSTRAP-NATIVE-VCVARS-ENV-2 recipe and original ordered native options.
+   Those selected paths/options are semantic operand data, not source text hashes.
+3. Trusted environment/source/managed-image existence guards, then the four
+   unique pure helper definitions in their original order: Get-Sha256Hex,
+   Get-NormalizedNativePeBytes, Test-ByteArrayEqual, Get-CanonicalProvenanceJson.
+4. Original source/managed byte reads; original helper hash calls; source UTF8
+   decoding and MANAGED_LAUNCHER_SHA256 declaration/hex extraction; the exact
+   original47616 managed-length/declaration/count/digest pin predicate and refusal.
+5. Exactly one script:NativeToolOwners initialization with a new
+   Collections.Generic.Dictionary[string,object] and StringComparer.Ordinal.
+   Its target is the exact script-scoped registry variable; no supplied object,
+   alternate comparer/type/constructor/default, factory or alias can stand in.
+6. Original fresh GUID temp-root expression, New-Item directory creation and
+   child temp creation; Dictionary[string,string]/OrdinalIgnoreCase child ENV.
+   Consume its complete original ordered required-environment-name array,
+   lookup/nonempty refusal/Add loop, then TEMP/TMP/PATH/telemetry assignments.
+   Each Add uses the same dictionary and admitted original value/source role.
+7. vcvars existence refusal, initialize path, the original ordered initializer
+   CMD record construction and UTF8 write. Model the reviewed literal command
+   fragments, fixed VsDevCmd/vcvars argument association, errorlevel guards,
+   INCLUDE/EXTERNAL_INCLUDE combination, clearing temporary INCLUDE carrier,
+   environment dump and exit. No extra generated command fragment is allowed.
+8. Unique Get-NativeCmdInitializerArguments definition then the complete unique
+   Invoke-RetainedNativeTool definition, including all three nested protected
+   helper definitions and Retain-ActiveOriginalOwner from revision1. No helper
+   names may be aliased, shadowed or defined in another scope/branch.
+9. Original absolute SystemRoot/System32/cmd.exe and initializer-argument binding;
+   Dictionary[string,string]/OrdinalIgnoreCase initialized ENV creation.
+10. Complete initialized-input branch: absolute/non-directory/non-reparse input
+    checks, original raw read/strictUTF8/JsonDocument parse, complete string-only
+    object enumeration/Add, actual finally Dispose, and original retained byte
+    copy. Its alternative is the actual direct local Invoke-RetainedNativeTool
+    call for initialize with cmdImage, empty argument array, childEnvironment,
+    literal initialize label and cmdArguments; then original UTF16LE even-length
+    check, strict decode, line split/nonempty separator validation and Add.
+11. Original x64 host/target checks; actual CL/_CL_/LINK/_LINK_ override refusal
+    loop; complete required native dependency key/nonempty loop; original
+    PRIVATE-initialized-environment JSON write. These existing input-policy
+    arrays remain fixed semantic data, not a new alias-blacklist substitute.
+12. Original InitializeOnly branch: fact projection with compilerInvoked=false,
+    packageOutputsUpdated=false and the sole selected outer early return. This
+    return cannot occur under an unexamined/new predicate or before an unresolved
+    invocation. No other outer return/exit/escaping path is accepted.
+13. Original absolute VCToolsInstallDir/bin/Hostx64/x64/cl.exe and existence guard;
+    fixed compiled/object paths; direct actual local Invoke-RetainedNativeTool
+    compile call with the complete original ordered flags/source/output/link/
+    bcrypt arguments and SAME initialized ENV. Both actual tool calls must occur
+    after the unique approved function definition and cannot be replaced by a
+    matching inert expression, indirect/ampersand/dot invocation or another name.
+14. Actual output existence check, normalized PE byte helper, hash helper,
+    canonical provenance helper and strictUTF8 provenance encoding.
+15. Original Update-only shipped binary/provenance writes, then required shipped
+    existence/read/byte-equality/provenance-equality/no-BSJB checks and the final
+    passed-fact JSON projection. The witness parses these source roles; it never
+    runs Update, the compiler, initializer, filesystem writes or helper bodies.
+
+Every nested predicate/operator/member chain/loop source and branch effect in
+these roles must match its declared purpose and exact operand identities. A
+function/statement not assigned a role is unsupported and rejected. The source
+implementation must not include a generic accept-command/accept-expression
+escape hatch, derive expected trees from the current production source, or
+compare serialized whole baseline ASTs. For pure canonical JSON/CMD output
+recipes, use their existing ordered field/command semantic catalogue rather
+than source bytes as the model. Any gap in that concrete catalogue is a SOURCE
+NO_GO before implementation acceptance, not permission to accept arbitrary AST.
+
+The four additional pure helpers have complete signatures and protected bodies:
+Get-Sha256Hex(bytes:byte[]) owns the original SHA constructor/ComputeHash/format
+and finally Dispose. Get-NormalizedNativePeBytes(path:string) owns the original
+read, minimum MZ/PE range/header checks and only four-byte PE timestamp clear.
+Test-ByteArrayEqual(left:byte[],right:byte[]) uses the original extent check,
+ordered byte loop and its selected false/true returns. Get-CanonicalProvenanceJson
+has sourceSha256:string, managedSha256:string, managedLength:int64,
+binarySha256:string,binaryLength:int64, no defaults/attributes, and only its
+original ordered schema/compiler/source/managed/binary field construction with
+original passed values and LF join. Get-NativeCmdInitializerArguments(path:string)
+has no defaults/attributes and only the original fully-qualified/forbidden-
+character/newline checks, absolute drive/backslash normalization refusal and
+fixed CMD call-quoting return recipe. All inherit the no extra named blocks,
+traps, filters/workflows and unknown parameter/body-form rules. Together with
+Invoke and its four nested functions, these are exactly the ten definitions.
+
+Across the entire script there can be no extra alias/provider/function/module/
+hook/state mutation, registry reassignment or dynamic symbol lookup outside
+those roles. Thus adding Set-Alias anywhere fails because it is an unassigned
+AST statement; the design is not dependent on recognizing that one alias name.
+Likewise replacing the original Dictionary initialization, adding an extra
+function, assigning the registry after initialization, injecting default-script
+parameters or placing correct owning code in an inactive named block fails the
+complete ordered model. Registry Add/ContainsKey/Remove are allowed only in
+their exact named owning roles, with SAME script-scoped dictionary/key/owner.
+No dot-sourcing, imports, using/module/directive hooks, type/provider/alias
+updates or arbitrary scriptblock evaluation can appear as an extra role.
+
+Add actual-source adversaries for an outer alias of Retain-ActiveOriginalOwner
+to Write-Output, an alias of the actual tool function, altered registry type/
+comparer/construction, registry replacement before/after definition, duplicate
+or relocated local definitions, added outer command/callback/hook, and an
+actual initialize/compile call moved before its unique definition or replaced
+by indirect invocation. They must receive authentic closed AST rejection, not
+an infrastructure failure. Retain all revision1 named-block/default/post-root/
+rebinding/condition/command/member/assignment and transport adversaries.
+
+The baseline original Exception member is NONSTATIC. Reject static references,
+null-conditional/computed members, different variable scope/name or unsupported
+wrappers. This explicitly corrects the earlier contradictory adversary wording.
+
+This complete in-file AST context establishes only selected supplementary
+source conformance. It cannot prove the ambient PowerShell session has no
+preexisting aliases, altered providers/type accelerators, loaded assemblies,
+profiles, debugger hooks or OS/process/library interference. No ambient runtime
+binding, native invocation, actual principal/reservation/tool-holder identity,
+publication or GA claim follows. Those require genuine independent current
+runtime/native admission and acceptance. No target or parser has been executed.

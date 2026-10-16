@@ -1249,3 +1249,23 @@ expected-denial identities, fixed physical command/env proposal, and actual
 source/transport adversaries. Tool source mapping remains UNQUALIFIED. This is
 intent only; different review precedes implementation and NEW ROOT precedes
 execution. Existing handwritten witness remains scoped blocked SOURCE_NO_GO.
+
+#1562 F25 AST intent revision2 closes the entire enclosing script source context
+using ordered semantic AST roles over all313 original source lines, all10
+complete function definitions/bodies and the actual definition-before-tool-call
+bindings. Canonical Dictionary[string,object]/Ordinal initialization and all
+relevant state/alias/provider/function/hook effects are closed by complete role
+consumption, not isolated blacklists or source snapshots. Actual outer alias/
+registry replacement/definition/call adversaries are required. Correct baseline
+Exception access is nonstatic; reject STATIC/nullconditional/computed drift.
+Supplementary only: ambient runtime binding remains unproved. Different intent
+review still precedes implementation; tools/provenance/NEW ROOT remain unmet.
+
+#1562 current native blocker record CORE1562_CLIENT_RELEASE_NATIVE_BLOCKERS.md:
+exact272 startup run38837326954 Windows116769256149 fails diagnostic privacy
+transport response_unavailable after native_enter_acquire, before crash/injection;
+all7Windows fail/all7Linux pass per parent audit. Fixed-bootstrap expected
+compiler phase also fails. Cause remains UNKNOWN; preserve privacy/assertions/
+deadlines/private evidence. Bea packagedWindows SUCCESS is exact-job evidence,
+not whole release/native acceptance; bea full qualification CANCELLED. No guessed
+cause, timeout/skip/privacy bypass or runtime authority follows this status.

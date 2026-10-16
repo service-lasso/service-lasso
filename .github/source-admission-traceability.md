@@ -355,3 +355,14 @@ expected-denial identities, fixed physical command/env proposal, and actual
 source/transport adversaries. Tool source mapping remains UNQUALIFIED. This is
 intent only; different review precedes implementation and NEW ROOT precedes
 execution. Existing handwritten witness remains scoped blocked SOURCE_NO_GO.
+
+#1562 F25 AST intent revision2 closes the entire enclosing script source context
+using ordered semantic AST roles over all313 original source lines, all10
+complete function definitions/bodies and the actual definition-before-tool-call
+bindings. Canonical Dictionary[string,object]/Ordinal initialization and all
+relevant state/alias/provider/function/hook effects are closed by complete role
+consumption, not isolated blacklists or source snapshots. Actual outer alias/
+registry replacement/definition/call adversaries are required. Correct baseline
+Exception access is nonstatic; reject STATIC/nullconditional/computed drift.
+Supplementary only: ambient runtime binding remains unproved. Different intent
+review still precedes implementation; tools/provenance/NEW ROOT remain unmet.
