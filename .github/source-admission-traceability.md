@@ -268,3 +268,15 @@ Backlog and INIT remediation are ACTIVE/INCOMPLETE: implement actual durable iss
 Parent selected `.governance/specs/operator-v2-selected/CONFIRMATION-PHRASE-AMENDMENT.md` exact SHA2560074BD1FFC1F74F5191A12A3418282F44E9D338A18D87B487C0471B7C28D1B8B; receipt `D:/projects/service-lasso/_audit/ga-windows-linux-resume-20261004-01/confirmation-phrase-amendment-parent-selection.json`. This operative source-development adoption supersedes its prospective heading and preserves exact selected bytes, original five and prior three amendments. SPEC-002 OPV2-1/SPEC-006 OPV2-1 require phraseKey to carry the exact displayed canonical-action/nonce server phrase, exact user-entered confirmationResponse, closed required/null tuple, independently owned server hash/actor/root/action/plan/family revision/held custody checks and genuine durable one-use claim/reconciliation. No client mapping/localization/autoacceptance/body actor/phrase-only grant. Existing legacy owner bounds and retained unresolved claims require truthful complete migration rather than eviction or fabricated relation recovery.
 
 Backlog/INIT remediation is ACTIVE/INCOMPLETE: actual guarded-owner reuse and all-writer retained journal/recovery, closed Core/TUI parity and exact comparison, immutable preview targets/effects/revision/confirmation, fresh exact family token/readiness then final trusted context before POST, independent locked execution and genuine successful journeys. Entire all46/compiler/K2/all-nine callers/native/provider closure remains cumulative. Whole fresh independent cumulative SOURCE_GO plus NEW actual full INPUT ROOT and parent admission precede any target execution/import/build/test/repin. Design adoption is neither implemented API nor native qualification, publication, deployment or GA authority; unavailable-only delivery does not complete scope.
+
+## #1562 client release current-head fixture caller repair (2026-10-16)
+
+Development source preparation maps the four natural caee004 complete-suite
+failures in hard-crash-fixture-custody-removal-rows.js to SPEC-012 and SPEC-002
+AC-4BJ.9c. The extracted success/reset/environment/copy-tamper rows must obtain
+an authentic creator-owned disposable token and pass it to their existing
+fixture evidence boundary, matching the original rows. Preserve all original
+assertions, actual error identities, retained evidence and strong writer-exclusion
+contracts. Different entire source review and NEW complete actual-input ROOT
+admission precede execution. Missing selected-helper source, F25 evidence drift,
+foreign-owner ROOT input and Windows EBUSY remain independent unresolved gates.

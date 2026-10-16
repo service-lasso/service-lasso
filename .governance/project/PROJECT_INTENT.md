@@ -1448,3 +1448,15 @@ provider identities, persistence proofs and independent review still apply.
 The D8 receiver/receipt and native transport implementations are absent; existing
 U1 worker ownership is preserved. Authorized Mac SSH can support bounded receiver
 preparation, but does not supply missing implementations or full F7 admission.
+
+## #1562 client release current-head fixture caller repair (2026-10-16)
+
+Development source preparation maps the four natural caee004 complete-suite
+failures in hard-crash-fixture-custody-removal-rows.js to SPEC-012 and SPEC-002
+AC-4BJ.9c. The extracted success/reset/environment/copy-tamper rows must obtain
+an authentic creator-owned disposable token and pass it to their existing
+fixture evidence boundary, matching the original rows. Preserve all original
+assertions, actual error identities, retained evidence and strong writer-exclusion
+contracts. Different entire source review and NEW complete actual-input ROOT
+admission precede execution. Missing selected-helper source, F25 evidence drift,
+foreign-owner ROOT input and Windows EBUSY remain independent unresolved gates.

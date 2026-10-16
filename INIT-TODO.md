@@ -1162,3 +1162,15 @@ SPEC-010 F7-04/F7-05/F7-07/F7-09 and D8 inventory U2. Owner root (custodian sele
 - [x] ESM-16.7: passive MVID corpus28 and admitted managed compiler rebuild/provenance18 passed, independently read back. No behavioral/native qualification.
 - [x] ESM-16.8 compiler portion: genuine managed/bootstrap rebuilds independently admitted and read back; exact native source pins follow actual169984-byte output. Runtime integration remains unqualified.
 - [ ] Complete existing full native/F7 gates with actual owner-selected independent custodian/destination; preserve missing-input refusal and historical failures.
+
+## #1562 client release current-head fixture caller repair (2026-10-16)
+
+Development source preparation maps the four natural caee004 complete-suite
+failures in hard-crash-fixture-custody-removal-rows.js to SPEC-012 and SPEC-002
+AC-4BJ.9c. The extracted success/reset/environment/copy-tamper rows must obtain
+an authentic creator-owned disposable token and pass it to their existing
+fixture evidence boundary, matching the original rows. Preserve all original
+assertions, actual error identities, retained evidence and strong writer-exclusion
+contracts. Different entire source review and NEW complete actual-input ROOT
+admission precede execution. Missing selected-helper source, F25 evidence drift,
+foreign-owner ROOT input and Windows EBUSY remain independent unresolved gates.

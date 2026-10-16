@@ -1758,3 +1758,15 @@ ADR-003 selects the complete original-isolate drain/exclusion protocol after DIF
 | `ISS-1747` | `done` | Restore ordinary config; declare secret files in broker | `SPEC-011 ESM-14/15` | Core #1748 and Echo #17 merged; #1749 records current Ubuntu verification. Published/native admission failures retained. |
 | `ISS-1753` | `in_progress`, source only | Native F7 G read-only upload-pack v0 reader and separate P exact seed bootstrap transport (U2) | `SPEC-010 F7-04/F7-05/F7-07/F7-09; D8 inventory U2` | Owner root under #1750; branch feature/1753-native-f7-git-transport from develop. Consumes landed U1 #1686 contracts (roles, results, framing); missing U1 caller/custody/broker schemas are marked ABSENT, never invented. Source-owned SHA1/inflate/pkt-line/PACK/delta/seed codecs first; TLS/HTTP/broker/persistence integration after. Source regressions UNEXECUTED until DIFFERENT whole U2 review and NEW exact actual-input ROOT. No provider experiment, provisioning, publication or deployment. |
 | `ISS-1750` | `in_progress` | Repair inherited native acceptance and prepare compatible Broker candidate | `SPEC-011 ESM-16; complete existing native SPEC-002/006/007/008/010` | Owner transfer, independent whole relevant review and exact input admission; no publication/deployment. |
+
+## #1562 client release current-head fixture caller repair (2026-10-16)
+
+Development source preparation maps the four natural caee004 complete-suite
+failures in hard-crash-fixture-custody-removal-rows.js to SPEC-012 and SPEC-002
+AC-4BJ.9c. The extracted success/reset/environment/copy-tamper rows must obtain
+an authentic creator-owned disposable token and pass it to their existing
+fixture evidence boundary, matching the original rows. Preserve all original
+assertions, actual error identities, retained evidence and strong writer-exclusion
+contracts. Different entire source review and NEW complete actual-input ROOT
+admission precede execution. Missing selected-helper source, F25 evidence drift,
+foreign-owner ROOT input and Windows EBUSY remain independent unresolved gates.
