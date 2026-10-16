@@ -1,4 +1,4 @@
-import { deny } from './core1681-source-input.mjs';
+import { deny, isSourceDenialCode } from './core1681-source-input.mjs';
 import { SelectedSyntax } from './core1681-selected-syntax.mjs';
 
 const reserved = new Set(('await break case catch class const continue debugger default delete do else enum export extends false finally for function if import in instanceof new null return super switch this throw true try typeof var void while with implements interface let package private protected public static yield').split(' '));
@@ -128,7 +128,7 @@ export class SelectedJavaScriptSyntax extends SelectedSyntax {
             if (!allowArrow) deny('INVALID_SYNTAX', 'ungrouped arrow requires assignment-expression context', first.origin);
             return this.declaration('jsArrow', first, { async: true, parameters, body: this.jsFunctionBody(true, true) });
           }
-        } catch (error) { if (!['INVALID_SYNTAX', 'UNSUPPORTED_FORM'].includes(error.code)) throw error; }
+        } catch (error) { if (!isSourceDenialCode(error, 'INVALID_SYNTAX') && !isSourceDenialCode(error, 'UNSUPPORTED_FORM')) throw error; }
       }
       this.restore(mark);
     }
@@ -141,7 +141,7 @@ export class SelectedJavaScriptSyntax extends SelectedSyntax {
           if (!allowArrow) deny('INVALID_SYNTAX', 'ungrouped arrow requires assignment-expression context', first.origin);
           return this.declaration('jsArrow', first, { async: false, parameters, body: this.jsFunctionBody(false, true) });
         }
-      } catch (error) { if (!['INVALID_SYNTAX', 'UNSUPPORTED_FORM'].includes(error.code)) throw error; }
+      } catch (error) { if (!isSourceDenialCode(error, 'INVALID_SYNTAX') && !isSourceDenialCode(error, 'UNSUPPORTED_FORM')) throw error; }
       this.restore(mark); const expression = this.jsExpression(0); this.need(')');
       return this.node('group', first, { expression });
     }

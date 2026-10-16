@@ -1,4 +1,4 @@
-import { deny } from './core1681-source-input.mjs';
+import { deny, isSourceDenialCode } from './core1681-source-input.mjs';
 import { SelectedScanner } from './core1681-selected-scanner.mjs';
 import { K2_LIMITS } from './core1681-proof-terms.mjs';
 
@@ -256,7 +256,7 @@ export class SelectedSyntax {
           const typeMark = this.mark();
           try { type = this.typeRef(); name = this.name(); }
           catch (error) {
-            if (!['INVALID_SYNTAX', 'UNSUPPORTED_FORM'].includes(error.code)) throw error;
+            if (!isSourceDenialCode(error, 'INVALID_SYNTAX') && !isSourceDenialCode(error, 'UNSUPPORTED_FORM')) throw error;
             this.restore(typeMark); type = null; name = this.name();
           }
           if (!type && direction !== 'value') { this.restore(parameterMark); lambdaParameters = false; break; }
@@ -266,11 +266,11 @@ export class SelectedSyntax {
           if (!allowLambda) deny('INVALID_SYNTAX', 'ungrouped lambda requires assignment-expression context', first.origin);
           return this.lambda(first, parameters);
         }
-      } catch (error) { if (!['INVALID_SYNTAX', 'UNSUPPORTED_FORM'].includes(error.code)) throw error; }
+      } catch (error) { if (!isSourceDenialCode(error, 'INVALID_SYNTAX') && !isSourceDenialCode(error, 'UNSUPPORTED_FORM')) throw error; }
       this.restore(start);
       const castMark = this.mark(); let castType = null;
       try { castType = this.typeRef(); if (!this.take(')') || !this.castStart(castType)) castType = null; }
-      catch (error) { if (!['INVALID_SYNTAX', 'UNSUPPORTED_FORM'].includes(error.code)) throw error; }
+      catch (error) { if (!isSourceDenialCode(error, 'INVALID_SYNTAX') && !isSourceDenialCode(error, 'UNSUPPORTED_FORM')) throw error; }
       if (castType) return this.node('cast', first, { type: castType, operand: this.expression(14) });
       this.restore(castMark);
       const expression = this.expression(); this.need(')');
@@ -305,7 +305,7 @@ export class SelectedSyntax {
         try {
           this.consume(); do { typeArguments.push(this.typeRef()); } while (this.take(',')); this.greater();
           if (this.word() === '(') { left = this.node('genericMember', first, { target: left, typeArguments }); continue; }
-        } catch (error) { if (!['INVALID_SYNTAX', 'UNSUPPORTED_FORM'].includes(error.code)) throw error; }
+        } catch (error) { if (!isSourceDenialCode(error, 'INVALID_SYNTAX') && !isSourceDenialCode(error, 'UNSUPPORTED_FORM')) throw error; }
         this.restore(mark);
       }
       if (this.take('[')) { const index = this.expression(); this.need(']'); left = this.node('index', first, { target: left, index }); continue; }
@@ -348,7 +348,7 @@ export class SelectedSyntax {
     const constant = Boolean(this.take('const'));
     try { type = this.typeRef(); name = this.name(); }
     catch (error) {
-      if (!['INVALID_SYNTAX', 'UNSUPPORTED_FORM'].includes(error.code)) throw error;
+      if (!isSourceDenialCode(error, 'INVALID_SYNTAX') && !isSourceDenialCode(error, 'UNSUPPORTED_FORM')) throw error;
       this.restore(mark); return null;
     }
     if (!['=', ',', ';', ')', 'in'].includes(this.word())) { this.restore(mark); return null; }

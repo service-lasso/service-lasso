@@ -1481,3 +1481,14 @@ and finite/return/unshielded adversaries; it changes no test or selected criteri
 Different entire review and explicit durable selection precede witness mutation;
 NEW complete ROOT admission precedes local execution. Current cumulative source
 is frozen for the parent-arranged different entire review, not qualified.
+
+#1562 different entire0f60 review adopted two source corrections under
+AC-4DI.4/R3/C3/G1. Selected C#/JavaScript speculative catches classify only
+genuine original INVALID_SYNTAX/UNSUPPORTED_FORM denials with isSourceDenialCode;
+all opaque throws keep exact identity without code-property observation. Actual
+catch-path regressions cover null/undefined/getter/copied-code/genuine denials.
+The separate F25 proposal is prospectively selected by parent after different
+review: implement complete rooted-owner/same-invocation/infinite shielded tail
+witness and all proposed adversaries; preserve native obligations. New final
+source requires another different entire review and NEW complete ROOT before
+local execution. No whole SOURCE_GO or native acceptance follows selection.

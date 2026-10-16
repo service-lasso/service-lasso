@@ -1,6 +1,6 @@
 # #1562 F25 PowerShell source-evidence amendment proposal
 
-Status: PROPOSED, not selected, SOURCE_UNRUN. SPEC-002 AC-4DI.4/R3/C3/G1
+Status: Prospectively SELECTED by parent after DIFFERENT entire 0f60 review, SOURCE_UNRUN. SPEC-002 AC-4DI.4/R3/C3/G1
 and the review32 complete F23-F25 requirement govern. This proposal changes
 only a supplementary textual witness after separate review; it grants no native
 closure, source GO or execution admission.
@@ -72,3 +72,10 @@ of final source. NEW complete actual-input ROOT admission remains required
 before local parser/import/compiler/build/test execution. Natural push CI is an
 observation, never a substitute for those gates. Foreign-owner ROOT input,
 Windows EBUSY and every other full product gate remain separate.
+
+Selection receipt: parent communicated separate F25 intent APPROVED after the
+DIFFERENT entire0f60 review on 2026-10-16. The cumulative product source was
+SOURCE_NO_GO for opaque catch classification, not approved for execution.
+Authored closed retention grammar and actual-source adversaries implement this
+selected witness; all remain locally UNRUN pending another entire review and
+NEW complete actual-input ROOT admission.
