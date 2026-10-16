@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { readFile } from "node:fs/promises";
 import { collectDiagnosticHoldTransport, acquireDiagnosticHoldCorrespondence, encodeGuardianCommand,
-  GUARDIAN_ENCODED_COMMAND_LIMIT, DIAGNOSTIC_HOLD_PARENT_OPERATIONS, DIAGNOSTIC_HOLD_CHILD_OPERATIONS } from "./fixture-diagnostic-hold-protocol.js";
+  GUARDIAN_ENCODED_COMMAND_LIMIT, DIAGNOSTIC_HOLD_PARENT_OPERATIONS, DIAGNOSTIC_HOLD_CHILD_OPERATIONS, DIAGNOSTIC_HOLD_TRANSPORT_REASONS } from "./fixture-diagnostic-hold-protocol.js";
 
 const ready = JSON.stringify({ kind: "ready", pid: 20, parentPid: 10, ownerSid: "S-1-5-21-1" }) + "\n";
 const surrogate = () => {
@@ -52,6 +52,8 @@ for (const operation of DIAGNOSTIC_HOLD_CHILD_OPERATIONS) test(`guardian ${opera
   const original = await pending;
   assert.strictEqual(transport.snapshot().originals[0], original);
   assert.equal(transport.snapshot().childFailure, operation);
+  assert.equal(transport.snapshot().firstFailure.reason, "child_failure_frame");
+  child.stderr.emit("data", Buffer.from("PRIVATE-LATER-CHILD-ERROR"));
   assert.equal(transport.snapshot().readyWitness, undefined);
   const close = failureOf(transport.release()); callbacks.shift()(); complete(); await close;
 });
@@ -164,7 +166,127 @@ test("guardian transport SURROGATE joins ready, actual verify acknowledgement, c
   callbacks.shift()(); child.emit("exit", 0, null); await Promise.resolve(); assert.equal(settled, false);
   complete(); assert.deepEqual(await closing, { code: 0, signal: null });
   assert.equal(transport.snapshot().originals.length, 0); assert.equal(transport.snapshot().readyWitness.pid, 20);
+  assert.equal(transport.snapshot().firstFailureRecorded, false); assert.equal(transport.snapshot().firstFailure, undefined);
   assert.equal(transport.snapshot().childFailure, undefined);
+});
+
+for (const [reason, surface] of [["spawn_error", "child"], ["stdin_error", "stdin"], ["stdout_error", "stdout"], ["stderr_error", "stderr"]])
+  test(`first-rejection ${reason} event SURROGATE preserves first null/undefined/opaque and ignores later reason`, async () => {
+    for (const original of [null, undefined, new Proxy({}, { get() { assert.fail("No first-original getters."); } })]) {
+      const state = surrogate(), pending = failureOf(state.transport.ready());
+      (surface === "child" ? state.child : state.child[surface]).emit("error", original);
+      assert.strictEqual(await pending, original);
+      state.child.stderr.emit("data", Buffer.from("PRIVATE-LATER-STDERR"));
+      const closing = failureOf(state.transport.release()); state.callbacks.shift()(); state.complete(); await closing;
+      const result = state.transport.snapshot();
+      assert.equal(result.firstFailureRecorded, true); assert.equal(result.firstFailure.reason, reason);
+      assert.strictEqual(result.firstFailure.original, original); assert.strictEqual(result.originals[0], original);
+    }
+  });
+
+for (const [reason, bytes] of [["stdout_capacity", Buffer.alloc(481, 13)], ["stdout_bytes", Buffer.from("\r")],
+  ["stdout_framing", Buffer.from("GDH1|fail|unknown\n")], ["stderr_content", Buffer.from("PRIVATE-OPAQUE")]])
+  test(`first-rejection ${reason} predicate SURROGATE stays failed without interpreting bytes`, async () => {
+    const { child, transport, callbacks, complete } = surrogate(), pending = failureOf(transport.ready());
+    child[reason === "stderr_content" ? "stderr" : "stdout"].emit("data", bytes);
+    const original = await pending;
+    const closing = failureOf(transport.release()); callbacks.shift()(); complete(); await closing;
+    assert.equal(transport.snapshot().firstFailure.reason, reason); assert.strictEqual(transport.snapshot().firstFailure.original, original);
+  });
+
+for (const [method, reason] of [["write", "stdin_write"], ["end", "stdin_end"]])
+  test(`first-rejection ${reason} actual callback/synchronous SURROGATE retains first original`, async () => {
+    for (const synchronous of [false, true]) {
+      const { child, transport, callbacks, complete } = surrogate(), pending = transport.ready();
+      child.stdout.emit("data", Buffer.from(ready)); await pending;
+      const original = synchronous ? undefined : new Error("PRIVATE-CALLBACK");
+      if (synchronous) child.stdin[method] = () => { throw original; };
+      let failed;
+      if (method === "write") { failed = failureOf(transport.verify()); if (!synchronous) callbacks.shift()(original); await failed; }
+      const closing = failureOf(transport.release());
+      if (method === "end" && !synchronous) callbacks.shift()(original);
+      else if (method === "write") callbacks.shift()();
+      complete(); await closing;
+      assert.equal(transport.snapshot().firstFailure.reason, reason); assert.strictEqual(transport.snapshot().firstFailure.original, original);
+    }
+  });
+
+test("first-rejection callback_state actual duplicate callback SURROGATE cannot certify a receipt", async () => {
+  const { child, transport, callbacks, complete } = surrogate(), pending = transport.ready();
+  child.stdout.emit("data", Buffer.from(ready)); await pending;
+  const verified = failureOf(transport.verify()), done = callbacks.shift(); done(); done(); await verified;
+  const closing = failureOf(transport.release()); callbacks.shift()(); complete(); await closing;
+  assert.equal(transport.snapshot().firstFailure.reason, "callback_state");
+});
+
+test("first-rejection ready_decode SURROGATE drives actual decoder catch and restores builtin", async () => {
+  // Resource/decoder exceptions cannot be produced by malformed input after
+  // this closed flat grammar. Fault only this surrogate's actual decode call;
+  // no product decoder selector or native provenance writer is exposed.
+  const { child, transport, callbacks, complete } = surrogate(), pending = failureOf(transport.ready());
+  const original = new Proxy({}, { get() { assert.fail("Decoder original stays opaque."); } }), decode = JSON.parse;
+  try { JSON.parse = () => { throw original; }; child.stdout.emit("data", Buffer.from(ready)); }
+  finally { JSON.parse = decode; }
+  assert.strictEqual(await pending, original);
+  const closing = failureOf(transport.release()); callbacks.shift()(); complete(); await closing;
+  assert.equal(transport.snapshot().firstFailure.reason, "ready_decode"); assert.strictEqual(transport.snapshot().firstFailure.original, original);
+});
+
+test("first-rejection stdout_eof and exit_status SURROGATES keep actual first event rather than later closure", async () => {
+  for (const reason of ["stdout_eof", "exit_status"]) {
+    const { child, transport, callbacks, complete } = surrogate(), pending = failureOf(transport.ready());
+    if (reason === "stdout_eof") { child.stdout.emit("data", Buffer.from("partial")); child.stdout.emit("end"); }
+    else child.emit("exit", 1, null);
+    await pending;
+    const closing = failureOf(transport.release()); callbacks.shift()(); complete(); await closing;
+    assert.equal(transport.snapshot().firstFailure.reason, reason);
+  }
+});
+
+test("first-rejection close_state receipt_state not_live SURROGATES cover guard and real closure predicates", async () => {
+  for (const reason of ["close_state", "receipt_state", "not_live"]) {
+    const { child, transport, callbacks, complete } = surrogate();
+    if (reason === "receipt_state") await failureOf(transport.verify());
+    else { const pending = transport.ready(); child.stdout.emit("data", Buffer.from(ready)); await pending; }
+    if (reason === "not_live") { child.emit("exit", 0, null); assert.throws(() => transport.assertLive()); }
+    const closing = failureOf(transport.release()); callbacks.shift()();
+    if (reason === "close_state") { child.stdin.emit("finish"); child.stdout.emit("end"); child.emit("exit", 0, null); child.emit("close", 0, null); }
+    else complete();
+    await closing; assert.equal(transport.snapshot().firstFailure.reason, reason);
+  }
+  assert.equal(DIAGNOSTIC_HOLD_TRANSPORT_REASONS.length, 18); assert.equal(new Set(DIAGNOSTIC_HOLD_TRANSPORT_REASONS).size, 18);
+  assert.equal(Object.isFrozen(DIAGNOSTIC_HOLD_TRANSPORT_REASONS), true);
+});
+
+test("transport correspondence SURROGATE does not correlate unrelated primitive inspection throw with later transport original", async () => {
+  const { child, transport, callbacks, complete } = surrogate();
+  const pending = acquireDiagnosticHoldCorrespondence(transport, 20, 10, async () => {
+    child.stdout.emit("error", null); throw null;
+  });
+  child.stdout.emit("data", Buffer.from(ready));
+  const result = await pending;
+  assert.equal(result.failed, true); assert.equal(result.operationFailure.operation, "child_inspection");
+  assert.equal(result.transportFailure, undefined);
+  const closing = failureOf(transport.release()); callbacks.shift()(); complete(); await closing;
+});
+
+test("actual ready catch correspondence SURROGATE correlates first undefined without minting native evidence", async () => {
+  const { child, transport, callbacks, complete } = surrogate();
+  const pending = acquireDiagnosticHoldCorrespondence(transport, 20, 10, async () => assert.fail("Inspection must not run."));
+  child.stderr.emit("error", undefined);
+  const result = await pending;
+  assert.equal(result.failed, true); assert.strictEqual(result.original, undefined);
+  assert.equal(result.operationFailure.operation, "ready_receipt");
+  assert.equal(result.transportFailure.reason, "stderr_error"); assert.strictEqual(result.transportFailure.original, undefined);
+  const closing = failureOf(transport.release()); callbacks.shift()(); complete(); await closing;
+});
+
+test("correspondence SURROGATE retains observation failure independently without replacing caught null", async () => {
+  const secondary = new Proxy({}, { get() { assert.fail("No secondary observation getters."); } });
+  const result = await acquireDiagnosticHoldCorrespondence({ ready: async () => { throw null; },
+    failureObservation() { throw secondary; }, assertLive() {} }, 20, 10, async () => assert.fail("No inspection after ready failure."));
+  assert.equal(result.failed, true); assert.strictEqual(result.original, null);
+  assert.strictEqual(result.observationFailures[0], secondary); assert.equal(result.transportFailure, undefined);
 });
 
 test("guardian transport SURROGATE retains asynchronous write and end callback originals after ready", async () => {

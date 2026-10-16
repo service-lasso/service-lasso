@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { SelectedSyntax } from './helpers/core1681-selected-syntax.mjs';
 import { SelectedJavaScriptSyntax } from './helpers/core1681-selected-javascript.mjs';
 import { createProofCounter } from './helpers/core1681-proof-terms.mjs';
-import { SourceDenial } from './helpers/core1681-source-input.mjs';
+import { SourceDenial, isSourceDenialCode } from './helpers/core1681-source-input.mjs';
 
 const parser = (text, language = 'csharp') => language === 'javascript'
   ? new SelectedJavaScriptSyntax(Buffer.from(text), createProofCounter())
@@ -34,6 +34,39 @@ for (const [label, setup] of sites) {
     assert.equal(getterReads, 0);
   });
 }
+
+test('selected Csharp refuses generic storage/property syntax instead of dropping declared parameters', () => {
+  for (const member of ['int f<T>;', 'int f<T> = 1;', 'int f<T>, g;', 'int P<T> { get; set; }',
+    'int P<T> { get { return 1; } }', 'int P<T> { get; set; } = 1;']) {
+    const source = `\ufeffclass C { ${member} }\r\n`;
+    assert.throws(() => parser(source).csharpUnit(), error => isSourceDenialCode(error, 'INVALID_SYNTAX') &&
+      error.origin.kind === 'source' && error.origin.byte[0] === Buffer.byteLength(source.slice(0, error.origin.utf16[0])));
+  }
+  const source = 'class C { int f; int P { get; set; } T F<T>(T value) { return value; } }';
+  const members = parser(source).csharpUnit().declarations[0].members;
+  assert.equal(members[0].fields[0].name.spelling, 'f');
+  assert.equal(members[1].kind, 'property'); assert.equal(members[1].name.spelling, 'P');
+  assert.equal(members[2].kind, 'method'); assert.equal(members[2].name.spelling, 'F');
+  assert.deepEqual(members[2].typeParameters.map(parameter => parameter.name.spelling), ['T']);
+});
+
+test('selected JavaScript const requires initializer in statement/export/block and ordinary for contexts', () => {
+  for (const source of ['const x;', 'const x', 'const x, y = 1;', 'const x = 1, y;', '{ const x; }',
+    'export const x;', 'for (const x;;) {}', 'for (const x, y = 1;;) {}',
+    'for (const x = 1 of xs) {}', 'for (const x = 1 in xs) {}', 'for (const x, y of xs) {}'])
+    assert.throws(() => parser(source, 'javascript').javascriptUnit(), error => isSourceDenialCode(error, 'INVALID_SYNTAX'));
+  for (const source of ['const x = 1;', 'export const x = 1;', '{ const x = 1; }', 'let x;',
+    'for (const x = 1; x < 2;) {}', 'for (const x of xs) {}', 'for (const x in xs) {}',
+    'for (const [x] of xs) {}', 'for (const {x} in xs) {}', 'for await (const x of xs) {}']) {
+    const unit = parser(source, 'javascript').javascriptUnit();
+    assert.equal(unit.kind, 'unit'); assert.equal(unit.statements.length, 1);
+    if (unit.statements[0].kind === 'jsForEach') {
+      const head = unit.statements[0].initializer;
+      assert.equal(head.category, 'const'); assert.equal(head.declarations.length, 1);
+      assert.equal(head.declarations[0].initializer, null);
+    }
+  }
+});
 test('genuine selected syntax denials retain intended speculation fallback', () => {
   for (const code of ['INVALID_SYNTAX', 'UNSUPPORTED_FORM']) {
     const p = parser('(x)');

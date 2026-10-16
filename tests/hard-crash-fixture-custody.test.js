@@ -27,7 +27,7 @@ const execFileAsync = promisify(execFile);
 
 test("closed diagnostic operation observation refuses foreign, copied, primitive and getter tags", () => {
   for (const value of [null, undefined, false, 0, "initialization_diagnostic_hold_acquire", {},
-    { stage: "initialization_diagnostic_hold_acquire" }, { operation: "ready_receipt", childOperation: "bootstrap" }, new Error("initialization_diagnostic_hold_acquire"),
+    { stage: "initialization_diagnostic_hold_acquire" }, { operation: "ready_receipt", childOperation: "bootstrap", transportReason: "stderr_content" }, new Error("initialization_diagnostic_hold_acquire"),
     new Proxy({}, { get() { throw new Error("PRIVATE-GETTER"); } })])
     { assert.equal(fixtureDiagnosticFailureObservation(value), undefined); assert.equal(diagnosticHoldFailureObservation(value), undefined); }
   const foreign = {};
@@ -36,7 +36,7 @@ test("closed diagnostic operation observation refuses foreign, copied, primitive
   assert.equal(fixtureDiagnosticFailureObservation(foreign), undefined);
   assert.equal(diagnosticHoldFailureObservation(foreign), undefined);
   assert.equal(Object.isFrozen(FIXTURE_DIAGNOSTIC_OPERATION_STAGES), true);
-  assert.equal(FIXTURE_DIAGNOSTIC_OPERATION_STAGES.length, 12);
+  assert.equal(FIXTURE_DIAGNOSTIC_OPERATION_STAGES.length, 30);
 });
 
 const diagnosticProjectionSurrogate = async ({ primary, primaryStage, failures = [], initialize = async () => {} }) => {

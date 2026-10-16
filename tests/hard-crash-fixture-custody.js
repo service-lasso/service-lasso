@@ -5,7 +5,7 @@ import { execFile } from "node:child_process";
 import path from "node:path";
 import { holdFixtureRoot, holdDiagnosticFixtureRoot } from "./fixture-root-custody.js";
 import { diagnosticHoldFailureObservation } from "./fixture-diagnostic-root-custody.js";
-import { DIAGNOSTIC_HOLD_PARENT_OPERATIONS, DIAGNOSTIC_HOLD_CHILD_OPERATIONS } from "./fixture-diagnostic-hold-protocol.js";
+import { DIAGNOSTIC_HOLD_PARENT_OPERATIONS, DIAGNOSTIC_HOLD_CHILD_OPERATIONS, DIAGNOSTIC_HOLD_TRANSPORT_REASONS } from "./fixture-diagnostic-hold-protocol.js";
 import { createPrivateDiagnosticDirectory } from "./fixture-diagnostic-creator.js";
 import { captureFixtureErrors, retainFixtureOriginals, fixtureOriginalsMatch } from "./fixture-private-error-capture.js";
 export { fixtureOriginalsMatch };
@@ -179,6 +179,7 @@ export const FIXTURE_DIAGNOSTIC_OPERATION_STAGES = Object.freeze([
   "initialization_diagnostic_handoff",
   ...DIAGNOSTIC_HOLD_PARENT_OPERATIONS.map(operation => `initialization_diagnostic_hold_${operation}`),
   ...DIAGNOSTIC_HOLD_CHILD_OPERATIONS.map(operation => `initialization_diagnostic_guardian_${operation}`),
+  ...DIAGNOSTIC_HOLD_TRANSPORT_REASONS.map(reason => `initialization_diagnostic_transport_${reason}`),
 ]);
 export const FIXTURE_ASSERTION_STAGES = Object.freeze([
   "injection_reader_presence", "injection_reader_read", "injection_reader_empty",
@@ -558,6 +559,8 @@ export async function closeFixture({ primary, primaryOccurred = primary !== unde
             ownedDiagnosticOperations.add(`initialization_diagnostic_hold_${operation.hold.operation}`);
           if (DIAGNOSTIC_HOLD_CHILD_OPERATIONS.includes(operation.hold.childOperation))
             ownedDiagnosticOperations.add(`initialization_diagnostic_guardian_${operation.hold.childOperation}`);
+          if (DIAGNOSTIC_HOLD_TRANSPORT_REASONS.includes(operation.hold.transportReason))
+            ownedDiagnosticOperations.add(`initialization_diagnostic_transport_${operation.hold.transportReason}`);
         }
       }
     }

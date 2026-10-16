@@ -257,6 +257,8 @@ export class SelectedJavaScriptSyntax extends SelectedSyntax {
       const start = this.peek(), pattern = this.jsPattern(false), initializer = this.take('=') ? this.jsExpression(1) : null;
       declarations.push(this.node('jsVariableDeclarator', start, { pattern, initializer }));
     } while (this.take(','));
+    if (terminate && first.spelling === 'const' && declarations.some(declaration => declaration.initializer === null))
+      deny('INVALID_SYNTAX', 'const declaration requires initializer', first.origin);
     if (terminate) this.semicolon();
     return this.node('jsVariableDeclaration', first, { category: first.spelling, declarations });
   }
@@ -285,11 +287,15 @@ export class SelectedJavaScriptSyntax extends SelectedSyntax {
       try { initializer = this.word() === ';' ? null : ['const', 'let'].includes(this.word()) ? this.jsVariables(false) : this.jsExpression(0); }
       finally { this.allowIn = oldAllowIn; }
       if (['of', 'in'].includes(this.word())) {
+        if (initializer?.kind === 'jsVariableDeclaration' && (initializer.declarations.length !== 1 || initializer.declarations[0].initializer !== null))
+          deny('INVALID_SYNTAX', 'for-in/of lexical head requires one uninitialized binding', first.origin);
         const operation = this.consume().spelling, sequence = this.jsExpression(0); this.need(')');
         if (async && operation !== 'of') deny('INVALID_SYNTAX', 'for await requires of', first.origin);
         return this.node('jsForEach', first, { async, operation, initializer, sequence, body: this.jsControl('loop', () => this.jsStatement()) });
       }
       if (async) deny('INVALID_SYNTAX', 'for await requires of', first.origin);
+      if (initializer?.kind === 'jsVariableDeclaration' && initializer.category === 'const' && initializer.declarations.some(declaration => declaration.initializer === null))
+        deny('INVALID_SYNTAX', 'const declaration requires initializer', first.origin);
       this.need(';'); const test = this.word() === ';' ? null : this.jsExpression(0); this.need(';');
       const increment = this.word() === ')' ? null : this.jsExpression(0); this.need(')');
       return this.node('for', first, { initializer, test, increment, body: this.jsControl('loop', () => this.jsStatement()) });

@@ -533,6 +533,7 @@ export class SelectedSyntax {
       const body = this.take(';') ? null : this.block();
       return this.declaration('method', first, { name, attributes, modifiers: flags, returnType: type, typeParameters, parameters, constraints, body });
     }
+    if (typeParameters.length) deny('INVALID_SYNTAX', 'nonmethod member cannot declare type parameters', name.origin);
     if (this.take('{')) {
       const accessors = [];
       while (this.word() !== '}') {

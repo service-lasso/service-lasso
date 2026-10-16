@@ -37,6 +37,7 @@ export async function holdDiagnosticRootWindows(root, diagnosticRoot) {
       callerPid, childPid: child.pid, callerIdentity, nativeIdentity, guardianWitness: state.readyWitness,
       closure: { closed: state.closed, exit: state.exit }, stdoutEof: state.stdoutEof, stderrEof: state.stderrEof,
       stdinFinished: state.stdinFinished, childFailure: state.childFailure,
+      firstTransportReason: state.firstFailureRecorded ? state.firstFailure.reason : undefined,
       stdout: { bytes: state.stdout.length, observedBytes: state.stdoutCount, sha256: createHash("sha256").update(state.stdout).digest("hex") },
       stderr: { bytes: state.stderr.length, observedBytes: state.stderrCount, sha256: createHash("sha256").update(state.stderr).digest("hex") },
     }), { flag: "wx", mode: 0o600 }); } catch (original) { failures.push(original); }
@@ -44,14 +45,16 @@ export async function holdDiagnosticRootWindows(root, diagnosticRoot) {
   };
   if (acquisition.failed) {
     const primary = acquisition.original, operationFailure = acquisition.operationFailure;
-    const errors = [primary];
+    const errors = [primary, ...acquisition.observationFailures];
     try { await transport.release(); } catch (original) { errors.push(original); }
     try { await retainReceipt(); } catch (original) { errors.push(original); }
     const aggregate = new AggregateError(errors, "Fixture handle acquisition failed.");
-    privateReceiptByError.set(aggregate, transport.snapshot());
+    privateReceiptByError.set(aggregate, transport);
     if (operationFailure && Object.is(operationFailure.original, primary)) {
-      const state = transport.snapshot();
-      observationByError.set(aggregate, Object.freeze({ operation: operationFailure.operation, childOperation: state.childFailure }));
+      const state = transport.failureObservation();
+      const transportReason = acquisition.transportFailure && Object.is(acquisition.transportFailure.original, primary)
+        ? acquisition.transportFailure.reason : undefined;
+      observationByError.set(aggregate, Object.freeze({ operation: operationFailure.operation, childOperation: state.childFailure, transportReason }));
     }
     throw aggregate;
   }
@@ -61,7 +64,7 @@ export async function holdDiagnosticRootWindows(root, diagnosticRoot) {
     try { await retainReceipt(); } catch (original) { errors.push(original); }
     if (errors.length) {
       const aggregate = new AggregateError(errors, "Fixture guardian settlement failed.");
-      privateReceiptByError.set(aggregate, transport.snapshot());
+      privateReceiptByError.set(aggregate, transport);
       throw aggregate;
     }
   } };
