@@ -4,6 +4,8 @@ import { createHash, randomBytes } from "node:crypto";
 import { execFile } from "node:child_process";
 import path from "node:path";
 import { holdFixtureRoot, holdDiagnosticFixtureRoot } from "./fixture-root-custody.js";
+import { diagnosticHoldFailureObservation } from "./fixture-diagnostic-root-custody.js";
+import { DIAGNOSTIC_HOLD_PARENT_OPERATIONS, DIAGNOSTIC_HOLD_CHILD_OPERATIONS } from "./fixture-diagnostic-hold-protocol.js";
 import { createPrivateDiagnosticDirectory } from "./fixture-diagnostic-creator.js";
 import { captureFixtureErrors, retainFixtureOriginals, fixtureOriginalsMatch } from "./fixture-private-error-capture.js";
 export { fixtureOriginalsMatch };
@@ -175,6 +177,8 @@ export const FIXTURE_DIAGNOSTIC_OPERATION_STAGES = Object.freeze([
   "initialization_diagnostic_privacy_call", "initialization_diagnostic_hold_acquire",
   "initialization_diagnostic_hold_verify", "initialization_diagnostic_birth_verify",
   "initialization_diagnostic_handoff",
+  ...DIAGNOSTIC_HOLD_PARENT_OPERATIONS.map(operation => `initialization_diagnostic_hold_${operation}`),
+  ...DIAGNOSTIC_HOLD_CHILD_OPERATIONS.map(operation => `initialization_diagnostic_guardian_${operation}`),
 ]);
 export const FIXTURE_ASSERTION_STAGES = Object.freeze([
   "injection_reader_presence", "injection_reader_read", "injection_reader_empty",
@@ -281,8 +285,11 @@ export function createFixtureEvidenceBoundary(root, { beforeInitializationStep, 
           catch (cause) {
             const error = new Error("Fixture initialization rejected.", { cause });
             if (stage === "initialization_diagnostic_privacy" && diagnosticOperationFailure &&
-                Object.is(diagnosticOperationFailure.original, cause))
-              diagnosticOperationByError.set(error, { boundary, stage: diagnosticOperationFailure.stage });
+                Object.is(diagnosticOperationFailure.original, cause)) {
+              const hold = diagnosticOperationFailure.stage === "initialization_diagnostic_hold_acquire"
+                ? diagnosticHoldFailureObservation(cause) : undefined;
+              diagnosticOperationByError.set(error, { boundary, stage: diagnosticOperationFailure.stage, hold });
+            }
             const transport = transportByError.get(cause);
             if (transport) { transportByError.set(error, transport); transportByBoundary.set(boundary, transport); }
             error.fixtureInitializationStage = stage;
@@ -526,11 +533,11 @@ export async function closeFixture({ primary, primaryOccurred = primary !== unde
   let removalAttempted = false;
   let resetState = "not_attempted";
   let environment = "restored";
-  let ownedDiagnosticOperation;
+  const ownedDiagnosticOperations = new Set();
   const stages = ["action", "fixture_initialization", ...FIXTURE_INITIALIZATION_STAGES, ...FIXTURE_DIAGNOSTIC_OPERATION_STAGES, "crash_spawn", "crash_exit", "interrupted_read", "recovery_inspection", "recovery_startup", "injection_assertions", ...FIXTURE_ASSERTION_STAGES, "post_compensation", "direct_child", "server_stop", "enrollment_observation", "snapshot", "stop", "finalization", "inspection", "absence", "preservation", "removal", "reset", "environment", "custody", "evidence_state", "original_identity", "original_readback", "copy_verification", "privacy", "held_release", "diagnostic", "private_diagnostic"];
   const stageName = (stage) => stages.includes(stage) && !FIXTURE_DIAGNOSTIC_OPERATION_STAGES.includes(stage) ? stage : "action";
   const projection = () => Object.fromEntries(stages.map(stage => [stage,
-    (FIXTURE_DIAGNOSTIC_OPERATION_STAGES.includes(stage) ? ownedDiagnosticOperation === stage :
+    (FIXTURE_DIAGNOSTIC_OPERATION_STAGES.includes(stage) ? ownedDiagnosticOperations.has(stage) :
       failures.some(entry => stageName(entry.stage) === stage) || (primaryOccurred && stageName(primaryStage) === stage)) ? "failed" : "clear"]));
   const originals = () => [
     ...(primaryOccurred ? [{ stage: stageName(primaryStage), error: primary }] : []),
@@ -544,8 +551,15 @@ export async function closeFixture({ primary, primaryOccurred = primary !== unde
         failures.push({ stage: evidence.initializationStage, error });
       }
       const operation = weakKey(error) ? diagnosticOperationByError.get(error) : undefined;
-      if (operation?.boundary === evidence && FIXTURE_DIAGNOSTIC_OPERATION_STAGES.includes(operation.stage))
-        ownedDiagnosticOperation = operation.stage;
+      if (operation?.boundary === evidence && FIXTURE_DIAGNOSTIC_OPERATION_STAGES.includes(operation.stage)) {
+        ownedDiagnosticOperations.add(operation.stage);
+        if (operation.stage === "initialization_diagnostic_hold_acquire" && operation.hold) {
+          if (DIAGNOSTIC_HOLD_PARENT_OPERATIONS.includes(operation.hold.operation))
+            ownedDiagnosticOperations.add(`initialization_diagnostic_hold_${operation.hold.operation}`);
+          if (DIAGNOSTIC_HOLD_CHILD_OPERATIONS.includes(operation.hold.childOperation))
+            ownedDiagnosticOperations.add(`initialization_diagnostic_guardian_${operation.hold.childOperation}`);
+        }
+      }
     }
     result = await custody.settle(adapter);
     failures.push(...result.failures);

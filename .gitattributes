@@ -20,4 +20,5 @@ tests/fixtures/windows-held-exit-probe.cs text eol=lf
 tests/fixtures/windows-held-exit-probe.exe binary
 tests/fixtures/windows-held-exit-probe.provenance.json text eol=lf
 tests/fixture-diagnostic-creator.ps1 text eol=lf
+tests/fixture-diagnostic-hold.ps1 text eol=lf
 .governance/project/ga-platform-scope.json -text

@@ -4,6 +4,8 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { inspectProcess } from "../dist/runtime/process/identity.js";
+import { holdDiagnosticRootWindows } from "./fixture-diagnostic-root-custody.js";
+import { encodeGuardianCommand } from "./fixture-diagnostic-hold-protocol.js";
 
 // This helper owns only fixture filesystem handles, never process signaling
 // authority. The Windows child holds original directory handles through copy
@@ -98,8 +100,9 @@ export async function holdDiagnosticFixtureRoot(root, diagnosticRoot) { return h
 async function holdRoot(root, diagnosticRoot, diagnosticRole) {
   root = path.resolve(root);
   if (process.platform === "win32") {
+    if (diagnosticRole) return holdDiagnosticRootWindows(root, diagnosticRoot);
     const child = spawn(path.join(process.env.SystemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
-      ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(guardianScript, "utf16le").toString("base64")],
+      ["-NoProfile", "-NonInteractive", "-EncodedCommand", encodeGuardianCommand(guardianScript)],
       { windowsHide: true, stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, SERVICE_LASSO_HELD_FIXTURE_ROOT: root } });
     let pending, output = "", privateError = "", closed = false;
     let stdoutEof = false, stderrEof = false, nativeIdentity, callerIdentity, guardianWitness;

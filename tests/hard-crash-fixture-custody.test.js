@@ -10,6 +10,7 @@ import { createFixtureCustody, closeFixture, createFixtureCleanupAdapter, create
 import { fixturePrivacyScript } from "./fixture-privacy-custody.js";
 import { fixturePrivacyBootstrap, createFixturePrivacyDecoder, FIXTURE_PRIVACY_FAILURE_OPERATIONS } from "./fixture-privacy-transport.js";
 import { registerFixturePrivacyTransportTests } from "./fixture-privacy-transport-regressions.js";
+import { diagnosticHoldFailureObservation } from "./fixture-diagnostic-root-custody.js";
 registerFixturePrivacyTransportTests();
 import { registerDiagnosticCreatorRegressions } from "./fixture-diagnostic-creator-regressions.js";
 registerDiagnosticCreatorRegressions();
@@ -26,15 +27,16 @@ const execFileAsync = promisify(execFile);
 
 test("closed diagnostic operation observation refuses foreign, copied, primitive and getter tags", () => {
   for (const value of [null, undefined, false, 0, "initialization_diagnostic_hold_acquire", {},
-    { stage: "initialization_diagnostic_hold_acquire" }, new Error("initialization_diagnostic_hold_acquire"),
+    { stage: "initialization_diagnostic_hold_acquire" }, { operation: "ready_receipt", childOperation: "bootstrap" }, new Error("initialization_diagnostic_hold_acquire"),
     new Proxy({}, { get() { throw new Error("PRIVATE-GETTER"); } })])
-    assert.equal(fixtureDiagnosticFailureObservation(value), undefined);
+    { assert.equal(fixtureDiagnosticFailureObservation(value), undefined); assert.equal(diagnosticHoldFailureObservation(value), undefined); }
   const foreign = {};
   for (const key of ["code", "message", "stage", "fixtureInitializationStage", "diagnosticOperation"])
     Object.defineProperty(foreign, key, { get() { assert.fail("Foreign thrown properties cannot classify an operation."); } });
   assert.equal(fixtureDiagnosticFailureObservation(foreign), undefined);
+  assert.equal(diagnosticHoldFailureObservation(foreign), undefined);
   assert.equal(Object.isFrozen(FIXTURE_DIAGNOSTIC_OPERATION_STAGES), true);
-  assert.equal(FIXTURE_DIAGNOSTIC_OPERATION_STAGES.length, 5);
+  assert.equal(FIXTURE_DIAGNOSTIC_OPERATION_STAGES.length, 12);
 });
 
 const diagnosticProjectionSurrogate = async ({ primary, primaryStage, failures = [], initialize = async () => {} }) => {
