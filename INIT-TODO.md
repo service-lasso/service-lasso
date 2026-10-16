@@ -1332,3 +1332,16 @@ Published binder report is a source hypothesis, not current-native cause proof.
 No diagnostic grammar, privileges, ACLs, timeout or privacy authority changes.
 Full fresh ENTIRE review and NEW complete actual-input ROOT remain required;
 all local target execution remains NOT_RUN. Native exact-head CI is separate.
+#1562 ENTIRE89c SOURCE_GO is source-only, not execution admission. Before any
+execution, close the confirmed sparse language-profile tuple gap with two own
+indexed finite integer components; prospective sparse/inherited-hole/NaN
+regressions require authentic INVALID_BINDING. CORE1562_OWNER_POLICY_ROLE_DIAGNOSTIC.md
+selects owner_ancestor/owner_original/owner_protect FAILED operations at their
+source-owned unchanged checks. Single explicit failure-operation catalogue
+feeds fixed JSON grammar, custody/history and tests; no positional native
+ranges, extra event, raw SID/path/error, privilege, allowlist or ACL changes.
+Protect roles cannot count as read-only verification. Foreign-owner evidence
+narrows ambiguous owner to owner_original/acquire while retaining different
+native owner and unchanged ACL assertions; no fixture is fabricated. Original
+compiler313/assertions/opaque originals/timeouts remain. Fresh ENTIRE source
+review and NEW complete actual-input admission precede all local target work.

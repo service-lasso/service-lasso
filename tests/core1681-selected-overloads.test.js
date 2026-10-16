@@ -2041,6 +2041,15 @@ test('no generic fallback and missing profile or constraint evidence remain hard
     fixture.environment[missing] = missing === 'parameterConstraints' ? new Map() : undefined;
     assert.throws(() => fixture.invoke(group, call, caller), error => isSourceDenialCode(error, 'INVALID_BINDING'));
   }
+  const inheritedVersion = new Array(2);
+  Object.setPrototypeOf(inheritedVersion, { 0: 5, 1: 0 });
+  for (const invalid of [new Array(2), [, 0], [5, ,], inheritedVersion, [NaN, 0], [Infinity, 0], [5, -1], [5, 0.5]]) {
+    const fixture = bindFixture(program);
+    const caller = fixture.entry('Invoke'), call = caller.syntax.body.statements[0].value;
+    const group = fixture.group(fixture.type('C'), call, caller);
+    fixture.environment.csharpLanguageVersion = invalid;
+    assert.throws(() => fixture.invoke(group, call, caller), error => isSourceDenialCode(error, 'INVALID_BINDING'));
+  }
 });
 
 test('applicable derived declaration suppresses exact base conversion only after applicability', () => {

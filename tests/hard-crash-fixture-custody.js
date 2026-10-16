@@ -6,16 +6,14 @@ import path from "node:path";
 import { holdFixtureRoot } from "./fixture-root-custody.js";
 import { verifyDisposableTestFixture, removeDisposableTestFixture } from "./disposable-test-fixture.js";
 import { fixturePrivacyScript } from "./fixture-privacy-custody.js";
-import { fixturePrivacyBootstrap, createFixturePrivacyDecoder } from "./fixture-privacy-transport.js";
+import { fixturePrivacyBootstrap, createFixturePrivacyDecoder, FIXTURE_PRIVACY_FAILURE_OPERATIONS } from "./fixture-privacy-transport.js";
+export { FIXTURE_PRIVACY_FAILURE_OPERATIONS } from "./fixture-privacy-transport.js";
 
 export const FIXTURE_PRIVACY_RESULTS = Object.freeze([
-  "not_attempted", "passed", "compiler", "prepare", "acquire", "information",
-  "type", "redirect", "security", "owner", "inventory", "identity",
-  "descriptor", "protect", "readback", "release", "spawn_unavailable",
+  "not_attempted", "passed", ...FIXTURE_PRIVACY_FAILURE_OPERATIONS, "spawn_unavailable",
   "timeout_unavailable", "response_unavailable", "malformed_response",
   "launch_unavailable", "bootstrap_unavailable",
 ]);
-const nativePrivacyOperations = FIXTURE_PRIVACY_RESULTS.slice(2, 16);
 const privacyByError = new WeakMap();
 const privacyByBoundary = new WeakMap();
 const transportByError = new WeakMap();
@@ -34,7 +32,7 @@ export function decodeFixturePrivacyResponse(stdout) {
   if (!response || response[0].length !== stdout.length) return undefined;
   if (response[1] === "passed" && response[2] === "null") return "passed";
   const operation = response[2].slice(1, -1);
-  if (response[1] === "failed" && nativePrivacyOperations.includes(operation)) return operation;
+  if (response[1] === "failed" && FIXTURE_PRIVACY_FAILURE_OPERATIONS.includes(operation)) return operation;
   return undefined;
 }
 export function fixturePrivacyFailureObservation(error) {

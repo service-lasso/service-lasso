@@ -18,9 +18,12 @@ export function bindSelectedInvocation(methodGroup, actuals, explicitTypes, envi
   if (typeof environment.resolveOriginalDefaults !== 'function' || typeof environment.delegateSignature !== 'function')
     deny('INVALID_BINDING', 'invocation requires the independent default and delegate signature binders');
   const version = environment.csharpLanguageVersion;
-  if (!Array.isArray(version) || version.length !== 2 || version.some(value => !Number.isSafeInteger(value) || value < 0))
+  if (!Array.isArray(version) || version.length !== 2 || !Object.hasOwn(version, 0) || !Object.hasOwn(version, 1))
     deny('INVALID_BINDING', 'invocation requires its actual compiler-input language version', originalCall.origin);
-  const pruneOwnConstraintMismatch = version[0] > 7 || version[0] === 7 && version[1] >= 3;
+  const major = version[0], minor = version[1];
+  if (!Number.isSafeInteger(major) || major < 0 || !Number.isSafeInteger(minor) || minor < 0)
+    deny('INVALID_BINDING', 'invocation requires its actual compiler-input language version', originalCall.origin);
+  const pruneOwnConstraintMismatch = major > 7 || major === 7 && minor >= 3;
   const candidates = [];
   const deferredOwnConstraints = new Map();
   for (const original of methodGroup) {

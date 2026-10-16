@@ -8,7 +8,7 @@ import { promisify } from "node:util";
 import { randomBytes } from "node:crypto";
 import { createFixtureCustody, closeFixture, createFixtureCleanupAdapter, createFixtureEvidenceBoundary, verifyOriginalFixturePrivacy, protectOriginalFixture, decodeFixturePrivacyResponse, classifyFixturePrivacyCompletion, fixturePrivacyFailureObservation, FIXTURE_ASSERTION_STAGES, FIXTURE_PRIVACY_RESULTS } from "./hard-crash-fixture-custody.js";
 import { fixturePrivacyScript } from "./fixture-privacy-custody.js";
-import { fixturePrivacyBootstrap, createFixturePrivacyDecoder } from "./fixture-privacy-transport.js";
+import { fixturePrivacyBootstrap, createFixturePrivacyDecoder, FIXTURE_PRIVACY_FAILURE_OPERATIONS } from "./fixture-privacy-transport.js";
 import { registerFixturePrivacyTransportTests } from "./fixture-privacy-transport-regressions.js";
 registerFixturePrivacyTransportTests();
 import { holdFixtureRoot } from "./fixture-root-custody.js";
@@ -30,8 +30,9 @@ const privateAclReadback = async (directory) => {
 test("fixture privacy response admits only the exact enum channel", () => {
   const response = (outcome, operation) => JSON.stringify({ schema: "service-lasso.fixture-privacy-response.v1", outcome, operation });
   assert.equal(decodeFixturePrivacyResponse(response("passed", null)), "passed");
-  for (const operation of FIXTURE_PRIVACY_RESULTS.slice(2, 16)) {
+  for (const operation of FIXTURE_PRIVACY_FAILURE_OPERATIONS) {
     assert.equal(decodeFixturePrivacyResponse(response("failed", operation)), operation);
+    assert.equal(decodeFixturePrivacyResponse(response("passed", operation)), undefined);
   }
   for (const value of [null, {}, [], "", "PRIVATE-NATIVE-ERROR", response("passed", "owner"),
     response("failed", null), response("failed", "spawn_unavailable"), response("failed", "PRIVATE-PATH"),
@@ -441,8 +442,8 @@ test("public protector and initializer reject a ROOT-provisioned foreign owner",
     await assert.rejects(protectOriginalFixture(foreign), error => {
       if (process.platform === "win32") {
         const observation = fixturePrivacyFailureObservation(error);
-        assert.ok(["owner", "acquire"].includes(observation.verification));
-        assert.ok(["owner", "acquire"].includes(observation.protection));
+        assert.ok(["owner_original", "acquire"].includes(observation.verification));
+        assert.ok(["owner_original", "acquire"].includes(observation.protection));
       }
       return true;
     });

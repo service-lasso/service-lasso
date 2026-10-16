@@ -266,6 +266,33 @@ test("actual fallback success accounts failed verification plus passed protectio
   assert.equal(row.projection.privacy.originalVerificationTransport.state, "complete");
   assert.equal(row.projection.privacy.originalProtectionTransport.state, "complete");
 });
+
+test("closed owner roles retain private failures and complete diagnostics without privacy success", async () => {
+  for (const role of ["owner_ancestor", "owner_original"]) {
+    const original = new Error("PRIVATE-OWNER-ORIGINAL");
+    const row = await failure({ originalResult: role, originalError: original });
+    assert.equal(row.projection.complete, true);
+    assert.equal(row.projection.primaryStage, "original_privacy");
+    assert.equal(row.projection.privacy.originalProtection.verification, role);
+    assert.equal(row.projection.privacy.originalProtection.protection, role);
+    assert.equal(row.error.errors[0].errors[0], original);
+    assert.equal(row.projection.cleanup.find(entry => entry.stage === "removal").state, "not_attempted");
+  }
+  const first = new Error("PRIVATE-VERIFY-ORIGINAL"), second = new Error("PRIVATE-PROTECT-ORIGINAL");
+  const row = await failure({ protect: (_root, observe) => protectOriginalFixture("PRIVATE-ROOT", observe,
+    async (_name, protect, deliver) => {
+      const operation = protect ? "owner_protect" : "owner_original";
+      deliver(operation, frames(operation)); throw protect ? second : first;
+    }) });
+  assert.equal(row.projection.complete, true);
+  assert.equal(row.projection.primaryStage, "original_privacy");
+  assert.deepEqual(row.error.errors[0].errors, [first, second]);
+  assert.equal(row.projection.privacy.originalProtection.verification, "owner_original");
+  assert.equal(row.projection.privacy.originalProtection.protection, "owner_protect");
+  assert.equal(row.projection.cleanup.find(entry => entry.stage === "removal").state, "not_attempted");
+  const invalid = await failure({ originalResult: "owner_protect", originalError: first });
+  assert.equal(invalid.projection.complete, false, "Protect role cannot occur in read-only verification");
+});
 for (const shape of ["expanded", "duplicate", "contradictory", "getter"]) {
   test(`actual privacy callback ${shape} observation forces false`, async () => {
     const row = await failure({ protect: async (_root, observe) => {
