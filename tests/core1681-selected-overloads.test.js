@@ -462,6 +462,8 @@ test('original cast disambiguation follows grammar before identifier type lookup
     ['(Unknown)value', 'cast'], ['(IntPtr)value', 'cast'],
     ['(x)-y', 'binary'], ['(int)-y', 'cast'], ['(x)(-y)', 'cast'],
     ['(Unknown<int>)-y', 'cast'],
+    ["(System.Int32)'a'", 'cast'], ["(I)'a'", 'cast'],
+    ['(value)+y', 'binary'], ['(value)', 'group'],
   ]) {
     const counter = createProofCounter();
     const original = new SelectedSyntax(Buffer.from(
@@ -473,6 +475,25 @@ test('original cast disambiguation follows grammar before identifier type lookup
     assert.equal(value.kind, expected);
     if (expression === '(x)-y') assert.equal(value.left.kind, 'group');
     if (expression === '(int)-y') assert.equal(value.operand.kind, 'unary');
+  }
+});
+
+test('qualified and imported Int32 casts bind actual char literals through existing scalar integral transfer', () => {
+  for (const [prefix, target] of [['', 'System.Int32'], ['using I = System.Int32; ', 'I']]) {
+    const counter = createProofCounter();
+    const compilation = bindSelectedCsharpCompilation([
+      { unit: 'char-cast.cs', compilation: 'original-char-cast', role: 'source', rawBytes: Buffer.from(
+        `${prefix}class C { int F() { unchecked { return (${target})'a'; } } }`, 'utf8') },
+      { unit: 'symbolic.cs', compilation: 'fixture-symbolic', role: 'catalogue', rawBytes: Buffer.from(symbolicFixture, 'utf8') },
+    ], counter);
+    const method = compilation.enumeration.find(entry => entry.syntax.kind === 'method' && entry.syntax.name.spelling === 'F');
+    const body = bindSelectedCsharpScalarBody(compilation, method.declId, { counter, typeIndex: compilation.index,
+      declarationMetadata: compilation.bound.declarationMetadata, parameterConstraints: compilation.bound.parameterConstraints,
+      typeGraph: compilation.typeGraph, languageVersion: [5, 0] });
+    const casts = body.nodes.filter(node => node.operation === 'explicitCast');
+    assert.equal(casts.length, 1);
+    assert.deepEqual(casts[0].conversion, { kind: 'explicitIntegral', source: 'char', target: 'int', checkedContext: false });
+    assert.equal(checkSelectedScalarBody(compilation, body, counter).sourceAdmission, false);
   }
 });
 

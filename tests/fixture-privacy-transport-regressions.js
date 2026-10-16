@@ -46,7 +46,10 @@ export function registerFixturePrivacyTransportTests() {
       // Explicit owned-child SURROGATE: not actual native owner identity.
       const priorSystemRoot = process.env.SystemRoot; process.env.SystemRoot ??= "C:\\Windows";
       try {
-        await assert.rejects(() => runFixturePrivacy("PRIVATE-ROOT", role === "p", value => { reported = value; }, launch), value => value === original);
+        let caught = false;
+        try { await runFixturePrivacy("PRIVATE-ROOT", role === "p", value => { reported = value; }, launch); }
+        catch (actual) { caught = true; assert.strictEqual(actual, original); }
+        assert.equal(caught, true);
       } finally { if (priorSystemRoot === undefined) delete process.env.SystemRoot; else process.env.SystemRoot = priorSystemRoot; }
       assert.equal(reported, operation);
     }

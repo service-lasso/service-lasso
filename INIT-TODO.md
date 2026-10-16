@@ -1345,3 +1345,4 @@ narrows ambiguous owner to owner_original/acquire while retaining different
 native owner and unchanged ACL assertions; no fixture is fabricated. Original
 compiler313/assertions/opaque originals/timeouts remain. Fresh ENTIRE source
 review and NEW complete actual-input admission precede all local target work.
+#1562 / AC-4DI.4 c7df ENTIRE60 repair: CORE1562_C7DF_ENTIRE_REPAIR.md maps exact opaque-original observer and qualified/alias char-cast corrections, actual-source regressions and preserved unsupported nonvalue-body boundary. Source-only UNRUN; fresh DIFFERENT ENTIRE review and actual-input admission required.

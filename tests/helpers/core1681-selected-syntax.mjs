@@ -199,7 +199,7 @@ export class SelectedSyntax {
         !segments[0].name.escapedIdentifier && builtinTypes.has(segments[0].name.spelling)) return true;
     const following = this.peek();
     return ['~', '!', '('].includes(following.spelling) ||
-      ['number', 'string', 'character', 'interpolatedStart'].includes(following.kind) ||
+      ['number', 'string', 'char', 'interpolatedStart'].includes(following.kind) ||
       following.kind === 'identifier' && !['as', 'is'].includes(following.spelling);
   }
   primary(allowLambda = true) {
