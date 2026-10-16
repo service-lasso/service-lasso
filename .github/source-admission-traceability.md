@@ -346,3 +346,12 @@ replacement. Different intent review precedes child/parser implementation;
 then new entire final review and NEW complete input/command ROOT. No further
 handwritten lexer patch, source snapshot or target-script execution. Independent
 fixture/helper/opaque-denial work remains active; no whole-delivery pause.
+
+#1562 F25 AST intent revision1 addresses independent REVISIONS_REQUIRED:
+complete outer/function signatures/defaults/attributes/named blocks/traps,
+whole ordered rooted caller interval and protected helper bodies, precise AST
+member/command/assignment roles, strict source/JSON/schema/child closure and
+expected-denial identities, fixed physical command/env proposal, and actual
+source/transport adversaries. Tool source mapping remains UNQUALIFIED. This is
+intent only; different review precedes implementation and NEW ROOT precedes
+execution. Existing handwritten witness remains scoped blocked SOURCE_NO_GO.
