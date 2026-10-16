@@ -21,8 +21,10 @@ const privacyByError = new WeakMap();
 const privacyByBoundary = new WeakMap();
 const transportByError = new WeakMap();
 const transportByBoundary = new WeakMap();
+const diagnosticOperationByError = new WeakMap();
 const weakKey = value => value !== null && (typeof value === "object" || typeof value === "function");
 export function fixturePrivacyTransportFailureObservation(error) { return weakKey(error) ? transportByError.get(error) : undefined; }
+export function fixtureDiagnosticFailureObservation(error) { return weakKey(error) ? diagnosticOperationByError.get(error) : undefined; }
 const privacyObservation = (verification = "not_attempted", protection = "not_attempted") =>
   Object.freeze({ schema: "service-lasso.fixture-privacy-observation.v1", verification, protection });
 
@@ -169,6 +171,11 @@ export const FIXTURE_INITIALIZATION_STAGES = Object.freeze([
   "initialization_original_privacy", "initialization_held_acquire",
   "initialization_original_identity", "initialization_held_verify",
 ]);
+export const FIXTURE_DIAGNOSTIC_OPERATION_STAGES = Object.freeze([
+  "initialization_diagnostic_privacy_call", "initialization_diagnostic_hold_acquire",
+  "initialization_diagnostic_hold_verify", "initialization_diagnostic_birth_verify",
+  "initialization_diagnostic_handoff",
+]);
 export const FIXTURE_ASSERTION_STAGES = Object.freeze([
   "injection_reader_presence", "injection_reader_read", "injection_reader_empty",
   "injection_owner_read", "injection_owner_identity", "injection_owner_equality",
@@ -187,6 +194,11 @@ export function createFixtureEvidenceBoundary(root, { beforeInitializationStep, 
   let diagnosticRoot;
   let birthOwner, diagnosticCustody;
   let originalSettled = false, diagnosticSettled = false, birthSettled = false;
+  let diagnosticOperationFailure;
+  const diagnosticOperation = async (stage, action) => {
+    try { return await action(); }
+    catch (original) { diagnosticOperationFailure = { stage, original }; throw original; }
+  };
   let initialization;
   let initializationStage;
   let originalRemoved = false;
@@ -259,6 +271,7 @@ export function createFixtureEvidenceBoundary(root, { beforeInitializationStep, 
   const boundary = {
     async initialize() {
       initialization ??= (async () => {
+        diagnosticOperationFailure = undefined;
         const step = async (stage, action) => {
           initializationStage = stage;
           try {
@@ -267,6 +280,9 @@ export function createFixtureEvidenceBoundary(root, { beforeInitializationStep, 
           }
           catch (cause) {
             const error = new Error("Fixture initialization rejected.", { cause });
+            if (stage === "initialization_diagnostic_privacy" && diagnosticOperationFailure &&
+                Object.is(diagnosticOperationFailure.original, cause))
+              diagnosticOperationByError.set(error, diagnosticOperationFailure.stage);
             const transport = transportByError.get(cause);
             if (transport) { transportByError.set(error, transport); transportByBoundary.set(boundary, transport); }
             error.fixtureInitializationStage = stage;
@@ -282,14 +298,14 @@ export function createFixtureEvidenceBoundary(root, { beforeInitializationStep, 
         });
         await step("initialization_diagnostic_privacy", async () => {
           const protect = () => protectOriginalFixture(diagnosticRoot, value => { privacy = value; privacyByBoundary.set(boundary, value); });
-          if (!birthOwner) { await protect(); return; }
-          await birthOwner.borrow(protect);
+          if (!birthOwner) { await diagnosticOperation("initialization_diagnostic_privacy_call", protect); return; }
+          await birthOwner.borrow(() => diagnosticOperation("initialization_diagnostic_privacy_call", protect));
           await birthOwner.borrow(async () => {
-            diagnosticCustody = await holdDiagnosticFixtureRoot(diagnosticRoot, diagnosticRoot);
-            await diagnosticCustody.verify();
+            diagnosticCustody = await diagnosticOperation("initialization_diagnostic_hold_acquire", () => holdDiagnosticFixtureRoot(diagnosticRoot, diagnosticRoot));
+            await diagnosticOperation("initialization_diagnostic_hold_verify", () => diagnosticCustody.verify());
           });
-          await birthOwner.verify();
-          await birthOwner.handoff();
+          await diagnosticOperation("initialization_diagnostic_birth_verify", () => birthOwner.verify());
+          await diagnosticOperation("initialization_diagnostic_handoff", () => birthOwner.handoff());
         });
         await step("initialization_original_privacy", () => protectOriginalFixture(root, value => { privacy = value; privacyByBoundary.set(boundary, value); }));
         rootCustody = await step("initialization_held_acquire", () => holdFixtureRoot(root, diagnosticRoot));
@@ -510,7 +526,7 @@ export async function closeFixture({ primary, primaryOccurred = primary !== unde
   let removalAttempted = false;
   let resetState = "not_attempted";
   let environment = "restored";
-  const stages = ["action", "fixture_initialization", ...FIXTURE_INITIALIZATION_STAGES, "crash_spawn", "crash_exit", "interrupted_read", "recovery_inspection", "recovery_startup", "injection_assertions", ...FIXTURE_ASSERTION_STAGES, "post_compensation", "direct_child", "server_stop", "enrollment_observation", "snapshot", "stop", "finalization", "inspection", "absence", "preservation", "removal", "reset", "environment", "custody", "evidence_state", "original_identity", "original_readback", "copy_verification", "privacy", "held_release", "diagnostic", "private_diagnostic"];
+  const stages = ["action", "fixture_initialization", ...FIXTURE_INITIALIZATION_STAGES, ...FIXTURE_DIAGNOSTIC_OPERATION_STAGES, "crash_spawn", "crash_exit", "interrupted_read", "recovery_inspection", "recovery_startup", "injection_assertions", ...FIXTURE_ASSERTION_STAGES, "post_compensation", "direct_child", "server_stop", "enrollment_observation", "snapshot", "stop", "finalization", "inspection", "absence", "preservation", "removal", "reset", "environment", "custody", "evidence_state", "original_identity", "original_readback", "copy_verification", "privacy", "held_release", "diagnostic", "private_diagnostic"];
   const stageName = (stage) => stages.includes(stage) ? stage : "action";
   const projection = () => Object.fromEntries(stages.map(stage => [stage,
     failures.some(entry => stageName(entry.stage) === stage) || (primaryOccurred && stageName(primaryStage) === stage) ? "failed" : "clear"]));
@@ -525,6 +541,8 @@ export async function closeFixture({ primary, primaryOccurred = primary !== unde
       if (FIXTURE_INITIALIZATION_STAGES.includes(evidence.initializationStage)) {
         failures.push({ stage: evidence.initializationStage, error });
       }
+      const operation = fixtureDiagnosticFailureObservation(error);
+      if (FIXTURE_DIAGNOSTIC_OPERATION_STAGES.includes(operation)) failures.push({ stage: operation, error });
     }
     result = await custody.settle(adapter);
     failures.push(...result.failures);
