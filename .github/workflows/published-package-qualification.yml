@@ -104,9 +104,6 @@ jobs:
           export SERVICE_LASSO_TEST_SERVICES_ROOT="$qualification_root/runtime-services"
           export SERVICE_LASSO_TEST_EVIDENCE_ROOT="$qualification_root/runtime-evidence"
           export SERVICE_LASSO_TEST_SUPPORT_ROOT="$qualification_root/runtime-support"
-          # The Core real-browser runner requires these caller-owned runtime
-          # roots to exist before it starts; create them here.
-          mkdir -p "$SERVICE_LASSO_TEST_SERVICES_ROOT" "$SERVICE_LASSO_TEST_EVIDENCE_ROOT" "$SERVICE_LASSO_TEST_SUPPORT_ROOT"
           export QUALIFICATION_WORKSPACE_ROOT="$SERVICE_LASSO_WORKSPACE_ROOT"
           export QUALIFICATION_EVIDENCE_ROOT="$qualification_root/evidence"
           export QUALIFICATION_PRIVATE_CUSTODY_ROOT="$qualification_root/private"
@@ -130,6 +127,9 @@ jobs:
           node scripts/record-packaged-admin-first-custody.mjs
           node scripts/project-packaged-admin-first-custody.mjs --input "$QUALIFICATION_INITIAL_RECEIPT_PATH" --journal "$QUALIFICATION_PRIVATE_CUSTODY_ROOT/first-custody-journal.json" --output "$QUALIFICATION_INITIAL_PROJECTION_PATH"
           test -s "$QUALIFICATION_INITIAL_PROJECTION_PATH"
+          # The Core real-browser runner requires these caller-owned runtime roots
+          # to exist before it starts; create them after exclusive custody.
+          mkdir -p "$SERVICE_LASSO_TEST_SERVICES_ROOT" "$SERVICE_LASSO_TEST_EVIDENCE_ROOT" "$SERVICE_LASSO_TEST_SUPPORT_ROOT"
 
       - name: Check out exact qualified Admin browser harness
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
