@@ -1,6 +1,6 @@
 # #1562 fresh diagnostic directory birth and guardian handoff — proposed intent
 
-Status: REVISED PRE-CODE PROPOSAL2, awaiting DIFFERENT bounded intent review against
+Status: REVISED PRE-CODE PROPOSAL3, awaiting DIFFERENT bounded intent review against
 this WHOLE contract and actual fixture-root-custody.js/privacy/custody callers.
 Exact prior source6eda8e8b0ac0b5139c731413c696355d81f5dd4a has ENTIRE62 SOURCE_GO,
 not execution admission. All proposed native/tool/build/tests remain NOT_RUN.
@@ -201,8 +201,12 @@ closeFixture's actual release-before-retainErrors order changes explicitly:
 2. Independently release original-root holder and retain its receipts while
    creator+diagnostic holds remain. Disposable original-root removal releases
    only that holder, never all diagnostic borrowers through evidence.release.
-3. Verify diagnostic holder; persist useful private failure capture for all
-   currently known originals. Then release diagnostic holder independently,
+3. Verify diagnostic holder and creator; invoke existing report ONCE while the
+   creator/writer and diagnostic holder are still genuinely live. Projection
+   explicitly declares diagnosticCustody:pending, as specified below. Retain
+   any SAME report failure at diagnostic stage, then persist useful private
+   failure capture for ALL currently known originals INCLUDING report failure.
+   Then release diagnostic holder independently,
    retaining its role receipts while creator's original directory hold remains.
 4. Capture diagnostic-holder failures while creator still owns original. Write
    ONE separate wx fixture-private-late-errors.json for genuinely safe supported
@@ -212,9 +216,11 @@ closeFixture's actual release-before-retainErrors order changes explicitly:
    missing EOF/ack remains original private failure; final persistence is
    explicitly unavailable once no genuine writer/holder can write. Never claim
    an earlier receipt contains that later error. No postclose write/reopen.
-6. Compute final closed flags then report ONCE, preserving callback semantics.
-   Late report failure joins exact originals and unavailable persistence. Throw
-   existing AggregateError with actual ordered originals and closed projection.
+6. Compute final closed flags AFTER final creator settlement; do not report
+   again. Throw existing AggregateError with actual ordered originals and final
+   closed projection when any operation/settlement/persistence failed. A final
+   successful return requires genuine completed settlement, not the earlier
+   callback. The report-failure original was captured in step3 while live.
    Existing AggregateError.errors identity is private caller/test custody, not
    operator JSON/log projection. A closed receipt is not durable original data.
 
@@ -321,3 +327,90 @@ that never settles leaves closure unresolved under external original admitted
 supervision; it does not authorize inherited SIGTERM/SIGKILL on new owners.
 Late native/JS originals and missing persistence stay failed/unavailable, never
 substituted by closed receipts or an absent external F7 factory.
+
+## Revision3: one explicit report/capture/settlement timeline and protected ledger
+
+Stable review signature: private-capture/settlement contradiction occurred at5c4
+andc080 (two evidenceful iterations). This is a material whole-timeline repair;
+a third equivalent contradiction triggers GOV13 scoped model reassessment.
+Other accepted revision2 obligations remain, not a reviewer/history reset.
+
+Single callback timing is now fixed between original-root settlement and FIRST
+private capture, while actual creator AND diagnostic holder are verified/live.
+Add source-owned diagnosticCustody field to hard-crash summary only:
+- pending: new native creator/final diagnostic settlement remains active;
+- settled: no new creator exists and original legacy settlement has completed;
+- unavailable: actual prior custody already lost/unknown.
+No final completed/success claim is made by pending. Existing stop/finalization/
+absence/fixture/evidence fields describe already-observed PROCESS/fixture facts;
+clear stage means no observed failure YET, not final custody success. The final
+thrown fixtureStages reflects later failures; the earlier summary intentionally
+remains pre-final, with no mutation, second callback or synthetic late event.
+No report consumer may treat pending as terminal source/cleanup qualification.
+
+Actual source-consumer audit: startup-hard-crash-matrix.js238 console emits the
+summary, no exact-key decoder; hard-crash-fixture-custody.test.js stores it and
+asserts process absence/fixture/privacy/stage facts; removal-rows.js stores it
+and asserts physical original removal. Those facts retain their meaning.
+fixture-history-observation.js has its OWN schema/callback and imports only the
+privacy catalogue from this helper; do not confuse its complete flag with this
+new source-owned summary field. Whole-review must verify all report callsites
+and add pending-not-final assertions to actual new creator lifecycle tests.
+Existing single-report count remains; no passing callback serves as final ack.
+
+Required timeline ledger (each row retains exact first/later originals before
+attempting inspection/capture; capture is separate and truthful):
+T0 initialize/adapter snapshot/stop/finalize/inspect/restore/state/privacy failures
+   -> original roster, process/fixture stage flags; all holders tracked.
+T1 original-root settle/receipt failure -> held_release original, creator+diag
+   live; sibling settlement continues. Actual disposable removal releases only
+   original role, never creator/diag.
+T2 report invocation -> ONE callback with pending; genuine PRIVATE-STAGE-diagnostic
+   throw joins diagnostic roster; supported message must enter ordinary private
+   cause file atT3. Callback success/failure does not close any holder.
+T3 first retainErrors -> fixture-private-errors.json includes all supported
+   genuine T0/T1/T2 causes. Write/capture failure is private_diagnostic, exact
+   original retained; no metadata receipt substituted for unavailable content.
+T4 diagnostic settle/receipt failure -> held_release original; creator still
+   owns directory. Capture supported T3/T4 late causes ONCE into fixed separate
+   fixture-private-late-errors.json while creator actual verify/capture ack holds.
+T5 final creator settle -> original actual close/EOF/status failures retained
+   privately, persistence UNAVAILABLE if no live writer remains. No retroactive
+   claim these errors appeared in T3/T4, no postclose write. Both primary error
+   and independent final failure survive in final AggregateError roster.
+T6 final failure/return decision -> actual final projection on thrown error,
+   no second report. A creator remaining unresolved cannot produce success.
+
+One fixed T3 write and one fixed T4 write, wx, no overwrite/retry. If the ordinary
+T3 capture succeeded but T4 write fails, T3 remains useful partial evidence; final
+private_diagnostic fails and unavailable late evidence is explicit. If T3 fails,
+T4 cannot be counted as a successful replacement of required original private
+file. Final in-memory original custody is not durable content. No physical
+holder/process cleanup implied by mere projection or serialization metadata.
+
+Cross-check against actual protected tests (none weakened):
+- custody.test.js527–568 loops snapshot/inspection/preservation/removal/diagnostic/
+  enrollment_observation/custody/fixture_initialization/private_diagnostic. All
+  genuine PRIVATE-STAGE-<stage> messages remain in required private file except
+  existing explicitly rejected private_diagnostic write. In particular T2 report
+  failure is BEFORE T3, so PRIVATE-STAGE-diagnostic is genuinely persisted.
+- custody.test.js635–645 original Windows fingerprints/PRIVATE-ORIGINAL-FAILURE
+  remain unchanged and privately useful, with same original AggregateError entry.
+- custody.test.js149–174 mocks independent release failure and retainErrors:
+  no native creator means compatibility settlement occurs T1; captured failure
+  retains identity; new pending field cannot manufacture mock native custody.
+- test evidence wrapper539 must FORWARD actual boundary's separate settleOriginal,
+  settleDiagnostic,settleBirth/retention lifecycle methods (not call release-all
+  atT1). This is interface plumbing, with exact stage/error/file assertions kept.
+  Other actual wrapper/mocks must be enumerated before implementation freeze.
+- finalization/reset/removal/restore failures retain their original ordering and
+  no-reset-after-rejection rules; final creator failure cannot make them vanish.
+- add genuine supported report failure + diagnostic close failure + final creator
+  late failure in ONE occurrence; assert T3 report content, T4 supported close
+  content, final late-original identity/unavailable persistence, ONE callback and
+  no write after last actual close. Surrogates alone cannot prove native holds.
+
+This ordering change is explicitly selected prospectively for intent review;
+it preserves useful private-cause evidence and changes summary timing semantics
+only by declaring pending actual diagnostic custody. No native execution, test
+weakening, output waiver or final-success claim is granted by this proposal.
