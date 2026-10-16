@@ -1827,3 +1827,12 @@ witness, never a complete PowerShell parser/native proof. Root-prefix b9fc and
 newline173b are two evidenceful false-positive iterations; another equivalent
 finding requires scoped circuit-break/model reassessment, not blind lexer churn.
 Different final entire review and NEW complete ROOT still precede execution.
+
+#1562 F25 custom source-witness is SCOPED BLOCKED after third equivalent
+false-positive at a71ab726 (recordingFailure assignment split by newline).
+CORE1562_F25_AST_WITNESS_CIRCUIT_BREAK.md records all3 evidenceful iterations,
+actual adversaries and parent-selected real Microsoft Language.Parser AST
+replacement. Different intent review precedes child/parser implementation;
+then new entire final review and NEW complete input/command ROOT. No further
+handwritten lexer patch, source snapshot or target-script execution. Independent
+fixture/helper/opaque-denial work remains active; no whole-delivery pause.
