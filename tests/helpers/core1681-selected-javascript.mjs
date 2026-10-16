@@ -12,6 +12,8 @@ export class SelectedJavaScriptSyntax extends SelectedSyntax {
   constructor(rawBytes, counter, decoderOccurrence) {
     super(rawBytes, 'javascript', counter, undefined, decoderOccurrence); this.functionStack = []; this.awaitContexts = []; this.allowIn = true;
     this.trailingCommaContainers = new WeakSet();
+    this.forHeadCoverNames = null;
+    this.validatedCoverNames = new WeakSet();
   }
   jsName(property = false) {
     const token = this.consume();
@@ -177,7 +179,7 @@ export class SelectedJavaScriptSyntax extends SelectedSyntax {
           let async = false, accessor = null;
           if (['async', 'get', 'set'].includes(this.word())) {
             const mark = this.mark(), modifier = this.consume();
-            if ((modifier.spelling !== 'async' || !this.lineBefore()) && ![':', ',', '}', '('].includes(this.word())) {
+            if ((modifier.spelling !== 'async' || !this.lineBefore()) && ![':', ',', '}', '(', '='].includes(this.word())) {
               if (modifier.spelling === 'async') async = true;
               else accessor = modifier.spelling;
             } else this.restore(mark);
@@ -190,7 +192,16 @@ export class SelectedJavaScriptSyntax extends SelectedSyntax {
               deny('INVALID_SYNTAX', 'object accessor formal count differs', start.origin);
             value = this.declaration('jsMethod', start, { key, parameters, async, accessor, body: this.jsFunctionBody(async) }); method = true;
           }
-          else { if (async || accessor || key.kind !== 'jsPropertyName' || reserved.has(key.name.spelling)) deny('INVALID_SYNTAX', 'object shorthand name required', key.origin); value = this.node('name', { origin: key.name.origin }, { name: key.name }); }
+          else {
+            if (async || accessor || key.kind !== 'jsPropertyName' || reserved.has(key.name.spelling)) deny('INVALID_SYNTAX', 'object shorthand name required', key.origin);
+            value = this.node('name', { origin: key.name.origin }, { name: key.name });
+            if (this.word() === '=') {
+              if (!this.forHeadCoverNames) deny('INVALID_SYNTAX', 'initialized shorthand requires assignment-pattern context', key.origin);
+              this.consume(); const right = this.jsInExpression(1);
+              value = this.node('assignment', start, { operation: '=', left: value, right });
+              this.forHeadCoverNames.push(value);
+            }
+          }
           if ((async || accessor) && !method) deny('INVALID_SYNTAX', 'object method modifier requires method body', start.origin);
           properties.push(this.node('jsObjectProperty', start, { key, value, method }));
         }
@@ -291,7 +302,7 @@ export class SelectedJavaScriptSyntax extends SelectedSyntax {
       this.counter.charge('maxInvariantSteps', 'selected-JS-grouped-assignment-target');
       expression = expression.expression;
     }
-    if (expression.kind === 'name') return true;
+    if (expression.kind === 'name') return !['eval', 'arguments'].includes(expression.name.spelling);
     if (!['jsMember', 'jsIndex'].includes(expression.kind)) return false;
     // Optional chains propagate through ungrouped member/index/call segments;
     // a group ends that chain, so (obj?.value).field remains a simple target.
@@ -304,7 +315,7 @@ export class SelectedJavaScriptSyntax extends SelectedSyntax {
   jsRequireForTarget(expression, defaultAllowed = false, patternsAllowed = true) {
     this.counter.charge('maxInvariantSteps', 'selected-JS-for-assignment-target');
     if (defaultAllowed && expression.kind === 'assignment' && expression.operation === '=') {
-      this.jsRequireForTarget(expression.left); return;
+      this.jsRequireForTarget(expression.left); this.validatedCoverNames.add(expression); return;
     }
     if (patternsAllowed && expression.kind === 'jsArray') {
       for (const [index, element] of expression.elements.entries()) {
@@ -362,8 +373,10 @@ export class SelectedJavaScriptSyntax extends SelectedSyntax {
       const async = Boolean(this.take('await')); this.need('('); const oldAllowIn = this.allowIn; this.allowIn = false;
       if (async && !this.jsAwaitAllowed()) { this.allowIn = oldAllowIn; deny('INVALID_SYNTAX', 'for-await outside actual async body/module context', first.origin); }
       let initializer;
+      const outerCoverNames = this.forHeadCoverNames, coverNames = [];
+      this.forHeadCoverNames = coverNames;
       try { initializer = this.word() === ';' ? null : ['const', 'let'].includes(this.word()) ? this.jsVariables(false) : this.jsExpression(0); }
-      finally { this.allowIn = oldAllowIn; }
+      finally { this.forHeadCoverNames = outerCoverNames; this.allowIn = oldAllowIn; }
       if (['of', 'in'].includes(this.word())) {
         if (initializer?.kind === 'jsVariableDeclaration' && (initializer.declarations.length !== 1 || initializer.declarations[0].initializer !== null))
           deny('INVALID_SYNTAX', 'for-in/of lexical head requires one uninitialized binding', first.origin);
@@ -371,11 +384,17 @@ export class SelectedJavaScriptSyntax extends SelectedSyntax {
           if (!initializer) deny('INVALID_SYNTAX', 'for-in/of head required', first.origin);
           this.jsRequireForTarget(initializer);
         }
-        const operation = this.consume().spelling, sequence = this.jsExpression(operation === 'of' ? 1 : 0); this.need(')');
+        const operation = this.consume().spelling;
+        if (!async && operation === 'of' && initializer?.kind === 'name' && initializer.name.spelling === 'async')
+          deny('INVALID_SYNTAX', 'ordinary for-of excludes the async of lookahead', first.origin);
+        if (coverNames.some(value => !this.validatedCoverNames.has(value)))
+          deny('INVALID_SYNTAX', 'initialized shorthand escaped its actual assignment pattern', first.origin);
+        const sequence = this.jsExpression(operation === 'of' ? 1 : 0); this.need(')');
         if (async && operation !== 'of') deny('INVALID_SYNTAX', 'for await requires of', first.origin);
         return this.node('jsForEach', first, { async, operation, initializer, sequence, body: this.jsControl('loop', () => this.jsStatement(false)) });
       }
       if (async) deny('INVALID_SYNTAX', 'for await requires of', first.origin);
+      if (coverNames.length) deny('INVALID_SYNTAX', 'initialized shorthand is not an ordinary for initializer', first.origin);
       if (initializer?.kind === 'jsVariableDeclaration') this.jsRequireLexicalInitializers(initializer.category, initializer.declarations, first);
       this.need(';'); const test = this.word() === ';' ? null : this.jsExpression(0); this.need(';');
       const increment = this.word() === ')' ? null : this.jsExpression(0); this.need(')');

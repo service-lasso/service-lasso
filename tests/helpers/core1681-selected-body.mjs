@@ -242,6 +242,8 @@ function bindScalarBody(compilation, declaration, environment, ancestors) {
       const calleeDecoded = calleeOriginal.parser.scanner.decoded, calleeContext = compilation.context(calleeEntry);
       const defaultRows = new Map();
       const selected = bindSelectedInvocation([candidate], actuals, null, { ...environment,
+        objectType: compilation.index.primitive('object', context, syntax.origin),
+        typeGraph: compilation.typeGraph, declarationMetadata: compilation.bound.declarationMetadata,
         csharpLanguageVersion: environment.languageVersion, resolveOriginalDefaults: row => ({ ...row,
           parameters: row.parameters.map((formal, ordinal) => {
             if (formal.defaultSyntax === null) return formal;

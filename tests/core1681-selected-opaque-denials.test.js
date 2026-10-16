@@ -225,3 +225,49 @@ for (const [label, setup] of sites) {
     }
   });
 }
+
+test('ordinary for-of async lookahead differs from awaited, in, grouped and member targets', () => {
+  for (const source of ['for (async of rows) {}', 'for (async\nof rows) {}'])
+    for (const parse of [() => parser(source, 'javascript').javascriptUnit(), () => forest(source, 'javascript')])
+      assert.throws(parse, original => isSourceDenialCode(original, 'INVALID_SYNTAX'));
+  for (const source of ['for await (async of rows) {}', 'for (async in rows) {}',
+    'for ((async) of rows) {}', 'for (async.value of rows) {}', 'for (async[key] of rows) {}',
+    'for (let async of rows) {}', 'for (const async of rows) {}',
+    'async function f() { for await (async of rows) {} }']) {
+    assert.equal(parser(source, 'javascript').javascriptUnit().kind, 'unit');
+    assert.equal(forest(source, 'javascript').root.kind, 'unit');
+  }
+});
+
+test('for-head shorthand defaults belong only to validated actual assignment-pattern paths', () => {
+  for (const clause of ['in', 'of', 'await-of']) for (const head of [
+    '{a = 1}', '{async = 1, get = 2, set = 3}', '{a = key in table}',
+    '{a: {b = 1}}', '[{a = 1}]', '{a = 1, ...rest}', '{a: [x = 1, {b = key in table}]}',
+  ]) {
+    const source = `${clause === 'await-of' ? 'for await' : 'for'} (${head} ${clause === 'in' ? 'in' : 'of'} rows) {}`;
+    for (const root of [parser(source, 'javascript').javascriptUnit(), forest(source, 'javascript').root])
+      assert.equal(root.statements[0].kind, 'jsForEach');
+  }
+  const actual = parser('for ({a = 1} of rows) {}', 'javascript').javascriptUnit().statements[0];
+  assert.equal(actual.initializer.properties[0].value.kind, 'assignment');
+  assert.equal(actual.initializer.properties[0].value.left.name.spelling, 'a');
+  assert.equal(actual.initializer.properties[0].value.right.kind, 'literal');
+  for (const source of ['({a = 1});', 'const x = {a = 1};', 'for ({a = 1};;) {}',
+    'for (let x = {a = 1};;) {}', 'for ({a: x = {b = 1}} of rows) {}',
+    'for ([{a = 1}].field of rows) {}', 'for (f({a = 1}).field of rows) {}',
+    'for ({a: function() { return {b = 1}; }} of rows) {}',
+    'for ({eval = 1} of rows) {}', 'for ({arguments = 1} of rows) {}',
+    'for ({eval} of rows) {}', 'for ([arguments] of rows) {}',
+    'for ({a = 1} of [{b = 1}]) {}', 'for ({a = 1} in {b = 1}) {}',
+    'for ({a: ({b = 1})} of rows) {}']) {
+    const p = parser(source, 'javascript');
+    assert.throws(() => p.javascriptUnit(), original => isSourceDenialCode(original, 'INVALID_SYNTAX'));
+    assert.equal(p.forHeadCoverNames, null);
+    assert.throws(() => forest(source, 'javascript'), original => isSourceDenialCode(original, 'INVALID_SYNTAX'));
+  }
+  for (const source of ['for ({a = 1} of rows) { ({b: 1}); }',
+    'for (let {a = 1} of rows) {}', 'for ({a = 1} of rows) { for ({b = 2} of other) {} }']) {
+    const p = parser(source, 'javascript'); assert.equal(p.javascriptUnit().kind, 'unit');
+    assert.equal(p.forHeadCoverNames, null); assert.equal(forest(source, 'javascript').root.kind, 'unit');
+  }
+});

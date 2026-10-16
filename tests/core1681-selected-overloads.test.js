@@ -2575,3 +2575,24 @@ test('optional conversion roots preserve actual catalogue identities without rej
     assert.equal(caught, true, 'Present malformed roots cannot become absent roots.');
   }
 });
+
+test('scalar source-call bridge derives mandatory Object and inheritance from actual compilation catalogue', () => {
+  const source = 'class Object {} class C { static int G(int value) { return value; } int F(int input) { return G(input); } }';
+  const counter = createProofCounter();
+  const units = [{ unit: 'call-root.cs', compilation: 'actual-call-root', role: 'source', rawBytes: Buffer.from(source) },
+    { unit: 'symbolic.cs', compilation: 'fixture-symbolic', role: 'catalogue', rawBytes: Buffer.from(symbolicFixture) }];
+  const compilation = bindSelectedCsharpCompilation(units, counter);
+  const method = compilation.enumeration.find(row => row.syntax.kind === 'method' && row.syntax.name.spelling === 'F');
+  const object = compilation.index.primitive('object', compilation.context(method), method.origin);
+  assert.equal(object.declaration.unit, 'symbolic.cs');
+  const environment = { counter, typeIndex: compilation.index, declarationMetadata: compilation.bound.declarationMetadata,
+    parameterConstraints: compilation.bound.parameterConstraints, typeGraph: compilation.typeGraph, languageVersion: [5, 0] };
+  assert.equal(Object.hasOwn(environment, 'objectType'), false);
+  const body = bindSelectedCsharpScalarBody(compilation, method.declId, environment);
+  const call = body.nodes.find(node => node.operation === 'sourceCall'); assert.ok(call);
+  assert.equal(call.calleeBody.nodes[call.calleeBody.returnNode].operation, 'return');
+  assert.equal(checkSelectedScalarBody(compilation, body, counter).sourceAdmission, false);
+  const badCatalogue = symbolicFixture.replace('public class Object ', 'public class MissingObject ');
+  for (const selected of [[units[0]], [units[0], { ...units[1], rawBytes: Buffer.from(badCatalogue) }]])
+    assert.throws(() => bindSelectedCsharpCompilation(selected, createProofCounter()), original => isSourceDenialCode(original, 'INVALID_BINDING'));
+});
