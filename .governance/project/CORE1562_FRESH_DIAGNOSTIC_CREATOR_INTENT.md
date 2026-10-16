@@ -1,6 +1,6 @@
 # #1562 fresh diagnostic directory birth and guardian handoff — proposed intent
 
-Status: PRE-CODE PROPOSAL, awaiting DIFFERENT bounded intent review against
+Status: REVISED PRE-CODE PROPOSAL2, awaiting DIFFERENT bounded intent review against
 this WHOLE contract and actual fixture-root-custody.js/privacy/custody callers.
 Exact prior source6eda8e8b0ac0b5139c731413c696355d81f5dd4a has ENTIRE62 SOURCE_GO,
 not execution admission. All proposed native/tool/build/tests remain NOT_RUN.
@@ -117,7 +117,8 @@ increasing sequence, no trim/unknown/extra/duplicate/trailing/partial acceptance
 child GDC1|nonce|1|created-held LF only after full birth/readback;
 parent GDC1|nonce|1|verify LF -> child GDC1|nonce|2|verified LF;
 parent GDC1|nonce|2|handoff LF -> child GDC1|nonce|3|handoff-held LF;
-parent GDC1|nonce|3|close LF -> child GDC1|nonce|4|closed LF after native closes.
+parent GDC1|nonce|3|capture LF -> child GDC1|nonce|4|capture-held LF;
+parent GDC1|nonce|4|close LF -> child GDC1|nonce|5|closed LF after native closes.
 No SID/path/PID/handle/exception in success wire. Local owned child identity and
 actual private native state, not these bytes, supply correspondence. One pending
 request, no unsolicited frame; completion waits write callback/finish, stdout+
@@ -132,8 +133,9 @@ same path and runs UNCHANGED protectOriginalFixture; independently acquire a NEW
 holdFixtureRoot(diagnosticRoot,diagnosticRoot), then verify it. During all those
 calls creator still holds original; new hold must be alive and verified. Reverify
 creator, send handoff, receive handoff-held while BOTH native holds overlap.
-Then close creator and require original closure/EOF/exit result, leaving the new
-diagnostic hold active. No create-close-before-acquire interval. Keep the new
+Keep creator alive after acknowledged handoff until all diagnostic borrowers
+and independent holders settle, then require original closure/EOF/exit result.
+No create-close-before-acquire interval. Keep the new
 diagnostic custody private on boundary through diagnostic writes/receipt retention
 and release it only after original root guardian settlement and private evidence
 writes. Boundary.release must settle both holders once, preserving each failure;
@@ -141,13 +143,13 @@ remove cannot delete a still-held object. No writer-exclusion/removal grant.
 
 Failure before completed handoff: never return successful allocation; retain
 created directory/name and actual private failure bundle, settle owned child
-through existing admitted guardian supervision policy; do not delete unknown
+through the borrower-aware protocol below; do not delete unknown
 state. Postcreation failure must retain directory path privately even though
 initialize rejects, so later private diagnostic/cleanup does not lose originals.
-Close may not erase primary failure. Existing guardian5s supervision is not
-extended/reduced or retried; any reuse must preserve exact owned child identity
-and record forced/unresolved closure as failed custody, never successful handoff.
-Do not install a new timeout/kill policy under this intent.
+Close may not erase primary failure. New creation/diagnostic roles MUST NOT
+inherit the existing guardian5s close/SIGTERM/SIGKILL routine while any borrower
+is active. No new timer, retry, kill or deadline authority is selected. Original
+root role keeps its existing policy, which cannot settle the other roles.
 
 Keep exact first and later opaque JS errors in private WeakMap with occurrence
 flag/order, without code/message getters/stringification/cause/log projection.
@@ -182,3 +184,140 @@ is separate unknown-owner cleanup gate and receives no waiver from this repair.
 Primary API source:
 https://learn.microsoft.com/en-us/windows/win32/api/winternl/nf-winternl-ntcreatefile
 https://learn.microsoft.com/en-us/windows/win32/fileio/file-security-and-access-rights
+
+## Revision2: role-specific receipts and independently settled writers
+
+Fixed internal receipt roles: original-root keeps guardian-stdout.bin,
+guardian-stderr.bin,guardian-custody.json; diagnostic-root uses diagnostic-
+guardian-stdout.bin,diagnostic-guardian-stderr.bin,diagnostic-guardian-custody.json;
+birth uses birth-guardian-stdout.bin,birth-guardian-stderr.bin,birth-guardian-
+custody.json. All files wx, one role-owned write attempt; no caller-selected
+prefix, overwrite, delete, append, retry or shared filenames. Separate private
+owner/settled/pending state per role; one failure cannot skip another settlement.
+
+closeFixture's actual release-before-retainErrors order changes explicitly:
+1. Existing process settle/ENV restore/state/privacy remain; retain exact first
+   and later originals immediately with an occurrence flag and ordered stage.
+2. Independently release original-root holder and retain its receipts while
+   creator+diagnostic holds remain. Disposable original-root removal releases
+   only that holder, never all diagnostic borrowers through evidence.release.
+3. Verify diagnostic holder; persist useful private failure capture for all
+   currently known originals. Then release diagnostic holder independently,
+   retaining its role receipts while creator's original directory hold remains.
+4. Capture diagnostic-holder failures while creator still owns original. Write
+   ONE separate wx fixture-private-late-errors.json for genuinely safe supported
+   late captures, preserving the earlier fixture-private-errors.json unchanged.
+   Both writes require creator actual verify/name/owner checks, no path fallback.
+5. With zero active borrowers, settle creator last. Its native close failure or
+   missing EOF/ack remains original private failure; final persistence is
+   explicitly unavailable once no genuine writer/holder can write. Never claim
+   an earlier receipt contains that later error. No postclose write/reopen.
+6. Compute final closed flags then report ONCE, preserving callback semantics.
+   Late report failure joins exact originals and unavailable persistence. Throw
+   existing AggregateError with actual ordered originals and closed projection.
+   Existing AggregateError.errors identity is private caller/test custody, not
+   operator JSON/log projection. A closed receipt is not durable original data.
+
+Boundary exposes separate internal settleOriginal/settleDiagnostic/settleBirth;
+public release is idempotent complete independent settlement for finally callers,
+not the method used for step2 alone. Partial initialization retains actual path,
+created owner and partial holders privately even when no allocation result is
+returned. No successful guard escapes without its owner being reachable from
+boundary. Failed writes are retained originals and cannot suppress later closes.
+
+## Revision2: preserve useful private cause evidence without getter formatting
+
+Remove privateError's generic name/message/stack/cause/errors reads and arbitrary
+String(error), JSON.stringify(original), toJSON, inspect or stack formatting.
+Retain originals FIRST in private boundary WeakMap. No getter/capture failure may
+replace the original. Explicit occurrence preserves null/undefined/falsy throws.
+Useful persisted data is a safe CAPTURE, never serialized original-object/native
+authority. Existing protected PRIVATE-content assertions remain mandatory for
+supported genuine captures; ordinal/stage-only receipts cannot satisfy them.
+
+Selected safe capture is deliberately narrow and field-specific:
+- Source-owned constructed errors store their known primitive diagnostic data in
+  a private WeakMap AT construction, before handing the Error to another caller.
+  Original native status/operation values are retained at their actual callsite;
+  no later code/message guess or error.code getter supplies them.
+- For existing external genuine native Error values, use Node util.types
+  isNativeError plus isProxy exclusion before specific own-property descriptor
+  access; never enumerate descriptors/ownKeys or inspect stack/name/prototype.
+  Only own DATA message:string, cause:known-supported-original, and errors:actual
+  nonProxy Array of supported originals are candidates. No accessor invocation,
+  no inherited field, no .map/toJSON iteration from supplied objects. Array
+  length/index DATA descriptors only; unknown/accessor/interceptor/failure marks
+  capture unavailable. isNativeError is eligibility, not persisted authority.
+- Do NOT touch Error.stack even through getOwnPropertyDescriptor: pinned Node
+  v22.23.2 V8 js-objects.cc1694–1821 shows descriptor resolution may invoke
+  Object::GetProperty for native accessors and interceptors. Lazy stack can run
+  custom formatting. No generic descriptor no-JS claim is made. Implementation
+  must verify selected exact field/native-brand semantics against pinned source
+  before asserting that eligible message/cause/errors inspection is nonexecuting;
+  if not established, external error capture is unavailable and tests/contracts
+  requiring useful durable causes stay FAILED, not rewritten as metadata PASS.
+  https://raw.githubusercontent.com/nodejs/node/v22.23.2/deps/v8/src/objects/js-objects.cc
+- Bound safe snapshot to64 error nodes, depth8, each string<=16384 UTF16 units,
+  total UTF8<=65536 bytes. Preserve cycle references by source-owned ordinal;
+  no truncation called complete. Any unsupported field/overflow/copy/write
+  failure records unavailable capture; original+owner remain retained privately.
+  Pure primitive strings/null/undefined/boolean/finite numbers can be tagged
+  exactly without coercion; unsupported symbols/functions/objects remain opaque.
+
+Do not weaken existing private-file tests562/644 to ordinal receipts. Add actual
+supported Error cause/aggregate PRIVATE-content cases plus hostile Proxy, native
+Error message/cause/errors accessors, custom Error.prepareStackTrace, cycles,
+null/undefined, overflow, write and late-close failures. Test supported capture
+content AND original identity/order; opaque unsupported capture must produce
+private_diagnostic failed/unavailable despite original identity remaining held.
+Private original identity can be compared by identity-only predicate, not a
+public raw error/denial/authority mint. No durable availability claim survives
+process exit merely because a WeakMap once held the object.
+
+## Revision2: protected real replacement test adaptation
+
+The existing diagnostic replacement test400 renames before privacy; birth handle
+denyDELETE sharing makes that actual rename reject earlier. Explicit prospective
+GOV05 amendment, requiring this intent review: keep Linux replacement row;
+Windows splits into two real native obligations instead of pretending redirect.
+A. At same before-privacy hook actually attempt rename while creator owns root;
+   require native denial and unchanged named/held root identity. Rethrow SAME
+   rename original. Diagnostic privacy stage fails before protector; privacy
+   observation stays not_attempted (never synthetic redirect), no reset/removal.
+   Outside bytes/mode/ACL unchanged and private capture reflects real outcome.
+B. Separately create a genuine junction to outside BEFORE calling unchanged
+   protectOriginalFixture on that path, outside creator's retained namespace.
+   Require actual native redirect rejection plus outside bytes/mode/ACL unchanged.
+No skip, fake child/code, releasing guardian to permit attack or merely checking
+source strings. Existing original-root junction initializer and true ROOT
+foreign-owner prior-policy cases remain mandatory; no fixture owner changes.
+
+## Revision2: bounded protocol and active borrower state machine
+
+GDC1 keeps five child frames/four commands, nonce and exact sequence, one pending
+request. Strict ASCII line<=96 bytes including LF; each direction<=480 total;
+reject CR/NUL/nonASCII/blank/extra/duplicate/trailing/partial frames. Chunked byte
+decoder never trims. stdout raw capture<=480bytes, stderr<=16384bytes. Overflow
+retains bounded original prefix+actual bytecount/overflow fact, stops success
+parsing, marks capture unavailable; no kill/retry/drop called complete. Pending
+request/ack is unique actual owned invocation, no receipt flag as native proof.
+
+Creator admits only selected privacy and independent hold acquisition borrowers,
+tracked by actual invocation start/settlement, not a supplied PID/handle/JSON.
+Failure rejects NEW borrowers but retains existing original until active ones
+actually settle. Handoff requires privacy success, live verified diagnostic hold,
+creator verify acknowledgement. Creator stays alive after handoff while original
+root/diagnostic operations and private writes execute. Lost ack cannot authorize
+close or successful handoff. Privacy failure waits same privacy child close/EOF;
+partial new-hold failure settles that same partial owner while creator remains.
+No new timer, grace period, forced signaling or retry is introduced.
+
+Parent stdin EOF/death makes guardian reject new work and dispose its owned
+handles; mark custody lost, not retained after exit. Existing independently held
+borrower remains its actual owner; no valid handoff means failed allocation.
+Node sees early child close/signal/EOF: deny pending success, retain exact evidence,
+settle actual active borrowers independently, never delete directory. A borrower
+that never settles leaves closure unresolved under external original admitted
+supervision; it does not authorize inherited SIGTERM/SIGKILL on new owners.
+Late native/JS originals and missing persistence stay failed/unavailable, never
+substituted by closed receipts or an absent external F7 factory.
