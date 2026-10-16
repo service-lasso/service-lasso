@@ -1647,3 +1647,13 @@ module/version/administrator requirement adversaries with authentic real-child
 rejection and baseline conformance. This implements the existing selected
 closed model; no new scope or native/ambient claim. Different ENTIRE source
 review and NEW complete actual-input ROOT remain required; parser/tests UNRUN.
+#1562 ENTIREdc9 acceptance-gap source repair: add the committed complete
+function/block/context/member adversary roster with actual-source mutation
+checks and authenticated real-child rejection only. Factor one owned event
+collector shared by the fixed actual spawn and explicitly labelled SURROGATE
+transport tests. The collector returns plain correspondence or closed private
+failure; only the fixed actual-source path can mint denial identity. Drive
+spawn/stdin/EPIPE/stdout/stderr/repeated/null/undefined/throwing-getter errors,
+channel/exit/close orders and exact first/later private identity without early
+settlement or raw cause/log publication. No selector, timer, kill or execution
+is introduced. This is acceptance coverage, not native/runtime acceptance.

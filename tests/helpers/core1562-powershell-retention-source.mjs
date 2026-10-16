@@ -28,6 +28,14 @@ export function f25ClosedFailureDiagnostic(error) {
   }
   return result;
 }
+// Identity-only assertion seam: no raw original, getter, cause or diagnostic
+// text crosses the private owner boundary.
+export function f25FailureHasOriginals(error, originals, trailingClosure = false) {
+  const owner = error !== null && typeof error === 'object' ? privateFailures.get(error) : undefined;
+  return !!owner && owner.primary === originals[0] && owner.originals.length === originals.length + (trailingClosure ? 1 : 0) &&
+    originals.every((original, index) => owner.originals[index].original === original) &&
+    (!trailingClosure || owner.originals.at(-1).stage === 'closure');
+}
 export function decodeF25AstResponse(bytes, digest, exitCode) {
   let text, result;
   try { text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes); result = JSON.parse(text); }
@@ -91,11 +99,17 @@ async function check(source) {
 export async function observeF25AstFrame(input, digest) {
   if (!Buffer.isBuffer(input) || typeof digest !== 'string' || !/^[a-f0-9]{64}$/u.test(digest)) throw infrastructure();
   const { executable, env } = configuration();
-  return new Promise((resolve, reject) => {
-    let child;
-    try { child = spawn(executable, ['-NoLogo', '-NoProfile', '-NonInteractive', '-File', script], {
+  let child;
+  try { child = spawn(executable, ['-NoLogo', '-NoProfile', '-NonInteractive', '-File', script], {
       cwd, env, shell: false, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'],
-    }); } catch (original) { reject(ownedFailure('spawn', original)); return; }
+  }); } catch (original) { throw ownedFailure('spawn', original); }
+  return collectF25AstChild(child, input, digest);
+}
+// Event-driven collector shared with explicitly labelled transport surrogates.
+// It cannot select tools or authenticate a source denial. Only check() after
+// its fixed actual spawn owns the private denial issuer.
+export function collectF25AstChild(child, input, digest) {
+  return new Promise((resolve, reject) => {
     let failure, delivered = false, stdoutEnd = false, stderrEnd = false, stdinFinish = false, exitObserved = false, exitCode, exitSignal;
     const stdout = [], stderr = [];
     const fail = (stage, original) => {
@@ -104,11 +118,11 @@ export async function observeF25AstFrame(input, digest) {
     };
     // No adapter-owned timer/cancellation/retry. External admitted supervision
     // retains its original bound/authority; this promise requires real closure.
-    child.once('error', original => fail('spawn', original));
-    child.stdin.once('error', original => fail('stdin', original));
+    child.on('error', original => fail('spawn', original));
+    child.stdin.on('error', original => fail('stdin', original));
     child.stdin.once('finish', () => { stdinFinish = true; });
-    child.stdout.once('error', original => fail('stdout', original));
-    child.stderr.once('error', original => fail('stderr', original));
+    child.stdout.on('error', original => fail('stdout', original));
+    child.stderr.on('error', original => fail('stderr', original));
     child.stdout.once('end', () => { stdoutEnd = true; }); child.stderr.once('end', () => { stderrEnd = true; });
     child.stdout.on('data', chunk => { stdout.push(chunk); });
     child.stderr.on('data', chunk => { stderr.push(chunk); });

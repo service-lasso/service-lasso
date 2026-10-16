@@ -4,6 +4,50 @@ import { readFile } from 'node:fs/promises';
 import { assertPowerShellOriginalRetention, assertPowerShellRecorderReleaseRetention, isF25AstRejection } from './helpers/core1562-powershell-retention-source.mjs';
 const source = () => readFile('scripts/verify-windows-managed-launcher-bootstrap.ps1', 'utf8');
 
+test('F25 committed complete definition and command-binding adversary roster', async () => {
+  const actual = await source();
+  const signature = 'function Get-Sha256Hex([byte[]]$bytes) {';
+  const start = actual.indexOf(signature);
+  const next = actual.indexOf('function Get-NormalizedNativePeBytes', start);
+  assert.ok(start >= 0 && next > start);
+  const definition = actual.slice(start, next);
+  const closing = definition.lastIndexOf('}');
+  assert.ok(closing > signature.length);
+  const body = definition.slice(signature.length, closing);
+  const initCall = "Invoke-RetainedNativeTool $cmdImage @() $childEnvironment 'initialize' $cmdArguments";
+  const invokeSignature = 'function Invoke-RetainedNativeTool(';
+  const releaseGate = 'if ($releaseFailed -or $owner.recordingFailed) { Retain-ActiveOriginalOwner }';
+  for (const needle of [initCall, invokeSignature, releaseGate]) assert.ok(actual.includes(needle));
+  const mutants = [
+    actual.replace(signature, 'function Get-Sha256Hex([ValidateNotNull()][byte[]]$bytes) {'),
+    actual.replace(signature, 'function Get-Sha256Hex([byte[]]$bytes = $(Write-Output changed)) {'),
+    actual.replace(signature, 'function Get-Sha256Hex([byte[]]$bytes, $extra) {'),
+    actual.replace('[string]$nativeArguments = $null', '[string]$nativeArguments = $(Write-Output changed)'),
+    actual.replace(signature, `${signature} trap { continue };`),
+    actual.replace(definition, definition + definition),
+    actual.replace(definition, '') + '\n' + definition,
+    actual.replace(signature, `Set-Alias Get-Sha256Hex Write-Output\n${signature}`),
+    actual.replace('Get-Sha256Hex $sourceBytes', "& 'Get-Sha256Hex' $sourceBytes"),
+    actual.replace(signature, `Get-Sha256Hex ([byte[]]@())\n${signature}`),
+    actual.replace(initCall, `& 'Invoke-RetainedNativeTool' $cmdImage @() $childEnvironment 'initialize' $cmdArguments`),
+    actual.replace(initCall, '').replace(invokeSignature, `${initCall}\n${invokeSignature}`),
+    actual.replace(releaseGate, '').replace('$script:NativeToolOwners.Add($key, $owner)', `${releaseGate}\n$script:NativeToolOwners.Add($key, $owner)`),
+    actual.replace('function Add-OriginalToolError([string]$phase, $original)', 'function Add-OriginalToolError([ValidateNotNull()][string]$phase, $original)'),
+    actual.replace("Add-OriginalToolError 'custody-wait' $_.Exception", "Add-OriginalToolError 'custody-wait' $_::Exception"),
+    actual.replace("Add-OriginalToolError 'custody-wait' $_.Exception", "Add-OriginalToolError 'custody-wait' ${_}?.Exception"),
+    actual.replace("Add-OriginalToolError 'custody-wait' $_.Exception", "Add-OriginalToolError 'custody-wait' $_.('Exception')"),
+    actual.replace("Add-OriginalToolError 'custody-wait' $_.Exception", "Add-OriginalToolError 'custody-wait' $global:_.Exception"),
+  ];
+  for (const block of ['process', 'dynamicparam']) {
+    mutants.push(actual.replace(definition, `${signature}\n${block} { Write-Output changed }\nend {${body}}\n}\n`));
+  }
+  mutants.push(actual.replace(definition, `${signature}\nend {${body}}\nclean { Write-Output changed }\n}\n`));
+  for (const mutant of mutants) {
+    assert.notEqual(mutant, actual, 'mutation must alter an actual source definition/operand');
+    await assert.rejects(() => assertPowerShellOriginalRetention(mutant), isF25AstRejection);
+  }
+});
+
 test('F25 real AST rejects generic method binding and script requirement effects', async () => {
   const actual = await source();
   await assert.doesNotReject(() => assertPowerShellOriginalRetention(actual));
