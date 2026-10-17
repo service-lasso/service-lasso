@@ -124,7 +124,7 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
   );
   assert.match(
     workflow,
-    /mkdir -p "\$SERVICE_LASSO_TEST_SUPPORT_ROOT"[\s\S]*?pnpm test:secrets:real-first-run-browser[\s\S]*?prepare_admin_mode real-browser/,
+    /SERVICE_LASSO_TEST_EVIDENCE_ROOT="\$SERVICE_LASSO_QUALIFICATION_EXTERNAL_ROOT\/evidence"[\s\S]*?mkdir -p "\$SERVICE_LASSO_TEST_EVIDENCE_ROOT" "\$SERVICE_LASSO_TEST_SUPPORT_ROOT"[\s\S]*?pnpm test:secrets:real-first-run-browser/,
   );
   const custody=parsed.jobs["packaged-admin-lifecycle"].steps.find(step=>step.name==="Establish unique qualification custody before dependencies");assert.match(custody.run,/test -s "\$QUALIFICATION_INITIAL_PROJECTION_PATH"[\s\S]*?mkdir -p "\$SERVICE_LASSO_TEST_SERVICES_ROOT" "\$SERVICE_LASSO_TEST_EVIDENCE_ROOT" "\$SERVICE_LASSO_TEST_SUPPORT_ROOT"/u);assert.equal(parsed.jobs["packaged-admin-lifecycle"].env.QUALIFICATION_PLATFORM,"${{ matrix.admin_platform }}");
   assert.doesNotMatch(workflow, /(?:timeout|deadline)[^\n]*?(?:real-browser|consume-admin-trusted-unlock-receipt)/iu);

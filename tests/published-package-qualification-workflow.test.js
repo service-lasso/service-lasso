@@ -115,7 +115,7 @@ test("AC-4BZ.1 workflow qualifies only exact downloaded publications on all thre
   );
   assert.match(
     workflow,
-    /mkdir -p "\$SERVICE_LASSO_TEST_SUPPORT_ROOT"[\s\S]*?pnpm test:secrets:real-first-run-browser[\s\S]*?prepare_admin_mode real-browser/,
+    /SERVICE_LASSO_TEST_EVIDENCE_ROOT="\$SERVICE_LASSO_QUALIFICATION_EXTERNAL_ROOT\/evidence"[\s\S]*?mkdir -p "\$SERVICE_LASSO_TEST_EVIDENCE_ROOT" "\$SERVICE_LASSO_TEST_SUPPORT_ROOT"[\s\S]*?pnpm test:secrets:real-first-run-browser/,
   );
 
   for (const command of [
