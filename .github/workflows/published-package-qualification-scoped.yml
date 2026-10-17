@@ -273,19 +273,23 @@ jobs:
           test "$QUALIFICATION_PREPARED" = "1"
           export SERVICE_LASSO_QUALIFICATION_CUSTODY_RECEIPT_PATH="$SERVICE_LASSO_QUALIFICATION_EXTERNAL_ROOT/custody-first-run.json"
           export SERVICE_LASSO_QUALIFICATION_OWNED_PROCESS_EVENTS_PATH="$SERVICE_LASSO_QUALIFICATION_EXTERNAL_ROOT/owned-first-run.jsonl"
+          mkdir -p "$SERVICE_LASSO_TEST_SUPPORT_ROOT"
           pnpm test:secrets:real-first-run-browser
           echo "QUALIFICATION_FIRST_RUN=success" >> "$GITHUB_ENV"
           export SERVICE_LASSO_QUALIFICATION_CUSTODY_RECEIPT_PATH="$SERVICE_LASSO_QUALIFICATION_EXTERNAL_ROOT/custody-real-browser.json"
           export SERVICE_LASSO_QUALIFICATION_OWNED_PROCESS_EVENTS_PATH="$SERVICE_LASSO_QUALIFICATION_EXTERNAL_ROOT/owned-real-browser.jsonl"
+          mkdir -p "$SERVICE_LASSO_TEST_SUPPORT_ROOT"
           "$ADMIN_PNPM_NODE" "$GITHUB_WORKSPACE/scripts/consume-admin-trusted-unlock-receipt.mjs" --receipt "$RUNNER_TEMP/admin-trusted-unlock-receipt.json" -- "$ADMIN_PNPM_NODE" "$ADMIN_PNPM_ENTRYPOINT" test:secrets:real-browser
           echo "QUALIFICATION_LIFECYCLE=success" >> "$GITHUB_ENV"
           export SERVICE_LASSO_QUALIFICATION_CUSTODY_RECEIPT_PATH="$SERVICE_LASSO_QUALIFICATION_EXTERNAL_ROOT/custody-stopped-lifecycle.json"
           export SERVICE_LASSO_QUALIFICATION_OWNED_PROCESS_EVENTS_PATH="$SERVICE_LASSO_QUALIFICATION_EXTERNAL_ROOT/owned-stopped-lifecycle.jsonl"
+          mkdir -p "$SERVICE_LASSO_TEST_SUPPORT_ROOT"
           pnpm test:secrets:real-stopped-lifecycle-browser
           echo "QUALIFICATION_STOPPED_LIFECYCLE=success" >> "$GITHUB_ENV"
           if [ "$RUNNER_OS" = "Windows" ]; then
             export SERVICE_LASSO_QUALIFICATION_CUSTODY_RECEIPT_PATH="$SERVICE_LASSO_QUALIFICATION_EXTERNAL_ROOT/custody-lockout.json"
             export SERVICE_LASSO_QUALIFICATION_OWNED_PROCESS_EVENTS_PATH="$SERVICE_LASSO_QUALIFICATION_EXTERNAL_ROOT/owned-lockout.jsonl"
+            mkdir -p "$SERVICE_LASSO_TEST_SUPPORT_ROOT"
             pnpm test:secrets:real-lockout-browser
             echo "QUALIFICATION_LOCKOUT=success" >> "$GITHUB_ENV"
           fi

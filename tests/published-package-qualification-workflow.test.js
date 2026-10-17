@@ -113,6 +113,10 @@ test("AC-4BZ.1 workflow qualifies only exact downloaded publications on all thre
     workflow,
     /custody-first-run\.json[\s\S]*?custody-real-browser\.json[\s\S]*?custody-stopped-lifecycle\.json/,
   );
+  assert.match(
+    workflow,
+    /mkdir -p "\$SERVICE_LASSO_TEST_SUPPORT_ROOT"[\s\S]*?pnpm test:secrets:real-first-run-browser[\s\S]*?mkdir -p "\$SERVICE_LASSO_TEST_SUPPORT_ROOT"[\s\S]*?test:secrets:real-browser/,
+  );
 
   for (const command of [
     "pnpm test:secrets:real-first-run-browser",
