@@ -101,6 +101,10 @@ test("AC-4BZ.1 workflow qualifies only exact downloaded publications on all thre
     workflow,
     /Establish unique qualification custody before dependencies[\s\S]*?qualification_root="\$RUNNER_TEMP\/published-package-qualification-\$GITHUB_RUN_ID-\$GITHUB_JOB-\$GITHUB_RUN_ATTEMPT-\$QUALIFICATION_PLATFORM"[\s\S]*?SERVICE_LASSO_INSTANCE_REGISTRY_PATH=\$SERVICE_LASSO_INSTANCE_REGISTRY_PATH[\s\S]*?SERVICE_LASSO_HOST_PORT_REGISTRY_PATH=\$SERVICE_LASSO_HOST_PORT_REGISTRY_PATH[\s\S]*?record-packaged-admin-first-custody[\s\S]*?project-packaged-admin-first-custody[\s\S]*?test -s "\$QUALIFICATION_INITIAL_PROJECTION_PATH"/,
   );
+  assert.match(
+    workflow,
+    /SERVICE_LASSO_TEST_CORE_INITIAL_PROJECTION=\$QUALIFICATION_INITIAL_PROJECTION_PATH[\s\S]*?pnpm test:secrets:real-first-run-browser/,
+  );
 
   for (const command of [
     "pnpm test:secrets:real-first-run-browser",
