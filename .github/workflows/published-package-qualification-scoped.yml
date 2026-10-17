@@ -73,7 +73,7 @@ jobs:
       CORE_NPM_INTEGRITY: ${{ inputs.core_npm_integrity }}
       CORE_RELEASE_ASSET: service-lasso-${{ inputs.core_release_tag }}-${{ matrix.core_suffix }}
       CORE_SHA256: ${{ matrix.core_sha256 }}
-      ADMIN_HARNESS_REVISION: 90caf8cf0f8e3c599a1a5022936813ac8bf0983b
+      ADMIN_HARNESS_REVISION: 6259e237ae888fcf7111d435c15bd75d72e39ca0
       QUALIFICATION_PLATFORM: ${{ matrix.platform }}
       # Apply before checkout so Windows receives genuine tracked blob bytes.
       GIT_CONFIG_COUNT: "1"
