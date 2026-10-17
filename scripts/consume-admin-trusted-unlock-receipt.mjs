@@ -509,7 +509,7 @@ export async function consumeWithDurableObserver(command, args, options = {}) {
     binding = { root, source, nonce };
     await retainObserverEvent(binding, stage, "entered");
     const config = {
-      root, command, args, cwd: options.cwd, source, nonce, timeoutMs: options.timeoutMs,
+      root, command, args, cwd: options.cwd, env: options.env, source, nonce, timeoutMs: options.timeoutMs,
       inputs: options.inputs,
     };
     const configPath = path.join(root, "observer-config.json");
