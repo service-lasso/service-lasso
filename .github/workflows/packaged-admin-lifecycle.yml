@@ -444,7 +444,17 @@ jobs:
           prepare_admin_mode first-run
           pnpm test:secrets:real-first-run-browser
           prepare_admin_mode real-browser
-          "$ADMIN_PNPM_NODE" "$GITHUB_WORKSPACE/scripts/consume-admin-trusted-unlock-receipt.mjs" --receipt "$RUNNER_TEMP/admin-trusted-unlock-receipt.json" -- "$ADMIN_PNPM_NODE" "scripts/verify-real-broker-browser.mjs"
+          cat > "$RUNNER_TEMP/tee-runner.cjs" <<'NODE'
+          const { spawn } = require('node:child_process')
+          const { createWriteStream } = require('node:fs')
+          const out = createWriteStream(process.env.DIAG_TEE_PATH)
+          const child = spawn(process.execPath, process.argv.slice(2), { cwd: process.cwd(), env: process.env, stdio: ['ignore', 'pipe', 'pipe'] })
+          child.stdout.on('data', (data) => process.stdout.write(data))
+          child.stderr.on('data', (data) => { process.stderr.write(data); out.write(data) })
+          child.on('close', (code) => { out.end(() => process.exit(code ?? 1)) })
+          NODE
+          export DIAG_TEE_PATH="$RUNNER_TEMP/verifier-tee.err"
+          "$ADMIN_PNPM_NODE" "$GITHUB_WORKSPACE/scripts/consume-admin-trusted-unlock-receipt.mjs" --receipt "$RUNNER_TEMP/admin-trusted-unlock-receipt.json" -- "$ADMIN_PNPM_NODE" "$RUNNER_TEMP/tee-runner.cjs" scripts/verify-real-broker-browser.mjs || { sed -n '1,80p' "$RUNNER_TEMP/verifier-tee.err"; exit 1; }
           prepare_admin_mode stopped-lifecycle
           pnpm test:secrets:real-stopped-lifecycle-browser
           if [ "$RUNNER_OS" = "Windows" ]; then
