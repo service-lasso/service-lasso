@@ -105,6 +105,14 @@ test("AC-4BZ.1 workflow qualifies only exact downloaded publications on all thre
     workflow,
     /SERVICE_LASSO_TEST_CORE_INITIAL_PROJECTION=\$QUALIFICATION_INITIAL_PROJECTION_PATH[\s\S]*?pnpm test:secrets:real-first-run-browser/,
   );
+  assert.match(
+    workflow,
+    /name: Initialize exact Admin qualification custody[\s\S]*?SERVICE_LASSO_QUALIFICATION_CORE_HEAD=\$core_head[\s\S]*?pnpm test:secrets:real-first-run-browser/,
+  );
+  assert.match(
+    workflow,
+    /custody-first-run\.json[\s\S]*?custody-real-browser\.json[\s\S]*?custody-stopped-lifecycle\.json/,
+  );
 
   for (const command of [
     "pnpm test:secrets:real-first-run-browser",

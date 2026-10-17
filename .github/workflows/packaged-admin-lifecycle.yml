@@ -218,6 +218,40 @@ jobs:
             test -s "$QUALIFICATION_INITIAL_PROJECTION_PATH"
           )
 
+      - name: Initialize exact Admin qualification custody
+        working-directory: qualification/admin
+        shell: bash
+        env:
+          SERVICE_LASSO_QUALIFICATION_EXTERNAL_ROOT: ${{ runner.temp }}/admin-qualification-${{ github.run_id }}-${{ github.job }}-${{ github.run_attempt }}-${{ env.QUALIFICATION_PLATFORM }}
+          SERVICE_LASSO_WORKSPACE_ROOT: ${{ runner.temp }}/admin-qualification-${{ github.run_id }}-${{ github.job }}-${{ github.run_attempt }}-${{ env.QUALIFICATION_PLATFORM }}/workspace
+          SERVICE_LASSO_TEST_REGISTRIES_ROOT: ${{ runner.temp }}/admin-qualification-${{ github.run_id }}-${{ github.job }}-${{ github.run_attempt }}-${{ env.QUALIFICATION_PLATFORM }}/registries
+          SERVICE_LASSO_INSTANCE_REGISTRY_PATH: ${{ runner.temp }}/admin-qualification-${{ github.run_id }}-${{ github.job }}-${{ github.run_attempt }}-${{ env.QUALIFICATION_PLATFORM }}/registries/instances.json
+          SERVICE_LASSO_HOST_PORT_REGISTRY_PATH: ${{ runner.temp }}/admin-qualification-${{ github.run_id }}-${{ github.job }}-${{ github.run_attempt }}-${{ env.QUALIFICATION_PLATFORM }}/registries/host-ports.json
+          SERVICE_LASSO_QUALIFICATION_CUSTODY_INITIAL_RECEIPT_PATH: ${{ runner.temp }}/admin-qualification-${{ github.run_id }}-${{ github.job }}-${{ github.run_attempt }}-${{ env.QUALIFICATION_PLATFORM }}/custody-initial.json
+          SERVICE_LASSO_QUALIFICATION_CUSTODY_RECEIPT_PATH: ${{ runner.temp }}/admin-qualification-${{ github.run_id }}-${{ github.job }}-${{ github.run_attempt }}-${{ env.QUALIFICATION_PLATFORM }}/custody-closed.json
+          SERVICE_LASSO_QUALIFICATION_OWNED_PROCESS_EVENTS_PATH: ${{ runner.temp }}/admin-qualification-${{ github.run_id }}-${{ github.job }}-${{ github.run_attempt }}-${{ env.QUALIFICATION_PLATFORM }}/owned-processes.jsonl
+        run: |
+          set -euo pipefail
+          node --input-type=module -e "import { initializeQualificationCustody } from './scripts/qualification-custody.mjs'; await initializeQualificationCustody()"
+          core_head="$(git -C "$GITHUB_WORKSPACE" rev-parse HEAD)"
+          core_tree="$(git -C "$GITHUB_WORKSPACE" rev-parse 'HEAD^{tree}')"
+          admin_head="$(git rev-parse HEAD)"
+          admin_tree="$(git rev-parse 'HEAD^{tree}')"
+          printf '%s\n' \
+            "SERVICE_LASSO_QUALIFICATION_EXTERNAL_ROOT=$SERVICE_LASSO_QUALIFICATION_EXTERNAL_ROOT" \
+            "SERVICE_LASSO_WORKSPACE_ROOT=$SERVICE_LASSO_WORKSPACE_ROOT" \
+            "SERVICE_LASSO_TEST_REGISTRIES_ROOT=$SERVICE_LASSO_TEST_REGISTRIES_ROOT" \
+            "SERVICE_LASSO_INSTANCE_REGISTRY_PATH=$SERVICE_LASSO_INSTANCE_REGISTRY_PATH" \
+            "SERVICE_LASSO_HOST_PORT_REGISTRY_PATH=$SERVICE_LASSO_HOST_PORT_REGISTRY_PATH" \
+            "SERVICE_LASSO_QUALIFICATION_CUSTODY_INITIAL_RECEIPT_PATH=$SERVICE_LASSO_QUALIFICATION_CUSTODY_INITIAL_RECEIPT_PATH" \
+            "SERVICE_LASSO_QUALIFICATION_CUSTODY_RECEIPT_PATH=$SERVICE_LASSO_QUALIFICATION_CUSTODY_RECEIPT_PATH" \
+            "SERVICE_LASSO_QUALIFICATION_OWNED_PROCESS_EVENTS_PATH=$SERVICE_LASSO_QUALIFICATION_OWNED_PROCESS_EVENTS_PATH" \
+            "SERVICE_LASSO_QUALIFICATION_ADMIN_HEAD=$admin_head" \
+            "SERVICE_LASSO_QUALIFICATION_ADMIN_TREE=$admin_tree" \
+            "SERVICE_LASSO_QUALIFICATION_CORE_HEAD=$core_head" \
+            "SERVICE_LASSO_QUALIFICATION_CORE_TREE=$core_tree" \
+            >> "$GITHUB_ENV"
+
       - name: Set up Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -393,10 +427,18 @@ jobs:
           SERVICE_LASSO_ADMIN_RECEIPT_OBSERVER_ROOT: ${{ runner.temp }}/admin-provider-observer-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.admin_platform }}
         run: |
           set -euo pipefail
+          export SERVICE_LASSO_QUALIFICATION_CUSTODY_RECEIPT_PATH="$SERVICE_LASSO_QUALIFICATION_EXTERNAL_ROOT/custody-first-run.json"
+          export SERVICE_LASSO_QUALIFICATION_OWNED_PROCESS_EVENTS_PATH="$SERVICE_LASSO_QUALIFICATION_EXTERNAL_ROOT/owned-first-run.jsonl"
           pnpm test:secrets:real-first-run-browser
+          export SERVICE_LASSO_QUALIFICATION_CUSTODY_RECEIPT_PATH="$SERVICE_LASSO_QUALIFICATION_EXTERNAL_ROOT/custody-real-browser.json"
+          export SERVICE_LASSO_QUALIFICATION_OWNED_PROCESS_EVENTS_PATH="$SERVICE_LASSO_QUALIFICATION_EXTERNAL_ROOT/owned-real-browser.jsonl"
           "$ADMIN_PNPM_NODE" "$GITHUB_WORKSPACE/scripts/consume-admin-trusted-unlock-receipt.mjs" --receipt "$RUNNER_TEMP/admin-trusted-unlock-receipt.json" -- "$ADMIN_PNPM_NODE" "$ADMIN_PNPM_ENTRYPOINT" test:secrets:real-browser
+          export SERVICE_LASSO_QUALIFICATION_CUSTODY_RECEIPT_PATH="$SERVICE_LASSO_QUALIFICATION_EXTERNAL_ROOT/custody-stopped-lifecycle.json"
+          export SERVICE_LASSO_QUALIFICATION_OWNED_PROCESS_EVENTS_PATH="$SERVICE_LASSO_QUALIFICATION_EXTERNAL_ROOT/owned-stopped-lifecycle.jsonl"
           pnpm test:secrets:real-stopped-lifecycle-browser
           if [ "$RUNNER_OS" = "Windows" ]; then
+            export SERVICE_LASSO_QUALIFICATION_CUSTODY_RECEIPT_PATH="$SERVICE_LASSO_QUALIFICATION_EXTERNAL_ROOT/custody-lockout.json"
+            export SERVICE_LASSO_QUALIFICATION_OWNED_PROCESS_EVENTS_PATH="$SERVICE_LASSO_QUALIFICATION_EXTERNAL_ROOT/owned-lockout.jsonl"
             pnpm test:secrets:real-lockout-browser
           fi
 
