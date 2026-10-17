@@ -432,7 +432,10 @@ jobs:
           pnpm test:secrets:real-first-run-browser
           export SERVICE_LASSO_QUALIFICATION_CUSTODY_RECEIPT_PATH="$SERVICE_LASSO_QUALIFICATION_EXTERNAL_ROOT/custody-real-browser.json"
           export SERVICE_LASSO_QUALIFICATION_OWNED_PROCESS_EVENTS_PATH="$SERVICE_LASSO_QUALIFICATION_EXTERNAL_ROOT/owned-real-browser.jsonl"
-          "$ADMIN_PNPM_NODE" "$GITHUB_WORKSPACE/scripts/consume-admin-trusted-unlock-receipt.mjs" --receipt "$RUNNER_TEMP/admin-trusted-unlock-receipt.json" -- "$ADMIN_PNPM_NODE" "$ADMIN_PNPM_ENTRYPOINT" test:secrets:real-browser
+          verifier_status=0
+          node scripts/verify-real-broker-browser.mjs > "$RUNNER_TEMP/verifier.out" 2> "$RUNNER_TEMP/verifier.err" || verifier_status=$?
+          grep -E '^\{"schema":"service-lasso\.' "$RUNNER_TEMP/verifier.out" "$RUNNER_TEMP/verifier.err" || true
+          test "$verifier_status" -eq 0
           export SERVICE_LASSO_QUALIFICATION_CUSTODY_RECEIPT_PATH="$SERVICE_LASSO_QUALIFICATION_EXTERNAL_ROOT/custody-stopped-lifecycle.json"
           export SERVICE_LASSO_QUALIFICATION_OWNED_PROCESS_EVENTS_PATH="$SERVICE_LASSO_QUALIFICATION_EXTERNAL_ROOT/owned-stopped-lifecycle.jsonl"
           pnpm test:secrets:real-stopped-lifecycle-browser
