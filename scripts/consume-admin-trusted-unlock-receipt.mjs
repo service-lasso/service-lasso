@@ -301,7 +301,7 @@ export async function consume(command, args, options = {}) {
     });
     stream.on("data", (chunk) => {
       observer.write(chunk);
-      if (observer.shouldDispose() && !stream.destroyed) stream.destroy();
+      if (observer.shouldDispose() && !stream.destroyed) stream.resume();
     });
     stream.on("error", () => {});
     streamClosed.push({ stream, settled });
