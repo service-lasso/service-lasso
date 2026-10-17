@@ -111,11 +111,11 @@ test("AC-4BZ.1 workflow qualifies only exact downloaded publications on all thre
   );
   assert.match(
     workflow,
-    /custody-first-run\.json[\s\S]*?custody-real-browser\.json[\s\S]*?custody-stopped-lifecycle\.json/,
+    /initializeQualificationCustody[\s\S]*?prepare_admin_mode first-run[\s\S]*?prepare_admin_mode real-browser[\s\S]*?prepare_admin_mode stopped-lifecycle/,
   );
   assert.match(
     workflow,
-    /mkdir -p "\$SERVICE_LASSO_TEST_SUPPORT_ROOT"[\s\S]*?pnpm test:secrets:real-first-run-browser[\s\S]*?mkdir -p "\$SERVICE_LASSO_TEST_SUPPORT_ROOT"[\s\S]*?test:secrets:real-browser/,
+    /mkdir -p "\$SERVICE_LASSO_TEST_SUPPORT_ROOT"[\s\S]*?pnpm test:secrets:real-first-run-browser[\s\S]*?prepare_admin_mode real-browser/,
   );
 
   for (const command of [
