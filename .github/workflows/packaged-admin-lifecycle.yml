@@ -436,6 +436,9 @@ jobs:
           node scripts/verify-real-broker-browser.mjs > "$RUNNER_TEMP/verifier.out" 2> "$RUNNER_TEMP/verifier.err" || verifier_status=$?
           grep -E '^\{"schema":"service-lasso\.' "$RUNNER_TEMP/verifier.out" "$RUNNER_TEMP/verifier.err" || true
           sed -n '1,40p' "$RUNNER_TEMP/verifier.err" || true
+          id || true
+          ls -ld "$SERVICE_LASSO_TEST_SERVICES_ROOT" "$SERVICE_LASSO_TEST_EVIDENCE_ROOT" "$SERVICE_LASSO_TEST_SUPPORT_ROOT" || true
+          namei -l "$SERVICE_LASSO_TEST_SUPPORT_ROOT" || true
           test "$verifier_status" -eq 0
           export SERVICE_LASSO_QUALIFICATION_CUSTODY_RECEIPT_PATH="$SERVICE_LASSO_QUALIFICATION_EXTERNAL_ROOT/custody-stopped-lifecycle.json"
           export SERVICE_LASSO_QUALIFICATION_OWNED_PROCESS_EVENTS_PATH="$SERVICE_LASSO_QUALIFICATION_EXTERNAL_ROOT/owned-stopped-lifecycle.jsonl"
