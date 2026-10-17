@@ -11,7 +11,7 @@ export const QUALIFICATION_SCHEMA =
 export const RETENTION_DAYS = 90;
 export const PACKAGE_NAME = "@service-lasso/service-lasso";
 export const ADMIN_HARNESS_REVISION =
-  "90caf8cf0f8e3c599a1a5022936813ac8bf0983b";
+  "6259e237ae888fcf7111d435c15bd75d72e39ca0";
 
 export const RETAINED_ADMIN_TRUSTED_UNLOCK_RECEIPT_SCHEMA =
   "service-lasso.admin-trusted-unlock-retained.v1";

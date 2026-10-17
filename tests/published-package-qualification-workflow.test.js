@@ -65,7 +65,7 @@ test("AC-4BZ.1 workflow qualifies only exact downloaded publications on all thre
   assert.match(workflow, /consume-admin-trusted-unlock-receipt\.mjs/);
   assert.match(
     workflow,
-    /consume-admin-trusted-unlock-receipt\.mjs[\s\S]*?--receipt[\s\S]*?-- "\$ADMIN_PNPM_NODE" "\$ADMIN_PNPM_ENTRYPOINT" test:secrets:real-browser/,
+    /consume-admin-trusted-unlock-receipt\.mjs[\s\S]*?--receipt[\s\S]*?-- "\$ADMIN_PNPM_NODE" "scripts\/verify-real-broker-browser\.mjs"/,
   );
   assert.match(workflow, /id: pnpm-action-pinned-entrypoint[\s\S]*?dest: \$\{\{ runner\.temp \}\}\/pnpm-action-pinned-entrypoint/);
   assert.match(workflow, /PNPM_ACTION_BIN_DEST: \$\{\{ steps\.pnpm-action-pinned-entrypoint\.outputs\.bin_dest \}\}/);
@@ -100,6 +100,22 @@ test("AC-4BZ.1 workflow qualifies only exact downloaded publications on all thre
   assert.match(
     workflow,
     /Establish unique qualification custody before dependencies[\s\S]*?qualification_root="\$RUNNER_TEMP\/published-package-qualification-\$GITHUB_RUN_ID-\$GITHUB_JOB-\$GITHUB_RUN_ATTEMPT-\$QUALIFICATION_PLATFORM"[\s\S]*?SERVICE_LASSO_INSTANCE_REGISTRY_PATH=\$SERVICE_LASSO_INSTANCE_REGISTRY_PATH[\s\S]*?SERVICE_LASSO_HOST_PORT_REGISTRY_PATH=\$SERVICE_LASSO_HOST_PORT_REGISTRY_PATH[\s\S]*?record-packaged-admin-first-custody[\s\S]*?project-packaged-admin-first-custody[\s\S]*?test -s "\$QUALIFICATION_INITIAL_PROJECTION_PATH"/,
+  );
+  assert.match(
+    workflow,
+    /SERVICE_LASSO_TEST_CORE_INITIAL_PROJECTION=\$QUALIFICATION_INITIAL_PROJECTION_PATH[\s\S]*?pnpm test:secrets:real-first-run-browser/,
+  );
+  assert.match(
+    workflow,
+    /name: Initialize exact Admin qualification custody[\s\S]*?SERVICE_LASSO_QUALIFICATION_CORE_HEAD=\$core_head[\s\S]*?pnpm test:secrets:real-first-run-browser/,
+  );
+  assert.match(
+    workflow,
+    /initializeQualificationCustody[\s\S]*?prepare_admin_mode first-run[\s\S]*?prepare_admin_mode real-browser[\s\S]*?prepare_admin_mode stopped-lifecycle/,
+  );
+  assert.match(
+    workflow,
+    /SERVICE_LASSO_TEST_EVIDENCE_ROOT="\$SERVICE_LASSO_QUALIFICATION_EXTERNAL_ROOT\/evidence"[\s\S]*?mkdir -p "\$SERVICE_LASSO_TEST_EVIDENCE_ROOT" "\$SERVICE_LASSO_TEST_SUPPORT_ROOT"[\s\S]*?pnpm test:secrets:real-first-run-browser/,
   );
 
   for (const command of [
