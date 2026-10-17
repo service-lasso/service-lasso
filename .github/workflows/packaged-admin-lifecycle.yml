@@ -438,10 +438,8 @@ jobs:
             export SERVICE_LASSO_QUALIFICATION_CUSTODY_RECEIPT_PATH="$SERVICE_LASSO_QUALIFICATION_EXTERNAL_ROOT/custody-closed.json"
             export SERVICE_LASSO_QUALIFICATION_OWNED_PROCESS_EVENTS_PATH="$SERVICE_LASSO_QUALIFICATION_EXTERNAL_ROOT/owned-processes.jsonl"
             export SERVICE_LASSO_TEST_EVIDENCE_ROOT="$SERVICE_LASSO_QUALIFICATION_EXTERNAL_ROOT/evidence"
-            mkdir -p "$SERVICE_LASSO_TEST_EVIDENCE_ROOT" "$SERVICE_LASSO_TEST_SUPPORT_ROOT"
-            echo "MODE=$mode ROOT=$SERVICE_LASSO_QUALIFICATION_EXTERNAL_ROOT"
-            ls -ld "$SERVICE_LASSO_QUALIFICATION_EXTERNAL_ROOT" "$SERVICE_LASSO_WORKSPACE_ROOT" "$SERVICE_LASSO_TEST_REGISTRIES_ROOT" 2>&1 || true
             node --input-type=module -e "import { initializeQualificationCustody } from './scripts/qualification-custody.mjs'; await initializeQualificationCustody()"
+            mkdir -p "$SERVICE_LASSO_TEST_EVIDENCE_ROOT" "$SERVICE_LASSO_TEST_SUPPORT_ROOT"
           }
           prepare_admin_mode first-run
           pnpm test:secrets:real-first-run-browser
