@@ -438,6 +438,7 @@ jobs:
             export SERVICE_LASSO_QUALIFICATION_CUSTODY_RECEIPT_PATH="$SERVICE_LASSO_QUALIFICATION_EXTERNAL_ROOT/custody-closed.json"
             export SERVICE_LASSO_QUALIFICATION_OWNED_PROCESS_EVENTS_PATH="$SERVICE_LASSO_QUALIFICATION_EXTERNAL_ROOT/owned-processes.jsonl"
             export SERVICE_LASSO_TEST_EVIDENCE_ROOT="$SERVICE_LASSO_QUALIFICATION_EXTERNAL_ROOT/evidence"
+            export SERVICE_LASSO_ADMIN_RECEIPT_OBSERVER_ROOT="$RUNNER_TEMP/admin-provider-observer-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$QUALIFICATION_PLATFORM-$mode"
             node --input-type=module -e "import { initializeQualificationCustody } from './scripts/qualification-custody.mjs'; await initializeQualificationCustody()"
             mkdir -p "$SERVICE_LASSO_TEST_EVIDENCE_ROOT" "$SERVICE_LASSO_TEST_SUPPORT_ROOT"
           }
