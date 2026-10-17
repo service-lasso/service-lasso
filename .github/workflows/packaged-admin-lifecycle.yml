@@ -445,19 +445,7 @@ jobs:
           prepare_admin_mode first-run
           pnpm test:secrets:real-first-run-browser
           prepare_admin_mode real-browser
-          cat > "$RUNNER_TEMP/patch-verifier.cjs" <<'NODE'
-          const fs = require('node:fs')
-          const p = 'scripts/verify-real-broker-browser.mjs'
-          const s = fs.readFileSync(p, 'utf8')
-          const marker = `    '{"schema":"service-lasso.real-browser-verifier-failure.v1","state":"unverified"}\\n'`
-          if (!s.includes(marker)) throw new Error('marker missing')
-          const patched = s.replace('  retainRunFailure(error)\n  process.exitCode = 1\n  writeParentOutput(process.stderr,\n' + marker, '  retainRunFailure(error)\n  console.error("VERIFIER_DIAG " + String(error?.message).slice(0, 300))\n  process.exitCode = 1\n  writeParentOutput(process.stderr,\n' + marker)
-          if (patched === s) throw new Error('patch missed')
-          fs.writeFileSync(p, patched)
-          NODE
-          node "$RUNNER_TEMP/patch-verifier.cjs"
-          export DIAG_TEE_PATH="$RUNNER_TEMP/verifier-tee.err"
-          "$ADMIN_PNPM_NODE" "$GITHUB_WORKSPACE/scripts/consume-admin-trusted-unlock-receipt.mjs" --receipt "$RUNNER_TEMP/admin-trusted-unlock-receipt.json" -- "$ADMIN_PNPM_NODE" "$GITHUB_WORKSPACE/scripts/tee-child-output.mjs" "$DIAG_TEE_PATH" "$ADMIN_PNPM_NODE" "scripts/verify-real-broker-browser.mjs" || { sed -n '1,80p' "$DIAG_TEE_PATH" 2>/dev/null || true; exit 1; }
+          "$ADMIN_PNPM_NODE" "$GITHUB_WORKSPACE/scripts/consume-admin-trusted-unlock-receipt.mjs" --receipt "$RUNNER_TEMP/admin-trusted-unlock-receipt.json" -- "$ADMIN_PNPM_NODE" "scripts/verify-real-broker-browser.mjs"
           prepare_admin_mode stopped-lifecycle
           pnpm test:secrets:real-stopped-lifecycle-browser
           if [ "$RUNNER_OS" = "Windows" ]; then
