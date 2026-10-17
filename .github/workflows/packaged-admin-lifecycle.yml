@@ -445,7 +445,8 @@ jobs:
           prepare_admin_mode first-run
           pnpm test:secrets:real-first-run-browser
           prepare_admin_mode real-browser
-          "$ADMIN_PNPM_NODE" "$GITHUB_WORKSPACE/scripts/consume-admin-trusted-unlock-receipt.mjs" --receipt "$RUNNER_TEMP/admin-trusted-unlock-receipt.json" -- "$ADMIN_PNPM_NODE" "scripts/verify-real-broker-browser.mjs"
+          export DIAG_TEE_PATH="$RUNNER_TEMP/verifier-tee.err"
+          "$ADMIN_PNPM_NODE" "$GITHUB_WORKSPACE/scripts/consume-admin-trusted-unlock-receipt.mjs" --receipt "$RUNNER_TEMP/admin-trusted-unlock-receipt.json" -- "$ADMIN_PNPM_NODE" "$GITHUB_WORKSPACE/scripts/tee-child-output.mjs" "$DIAG_TEE_PATH" "$ADMIN_PNPM_NODE" "scripts/verify-real-broker-browser.mjs" || { sed -n '1,80p' "$DIAG_TEE_PATH" 2>/dev/null || true; exit 1; }
           prepare_admin_mode stopped-lifecycle
           pnpm test:secrets:real-stopped-lifecycle-browser
           if [ "$RUNNER_OS" = "Windows" ]; then
