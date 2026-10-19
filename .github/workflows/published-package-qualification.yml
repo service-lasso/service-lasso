@@ -286,6 +286,10 @@ jobs:
           pnpm test:secrets:real-first-run-browser
           echo "QUALIFICATION_FIRST_RUN=success" >> "$GITHUB_ENV"
           prepare_admin_mode real-browser
+          # The Admin verifier budgets 4 minutes for readiness plus 12 minutes
+          # for Cypress; give the detached observer enough time to witness the
+          # full observed lifecycle rather than the 5-minute default.
+          export SERVICE_LASSO_ADMIN_RECEIPT_TIMEOUT_MS=1200000
           "$ADMIN_PNPM_NODE" "$GITHUB_WORKSPACE/scripts/consume-admin-trusted-unlock-receipt.mjs" --receipt "$RUNNER_TEMP/admin-trusted-unlock-receipt.json" -- "$ADMIN_PNPM_NODE" "scripts/verify-real-broker-browser.mjs"
           echo "QUALIFICATION_LIFECYCLE=success" >> "$GITHUB_ENV"
           prepare_admin_mode stopped-lifecycle

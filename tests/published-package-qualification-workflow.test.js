@@ -67,6 +67,10 @@ test("AC-4BZ.1 workflow qualifies only exact downloaded publications on all thre
     workflow,
     /consume-admin-trusted-unlock-receipt\.mjs[\s\S]*?--receipt[\s\S]*?-- "\$ADMIN_PNPM_NODE" "scripts\/verify-real-broker-browser\.mjs"/,
   );
+  assert.match(
+    workflow,
+    /prepare_admin_mode real-browser[\s\S]*?SERVICE_LASSO_ADMIN_RECEIPT_TIMEOUT_MS=1200000[\s\S]*?consume-admin-trusted-unlock-receipt\.mjs/,
+  );
   assert.match(workflow, /id: pnpm-action-pinned-entrypoint[\s\S]*?dest: \$\{\{ runner\.temp \}\}\/pnpm-action-pinned-entrypoint/);
   assert.match(workflow, /PNPM_ACTION_BIN_DEST: \$\{\{ steps\.pnpm-action-pinned-entrypoint\.outputs\.bin_dest \}\}/);
   assert.match(workflow, /QUALIFICATION_PLATFORM: \$\{\{ matrix\.platform \}\}/);

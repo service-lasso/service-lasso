@@ -130,6 +130,10 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
   assert.doesNotMatch(workflow, /(?:timeout|deadline)[^\n]*?(?:real-browser|consume-admin-trusted-unlock-receipt)/iu);
   assert.match(
     workflow,
+    /prepare_admin_mode real-browser[\s\S]*?SERVICE_LASSO_ADMIN_RECEIPT_TIMEOUT_MS=1200000[\s\S]*?consume-admin-trusted-unlock-receipt\.mjs/,
+  );
+  assert.match(
+    workflow,
     /test "\$admin_revision" = "\$ADMIN_HARNESS_REVISION"/,
   );
   assert.match(workflow, /ADMIN_RELEASE_TAG: "2026\.8\.31-f015b44"/);
