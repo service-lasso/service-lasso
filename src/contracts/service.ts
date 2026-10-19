@@ -437,11 +437,15 @@ export interface ServiceBrokerPolicy {
 
 export type ServiceIngressType = "fastcgi" | "http";
 
-export interface ServiceManifestIngress {
+export interface ServiceIngressProxy {
   type: ServiceIngressType;
-  domain?: string;
   endpoint?: string;
   root?: string;
+}
+
+export interface ServiceIngress {
+  domain?: string;
+  proxy: ServiceIngressProxy;
 }
 
 export interface ServiceManifest {
@@ -464,7 +468,7 @@ export interface ServiceManifest {
   globalenv?: ServiceEnvMap;
   broker?: ServiceBrokerPolicy;
   endpoints?: ServiceManifestEndpoint[];
-  ingress?: ServiceManifestIngress;
+  ingress?: ServiceIngress[];
   ports?: ServicePortDeclaration;
   portmapping?: ServicePortMappingDeclaration;
   urls?: ServiceUrlEndpoint[];

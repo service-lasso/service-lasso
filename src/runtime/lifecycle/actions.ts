@@ -7,10 +7,10 @@ import path from "node:path";
 import { withServiceStartSerialization } from "./start-serialization.js";
 import {
   buildCaddyRegisterPayload,
-  getCaddyIngressRegistration,
+  listCaddyIngressRegistrations,
   registerCaddyIngress,
-  reserveIngressPort,
   resolveCaddyAdminAddress,
+  resolveCaddyIngressPort,
   unregisterCaddyIngress,
 } from "../ingress/caddy.js";
 import { windowsTreeInspectionFailureMetadata } from "../process/windows-tree-inspection-diagnostics.js";
@@ -1277,56 +1277,63 @@ async function applyCaddyIngressOnStart(
   globalEnv: Record<string, string | undefined>,
   resolvedPorts: Record<string, number>,
 ): Promise<void> {
-  const ingress = service.manifest.ingress;
-  if (!ingress) {
+  const ingresses = service.manifest.ingress;
+  if (!ingresses || ingresses.length === 0) {
     return;
   }
-  try {
-    const adminAddress = resolveCaddyAdminAddress(globalEnv);
-    if (!adminAddress) {
-      return;
+
+  const adminAddress = resolveCaddyAdminAddress(globalEnv);
+  const ingressPort = resolveCaddyIngressPort(globalEnv);
+  if (!adminAddress || !ingressPort) {
+    return;
+  }
+
+  for (const [index, ingress] of ingresses.entries()) {
+    try {
+      const proxy = ingress.proxy;
+      const endpointId = proxy.endpoint ?? (proxy.type === "fastcgi" ? "fastcgi" : "web");
+      const port = resolvedPorts[endpointId];
+      if (!port) {
+        continue;
+      }
+      const bind = service.manifest.endpoints?.find((endpoint) => endpoint.id === endpointId)?.bind ?? "127.0.0.1";
+      const routeId = ingresses.length === 1 ? service.manifest.id : `${service.manifest.id}#${index}`;
+      const payload = buildCaddyRegisterPayload({
+        serviceId: service.manifest.id,
+        ingress: {
+          domain: resolveIngressValue(ingress.domain, globalEnv),
+          proxy: {
+            ...proxy,
+            root: resolveIngressValue(proxy.root, globalEnv),
+          },
+        },
+        target: `${bind}:${port}`,
+        ingressPort,
+        routeId,
+      });
+      await registerCaddyIngress(adminAddress, payload, service.manifest.id);
+    } catch (error) {
+      // @caddy is optional; never fail the service lifecycle on ingress wiring.
+      console.warn(
+        `[service-lasso] @caddy ingress registration skipped for "${service.manifest.id}" entry ${index}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
     }
-    const endpointId = ingress.endpoint ?? (ingress.type === "fastcgi" ? "fastcgi" : "web");
-    const port = resolvedPorts[endpointId];
-    if (!port) {
-      return;
-    }
-    const bind = service.manifest.endpoints?.find((endpoint) => endpoint.id === endpointId)?.bind ?? "127.0.0.1";
-    const ingressPort = await reserveIngressPort();
-    const payload = buildCaddyRegisterPayload({
-      serviceId: service.manifest.id,
-      ingress: {
-        ...ingress,
-        domain: resolveIngressValue(ingress.domain, globalEnv),
-        root: resolveIngressValue(ingress.root, globalEnv),
-      },
-      target: `${bind}:${port}`,
-      ingressPort,
-    });
-    await registerCaddyIngress(adminAddress, payload);
-  } catch (error) {
-    // @caddy is optional; never fail the service lifecycle on ingress wiring.
-    console.warn(
-      `[service-lasso] @caddy ingress registration skipped for "${service.manifest.id}": ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-    );
   }
 }
 
 async function removeCaddyIngressOnStop(serviceId: string): Promise<void> {
-  const registration = getCaddyIngressRegistration(serviceId);
-  if (!registration) {
-    return;
-  }
-  try {
-    await unregisterCaddyIngress(registration.adminAddress, serviceId);
-  } catch (error) {
-    console.warn(
-      `[service-lasso] @caddy ingress unregistration skipped for "${serviceId}": ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-    );
+  for (const registration of listCaddyIngressRegistrations(serviceId)) {
+    try {
+      await unregisterCaddyIngress(registration.adminAddress, registration.routeId);
+    } catch (error) {
+      console.warn(
+        `[service-lasso] @caddy ingress unregistration skipped for "${serviceId}": ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
   }
 }
 
