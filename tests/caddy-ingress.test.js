@@ -1,15 +1,18 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
+import path from "node:path";
 import {
   buildCaddyRegisterPayload,
   defaultIngressDomain,
   registerCaddyIngress,
   resetCaddyIngressRegistrations,
   resolveCaddyAdminAddress,
+  resolveCaddyIngressPort,
   unregisterCaddyIngress,
   getCaddyIngressRegistration,
 } from "../dist/runtime/ingress/caddy.js";
+import { discoverServices } from "../dist/runtime/discovery/discoverServices.js";
 
 test("defaultIngressDomain sanitizes core service ids", () => {
   assert.equal(defaultIngressDomain("@nextcloud"), "nextcloud.servicelasso.localhost");
@@ -26,22 +29,26 @@ test("resolveCaddyAdminAddress prefers CADDY_ADMIN_ADDR and falls back to host+p
   assert.equal(resolveCaddyAdminAddress({}), null);
 });
 
+test("resolveCaddyIngressPort uses the shared @caddy web port", () => {
+  assert.equal(resolveCaddyIngressPort({ CADDY_HTTP_PORT: "8080" }), 8080);
+  assert.equal(resolveCaddyIngressPort({ CADDY_HTTP_PORT: "0" }), null);
+  assert.equal(resolveCaddyIngressPort({}), null);
+});
+
 test("buildCaddyRegisterPayload handles fastcgi and http upstreams", () => {
   const fastcgi = buildCaddyRegisterPayload({
     serviceId: "@nextcloud",
     ingress: {
-      type: "fastcgi",
       domain: "nextcloud.servicelasso.localhost",
-      endpoint: "fastcgi",
-      root: "/srv/nextcloud",
+      proxy: { type: "fastcgi", endpoint: "fastcgi", root: "/srv/nextcloud" },
     },
     target: "127.0.0.1:9000",
-    ingressPort: 50123,
+    ingressPort: 8080,
   });
   assert.deepEqual(fastcgi, {
     id: "@nextcloud",
     domain: "nextcloud.servicelasso.localhost",
-    ingress_port: 50123,
+    ingress_port: 8080,
     type: "fastcgi",
     target: "127.0.0.1:9000",
     root: "/srv/nextcloud",
@@ -49,10 +56,12 @@ test("buildCaddyRegisterPayload handles fastcgi and http upstreams", () => {
 
   const httpPayload = buildCaddyRegisterPayload({
     serviceId: "@node-app",
-    ingress: { type: "http", endpoint: "web" },
+    ingress: { proxy: { type: "http", endpoint: "web" } },
     target: "127.0.0.1:3000",
-    ingressPort: 50124,
+    ingressPort: 8080,
+    routeId: "@node-app#0",
   });
+  assert.equal(httpPayload.id, "@node-app#0");
   assert.equal(httpPayload.domain, "node-app.servicelasso.localhost");
   assert.equal(httpPayload.root, undefined);
 
@@ -60,9 +69,9 @@ test("buildCaddyRegisterPayload handles fastcgi and http upstreams", () => {
     () =>
       buildCaddyRegisterPayload({
         serviceId: "@x",
-        ingress: { type: "fastcgi", root: "" },
+        ingress: { proxy: { type: "fastcgi", root: "" } },
         target: "127.0.0.1:9000",
-        ingressPort: 50123,
+        ingressPort: 8080,
       }),
     /requires "root"/,
   );
@@ -70,12 +79,43 @@ test("buildCaddyRegisterPayload handles fastcgi and http upstreams", () => {
     () =>
       buildCaddyRegisterPayload({
         serviceId: "@x",
-        ingress: { type: "http" },
+        ingress: { proxy: { type: "http" } },
         target: "127.0.0.1:3000",
         ingressPort: 0,
       }),
     /valid ingress port/,
   );
+});
+
+test("echo-service declares http ingress and @caddy is available for it", async () => {
+  const discovered = await discoverServices(path.resolve("services"));
+  const byId = new Map(discovered.map((service) => [service.manifest.id, service]));
+
+  const echo = byId.get("echo-service");
+  assert.ok(echo, "echo-service manifest should be discovered");
+  assert.ok(Array.isArray(echo.manifest.ingress) && echo.manifest.ingress.length === 1);
+  assert.deepEqual(echo.manifest.ingress[0], {
+    domain: "echo-service.servicelasso.localhost",
+    proxy: { type: "http", endpoint: "service" },
+  });
+
+  const caddy = byId.get("@caddy");
+  assert.ok(caddy, "@caddy manifest should be discovered");
+  assert.deepEqual(
+    caddy.manifest.endpoints.map((endpoint) => endpoint.id),
+    ["web", "admin", "web_url", "health"],
+  );
+
+  const payload = buildCaddyRegisterPayload({
+    serviceId: echo.manifest.id,
+    ingress: echo.manifest.ingress[0],
+    target: `127.0.0.1:${echo.manifest.ports.service}`,
+    ingressPort: 8080,
+  });
+  assert.equal(payload.type, "http");
+  assert.equal(payload.domain, "echo-service.servicelasso.localhost");
+  assert.equal(payload.target, "127.0.0.1:4010");
+  assert.equal(payload.root, undefined);
 });
 
 test("registerCaddyIngress and unregisterCaddyIngress call the admin API", async () => {
@@ -99,9 +139,9 @@ test("registerCaddyIngress and unregisterCaddyIngress call the admin API", async
   try {
     const payload = buildCaddyRegisterPayload({
       serviceId: "@nextcloud",
-      ingress: { type: "fastcgi", root: "/srv/nextcloud" },
+      ingress: { proxy: { type: "fastcgi", root: "/srv/nextcloud" } },
       target: "127.0.0.1:9000",
-      ingressPort: 50123,
+      ingressPort: 8080,
     });
     await registerCaddyIngress(adminAddress, payload);
     assert.equal(getCaddyIngressRegistration("@nextcloud")?.adminAddress, adminAddress);
@@ -133,7 +173,7 @@ test("registerCaddyIngress surfaces a non-2xx admin response", async () => {
         registerCaddyIngress(`127.0.0.1:${address.port}`, {
           id: "@x",
           domain: "x.servicelasso.localhost",
-          ingress_port: 50123,
+          ingress_port: 8080,
           type: "http",
           target: "127.0.0.1:3000",
         }),

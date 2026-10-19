@@ -1,5 +1,5 @@
 import net from "node:net";
-import type { ServiceIngressType, ServiceManifestIngress } from "../../contracts/service.js";
+import type { ServiceIngress, ServiceIngressType } from "../../contracts/service.js";
 
 export interface CaddyRegisterPayload {
   id: string;
@@ -12,15 +12,17 @@ export interface CaddyRegisterPayload {
 
 export interface CaddyIngressRegistration {
   serviceId: string;
+  routeId: string;
   adminAddress: string;
   payload: CaddyRegisterPayload;
 }
 
 type FetchLike = typeof fetch;
 
+// Keyed by route id so a service can own more than one ingress route.
 const registrations = new Map<string, CaddyIngressRegistration>();
 
-// resolveCaddyAdminAddress reads the @caddy admin endpoint from merged
+// resolveCaddyAdminAddress reads the shared @caddy admin endpoint from merged
 // globalenv. `CADDY_ADMIN_ADDR` is preferred; otherwise host+port are combined.
 export function resolveCaddyAdminAddress(globalEnv: Record<string, string | undefined>): string | null {
   const direct = globalEnv.CADDY_ADMIN_ADDR?.trim();
@@ -35,6 +37,18 @@ export function resolveCaddyAdminAddress(globalEnv: Record<string, string | unde
   return `${host}:${port}`;
 }
 
+// resolveCaddyIngressPort returns the shared @caddy listener port. Every service
+// registers into the same instance/listener, so this must be stable across all
+// registrations rather than a per-service allocated port.
+export function resolveCaddyIngressPort(globalEnv: Record<string, string | undefined>): number | null {
+  const raw = globalEnv.CADDY_HTTP_PORT?.trim();
+  if (!raw) {
+    return null;
+  }
+  const port = Number(raw);
+  return Number.isInteger(port) && port > 0 && port <= 65535 ? port : null;
+}
+
 export function defaultIngressDomain(serviceId: string): string {
   const slug = serviceId
     .replace(/^@+/, "")
@@ -45,21 +59,23 @@ export function defaultIngressDomain(serviceId: string): string {
 
 export function buildCaddyRegisterPayload(input: {
   serviceId: string;
-  ingress: ServiceManifestIngress;
+  ingress: ServiceIngress;
   target: string;
   ingressPort: number;
+  routeId?: string;
 }): CaddyRegisterPayload {
-  const { serviceId, ingress, target, ingressPort } = input;
+  const { serviceId, ingress, target, ingressPort, routeId } = input;
+  const proxy = ingress.proxy;
   const domain = (ingress.domain?.trim() || defaultIngressDomain(serviceId)).trim();
   const payload: CaddyRegisterPayload = {
-    id: serviceId,
+    id: routeId ?? serviceId,
     domain,
     ingress_port: ingressPort,
-    type: ingress.type,
+    type: proxy.type,
     target: target.trim(),
   };
-  if (ingress.type === "fastcgi") {
-    const root = ingress.root?.trim();
+  if (proxy.type === "fastcgi") {
+    const root = proxy.root?.trim();
     if (!root) {
       throw new Error(`fastcgi ingress for "${serviceId}" requires "root".`);
     }
@@ -109,10 +125,16 @@ async function postAdmin(
 export async function registerCaddyIngress(
   adminAddress: string,
   payload: CaddyRegisterPayload,
+  serviceId: string = payload.id,
   fetchImpl: FetchLike = fetch,
 ): Promise<void> {
   await postAdmin(adminAddress, "/service-lasso/register", payload, fetchImpl);
-  registrations.set(payload.id, { serviceId: payload.id, adminAddress, payload });
+  registrations.set(payload.id, {
+    serviceId,
+    routeId: payload.id,
+    adminAddress,
+    payload,
+  });
 }
 
 export async function unregisterCaddyIngress(
@@ -124,12 +146,20 @@ export async function unregisterCaddyIngress(
   registrations.delete(id);
 }
 
+export function listCaddyIngressRegistrations(serviceId: string): CaddyIngressRegistration[] {
+  return [...registrations.values()].filter((registration) => registration.serviceId === serviceId);
+}
+
 export function getCaddyIngressRegistration(serviceId: string): CaddyIngressRegistration | undefined {
-  return registrations.get(serviceId);
+  return listCaddyIngressRegistrations(serviceId)[0];
 }
 
 export function forgetCaddyIngressRegistration(serviceId: string): void {
-  registrations.delete(serviceId);
+  for (const [routeId, registration] of registrations) {
+    if (registration.serviceId === serviceId) {
+      registrations.delete(routeId);
+    }
+  }
 }
 
 export function resetCaddyIngressRegistrations(): void {
