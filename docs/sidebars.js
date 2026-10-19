@@ -17,6 +17,7 @@ const sidebars = {
         { type: "doc", id: "getting-started/zitadel-sso-hub", label: "Advanced — Add Zitadel SSO to Todo" },
         { type: "doc", id: "getting-started/package-todo-tauri", label: "Advanced — Package Todo as a desktop app" },
         { type: "doc", id: "getting-started/advanced-provision-service-secrets-securely", label: "Advanced - Provision Service Secrets Securely" },
+        { type: "doc", id: "getting-started/advanced-proxying-services-with-caddy", label: "Advanced - Proxying services with Caddy" },
       ] },
       "operate-your-service", "package-your-app", "agent-prompts",
       { type: "doc", id: "complete-first-run-setup", label: "Complete first-run setup" },
