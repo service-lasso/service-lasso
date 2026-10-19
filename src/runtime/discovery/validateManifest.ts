@@ -33,8 +33,8 @@ import type {
   ServiceEnvMap,
   ServiceEnvValue,
   ServiceManifest,
+  ServiceIngress,
   ServiceIngressType,
-  ServiceManifestIngress,
   ServiceSetupRerunPolicy,
   ServiceStdinDeclaration,
   ServiceStdinProvider,
@@ -1227,36 +1227,60 @@ function readEndpointPortDeclaration(
   };
 }
 
-function readManifestIngress(value: unknown, manifestPath: string): ServiceManifestIngress | undefined {
+function readManifestIngress(value: unknown, manifestPath: string): ServiceIngress[] | undefined {
   if (value === undefined) {
     return undefined;
   }
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error(`Invalid service manifest at ${manifestPath}: expected "ingress" to be an object.`);
-  }
 
-  const record = value as Record<string, unknown>;
-  const rawType = expectNonEmptyString(record.type, "ingress.type", manifestPath);
-  if (!ingressTypes.has(rawType as ServiceIngressType)) {
-    throw new Error(`Invalid service manifest at ${manifestPath}: expected "ingress.type" to be "fastcgi" or "http".`);
-  }
+  const entries = Array.isArray(value) ? value : [value];
+  const seenDomains = new Set<string>();
 
-  const domain =
-    record.domain === undefined ? undefined : expectNonEmptyString(record.domain, "ingress.domain", manifestPath);
-  const endpoint =
-    record.endpoint === undefined ? undefined : expectNonEmptyString(record.endpoint, "ingress.endpoint", manifestPath);
-  const root = record.root === undefined ? undefined : expectNonEmptyString(record.root, "ingress.root", manifestPath);
+  return entries.map((entry, index) => {
+    const field = `ingress[${index}]`;
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}" to be an object.`);
+    }
 
-  if (rawType === "fastcgi" && !root) {
-    throw new Error(`Invalid service manifest at ${manifestPath}: "ingress.root" is required for fastcgi ingress.`);
-  }
+    const record = entry as Record<string, unknown>;
+    const domain =
+      record.domain === undefined ? undefined : expectNonEmptyString(record.domain, `${field}.domain`, manifestPath);
+    if (domain) {
+      if (seenDomains.has(domain)) {
+        throw new Error(`Invalid service manifest at ${manifestPath}: duplicate ingress domain "${domain}".`);
+      }
+      seenDomains.add(domain);
+    }
 
-  return {
-    type: rawType as ServiceIngressType,
-    domain,
-    endpoint,
-    root,
-  };
+    const proxyRaw = record.proxy;
+    if (!proxyRaw || typeof proxyRaw !== "object" || Array.isArray(proxyRaw)) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}.proxy" to be an object.`);
+    }
+    const proxyRecord = proxyRaw as Record<string, unknown>;
+    const rawType = expectNonEmptyString(proxyRecord.type, `${field}.proxy.type`, manifestPath);
+    if (!ingressTypes.has(rawType as ServiceIngressType)) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}.proxy.type" to be "fastcgi" or "http".`);
+    }
+    const endpoint =
+      proxyRecord.endpoint === undefined
+        ? undefined
+        : expectNonEmptyString(proxyRecord.endpoint, `${field}.proxy.endpoint`, manifestPath);
+    const root =
+      proxyRecord.root === undefined
+        ? undefined
+        : expectNonEmptyString(proxyRecord.root, `${field}.proxy.root`, manifestPath);
+    if (rawType === "fastcgi" && !root) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: "${field}.proxy.root" is required for fastcgi ingress.`);
+    }
+
+    return {
+      ...(domain !== undefined ? { domain } : {}),
+      proxy: {
+        type: rawType as ServiceIngressType,
+        ...(endpoint !== undefined ? { endpoint } : {}),
+        ...(root !== undefined ? { root } : {}),
+      },
+    };
+  });
 }
 
 function readManifestEndpoints(value: unknown, manifestPath: string): ServiceManifestEndpoint[] | undefined {

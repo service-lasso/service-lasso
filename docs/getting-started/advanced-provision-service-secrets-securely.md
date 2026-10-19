@@ -14,20 +14,32 @@ Ask Secrets Broker to provision a secret into a RAM file and return its WebDAV
 path. Core passes the path to Echo. Verify size, successful reads, recreation
 and denial using the executable checker and Admin's inventory.
 
+<div className="tutorial-architecture" aria-label="Provision service secrets securely">
+
+<p style={{textAlign: 'center'}}><strong>Provision service secrets securely</strong></p>
+
 ```mermaid
+%%{init: {"flowchart": {"nodeSpacing": 24, "rankSpacing": 28, "padding": 18, "subGraphTitleMargin": {"top": 10, "bottom": 20}}, "themeVariables": {"fontFamily": "system-ui, sans-serif"}}}%%
 flowchart TB
   accTitle: Broker provisions a secret file and returns its path
   accDescr: Core sends scoped refs and a secret-free template. Broker resolves internally and returns the WebDAV directory. Echo receives it and reads the file. Admin shows metadata.
-  core("Core<br/>Request provisioning, pass path")
-  broker[("Secrets Broker<br/>Resolve vault ref, provision RAM file")]
-  echo("Echo<br/>Read supplied file")
-  admin("Service Admin<br/>State, size and downloads")
+  core("<b>Core</b><br/><small>Request provisioning, pass path</small>")
+  broker[("<b>Secrets Broker</b><br/><small>Resolve vault ref, provision RAM file</small>")]
+  echo("<b>Echo</b><br/><small>Read supplied file</small>")
+  admin("<b>Service Admin</b><br/><small>State, size and downloads</small>")
   core -->|Scoped refs and template over IPC| broker
   broker -->|Private WebDAV directory| core
   core -->|Returned directory in child environment| echo
   echo -->|Read over loopback WebDAV| broker
   admin -->|Authenticated inventory through Core| broker
+  classDef service stroke-width:1.5px
+  classDef added stroke-width:2.5px
+  classDef optional stroke-dasharray:5 4
+  class core,echo,admin service
+  class broker added
 ```
+
+</div>
 
 The file-only credential stays inside Broker until Echo downloads it.
 Core does not request its plaintext through `/v1/resolve` or render it locally.
