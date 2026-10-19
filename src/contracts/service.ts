@@ -435,6 +435,15 @@ export interface ServiceBrokerPolicy {
   writeback?: ServiceBrokerWritebackPolicy;
 }
 
+export type ServiceIngressType = "fastcgi" | "http";
+
+export interface ServiceManifestIngress {
+  type: ServiceIngressType;
+  domain?: string;
+  endpoint?: string;
+  root?: string;
+}
+
 export interface ServiceManifest {
   id: string;
   name: string;
@@ -455,6 +464,7 @@ export interface ServiceManifest {
   globalenv?: ServiceEnvMap;
   broker?: ServiceBrokerPolicy;
   endpoints?: ServiceManifestEndpoint[];
+  ingress?: ServiceManifestIngress;
   ports?: ServicePortDeclaration;
   portmapping?: ServicePortMappingDeclaration;
   urls?: ServiceUrlEndpoint[];
