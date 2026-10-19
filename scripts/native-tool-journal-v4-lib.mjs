@@ -127,7 +127,7 @@ async function helperLibraries(requested, firstFiles, secondFiles) {
     if(await realpath(item)!==resolved)throw new Error("first_custody_native_helper_library_alias_changed");
     const observed=firstFiles[libraries.length], proof={ requested: item, resolved, size: bytes.length, sha256: digest(bytes) };
     if(!observed||!samePath(observed.requested,proof.requested)||!samePath(observed.resolved,proof.resolved)||observed.size!==proof.size||observed.sha256!==proof.sha256)throw new Error("first_custody_native_helper_library_held_mismatch");
-    libraries.push(proof);
+    libraries.push(observed);
   }
   return libraries;
 }
