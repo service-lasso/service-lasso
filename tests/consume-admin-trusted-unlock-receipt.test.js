@@ -251,6 +251,27 @@ test("AC-4BY.2 accepts only the complete observed observer close as a shipped po
   } finally { await rm(root, { recursive: true, force: true, maxRetries: 4, retryDelay: 100 }); }
 });
 
+test("AC-4BY.2 records a successful provider with no receipt as not emitted", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "admin-receipt-durable-success-"));
+  try {
+    const observerRoot = path.join(root, "observer");
+    const inputs = {
+      workspaceRoot: path.join(root, "workspace"),
+      instanceRegistryPath: path.join(root, "instance-registry.json"),
+      hostPortRegistryPath: path.join(root, "host-port-registry.json"),
+    };
+    const provider = path.join(root, "provider.mjs");
+    await writeFile(provider, "process.exit(0);\n");
+    const result = await consumeWithDurableObserver(process.execPath, [provider], {
+      cwd: root, observerRoot, timeoutMs: 5_000,
+      source: { head: "a".repeat(40), tree: "b".repeat(40) }, inputs,
+    });
+    assert.equal(result.code, 0);
+    assert.equal(result.executionFailure, null);
+    assert.deepEqual(result.trustedUnlock, { classification: "not_emitted" });
+  } finally { await rm(root, { recursive: true, force: true, maxRetries: 4, retryDelay: 100 }); }
+});
+
 test("AC-4BY.2 timeout settles only on durable UNRESOLVED custody and leaves the owned observer to record its eventual native close", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "admin-receipt-durable-timeout-"));
   try {

@@ -570,7 +570,13 @@ export async function consumeWithDurableObserver(command, args, options = {}) {
       return settle({ code: null, signal: null, executionFailure: "observer_terminal_unresolved", trustedUnlock: { classification: "missing" }, streamFailure: null });
     }
     await retainObserverEvent(binding, stage, "completed");
-    return { code: close.terminal.exitCode, signal: close.terminal.signal, executionFailure: null, trustedUnlock: close.trustedUnlock, streamFailure: null };
+    // A provider that closes successfully without emitting a receipt has
+    // observed "not emitted", not an unavailable receipt. Keep missing/invalid
+    // as failures for a provider that did not succeed.
+    const trustedUnlock = close.terminal.exitCode === 0 && close.terminal.signal === null && close.trustedUnlock?.classification === "missing"
+      ? { classification: "not_emitted" }
+      : close.trustedUnlock;
+    return { code: close.terminal.exitCode, signal: close.terminal.signal, executionFailure: null, trustedUnlock, streamFailure: null };
   } catch (error) {
     await retainObserverEvent(binding, stage, "failed", error);
     await diagnostic();
