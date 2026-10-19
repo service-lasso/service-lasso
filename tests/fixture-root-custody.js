@@ -4,6 +4,8 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { inspectProcess } from "../dist/runtime/process/identity.js";
+import { holdDiagnosticRootWindows } from "./fixture-diagnostic-root-custody.js";
+import { encodeGuardianCommand } from "./fixture-diagnostic-hold-protocol.js";
 
 // This helper owns only fixture filesystem handles, never process signaling
 // authority. The Windows child holds original directory handles through copy
@@ -93,23 +95,38 @@ try {
 
 const sameDirectory = (info) => `${info.dev}:${info.ino}`;
 
-export async function holdFixtureRoot(root, diagnosticRoot) {
+export async function holdFixtureRoot(root, diagnosticRoot) { return holdRoot(root, diagnosticRoot, false); }
+export async function holdDiagnosticFixtureRoot(root, diagnosticRoot) { return holdRoot(root, diagnosticRoot, true); }
+async function holdRoot(root, diagnosticRoot, diagnosticRole) {
   root = path.resolve(root);
   if (process.platform === "win32") {
+    if (diagnosticRole) return holdDiagnosticRootWindows(root, diagnosticRoot);
     const child = spawn(path.join(process.env.SystemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
-      ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(guardianScript, "utf16le").toString("base64")],
+      ["-NoProfile", "-NonInteractive", "-EncodedCommand", encodeGuardianCommand(guardianScript)],
       { windowsHide: true, stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, SERVICE_LASSO_HELD_FIXTURE_ROOT: root } });
     let pending, output = "", privateError = "", closed = false;
     let stdoutEof = false, stderrEof = false, nativeIdentity, callerIdentity, guardianWitness;
     const stdoutBytes = [], stderrBytes = [];
+    const diagnosticOriginals = [];
+    let diagnosticStdout = 0, diagnosticStderr = 0;
+    const diagnosticFailure = original => { diagnosticOriginals.push(original); pending?.reject(original); };
     const callerPid = process.pid;
     child.stdout.once("end", () => { stdoutEof = true; });
     child.stderr.once("end", () => { stderrEof = true; });
     const closure = new Promise(resolve => child.once("close", (code, signal) => { closed = true; resolve({ code, signal });
       pending?.reject(new Error("Fixture handle guardian closed before acknowledgement.", { cause: privateError })); }));
-    child.stderr.on("data", chunk => { stderrBytes.push(Buffer.from(chunk)); if (privateError.length < 16 * 1024) privateError += chunk.toString(); });
+    child.stderr.on("data", chunk => {
+      const bytes = Buffer.from(chunk);
+      if (diagnosticRole) {
+        stderrBytes.push(bytes.subarray(0, Math.max(0, 16384 - diagnosticStderr))); diagnosticStderr += bytes.length;
+        diagnosticFailure(new Error("Diagnostic hold private stderr rejected."));
+      } else { stderrBytes.push(bytes); if (privateError.length < 16 * 1024) privateError += chunk.toString(); }
+    });
     child.stdout.on("data", chunk => {
-      stdoutBytes.push(Buffer.from(chunk));
+      if (diagnosticRole) {
+        const bytes = Buffer.from(chunk); stdoutBytes.push(bytes.subarray(0, Math.max(0, 480 - diagnosticStdout))); diagnosticStdout += bytes.length;
+        if (diagnosticStdout > 480) { diagnosticFailure(new Error("Diagnostic hold output overflow.")); return; }
+      } else stdoutBytes.push(Buffer.from(chunk));
       output += chunk.toString();
       let index;
       while ((index = output.indexOf("\n")) >= 0) {
@@ -117,17 +134,25 @@ export async function holdFixtureRoot(root, diagnosticRoot) {
         if (pending) { const current = pending; pending = undefined; current.resolve(line); }
       }
     });
-    child.once("error", error => pending?.reject(error));
-    child.stdin.on("error", error => { privateError += String(error); pending?.reject(error); });
+    child.on("error", error => { if (diagnosticRole) diagnosticFailure(error); else pending?.reject(error); });
+    child.stdin.on("error", error => { if (diagnosticRole) diagnosticFailure(error); else { privateError += String(error); pending?.reject(error); } });
+    if (diagnosticRole) for (const stream of [child.stdout, child.stderr]) stream.on("error", diagnosticFailure);
     const receipt = (command, expected) => new Promise((resolve, reject) => {
       if (closed) { reject(new Error("Fixture handle guardian is closed.")); return; }
-      const timer = setTimeout(() => { pending = undefined; reject(new Error("Fixture handle guardian deadline expired.")); }, 5_000);
+      if (diagnosticRole && diagnosticOriginals.length) { reject(diagnosticOriginals[0]); return; }
+      const timer = diagnosticRole ? undefined : setTimeout(() => { pending = undefined; reject(new Error("Fixture handle guardian deadline expired.")); }, 5_000);
       pending = { resolve: value => { clearTimeout(timer); (typeof expected === "function" ? expected(value) : value === expected) ? resolve() : reject(new Error("Fixture handle guardian receipt is invalid.")); },
         reject: error => { clearTimeout(timer); reject(error); } };
       if (command) child.stdin.write(`${command}\n`);
     });
     const release = async () => {
       if (!closed) child.stdin.end("close\n");
+      if (diagnosticRole) {
+        const result = await closure;
+        if (diagnosticOriginals.length || result.code !== 0 || result.signal !== null || !stdoutEof || !stderrEof)
+          throw new AggregateError([...diagnosticOriginals, new Error("Diagnostic hold closure failed.")], "Diagnostic hold failed.");
+        return;
+      }
       const bounded = () => Promise.race([closure, new Promise(resolve => setTimeout(() => resolve(null), 5_000))]);
       let result = await bounded();
       if (!result) {
@@ -147,9 +172,10 @@ export async function holdFixtureRoot(root, diagnosticRoot) {
       if (!diagnosticRoot) throw new Error("Fixture guardian private receipt root is missing.");
       const result = closed ? await closure : null;
       const stdout = Buffer.concat(stdoutBytes), stderr = Buffer.concat(stderrBytes);
-      await writeFile(path.join(diagnosticRoot, "guardian-stdout.bin"), stdout, { flag: "wx", mode: 0o600 });
-      await writeFile(path.join(diagnosticRoot, "guardian-stderr.bin"), stderr, { flag: "wx", mode: 0o600 });
-      await writeFile(path.join(diagnosticRoot, "guardian-custody.json"), JSON.stringify({ callerPid, childPid: child.pid,
+      const prefix = diagnosticRole ? "diagnostic-guardian" : "guardian";
+      await writeFile(path.join(diagnosticRoot, `${prefix}-stdout.bin`), stdout, { flag: "wx", mode: 0o600 });
+      await writeFile(path.join(diagnosticRoot, `${prefix}-stderr.bin`), stderr, { flag: "wx", mode: 0o600 });
+      await writeFile(path.join(diagnosticRoot, `${prefix}-custody.json`), JSON.stringify({ callerPid, childPid: child.pid,
         callerIdentity, nativeIdentity, guardianWitness, closure: result, stdoutEof, stderrEof,
         stdout: { bytes: stdout.length, sha256: createHash("sha256").update(stdout).digest("hex") },
         stderr: { bytes: stderr.length, sha256: createHash("sha256").update(stderr).digest("hex") },

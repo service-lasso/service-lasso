@@ -85,7 +85,7 @@ public static class FixturePrivacy {
     } finally { LocalFree(descriptor); }
   }
   public static void Protect(SafeFileHandle h, string sid, bool directory) {
-    var prior=Security(h); Operation="owner";
+    var prior=Security(h); Operation="owner_protect";
     if(prior.Owner.Value != sid) throw new Exception("Unknown prior privacy owner");
     Operation="descriptor";
     var flags=directory ? "OICI" : "";
@@ -131,7 +131,8 @@ function Acquire($p,$isOriginal,$mutate) {
   try {
     $i=[FixturePrivacy]::Information($h)
     $owner=[FixturePrivacy]::Security($h).Owner.Value
-    [FixturePrivacy]::Operation='owner'
+    if($isOriginal) { [FixturePrivacy]::Operation='owner_original' }
+    else { [FixturePrivacy]::Operation='owner_ancestor' }
     if($isOriginal) { if($owner -ne $sid) { throw 'Unknown prior fixture owner' } }
     elseif($owner -notin @($sid,'S-1-5-18','S-1-5-32-544','S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464')) { throw 'Unknown prior ancestor owner' }
     return [pscustomobject]@{Path=$p;Handle=$h;Identity=[FixturePrivacy]::Identity($h);Directory=(($i.Attributes -band 16) -ne 0)}
@@ -156,7 +157,7 @@ function Acquire-Children($p) {
   finally { try { [FixturePrivacy]::Operation='release'; $enumerator.Dispose() } catch { Record-Failure $_; throw } }
 }
 function Verify-Names {
-  foreach($entry in @($ancestors)+@($held)) {
+  foreach($entry in ($ancestors.ToArray()+$held.ToArray())) {
     $h=[FixturePrivacy]::Named($entry.Path)
     try {
       $namedIdentity=[FixturePrivacy]::Identity($h)
@@ -189,7 +190,7 @@ try {
   Verify-Names
 } catch { Record-Failure $_ }
 } catch { Record-Failure $_ } finally {
-  foreach($entry in @($held)+@($ancestors)) {
+  foreach($entry in ($held.ToArray()+$ancestors.ToArray())) {
     try { [FixturePrivacy]::Operation='release'; $entry.Handle.Dispose() } catch { Record-Failure $_ }
   }
 }

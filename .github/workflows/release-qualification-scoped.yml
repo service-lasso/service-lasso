@@ -61,6 +61,14 @@ jobs:
           test ! -e "$qualification_root/instances.json"
           test ! -e "$qualification_root/ports.json"
 
+      - name: Provision ROOT foreign-owner fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          foreign_root="${RUNNER_TEMP}/release-qualification-unowned-${GITHUB_RUN_ID}-${GITHUB_JOB}-${GITHUB_RUN_ATTEMPT}"
+          sudo install -d -m 0700 -o root -g root "$foreign_root"
+          echo "SERVICE_LASSO_UNOWNED_FIXTURE_ROOT=$foreign_root" >> "$GITHUB_ENV"
+
       - name: Run complete test suite
         # The suite gets its own fresh custody paths.  Tests must close their
         # owned work naturally; a force-exit would hide retained handles.
