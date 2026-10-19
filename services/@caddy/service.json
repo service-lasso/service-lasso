@@ -2,11 +2,8 @@
   "id": "@caddy",
   "name": "Lasso Caddy Protocol Translator",
   "description": "Core release-backed Caddy HTTP-to-FastCGI translator sidecar with a Service Lasso admin API for dynamically registering upstream services.",
-  "version": "2026.10.16-adfbb61",
+  "version": "2026.10.19-ba646a7",
   "enabled": true,
-  "depend_on": [
-    "nextcloud"
-  ],
   "endpoints": [
     {
       "id": "web",
@@ -83,7 +80,7 @@
     "source": {
       "type": "github-release",
       "repo": "service-lasso/lasso-caddy",
-      "tag": "2026.10.16-adfbb61"
+      "tag": "2026.10.19-ba646a7"
     },
     "platforms": {
       "win32": {
