@@ -33,6 +33,8 @@ import type {
   ServiceEnvMap,
   ServiceEnvValue,
   ServiceManifest,
+  ServiceIngressType,
+  ServiceManifestIngress,
   ServiceSetupRerunPolicy,
   ServiceStdinDeclaration,
   ServiceStdinProvider,
@@ -78,6 +80,7 @@ const endpointIdPattern = /^[A-Za-z][A-Za-z0-9_:-]*$/;
 const filesRootIdPattern = /^[A-Za-z][A-Za-z0-9_:-]*$/;
 const logSourceIdPattern = /^[A-Za-z][A-Za-z0-9_.-]*$/;
 const serviceIdPattern = /^@?[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const ingressTypes = new Set<ServiceIngressType>(["fastcgi", "http"]);
 const windowsReservedServiceIdPattern = /^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)/i;
 
 export function validateServiceId(value: unknown, manifestPath: string): string {
@@ -1221,6 +1224,38 @@ function readEndpointPortDeclaration(
     ...(strategy !== undefined ? { strategy } : {}),
     ...(policy !== undefined ? { policy } : {}),
     ...(range !== undefined ? { range } : {}),
+  };
+}
+
+function readManifestIngress(value: unknown, manifestPath: string): ServiceManifestIngress | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "ingress" to be an object.`);
+  }
+
+  const record = value as Record<string, unknown>;
+  const rawType = expectNonEmptyString(record.type, "ingress.type", manifestPath);
+  if (!ingressTypes.has(rawType as ServiceIngressType)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "ingress.type" to be "fastcgi" or "http".`);
+  }
+
+  const domain =
+    record.domain === undefined ? undefined : expectNonEmptyString(record.domain, "ingress.domain", manifestPath);
+  const endpoint =
+    record.endpoint === undefined ? undefined : expectNonEmptyString(record.endpoint, "ingress.endpoint", manifestPath);
+  const root = record.root === undefined ? undefined : expectNonEmptyString(record.root, "ingress.root", manifestPath);
+
+  if (rawType === "fastcgi" && !root) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: "ingress.root" is required for fastcgi ingress.`);
+  }
+
+  return {
+    type: rawType as ServiceIngressType,
+    domain,
+    endpoint,
+    root,
   };
 }
 
@@ -2387,6 +2422,7 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
   const stdin = readStdin(record.stdin, manifestPath);
   const broker = readBrokerPolicy(record.broker, manifestPath, serviceId);
   const endpoints = readManifestEndpoints(record.endpoints, manifestPath);
+  const ingress = readManifestIngress(record.ingress, manifestPath);
   const outputvarregex = readOutputVarRegex(record.outputvarregex, manifestPath);
   validateBrokerCollisions(broker, env, globalenv, manifestPath);
   const artifact = readArtifact(record.artifact, manifestPath);
@@ -2443,6 +2479,7 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
     globalenv,
     broker,
     endpoints,
+    ingress,
     ports: rawPorts
       ? Object.fromEntries(Object.entries(rawPorts as Record<string, number>).map(([key, value]) => [key.trim(), value]))
       : undefined,
