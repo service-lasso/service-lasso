@@ -87,7 +87,7 @@ if(!exact(bootstrapSeal,["schema","private","receiptSha256","journalSha256","ses
 if(bootstrapSeal.session!==null) {
   const session=bootstrapSeal.session,tool=session.tool,result=session.result,requested=path.join(process.env.SystemRoot??"C:\\Windows","System32","WindowsPowerShell","v1.0","powershell.exe");
   let bootstrapProofFailure = "unknown";
-  const bootstrapObservation = { enter() {}, pass() {}, fail(reason, predicate) { if (predicate()) { bootstrapProofFailure = reason; return true; } return false; }, rejected(reason) { bootstrapProofFailure = reason; } };
+  const bootstrapObservation = { enter() {}, pass(reason, predicate) { const accepted = predicate(); if (!accepted) bootstrapProofFailure = reason; return accepted; }, fail(reason, predicate) { const refused = predicate(); if (refused) bootstrapProofFailure = reason; return refused; }, rejected(reason) { bootstrapProofFailure = reason; } };
   const failBootstrap = stage => { throw new Error(`first_custody_validator_bootstrap_native_invalid:${stage}`); };
   if (!exact(session, ["tool", "args", "native", "result"])) failBootstrap("session_shape");
   if (!exact(tool, ["name", "requested", "resolved", "file"]) || tool.name !== "powershell" || tool.requested !== requested || !fileProof(tool.file)) failBootstrap("tool_shape");
