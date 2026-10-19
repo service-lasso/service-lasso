@@ -111,7 +111,7 @@ export function validateRetainedAdminTrustedUnlockReceipt(receipt, expected) {
   if (!parseConsumerReceipt(JSON.stringify(consumerSource))) {
     fail("invalid_retained_trusted_unlock_receipt", "Retained Admin trusted-unlock receipt is not closed.");
   }
-  if (receipt.consumerOutcome === "success" && (receipt.consumerExitCode !== 0 || receipt.consumerSignal !== null || trustedUnlock.classification !== "not_emitted")) {
+  if (receipt.consumerOutcome === "success" && (receipt.consumerExitCode !== 0 || receipt.consumerSignal !== null || !["not_emitted", "closed"].includes(trustedUnlock.classification))) {
     fail("invalid_retained_trusted_unlock_receipt", "Successful Admin consumer outcome is inconsistent.");
   }
   if ((receipt.consumerOutcome === "nonzero_exit" && !(receipt.consumerExitCode > 0)) || (receipt.consumerOutcome === "signal" && receipt.consumerSignal === null) || (receipt.consumerOutcome !== "success" && !["closed", "missing", "invalid"].includes(trustedUnlock.classification))) {

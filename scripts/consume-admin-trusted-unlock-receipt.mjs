@@ -168,23 +168,22 @@ export function parseConsumerReceipt(source) {
   if (value.outcome === "signal" && (value.exitCode !== null || value.signal === null || value.streamFailure !== undefined || value.executionFailure !== undefined)) return null;
   if (value.outcome === "observation_failure" && (value.streamFailure === undefined) === (value.executionFailure === undefined)) return null;
   const trusted = value.trustedUnlock;
-  if (trusted === null && value.outcome !== "success") return null;
-  if (trusted !== null) {
-    if (!trusted || typeof trusted !== "object" || Array.isArray(trusted)) return null;
-    if (trusted.classification === "closed") {
-      if (Object.keys(trusted).sort().join(",") !== "classification,receipt" || !parseReceipt(JSON.stringify(trusted.receipt))) return null;
-    } else if ((trusted.classification === "missing" || trusted.classification === "invalid" || trusted.classification === "not_emitted") && Object.keys(trusted).length === 1) {
-      // Closed classifications are the only form permitted to carry primitives.
-    } else return null;
-  }
-  if (value.outcome === "success" && trusted?.classification !== "not_emitted") return null;
-  if (trusted?.classification === "not_emitted" && value.outcome !== "success") return null;
+  if (!trusted || typeof trusted !== "object" || Array.isArray(trusted)) return null;
+  if (trusted.classification === "closed") {
+    if (Object.keys(trusted).sort().join(",") !== "classification,receipt" || !parseReceipt(JSON.stringify(trusted.receipt))) return null;
+  } else if ((trusted.classification === "missing" || trusted.classification === "invalid" || trusted.classification === "not_emitted") && Object.keys(trusted).length === 1) {
+    // Closed classifications are the only form permitted to carry primitives.
+  } else return null;
+  // A successful observed provider may either emit a trusted-unlock receipt
+  // (the comprehensive lifecycle exercises that path) or not emit one.
+  if (value.outcome === "success" && !["not_emitted", "closed"].includes(trusted.classification)) return null;
+  if (trusted.classification === "not_emitted" && value.outcome !== "success") return null;
   return value;
 }
 
 export function hasObservedConsumerReceipt(receipt) {
   if (!receipt) return false;
-  if (receipt.outcome === "success") return receipt.exitCode === 0 && receipt.signal === null && receipt.streamFailure === undefined && receipt.executionFailure === undefined && receipt.trustedUnlock?.classification === "not_emitted";
+  if (receipt.outcome === "success") return receipt.exitCode === 0 && receipt.signal === null && receipt.streamFailure === undefined && receipt.executionFailure === undefined && ["not_emitted", "closed"].includes(receipt.trustedUnlock?.classification);
   return receipt.trustedUnlock?.classification === "closed";
 }
 

@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { classify, consume, consumeWithDurableObserver, parseConsumerReceipt, parseReceipt } from "../scripts/consume-admin-trusted-unlock-receipt.mjs";
+import { classify, consume, consumeWithDurableObserver, hasObservedConsumerReceipt, isRetainableConsumerReceipt, parseConsumerReceipt, parseReceipt } from "../scripts/consume-admin-trusted-unlock-receipt.mjs";
 
 const valid = JSON.stringify({ schema: "service-admin.trusted-unlock-receipt.v1", status: "observed", present: true, verified: false, localRoot: false, loading: true, unavailable: false });
 
@@ -24,6 +24,16 @@ test("AC-4BY.2 strictly closes successful consumer sources as no-failure observa
   assert.equal(parseConsumerReceipt(success.replace('"not_emitted"', "null")), null);
   assert.equal(parseConsumerReceipt(success.replace('"outcome":"success",', '"outcome":"success","outcome":"nonzero_exit",')), null);
   assert.equal(parseConsumerReceipt(success.replace('"not_emitted"', '"not_emitted","private":true')), null);
+});
+
+test("AC-4BY.2 retains a successful observation that emitted a trusted-unlock receipt", () => {
+  const closed = JSON.stringify({ schema: "service-lasso.admin-trusted-unlock-consumer.v1", outcome: "success", exitCode: 0, signal: null, trustedUnlock: { classification: "closed", receipt: JSON.parse(valid) } });
+  const receipt = parseConsumerReceipt(closed);
+  assert.equal(receipt?.trustedUnlock.classification, "closed");
+  assert.equal(hasObservedConsumerReceipt(receipt), true);
+  assert.equal(isRetainableConsumerReceipt(receipt), true);
+  const missing = JSON.stringify({ schema: "service-lasso.admin-trusted-unlock-consumer.v1", outcome: "success", exitCode: 0, signal: null, trustedUnlock: { classification: "missing" } });
+  assert.equal(parseConsumerReceipt(missing), null);
 });
 
 test("AC-4BY.2 rejects contradictory primary failures and requires observation-failure evidence", () => {
