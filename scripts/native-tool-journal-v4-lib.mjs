@@ -11,6 +11,7 @@ function nativeJson(source){if(!strictJson(source))throw new Error("first_custod
 
 const digest = value => createHash("sha256").update(value).digest("hex");
 const positive = value => Number.isSafeInteger(Number(value)) && Number(value) > 0 ? Number(value) : null;
+const samePath = (left, right) => process.platform === "win32" ? left.toLowerCase() === right.toLowerCase() : left === right;
 
 // Self-contained physical closure avoids recursively starting a bootstrap helper
 // while reading that helper's own executable. Windows raw probes additionally
@@ -124,8 +125,8 @@ async function helperLibraries(requested, firstFiles, secondFiles) {
     const resolved = await realpath(item);
     const bytes = await heldImageBytes(resolved);
     if(await realpath(item)!==resolved)throw new Error("first_custody_native_helper_library_alias_changed");
-    const proof={ requested: item, resolved, size: bytes.length, sha256: digest(bytes) };
-    if(JSON.stringify(firstFiles[libraries.length])!==JSON.stringify(proof))throw new Error("first_custody_native_helper_library_held_mismatch");
+    const observed=firstFiles[libraries.length], proof={ requested: item, resolved, size: bytes.length, sha256: digest(bytes) };
+    if(!observed||!samePath(observed.requested,proof.requested)||!samePath(observed.resolved,proof.resolved)||observed.size!==proof.size||observed.sha256!==proof.sha256)throw new Error("first_custody_native_helper_library_held_mismatch");
     libraries.push(proof);
   }
   return libraries;
