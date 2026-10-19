@@ -14,6 +14,7 @@ Newcomer path for Service Lasso. Do these in order.
 | Advanced | [Add Zitadel SSO to Todo](zitadel-sso-hub.md) | Add managed Identity, sign into Todo, protect reads/writes and verify logout while retaining the shared list |
 | Advanced | [Package Todo as a desktop app](package-todo-tauri.md) | Wrap the managed App, API and Database in the Tauri template and compile a Windows installer |
 | Advanced | [Provision Service Secrets Securely](advanced-provision-service-secrets-securely.md) | Declare a Broker-backed RAM file, read it with Echo, inspect usage and verify recreation/revocation |
+| Advanced | [Proxy services with Caddy](advanced-proxying-services-with-caddy.md) | Publish FastCGI or HTTP backends through the shared Caddy translator with Traefik at the edge |
 | Optional demo | [Quick start](../quick-start.md) | Visual Admin + Echo tour |
 
 After that: [Configure and recover a service](../operate-your-service.md), [package your app](../package-your-app.md), or [browse services](../service-catalog.md).
