@@ -6,12 +6,17 @@ import path from "node:path";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { randomBytes } from "node:crypto";
-import { createFixtureCustody, closeFixture, createFixtureCleanupAdapter, createFixtureEvidenceBoundary, verifyOriginalFixturePrivacy, protectOriginalFixture, decodeFixturePrivacyResponse, classifyFixturePrivacyCompletion, fixturePrivacyFailureObservation, FIXTURE_ASSERTION_STAGES, FIXTURE_PRIVACY_RESULTS } from "./hard-crash-fixture-custody.js";
+import { createFixtureCustody, closeFixture, createFixtureCleanupAdapter, createFixtureEvidenceBoundary, verifyOriginalFixturePrivacy, protectOriginalFixture, decodeFixturePrivacyResponse, classifyFixturePrivacyCompletion, fixturePrivacyFailureObservation, fixtureDiagnosticFailureObservation, FIXTURE_DIAGNOSTIC_OPERATION_STAGES, FIXTURE_ASSERTION_STAGES, FIXTURE_PRIVACY_RESULTS } from "./hard-crash-fixture-custody.js";
 import { fixturePrivacyScript } from "./fixture-privacy-custody.js";
-import { fixturePrivacyBootstrap, createFixturePrivacyDecoder } from "./fixture-privacy-transport.js";
+import { fixturePrivacyBootstrap, createFixturePrivacyDecoder, FIXTURE_PRIVACY_FAILURE_OPERATIONS } from "./fixture-privacy-transport.js";
 import { registerFixturePrivacyTransportTests } from "./fixture-privacy-transport-regressions.js";
+import { diagnosticHoldFailureObservation } from "./fixture-diagnostic-root-custody.js";
 registerFixturePrivacyTransportTests();
-import { holdFixtureRoot } from "./fixture-root-custody.js";
+import { registerDiagnosticCreatorRegressions } from "./fixture-diagnostic-creator-regressions.js";
+registerDiagnosticCreatorRegressions();
+import { holdFixtureRoot, holdDiagnosticFixtureRoot } from "./fixture-root-custody.js";
+import { createPrivateDiagnosticDirectory, collectDiagnosticGuardian } from "./fixture-diagnostic-creator.js";
+import { captureFixtureErrors } from "./fixture-private-error-capture.js";
 import { createDisposableTestFixture } from "./disposable-test-fixture.js";
 import { getProcessRegistryPath, readProcessOwnershipCustodyForTest, readProcessOwnershipRegistry } from "../dist/runtime/process/registry.js";
 import { settleHardCrashDirectChild, stopHardCrashDirectChild } from "./hard-crash-child-exit.js";
@@ -19,6 +24,76 @@ import { settleHardCrashDirectChild, stopHardCrashDirectChild } from "./hard-cra
 const root = { pid: 1, createdAt: "root", executablePath: "PRIVATE-PATH", commandHash: "a".repeat(64) };
 const child = { ...root, pid: 2, createdAt: "child" };
 const execFileAsync = promisify(execFile);
+
+test("closed diagnostic operation observation refuses foreign, copied, primitive and getter tags", () => {
+  for (const value of [null, undefined, false, 0, "initialization_diagnostic_hold_acquire", {},
+    { stage: "initialization_diagnostic_hold_acquire" }, { operation: "ready_receipt", childOperation: "bootstrap", transportReason: "stderr_content" },
+    { operation: "ready_receipt", childOperation: "acquire_chain", acquireOperation: "owner_root", transportReason: "stderr_content" }, new Error("initialization_diagnostic_hold_acquire"),
+    new Proxy({}, { get() { throw new Error("PRIVATE-GETTER"); } })])
+    { assert.equal(fixtureDiagnosticFailureObservation(value), undefined); assert.equal(diagnosticHoldFailureObservation(value), undefined); }
+  const foreign = {};
+  for (const key of ["code", "message", "stage", "fixtureInitializationStage", "diagnosticOperation", "acquireOperation", "childOperation"])
+    Object.defineProperty(foreign, key, { get() { assert.fail("Foreign thrown properties cannot classify an operation."); } });
+  assert.equal(fixtureDiagnosticFailureObservation(foreign), undefined);
+  assert.equal(diagnosticHoldFailureObservation(foreign), undefined);
+  assert.equal(Object.isFrozen(FIXTURE_DIAGNOSTIC_OPERATION_STAGES), true);
+  assert.equal(FIXTURE_DIAGNOSTIC_OPERATION_STAGES.length, 43);
+});
+
+const diagnosticProjectionSurrogate = async ({ primary, primaryStage, failures = [], initialize = async () => {} }) => {
+  let projection, aggregate;
+  const evidence = { initialize, state: async () => ({ fixture: "unresolved", evidence: "none" }),
+    takeStateFailures: () => [], release: async () => {}, retainErrors: async () => {} };
+  try {
+    await closeFixture({ primary, primaryOccurred: true, primaryStage, failures, evidence,
+      custody: { settle: async () => ({ failures: [], absent: false }) }, adapter: {}, restore: () => {},
+      reset: () => assert.fail("Projection surrogate cannot reset."), report: value => { projection = value; } });
+  } catch (actual) { aggregate = actual; }
+  assert.ok(aggregate instanceof AggregateError);
+  assert.equal(aggregate.errors.includes(primary), true);
+  for (const stage of FIXTURE_DIAGNOSTIC_OPERATION_STAGES) {
+    assert.equal(projection.stages[stage], "clear");
+    assert.equal(aggregate.fixtureStages[stage], "clear");
+  }
+};
+
+test("closeFixture projection SURROGATE reserves derived names from generic caller tags", async () => {
+  const getter = new Proxy({}, { get() { assert.fail("Foreign operation tag must remain opaque."); } });
+  const foreign = {};
+  Object.defineProperty(foreign, "stage", { get() { assert.fail("Foreign stage getter cannot classify a derived operation."); } });
+  for (const tag of [...FIXTURE_DIAGNOSTIC_OPERATION_STAGES, null, undefined, false, 0, foreign, getter,
+    { stage: FIXTURE_DIAGNOSTIC_OPERATION_STAGES[0] }]) {
+    const primary = new Error("PRIVATE-PROJECTION-PRIMARY");
+    await diagnosticProjectionSurrogate({ primary, primaryStage: tag, failures: [{ stage: tag, error: getter }],
+      initialize: async () => { throw tag; } });
+  }
+});
+
+test("caller lifecycle SURROGATE captures report before final close and retains independent late originals", async () => {
+  const events = [], reportFailure = new Error("PRIVATE-STAGE-diagnostic"), diagnosticClose = new Error("PRIVATE-DIAGNOSTIC-CLOSE"), finalClose = new Error("PRIVATE-FINAL-CLOSE");
+  let first, late, reports = 0, summary;
+  const evidence = {
+    initialize: async () => {}, state: async () => ({ fixture: "unresolved", evidence: "none" }), takeStateFailures: () => [],
+    settleOriginal: async () => { events.push("original-close"); },
+    get diagnosticCustody() { return "pending"; },
+    retainErrors: async rows => { events.push("first-write"); first = captureFixtureErrors(rows); assert.strictEqual(rows[0].error, reportFailure); },
+    settleDiagnostic: async () => { events.push("diagnostic-close"); throw diagnosticClose; },
+    retainLateErrors: async rows => { events.push("late-write"); late = captureFixtureErrors(rows); assert.strictEqual(rows[0].error, diagnosticClose); },
+    settleBirth: async () => { events.push("birth-close"); throw finalClose; },
+    release: async () => assert.fail("Compatibility release-all cannot precede private writes."),
+  };
+  let aggregate;
+  try {
+    await closeFixture({ evidence, failures: [], custody: { settle: async () => ({ failures: [], absent: false }) }, adapter: {}, restore: () => {},
+      reset: () => assert.fail("Unresolved fixture cannot reset."), report: value => { reports++; summary = value; events.push("report"); throw reportFailure; } });
+  } catch (original) { aggregate = original; }
+  assert.equal(reports, 1); assert.equal(summary.diagnosticCustody, "pending");
+  assert.deepEqual(events, ["original-close", "report", "first-write", "diagnostic-close", "late-write", "birth-close"]);
+  assert.match(first, /PRIVATE-STAGE-diagnostic/); assert.match(late, /PRIVATE-DIAGNOSTIC-CLOSE/);
+  assert.equal(aggregate.errors.includes(reportFailure), true); assert.equal(aggregate.errors.includes(diagnosticClose), true); assert.equal(aggregate.errors.includes(finalClose), true);
+  assert.equal(aggregate.fixtureStages.private_diagnostic, "failed"); assert.equal(aggregate.fixtureStages.held_release, "failed");
+  assert.doesNotMatch(JSON.stringify(summary), /PRIVATE/);
+});
 const privateAclReadback = async (directory) => {
   const result = await execFileAsync(path.join(process.env.SystemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
     ["-NoProfile", "-NonInteractive", "-Command", "$ErrorActionPreference='Stop'; $a=Get-Acl -LiteralPath $env:SERVICE_LASSO_PRIVATE_PERMISSION_TARGET; [Console]::Out.Write($a.Sddl)"],
@@ -30,8 +105,9 @@ const privateAclReadback = async (directory) => {
 test("fixture privacy response admits only the exact enum channel", () => {
   const response = (outcome, operation) => JSON.stringify({ schema: "service-lasso.fixture-privacy-response.v1", outcome, operation });
   assert.equal(decodeFixturePrivacyResponse(response("passed", null)), "passed");
-  for (const operation of FIXTURE_PRIVACY_RESULTS.slice(2, 16)) {
+  for (const operation of FIXTURE_PRIVACY_FAILURE_OPERATIONS) {
     assert.equal(decodeFixturePrivacyResponse(response("failed", operation)), operation);
+    assert.equal(decodeFixturePrivacyResponse(response("passed", operation)), undefined);
   }
   for (const value of [null, {}, [], "", "PRIVATE-NATIVE-ERROR", response("passed", "owner"),
     response("failed", null), response("failed", "spawn_unavailable"), response("failed", "PRIVATE-PATH"),
@@ -376,7 +452,12 @@ test("public initializer and protector reject redirection without outside permis
     await assert.rejects(closeFixture({ primary: initialFailure, primaryStage: "fixture_initialization", evidence,
       custody: createFixtureCustody(), adapter: { snapshot: async () => [], stop: async () => {}, finalize: async () => {}, inspect: async () => "not_running" },
       restore: () => {}, reset: () => assert.fail("Rejected original must not reset."), report: value => { projection = value; },
-    }), error => error.fixtureStages.initialization_original_privacy === "failed");
+    }), error => {
+      assert.equal(error.fixtureStages.initialization_original_privacy, "failed");
+      for (const stage of FIXTURE_DIAGNOSTIC_OPERATION_STAGES) assert.equal(error.fixtureStages[stage], "clear");
+      assert.equal(fixtureDiagnosticFailureObservation(initialFailure), undefined);
+      return true;
+    });
     assert.doesNotMatch(JSON.stringify(projection), /PRIVATE|pid|createdAt|executablePath|commandHash/);
     const after = await lstat(outside);
     assert.equal(after.mode, before.mode);
@@ -396,28 +477,197 @@ test("actual diagnostic privacy rejection keeps closed substage without claiming
   await writeFile(path.join(outside, "must-survive.json"), "PRIVATE-OUTSIDE");
   const before = await lstat(outside);
   const beforeAcl = process.platform === "win32" ? await privateAclReadback(outside) : undefined;
+  let diagnosticIdentity;
   const evidence = createFixtureEvidenceBoundary(directory, { beforeInitializationStep: async (stage, state) => {
     if (stage !== "initialization_diagnostic_privacy") return;
+    if (process.platform === "win32") {
+      const info = await lstat(state.diagnosticRoot, { bigint: true }); diagnosticIdentity = `${info.dev}:${info.ino}`;
+      // The genuine creation guardian denies DELETE sharing before privacy.
+      // This is a blocked replacement, not a synthetic redirect observation.
+      try { await rename(state.diagnosticRoot, `${state.diagnosticRoot}-retained`); }
+      catch (original) { throw original; }
+      assert.fail("Live diagnostic birth handle must prevent replacement.");
+    }
     await rename(state.diagnosticRoot, `${state.diagnosticRoot}-retained`);
     await symlink(outside, state.diagnosticRoot, process.platform === "win32" ? "junction" : "dir");
   } });
-  let summary;
+  let summary, initializationFailure;
   try {
     await assert.rejects(closeFixture({ evidence, custody: createFixtureCustody(),
       adapter: { snapshot: async () => [], stop: async () => {}, finalize: async () => {}, inspect: async () => "not_running" },
       restore: () => {}, reset: () => assert.fail("Rejected private prerequisite must not reset."), report: value => { summary = value; },
-    }), error => error.fixtureStages.initialization_diagnostic_privacy === "failed" && error.fixtureStages.private_diagnostic === "failed");
+    }), error => {
+      initializationFailure = error.errors.find(original => fixtureDiagnosticFailureObservation(original) !== undefined);
+      return error.fixtureStages.initialization_diagnostic_privacy === "failed" &&
+        (process.platform === "win32" || error.fixtureStages.private_diagnostic === "failed");
+    });
     assert.equal(summary.stages.initialization_diagnostic_privacy, "failed");
+    for (const stage of FIXTURE_DIAGNOSTIC_OPERATION_STAGES)
+      assert.equal(summary.stages[stage], process.platform !== "win32" && stage === "initialization_diagnostic_privacy_call" ? "failed" : "clear");
+    assert.equal(fixtureDiagnosticFailureObservation(initializationFailure), process.platform === "win32" ? undefined : "initialization_diagnostic_privacy_call");
     if (process.platform === "win32") assert.deepEqual(summary.privacyObservation, {
-      schema: "service-lasso.fixture-privacy-observation.v1", verification: "redirect", protection: "redirect",
+      schema: "service-lasso.fixture-privacy-observation.v1", verification: "not_attempted", protection: "not_attempted",
     });
     assert.equal(summary.reset, "not_attempted");
     assert.equal(await readFile(path.join(directory, "journal.json"), "utf8"), "PRIVATE-ORIGINAL");
     assert.equal(await readFile(path.join(outside, "must-survive.json"), "utf8"), "PRIVATE-OUTSIDE");
     assert.equal((await lstat(outside)).mode, before.mode);
+    if (process.platform === "win32") {
+      const info = await lstat(evidence.diagnosticRoot, { bigint: true });
+      assert.equal(`${info.dev}:${info.ino}`, diagnosticIdentity);
+    }
     if (process.platform === "win32") assert.ok(await privateAclReadback(outside) === beforeAcl, "Rejected diagnostic path cannot mutate outside ACL.");
     assert.doesNotMatch(JSON.stringify(summary), /PRIVATE|pid|createdAt|executablePath|commandHash/);
   } finally { await evidence.release(); await rm(parent, { recursive: true, force: true }); }
+});
+
+test("real diagnostic junction rejects in native protector independently of blocked birth replacement", async () => {
+  const parent = await mkdtemp(path.join(tmpdir(), "diagnostic-real-junction-"));
+  const outside = path.join(parent, "outside"), link = path.join(parent, "diagnostic-link");
+  await mkdir(outside); await writeFile(path.join(outside, "must-survive.json"), "PRIVATE-DIAGNOSTIC-OUTSIDE");
+  const before = await lstat(outside), acl = process.platform === "win32" ? await privateAclReadback(outside) : undefined;
+  await symlink(outside, link, process.platform === "win32" ? "junction" : "dir");
+  try {
+    let rejected = false;
+    try { await protectOriginalFixture(link); } catch (original) {
+      rejected = true;
+      if (process.platform === "win32") assert.deepEqual(fixturePrivacyFailureObservation(original), {
+        schema: "service-lasso.fixture-privacy-observation.v1", verification: "redirect", protection: "redirect",
+      });
+    }
+    assert.equal(rejected, true);
+    assert.equal(await readFile(path.join(outside, "must-survive.json"), "utf8"), "PRIVATE-DIAGNOSTIC-OUTSIDE");
+    const after = await lstat(outside); assert.equal(after.mode, before.mode); assert.equal(after.uid, before.uid);
+    if (process.platform === "win32") assert.equal(await privateAclReadback(outside), acl);
+  } finally { await rm(parent, { recursive: true, force: true }); }
+});
+
+test("actual diagnostic operation catches only its own invocation and does not reuse a prior branded hook error", async () => {
+  const parent = await mkdtemp(path.join(tmpdir(), "diagnostic-operation-origin-"));
+  const original = path.join(parent, "original"), outside = path.join(parent, "outside");
+  await mkdir(original); await mkdir(outside); await writeFile(path.join(outside, "must-survive"), "PRIVATE-OPERATION-OUTSIDE");
+  const before = await lstat(outside), acl = process.platform === "win32" ? await privateAclReadback(outside) : undefined;
+  const boundaries = [];
+  let retainedDiagnosticIdentity;
+  const finish = async (boundary, primary) => {
+    let summary;
+    await assert.rejects(closeFixture({ primary, evidence: boundary, custody: createFixtureCustody(),
+      adapter: { snapshot: async () => [], stop: async () => {}, finalize: async () => {}, inspect: async () => "not_running" },
+      restore: () => {}, reset: () => assert.fail("Failed operation cannot reset."), report: value => { summary = value; } }), error => error.errors.includes(primary));
+    for (const stage of FIXTURE_DIAGNOSTIC_OPERATION_STAGES)
+      assert.equal(summary.stages[stage], stage === "initialization_diagnostic_privacy_call" ? "failed" : "clear");
+  };
+  try {
+    const reached = createFixtureEvidenceBoundary(original, { beforeInitializationStep: async (stage, state) => {
+      if (stage === "initialization_diagnostic_privacy") {
+        if (process.platform === "win32") await symlink(outside, path.join(state.diagnosticRoot, "actual-reparse-child"), "junction");
+        else {
+          // Linux privacy checks the actual root rather than a recursive child
+          // inventory. Retain that fresh original and redirect only its old name.
+          retainedDiagnosticIdentity = await lstat(state.diagnosticRoot);
+          await rename(state.diagnosticRoot, path.join(parent, "retained-diagnostic-original"));
+          await symlink(outside, state.diagnosticRoot, "dir");
+        }
+      }
+    } }); boundaries.push(reached);
+    let authentic;
+    try { await reached.initialize(); } catch (actual) { authentic = actual; }
+    assert.equal(fixtureDiagnosticFailureObservation(authentic), "initialization_diagnostic_privacy_call");
+    await finish(reached, authentic);
+    if (retainedDiagnosticIdentity) {
+      const retained = await lstat(path.join(parent, "retained-diagnostic-original"));
+      assert.equal(retained.ino, retainedDiagnosticIdentity.ino); assert.equal(retained.dev, retainedDiagnosticIdentity.dev);
+      assert.equal(retained.uid, retainedDiagnosticIdentity.uid); assert.equal(retained.mode, retainedDiagnosticIdentity.mode);
+    }
+    await diagnosticProjectionSurrogate({ primary: authentic,
+      primaryStage: "initialization_diagnostic_privacy_call",
+      failures: [{ stage: "initialization_diagnostic_privacy_call", error: authentic }],
+      initialize: async () => { throw authentic; } });
+    const copied = { ...authentic };
+    await diagnosticProjectionSurrogate({ primary: copied, primaryStage: "initialization_diagnostic_privacy_call",
+      failures: [{ stage: "initialization_diagnostic_privacy_call", error: copied }], initialize: async () => { throw copied; } });
+    assert.equal(fixtureDiagnosticFailureObservation({ ...authentic }), undefined);
+    const opaque = new Proxy({}, { get() { assert.fail("Opaque original getter must not be read."); } });
+    for (const thrown of [authentic, opaque, null, undefined]) {
+      const boundary = createFixtureEvidenceBoundary(original, { beforeInitializationStep: stage => {
+        if (stage === "initialization_diagnostic_privacy") throw thrown;
+      } }); boundaries.push(boundary);
+      let wrapper, caught = false;
+      try { await boundary.initialize(); } catch (actual) { caught = true; wrapper = actual; }
+      assert.equal(caught, true); assert.strictEqual(wrapper.cause, thrown);
+      assert.equal(fixtureDiagnosticFailureObservation(wrapper), undefined, "New before-hook invocation cannot inherit old operation evidence.");
+      let projection;
+      await assert.rejects(closeFixture({ primary: wrapper, evidence: boundary, custody: createFixtureCustody(),
+        adapter: { snapshot: async () => [], stop: async () => {}, finalize: async () => {}, inspect: async () => "not_running" },
+        restore: () => {}, reset: () => assert.fail("Hook rejection cannot reset."), report: value => { projection = value; } }), error => error.errors.includes(wrapper));
+      for (const stage of FIXTURE_DIAGNOSTIC_OPERATION_STAGES) assert.equal(projection.stages[stage], "clear");
+    }
+    assert.equal(await readFile(path.join(outside, "must-survive"), "utf8"), "PRIVATE-OPERATION-OUTSIDE");
+    const after = await lstat(outside); assert.equal(after.mode, before.mode); assert.equal(after.uid, before.uid);
+    if (process.platform === "win32") assert.equal(await privateAclReadback(outside), acl);
+  } finally {
+    const failures = [];
+    for (const boundary of boundaries) { try { await boundary.release(); } catch (actual) { failures.push(actual); } }
+    if (failures.length) throw new AggregateError(failures, "Diagnostic operation owners unresolved; fixture retained.");
+    await rm(parent, { recursive: true, force: true });
+  }
+});
+
+test("actual diagnostic allocation retains creator through native privacy and independently held handoff", async () => {
+  const parent = await mkdtemp(path.join(tmpdir(), "diagnostic-creation-parent-"));
+  let creator, independent;
+  try {
+    if (process.platform !== "win32") {
+      // Linux continues its existing real descriptor/uid privacy path; this is
+      // explicitly not evidence of the Windows native creator.
+      await protectOriginalFixture(parent); await verifyOriginalFixturePrivacy(parent); return;
+    }
+    creator = await createPrivateDiagnosticDirectory(parent, "diagnostic-", actual => { creator = actual; });
+    const before = await lstat(creator.root, { bigint: true });
+    await creator.borrow(() => protectOriginalFixture(creator.root));
+    await creator.borrow(async () => { independent = await holdDiagnosticFixtureRoot(creator.root, creator.root); await independent.verify(); });
+    await creator.verify(); await creator.handoff();
+    await assert.rejects(rename(creator.root, `${creator.root}-moved`));
+    const after = await lstat(creator.root, { bigint: true }); assert.equal(after.dev, before.dev); assert.equal(after.ino, before.ino);
+    await independent.release(); independent = undefined;
+    await creator.capture(); await creator.release(); creator = undefined;
+  } finally {
+    const failures = [];
+    try { await independent?.release(); } catch (original) { failures.push(original); }
+    try { await creator?.release(); } catch (original) { failures.push(original); }
+    if (failures.length) throw new AggregateError(failures, "Actual diagnostic native cleanup failed; fixture retained.");
+    await rm(parent, { recursive: true, force: true });
+  }
+});
+
+test("actual fresh-create primitive rejects genuine preexisting directory without adoption or mutation", async () => {
+  const parent = await mkdtemp(path.join(tmpdir(), "diagnostic-existing-parent-")), leaf = "existing-original";
+  const existing = path.join(parent, leaf); await mkdir(existing); await writeFile(path.join(existing, "must-survive"), "PRIVATE-EXISTING");
+  const before = await lstat(existing), acl = process.platform === "win32" ? await privateAclReadback(existing) : undefined;
+  try {
+    if (process.platform === "win32") {
+      assert.equal(process.env.SystemRoot.toLowerCase(), "c:\\windows");
+      const nonce = randomBytes(16).toString("hex"), script = await readFile(new URL("./fixture-diagnostic-creator.ps1", import.meta.url), "utf8");
+      // Direct fixed-script native fixture occurrence; collector receipts do
+      // not issue a creation owner, and no public leaf/tool selector is added.
+      const child = spawn("C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe",
+        ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")],
+        { cwd: parent, shell: false, windowsHide: true, stdio: ["pipe", "pipe", "pipe"], env: { ...process.env,
+          SERVICE_LASSO_DIAGNOSTIC_PARENT: parent, SERVICE_LASSO_DIAGNOSTIC_LEAF: leaf,
+          SERVICE_LASSO_DIAGNOSTIC_NONCE: nonce, SERVICE_LASSO_DIAGNOSTIC_CALLER: String(process.pid) } });
+      const actual = collectDiagnosticGuardian(child, nonce);
+      await assert.rejects(actual.ready()); await assert.rejects(actual.close());
+      const raw = actual.snapshot();
+      assert.equal(raw.exit.code, 2); assert.equal(raw.stdoutEnd, true); assert.equal(raw.stderrEnd, true);
+      assert.match(raw.stderr.toString("utf8"), /Diagnostic native create status=C0000035/);
+    } else {
+      // Actual Linux fresh mkdir rejection, not Windows NtCreateFile proof.
+      await assert.rejects(mkdir(existing));
+    }
+    assert.equal(await readFile(path.join(existing, "must-survive"), "utf8"), "PRIVATE-EXISTING");
+    const after = await lstat(existing); assert.equal(after.mode, before.mode); assert.equal(after.uid, before.uid); assert.equal(after.ino, before.ino);
+    if (process.platform === "win32") assert.equal(await privateAclReadback(existing), acl);
+  } finally { await rm(parent, { recursive: true, force: true }); }
 });
 
 // Direct foreign-owner regression requires the explicitly ROOT-provisioned
@@ -441,8 +691,8 @@ test("public protector and initializer reject a ROOT-provisioned foreign owner",
     await assert.rejects(protectOriginalFixture(foreign), error => {
       if (process.platform === "win32") {
         const observation = fixturePrivacyFailureObservation(error);
-        assert.ok(["owner", "acquire"].includes(observation.verification));
-        assert.ok(["owner", "acquire"].includes(observation.protection));
+        assert.ok(["owner_original", "acquire"].includes(observation.verification));
+        assert.ok(["owner_original", "acquire"].includes(observation.protection));
       }
       return true;
     });
@@ -536,6 +786,9 @@ for (const stage of ["snapshot", "inspection", "preservation", "removal", "diagn
         initialize: () => stage === "fixture_initialization" ? Promise.reject(expected) : boundary.initialize(),
         preserve: () => stage === "preservation" ? Promise.reject(expected) : boundary.preserve(),
         remove: hook => boundary.remove(hook), state: attempted => boundary.state(attempted), release: () => boundary.release(),
+        settleOriginal: () => boundary.settleOriginal(), settleDiagnostic: () => boundary.settleDiagnostic(), settleBirth: () => boundary.settleBirth(),
+        prepareReport: () => boundary.prepareReport(),
+        retainLateErrors: errors => boundary.retainLateErrors(errors), get diagnosticCustody() { return boundary.diagnosticCustody; },
         takeStateFailures: () => boundary.takeStateFailures(),
         retainErrors: errors => stage === "private_diagnostic" ? Promise.reject(expected) : boundary.retainErrors(errors),
         originalRoot: directory,

@@ -1,6 +1,115 @@
-import { deny, exactKeys } from './core1681-source-input.mjs';
-import { enumerateForest, parseSourceForest } from './core1681-source-forest.mjs';
+import { deny, exactKeys, originalSourceDenialCode } from './core1681-source-input.mjs';
+import { enumerateForest, parseSourceForest, createOriginalParseOccurrence, copyOriginalParseObservation } from './core1681-source-forest.mjs';
 import { FIXED_FOUNDATION_CATALOGUES, CATALOGUE_GROUP_DISPOSITION } from './core1681-source-catalogues.mjs';
+import { requireProofCounter, K2_LIMITS } from './core1681-proof-terms.mjs';
+import { createSelectedFrontendOccurrence, parseSelectedSourceForest, copySelectedFrontendObservation } from './core1681-selected-forest.mjs';
+import { enumerateSelectedDeclarations } from './core1681-selected-declarations.mjs';
+
+const selectedSourceEnvelopes = new WeakMap();
+const selectedSourceUnitOriginals = new WeakMap();
+const privateSourceUnitRows = new WeakSet();
+const selectedSourceEnvelopeResults = new WeakMap();
+const originalFoundationDerivations = new WeakSet();
+const sourceByteLength = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), 'byteLength').get;
+const sourceByteSet = Uint8Array.prototype.set;
+const sourceArrayMap = Array.prototype.map;
+// Only the envelope's unreachable private row can borrow its completed backing.
+// Neither public admitted units nor copied observations register row identities.
+export function borrowSelectedEnvelopeSource(row, counter) {
+  if (!privateSourceUnitRows.has(row) || row.counterOriginal !== counter || !row.copyCompleted)
+    deny('INVALID_BINDING', 'selected frontend requires the same completed private source owner');
+  return row.rawBytes;
+}
+function acquireOriginalData(value, keys, label, owner) {
+  owner.counter.charge('maxInvariantSteps', 'selected-data-owner');
+  const row = { input: value, label, prototypeOriginal: undefined, prototypeReturned: false,
+    keysOriginal: undefined, keysReturned: false, fields: [], values: {}, returned: false, failed: false, original: undefined };
+  owner.objects.push(row);
+  try {
+    if (value === null || typeof value !== 'object') deny('INVALID_INPUT', `${label} requires an original data object`);
+    row.prototypeOriginal = Object.getPrototypeOf(value); row.prototypeReturned = true;
+    if (row.prototypeOriginal !== Object.prototype) deny('INVALID_INPUT', `${label} requires an original data object`);
+    row.keysOriginal = Reflect.ownKeys(value); row.keysReturned = true;
+    if (row.keysOriginal.length !== keys.length || row.keysOriginal.some(key => typeof key !== 'string' || !keys.includes(key)))
+      deny('INVALID_INPUT', `${label} original data members differ`);
+    for (const key of keys) {
+      owner.counter.charge('maxInvariantSteps', 'selected-data-field');
+      const cell = { key, descriptor: undefined, returned: false, failed: false, original: undefined };
+      row.fields.push(cell);
+      try { cell.descriptor = Object.getOwnPropertyDescriptor(value, key); cell.returned = true; }
+      catch (original) { cell.original = original; cell.failed = true; throw original; }
+      if (!cell.descriptor || !Object.hasOwn(cell.descriptor, 'value') || cell.descriptor.enumerable !== true)
+        deny('INVALID_INPUT', `${label} requires own enumerable data members`);
+      row.values[key] = cell.descriptor.value;
+    }
+    row.returned = true; return row.values;
+  } catch (original) { row.original = original; row.failed = true; throw original; }
+}
+function requireOriginalArray(value, label, owner) {
+  owner.counter.charge('maxInvariantSteps', 'selected-array-owner');
+  const row = { input: value, label, values: [], lengthDescriptor: undefined, keysOriginal: undefined, cells: [], returned: false, failed: false, original: undefined };
+  owner.arrays.push(row);
+  try {
+  if (!Array.isArray(value)) deny('INVALID_INPUT', `${label} requires an original dense data array`);
+  row.lengthDescriptor = Object.getOwnPropertyDescriptor(value, 'length');
+  const extent = row.lengthDescriptor?.value;
+  row.keysOriginal = Reflect.ownKeys(value);
+  if (!Number.isSafeInteger(extent) || extent < 0 || row.keysOriginal.length !== extent + 1)
+    deny('INVALID_INPUT', `${label} requires an original dense data array`);
+  for (let at = 0; at < extent; at++) {
+    owner.counter.charge('maxInvariantSteps', 'selected-array-element');
+    const cell = { index: at, descriptor: undefined, returned: false, failed: false, original: undefined };
+    row.cells.push(cell);
+    try { cell.descriptor = Object.getOwnPropertyDescriptor(value, String(at)); cell.returned = true; }
+    catch (original) { cell.original = original; cell.failed = true; throw original; }
+    const descriptor = cell.descriptor;
+    if (!descriptor || !Object.hasOwn(descriptor, 'value') || descriptor.enumerable !== true)
+      deny('INVALID_INPUT', `${label} requires own enumerable data elements`);
+    row.values.push(descriptor.value);
+  }
+  row.returned = true; return row.values;
+  } catch (original) { row.original = original; row.failed = true; throw original; }
+}
+export function createSelectedSourceEnvelope(counter) {
+  requireProofCounter(counter);
+  counter.charge('maxInvariantSteps', 'selected-source-envelope');
+  const token = Object.freeze({});
+  selectedSourceEnvelopes.set(token, { counter, issued: false, input: undefined, units: [],
+    phase: undefined, returned: false, result: undefined, failed: false, original: undefined,
+    derivations: [], selectedGraphs: [], objects: [], arrays: [], headers: [], nativeGraph: undefined,
+    foundationReturned: false, foundationResult: undefined, foundationFailed: false, foundationOriginal: undefined });
+  return token;
+}
+export function copySelectedSourceEnvelopeObservation(token) {
+  const owner = selectedSourceEnvelopes.get(token);
+  if (!owner) deny('INVALID_BINDING', 'source envelope requires original caller custody');
+  const units = owner.units.map(row => {
+    let rawBytes;
+    if (row.rawBytes) {
+      for (let at = 0; at < row.rawBytes.length; at++) owner.counter.charge('maxInvariantSteps', 'source-observation-byte');
+      rawBytes = new Uint8Array(row.rawBytes.length); sourceByteSet.call(rawBytes, row.rawBytes);
+    }
+    return { ordinal: row.ordinal, phase: row.phase, copyCompleted: row.copyCompleted, rawBytes,
+      identity: row.identity ? { ...row.identity, conditions: [...row.identity.conditions] } : undefined,
+      returned: row.returned, failed: row.failed, original: row.original };
+  });
+  return { phase: owner.phase, returned: owner.returned, failed: owner.failed, original: owner.original, units,
+    derivations: owner.derivations.map(row => ({ phase: row.phase, parsedPresent: row.parsed !== undefined,
+      parsing: row.parsing ? copyOriginalParseObservation(row.parsing) : undefined,
+      forestPresent: row.forest !== undefined, returned: row.returned, failed: row.failed, original: row.original,
+      bindings: row.bindings.map(binding => ({ returned: binding.returned, failed: binding.failed,
+        original: binding.original, declaration: structuredClone(binding.node.declId) })) })),
+    foundationReturned: owner.foundationReturned, foundationFailed: owner.foundationFailed, foundationOriginal: owner.foundationOriginal,
+    selectedGraphs: owner.selectedGraphs.map(row => ({ phase: row.phase, returned: row.returned,
+      failed: row.failed, original: row.original, frontend: row.frontend ? copySelectedFrontendObservation(row.frontend) : undefined,
+      occurrences: row.occurrences.map(node => ({ kind: node.syntax.kind, path: [...node.path], origin: structuredClone(node.syntax.origin),
+        parentPath: node.parent ? [...node.parent.path] : null })),
+      references: row.referenceOccurrences.map(reference => ({ field: reference.field, path: [...reference.path],
+        sourcePath: reference.source ? [...reference.source.path] : null,
+        targetKind: reference.targetOriginal?.kind ?? null, targetPresent: reference.targetOriginal !== null && reference.targetOriginal !== undefined })),
+      declarationCount: row.enumeration?.entries.length ?? 0 })),
+    sourceAdmission: false, nativeAuthority: false, executionAdmission: false };
+}
 
 export const CONDITION_VERSION = 'R23456-1';
 export const DECLARATION_VERSION = 'R6-DECLID-1';
@@ -21,7 +130,7 @@ export const SELECTED_INPUTS = Object.freeze([
   ['H-current', 'originalHelper', 'javascript', 'CE-JS-2'],
   ['CE-assets', 'callerEvidence', 'javascript', 'CE-JS-2'],
   ['CD-mcp', 'callerDependency', 'javascript', 'CE-JS-2'],
-]);
+].map(row => Object.freeze(row)));
 
 function ordinal(a, b) { return a < b ? -1 : a > b ? 1 : 0; }
 function canonical(value) {
@@ -46,22 +155,54 @@ function nonempty(value, label) { if (typeof value !== 'string' || !value.length
 // No digest/name whitelist is an admission proof: bytes are mandatory and copied
 // before parsing. Source version is a selected immutable identity, not a claim
 // that a supplied hash proves syntax, ownership, native ABI or runtime effects.
-export function admitBundle(input) {
-  exactKeys(input, ['schema', 'conditionVersion', 'declarationIdentityVersion', 'adapters', 'units'], 'bundle');
+export function admitBundle(input, token) {
+  const owner = selectedSourceEnvelopes.get(token);
+  if (!owner || owner.issued) deny('INVALID_BINDING', 'all14 acquisition requires a once-only caller envelope');
+  owner.issued = true; owner.input = input; owner.phase = 'bundleValidation';
+  try {
+  input = acquireOriginalData(input, ['schema', 'conditionVersion', 'declarationIdentityVersion', 'adapters', 'units'], 'bundle', owner);
+  const adapters = requireOriginalArray(input.adapters, 'adapters', owner);
+  const originalUnits = requireOriginalArray(input.units, 'units', owner);
   if (input.schema !== 'core1681.foundationInput.v1' || input.conditionVersion !== CONDITION_VERSION ||
-      input.declarationIdentityVersion !== DECLARATION_VERSION || !same(input.adapters, ADAPTERS) ||
-      !Array.isArray(input.units) || input.units.length !== SELECTED_INPUTS.length) deny('INVALID_INPUT', 'whole fourteen-member selection/version/adapters mismatch');
-  return input.units.map((unit, ordinal) => {
-    exactKeys(unit, ['id', 'inventoryClass', 'language', 'profile', 'version', 'conditions', 'rawBytes'], `unit ${ordinal}`);
+      input.declarationIdentityVersion !== DECLARATION_VERSION || !same(adapters, ADAPTERS) ||
+      originalUnits.length !== SELECTED_INPUTS.length) deny('INVALID_INPUT', 'whole fourteen-member selection/version/adapters mismatch');
+  const result = sourceArrayMap.call(originalUnits, (unit, ordinal) => {
+    owner.counter.charge('maxInvariantSteps', 'selected-unit-owner');
+    const row = { ordinal, input: unit, phase: 'unitValidation', rawInput: undefined, identity: undefined, rawBytes: undefined, publicBytes: undefined, copyCompleted: false,
+      returned: false, result: undefined, failed: false, original: undefined };
+    Object.defineProperty(row, 'counterOriginal', { value: owner.counter });
+    privateSourceUnitRows.add(row);
+    owner.units.push(row);
+    try {
+    unit = acquireOriginalData(unit, ['id', 'inventoryClass', 'language', 'profile', 'version', 'conditions', 'rawBytes'], `unit ${ordinal}`, owner);
     const [id, inventoryClass, language, profile] = SELECTED_INPUTS[ordinal];
     if (unit.id !== id || unit.inventoryClass !== inventoryClass || unit.language !== language || unit.profile !== profile) deny('INVALID_INPUT', `unit selection at ${ordinal}`);
-    nonempty(unit.version, 'source version');
-    if (!Array.isArray(unit.conditions) || unit.conditions.some(condition => typeof condition !== 'string') ||
-        new Set(unit.conditions).size !== unit.conditions.length || !(unit.rawBytes instanceof Uint8Array)) deny('INVALID_INPUT', `${id} conditions/raw bytes`);
-    return { identity: { id, inventoryOrdinal: ordinal, inventoryClass, language, profile,
-      version: unit.version, conditions: [...unit.conditions], conditionVersion: CONDITION_VERSION,
-      declarationIdentityVersion: DECLARATION_VERSION }, rawBytes: Uint8Array.from(unit.rawBytes) };
+    const version = unit.version;
+    nonempty(version, 'source version');
+    const conditions = requireOriginalArray(unit.conditions, 'source conditions', owner);
+    row.rawInput = unit.rawBytes;
+    if (conditions.some(condition => typeof condition !== 'string') ||
+        new Set(conditions).size !== conditions.length || !(row.rawInput instanceof Uint8Array)) deny('INVALID_INPUT', `${id} conditions/raw bytes`);
+    const extent = sourceByteLength.call(row.rawInput);
+    for (let at = 0; at < extent; at++) owner.counter.charge('maxInvariantSteps', 'selected-source-byte');
+    row.phase = 'rawAllocation';
+    Object.defineProperty(row, 'rawBytes', { value: new Uint8Array(extent), writable: false, configurable: false });
+    row.phase = 'rawCopy'; sourceByteSet.call(row.rawBytes, row.rawInput); row.copyCompleted = true;
+    Object.defineProperty(row, 'copyCompleted', { value: true, writable: false, configurable: false });
+    row.phase = 'publicCopyAllocation'; row.publicBytes = new Uint8Array(extent);
+    row.phase = 'publicCopy'; sourceByteSet.call(row.publicBytes, row.rawBytes);
+    row.identity = { id, inventoryOrdinal: ordinal, inventoryClass, language, profile,
+      version, conditions, conditionVersion: CONDITION_VERSION, declarationIdentityVersion: DECLARATION_VERSION };
+    const retained = { identity: { ...row.identity, conditions: [...conditions] }, rawBytes: row.publicBytes };
+    selectedSourceUnitOriginals.set(retained, row);
+    row.result = retained; row.returned = true; row.phase = 'unitReturned';
+    return retained;
+    } catch (original) { row.original = original; row.failed = true; throw original; }
   });
+  selectedSourceEnvelopeResults.set(result, owner);
+  owner.result = result; owner.returned = true; owner.phase = 'bundleReturned';
+  return result;
+  } catch (original) { owner.original = original; owner.failed = true; throw original; }
 }
 
 const catalogueKeys = ['unit', 'inventoryOrdinal', 'profile', 'version', 'conditions', 'complete', 'types', 'members'];
@@ -368,14 +509,23 @@ function lookup(scope, name) {
 
 // This is declaration binding, not expression typing/CFG/proof discharge. Every
 // record below is recomputed from an owned parse; caller-supplied rows never enter.
-export function bindSource(rawBytes, identity, catalogueInputs = []) {
+export function bindSource(rawBytes, identity, catalogueInputs = [], occurrence) {
+  if (occurrence !== undefined && !originalFoundationDerivations.has(occurrence))
+    deny('INVALID_BINDING', 'foundation derivation requires its original private owner');
+  if (occurrence) occurrence.phase = 'identityValidation';
+  try {
   exactKeys(identity, ['id', 'inventoryOrdinal', 'inventoryClass', 'language', 'profile', 'version', 'conditions', 'conditionVersion', 'declarationIdentityVersion'], 'source Unit identity');
   if (identity.conditionVersion !== CONDITION_VERSION || identity.declarationIdentityVersion !== DECLARATION_VERSION ||
       !Number.isSafeInteger(identity.inventoryOrdinal) || identity.inventoryOrdinal < 0 || !Array.isArray(identity.conditions)) deny('INVALID_INPUT', 'source Unit versions/ordinal/conditions');
   for (const key of ['id', 'inventoryClass', 'language', 'profile', 'version']) nonempty(identity[key], key);
   if (!SELECTED_INPUTS.some(row => row[2] === identity.language && row[3] === identity.profile) ||
       identity.conditions.some(condition => typeof condition !== 'string') || new Set(identity.conditions).size !== identity.conditions.length) deny('INVALID_INPUT', 'exact frontend profile/condition selection required');
-  const parsed = parseSourceForest(rawBytes, identity.language), forest = enumerateForest(parsed, structuredClone(identity));
+  if (occurrence) occurrence.phase = 'syntaxParsing';
+  if (occurrence) occurrence.parsing = createOriginalParseOccurrence();
+  const parsed = parseSourceForest(rawBytes, identity.language, occurrence?.parsing);
+  if (occurrence) { occurrence.parsed = parsed; occurrence.phase = 'enumeration'; }
+  const forest = enumerateForest(parsed, structuredClone(identity));
+  if (occurrence) { occurrence.forest = forest; occurrence.phase = 'catalogues'; }
   const catalogues = catalogueInputs.map(input => {
     const fixed = FIXED_FOUNDATION_CATALOGUES.find(row => row.unit === input.unit);
     if (!fixed || !same(input, fixed)) deny('CATALOGUE_MISMATCH', 'only exact fixed foundation catalogue descriptors may bind');
@@ -443,6 +593,9 @@ export function bindSource(rawBytes, identity, catalogueInputs = []) {
     }
   }
   const bindings = forest.entries.map(node => {
+    const row = occurrence ? { node, returned: false, result: undefined, failed: false, original: undefined } : null;
+    if (row) { occurrence.phase = 'declarationBinding'; occurrence.bindings.push(row); }
+    try {
     if (node.import && node.kind === 'import') deny('INCOMPLETE_BINDING', `selected module/export definition required for ${node.import.module}`, node.origin);
     if (node.kind === 'namespaceImport') {
       const target = node.import.target;
@@ -470,7 +623,7 @@ export function bindSource(rawBytes, identity, catalogueInputs = []) {
       ? constructorType.beforeFieldInit ? 'beforefieldinit-unproved-trigger' : 'explicit-static-constructor-unproved-trigger'
       : 'instance-before-base-constructor' : node.kind === 'type' && ['class', 'struct'].includes(node.category)
         ? node.beforeFieldInit ? 'beforefieldinit-unproved-trigger' : 'explicit-static-constructor-unproved-trigger' : null;
-    return { declId: node.declId, kind: node.kind, name: node.name,
+    const result = { declId: node.declId, kind: node.kind, name: node.name,
       semanticOwner: scopeId(node.owner), category: node.category ?? node.kind,
       origin: node.slot ? { kind: 'synthetic', noSpan: true, anchor: node.slot.anchor.declId,
         role: node.slot.role, ordinal: node.slot.ordinal } : structuredClone(node.origin),
@@ -496,9 +649,12 @@ export function bindSource(rawBytes, identity, catalogueInputs = []) {
         ? { target: baseConstructor, declarationStatus: baseConstructor ? 'boundExactCatalogueDeclaration' : 'deferredMissingCatalogueConstructor',
           order: 'afterInstanceInitializers-beforeConstructorBody', transferProof: 'deferred' } : null,
     };
+    if (row) { row.result = result; row.returned = true; }
+    return result;
+    } catch (original) { if (row) { row.original = original; row.failed = true; } throw original; }
   });
   if (parsed.root.statements.some(statement => statement.kind === 'moduleInitialization')) deny('INCOMPLETE_BINDING', 'module initialization requires an exact selected W4 conditional adapter or supplied dependency definition');
-  return { schema: 'core1681.declarationFoundation.v1', identity: structuredClone(identity), bindings,
+  const result = { schema: 'core1681.declarationFoundation.v1', identity: structuredClone(identity), bindings,
     catalogueConditions: catalogues.map(catalogue => ({ identity: catalogue.identity, conditions: catalogue.catalogue.conditions,
       structurallyCompleteSubset: true, completeSelectedProfile: false, authenticInstalledProfile: false })),
     lexicalScopes: [...forest.scopes.entries()].map(([scope]) => ({ identity: scopeId(scope),
@@ -511,6 +667,9 @@ export function bindSource(rawBytes, identity, catalogueInputs = []) {
     implementedSubprofile: parsed.implementedSubprofile, selectedProfileComplete: false,
     typedExpressionBindingsComplete: false, typedIR: null, cfg: null, proofDAG: null,
     sourceGo: false, executionAuthorized: false };
+  if (occurrence) occurrence.phase = 'derivationReturned';
+  return result;
+  } catch (original) { if (occurrence) { occurrence.original = original; occurrence.failed = true; } throw original; }
 }
 
 export function checkFoundationBindings(rawBytes, identity, catalogueInputs, candidate) {
@@ -534,22 +693,123 @@ function cleanSyntax(value) {
   return out;
 }
 
-export function produceFoundation(input) {
-  const units = admitBundle(input);
+export function produceFoundation(input, token) {
+  const units = admitBundle(input, token);
+  const owner = selectedSourceEnvelopes.get(token);
+  try {
   const outcomes = units.map(unit => {
-    const catalogue = FIXED_FOUNDATION_CATALOGUES.filter(row => unit.identity.language === 'javascript' ? row.profile === 'CE-JS-foundation-1'
-      : unit.identity.profile.includes('CLR-MODERN-VSIX') ? row.profile === 'CLR-MODERN-VSIX-foundation-1' : row.profile === 'CLR48-foundation-1');
-    try { return { id: unit.identity.id, status: 'FOUNDATION_SUBPROFILE_ONLY', result: bindSource(unit.rawBytes, unit.identity, catalogue) }; }
+    const derivation = { unitOriginal: selectedSourceUnitOriginals.get(unit), attempted: false, phase: undefined,
+      parsed: undefined, forest: undefined, bindings: [],
+      returned: false, result: undefined, failed: false, original: undefined };
+    owner.derivations.push(derivation);
+    originalFoundationDerivations.add(derivation);
+    const identity = derivation.unitOriginal.identity;
+    try {
+      derivation.attempted = true;
+      const catalogue = FIXED_FOUNDATION_CATALOGUES.filter(row => identity.language === 'javascript' ? row.profile === 'CE-JS-foundation-1'
+        : identity.profile.includes('CLR-MODERN-VSIX') ? row.profile === 'CLR-MODERN-VSIX-foundation-1' : row.profile === 'CLR48-foundation-1');
+      derivation.result = bindSource(derivation.unitOriginal.rawBytes, identity, catalogue, derivation); derivation.returned = true;
+      return { id: identity.id, status: 'FOUNDATION_SUBPROFILE_ONLY', result: derivation.result };
+    }
     catch (error) {
-      if (error?.name !== 'SourceDenial') throw error;
-      return { id: unit.identity.id, status: 'DENIED', code: error.code, detail: error.message, origin: error.origin };
+      derivation.original = error; derivation.failed = true;
+      const code = originalSourceDenialCode(error);
+      if (code === undefined) throw error;
+      return { id: identity.id, status: 'DENIED', code, detail: error.message, origin: error.origin };
     }
   });
-  return { schema: 'core1681.wholeFoundationDisposition.v1', conditionVersion: CONDITION_VERSION,
+  const result = { schema: 'core1681.wholeFoundationDisposition.v1', conditionVersion: CONDITION_VERSION,
     declarationIdentityVersion: DECLARATION_VERSION, adapters: [...ADAPTERS], outcomes,
     selectedScope: { inputUnits: 14, roles: 183, orderedFamilies: 35, callerComparisons: 9 },
     completeSelectedForest: false, actualSourceGo: false, executionAuthorized: false,
     catalogueGroups: structuredClone(CATALOGUE_GROUP_DISPOSITION),
     remaining: ['complete selected frontend profiles', 'six complete catalogue groups', '18 concrete provider premises',
       'typed expressions/IR/CFG/proof DAG', 'all nine protected caller migrations', 'different entire review and NEW input admission'] };
+  selectedSourceEnvelopeResults.set(result, owner);
+  owner.foundationResult = result; owner.foundationReturned = true;
+  return result;
+  } catch (original) { owner.foundationOriginal = original; owner.foundationFailed = true; throw original; }
+}
+
+// Selected language graph owner over all original bodies. Syntax/enumeration
+// alone cannot supply compilation groups, imported providers or native actors.
+export function produceSelectedSourceGraph(input, token) {
+  const units = admitBundle(input, token), owner = selectedSourceEnvelopes.get(token);
+  try {
+  const functionKinds = new Set(['constructor', 'method', 'accessor', 'lambda', 'psFunction', 'cFunction',
+    'jsFunction', 'jsFunctionExpression', 'jsArrow', 'jsMethod']);
+  const importKinds = new Set(['usingDirective', 'jsImport', 'jsImportBinding', 'jsExport', 'jsExportAll',
+    'jsDynamicImport', 'jsImportMeta', 'cInclude']);
+  const semanticFields = new Set(['sourceType', 'parameterType', 'typedefOriginal', 'typedefBinding',
+    'bindingOriginal', 'labelGraph', 'targetOriginal', 'tagOriginal', 'parameterScope', 'definitionCompletenessOriginal',
+    'conditionalOriginal', 'macroSaveOriginal', 'macroSaveStackOriginal',
+      'sourcePositionOriginal', 'sourceLines', 'directiveOriginal', 'sourceLineOriginal', 'mappingOriginal', 'filenameTokenOriginal']);
+  // Preown every unit row before the first selected parser issue, including
+  // units which a later finite-counter refusal prevents from reaching syntax.
+  for (const unit of units) owner.selectedGraphs.push({ originalUnit: selectedSourceUnitOriginals.get(unit),
+    phase: 'pending', frontend: undefined, forest: undefined, enumeration: undefined,
+    occurrences: [], bodyOccurrences: [], importOccurrences: [], referenceOccurrences: [],
+    returned: false, failed: false, original: undefined });
+    const outcomes = owner.selectedGraphs.map(row => {
+      const identity = row.originalUnit.identity;
+      try {
+        row.phase = 'frontendEnrollment';
+        row.frontend = createSelectedFrontendOccurrence(owner.counter);
+        row.phase = 'selectedSyntax';
+        row.forest = parseSelectedSourceForest(undefined, identity.language, owner.counter, row.frontend, row.originalUnit);
+        row.phase = 'selectedEnumeration';
+        row.enumeration = enumerateSelectedDeclarations(row.forest.root, identity.id, identity.language, owner.counter);
+        row.phase = 'bodyAndImportGraph';
+        const visited = new WeakSet();
+        const walk = (value, parent, path) => {
+          if (!value || typeof value !== 'object' || visited.has(value)) return;
+          owner.counter.charge('maxInvariantSteps', 'selected-full-source-graph');
+          if (path.length >= K2_LIMITS.maxTermDepth) deny('EXHAUSTED', 'selected source graph depth exhausted');
+          visited.add(value);
+          if (Array.isArray(value)) { value.forEach((child, ordinal) => walk(child, parent, [...path, ordinal])); return; }
+          if (value.kind && value.origin) {
+            owner.counter.charge('maxOccurrences', 'selected-full-source-occurrence');
+            const occurrence = { syntax: value, parent, path };
+            row.occurrences.push(occurrence);
+            if (functionKinds.has(value.kind)) row.bodyOccurrences.push(occurrence);
+            if (importKinds.has(value.kind)) row.importOccurrences.push(occurrence);
+            parent = occurrence;
+          }
+          for (const key of Object.keys(value)) {
+            if (['origin', 'declId', 'parent', 'semanticOwner', 'owner', 'metadata'].includes(key)) continue;
+            if (semanticFields.has(key)) {
+              owner.counter.charge('maxOccurrences', 'selected-full-source-reference');
+              const reference = { source: parent, containerOriginal: value, field: key,
+                targetOriginal: value[key], path: [...path, key] };
+              row.pendingReferenceOriginal = reference;
+              row.referenceOccurrences.push(reference);
+              continue;
+            }
+            walk(value[key], parent, [...path, key]);
+          }
+        };
+        walk(row.forest.root, null, []);
+        row.phase = 'graphRetained'; row.returned = true;
+        return { id: identity.id, status: 'SELECTED_SOURCE_GRAPH_ONLY', declarations: row.enumeration.entries.length,
+          occurrences: row.occurrences.length, bodyOccurrences: row.bodyOccurrences.length,
+          importOccurrences: row.importOccurrences.length, referenceOccurrences: row.referenceOccurrences.length, typedBodiesComplete: false,
+          compilationProducer: null, sourceAdmission: false, nativeAuthority: false };
+      } catch (original) {
+        row.original = original; row.failed = true;
+        const code = originalSourceDenialCode(original);
+        if (code === undefined) throw original;
+        return { id: identity.id, status: 'DENIED', code, typedBodiesComplete: false,
+          compilationProducer: null, sourceAdmission: false, nativeAuthority: false };
+      }
+    });
+    const result = { schema: 'core1681.selectedSourceGraphDisposition.v1', outcomes,
+      remaining: ['original compiler grouping/reference acquisition', 'held headers and producer macro/condition occurrences',
+        'complete selected typed body/effect/CFG and K2 transfers', 'native import/member/actor acquisition',
+        'full containing allocation/source-step geometry and authentic root admission'],
+      completeSelectedForest: false, typedBodiesComplete: false, sourceAdmission: false,
+      nativeAuthority: false, executionAuthorized: false };
+    owner.selectedGraphResult = result; owner.selectedGraphReturned = true;
+    selectedSourceEnvelopeResults.set(result, owner);
+    return result;
+  } catch (original) { owner.selectedGraphOriginal = original; owner.selectedGraphFailed = true; throw original; }
 }

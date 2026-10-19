@@ -1,4 +1,4 @@
-import { FIXTURE_PRIVACY_RESULTS } from "./hard-crash-fixture-custody.js";
+import { FIXTURE_PRIVACY_RESULTS, FIXTURE_PRIVACY_FAILURE_OPERATIONS } from "./hard-crash-fixture-custody.js";
 
 export const HISTORY_STAGES = Object.freeze(`original_privacy enrollment_observer_arm inspector_arm discovery managed_start managed_rejection managed_record_absent held_child_closed held_reader_empty adopted_spawn adopted_spawn_observe adopted_inspection adopted_running rejected_spawn rejected_spawn_observe rejected_inspection rejected_running owner_record adopted_start adopted_rejection adopted_record_absent adopted_child_live rejected_reader_excluded reader_presence observer_count initial_reader_read compatibility_reader_acquire initial_reader_nonempty descendant_command descendant_file_wait initial_descendant_excluded descendant_history_wait reader_copy_read reader_copy_defensive second_command second_file_wait second_inspection second_running second_pre_admission_excluded mixed_snapshot_wait prior_a_retained independent_b_retained second_still_running descendant_close_command descendant_absence_wait omission_wait omitted_a_retained action_stop action_finalization final_record_absent final_a_retained all_members_absent compatibility_a_retained final_b_retained final_b_absent unknown`.split(" "));
 export const HISTORY_CLEANUP = Object.freeze("hook inspector stop finalization direct_child rejected_child held_child reset removal private_diagnostic".split(" "));
@@ -11,7 +11,7 @@ const own = (value, keys) => {
   } catch { return null; }
 };
 const normal = ["boot_enter", "parse_enter", "parse_ok", "compiler_enter", "compiler_ok"];
-const completedResult = result => result === "passed" || FIXTURE_PRIVACY_RESULTS.slice(2, 16).includes(result);
+const completedResult = result => result === "passed" || FIXTURE_PRIVACY_FAILURE_OPERATIONS.includes(result);
 function transport(value, result) {
   const record = own(value, ["schema", "state", "events"]);
   if (!record || record.schema !== "service-lasso.fixture-privacy-transport.v2" || !["complete", "unavailable", "malformed"].includes(record.state)) return null;
@@ -40,7 +40,7 @@ function transport(value, result) {
       if (events.length === 6 && !/^native_enter_(acquire|information|type|redirect|security|owner|inventory|identity|descriptor|protect|readback)$/.test(events[5])) return null;
       if (events.length === 6 && result === "prepare") return null;
     }
-    if (result !== "passed" && !FIXTURE_PRIVACY_RESULTS.slice(2, 16).includes(result)) return null;
+    if (result !== "passed" && !FIXTURE_PRIVACY_FAILURE_OPERATIONS.includes(result)) return null;
     return { schema: record.schema, state: record.state, events };
   } catch { return null; }
 }
@@ -75,7 +75,8 @@ export function createHistoryObservation() {
       const observation = own(value, ["schema", "verification", "protection"]);
       const pair = own(transports, ["verification", "protection"]);
       if (!observation || !pair || observation.schema !== "service-lasso.fixture-privacy-observation.v1" ||
-          !FIXTURE_PRIVACY_RESULTS.includes(observation.verification) || !FIXTURE_PRIVACY_RESULTS.includes(observation.protection) || observation.verification === "not_attempted") { loss = true; return; }
+          !FIXTURE_PRIVACY_RESULTS.includes(observation.verification) || !FIXTURE_PRIVACY_RESULTS.includes(observation.protection) ||
+          ["not_attempted", "owner_protect"].includes(observation.verification)) { loss = true; return; }
       originalVerificationTransport = transport(pair.verification, observation.verification);
       originalProtectionTransport = observation.protection === "not_attempted" && pair.protection === null ? null : transport(pair.protection, observation.protection);
       if (!completedResult(observation.verification) || originalVerificationTransport?.state !== "complete" ||
@@ -88,7 +89,7 @@ export function createHistoryObservation() {
       tick();
       if (diagnosticObserved) { loss = true; return; }
       diagnosticObserved = true;
-      diagnosticVerification = FIXTURE_PRIVACY_RESULTS.includes(result) && result !== "not_attempted" ? result : "response_unavailable";
+      diagnosticVerification = FIXTURE_PRIVACY_RESULTS.includes(result) && !["not_attempted", "owner_protect"].includes(result) ? result : "response_unavailable";
       diagnosticTransport = transport(value, diagnosticVerification);
       if (!completedResult(diagnosticVerification) || diagnosticTransport?.state !== "complete") loss = true;
     },

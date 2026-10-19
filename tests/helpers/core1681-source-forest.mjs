@@ -1,4 +1,4 @@
-import { decodeOriginal, lexOriginal, deny } from './core1681-source-input.mjs';
+import { decodeOriginal, lexOriginal, deny, createOriginalLexerOccurrence, copyOriginalLexerObservation, createOriginalDecoderOccurrence, copyOriginalDecoderObservation } from './core1681-source-input.mjs';
 
 const modifiers = new Set(['public', 'private', 'internal', 'protected', 'static', 'readonly',
   'const', 'sealed', 'abstract', 'virtual', 'override', 'extern', 'new', 'partial', 'unsafe']);
@@ -26,16 +26,32 @@ const jsReserved = new Set(['await', 'break', 'case', 'catch', 'class', 'const',
   'switch', 'this', 'throw', 'true', 'try', 'typeof', 'var', 'void', 'while', 'with',
   'implements', 'interface', 'let', 'package', 'private', 'protected', 'public', 'static', 'yield']);
 const ownedParseInputs = new WeakMap();
+const parseOccurrences = new WeakMap();
+export function createOriginalParseOccurrence() {
+  const token = Object.freeze({});
+  parseOccurrences.set(token, { issued: false, returned: false, failed: false });
+  return token;
+}
+export function copyOriginalParseObservation(token) {
+  const owner = parseOccurrences.get(token);
+  if (!owner) deny('INVALID_BINDING', 'parser observation requires original custody');
+  return { phase: owner.phase, returned: owner.returned, failed: owner.failed, original: owner.original,
+    parserPresent: owner.parser !== undefined, partialRootChildren: owner.parser?.root?.children.length ?? 0,
+    lexer: owner.lexer ? copyOriginalLexerObservation(owner.lexer) : undefined,
+    decoder: owner.decoder ? copyOriginalDecoderObservation(owner.decoder) : undefined };
+}
 
 // Recursive descent over a deliberately closed subgrammar, NOT an anchor scan.
 // Every accepted expression and statement has a tree and original location.
 // Constructs outside this implemented subgrammar deny the entire unit.
 class Parser {
-  constructor(decoded, language) {
+  constructor(decoded, language, occurrence) {
+    if (occurrence) occurrence.parser = this;
     this.decoded = decoded; this.language = language;
-    this.lexed = lexOriginal(decoded, language); this.tokens = this.lexed.tokens; this.at = 0;
     this.root = { kind: 'unit', children: [], namespace: [], owner: null, references: [], scopes: [] };
     this.scope = this.root; this.structural = this.root; this.types = []; this.scopeOrdinal = 0;
+    if (occurrence) occurrence.phase = 'lexing';
+    this.lexed = lexOriginal(decoded, language, occurrence?.lexer); this.tokens = this.lexed.tokens; this.at = 0;
   }
   current() { return this.tokens[this.at]; }
   value() { return this.current().value; }
@@ -593,6 +609,7 @@ class Parser {
   }
   parse() {
     const statements = [];
+    this.root.statements = statements;
     while (this.current().kind !== 'eof') {
       if (this.language === 'csharp') this.csDeclaration();
       else statements.push(this.value() === 'import' ? this.jsImport() : this.statement());
@@ -607,11 +624,24 @@ class Parser {
   }
 }
 
-export function parseSourceForest(rawBytes, language) {
+export function parseSourceForest(rawBytes, language, token) {
+  const owner = token === undefined ? undefined : parseOccurrences.get(token);
+  if (token !== undefined && (!owner || owner.issued)) deny('INVALID_BINDING', 'parser occurrence is original and once-only');
+  if (owner) { owner.issued = true; owner.rawInput = rawBytes; owner.language = language; owner.phase = 'snapshotAllocation'; }
+  try {
   const snapshot = Uint8Array.from(rawBytes);
-  const parsed = new Parser(decodeOriginal(rawBytes), language).parse();
+  if (owner) { owner.snapshot = snapshot; owner.phase = 'decoding'; }
+  const decoder = createOriginalDecoderOccurrence();
+  if (owner) owner.decoder = decoder;
+  const decoded = decodeOriginal(snapshot, decoder);
+  if (owner) { owner.decoded = decoded; owner.lexer = createOriginalLexerOccurrence(); owner.phase = 'parserConstruction'; }
+  const parser = new Parser(decoded, language, owner);
+  if (owner) owner.phase = 'syntaxParsing';
+  const parsed = parser.parse();
+  if (owner) { owner.result = parsed; owner.returned = true; owner.phase = 'returned'; }
   ownedParseInputs.set(parsed, { raw: snapshot, language });
   return parsed;
+  } catch (original) { if (owner) { owner.original = original; owner.failed = true; } throw original; }
 }
 
 export const SYNTHETIC_ORDER = Object.freeze(['instanceConstructor', 'typeInitializer',
