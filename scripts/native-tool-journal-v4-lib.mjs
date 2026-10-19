@@ -11,7 +11,7 @@ function nativeJson(source){if(!strictJson(source))throw new Error("first_custod
 
 const digest = value => createHash("sha256").update(value).digest("hex");
 const positive = value => Number.isSafeInteger(Number(value)) && Number(value) > 0 ? Number(value) : null;
-const samePath = (left, right) => process.platform === "win32" ? left.toLowerCase() === right.toLowerCase() : left === right;
+export const samePath = (left, right) => process.platform === "win32" ? path.resolve(left).toLowerCase() === path.resolve(right).toLowerCase() : path.resolve(left) === path.resolve(right);
 
 // Self-contained physical closure avoids recursively starting a bootstrap helper
 // while reading that helper's own executable. Windows raw probes additionally

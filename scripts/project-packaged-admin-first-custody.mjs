@@ -1,5 +1,6 @@
 import { rawBuffer, sameIdentity, nativeProof, validateCommand } from "./command-native-proof-lib.mjs";
 import { validDirectoryIdentity } from "./exact-native-file-identity-lib.mjs";
+import { samePath } from "./native-tool-journal-v4-lib.mjs";
 // Strict local validator and the only public projector for private v3 custody.
 import { lstat, readdir, realpath } from "node:fs/promises";
 import path from "node:path";
@@ -10,7 +11,6 @@ import { beginBootstrapCapture, publishAfterBootstrap, bootstrapProtocolScript, 
 import { replayGit, gitMetadata } from "./first-custody-git-replay-lib.mjs";
 
 function argument(flag) { const index = process.argv.indexOf(flag); if (index < 0 || !process.argv[index + 1]) throw new Error(`first_custody_${flag}_missing`); return path.resolve(process.argv[index + 1]); }
-const samePath = (left, right) => process.platform === "win32" ? path.resolve(left).toLowerCase() === path.resolve(right).toLowerCase() : path.resolve(left) === path.resolve(right);
 function fileProof(value) { return exact(value, ["size", "sha256"]) && Number.isSafeInteger(value.size) && value.size >= 0 && DIGEST.test(value.sha256); }
 function rootProof(value) { const acl=value?.acl, posix=exact(acl,["checked","tool","rawSha256"])&&acl.checked===true&&acl.tool==="posix"&&acl.rawSha256===null, windows=exact(acl,["checked","tool","ownerSid","currentSid","rules"])&&acl.checked===true&&acl.tool==="windows_sid_dacl"&&typeof acl.ownerSid==="string"&&acl.ownerSid===acl.currentSid&&validAcl({owner:acl.ownerSid,current:acl.currentSid,protected:true,rules:acl.rules}); return exact(value, ["path", "uid", "gid", "mode", "acl", "identity"]) && typeof value.path === "string" && Number.isInteger(value.mode) && (posix||windows) && validDirectoryIdentity(value.identity); }
 async function sourceFiles(root, relative = "") { const files = []; for (const entry of await readdir(path.join(root, relative), { withFileTypes: true })) { if (!relative && entry.name === ".git") continue; const item = path.join(relative, entry.name); if (entry.isDirectory()) files.push(...await sourceFiles(root, item)); else if (entry.isFile()) files.push(item.replaceAll("\\", "/")); else throw new Error("first_custody_validator_workspace_reparse"); } return files; }
