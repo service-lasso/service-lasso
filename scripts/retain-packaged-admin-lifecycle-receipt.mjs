@@ -9,8 +9,18 @@ function required(name, pattern) { const value = process.env[name]; if (typeof v
 export async function retainReceipt({ receiptPath, evidencePath, retainedPath, runId, runAttempt, candidateSha, eventSha, platform }) {
   const info = await lstat(receiptPath).catch(() => null);
   if (!info?.isFile() || info.isSymbolicLink() || info.size <= 0 || info.size > 2048) throw new Error("Consumer receipt is missing, private, or out of bounds.");
-  const receipt = parseConsumerReceipt(await readFile(receiptPath, "utf8"));
-  if (!receipt) throw new Error("Consumer receipt is missing, malformed, private, or invalid.");
+  const source = await readFile(receiptPath, "utf8");
+  const receipt = parseConsumerReceipt(source);
+  if (!receipt) {
+    let safe = "unparsed";
+    try {
+      const value = JSON.parse(source);
+      safe = `size=${source.length};keys=${Object.keys(value).sort().join(",")};outcome=${String(value.outcome)};exitCode=${String(value.exitCode)};signal=${String(value.signal)};trustedUnlock=${String(value.trustedUnlock?.classification)};streamFailure=${String(value.streamFailure)};executionFailure=${String(value.executionFailure)}`;
+    } catch {
+      safe = `size=${source.length};json=invalid`;
+    }
+    throw new Error(`Consumer receipt is missing, malformed, private, or invalid (${safe}).`);
+  }
   if (!isRetainableConsumerReceipt(receipt)) throw new Error(`Consumer receipt is not retainable: outcome=${receipt.outcome}; trustedUnlock=${receipt.trustedUnlock.classification}.`);
   const evidenceInfo = await lstat(evidencePath).catch(() => null);
   if (!evidenceInfo?.isFile() || evidenceInfo.isSymbolicLink() || evidenceInfo.size <= 0 || evidenceInfo.size > 16384) throw new Error("Platform evidence is missing, private, or out of bounds.");
