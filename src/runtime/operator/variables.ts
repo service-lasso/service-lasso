@@ -64,6 +64,8 @@ export interface ServiceSelectorDiagnostic {
 }
 
 export interface ServiceTextResolutionOptions {
+  /** Launch-only Broker capability directory; never persisted. */
+  secretFilesDirectory?: string;
   brokerValues?: Record<string, string>;
   diagnostics?: ServiceSelectorDiagnostic[];
   diagnosticKey?: string;
@@ -529,7 +531,8 @@ export function buildServiceVariables(
   const derivedVariables: ServiceVariableEntry[] = [
     ...(hasEphemeralSecretFiles(service) ? [{
       key: "SERVICE_LASSO_SECRETS_DIR",
-      value: serviceSecretsDirectory(service),
+      value: options.secretFilesDirectory ?? (process.env.SERVICE_LASSO_SECRET_FILES_TRANSPORT === "tmpfs"
+        ? serviceSecretsDirectory(service) : "[available-at-launch]"),
       scope: "derived" as const,
     }] : []),
     {
@@ -726,6 +729,7 @@ export function compileServiceMaterializationSelectorPlan(
 ): ServiceSelectorPlan {
   const installFiles = service.manifest.install?.files ?? [];
   const configFiles = service.manifest.config?.files ?? [];
+  const brokerFiles = service.manifest.broker?.files ?? [];
   const cacheKey = `service:${service.manifestPath}:${service.manifest.id}:materialization`;
   const fingerprintValues = {
     env: JSON.stringify(service.manifest.env ?? {}),
@@ -734,6 +738,7 @@ export function compileServiceMaterializationSelectorPlan(
     exports: JSON.stringify(service.manifest.broker?.exports ?? []),
     install: JSON.stringify(installFiles),
     config: JSON.stringify(configFiles),
+    brokerFiles: JSON.stringify(brokerFiles),
   };
   const fingerprint = fingerprintSelectorValues(fingerprintValues);
   const cached = selectorPlanCache.get(cacheKey);
@@ -777,6 +782,10 @@ export function compileServiceMaterializationSelectorPlan(
     compileCachedServiceSelectorPlan(
       `${cacheKey}:config`,
       configFiles.flatMap((file) => [file.path, file.content]),
+    ),
+    compileCachedServiceSelectorPlan(
+      `${cacheKey}:broker-files`,
+      brokerFiles.flatMap((file) => [file.path, file.content]),
     ),
   ]);
 

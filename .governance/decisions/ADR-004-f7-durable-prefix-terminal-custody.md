@@ -1,0 +1,25 @@
+# ADR-004: F7 durable prefix and original live terminal custody
+
+Status: conductor-selected for source preparation, 2026-10-07. The human answered "ok can you do this" after the concrete reviewed evidence-contract proposal and its durability consequences were explained. This selects the complete amendment06 Alternative A described below. No execution, resource provisioning, merge, publication, deployment or release follows.
+
+## Whole decision
+
+Select the complete [seven-document amendment06 contract](../contracts/f7-amendment06/README.md), including its original creator/all-nine reservations, SDK5 layout, private manifest3 dispatch, native independent views, finite physical charges and original retention lifetime. Alternative B remains an unimplemented alternative, not a second selected contract. Historical unselected/pending-review statements in the preserved candidate describe its state before this ADR; this ADR supplies selection only. It does not waive any remaining source/admission prerequisite.
+
+SPEC-010 F7-01..F7-09 now qualify an immutable authenticated completed prefix and separately retained original terminal custody. Results produced after prefix closure, including final readback, crypto, persistence, index and journal results, must remain in pre-reserved original typed terminal slots. They are LIVE_ONLY, never future facts in the signed package and never implied SDK5 JNL1 checkpoints. Actual missing/partial suffix fails any positive requirement needing it. Whole-host loss may destroy live suffixes and cannot be reported as full durable terminal custody. The permitted complete classification is PREFIX_DURABLE_WITH_ORIGINAL_LIVE_TERMINAL_CUSTODY; partial/incomplete classifications retain failure. FULL_DURABLE_TERMINAL_ACCEPTED is not established by this selected architecture.
+
+Independent native custodian views remain held for the complete admitted evidence lifetime; releasing the last view cannot coexist with claiming the suffix remains held. Original producer ownership, authentic source/lifetime, release/acquire publication, disjoint per-source finite slots and allocator/kernel/stack/guard charges are mandatory. Readable secret views never reach ciphertext-only T. Exact Linux backing/mapping/fd/namespace provenance and Windows section/HANDLE/view provenance must be separately supplied and reviewed; data, keys, pointers, hashes and buffer lengths do not confer authority or positive fit.
+
+The private contract selects SDK5 header144 with literal attempt32, envelope3/type11/logical-kind4 with preserved origin240, complete SDK<=65120/body<=64976, strict manifest3 field/dispatch rules and DISABLED SDK5 checkpoints in current JNL1. Public Node/W v1 stays unchanged. Canonical integration must implement these exact source contracts; current v1 or historical v2 cannot silently parse them.
+
+## Evidence and preserved requirements
+
+Different entire review REPORT SHA256 D895EBA8FCCB59B6D49027D76046DAE726A4F58F09A84D5B18689A3189010226, at D:/projects/service-lasso/_audit/f7-amendment06-entire-independent-contract-oct05-01, gives CONDITIONAL_WHOLE_CONTRACT_SOURCE_GO to exact candidate ROOT4C1021F564AE0063261A8027F911CBCADE9BC150431744B94CD1D92E046FD228. Its conditions require this whole selection, canonical integration and review of actual original ABI/caller/storage/allocator/held resources before implementation. The canonical seven documents were copied byte-for-byte and SHA256-compared with that candidate. Earlier failed reviews and raw/private originals remain preserved externally.
+
+Original Error identity, every primary/secondary failure, streams/EOF, original workspace/state/ENV/hooks, once-only crypto, same-object recovery, finite reservations, off-host independent receiver proof and all protected test assertions remain mandatory. Linux ADR-003 alone permits the same populated W0 reset after actual approved removal and independently proved irreversible exclusion. This ADR neither relaxes writer exclusion nor resets early nor changes Windows D1.
+
+## Implementation and rollback
+
+The Linux repair author owns the canonical decision integration on #1724/PR1725; existing #1640/#1687 branches are preserved. A fresh original creator/caller source unit must provide the authentic ROOT-owned header and connected callsite to the existing U1 receiving proposal. U1-U3 source packages, actual receiver/key/grant/actor bindings and justified native row budgets are still absent or incomplete; this decision does not manufacture them. Separate sole-owner issue branches and different entire review precede implementation against their completed canonical contracts. Complete final implementation review and NEW actual-input ROOT admission precede executable actions.
+
+Rollback closes native positive entry and retains originals, copies, private records and live terminal views pending their admitted disposition. No automatic cleanup or re-encryption is authorized. All eleven Linux failures remain unresolved until affected/recovered/native/full-suite results pass naturally on the delivered candidate.

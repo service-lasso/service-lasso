@@ -11,7 +11,7 @@ export const QUALIFICATION_SCHEMA =
 export const RETENTION_DAYS = 90;
 export const PACKAGE_NAME = "@service-lasso/service-lasso";
 export const ADMIN_HARNESS_REVISION =
-  "90caf8cf0f8e3c599a1a5022936813ac8bf0983b";
+  "6e0deec691b9ea8a9c4d128f68fd174253e1d8f3";
 
 export const RETAINED_ADMIN_TRUSTED_UNLOCK_RECEIPT_SCHEMA =
   "service-lasso.admin-trusted-unlock-retained.v1";
@@ -111,7 +111,7 @@ export function validateRetainedAdminTrustedUnlockReceipt(receipt, expected) {
   if (!parseConsumerReceipt(JSON.stringify(consumerSource))) {
     fail("invalid_retained_trusted_unlock_receipt", "Retained Admin trusted-unlock receipt is not closed.");
   }
-  if (receipt.consumerOutcome === "success" && (receipt.consumerExitCode !== 0 || receipt.consumerSignal !== null || trustedUnlock.classification !== "not_emitted")) {
+  if (receipt.consumerOutcome === "success" && (receipt.consumerExitCode !== 0 || receipt.consumerSignal !== null || !["not_emitted", "closed"].includes(trustedUnlock.classification))) {
     fail("invalid_retained_trusted_unlock_receipt", "Successful Admin consumer outcome is inconsistent.");
   }
   if ((receipt.consumerOutcome === "nonzero_exit" && !(receipt.consumerExitCode > 0)) || (receipt.consumerOutcome === "signal" && receipt.consumerSignal === null) || (receipt.consumerOutcome !== "success" && !["closed", "missing", "invalid"].includes(trustedUnlock.classification))) {
@@ -159,40 +159,40 @@ export const ADMIN_RELEASE = Object.freeze({
 
 export const BROKER_RELEASE = Object.freeze({
   repo: "service-lasso/lasso-secretsbroker",
-  id: "379635299",
-  tag: "2026.8.31-f340883",
-  revision: "f340883056ec3cf74b535fb46490b39382e8c823",
+  id: "413998233",
+  tag: "2026.10.15-3590178",
+  revision: "35901785afe832eb21ba071cc2c4882c7fbbb13b",
   manifestSha256:
     "c738056d2a0afd1b1ff40bb2f0ed33fbee0ed4fa39b3903472acb4391167bd09",
   checksumSha256:
-    "7dbbddee869ae7b8ce9b795d6822a0c6dfb3642006ade213561fcb604f8b76dd",
+    "1401075f355fd9d412d182f0e077508414dc88c891d2377ad4faf63e741beb9d",
   platforms: Object.freeze({
     win32: Object.freeze({
       asset: "secretsbroker-win32.zip",
       sbom: "secretsbroker-win32.cdx.json",
       binary: "secretsbroker.exe",
       sha256:
-        "e64ee6a85c053c6dd68e2713477dae0620a458496bbd41077b55cc4c2df3f966",
+        "0be11e53feb902871c407bd4bed7f557ec5aa11b52e769e703f9f7555350c852",
       sbomSha256:
-        "8a24cf1f0304a300632b644aff7d9609fcf507ca538484ebe24f6496703722c2",
+        "003f08d20a9f18691bc92c2e8e4d94ae19a52ede3b9606ddbac61efd50f85519",
     }),
     linux: Object.freeze({
       asset: "secretsbroker-linux.tar.gz",
       sbom: "secretsbroker-linux.cdx.json",
       binary: "secretsbroker",
       sha256:
-        "3466c9adf01d14b202fd084705bfda11fef627206587a0ad1f62dbb6a6a4f295",
+        "5827a621bca6173d2d578e1acf9a4f074fc836bc5c89e73a15aedbf259124614",
       sbomSha256:
-        "53a5cf142d2c31b04739b07c15e07c43ca118b786cf70888a01ca0df98c5b7f3",
+        "b073bb0f8f8107c0f8bd81f570c9dc01a9f1c7490c42a19ffe6fb689a3c850c3",
     }),
     darwin: Object.freeze({
       asset: "secretsbroker-darwin.tar.gz",
       sbom: "secretsbroker-darwin.cdx.json",
       binary: "secretsbroker",
       sha256:
-        "567b40bbd42881c5a4e12c2b8984ece9b5225d221ecf2d776fb541e330365ce5",
+        "bfb5cf5a3f80964dbc947f84d6129c3b1d6caa39effe9af49c0090ba2c509a23",
       sbomSha256:
-        "3ce84fb0d59cc1c584b3844d7d3d0094b4a08d78e79864a690f11a698015782a",
+        "2df5e54055357f0e94a8c5d33df4edd09a3c7e15a2c686dedc19cb5ce807ff20",
     }),
   }),
 });

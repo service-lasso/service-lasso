@@ -5,6 +5,8 @@ import {
   lstat,
   mkdir,
   readFile,
+  readdir,
+  rm,
   realpath,
   rename,
   writeFile,
@@ -12,6 +14,7 @@ import {
 import http from "node:http";
 import https from "node:https";
 import os from "node:os";
+import { performance } from "node:perf_hooks";
 import path from "node:path";
 import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
@@ -21,6 +24,35 @@ if (!sourceBrokerBinaryInput || !adminRootInput)
   throw new Error("Broker binary and Admin root are required.");
 const sourceBrokerBinary = path.resolve(sourceBrokerBinaryInput);
 const adminRoot = path.resolve(adminRootInput);
+
+// Top-level awaits above the main `try` (process observation, asset reads,
+// runtime imports) are otherwise unprotected: a rejection fails the module and
+// the child exits 1 with no structured diagnostic. Surface a bounded,
+// secret-free failure code/phase so the Admin harness can record it.
+let startupPhase = "initializing";
+let topLevelPhase = "module_init";
+function emitRunnerTopLevelFailure(error) {
+  const phase = startupPhase === "initializing" ? topLevelPhase : startupPhase;
+  const rawCode =
+    error && typeof error === "object" && typeof error.code === "string"
+      ? error.code.toLowerCase().replace(/[^a-z0-9_]/g, "_")
+      : "";
+  const code = /^[a-z0-9_]{1,64}$/.test(rawCode)
+    ? rawCode
+    : `top_level_${phase}`.toLowerCase().replace(/[^a-z0-9_]/g, "_").slice(0, 64);
+  process.stderr.write(
+    `${JSON.stringify({
+      schema: "service-lasso.real-admin-browser-failure.v1",
+      code,
+      causeClass: error instanceof Error ? error.name : "unknown",
+      phase,
+    })}\n`,
+  );
+  process.exit(1);
+}
+process.on("uncaughtException", emitRunnerTopLevelFailure);
+process.on("unhandledRejection", emitRunnerTopLevelFailure);
+
 
 function requireCallerRuntimePath(name) {
   const value = process.env[name];
@@ -276,12 +308,14 @@ for (const [left, right] of [
   }
 }
 
+topLevelPhase = "observe_owned_process";
 const runnerIdentity = await observeOwnedProcess(process.pid, process.ppid);
 const runnerPath = path.resolve(process.argv[1] ?? "");
 const sourceRoot = path.resolve(path.dirname(runnerPath), "..", "..");
 if (runnerPath !== path.join(sourceRoot, ...PRELAUNCH_ASSET_PATHS[0].split("/"))) {
   throw new Error("Runner must execute from its fixed qualification fixture path.");
 }
+topLevelPhase = "provider_activation_gate";
 await requireProviderActivationGate(runnerIdentity, { head: sourceHead, tree: sourceTree });
 const initialReceiptPath = path.join(evidenceRoot, "live-initial-receipt.json");
 const prelaunchReceiptPath = path.join(evidenceRoot, "live-prelaunch-receipt.json");
@@ -310,14 +344,58 @@ async function requireAbsentPrivateReceipt(filePath) {
   }
 }
 
-async function createPrivateReceipt(filePath, receipt) {
-  await writeFile(filePath, JSON.stringify(receipt), {
+const ownedReceiptWork = new Set();
+const ownedReceiptFailures = [];
+let providerWorkClosing = false;
+
+function ownReceiptWork(promise) {
+  ownedReceiptWork.add(promise);
+  // Attach a rejection observer in the same turn, including writes whose HTTP
+  // response has already finished. Keep failures after removal from the set.
+  promise.then(
+    () => ownedReceiptWork.delete(promise),
+    (error) => { ownedReceiptFailures.push(error); ownedReceiptWork.delete(promise); },
+  );
+  return promise;
+}
+
+async function settleReceiptWork() {
+  while (ownedReceiptWork.size) await Promise.allSettled([...ownedReceiptWork]);
+  if (ownedReceiptFailures.length) {
+    throw new RealAdminBrowserTeardownError(ownedReceiptFailures.map((error) => ({
+      phase: "receipt_work_settlement", code: safeFailureCode(error),
+    })));
+  }
+}
+
+// Distinct private support bytes, never original/native object custody. All
+// creation and readback awaits are owned by the single shutdown deadline.
+async function preserveClosureSupport(source, destination, requireTime) {
+  requireTime();
+  const metadata = await lstat(source);
+  if (metadata.isSymbolicLink()) throw Object.assign(new Error("Unsafe support entry"), { code: "support_copy_unsafe" });
+  if (metadata.isDirectory()) {
+    await mkdir(destination, { mode: 0o700 });
+    for (const entry of await readdir(source)) {
+      await preserveClosureSupport(path.join(source, entry), path.join(destination, entry), requireTime);
+    }
+  } else if (metadata.isFile()) {
+    const bytes = await readFile(source);
+    await writeFile(destination, bytes, { flag: "wx", mode: 0o600 });
+    requireTime();
+    const copied = await readFile(destination);
+    if (!bytes.equals(copied)) throw Object.assign(new Error("Support copy differs"), { code: "support_copy_mismatch" });
+  } else throw Object.assign(new Error("Unsafe support entry"), { code: "support_copy_unsafe" });
+}
+function createPrivateReceipt(filePath, receipt) {
+  return ownReceiptWork(writeFile(filePath, JSON.stringify(receipt), {
     encoding: "utf8",
     mode: 0o600,
     flag: "wx",
-  });
+  }));
 }
 
+topLevelPhase = "receipt_paths";
 for (const receiptPath of [
   prelaunchReceiptPath,
   initialReceiptPath,
@@ -326,6 +404,7 @@ for (const receiptPath of [
   providerReceiptPath,
   providerConsumedReceiptPath,
   providerRecoveryReceiptPath,
+  path.join(evidenceRoot, "closure-support-copy"),
 ]) {
   await requireAbsentPrivateReceipt(receiptPath);
 }
@@ -341,6 +420,7 @@ const runtimeInputs = Object.freeze({
   evidenceRoot,
   supportRoot,
 });
+topLevelPhase = "observe_runtime_assets";
 const runtimeAssets = Object.freeze({
   brokerBinary: await observeExternalBoundAsset("brokerBinary", sourceBrokerBinary),
   adminServer: await observeExternalBoundAsset("adminServer", path.join(adminRoot, "runtime", "server.js")),
@@ -351,6 +431,7 @@ const runtimeInvocation = Object.freeze({
   admin: { executable: process.execPath, argv: [path.join(adminRoot, "runtime", "server.js")] },
   os: { platform: process.platform, arch: process.arch, release: os.release() },
 });
+topLevelPhase = "prelaunch_assets";
 const prelaunchReceipt = {
   schema: "service-lasso.real-admin-browser-live-prelaunch.v1",
   private: true,
@@ -407,6 +488,7 @@ if (process.env.SERVICE_LASSO_TEST_PRELAUNCH_ONLY === "1") {
 // Validate explicit caller custody before importing Core runtime or fixture
 // helpers. This runner has no temp-root fallback for the three live Core
 // paths; callers must establish and pass the exact workspace and registries.
+topLevelPhase = "import_core_runtime";
 const { generateLocalhostCertificate } =
   await import("./real-admin-browser-certificate.mjs");
 const { discoverServices } =
@@ -435,6 +517,7 @@ const {
 } = await import("./real-admin-browser-lockout.mjs");
 const {
   createSafeRealAdminBrowserTeardownFailure,
+  RealAdminBrowserTeardownError,
   teardownRealAdminBrowserFixture,
 } = await import("./real-admin-browser-shutdown.mjs");
 const {
@@ -475,51 +558,81 @@ let vaultServer = null;
 let vaultProviderServer = null;
 let brokerRuntimeCredentials = null;
 let shutdownPromise = null;
-let startupPhase = "initializing";
 const brokerIPCClient = new http.Agent({ keepAlive: true, maxSockets: 1 });
 let providerFaultState = "not_armed";
 let providerControlReceipt = null;
 let providerBaseline = null;
 let providerRecoveryStatus = null;
+let providerConsumedRequest = null;
+let providerConsumeCount = 0;
+let providerConsumedResponseFinished = false;
+let providerControlWrite = null;
+let providerRecoveryWrite = null;
 let providerRearmRejected = false;
 let providerRecoveryRecorded = false;
 
 async function persistProviderControlReceipt(phase) {
-  if (providerControlReceipt) return providerControlReceipt;
+  if (providerControlWrite) return providerControlWrite;
   providerControlReceipt = {
     schema: "service-lasso.real-admin-browser-provider-control.v1",
     private: true,
     nonce: receiptNonce,
     source: { head: sourceHead, tree: sourceTree },
     adminSource,
+    platform: process.platform,
     controlNonce: providerControlNonce,
     phase,
     causalSink: "authenticated_vault_provider_request",
     state: "observed_before_controlled_fault",
   };
-  await createPrivateReceipt(providerReceiptPath, providerControlReceipt);
-  return providerControlReceipt;
+  providerControlWrite = createPrivateReceipt(providerReceiptPath, providerControlReceipt)
+    .then(() => providerControlReceipt);
+  return providerControlWrite;
+}
+
+function sameProviderRequest(left, right) {
+  return !!left && !!right && left.method === right.method
+    && left.path === right.path && left.authClass === right.authClass;
+}
+
+function observeOrdinaryProviderResponse(request, response, requestUrl, status) {
+  // This is called only after the original successful token check. Retain no
+  // token, arbitrary headers, query or request body in the private receipt.
+  const identity = { method: request.method, path: requestUrl.pathname, authClass: "vault_token" };
+  const observedState = providerFaultState;
+  const consumedBeforeResponse = providerConsumedResponseFinished;
+  response.once("finish", () => {
+    if (identity.method !== "GET" || identity.path !== "/v1/secret/data/browser/provider-control" || status !== 404) return;
+    if (observedState === "not_armed" && providerFaultState === "not_armed") {
+      providerBaseline ??= { request: identity, status };
+    } else if (observedState === "observed" && consumedBeforeResponse
+      && providerFaultState === "observed"
+      && sameProviderRequest(providerBaseline?.request, identity)
+      && sameProviderRequest(providerConsumedRequest, identity)
+      && providerConsumeCount === 1 && providerConsumedResponseFinished) {
+      providerRecoveryStatus = status;
+    }
+  });
 }
 
 async function persistProviderRecoveryReceipt() {
-  if (providerRecoveryRecorded || providerFaultState !== "observed" || !providerBaseline || providerRecoveryStatus === null || !providerRearmRejected) return null;
+  if (providerRecoveryWrite) return providerRecoveryWrite;
+  if (providerRecoveryRecorded || !providerConsumedResponseFinished || providerFaultState !== "observed" || !providerBaseline
+    || providerRecoveryStatus === null || !providerRearmRejected || providerConsumeCount !== 1
+    || !sameProviderRequest(providerBaseline.request, providerConsumedRequest)) return null;
   const receipt = {
-    schema: "service-lasso.real-admin-browser-provider-recovery.v1",
-    private: true,
-    nonce: receiptNonce,
-    controlNonce: providerControlNonce,
-    source: { head: sourceHead, tree: sourceTree },
-    adminSource,
-    publicCorrelation: { providerReceipt: "service-lasso.real-admin-browser-provider-control.v1", nonce: receiptNonce },
-    request: providerBaseline.request,
+    ...providerControlReceipt,
+    causalSink: "next_authenticated_vault_provider_request",
+    state: "controlled_fault_recovered",
+    originalRequest: providerBaseline.request,
     baselineStatus: providerBaseline.status,
     recoveryStatus: providerRecoveryStatus,
-    rearmRejected: true,
-    secondConsume: false,
+    rearm: "rejected",
+    secondConsume: providerConsumeCount !== 1,
   };
-  await createPrivateReceipt(providerRecoveryReceiptPath, receipt);
-  providerRecoveryRecorded = true;
-  return receipt;
+  providerRecoveryWrite = createPrivateReceipt(providerRecoveryReceiptPath, receipt)
+    .then(() => { providerRecoveryRecorded = true; return receipt; });
+  return providerRecoveryWrite;
 }
 
 function safeFailureCode(error) {
@@ -575,8 +688,36 @@ async function waitFor(url, timeoutMs = 30_000) {
 
 function shutdown({ exitCode = 0, trigger = "ipc", signal = null } = {}) {
   if (shutdownPromise) return shutdownPromise;
-  shutdownPromise = (async () => {
+  providerWorkClosing = true;
+  // One clock covers resource shutdown, receipt settlement, support preservation,
+  // genuine original deletion, exclusive final write and copy retirement.
+  const deadline = performance.now() + 5_000;
+  let deadlineTimer;
+  let terminal = false;
+  let firstFailure = null;
+  let activePhase = "receipt_work_settlement";
+  const retainFailure = (error) => { firstFailure ??= error; return firstFailure; };
+  const settlement = settleReceiptWork().then(() => null, retainFailure);
+  const deadlineExpired = new Promise((_, reject) => {
+    deadlineTimer = setTimeout(() => {
+      reject(retainFailure(new RealAdminBrowserTeardownError([
+        ...ownedReceiptFailures.map((error) => ({ phase: "receipt_work_settlement", code: safeFailureCode(error) })),
+        { phase: activePhase, code: "receipt_work_timeout" },
+      ])));
+    }, Math.max(0, deadline - performance.now()));
+  });
+  const requireTime = () => {
+    if (terminal || performance.now() >= deadline) {
+      throw retainFailure(new RealAdminBrowserTeardownError([
+        { phase: activePhase, code: "receipt_work_timeout" },
+      ]));
+    }
+  };
+  const supportCopy = path.join(evidenceRoot, "closure-support-copy");
+  const work = (async () => {
     let resolvedExitCode = exitCode;
+    let closure;
+    let failure = null;
     try {
       const teardown = await teardownRealAdminBrowserFixture({
         adminProcess,
@@ -587,10 +728,18 @@ function shutdown({ exitCode = 0, trigger = "ipc", signal = null } = {}) {
         vaultProviderServer,
         resetLifecycle: resetLifecycleState,
         tempRoot,
+        beforeTempRemoval: async () => {
+          activePhase = "receipt_work_settlement";
+          await preserveClosureSupport(tempRoot, supportCopy, requireTime);
+          requireTime();
+          activePhase = "temp_root_cleanup";
+        },
+        settleOwnedWork: async () => {
+          const error = await settlement;
+          if (error) throw error;
+        },
       });
-      await createPrivateReceipt(
-        closureReceiptPath,
-        {
+      closure = {
           schema: "service-lasso.real-admin-browser-live-closure.v1",
           private: true,
           nonce: receiptNonce,
@@ -603,14 +752,12 @@ function shutdown({ exitCode = 0, trigger = "ipc", signal = null } = {}) {
           teardown,
           providerFault:
             providerFaultState === "observed" ? "consumed" : "unresolved",
-        },
-      );
+        };
     } catch (error) {
       resolvedExitCode = 1;
-      const failure = createSafeRealAdminBrowserTeardownFailure(error);
-      await createPrivateReceipt(
-        closureReceiptPath,
-        {
+      retainFailure(error);
+      failure = createSafeRealAdminBrowserTeardownFailure(error);
+      closure = {
           schema: "service-lasso.real-admin-browser-live-closure.v1",
           private: true,
           nonce: receiptNonce,
@@ -623,14 +770,47 @@ function shutdown({ exitCode = 0, trigger = "ipc", signal = null } = {}) {
           failure,
           providerFault:
             providerFaultState === "observed" ? "consumed" : "unresolved",
-        },
-      );
-      await new Promise((resolve) => {
-        process.stderr.write(`${JSON.stringify(failure)}\n`, resolve);
-      });
+        };
     }
-    process.exit(resolvedExitCode);
+    try {
+      // One exclusive attempt only: a failed/partial closure file is retained,
+      // never overwritten or retried as a second success-shaped receipt.
+      requireTime();
+      activePhase = "receipt_work_settlement";
+      await createPrivateReceipt(closureReceiptPath, closure);
+      requireTime();
+      // Delete copied support only on completely observed success. Any failed
+      // teardown/write keeps available original/copy/partial evidence.
+      if (!failure) {
+        activePhase = "temp_root_cleanup";
+        await rm(supportCopy, { recursive: true, force: false, maxRetries: 0 });
+        await lstat(supportCopy).then(() => {
+          throw Object.assign(new Error("Support copy remains"), { code: "support_copy_still_present" });
+        }, (error) => { if (error?.code !== "ENOENT") throw error; });
+      }
+    } catch (error) {
+      resolvedExitCode = 1;
+      retainFailure(error);
+      failure = createSafeRealAdminBrowserTeardownFailure(new RealAdminBrowserTeardownError([
+        ...(failure?.failures ?? []),
+        { phase: "receipt_work_settlement", code: safeFailureCode(error) },
+      ]));
+    }
+    if (!failure) requireTime();
+    return { resolvedExitCode, failure };
   })();
+  // Observe the losing promise too: pending syscall/handler work cannot grant
+  // a fresh budget or run subsequent cleanup after terminal expiry.
+  work.catch(retainFailure);
+  shutdownPromise = Promise.race([work, deadlineExpired]).then(
+    (result) => result,
+    (error) => ({ resolvedExitCode: 1, failure: createSafeRealAdminBrowserTeardownFailure(error) }),
+  ).then(({ resolvedExitCode, failure }) => {
+    terminal = true;
+    clearTimeout(deadlineTimer);
+    if (failure) process.stderr.write(`${JSON.stringify(failure)}\n`);
+    process.exit(resolvedExitCode);
+  });
   return shutdownPromise;
 }
 
@@ -699,12 +879,19 @@ try {
         return;
       }
       if (providerFaultState !== "not_armed") {
-        if (request.headers["x-service-lasso-provider-control-nonce"] === providerControlNonce) {
+        const rejectedAfterRecovery = providerFaultState === "observed"
+          && providerRecoveryStatus !== null
+          && request.headers["x-service-lasso-provider-control-nonce"] === providerControlNonce;
+        const completed = new Promise((resolve) => {
+          response.once("finish", () => resolve(true));
+          response.once("close", () => resolve(false));
+        });
+        response.writeHead(409, { "Content-Type": "application/json" });
+        response.end(JSON.stringify({ outcome: "provider_fault_unavailable" }));
+        if (await completed && rejectedAfterRecovery) {
           providerRearmRejected = true;
           await persistProviderRecoveryReceipt();
         }
-        response.writeHead(409, { "Content-Type": "application/json" });
-        response.end(JSON.stringify({ outcome: "provider_fault_unavailable" }));
         return;
       }
       if (!providerControlReceipt) {
@@ -735,7 +922,21 @@ try {
         response.end();
         return;
       }
-      await persistProviderRecoveryReceipt();
+      if (requestUrl.searchParams.get("wait") === "recovery") {
+        if (request.headers["x-service-lasso-provider-control-nonce"] !== providerControlNonce) {
+          response.writeHead(403);
+          response.end();
+          return;
+        }
+        await persistProviderRecoveryReceipt();
+        if (!providerRecoveryRecorded) {
+          response.writeHead(409, { "Content-Type": "application/json" });
+          response.end(JSON.stringify({ outcome: "provider_fault_unobserved", receipt: null }));
+          return;
+        }
+      } else {
+        await persistProviderRecoveryReceipt();
+      }
       response.writeHead(providerFaultState === "observed" ? 200 : 409, {
         "Content-Type": "application/json",
       });
@@ -870,6 +1071,9 @@ try {
     await persistProviderControlReceipt("authenticated_provider_request");
     if (providerFaultState === "armed") {
       providerFaultState = "observed";
+      providerConsumedRequest = { method: request.method, path: requestUrl.pathname, authClass: "vault_token" };
+      providerConsumeCount += 1;
+      response.once("finish", () => { providerConsumedResponseFinished = true; });
       response.writeHead(503, { "Content-Type": "application/json" });
       await createPrivateReceipt(
         providerConsumedReceiptPath,
@@ -885,9 +1089,7 @@ try {
       return;
     }
     if (!requestUrl.pathname.startsWith("/v1/secret/data/browser/")) {
-      const identity = { method: request.method, path: requestUrl.pathname };
-      if (request.method === "GET" && providerFaultState === "not_armed") providerBaseline = { request: identity, status: 404 };
-      if (request.method === "GET" && providerFaultState === "observed" && providerBaseline && providerBaseline.request.method === identity.method && providerBaseline.request.path === identity.path) providerRecoveryStatus = 404;
+      observeOrdinaryProviderResponse(request, response, requestUrl, 404);
       response.writeHead(404, { "Content-Type": "application/json" });
       response.end(JSON.stringify({ errors: ["not found"] }));
       return;
@@ -900,9 +1102,7 @@ try {
     const stored = vaultValues.get(requestUrl.pathname);
     if (request.method === "GET") {
       if (!stored) {
-        const identity = { method: request.method, path: requestUrl.pathname };
-        if (providerFaultState === "not_armed") providerBaseline = { request: identity, status: 404 };
-        if (providerFaultState === "observed" && providerBaseline && providerBaseline.request.method === identity.method && providerBaseline.request.path === identity.path) providerRecoveryStatus = 404;
+        observeOrdinaryProviderResponse(request, response, requestUrl, 404);
         response.writeHead(404, { "Content-Type": "application/json" });
         response.end(JSON.stringify({ errors: ["not found"] }));
         return;
@@ -963,10 +1163,30 @@ try {
     response.writeHead(405, { Allow: "GET, POST" });
     response.end();
   };
-  vaultServer = http.createServer(handleVaultRequest);
+  const ownedVaultRequest = (request, response) => {
+    if (providerWorkClosing) {
+      response.writeHead(503);
+      response.end();
+      return;
+    }
+    const operation = ownReceiptWork(handleVaultRequest(request, response));
+    // EventEmitter does not await async listeners. This observer prevents a
+    // post-finish rejection escaping and leaves the original failure retained.
+    void operation.catch(() => {
+      try {
+        if (!response.headersSent) {
+          response.writeHead(500, { "Content-Type": "application/json" });
+          response.end(JSON.stringify({ outcome: "provider_fault_unobserved", receipt: null }));
+        } else if (!response.writableEnded) response.destroy();
+      } catch (error) {
+        ownedReceiptFailures.push(error);
+      }
+    });
+  };
+  vaultServer = http.createServer(ownedVaultRequest);
   vaultProviderServer = https.createServer(
     { key: certificate.private, cert: certificate.cert },
-    handleVaultRequest,
+    ownedVaultRequest,
   );
   const controlPort = await listen(vaultServer);
   const vaultPort = await listen(vaultProviderServer);

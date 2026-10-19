@@ -4,6 +4,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { execFile } from "node:child_process";
 import path from "node:path";
 import { holdFixtureRoot } from "./fixture-root-custody.js";
+import { verifyDisposableTestFixture, removeDisposableTestFixture } from "./disposable-test-fixture.js";
 import { fixturePrivacyScript } from "./fixture-privacy-custody.js";
 import { fixturePrivacyBootstrap, createFixturePrivacyDecoder } from "./fixture-privacy-transport.js";
 
@@ -176,7 +177,7 @@ export const FIXTURE_ASSERTION_STAGES = Object.freeze([
 // Preserve closed fixture bytes outside the recursive removal root. Do not
 // follow links into another owner's state. The copy is private local evidence,
 // including for a successful row; no copy path is emitted in diagnostics.
-export function createFixtureEvidenceBoundary(root, { beforeInitializationStep } = {}) {
+export function createFixtureEvidenceBoundary(root, { beforeInitializationStep, disposableFixture } = {}) {
   let evidenceRoot;
   let verified = false;
   let sealedInventory;
@@ -325,10 +326,19 @@ export function createFixtureEvidenceBoundary(root, { beforeInitializationStep }
       await verifyOriginalInventory();
       await rootCustody.verify();
       // A real regression can intervene at the formerly unsafe last-check to
-      // delete/child-acquisition interval. No deletion exists below this hook:
-      // absent validated writer exclusion, remove rejects unconditionally.
+      // delete/child-acquisition interval. Strong custody still refuses below;
+      // ordinary disposable teardown independently revalidates its creator root.
       await afterFinalValidation?.();
-      await rootCustody.remove();
+      if (disposableFixture) {
+        await verifyCopy();
+        await verifyOriginalInventory();
+        await rootCustody.verify();
+        await verifyDisposableTestFixture(disposableFixture, root);
+        // Windows directory guardians intentionally hold handles without
+        // DELETE sharing. Settle them before ordinary creator-owned teardown.
+        await this.release();
+        await removeDisposableTestFixture(disposableFixture, root);
+      } else await rootCustody.remove();
       originalRemoved = true;
     },
     async release() { if (rootCustody) { const held = rootCustody; rootCustody = undefined; await held.release(); } },
@@ -372,6 +382,7 @@ export function createFixtureEvidenceBoundary(root, { beforeInitializationStep }
     // Private test assertion surface, never included in the public projection.
     get evidenceRoot() { return evidenceRoot; },
     get originalRoot() { return root; },
+    get removalPolicy() { return disposableFixture ? "test-owned" : "writer-exclusion"; },
     takeStateFailures() { return stateFailures.splice(0); },
     get diagnosticRoot() { return diagnosticRoot; },
     get initializationStage() { return initializationStage; },
@@ -511,6 +522,7 @@ export async function closeFixture({ primary, primaryStage = "action", failures 
   catch (error) { failures.push({ stage: "held_release", error }); }
   if (removalAttempted && state.evidence !== "retained") failures.push({ stage: "evidence_state", error: new Error("Preserved fixture evidence is unresolved.") });
   try { report({ kind: "hard-crash-fixture-custody", recovery,
+    removalPolicy: evidence.removalPolicy ?? "writer-exclusion",
     stop: failures.some((entry) => entry.stage === "stop") ? "failed" : "settled",
     finalization: failures.some((entry) => entry.stage === "finalization") ? "failed" : "settled",
     absence: result?.absent ? "proven" : "unresolved", reset: resetState, environment, ...state,

@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { classify, consume, consumeWithDurableObserver, parseConsumerReceipt, parseReceipt } from "../scripts/consume-admin-trusted-unlock-receipt.mjs";
+import { classify, consume, consumeWithDurableObserver, hasObservedConsumerReceipt, isRetainableConsumerReceipt, parseConsumerReceipt, parseReceipt } from "../scripts/consume-admin-trusted-unlock-receipt.mjs";
 
 const valid = JSON.stringify({ schema: "service-admin.trusted-unlock-receipt.v1", status: "observed", present: true, verified: false, localRoot: false, loading: true, unavailable: false });
 
@@ -24,6 +24,16 @@ test("AC-4BY.2 strictly closes successful consumer sources as no-failure observa
   assert.equal(parseConsumerReceipt(success.replace('"not_emitted"', "null")), null);
   assert.equal(parseConsumerReceipt(success.replace('"outcome":"success",', '"outcome":"success","outcome":"nonzero_exit",')), null);
   assert.equal(parseConsumerReceipt(success.replace('"not_emitted"', '"not_emitted","private":true')), null);
+});
+
+test("AC-4BY.2 retains a successful observation that emitted a trusted-unlock receipt", () => {
+  const closed = JSON.stringify({ schema: "service-lasso.admin-trusted-unlock-consumer.v1", outcome: "success", exitCode: 0, signal: null, trustedUnlock: { classification: "closed", receipt: JSON.parse(valid) } });
+  const receipt = parseConsumerReceipt(closed);
+  assert.equal(receipt?.trustedUnlock.classification, "closed");
+  assert.equal(hasObservedConsumerReceipt(receipt), true);
+  assert.equal(isRetainableConsumerReceipt(receipt), true);
+  const missing = JSON.stringify({ schema: "service-lasso.admin-trusted-unlock-consumer.v1", outcome: "success", exitCode: 0, signal: null, trustedUnlock: { classification: "missing" } });
+  assert.equal(parseConsumerReceipt(missing), null);
 });
 
 test("AC-4BY.2 rejects contradictory primary failures and requires observation-failure evidence", () => {
@@ -241,6 +251,27 @@ test("AC-4BY.2 accepts only the complete observed observer close as a shipped po
   } finally { await rm(root, { recursive: true, force: true, maxRetries: 4, retryDelay: 100 }); }
 });
 
+test("AC-4BY.2 records a successful provider with no receipt as not emitted", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "admin-receipt-durable-success-"));
+  try {
+    const observerRoot = path.join(root, "observer");
+    const inputs = {
+      workspaceRoot: path.join(root, "workspace"),
+      instanceRegistryPath: path.join(root, "instance-registry.json"),
+      hostPortRegistryPath: path.join(root, "host-port-registry.json"),
+    };
+    const provider = path.join(root, "provider.mjs");
+    await writeFile(provider, "process.exit(0);\n");
+    const result = await consumeWithDurableObserver(process.execPath, [provider], {
+      cwd: root, observerRoot, timeoutMs: 5_000,
+      source: { head: "a".repeat(40), tree: "b".repeat(40) }, inputs,
+    });
+    assert.equal(result.code, 0);
+    assert.equal(result.executionFailure, null);
+    assert.deepEqual(result.trustedUnlock, { classification: "not_emitted" });
+  } finally { await rm(root, { recursive: true, force: true, maxRetries: 4, retryDelay: 100 }); }
+});
+
 test("AC-4BY.2 timeout settles only on durable UNRESOLVED custody and leaves the owned observer to record its eventual native close", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "admin-receipt-durable-timeout-"));
   try {
@@ -295,10 +326,13 @@ test("AC-4BY.2 preserves actual child signal metadata while only propagating all
   const root = await mkdtemp(path.join(os.tmpdir(), "admin-receipt-signals-"));
   try {
     const consumer = fileURLToPath(new URL("../scripts/consume-admin-trusted-unlock-receipt.mjs", import.meta.url));
-    const run = async (signal, source = `process.kill(process.pid, ${JSON.stringify(signal)});`) => {
+    const run = async (signal, action = "kill") => {
       const fixture = path.join(root, `${signal}.mjs`), output = path.join(root, `${signal}.json`);
-      await writeFile(fixture, `process.stderr.write(${JSON.stringify(`${valid}\n`)}, () => { ${source} });`);
-      const child = spawn(process.execPath, [consumer, "--receipt", output, "--", process.execPath, fixture], { stdio: "ignore" });
+      const fixtureBody = action === "abort"
+        ? `process.stderr.write(${JSON.stringify(`${valid}\n`)}, () => { process.abort(); });`
+        : `process.stderr.write(${JSON.stringify(`${valid}\n`)}, () => { process.kill(process.pid, process.env.ADMIN_RECEIPT_TEST_SIGNAL); });`;
+      await writeFile(fixture, fixtureBody);
+      const child = spawn(process.execPath, [consumer, "--receipt", output, "--", process.execPath, fixture], { stdio: "ignore", env: { ...process.env, ADMIN_RECEIPT_TEST_SIGNAL: signal } });
       const result = await new Promise((resolve, reject) => { child.once("error", reject); child.once("close", (code, childSignal) => resolve({ code, signal: childSignal })); });
       return { result, receipt: JSON.parse(await readFile(output, "utf8")) };
     };
@@ -314,7 +348,7 @@ test("AC-4BY.2 preserves actual child signal metadata while only propagating all
     }
 
     for (const signal of ["SIGKILL", "SIGABRT"]) {
-      const unsafe = await run(signal, signal === "SIGABRT" ? "process.abort();" : `process.kill(process.pid, ${JSON.stringify(signal)});`);
+      const unsafe = await run(signal, signal === "SIGABRT" ? "abort" : "kill");
       assert.notEqual(unsafe.result.code, 0);
       assert.equal(unsafe.result.signal, null);
       assert.notEqual(unsafe.receipt.outcome, "success");

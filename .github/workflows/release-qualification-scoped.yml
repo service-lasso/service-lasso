@@ -30,7 +30,7 @@ jobs:
         run: node scripts/bind-scoped-workflow-source.mjs
 
       - name: Set up Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: npm
@@ -165,11 +165,11 @@ jobs:
           - os: windows-latest
             asset: secretsbroker-win32.zip
             binary: secretsbroker.exe
-            sha256: e64ee6a85c053c6dd68e2713477dae0620a458496bbd41077b55cc4c2df3f966
+            sha256: 0be11e53feb902871c407bd4bed7f557ec5aa11b52e769e703f9f7555350c852
           - os: ubuntu-latest
             asset: secretsbroker-linux.tar.gz
             binary: secretsbroker
-            sha256: 3466c9adf01d14b202fd084705bfda11fef627206587a0ad1f62dbb6a6a4f295
+            sha256: 5827a621bca6173d2d578e1acf9a4f074fc836bc5c89e73a15aedbf259124614
 
     steps:
       - name: Check out repo
@@ -181,7 +181,7 @@ jobs:
         run: node scripts/bind-scoped-workflow-source.mjs
 
       - name: Set up Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: npm
@@ -200,7 +200,7 @@ jobs:
           $expected = '${{ matrix.sha256 }}'
           $archive = Join-Path $env:RUNNER_TEMP $asset
           $extractRoot = Join-Path $env:RUNNER_TEMP 'secretsbroker-ipc-qualification'
-          $url = "https://github.com/service-lasso/lasso-secretsbroker/releases/download/2026.8.31-f340883/$asset"
+          $url = "https://github.com/service-lasso/lasso-secretsbroker/releases/download/2026.10.15-3590178/$asset"
           $downloaded = $false
           $maxAttempts = 4
           for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
@@ -276,7 +276,7 @@ jobs:
         run: node scripts/bind-scoped-workflow-source.mjs
 
       - name: Set up Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: npm
@@ -313,7 +313,7 @@ jobs:
         run: node scripts/bind-scoped-workflow-source.mjs
 
       - name: Set up Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: npm
@@ -333,7 +333,7 @@ jobs:
 
       - name: Set up hash-pinned Windows ConPTY host
         if: matrix.platform == 'win32'
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
           architecture: "x64"
@@ -398,7 +398,7 @@ jobs:
           test '${{ needs.qualify-mcp-product.result }}' = 'success'
           test '${{ needs.qualify-mcp-packaged.result }}' = 'success'
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: 22
           cache: npm

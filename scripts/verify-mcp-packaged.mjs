@@ -239,7 +239,7 @@ try {
     "--no-fund",
     "--save-exact",
     staged.packageArchivePath,
-    "@modelcontextprotocol/inspector@2.4.0",
+    "@modelcontextprotocol/inspector@2.10.1",
     `@modelcontextprotocol/sdk@${pinnedSdkVersion}`,
   ], { cwd: consumerRoot, timeoutMs: 300_000, resourceObservation: installObservation });
   verificationStage = "installed_package_binding";

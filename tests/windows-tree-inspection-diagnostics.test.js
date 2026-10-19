@@ -563,8 +563,8 @@ test("AC-4BH.3 native partial-copy pairs cover both failure subjects without adm
     for (const stdout of ["private-native-message", "{}",
       '{"CommandQueryHeldHandleState":"still_active_or_259"}',
       canonical.replace('"CommandQueryHeldHandleState"', '"CommandQueryHeldHandle\\u0053tate"'),
-      canonical.replace("}", ',"CommandQueryArchitectureRelation":"cross"}'),
-      canonical.replace("}", ',"pid":4342,"path":"private-path","command":"private-command","status":"private-status","message":"private-message"}')]) {
+      canonical.replaceAll("}", ',"CommandQueryArchitectureRelation":"cross"}'),
+      canonical.replaceAll("}", ',"pid":4342,"path":"private-path","command":"private-command","status":"private-status","message":"private-message"}')]) {
       await assert.rejects(inspectWindowsProcessTree(root, {
         deadlineMs: Date.now() + 80, runCommand: async () => ({ exitCode, stdout }),
       }), error => {

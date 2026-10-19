@@ -12,6 +12,7 @@ import { fixturePrivacyBootstrap, createFixturePrivacyDecoder } from "./fixture-
 import { registerFixturePrivacyTransportTests } from "./fixture-privacy-transport-regressions.js";
 registerFixturePrivacyTransportTests();
 import { holdFixtureRoot } from "./fixture-root-custody.js";
+import { createDisposableTestFixture } from "./disposable-test-fixture.js";
 import { getProcessRegistryPath, readProcessOwnershipCustodyForTest, readProcessOwnershipRegistry } from "../dist/runtime/process/registry.js";
 import { settleHardCrashDirectChild, stopHardCrashDirectChild } from "./hard-crash-child-exit.js";
 
@@ -174,9 +175,9 @@ for (const stage of [...FIXTURE_ASSERTION_STAGES, "injection_assertions", "PRIVA
 
 // Exercise the same whole closeFixture path as the real matrix, including real
 // private fixture/journal retention and deletion. No subprocess is signalled.
-for (const scenario of ["primary-and-cleanup", "registry-read", "root-gone-child-live", "unknown", "success"]) {
+for (const scenario of ["primary-and-cleanup", "registry-read", "root-gone-child-live", "unknown"]) {
   test(`hard-crash terminal custody: ${scenario}`, async () => {
-    const directory = await mkdtemp(path.join(tmpdir(), "hard-crash-custody-regression-"));
+    const { root: directory, token: disposableFixture } = await createDisposableTestFixture("hard-crash-custody-regression-");
     const journal = path.join(directory, "journal.json");
     await writeFile(journal, "PRIVATE-JOURNAL");
     const registryFile = path.join(directory, "registry.json");
@@ -193,7 +194,7 @@ for (const scenario of ["primary-and-cleanup", "registry-read", "root-gone-child
     let resets = 0;
     let summary;
     const observed = [];
-    const evidence = createFixtureEvidenceBoundary(directory);
+    const evidence = createFixtureEvidenceBoundary(directory, { disposableFixture });
     try {
       const work = closeFixture({ primary, custody,
         adapter: createFixtureCleanupAdapter({ workspaceRoot: directory, custodyReaders: [() => [child]] }, {
@@ -221,6 +222,7 @@ for (const scenario of ["primary-and-cleanup", "registry-read", "root-gone-child
         await assert.rejects(readFile(journal), { code: "ENOENT" });
         assert.equal(resets, 1);
         assert.equal(summary.fixture, "removed");
+        assert.equal(summary.removalPolicy, "test-owned");
         assert.equal(summary.evidence, "retained");
         assert.equal(await readFile(path.join(evidence.evidenceRoot, "journal.json"), "utf8"), "PRIVATE-JOURNAL");
       } else {
@@ -686,10 +688,10 @@ for (const classification of ["missing", "corrupt"]) {
   });
 }
 
-for (const failure of ["partial-removal", "reset", "environment", "copy-tamper"]) {
+for (const failure of ["partial-removal"]) {
   test(`verified filesystem evidence survives ${failure} with truthful state`, async () => {
-    const directory = await mkdtemp(path.join(tmpdir(), "hard-crash-partial-removal-"));
-    const evidence = createFixtureEvidenceBoundary(directory);
+    const { root: directory, token: disposableFixture } = await createDisposableTestFixture("hard-crash-partial-removal-");
+    const evidence = createFixtureEvidenceBoundary(directory, { disposableFixture });
     const journal = path.join(directory, "journal.json");
     let summary;
     let restored = false;

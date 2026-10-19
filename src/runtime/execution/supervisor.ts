@@ -19,7 +19,8 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { constants, createWriteStream, type WriteStream } from "node:fs";
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn } from "node:child_process";
+import type { ManagedChildHandle, ManagedProcessSpawner } from "./managed-child.js";
 import { fileURLToPath } from "node:url";
 import type { DiscoveredService } from "../../contracts/service.js";
 import { observeNativeAcknowledgementContainment } from "./native-ack-containment.js";
@@ -183,7 +184,7 @@ function managedLauncherPayloadDiagnostic(
 }
 
 interface ManagedProcessRecord {
-  child: ChildProcess;
+  child: ManagedChildHandle;
   service: DiscoveredService;
   startedAt: string;
   command: string;
@@ -345,8 +346,8 @@ const WINDOWS_TREE_MONITOR_RETRY_DELAY_MS = 5_000;
 const UNEXPECTED_PROCESS_FINALIZATION_TIMEOUT_MS = 5_000;
 const DEFAULT_MANAGED_PROCESS_STOP_TIMEOUT_MS = process.platform === "win32" ? 15_000 : 5_000;
 const WINDOWS_MANAGED_LAUNCHER_PATH = fileURLToPath(new URL("./windows-managed-launcher-native.exe", import.meta.url));
-const WINDOWS_MANAGED_LAUNCHER_BYTES = 141_824;
-const WINDOWS_MANAGED_LAUNCHER_SHA256 = "401699f683f56e081236e550ab59c06f888929ec5e30588f4e27cce972d4364c";
+const WINDOWS_MANAGED_LAUNCHER_BYTES = 169_984;
+const WINDOWS_MANAGED_LAUNCHER_SHA256 = "9b9869b9227007fcfe8ef2a9afae0f572c8da488f94fa3d495f60d423b5aa1e9";
 const WINDOWS_MANAGED_LAUNCH_TIMEOUT_MS = 15_000;
 const MANAGED_PROCESS_SPAWN_TIMEOUT_MS = 15_000;
 const WINDOWS_MANAGED_LAUNCH_MAX_PAYLOAD_CHARACTERS = 32_768;
@@ -360,7 +361,7 @@ let managedProcessRootInspector: (
 ) => Promise<ProcessInspection> = inspectProcess;
 let managedWindowsTreeInspector = inspectWindowsProcessTree;
 let managedProcessEnrollmentHook:
-  { enroll: ((child: ChildProcess) => Promise<void> | void) | null;
+  { enroll: ((child: ManagedChildHandle) => Promise<void> | void) | null;
     custody?: (serviceId: string, read: () => ProcessFingerprint[]) => void;
     custodyFailure?: () => void } | null = null;
 let managedProcessFilesBoundHook: (() => Promise<void> | void) | null = null;
@@ -369,7 +370,13 @@ let managedProcessLaunchStateRemover = removeWindowsManagedLaunchStateDirectory;
 let managedProcessLaunchStateCreatedHook: (() => Promise<void> | void) | null =
   null;
 let managedProcessPostResumeDelayMs = 0;
-let managedProcessSpawner: typeof spawn = spawn;
+const defaultManagedProcessSpawner: ManagedProcessSpawner = (command, args, options) => {
+  const child = spawn(command, [...args], options);
+  // Node's PID is optional before a successful spawn. Preserve the actual child
+  // and make that undefined-or-number surface explicit for the managed adapter.
+  return Object.assign(child, { pid: child.pid });
+};
+let managedProcessSpawner: ManagedProcessSpawner = defaultManagedProcessSpawner;
 let managedProcessSpawnTimeoutMs = MANAGED_PROCESS_SPAWN_TIMEOUT_MS;
 
 export function setManagedProcessTreeTerminatorForTests(
@@ -422,7 +429,7 @@ export function setManagedProcessRootInspectorForTests(
 }
 
 export function setManagedProcessEnrollmentHookForTests(
-  hook: ((child: ChildProcess) => Promise<void> | void) | null,
+  hook: ((child: ManagedChildHandle) => Promise<void> | void) | null,
   custody?: (serviceId: string, read: () => ProcessFingerprint[]) => void,
   custodyFailure?: () => void,
 ): void {
@@ -515,14 +522,14 @@ export function setManagedProcessPostResumeDelayForTests(
 }
 
 export function setManagedProcessSpawnerForTests(
-  spawner: typeof spawn | null,
+  spawner: ManagedProcessSpawner | null,
 ): void {
   if (process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS !== "1") {
     throw new Error(
       "Managed process spawn test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.",
     );
   }
-  managedProcessSpawner = spawner ?? spawn;
+  managedProcessSpawner = spawner ?? defaultManagedProcessSpawner;
 }
 
 export function setManagedProcessSpawnTimeoutForTests(
@@ -696,22 +703,48 @@ async function prepareRuntimeLogStreams(
 
 async function closeWriteStream(stream: WriteStream): Promise<void> {
   if (stream.closed) {
+    if (stream.errored) {
+      throw stream.errored;
+    }
     return;
   }
 
-  await new Promise<void>((resolve) => {
-    stream.end(() => resolve());
+  await new Promise<void>((resolve, reject) => {
+    let closeError: Error | null = stream.errored;
+    const onError = (error: Error): void => {
+      closeError ??= error;
+    };
+    const onClose = (): void => {
+      stream.removeListener("error", onError);
+      const error = closeError ?? stream.errored;
+      if (error) {
+        reject(error);
+      } else {
+        resolve();
+      }
+    };
+    // `finish` only drains writes. The original file remains a live capability
+    // until the genuine autoClose/close completion, including on write errors.
+    stream.on("error", onError);
+    stream.once("close", onClose);
+    stream.end();
   });
 }
 
 async function closeRuntimeLogStreams(
   streams: ManagedProcessRecord["logStreams"],
 ): Promise<void> {
-  await Promise.all([
+  const outcomes = await Promise.allSettled([
     closeWriteStream(streams.combined),
     closeWriteStream(streams.stdout),
     closeWriteStream(streams.stderr),
   ]);
+  const errors = outcomes.flatMap((outcome) =>
+    outcome.status === "rejected" ? [outcome.reason] : [],
+  );
+  if (errors.length > 0) {
+    throw new AggregateError(errors, "Runtime log file closure failed.");
+  }
 }
 
 function writeCombinedLogEntry(
@@ -891,7 +924,7 @@ export function filterWindowsManagedLauncherProgressLineForTests(
 
 function attachRuntimeLogCapture(record: ManagedProcessRecord): void {
   const waitForOutputEnd = (
-    stream: NonNullable<ChildProcess["stdout"]>,
+    stream: NonNullable<ManagedChildHandle["stdout"]>,
   ): Promise<void> =>
     new Promise((resolve) => {
       // Subscribe before inspecting terminal state. A launcher can exit before
@@ -1418,7 +1451,7 @@ const WINDOWS_MANAGED_LAUNCHER_PAYLOAD_FAILURE_BOUNDARIES = new Set<
 ]);
 
 async function bindWindowsManagedLauncherFiles(
-  child: ChildProcess,
+  child: ManagedChildHandle,
   state: WindowsManagedLaunchState,
   launcherProgressPhase: (deadlineMs: number) =>
     | {
@@ -1469,7 +1502,7 @@ async function bindWindowsManagedLauncherFiles(
 }
 
 async function settleWindowsManagedLauncherStderr(
-  child: ChildProcess,
+  child: ManagedChildHandle,
   deadlineMs: number,
 ): Promise<void> {
   const stderr = child.stderr;
@@ -1511,7 +1544,7 @@ async function settleWindowsManagedLauncherStderr(
 }
 
 async function continueWindowsManagedLauncher(
-  child: ChildProcess,
+  child: ManagedChildHandle,
   state: WindowsManagedLaunchState,
 ): Promise<void> {
   const deadlineMs = processControlDeadline(WINDOWS_MANAGED_LAUNCH_TIMEOUT_MS);
@@ -1564,7 +1597,7 @@ async function continueWindowsManagedLauncher(
 }
 
 async function observeManagedLauncherExitCode(
-  child: ChildProcess,
+  child: ManagedChildHandle,
   signal: AbortSignal,
 ): Promise<number | null> {
   if (child.exitCode !== null) return child.exitCode;
@@ -1678,6 +1711,12 @@ export function resolveManagedProcessLaunch(
       variableResolution,
     ),
   );
+  if (variableResolution.secretFilesDirectory) {
+    const token = variableResolution.secretFilesDirectory.split(/[\\/]/).at(-1)!;
+    if ([executable, workingDirectory, ...args].some((value) => value.includes(token))) {
+      throw new Error("Secret-file capabilities must be supplied through the service environment.");
+    }
+  }
   return {
     executable,
     args,
@@ -1782,7 +1821,7 @@ function serviceEnablesStdin(service: DiscoveredService): boolean {
   return service.manifest.stdin?.enabled === true;
 }
 
-async function waitForManagedProcessSpawn(child: ChildProcess): Promise<void> {
+async function waitForManagedProcessSpawn(child: ManagedChildHandle): Promise<void> {
   const deadlineMs = processControlDeadline(managedProcessSpawnTimeoutMs);
   await withProcessControlDeadline(
     async (signal) =>
@@ -1818,7 +1857,7 @@ async function waitForManagedProcessSpawn(child: ChildProcess): Promise<void> {
 }
 
 async function containUnenrolledManagedProcessWrapper(
-  child: ChildProcess | null,
+  child: ManagedChildHandle | null,
   exitPromise: Promise<{
     exitCode: number | null;
     signal: NodeJS.Signals | null;
@@ -1846,7 +1885,7 @@ async function containUnenrolledManagedProcessWrapper(
 }
 
 function probeManagedChildHandle(
-  child: ChildProcess,
+  child: ManagedChildHandle,
 ): "owned" | "exited" | "unverifiable" {
   if (child.exitCode !== null || child.signalCode !== null) {
     return "exited";
@@ -1857,8 +1896,9 @@ function probeManagedChildHandle(
   };
   child.prependOnceListener("error", captureProbeError);
   try {
-    // ChildProcess.kill(0) probes the exact native process handle retained by
-    // Node, so a reused numeric PID cannot authorize ownership or taskkill.
+    // kill(0) probes the exact retained native lifetime synchronously. The
+    // ordinary adapter uses Node's process handle; a PID alone cannot authorize
+    // ownership or taskkill.
     const alive = child.kill(0);
     return probeError ? "unverifiable" : alive ? "owned" : "exited";
   } catch {
@@ -1906,7 +1946,7 @@ async function verifyNativeAcknowledgementFinalContainment(
   signal: AbortSignal,
 ): Promise<void> {
   // The final tree is a receipt for this acknowledgement, not a refresh of an
-  // earlier snapshot.  Its root result and the retained ChildProcess handle
+  // earlier snapshot.  Its root result and the retained native child handle
   // must independently agree that the managed wrapper exited.
   const finalTree = await inspectFixtureTree(record, rootIdentity, {
     deadlineMs,
@@ -2537,8 +2577,14 @@ export async function startManagedProcess(
   try {
     approvedLaunchFiles = (await options.verifyBeforeSpawn?.()) ?? [];
   } catch (error) {
-    await closeRuntimeLogStreams(logStreams);
-    throw new ManagedProcessStartError("prelaunch_verification", error);
+    let failure = error;
+    await closeRuntimeLogStreams(logStreams).catch((closeError) => {
+      failure = new AggregateError(
+        [error, closeError],
+        "Prelaunch verification and runtime log closure failed.",
+      );
+    });
+    throw new ManagedProcessStartError("prelaunch_verification", failure);
   }
   const useWindowsManagedLauncher =
     process.platform === "win32" && Boolean(workspaceRoot);
@@ -2558,10 +2604,16 @@ export async function startManagedProcess(
       : null;
     await managedProcessLaunchStateCreatedHook?.();
   } catch (error) {
-    await closeRuntimeLogStreams(logStreams);
-    throw new ManagedProcessStartError("launch_state_creation", error);
+    let failure = error;
+    await closeRuntimeLogStreams(logStreams).catch((closeError) => {
+      failure = new AggregateError(
+        [error, closeError],
+        "Launch state creation and runtime log closure failed.",
+      );
+    });
+    throw new ManagedProcessStartError("launch_state_creation", failure);
   }
-  let child: ChildProcess | null = null;
+  let child: ManagedChildHandle | null = null;
   let exitPromise: Promise<{
     exitCode: number | null;
     signal: NodeJS.Signals | null;

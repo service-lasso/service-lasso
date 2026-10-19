@@ -54,6 +54,7 @@ const BROKER_MANAGEMENT_ROUTES = new Map<string, ReadonlySet<"GET" | "POST">>([
   ["/v1/management/lifecycle/restore/apply", new Set(["POST"])],
   ["/v1/management/lifecycle/key/rotate", new Set(["POST"])],
   ["/v1/telemetry", new Set(["GET"])],
+  ["/v1/file-grants/status", new Set(["GET"])],
   ["/v1/events", new Set(["GET"])],
 ]);
 
@@ -231,6 +232,8 @@ function validateManagementTarget(method: "GET" | "POST", value: string): string
       ? new Set(["query"])
       : target.pathname === "/v1/events"
         ? BROKER_EVENT_QUERY_FIELDS
+      : target.pathname === "/v1/file-grants/status"
+        ? new Set(["limit", "cursor"])
       : new Set<string>();
   const seenQuery = new Set<string>();
   for (const [name, queryValue] of target.searchParams.entries()) {
@@ -241,6 +244,9 @@ function validateManagementTarget(method: "GET" | "POST", value: string): string
       queryValue.length > 256 ||
       containsUnsafeQueryCharacter(queryValue) ||
       (numeric && !/^\d{1,10}$/u.test(queryValue))
+      || (target.pathname === "/v1/file-grants/status" &&
+          (!/^\d{1,6}$/u.test(queryValue) ||
+           (name === "limit" ? Number(queryValue) < 1 || Number(queryValue) > 200 : Number(queryValue) > 131072)))
     ) {
       throw new SecretsBrokerManagementError("invalid_request", "Secrets Broker management query is invalid.");
     }

@@ -1,5 +1,16 @@
 # Continuity Operating Guide
 
+## #1749 current Broker contract review (2026-10-11)
+
+Reviewed latest Core #1748; corrected and merged Echo PR #17. Ubuntu cs-int-01
+native selection passed 105/105 with no skips. The actual prepare command and
+unchanged resulting full manifest passed missing-ref denial, two launch/check/stop
+generations, inventory counts, privacy and revocation. Exact identities, hashes,
+retained receipts and scope limits: [review record](BROKER_FILES_REVIEW_1749.md).
+Lesson now explains broker.files provisioning/returned directory and complete
+Linux checker input. Documentation follow-up #1749 owns this source closure;
+primary inherited files and other owners' checkouts remain unchanged.
+
 ## Purpose
 
 This repository keeps concise, factual continuity in versioned artifacts so work can resume safely without depending on chat history.
@@ -128,6 +139,28 @@ Current terminal8189 full qualification reports1562 tests/1476 pass/17 fail/69 s
 Acceptance adds independent real two-commit Git source -> depth1 acquisition, actual ordinary and aliased-parent strict checkout positives, valid wrong-tree and wrong-head/failed-source negatives reaching actual fetch/tree boundaries. Both complete workflow ordinary/alias native Core/separate-Admin positives and workflow negatives use an explicitly exact shallow source before unchanged native assertions. All31 independent adversaries, native mandatory vectors, private/public authority and earlier8+3/finite-timeout/normal-publication repairs remain required. The other11 full-suite failures stay with their separate owners (#1591/#1593/#1595/#1596/#1599/#1601 and parent routing); no source is copied from those lanes.
 
 No source execution/import/parser/compiler/test/helper/npm/install/native ACL/lifecycle is authorized locally. Authored regressions are UNEXECUTED. Different fresh ENTIRE cumulative SOURCE GO and NEW complete-input ROOT admission precede any local execution; full three-OS/compiler/native/operator/product/natural-CI/publication/same-byte gates remain unmet. Parent owns tracking; no main access, nested agents, deadline/concurrency/skip/permission weakening, rerun/dispatch/cancel/settings, merge/publication or cleanup.
+## Core PR #1681 distinct06 recovery author checkpoint (2026-10-06)
+
+SPEC-002 AC-4DI.4/R3/C3, Development SOURCE ONLY. Sole retained 78a5 successor
+records baseline/material recovery in CORE1681_DISTINCT06_RECOVERY.md. Corrects
+F1 actual predicate lifecycle roles, F2 actual owning callee/native/value closure,
+F3 shared acquisition interrupt retention and the natural78 clean-positive CLR
+exception-classification regression together. Original managed/native launcher
+source, binaries/pins, protected full acceptance and earlier C1-C3/R1-R4 survive.
+New guard and acquired-owner interruption observer cases are UNRUN. The required
+independently admitted original native fixture actor remains absent; no native
+status/handle/module is fabricated. Callback failure and original primary stay
+on the same live owner; trust pending-provider inputs guard its enclosing finally.
+
+Manual source/Git checks only. Push the complete source to the same retained
+PR1681/develop, freeze cumulative current/base/original historical bindings,
+then author STOP for a different fresh ENTIRE reviewer and NEW actual-input ROOT
+plus parent admission. No target imports/parsers/tests/build/compiler/native/ENV/
+ACL, no main/rebase/force/settings/rerun/cancel/cleanup/merge/publication/GA.
+All old private/native/compiler/sharing failures, ad82/noROOT and natural78
+source/product failures remain failed history. Worktree/branch remains retained
+for the bounded review/landing path; parent owns tracking and qualification.
+
 ### #1718 / PR #1722 ENTIRE browser outcome and custody repair (2026-10-06)
 
 Development SOURCE ONLY, sole successor author on retained fix/1718-docs-consumer-qualification at clean4777b0c6dd69cf17f6042cbb51d916a17a0f77bf/treeb8cd0278dc6bff170cf33e40fe773350d351e146, named developbasecae79b5e92d7ded41dda1f1c600ee9b53b7aaebc. Bounded GOV-10 recovery preserves the same issue1718/PR1722 and open owner checkout. SPEC-007 AC-7F/AC-7G.docs-consumers binds all F1/F2/F3 as one coherent source unit before implementation.
@@ -155,3 +188,222 @@ SPEC-007 AC-7F/AC-7G.docs-consumers selects faithful compiler observation: retai
 All prior F1/F2/wire repairs, original36249/49179 frozen packets, original fe1d NO_GO and natural failures, entire05b8/4777 terminal evidence, malformed original roots/raw addendum9 and thirteen native/product failures remain retained. Package/lock/publicdocs/browserpolicy/cache/refetch/deadlines/retries/concurrency/permissions unchanged. Every intentional commit immediately pushed SAME PR1722. No local target execution before NEW complete-input ROOT/DIFFERENT whole SOURCE_GO/parent admission; fresh whole review and natural new-head actual result remain required separately. Author ACTIVE; no acceptance/merge/release/publication/promotion/deployment claim.
 The same CSS graph observer must retain actual original compilation.chunkAsset emission and final asset identity across stock webpack RealContentHashPlugin optimization. Official webpack5.109.2 renameAsset updates the actual chunk.files and final asset contenthash metadata without updating the original mini render-manifest template inputs. Bind original render entry -> actual chunkAsset emission -> final same-chunk asset whose real final contenthash resolves that original template through getPathWithInfo/TemplatedPathPlugin, retaining both original/final names and hashes. No compiler method wrapping, output rename/mutation, synthetic chunk or guessed/all-CSS association is permitted.
 Before completing the CSS compiler-source proposal, bind ENTIRE genuine official webpack5.109.2 published archive inventory (including Compilation/ModuleGraph/ChunkGraph/RealContentHashPlugin/TemplatedPathPlugin and package/main/helper sources) to unchanged lock integrity/URL/version and actual installed file hashes before either build. This closes version-only compiler provenance; saved tag-source API reads are separately retained and do not replace npm installed-byte equality. No lock/package/resolver/library changes or local target execution.
+2026-10-08 #1732 / SPEC-011 ESM-7..10: default Broker RAM WebDAV implemented in isolated feature/1732-default-ram-webdav; companion Broker feature/196-ram-webdav-secrets. Ubuntu actual production Broker/peer-bound IPC/managed-child reads, env compatibility, fresh restart and revocation passed; full scoped Core run 91 tests:87 pass/4 platform skips. Windows isolated source run86:80 pass/6 platform skips; all5 Broker identity regressions pass. Native Windows UNC read passed with existing WebClient, no mapping/config mutation. Docusaurus SSG succeeds with existing image-parser warnings. Broker full Go suite and vet pass; race detector unavailable because cgo is disabled. No release/deployment claim. Owner explicitly authorizes develop merge, then review the ten saved Linux cleanup failures separately from service recovery; retain original evidence and no claim of new crash-suite passes yet.
+
+#1732 qualification correction: Broker final full-suite repeat had event-retention and local migration failures in unchanged source; each then passed three focused repetitions. Earlier full-suite pass and new RAM/native/contract checks stand, but latest full-suite green is not claimed. Owner-authorized source merge remains distinct from release qualification.
+
+2026-10-08 #1734 / SPEC-012 OTF-1..5: owner explicitly selects ordinary teardown
+for creator-owned private test fixtures. All seven hard-crash phases and four
+positive cleanup cases keep their original assertions; default hostile-writer
+custody refusal and adversaries remain unchanged. Native Ubuntu scoped run74:
+70 pass,4 platform skips,0 fail, with actual root-owned foreign-owner input.
+Original saved failed runs retained. Windows existing guardian/privacy setup
+fails and is not qualified. Full native suite remains pending. No product code,
+release, deployment or native F7 implementation claim.
+
+#1734 scoped completion: all eleven original Linux cleanup failures pass in both
+scoped verification and the configured full run at5a01bcfd/tree2dc501e4. Full run
+1966:1870 pass,87 skips,9 failures; retain actual failed receipt/exit1. Eight
+missing-tool failures subsequently pass with private PowerShell/lsof/python
+inputs. The remaining actor-scoped HTTP replay failure reproduces on unchanged
+parentdevelop bef6babc (12:11 pass,1 fail) and is tracked separately in #1736.
+Seven natural Ubuntu crash-phase CI jobs pass. New Windows teardown unit checks
+2 pass/1 POSIX skip; existing Windows privacy initialization remains unqualified.
+Targeted GOV-13 self-review confirms original observable assertions and default
+strong adversaries retained. Native F7 writer exclusion is not implemented or
+required for the owner's ordinary-fixture recovery scope. No release/deployment.
+Resuming at current develop3baf9667 in fresh fix/1736-linux-suite-replay. Owner
+requests all nine remaining failures fixed. Eight are missing actual host tools;
+private PowerShell/lsof/python inputs already prove those assertions. Diagnostic
+HTTP execution returns confirmation_plan_mismatch (409, expected202) because
+buildStartArtifactBindings includes every service's installed/configured
+executable revision. Correct service_start scope only; preserve runtime-wide and
+restart plans, stable dependency context, actor/replay/tamper checks. SPEC-013
+LQ-1..4 and SPEC-006 AC-6E/AC-6F record acceptance before product implementation.
+Original full-run receipt and baseline failure retained. No release/deployment.
+
+#1736 verified for develop landing / PR1737: SPEC-013 LQ-1..4 and SPEC-006
+AC-6E/AC-6F. Full native Ubuntu2bddf203/tree9e8f9d39:1966 tests,1879 pass,87
+existing platform skips,0 fail; natural exit0,closed receipt and original failures
+retained. Actual private PowerShell/lsof/python + native foreign-owner/Broker inputs
+supplied. Original nine cases all pass with unchanged assertions. Ubuntu scoped
+25 pass/1 platform skip; Windows scoped26/26 pass. Product correction scopes
+service-start executable revisions to actual mutation targets; runtime-wide,
+restart,dependency context,actor/replay/tamper guards unchanged. Full tracked
+source unchanged; remote Python cache is generated/disposable retained audit state.
+Windows whole custody/docs tooling CI/release remain separate and unqualified.
+Final verification-document update changes no runtime code; no rerun needed for
+unchanged executable behavior. Dedicated worktree clean after committed docs;
+primary inherited deletions/audit state and other owner branches preserved.
+
+## #1681 foundation review20 F6/F7 coherent repair (2026-10-07)
+
+SPEC-002 AC-4DI.4 / R3 / C3, Development SOURCE ONLY / in_progress. Parent adopted entire review20 NO_GO ROOT a54722cfb0c5ef8f3064dfde03241c7acf87778fdb9852c0887e7a7e89a0c502, REPORT 2aad86cdba377ddb941d93d66ecc7b48f7e1e56c6321ec3326cb21e31fdac9ad. Sole fresh author21 owns the retained PR1681 checkout/branch under the existing GOV-10 recovery exception; previous author19/reviewer20 are stopped. Base/develop ce56f59245821eefd2232cdec05e2cb42bd044e4, inherited clean HEAD 2d3a0e01fb9e00075a4b013c98177310404df066.
+
+F6 requires enclosing ordinary/function-expression/arrow context for JS return, no LineTerminator between every arrow formal boundary and =>, all CR/LF/U+2028/U+2029 (including comment trivia) for return/throw restricted productions, and correct JS line-comment termination. Ordinary contextual async identifier expressions remain valid; unsupported async syntax denies the entire unit. F7 requires zero-formal/no-access static constructors and a closed supported constructor category/modifier rule before synthetic-slot suppression or initializer timing effects. Preserve valid ordinary/static constructors, exact ordered instance/static field/property associations, const exclusion and separately deferred base-constructor transfer. Positive/negative source regressions remain UNRUN.
+
+Retain original F1-F5 contracts, all14 exact source associations/183roles/35families/9callers/18provider premises/6catalogue groups, R1-R7/R6/K2/W1-W4/B4/K-BIND/K-CALL/K-SUBSTITUTE/K-OWNER, readable H/CD and six literal W4 adapters. Original32pins/13fails/73-before-TAP/05-07/compiler-length NO_GO, 5326closure/249ranges/59supports/seven discrepancies including exactly four signature-document failures, author18 recovery and private/unknown failures remain preserved. SourceGo/admission/execution/GA remain false, SupportSafety UNPROVED, runtime UNQUALIFIED, Mac DEFERRED_NOT_APPLICABLE. This is foundation repair, not complete CLI/TUI delivery.
+
+Before any target effect require NEW complete actual-input ROOT, DIFFERENT ENTIRE source GO and parent admission. No target Node/npm/import/parser/helper/compiler/build/test/native/XML/MSI/ENV/ACL/crypto/extractor effects, no CI dispatch/rerun/cancel/gate weakening, force/rebase/reset/signing bypass/cleanup/settings/promotion/publication/deployment. Push every intentional commit immediately; capture natural CI handles and freeze COMPLETE cumulative candidate for parent WHOLE adoption and a DIFFERENT fresh ENTIRE review. After accepted foundation, the next actual selected unit is managed/acquisition C# profiles and complete symbolic CLR48 closure; full remaining profiles/catalogues/typed IR/CFG/proof DAG/caller migrations remain required. Parent alone owns provider tracking/review/admission/landing.
+
+## Core PR #1681 author39 interrupted-owner recovery (2026-10-08)
+
+Fresh sole source author39 accepts the retained issue checkout and unchanged branch `dependabot/github_actions/develop/actions/setup-python-7.0.0` at governance-only HEAD51bd85683d13c54e1dbb376ab30ea9fa702b92b2, parent3abf583d4cf1688df0b90f07f984ade9bd225fb5 and developbasece56f59245821eefd2232cdec05e2cb42bd044e4. Author38 is completed and never reused. External storage recovery preserves all seven inherited dirty paths; the failed selected-forest draft remains zero bytes and its existing terminal custody archive remains unchanged. Independent frontend authorship is required; no exact recovery of lost contents is claimed.
+
+The existing full compiler/proof/caller programme in PROJECT_INTENT, SPEC-002 AC-4DI.4/R3/C3/G1, SPEC-007 AC-7G, BACKLOG, INIT and source-admission traceability remains operative without narrowing. ENTIRE reviewer37 NO_GO ROOT8db05809d7e2bc0be0e011673234bd0b126d03719658cd119444a5d2dc202258 remains effective. Author39 must finish actual selected producer, independent K2, all original callers and connected owned-operation/release/supervisor source obligations. After the genuinely complete cumulative source freeze, a fresh DIFFERENT reviewer40, NEW full actual-input ROOT and parent admission precede every target effect. The earlier planned reviewer39 number is superseded only by this author/reviewer separation; no historical review claim changes.
+
+Current natural51bd source and release failures remain failed evidence, including stale managed source provenance and normalized managed launcher length mismatch. No rebuild, repin, target execution, provider rerun/cancel or unapproved foreign-owner root may repair evidence by assertion. Original protected tests, all75 foundation bodies/raw68778 prefix/six protected files, native32 pins/39936, full1602 lock except admitted tuple, receiving ancestry/contributions and every retained failure remain required. Source implementation is ACTIVE, not SOURCE_GO or full delivery completion. Parent owns tracking/review/admission/landing; no main, branch rename, history rewrite, settings, publication, deployment or GA authority.
+
+## #1747 Broker file declaration correction (2026-10-09)
+
+Owner requires broker.files/templates without ephemeral; config/install return
+to ordinary Core materialization. SPEC-011 ESM-14 supersedes old declaration
+placement and requires legacy rejection before plaintext writes. Work is isolated
+on fix/1747-broker-file-declarations from develop d994acf3; inherited primary
+deleted packages and untracked evidence are retained, outside this work unit.
+Echo companion #16 updates the runnable manifest and preparation assertions.
+
+Verification: Windows build passed. Isolated Windows focused regressions passed
+48/48 with six Linux-only skips (54 total); Linux WSL Ubuntu-26.04 passed all
+11/11, including native source-built Broker/Core/Echo file-only provisioning,
+replacement, stop/revocation, missing refs, tmpfs restart and disk rejection.
+Broker source is immutable PR202 head 2fd98ee; Echo preparation/checker 2/2.
+Final contract/discovery/selector/audit/dependency regression checks passed 91/91.
+Companion Echo PR17 is pushed at 7bcee7c and targets develop.
+The first Windows unisolated test run hit the existing oversized host registry;
+retry used three fresh explicit workspace/instance/port-registry paths without
+changing retained host state. The Linux disk-negative fixture was corrected
+because /tmp is tmpfs here; it now proves a non-tmpfs fixture before rejection.
+Docs build passed with existing image-dimension-parser warnings; diff check passed.
+No Windows native WebClient, release, publication or deployment qualification.
+Next action: review the Core and companion Echo develop PRs and their checks.
+
+## #1747 required native qualification continuation (2026-10-09)
+
+SPEC-011 ESM-15 requires pinned real Broker/Core/Echo source qualification on
+Windows named pipes and Linux/macOS Unix sockets. broker.files/templates own
+secret provisioning; ordinary config.files/templates retain Core behavior.
+New Broker secret files CI matrix requires binaries, manifest and checker;
+missing inputs fail instead of silently skipping. This additional source-build
+lane does not substitute for pinned published-release or protected native gates.
+
+Executed real integration: Windows 4/4, WSL Ubuntu-26.04 4/4, macOS 11.7.11
+Intel via authorized ssh maxbarrasssMBP2 4/4, no skips in these runs. Full new
+Windows matrix selection: 100 passed, five Linux tmpfs skips, zero failures.
+Earlier Mac focused contracts: 124 passed, ten platform/input skips, zero
+failures. Broker source 2fd98ee8e18395e28d402e00ab7e6e8911675600; Echo source
+7bcee7cf9e3e9a352eb59beb4a9afcde4a307584. Mac uses isolated Node22.23.3 and
+Broker's documented private Go1.26.8 macOS11 compatibility build. Tested Mac
+Broker SHA256 823f8e6f233c6ed6331c87b55557c2b4865d8045277903b51abd8c4058ba2b16;
+Echo SHA256 b1c64590b4cefc36949c06eda459dc87a8bc7e113230ec7f07f65eebafd54022.
+Local/remote binary hashes match. Owned remote evidence is retained beneath
+/Users/maxbarrass/service-lasso-1747-20261009; local logs/provenance beneath
+D:/projects/service-lasso/qualification1747. Windows loopback reads verify the
+UNC selector/consumer adapter, not Windows WebClient mounting.
+
+Core 88aa46d5 full CI remains FAILED, not complete acceptance. Source suite has
+seven failures: three verified-filesystem evidence cases, hard-crash terminal
+removal, missing ROOT foreign-owner fixture, stale managed launcher provenance,
+and already-closing Admin fixture teardown. MCP/Windows native gates also fail
+normalized native binary/source matching and original_privacy response_unavailable.
+Base develop d994acf3 independently reproduces stale managed provenance,
+normalized binary mismatch and Broker management-route failures. Published Broker
+pin 2026.8.31-f340883 lacks /v1/file-grants/status; source-built feature success
+does not repair that published-package incompatibility. Packaged Admin fails
+first_custody_native_helper_incomplete (Windows), native journal invalid (Mac)
+and browser pre-readiness (Linux). Preserve exact failed evidence and protected
+assertions; #1681/native-owner source review and NEW ROOT admission boundaries
+remain in force. No native fixture regeneration, release repin, CI cancellation,
+provider bypass, promotion or deployment occurred. Goal remains active pending
+natural CI for this continuation and resolution of relevant upstream blockers.
+
+## #1747 native template completion audit (2026-10-09)
+
+The actual native consumer previously read broker.files only; broker.templates
+had lower-level coverage. Extend the same native regression to consume a nested
+Broker-rendered template beside its inline secret file and ordinary Core inline
+and template config outputs. Assert both secret values rotate, secret outputs
+are absent from the service root, outgoing dynamic templates contain selectors
+rather than resolved values, and revoked grants deny both outputs. Preserve the
+static no-import case, privacy, IPC outage, Echo checker and missing-ref gates.
+SPEC-011 ESM-14/15 covers this completed end-to-end obligation.
+
+Executed revised native test selection: Windows4/4, Linux4/4 and authorized
+macOS11.7.11 Intel4/4, zero failures/skips; same exact pinned Broker/Echo binaries
+and isolated toolchains as preceding evidence. Logs: qualification1747/
+windows-templates4.log, linux-templates4.log and remote owned mac-templates4.log.
+The preceding5317462 three-platform hosted source qualification was GREEN;
+new exact-head natural CI must qualify the strengthened cumulative candidate.
+Inherited protected native/published-release failures remain prerequisites;
+no gate/assertion weakening, release pin change or binary regeneration occurred.
+
+## Owner-authorized native acceptance recovery (#1750, 2026-10-11)
+
+Owner explicitly transfers the inherited repair work to this chat and requests
+independent review, a compatible Broker release candidate, and proper test
+passing. Publication/deployment remain prohibited. Continue from current develop
+7d3fe9a0 in fix/1750-native-acceptance; PR1748 is merged and its branch is not reused.
+Preserve unrelated issue branches and primary deleted-package state.
+SPEC-011 ESM-16 binds the resumed acceptance work and full existing native
+SPEC-002/006/007/008/010 obligations. Historical SOURCE_NO_GO and original failures
+remain evidence. Ownership transfer permits implementation/review work, not
+metadata-only provenance repair or target execution without exact source review
+and NEW complete actual-input admission. Native reviewer native_review audits
+whole relevant source; root owns implementation, review adoption and admission.
+
+## #1750 Admin deterministic source repair checkpoint
+
+Independent preliminary reviewer native_review confirmed the failure-conjunction
+bug and close-observation race in real-admin-browser-shutdown.mjs. Source now
+observes original server close before stop, waits through already-closing live
+connections under the unchanged close deadline, and permits removal only after
+all owned resources and lifecycle reset have settled. Original API stop errors
+remain reported. Failed process convergence, reset or close still retains roots.
+Original protected tests are unchanged; supplemental cases cover never-started
+servers, a server already closing at entry and reset failure. Reviewer
+native_review read the complete closed JS unit and issued bounded source GO for
+exactly five anchored `^teardown ` tests at5609823. Parent adopted that bounded
+verdict and recorded controlled environment/source/runtime inputs externally in
+qualification1747/1750-admin-execution-20261011. One Windows Node22.23.2 execution
+passed5/5, zero failures/skips, with original assertions/deadlines. This small
+packet records initial runtime modules, not complete native descendant/loaded
+image lifetime proof; it is not reusable native-programme admission. Raw stdout,
+stderr, exit and original source/review/input records remain retained.
+This bounded JS fix does not admit Core native/compiler or fixture-isolation
+execution. Complete inherited native programme and privacy/raw observer
+prerequisites remain unfinished and active under SPEC-011 ESM-16.
+
+## #1750 bootstrap original standard-stream repair source
+
+The complete native launcher audit independently identified missing explicit
+bootstrap-to-managed stdio inheritance. ESM-16.6 source now duplicates actual
+original standard handles into an explicit HANDLE_LIST and preserves absent
+slots, rejects missing required ConPTY output, records native acquisitions and
+attribute lifecycle, and retires only parent duplicates once immediately after
+CreateProcess. Private custody/control/file/job handles stay outside that list.
+Original endpoints and child-side copies retain their separate original owners.
+Prospective source cases inspect exact slot/whitelist relations, prefix refusal
+and once-only copy/attribute retirement; they are NOT executed native evidence.
+Whole cumulative native review, actual ROOT, retained compiler repair, genuine
+managed/bootstrap rebuild and all source/image pin propagation remain unfinished.
+Existing images and historical failures remain unchanged; no compiler/native
+execution is admitted by this source checkpoint.
+
+## #1750 full qualification resumption 2026-10-11
+
+Owner explicitly requests full qualification, retaining the prohibition on
+publication/deployment. The earlier managed worktree is missing; existing owned
+branch fix/1750-native-acceptance and PR1751 still point to78ba8a9. Recovered that
+exact branch into D:/projects/service-lasso/1750-native-qualification-resume as an
+ongoing-work recovery exception, without resetting shared develop or changing
+other workers. This is continuation of the existing work unit, not a new branch
+from another issue branch. The recovered tree was clean before edits.
+ESM-16.7 selects concrete compiler transaction/passive normalizer source repair.
+Independent native_review remains reviewer; source and exact compiler-only ROOT
+must be closed before any parser/compiler/test execution. No existing lab is
+available; owner custodian/destination selection remains pending under SPEC-010.
+Echo17 is now independently verified merged e3abd085 on2026-10-10. Broker204 head
+9be8354 has terminal hosted validation and bounded Mac11 trust evidence; full
+native16/publication/integration and intermittent local Windows failures remain
+separate unresolved claims. Existing images, provenance pins and failed evidence
+remain preserved. This checkpoint creates no native or release admission.

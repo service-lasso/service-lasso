@@ -6,8 +6,7 @@ import type { DiscoveredService } from "../../contracts/service.js";
 const TMPFS_MAGIC = 0x01021994;
 
 export function hasEphemeralSecretFiles(service: DiscoveredService): boolean {
-  return [...(service.manifest.config?.files ?? []), ...(service.manifest.config?.templates ?? [])]
-    .some((entry) => entry.ephemeral === true);
+  return [...(service.manifest.broker?.files ?? []), ...(service.manifest.broker?.templates ?? [])].length > 0;
 }
 
 function secretsRoot(): string {

@@ -1,4 +1,9 @@
-# Linux app secret files
+# Linux tmpfs secret-file alternative
+
+Broker-owned RAM WebDAV is the default extracted secret-file provider and needs
+no administrator-mounted directory. See [RAM WebDAV delivery](ram-webdav-secret-files-review.md).
+This guide applies only when Core's environment explicitly sets
+`SERVICE_LASSO_SECRET_FILES_TRANSPORT=tmpfs` for a native Linux filesystem path.
 
 Service Lasso normally supplies resolved Secrets Broker values through a fresh
 process environment on every launch. Keep using that mechanism when the app
@@ -13,15 +18,23 @@ a convention, not automatic conversion by Core.
 {
   "broker": {
     "imports": [
-      { "namespace": "shared/database", "ref": "database.PASSWORD", "required": true }
-    ]
-  },
-  "config": {
+      {
+        "namespace": "shared/database",
+        "ref": "database.PASSWORD",
+        "required": true
+      }
+    ],
     "files": [
-      { "path": "db-password", "content": "${database.PASSWORD}", "ephemeral": true }
+      {
+        "path": "db-password",
+        "content": "${database.PASSWORD}"
+      }
     ],
     "templates": [
-      { "source": "templates/credentials.conf", "target": "credentials.conf", "ephemeral": true }
+      {
+        "source": "templates/credentials.conf",
+        "target": "credentials.conf"
+      }
     ]
   },
   "env": {
@@ -36,7 +49,8 @@ ref used in template contents in `broker.imports` as required. Keep template
 sources secret-free in the service package. Literal file contents are written
 exactly as rendered; Core does not add a newline.
 
-`ephemeral: true` applies only to config files/templates on Linux. Its relative
+In this explicitly selected tmpfs profile, `broker.files` and `broker.templates`
+request disposable outputs on Linux. Each relative
 output path is beneath a Core-owned directory, **not** the app's service root.
 Core derives the directory name from the service ID and resolved service root,
 so separate folder instances do not share secret files. Use the supplied
@@ -101,6 +115,7 @@ RequiresMountsFor=/run/service-lasso/secrets
 User=service-lasso
 Group=service-lasso
 Environment=SERVICE_LASSO_SECRETS_ROOT=/run/service-lasso/secrets
+Environment=SERVICE_LASSO_SECRET_FILES_TRANSPORT=tmpfs
 ```
 
 The root must already exist on tmpfs; Core never falls back to creating it on
@@ -141,6 +156,8 @@ References: [Linux tmpfs documentation](https://docs.kernel.org/6.5/filesystems/
 [startup Broker resolution](startup-broker-resolution.md). Governed contract:
 `SPEC-011 ESM-1..6`, issue #1730.
 
-For the separately proposed Windows/local UNC alternative, see the
-[RAM WebDAV security review](ram-webdav-secret-files-review.md). Its server-side
-memory support does not prove Windows client access leaves no disk copies.
+For the default RAM WebDAV provider and its Windows UNC/HTTP paths, see
+[RAM WebDAV delivery](ram-webdav-secret-files-review.md) and the
+[secure provisioning lesson](../getting-started/advanced-provision-service-secrets-securely.md).
+Server-side memory storage does not prove that a consuming client leaves no
+disk copies.

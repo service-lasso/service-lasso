@@ -137,6 +137,18 @@ async function command(label, args, extraEnv = {}) {
   return bytes.toString('utf8').replace(/\u001b\[[0-9;]*m/g, '');
 }
 
+// Repeat tag stripping until the string is stable so a single pass cannot leave
+// a syntactically active remainder (CodeQL js/incomplete-multi-character-sanitization).
+function stripHtmlTags(value) {
+  let current = value;
+  let previous;
+  do {
+    previous = current;
+    current = current.replace(/<[^>]*>/g, '');
+  } while (current !== previous);
+  return current;
+}
+
 async function htmlInventory(dir, prefix = '') {
   const rows = [];
   for (const entry of await readdir(dir, { withFileTypes: true })) {
@@ -147,7 +159,7 @@ async function htmlInventory(dir, prefix = '') {
       const html = bytes.toString('utf8');
       rows.push({ path: relative, sha256: sha256(bytes), bytes: bytes.length,
         h1: [...html.matchAll(/<h1\b[^>]*>([\s\S]*?)<\/h1>/g)].map((match) =>
-          match[1].replace(/<[^>]*>/g, '')) });
+          stripHtmlTags(match[1])) });
     }
   }
   return rows.sort((a, b) => a.path.localeCompare(b.path));

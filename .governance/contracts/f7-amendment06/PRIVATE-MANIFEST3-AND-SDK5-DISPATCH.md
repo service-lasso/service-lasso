@@ -1,0 +1,85 @@
+# Closed private manifest3 and original SDK5 receiving contract
+
+Normative amendment06. This completes R1/R2 in the SAME whole candidate, not an implementation or source grant. It supersedes inherited05 deferred private dispatch and checkpoint language. A remains selectable only after fresh different whole review and explicit conductor acceptance/native-resource/retention selection. B's actual atomic provider remains absent. Public W/Node1 MAC/schema, SLF7WIT1 and outer crypto/index versions do not change. Core schemas/actors are separate.
+
+## Literal identity and SDK5 fixed header
+
+Every private layer carries the SAME original invocation16 and literal attempt32. SDK5 contains no attempt_key16, truncation, hash alias or new issuer. All32 bytes compare against the authentic original ROOT owner, source endpoint, witness, private manifest, package/index, journal and any proposed provider log identity. A slot belongs only to that exact attempt. Binary SDK5 row1..9 equals manifest row0..8+1.
+
+SDK5 has exactly144 bytes of little-endian DATA header; native ABI body bytes keep their actual source-native representation. Exact offsets:
+
+| Offset | Width | Value |
+|---|---|---|
+|0|8|ASCII SLF7SDK5|
+|8|2|schema5|
+|10|2|header_bytes144|
+|12|4|flags, only bit0 KNOWN_PARTIAL allowed|
+|16|16|original invocation|
+|32|32|SAME original attempt|
+|64|16|original native owner_key|
+|80|16|original source_operation_key|
+|96|16|original native_layout_key|
+|112|8|call_ordinal|
+|120|4|original_row1..9|
+|124|4|closed state|
+|128|8|body_bytes|
+|136|8|reserved zero|
+
+States/body fields/descriptor64/ownership80/knownness remain ORIGINAL-SDK-RECORD-CONTRACT. Logical record length is checked144 plus all seven checked16+field_bytes terms. No selected128-byte header remains. All ROOT call-slot metadata, prefix carriers, O import records, manifest identities, native provider identities and pre-effect physical rounding use144 and attempt32. Actual JNL1 remains192; its attempt32 is compared, never repurposed as SDK storage.
+
+## Private envelope3 and one complete SDK event
+
+Introduce PRIVATE envelope version3 solely for payload11 SDK5 observation events; retain the existing112-byte SLF7 header, network-order fields and original offsets: version4/u16=3, role6/u16, invocation8/16, attempt24/32, lifetime56/16, correlation72/16, sequence88/u64, event ordinal96/u64, payload length104/u32, payload type108/u16=11, reserved110/u16=0. Total<=65536. Existing envelope2 types1..10 and NO2 logical-kind3 events remain their closed codecs. Version3 permits ONLY type11/logical-kind4; unknown versions/types/kinds reject. It is not a generic extension point, fragment widening or actor role.
+
+Envelope3 producer->O permits ONLY already admitted role12 MANAGED_HELPER or13 COMPILER recording its OWN original source/native lifetime. O role1 is forbidden on producer/ACK/control endpoints; O alone writes version3 into kind23 in its existing separate persistent witness context. No version3 ACK/control type exists. Existing original per-endpoint sequence and original event correlation admission are maintained across actual accepted2/3 messages; changing wire version cannot reset/replay sequence or create another producer lifetime. Initial ROOT imports originate in actual held native capsule objects, not ROOT wire-role frames.
+
+The original independent issuer/source admission must explicitly cover this exact private version3 direction/type/source/caller contract and original authenticator domain over the complete header/payload before use. No v1/v2 grant or frame MAC is automatically widened to3, and no document/header/digest issues another key/grant. Actual admitted original key/native endpoint custody is still absent. Reusing the original owning producer/source role is not permission to extend its authority without that authentic input.
+
+Payload11 version3 has the existing64-byte network-order fragment-prefix geometry: message_id/u64, logical_kind/u16=4 SDK5_SINGLE, reserved/u16=0, total_bytes/u64, offset/u64=0, fragment_bytes/u32, full_record_sha25632. It is followed by exactly one immutable origin240 plus one SDK5 record. total_bytes=fragment_bytes=240+SDK5_length. There is ONE frame, ONE source event and no trailer or continuation. A complete SDK5 event cannot use kind3, CLR fragments, a second offset or a generic complete-record fragment. Digest covers exactly origin240 concatenated with SDK5 bytes. message_id and event ordinal bind the original retained event identity. Complete/partial is the SDK5 closed state+flag, not inferred from frame completion.
+
+origin240 consists of a128-byte network-order descriptor followed by112 bytes of original header evidence. Descriptor offsets: original native source owner key0/16, original role16/u16, origin_class18/u16, reserved20/u32=0, invocation24/16, attempt40/32, original native lifetime72/16, original correlation88/16, original source sequence104/u64, original event ordinal112/u64, reserved120/8zero. This native owner key is not silently equated with a distinct producer-roster key; the authentic roster/capsule maps that exact native owner to the original producer/lifetime/source. origin_class1 ADMITTED_PRODUCER requires original role12/13 and the112 original accepted envelope3 header bytes at descriptor+128. That original header names the SAME whole payload length/correlation/sequence/lifetime; its native endpoint admission is retained independently. O copies it as DATA, not a new caller grant. Incoming producer record and imported O record preserve identical origin+SDK5 bytes.
+
+origin_class2 ORIGINAL_ROOT_LOCAL requires role0 in this descriptor only, actual original ROOT capsule source/native owner/lifetime/event keys and112 zero bytes at descriptor+128. These zeros mean NO_WIRE_HEADER, not a fabricated ROOT frame or additional role. Source sequence/event are actual original creator custody ordinals, not inferred from O's chain. origin_class3 ORIGINAL_O_LOCAL requires role1, actual O source/lifetime/correlation/event binding and112 zero bytes NO_WIRE_HEADER. No producer channel may submit class2/3. The source owner's actual native records/capsule establish these local origins. Zero evidence does not admit them.
+
+O's persisted outer header always names original O role1/lifetime and its own monotonically increasing managed-witness sequence. Its correlation retains the actual observed original event correlation; its ordinal is its own actual append event ordinal. Origin descriptor retains original producer/source ordinal/sequence and native owner. Receiver validates SDK invocation/attempt/owner against origin, original header evidence against origin/class1 and original source context against held admission. No original producer bytes are rewritten as O query bytes. Changing the author/header without preserved original lineage is rejection.
+
+Geometry:112 outer+64 fragment-prefix+240 origin+SDK5_length<=65536, therefore SDK5_length<=65120 and SDK5_body<=64976. All arithmetic is checked before the needed native call. For F7_GRAPH_NATIVE.original_native alone the byte extent is exactly SDK5 (without O origin wrapper); original graph source admission independently supplies lineage and all existing graph/frame overhead must be checked. If BOTH carriers are required, reserve/check both exact geometries. No v1 graph/carrier capacity increase is authorized. Any complete required record that does not fit is pre-effect INADMISSIBLE with retained prior originals. Known partial records fit only when actual original known fields form a valid complete closed SDK5 encoding labelled partial; they cannot truncate an encoded record mid-field and call it complete. Endpoint call ceiling32 is unchanged.
+
+SDK5 flags bit0 is required for states5 OUTPUT_KNOWN_PARTIAL or7 PUBLISHED_PARTIAL and any mandatory UNAVAILABLE/failed/undefined coverage; it must be zero for states6 OUTPUT_KNOWN_COMPLETE or8 PUBLISHED_COMPLETE, which require every source-required defined field/ownership result. Pre-call states1..4 cannot qualify a completed prefix record and their flags reflect actual retained known progress. Origin/outer header completeness never promotes an interrupted or unknown original call. A source-derived SDK body too large for required complete prefix fails preflight even if some future partial encoding would fit.
+
+## Exact manifest3 canonical JSON
+
+protocol is exactly integer3; schema is exactly string `f7_plaintext_manifest_v3`. Top-level required fields, exactly this order and no others:
+
+`admission_sha256,attempt,attempt_ordinal,budgets,candidate,capture,invocation,managed_witness_v2,members,platform,prefix_members,producer_roster_v2,protocol,row,schema,segments,terminal_coverage_plan,unavailable`.
+
+No whitespace, duplicate/unknown/missing/out-of-order field, alternative escaping, trailing byte or extra object is accepted. Integers are minimal nonnegative decimals bounded by current F7_JSON_INTEGER_MAX; pre-effect geometry rejects larger values, never truncates native raw integers. Digests are64 lowerhex; original keys32 lowerhex; invocation32 lowerhex; literal attempt64 lowerhex; Git source objects40 lowerhex. Platform is exactly windows/linux. Booleans actual true/false. Fixed binary owner/object identity bytes retain current source-profile lengths; owner field is lowerhex of the actual owner extent bounded by the current declared owner buffer, never an alternative identity string.
+
+Retained nested field sets/order are exactly:
+
+* budgets: derivation_sha256,emergency_bytes,emergency_queue_bytes,frame_count,inventory_entries,manifest_bytes,original_bytes,queue_bytes,row_input_sha256,transfer_milliseconds,witness_bytes,witness_queue_bytes. original_bytes and queue_bytes are exactly four entries in stdout,stderr,private_errors,control order. Every value binds actual original held row reservation, not an allowance default.
+* candidate: base,head,tree. capture: child_creation,child_exit_observed,disposition,streams. disposition is capture_recorded/capture_incomplete with the original closure predicates. streams has exactly four ordered entries with creation,native_status_bits,natural_eof,observed,stream; stream0..3 respectively, native_status_bits16 lowerhex. Original creation enum/EOF semantics unchanged; a FILE prefix is not natural pipe EOF.
+* members entries: failed,key,kind,length,object_identity,owner,protection_sha256,sha256. Strict key order, no aliases/duplicate physical member. Allowed kind1..23; kind22 producer roster and23 managed witness are mandatory exactly once. Original mandatory kinds1..11 and21 and all actual created stream/witness/error members retain current source prerequisites/predicates. Kind22/23 are real existing selected candidate member classes, not extra objects granted here.
+* segments entries: ciphertext_length,ciphertext_sha256,count,key,length,member,offset,ordinal,plaintext_length,plaintext_sha256. Strict segment-key order, exact complete ordinal coverage/segment limits per member and actual ciphertext/plaintext geometry, unchanged crypto source predicates. unavailable entries: key,kind,native_status_bits; sorted key order, no key alias to members and no fake complete missing source prerequisite.
+* managed_witness_v2 and producer_roster_v2 are each exactly objects key,length,sha256, binding respectively SAME kind23 and22 entries in members. They are DATA references, not renamed schemas; their bytes/digests must agree with original member and segment readback. Presence does not supply source authority.
+* prefix_members and terminal_coverage_plan retain the exact ordered entry fields from ALTERNATIVE-A-CONTRACT, with the refinements below. Both arrays are required even for an honestly empty observed prefix; no empty array can satisfy a required actual original observation. terminal plan has finite admitted nonzero slot_count entries, never an invented future receipt.
+
+prefix_members is exactly one entry for each actual immutable member, sorted by member_key; entry member_key,kind,length,sha256,closed_sequence matches members. closed_sequence is actual final O managed-witness sequence for kind23; zero is required for non-chain member kinds and means NOT_APPLICABLE, never closure of a producer. Producer closure remains original roster/state records. Plan entries resource_key,owner_key,custodian_key,row,slot_begin,slot_count,operation_catalog_key,layout_catalog_key,lifetime_key,state bind actual original native slot resource/range and exact literal manifest invocation/attempt; state is exactly DECLARED_NOT_OBSERVED. Slot resource itself carries invocation16/attempt32 and receiver checks both. Plans ordered row/resource_key/slot_begin, disjoint finite ranges; catalog keys do not issue grants.
+
+`native_history_v2` is FORBIDDEN in3. Its self-inclusive fragment catalogue is replaced by exact prefix member byte decoding plus terminal_coverage_plan. Fields from another manifest version cannot coexist under3. No fields named provider_log/SDK_checkpoint/future_hash/full_terminal_success are allowed in3; B would require its own full reviewed manifest/provider binding contract, not use A's plans as receipts.
+
+## Strict writer/reader/source obligations
+
+Private package reader dispatches exact protocol/schema pair1/f7_plaintext_manifest_v1,2/f7_plaintext_manifest_v2,3/f7_plaintext_manifest_v3 to separate closed readers. Pair mismatch/unknown version rejects before capability issuance. v1 accepts only its original fields/kinds1..21 and cannot qualify mixed managed/native candidate. v2 accepts only its original required producer_roster_v2,managed_witness_v2,native_history_v2 fields and NO2/native_kind3 codec; it rejects3 fields/SDK5. v3 uses the exact field set above, explicitly forbids native_history_v2 and requires new kind23 dispatch. No permissive shared reader, auto-upgrade or schema relabel is permitted. Historic failed packets remain their actual versions.
+
+The exact v1 top-level list is admission_sha256,attempt,attempt_ordinal,budgets,candidate,capture,invocation,members,platform,protocol,row,schema,segments,unavailable. The retained v2 candidate top-level list is admission_sha256,attempt,attempt_ordinal,budgets,candidate,capture,invocation,managed_witness_v2,members,native_history_v2,platform,producer_roster_v2,protocol,row,schema,segments,unavailable; its NO2 history-entry grammar stays frozen04. No v1/v2 path accepts prefix_members or terminal_coverage_plan. No historic packet is relabelled as this now-explicit candidate codec. v3 alone accepts the new two arrays and SDK5 dispatch; it does not use the v2 history entries as an untyped SDK container.
+
+The dedicated v3 kind23 reader walks exact112-byte record boundaries: envelope2 dispatches ONLY its retained5 NATIVE_FACT,6 STREAM_FACT or11 logical-kind3 SLF7NO2 closed codec; envelope3 dispatches ONLY11 logical-kind4 origin240+SLF7SDK5. It validates O author/source/lifetime/chain/correlation, original lineage, actual header/payload lengths, no continuation, exact full digest, partial flags/known fields and source layouts. SLF7NO2 cannot be accepted as SDK5; SDK5 cannot be accepted by the v2 NO2 reader. Source-preserved prior managed graph codecs remain distinct in their admitted graph members/producer transport; no existing W native graph or SLF7WIT1 is routed through kind23 by name.
+
+The future sole U0 implementer owns this exact private writer/reader adapter contract, original source lineage binding and connected caller integration after whole selection. Active U1 remains sole owner of its current production schemas/source; any required integration is assigned by parent after review. All actual SDK/native layouts, original issuer/source/keys/grants/slot profile and nine row reservations remain absent. No parser, writer or reader is implemented/executed here.
+
+For version3, capture_recorded refers only to the exact successfully captured immutable prefix under its original raw/stream predicates. The v3 verifier must always report the separate original terminal state from A: PREFIX_DURABLE_WITH_ORIGINAL_LIVE_TERMINAL_CUSTODY, PREFIX_DURABLE_WITH_PARTIAL_TERMINAL_CUSTODY or INCOMPLETE. It cannot interpret capture_recorded or a DECLARED_NOT_OBSERVED plan as FULL_DURABLE_TERMINAL_ACCEPTED. Host-loss or missing live suffix yields UNAVAILABLE/INCOMPLETE. This different acceptance boundary must be explicitly selected after whole review; no native/release verdict follows from successful private byte validation.
+
+## Current journal disposition
+
+SLF7JNL1 remains exactly192 bytes and ONLY events ENCRYPTION_RESERVED1,OBJECT_PERSISTED2,ATTEMPT_FROZEN3. Arbitrary SDK5 checkpoint events/entries are DISABLED. No journal revision or optional fallback is selected. All post-prefix native observations in A are LIVE_ONLY original terminal slots; no successful durable SDK checkpoint is claimed under JNL1. Existing journal records still preserve their original event identity/attempt32 and durable object facts; those are not SDK5 bodies. Journal freeze/readback/EOF results remain suffix. Once-only journal/package/crypto is never repeated for suffix capture.

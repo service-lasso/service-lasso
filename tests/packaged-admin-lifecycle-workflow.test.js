@@ -92,7 +92,7 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
   );
   assert.match(
     workflow,
-    /ADMIN_HARNESS_REVISION: "90caf8cf0f8e3c599a1a5022936813ac8bf0983b"/,
+    /ADMIN_HARNESS_REVISION: "6e0deec691b9ea8a9c4d128f68fd174253e1d8f3"/,
   );
   assert.match(workflow, /ref: \$\{\{ env\.ADMIN_HARNESS_REVISION \}\}/);
   assert.match(workflow, /timeout-minutes: 60/);
@@ -110,30 +110,50 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
     workflow,
     /Establish unique qualification custody before dependencies[\s\S]*?qualification_root="\$RUNNER_TEMP\/packaged-admin-lifecycle-\$GITHUB_RUN_ID-\$GITHUB_JOB-\$GITHUB_RUN_ATTEMPT-\$ADMIN_PLATFORM"[\s\S]*?QUALIFICATION_WORKSPACE_ROOT=\$QUALIFICATION_WORKSPACE_ROOT[\s\S]*?SERVICE_LASSO_INSTANCE_REGISTRY_PATH=\$SERVICE_LASSO_INSTANCE_REGISTRY_PATH[\s\S]*?SERVICE_LASSO_HOST_PORT_REGISTRY_PATH=\$SERVICE_LASSO_HOST_PORT_REGISTRY_PATH[\s\S]*?record-packaged-admin-first-custody\.mjs[\s\S]*?test -s "\$QUALIFICATION_INITIAL_RECEIPT_PATH"/,
   );
-  const custody=parsed.jobs["packaged-admin-lifecycle"].steps.find(step=>step.name==="Establish unique qualification custody before dependencies");assert.doesNotMatch(custody.run,/mkdir -p/u);assert.equal(parsed.jobs["packaged-admin-lifecycle"].env.QUALIFICATION_PLATFORM,"${{ matrix.admin_platform }}");
+  assert.match(
+    workflow,
+    /SERVICE_LASSO_TEST_CORE_INITIAL_PROJECTION=\$QUALIFICATION_INITIAL_PROJECTION_PATH[\s\S]*?pnpm test:secrets:real-first-run-browser/,
+  );
+  assert.match(
+    workflow,
+    /name: Initialize exact Admin qualification custody[\s\S]*?SERVICE_LASSO_QUALIFICATION_CORE_HEAD=\$core_head[\s\S]*?pnpm test:secrets:real-first-run-browser/,
+  );
+  assert.match(
+    workflow,
+    /initializeQualificationCustody[\s\S]*?prepare_admin_mode first-run[\s\S]*?prepare_admin_mode real-browser[\s\S]*?prepare_admin_mode stopped-lifecycle/,
+  );
+  assert.match(
+    workflow,
+    /SERVICE_LASSO_TEST_EVIDENCE_ROOT="\$SERVICE_LASSO_QUALIFICATION_EXTERNAL_ROOT\/evidence"[\s\S]*?mkdir -p "\$SERVICE_LASSO_TEST_EVIDENCE_ROOT" "\$SERVICE_LASSO_TEST_SUPPORT_ROOT"[\s\S]*?pnpm test:secrets:real-first-run-browser/,
+  );
+  const custody=parsed.jobs["packaged-admin-lifecycle"].steps.find(step=>step.name==="Establish unique qualification custody before dependencies");assert.match(custody.run,/test -s "\$QUALIFICATION_INITIAL_PROJECTION_PATH"[\s\S]*?mkdir -p "\$SERVICE_LASSO_TEST_SERVICES_ROOT" "\$SERVICE_LASSO_TEST_EVIDENCE_ROOT" "\$SERVICE_LASSO_TEST_SUPPORT_ROOT"/u);assert.equal(parsed.jobs["packaged-admin-lifecycle"].env.QUALIFICATION_PLATFORM,"${{ matrix.admin_platform }}");
   assert.doesNotMatch(workflow, /(?:timeout|deadline)[^\n]*?(?:real-browser|consume-admin-trusted-unlock-receipt)/iu);
+  assert.match(
+    workflow,
+    /prepare_admin_mode real-browser[\s\S]*?SERVICE_LASSO_ADMIN_RECEIPT_TIMEOUT_MS=1200000[\s\S]*?consume-admin-trusted-unlock-receipt\.mjs/,
+  );
   assert.match(
     workflow,
     /test "\$admin_revision" = "\$ADMIN_HARNESS_REVISION"/,
   );
   assert.match(workflow, /ADMIN_RELEASE_TAG: "2026\.8\.31-f015b44"/);
-  assert.match(workflow, /BROKER_RELEASE_TAG: "2026\.8\.31-f340883"/);
+  assert.match(workflow, /BROKER_RELEASE_TAG: "2026\.10\.15-3590178"/);
   assert.match(
     workflow,
-    /BROKER_REVISION: "f340883056ec3cf74b535fb46490b39382e8c823"/,
+    /BROKER_REVISION: "35901785afe832eb21ba071cc2c4882c7fbbb13b"/,
   );
   assert.equal(ADMIN_RELEASE.id, "380051618");
   assert.equal(ADMIN_RELEASE.revision, "f015b4445b0526546a309301270186a697588166");
-  assert.equal(ADMIN_HARNESS_REVISION, "90caf8cf0f8e3c599a1a5022936813ac8bf0983b");
-  assert.equal(BROKER_RELEASE.revision, "f340883056ec3cf74b535fb46490b39382e8c823");
+  assert.equal(ADMIN_HARNESS_REVISION, "6e0deec691b9ea8a9c4d128f68fd174253e1d8f3");
+  assert.equal(BROKER_RELEASE.revision, "35901785afe832eb21ba071cc2c4882c7fbbb13b");
 
   for (const digest of [
     "fe5e5fe01d1202f3874097e6223652d634c94677c765c5f82d20e6d274c0161c",
     "8f80b124967fa1e0efe9fa4c6c0d3aaa9f4f64ffdd15d1180359d2c6185d3e71",
     "2b5cdd80861819a7eb6f92ed5743c208baae8b35e7f4232fd3df928f34bfcb81",
-    "e64ee6a85c053c6dd68e2713477dae0620a458496bbd41077b55cc4c2df3f966",
-    "3466c9adf01d14b202fd084705bfda11fef627206587a0ad1f62dbb6a6a4f295",
-    "567b40bbd42881c5a4e12c2b8984ece9b5225d221ecf2d776fb541e330365ce5",
+    "0be11e53feb902871c407bd4bed7f557ec5aa11b52e769e703f9f7555350c852",
+    "5827a621bca6173d2d578e1acf9a4f074fc836bc5c89e73a15aedbf259124614",
+    "bfb5cf5a3f80964dbc947f84d6129c3b1d6caa39effe9af49c0090ba2c509a23",
   ]) {
     assert.match(workflow, new RegExp(digest));
   }
@@ -163,7 +183,7 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
   assert.match(workflow, /consume-admin-trusted-unlock-receipt\.mjs/);
   assert.match(
     workflow,
-    /consume-admin-trusted-unlock-receipt\.mjs[\s\S]*?--receipt[\s\S]*?-- "\$ADMIN_PNPM_NODE" "\$ADMIN_PNPM_ENTRYPOINT" test:secrets:real-browser/,
+    /consume-admin-trusted-unlock-receipt\.mjs[\s\S]*?--receipt[\s\S]*?-- "\$ADMIN_PNPM_NODE" "scripts\/verify-real-broker-browser\.mjs"/,
   );
   assert.match(workflow, /id: pnpm-action-pinned-entrypoint[\s\S]*?dest: \$\{\{ runner\.temp \}\}\/pnpm-action-pinned-entrypoint/);
   assert.match(workflow, /PNPM_ACTION_BIN_DEST: \$\{\{ steps\.pnpm-action-pinned-entrypoint\.outputs\.bin_dest \}\}/);

@@ -1272,6 +1272,7 @@ const BROKER_LIFECYCLE_PROXY_PATHS = new Map<string, BrokerManagementRouteDefini
 ]);
 
 const BROKER_OPERATIONS_PROXY_PATHS = new Map<string, BrokerManagementRouteDefinition>([
+  ["webdav", { method: "GET", brokerPath: "/v1/file-grants/status", permission: "workspace:read", sensitive: false }],
   ["telemetry", { method: "GET", brokerPath: "/v1/telemetry", permission: "workspace:read", sensitive: false }],
   ["events", { method: "GET", brokerPath: "/v1/events", permission: "workspace:read", sensitive: false }],
 ]);
@@ -1336,6 +1337,19 @@ export function matchBrokerManagementProxyRoute(method: string, url: URL): Broke
   if (!mapping || mapping.method !== method) return null;
 
   const params = new URLSearchParams();
+  if (mapping.brokerPath === "/v1/file-grants/status") {
+    for (const name of ["limit", "cursor"]) {
+      const values = url.searchParams.getAll(name);
+      if (values.length === 0) continue;
+      const value = values[0] ?? "";
+      const number = Number(value);
+      if (values.length !== 1 || !/^\d{1,6}$/u.test(value) ||
+          (name === "limit" ? number < 1 || number > 200 : number > 131072)) {
+        throw new ApiError("invalid_request", 400, "Invalid WebDAV inventory pagination.");
+      }
+      params.set(name, value);
+    }
+  }
   if (mapping.brokerPath === "/v1/management/secrets" && url.searchParams.has("search")) {
     params.set("search", (url.searchParams.get("search") ?? "").slice(0, 256));
   }
@@ -3013,7 +3027,10 @@ function createMcpGuardedActionFacade(
       ...(step.action === "start" ? plannedPortEffects(step.serviceId) : []),
     ]);
 
-  const buildStartArtifactBindings = async (serviceIds: string[]): Promise<{
+  const buildStartArtifactBindings = async (
+    serviceIds: string[],
+    executableScope: "runtime" | "targets" = "runtime",
+  ): Promise<{
     revisions: Record<string, string>;
     definitionRevisions: Record<string, string>;
     templateDigestsByService: Record<string, Readonly<Record<string, string>>>;
@@ -3048,7 +3065,9 @@ function createMcpGuardedActionFacade(
       revisions[serviceId] = binding.revision;
       effects.push(...binding.effects);
     }
-    const allExecutableBindings = await runtimeExecutableBindings();
+    const allExecutableBindings = await runtimeExecutableBindings(
+      executableScope === "targets" ? serviceIds : undefined,
+    );
     const allExecutableRevisions = Object.fromEntries(
       Object.entries(allExecutableBindings).map(([serviceId, binding]) => [serviceId, binding.revision]),
     );
@@ -3119,8 +3138,10 @@ function createMcpGuardedActionFacade(
       return [serviceId, await buildServiceMutationDefinitionRevision(service)];
     })));
 
-  const runtimeExecutableBindings = async (): Promise<Record<string, ServiceExecutableMutationBinding>> => Object.fromEntries(await Promise.all(
-    runtimeModel.discovered.map(async (candidate) => [
+  const runtimeExecutableBindings = async (
+    serviceIds?: readonly string[],
+  ): Promise<Record<string, ServiceExecutableMutationBinding>> => Object.fromEntries(await Promise.all(
+    runtimeModel.discovered.filter((candidate) => !serviceIds || serviceIds.includes(candidate.manifest.id)).map(async (candidate) => [
       candidate.manifest.id,
       await buildServiceExecutableMutationBinding(
         candidate,
@@ -3307,7 +3328,7 @@ function createMcpGuardedActionFacade(
       const selectedSteps = runtimePlan.steps.filter((step) => selected.has(step.serviceId));
       const blockers = selectedSteps.filter((step) => step.status === "blocked");
       const steps = selectedSteps.filter((step) => step.status === "would_run");
-      const artifactPlan = await buildStartArtifactBindings(steps.map((step) => step.serviceId));
+      const artifactPlan = await buildStartArtifactBindings(steps.map((step) => step.serviceId), "targets");
       const allBlockers = [
         ...blockers.map((step) => `${step.serviceId} blocked: ${step.reason ?? "blocked"}`),
         ...artifactPlan.blockers,
@@ -3513,7 +3534,7 @@ function createMcpGuardedActionFacade(
         throw new ApiError("guarded_plan_changed", 409, "The authoritative guarded action plan changed before execution.");
       }
       const startArtifactPlan = action === "service_start" || action === "runtime_start_all"
-        ? await buildStartArtifactBindings(approvedPlan.targets)
+        ? await buildStartArtifactBindings(approvedPlan.targets, action === "service_start" ? "targets" : "runtime")
         : null;
       if (startArtifactPlan && (startArtifactPlan.blockers.length > 0 || startArtifactPlan.revision !== approvedPlan.revision)) {
         throw new ApiError("guarded_plan_changed", 409, "The authoritative guarded install candidates changed before execution.");
