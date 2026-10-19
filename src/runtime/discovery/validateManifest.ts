@@ -1273,11 +1273,11 @@ function readManifestIngress(value: unknown, manifestPath: string): ServiceIngre
     }
 
     return {
-      domain,
+      ...(domain !== undefined ? { domain } : {}),
       proxy: {
         type: rawType as ServiceIngressType,
-        endpoint,
-        root,
+        ...(endpoint !== undefined ? { endpoint } : {}),
+        ...(root !== undefined ? { root } : {}),
       },
     };
   });
