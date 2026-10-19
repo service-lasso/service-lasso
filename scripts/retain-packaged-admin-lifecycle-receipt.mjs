@@ -10,7 +10,8 @@ export async function retainReceipt({ receiptPath, evidencePath, retainedPath, r
   const info = await lstat(receiptPath).catch(() => null);
   if (!info?.isFile() || info.isSymbolicLink() || info.size <= 0 || info.size > 2048) throw new Error("Consumer receipt is missing, private, or out of bounds.");
   const receipt = parseConsumerReceipt(await readFile(receiptPath, "utf8"));
-  if (!receipt || !isRetainableConsumerReceipt(receipt)) throw new Error("Consumer receipt is missing, malformed, private, or invalid.");
+  if (!receipt) throw new Error("Consumer receipt is missing, malformed, private, or invalid.");
+  if (!isRetainableConsumerReceipt(receipt)) throw new Error(`Consumer receipt is not retainable: outcome=${receipt.outcome}; trustedUnlock=${receipt.trustedUnlock.classification}.`);
   const evidenceInfo = await lstat(evidencePath).catch(() => null);
   if (!evidenceInfo?.isFile() || evidenceInfo.isSymbolicLink() || evidenceInfo.size <= 0 || evidenceInfo.size > 16384) throw new Error("Platform evidence is missing, private, or out of bounds.");
   const evidenceSource = await readFile(evidencePath, "utf8");
