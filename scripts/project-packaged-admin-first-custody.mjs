@@ -88,7 +88,23 @@ if(bootstrapSeal.session!==null) {
   const session=bootstrapSeal.session,tool=session.tool,result=session.result,requested=path.join(process.env.SystemRoot??"C:\\Windows","System32","WindowsPowerShell","v1.0","powershell.exe");
   let bootstrapProofFailure = "unknown";
   const bootstrapObservation = { enter() {}, pass() {}, fail(reason, predicate) { if (predicate()) { bootstrapProofFailure = reason; return true; } return false; }, rejected(reason) { bootstrapProofFailure = reason; } };
-  if(!exact(session,["tool","args","native","result"])||!exact(tool,["name","requested","resolved","file"])||tool.name!=="powershell"||tool.requested!==requested||!fileProof(tool.file)||JSON.stringify(session.args)!==JSON.stringify(["-NoLogo","-NoProfile","-NonInteractive","-Command",bootstrapProtocolScript()])||!nativeProof(session.native,tool.resolved,workspace,receipt.platform,bootstrapObservation)||session.native.imageSha256!==tool.file.sha256||!sameIdentity(session.native.parents.at(-1),journal.commands[0].native.parents.at(-1))||!exact(result,["naturalWaitForExit","exitCode","signal","stdoutEof","stderrEof","stdin","stdout","stderr","stdinSha256","stdoutSha256","stderrSha256"])||result.naturalWaitForExit!==true||result.exitCode!==0||result.signal!==null||result.stdoutEof!==true||result.stderrEof!==true||!rawBuffer(result.stdin,result.stdinSha256)||!rawBuffer(result.stdout,result.stdoutSha256)||!rawBuffer(result.stderr,result.stderrSha256)||result.stderr.data.length!==0)throw new Error(`first_custody_validator_bootstrap_native_invalid:${bootstrapProofFailure}`);
+  const failBootstrap = stage => { throw new Error(`first_custody_validator_bootstrap_native_invalid:${stage}`); };
+  if (!exact(session, ["tool", "args", "native", "result"])) failBootstrap("session_shape");
+  if (!exact(tool, ["name", "requested", "resolved", "file"]) || tool.name !== "powershell" || tool.requested !== requested || !fileProof(tool.file)) failBootstrap("tool_shape");
+  if (JSON.stringify(session.args) !== JSON.stringify(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", bootstrapProtocolScript()])) failBootstrap("args");
+  if (!nativeProof(session.native, tool.resolved, workspace, receipt.platform, bootstrapObservation)) failBootstrap(`native:${bootstrapProofFailure}`);
+  if (session.native.imageSha256 !== tool.file.sha256) failBootstrap("image_sha");
+  if (!sameIdentity(session.native.parents.at(-1), journal.commands[0].native.parents.at(-1))) failBootstrap("caller");
+  if (!exact(result, ["naturalWaitForExit", "exitCode", "signal", "stdoutEof", "stderrEof", "stdin", "stdout", "stderr", "stdinSha256", "stdoutSha256", "stderrSha256"])) failBootstrap("result_shape");
+  if (result.naturalWaitForExit !== true) failBootstrap("natural_exit");
+  if (result.exitCode !== 0) failBootstrap("exit");
+  if (result.signal !== null) failBootstrap("signal");
+  if (result.stdoutEof !== true) failBootstrap("stdout_eof");
+  if (result.stderrEof !== true) failBootstrap("stderr_eof");
+  if (!rawBuffer(result.stdin, result.stdinSha256)) failBootstrap("stdin_raw");
+  if (!rawBuffer(result.stdout, result.stdoutSha256)) failBootstrap("stdout_raw");
+  if (!rawBuffer(result.stderr, result.stderrSha256)) failBootstrap("stderr_raw");
+  if (result.stderr.data.length !== 0) failBootstrap("stderr_content");
   const actual=await regularClosedFile(tool.resolved,path.parse(tool.resolved).root);if(actual.size!==tool.file.size||actual.sha256!==tool.file.sha256||await realpath(tool.requested)!==tool.resolved)throw new Error("first_custody_validator_bootstrap_tool_changed");
   const requests=[],outputs=[];
   for(const probe of bootstrapSeal.commands){
