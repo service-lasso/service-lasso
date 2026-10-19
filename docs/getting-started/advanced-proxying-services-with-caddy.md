@@ -20,20 +20,31 @@ private on loopback, while its domain is served by Traefik (TLS) and, for
 FastCGI backends, translated by `@caddy`. The service is still reachable
 directly on its own endpoint.
 
-<div className="tutorial-architecture">
+<div className="tutorial-architecture" aria-label="Proxying services with Caddy">
+
+<p style={{textAlign: 'center'}}><strong>Proxying services with Caddy</strong></p>
 
 ```mermaid
+%%{init: {"flowchart": {"nodeSpacing": 24, "rankSpacing": 28, "padding": 18, "subGraphTitleMargin": {"top": 10, "bottom": 20}}, "themeVariables": {"fontFamily": "system-ui, sans-serif"}}}%%
 flowchart LR
-  client(["Client<br/>HTTPS :443"])
+  accTitle: Shared Caddy translates FastCGI behind Traefik
+  accDescr: Clients reach Traefik over HTTPS. Traefik terminates TLS and routes each domain either directly to an HTTP service or to the shared Caddy translator for FastCGI backends. Caddy forwards to the private FastCGI endpoint.
+  client(["<b>Client</b><br/><small>HTTPS :443</small>"])
   traefik("<b>Traefik</b><br/><small>TLS + Host routing</small>")
-  caddy("<b>@caddy</b> (shared)<br/><small>HTTP to FastCGI</small>")
-  nextcloud("<b>Nextcloud</b><br/><small>php-cgi :9000</small>")
-  echo("<b>echo-service</b><br/><small>HTTP :4010</small>")
-
+  subgraph lasso["Service Lasso"]
+    caddy("<b>@caddy</b><br/><small>HTTP to FastCGI</small>")
+    nextcloud("<b>Nextcloud</b><br/><small>php-cgi / php-fpm :9000</small>")
+    echo("<b>echo-service</b><br/><small>HTTP :4010</small>")
+    caddy -->|FastCGI| nextcloud
+  end
   client --> traefik
   traefik -->|"nextcloud.servicelasso.localhost"| caddy
   traefik -->|"echo-service.servicelasso.localhost"| echo
-  caddy -->|FastCGI| nextcloud
+  classDef service stroke-width:1.5px
+  classDef added stroke-width:2.5px
+  classDef optional stroke-dasharray:5 4
+  class traefik,echo,nextcloud service
+  class caddy added
 ```
 
 </div>
