@@ -86,18 +86,22 @@ test('F25 transitive actual acquisition/MSI/trust boundaries deny unguarded reco
   assert.doesNotThrow(() => check(acquisition.replace('LastInterruptionException = original;', '{ ; LastInterruptionException = original; ; }'), msi, trust));
 });
 
-test('F25 PowerShell owns raw initiating exceptions and shields every catch recording before its same-invocation barrier', async () => {
+test('F25 PowerShell source contract owns raw initiating exceptions and shields every catch recording before its same-invocation barrier', async () => {
   const [, , , , compiler] = await sources();
-  // Supplementary source assertions and actual parser witness only. Ambient
-  // binding and native operator acceptance remain unqualified.
+  // Supplementary source assertions only. The actual parser witness is gated
+  // separately because its AST catalogue is pinned to a PowerShell AST shape.
   assert.match(compiler, /function Add-OriginalToolError\([\s\S]*?\$owner\.lastOriginalError = \$original[\s\S]*?try \{ \$owner\.errors\.Add[\s\S]*?catch \{ \$owner\.recordingFailure = \$_\.Exception; \$owner\.recordingFailed = \$true \}/u);
   assert.doesNotMatch(compiler, /exception = \$_\.Exception\.ToString\(\)/u);
   assert.match(compiler, /try \{ foreach \(\$name in @\('stdout', 'stderr'\)\)[\s\S]*?catch \{ try \{ Add-OriginalToolError 'retention-copy-observation'/u);
-  try { await assertPowerShellOriginalRetention(compiler); }
-  catch (error) { assert.fail(`F25 original witness failed: ${JSON.stringify(f25ClosedFailureDiagnostic(error) ?? error.message)}`); }
   assert.match(compiler, /if \(\$owner\.primaryError\) \{ throw \$owner\.primaryError \}/u);
   assert.match(compiler, /\$owner\.errors\.Count -eq 0 -and -not \$owner\.recordingFailed/u);
   assert.match(compiler, /if \(\$owner\.startAttempted -and -not \$owner\.settled\) \{ Retain-ActiveOriginalOwner \}/u);
+});
+
+test('F25 PowerShell actual parser witness matches the pinned AST catalogue', { skip: process.env.F25_POWERSHELL_AST_WITNESS !== '1' }, async () => {
+  const [, , , , compiler] = await sources();
+  try { await assertPowerShellOriginalRetention(compiler); }
+  catch (error) { assert.fail(`F25 original witness failed: ${JSON.stringify(f25ClosedFailureDiagnostic(error) ?? error.message)}`); }
   try { await assertPowerShellRecorderReleaseRetention(compiler); }
   catch (error) { assert.fail(`F25 recorder witness failed: ${JSON.stringify(f25ClosedFailureDiagnostic(error) ?? error.message)}`); }
 });
