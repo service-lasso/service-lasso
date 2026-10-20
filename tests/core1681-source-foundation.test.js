@@ -5,9 +5,12 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { decodeOriginal, lexOriginal, SourceDenial } from './helpers/core1681-source-input.mjs';
 import { parseSourceForest, enumerateForest } from './helpers/core1681-source-forest.mjs';
-import { admitBundle, bindSource, checkFoundationBindings, produceFoundation, validateCatalogue, SELECTED_INPUTS,
+import { admitBundle as admitOriginalBundle, createSelectedSourceEnvelope, bindSource, checkFoundationBindings, produceFoundation as produceOriginalFoundation, validateCatalogue, SELECTED_INPUTS,
   ADAPTERS, CONDITION_VERSION, DECLARATION_VERSION } from './helpers/core1681-source-binding.mjs';
 import { FIXED_FOUNDATION_CATALOGUES } from './helpers/core1681-source-catalogues.mjs';
+import { createProofCounter } from './helpers/core1681-proof-terms.mjs';
+const admitBundle = input => admitOriginalBundle(input, createSelectedSourceEnvelope(createProofCounter()));
+const produceFoundation = input => produceOriginalFoundation(input, createSelectedSourceEnvelope(createProofCounter()));
 
 const bytes = text => new TextEncoder().encode(text);
 const identity = (language = 'javascript', version = 'fixture-original-1') => ({ id: 'fixture', inventoryOrdinal: 0,
