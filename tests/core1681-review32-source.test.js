@@ -3,7 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { assertPowerShellOriginalRetention, assertPowerShellRecorderReleaseRetention } from './helpers/core1562-powershell-retention-source.mjs';
+import { assertPowerShellOriginalRetention, assertPowerShellRecorderReleaseRetention, f25ClosedFailureDiagnostic } from './helpers/core1562-powershell-retention-source.mjs';
 import { assertManagedClosureSourceConformance, assertAcquisitionRecordingSourceConformance } from './helpers/core1681-managed-closure-source-contract.mjs';
 
 const sourcePaths = ['src/runtime/execution/windows-managed-launcher-native.cs', 'scripts/native/core1681-acquisition.cs',
@@ -93,9 +93,11 @@ test('F25 PowerShell owns raw initiating exceptions and shields every catch reco
   assert.match(compiler, /function Add-OriginalToolError\([\s\S]*?\$owner\.lastOriginalError = \$original[\s\S]*?try \{ \$owner\.errors\.Add[\s\S]*?catch \{ \$owner\.recordingFailure = \$_\.Exception; \$owner\.recordingFailed = \$true \}/u);
   assert.doesNotMatch(compiler, /exception = \$_\.Exception\.ToString\(\)/u);
   assert.match(compiler, /try \{ foreach \(\$name in @\('stdout', 'stderr'\)\)[\s\S]*?catch \{ try \{ Add-OriginalToolError 'retention-copy-observation'/u);
-  await assert.doesNotReject(() => assertPowerShellOriginalRetention(compiler));
+  try { await assertPowerShellOriginalRetention(compiler); }
+  catch (error) { assert.fail(`F25 original witness failed: ${JSON.stringify(f25ClosedFailureDiagnostic(error) ?? error.message)}`); }
   assert.match(compiler, /if \(\$owner\.primaryError\) \{ throw \$owner\.primaryError \}/u);
   assert.match(compiler, /\$owner\.errors\.Count -eq 0 -and -not \$owner\.recordingFailed/u);
   assert.match(compiler, /if \(\$owner\.startAttempted -and -not \$owner\.settled\) \{ Retain-ActiveOriginalOwner \}/u);
-  await assert.doesNotReject(() => assertPowerShellRecorderReleaseRetention(compiler));
+  try { await assertPowerShellRecorderReleaseRetention(compiler); }
+  catch (error) { assert.fail(`F25 recorder witness failed: ${JSON.stringify(f25ClosedFailureDiagnostic(error) ?? error.message)}`); }
 });
