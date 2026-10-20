@@ -4,6 +4,8 @@ title: Package the example for another machine
 
 # Package the example for another machine
 
+For a native Windows installer, follow [Package Todo as a Tauri desktop app](getting-started/package-todo-tauri.md). That lesson wraps the managed service stack using our app template and compiles an `.exe`.
+
 Start with the [Intermediate — durable PostgreSQL example](getting-started/intermediate-make-todo-app-durable.md) after the [Beginner — Todo app](getting-started/beginner-todo-app.md). This exercise makes a **source package**: the recipient needs Node.js 22+, npm, and internet access to install the pinned runtime and service releases.
 
 From `examples/postgres-app`, stop the example and create the package:

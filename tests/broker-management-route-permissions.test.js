@@ -15,6 +15,7 @@ function match(method, path) {
 
 test("broker management proxy maps only canonical routes with fail-closed permissions", () => {
   const expected = [
+    ["GET", "/api/services/%40secretsbroker/operations/webdav", "workspace:read", false],
     ["GET", "/api/services/%40secretsbroker/secrets/management", "workspace:read", false],
     ["GET", "/api/services/%40secretsbroker/secrets/value-search?query=token", "security:manage", false],
     ["POST", "/api/services/%40secretsbroker/secrets/reveal", "security:manage", true],
@@ -163,4 +164,15 @@ test("direct Broker rotation mutations fail closed when Core finds linked consum
     ),
     false,
   );
+});
+
+test("WebDAV inventory permits bounded metadata queries and rejects writes", () => {
+  const route = match("GET", "/api/services/%40secretsbroker/operations/webdav?limit=100&cursor=100&token=private");
+  assert.equal(route.brokerPath, "/v1/file-grants/status?limit=100&cursor=100");
+  assert.equal(route.permission, "workspace:read");
+  assert.equal(match("POST", "/api/services/%40secretsbroker/operations/webdav"), null);
+  for (const query of ["limit=201", "limit=0", "cursor=-1", "cursor=131073", "limit=1&limit=2"]) {
+    assert.throws(() => match("GET", `/api/services/%40secretsbroker/operations/webdav?${query}`), /Invalid WebDAV inventory pagination/);
+  }
+  assert.equal(responseContainsForbiddenBrokerMaterial({ files: [{token: "private"}] }, false), true);
 });

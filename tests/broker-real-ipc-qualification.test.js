@@ -25,6 +25,7 @@ const execFileAsync = promisify(execFile);
 
 const expectedManagementResults = new Map([
   ["GET /v1/events", { statusCode: 200, outcome: "ready" }],
+  ["GET /v1/file-grants/status", { statusCode: 200, outcome: "ready" }],
   ["GET /v1/management/lifecycle/backups", { statusCode: 200, outcome: "ready" }],
   ["GET /v1/management/lifecycle/status", { statusCode: 200, outcome: "ready" }],
   ["GET /v1/management/secrets", { statusCode: 200, outcome: "ready" }],
@@ -236,7 +237,7 @@ function markPrepared(serviceId, binary) {
         sourceType: "release-qualification",
         repo: "service-lasso/lasso-secretsbroker",
         channel: null,
-        tag: "2026.8.31-f340883",
+        tag: "2026.10.15-3590178",
         assetName: path.basename(binary),
         assetUrl: null,
         archiveType: null,
@@ -702,7 +703,7 @@ test(
 
       const publicEvidence = {
         schemaVersion: 1,
-        brokerRelease: "2026.8.31-f340883",
+        brokerRelease: "2026.10.15-3590178",
         transportKind: bootstrap.transportKind,
         managementRoutes: managementRouteEvidence,
         boundaries: {

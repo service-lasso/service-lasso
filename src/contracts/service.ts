@@ -73,6 +73,7 @@ export interface ServicePortMappingDeclaration {
 export interface ServiceMaterializedFile {
   path: string;
   content: string;
+  /** Secret config output recreated in Broker RAM before each launch (explicit Linux tmpfs alternative). */
 }
 
 export interface ServiceMaterializedTemplate {
@@ -422,6 +423,9 @@ export interface ServiceBrokerWritebackPolicy {
 }
 
 export interface ServiceBrokerPolicy {
+  /** Disposable secret outputs provisioned by Broker at fresh launch. */
+  files?: ServiceMaterializedFile[];
+  templates?: ServiceMaterializedTemplate[];
   enabled?: boolean;
   namespace?: string;
   buckets?: ServiceBrokerBucket[];
@@ -429,6 +433,19 @@ export interface ServiceBrokerPolicy {
   exports?: ServiceBrokerExport[];
   accessPolicy?: ServiceBrokerAccessPolicy;
   writeback?: ServiceBrokerWritebackPolicy;
+}
+
+export type ServiceIngressType = "fastcgi" | "http";
+
+export interface ServiceIngressProxy {
+  type: ServiceIngressType;
+  endpoint?: string;
+  root?: string;
+}
+
+export interface ServiceIngress {
+  domain?: string;
+  proxy: ServiceIngressProxy;
 }
 
 export interface ServiceManifest {
@@ -451,6 +468,7 @@ export interface ServiceManifest {
   globalenv?: ServiceEnvMap;
   broker?: ServiceBrokerPolicy;
   endpoints?: ServiceManifestEndpoint[];
+  ingress?: ServiceIngress[];
   ports?: ServicePortDeclaration;
   portmapping?: ServicePortMappingDeclaration;
   urls?: ServiceUrlEndpoint[];

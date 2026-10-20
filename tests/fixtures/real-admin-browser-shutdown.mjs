@@ -1,19 +1,19 @@
 import { access, rm } from "node:fs/promises";
 
 const DEFAULT_ADMIN_GRACEFUL_EXIT_TIMEOUT_MS = 5_000;
-const DEFAULT_ADMIN_FORCED_EXIT_TIMEOUT_MS = 5_000;
 const DEFAULT_SERVER_CLOSE_TIMEOUT_MS = 5_000;
 const DEFAULT_TEMP_CLEANUP_TIMEOUT_MS = 90_000;
 
 const SAFE_TEARDOWN_PHASES = new Set([
   "admin_terminate",
-  "admin_force_kill",
   "admin_exit_wait",
   "api_server_stop",
   "managed_process_convergence",
   "api_server_close",
   "broker_ipc_close",
   "vault_server_close",
+  "vault_provider_server_close",
+  "receipt_work_settlement",
   "lifecycle_reset",
   "temp_root_cleanup",
 ]);
@@ -86,44 +86,54 @@ async function stopAdminProcess(child, timeouts) {
     );
   }
 
-  const forcedExit = waitForChildExit(child, timeouts.adminForcedExitTimeoutMs);
-  try {
-    if (!child.kill("SIGKILL") && !childHasExited(child)) {
-      failures.push(
-        safeFailure("admin_force_kill", null, "admin_force_kill_failed"),
-      );
-    }
-  } catch (error) {
-    failures.push(
-      safeFailure("admin_force_kill", error, "admin_force_kill_failed"),
-    );
-  }
-  try {
-    if (!(await forcedExit)) {
-      failures.push(safeFailure("admin_exit_wait", null, "admin_exit_timeout"));
-    }
-  } catch (error) {
-    failures.push(
-      safeFailure("admin_exit_wait", error, "admin_exit_wait_failed"),
-    );
-  }
+  failures.push(safeFailure("admin_exit_wait", null, "admin_exit_timeout"));
   return { exited: childHasExited(child), failures };
 }
 
-async function closeServer(server, timeoutMs) {
+function observeServerClose(server) {
+  if (!server?.once) return null;
+  let resolve;
+  const observation = {
+    observed: false,
+    wasListening: server.listening === true,
+    closed: new Promise((done) => { resolve = done; }),
+    dispose: () => server.off("close", onClose),
+  };
+  const onClose = () => { observation.observed = true; resolve(); };
+  server.once("close", onClose);
+  return observation;
+}
+
+async function closeServer(server, timeoutMs, observation) {
   if (!server) return;
+  if (observation?.observed) { observation.dispose(); return; }
   let timer;
   const closed = new Promise((resolve, reject) => {
+    observation?.closed.then(resolve);
+    const onError = (error) => {
+      if (error?.code !== "ERR_SERVER_NOT_RUNNING" || !observation) {
+        reject(error);
+      } else if (!observation.wasListening && typeof server.getConnections === "function") {
+        // A server supplied after close began may still own live connections.
+        // Only an initially non-listening, empty server needs no new close event.
+        try {
+          server.getConnections((queryError, count) => {
+            if (queryError) reject(queryError);
+            else if (count === 0) resolve();
+          });
+        } catch (queryError) { reject(queryError); }
+      }
+      // Otherwise retain the original close observer through the deadline.
+    };
     try {
       server.close((error) => {
-        if (!error || error.code === "ERR_SERVER_NOT_RUNNING") resolve();
-        else reject(error);
+        if (!error) resolve();
+        else onError(error);
       });
       server.closeIdleConnections?.();
       server.closeAllConnections?.();
     } catch (error) {
-      if (error?.code === "ERR_SERVER_NOT_RUNNING") resolve();
-      else reject(error);
+      onError(error);
     }
   });
   const timeout = new Promise((_, reject) => {
@@ -140,34 +150,27 @@ async function closeServer(server, timeoutMs) {
     await Promise.race([closed, timeout]);
   } finally {
     clearTimeout(timer);
+    observation?.dispose();
   }
 }
 
 async function removeTempRootBoundedly(tempRoot, timeoutMs, removeTempRoot) {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    try {
-      await removeTempRoot(tempRoot, {
-        recursive: true,
-        force: true,
-        maxRetries: 8,
-        retryDelay: 250,
-      });
-      try {
-        await access(tempRoot);
-        const error = new Error(
-          "Temporary root still exists after fixture teardown.",
-        );
-        error.code = "temp_root_still_present";
-        throw error;
-      } catch (error) {
-        if (error?.code === "ENOENT") return;
-        throw error;
-      }
-    } catch (error) {
-      if (Date.now() >= deadline) throw error;
-      await new Promise((resolve) => setTimeout(resolve, 500));
-    }
+  await removeTempRoot(tempRoot, {
+    recursive: true,
+    force: false,
+    maxRetries: 0,
+    retryDelay: 0,
+  });
+  try {
+    await access(tempRoot);
+    const error = new Error(
+      "Temporary root still exists after fixture teardown.",
+    );
+    error.code = "temp_root_still_present";
+    throw error;
+  } catch (error) {
+    if (error?.code === "ENOENT") return;
+    throw error;
   }
 }
 
@@ -203,15 +206,20 @@ export async function teardownRealAdminBrowserFixture({
   resetLifecycle,
   tempRoot,
   removeTempRoot = rm,
+  settleOwnedWork = async () => {},
+  beforeTempRemoval = async () => {},
   timeouts: timeoutOverrides = {},
 }) {
   const timeouts = {
     adminGracefulExitTimeoutMs: DEFAULT_ADMIN_GRACEFUL_EXIT_TIMEOUT_MS,
-    adminForcedExitTimeoutMs: DEFAULT_ADMIN_FORCED_EXIT_TIMEOUT_MS,
     serverCloseTimeoutMs: DEFAULT_SERVER_CLOSE_TIMEOUT_MS,
     tempCleanupTimeoutMs: DEFAULT_TEMP_CLEANUP_TIMEOUT_MS,
     ...timeoutOverrides,
   };
+  // Observe the original servers before stop() can initiate asynchronous close.
+  const apiClose = observeServerClose(apiServer?.server);
+  const vaultClose = observeServerClose(vaultServer);
+  const vaultProviderClose = observeServerClose(vaultProviderServer);
   const adminStop = await stopAdminProcess(adminProcess, timeouts);
   const failures = [...adminStop.failures];
 
@@ -239,7 +247,7 @@ export async function teardownRealAdminBrowserFixture({
   }
   let apiServerClosed = !apiServer?.server;
   try {
-    await closeServer(apiServer?.server, timeouts.serverCloseTimeoutMs);
+    await closeServer(apiServer?.server, timeouts.serverCloseTimeoutMs, apiClose);
     apiServerClosed = true;
   } catch (error) {
     failures.push(
@@ -257,7 +265,7 @@ export async function teardownRealAdminBrowserFixture({
   }
   let vaultServerClosed = !vaultServer;
   try {
-    await closeServer(vaultServer, timeouts.serverCloseTimeoutMs);
+    await closeServer(vaultServer, timeouts.serverCloseTimeoutMs, vaultClose);
     vaultServerClosed = true;
   } catch (error) {
     failures.push(
@@ -266,7 +274,7 @@ export async function teardownRealAdminBrowserFixture({
   }
   let vaultProviderServerClosed = !vaultProviderServer;
   try {
-    await closeServer(vaultProviderServer, timeouts.serverCloseTimeoutMs);
+    await closeServer(vaultProviderServer, timeouts.serverCloseTimeoutMs, vaultProviderClose);
     vaultProviderServerClosed = true;
   } catch (error) {
     failures.push(
@@ -277,8 +285,18 @@ export async function teardownRealAdminBrowserFixture({
       ),
     );
   }
+  let ownedWorkSettled = false;
+  try {
+    await settleOwnedWork();
+    ownedWorkSettled = true;
+  } catch (error) {
+    if (error instanceof RealAdminBrowserTeardownError) failures.push(...error.failures);
+    else failures.push(safeFailure("receipt_work_settlement", error, "receipt_work_failed"));
+  }
+  let lifecycleReset = false;
   try {
     resetLifecycle();
+    lifecycleReset = true;
   } catch (error) {
     failures.push(
       safeFailure("lifecycle_reset", error, "lifecycle_reset_failed"),
@@ -290,9 +308,11 @@ export async function teardownRealAdminBrowserFixture({
     apiServerClosed &&
     brokerIPCClosed &&
     vaultServerClosed &&
-    vaultProviderServerClosed
+    vaultProviderServerClosed &&
+    ownedWorkSettled && lifecycleReset
   ) {
     try {
+      await beforeTempRemoval();
       await removeTempRootBoundedly(
         tempRoot,
         timeouts.tempCleanupTimeoutMs,
@@ -306,4 +326,16 @@ export async function teardownRealAdminBrowserFixture({
   }
 
   if (failures.length > 0) throw new RealAdminBrowserTeardownError(failures);
+  return {
+    admin: {
+      exited: adminStop.exited,
+      exitCode: adminProcess?.exitCode ?? null,
+      signalCode: adminProcess?.signalCode ?? null,
+    },
+    apiServerClosed,
+    managedProcessesConverged,
+    brokerIPCClosed,
+    vaultServerClosed,
+    vaultProviderServerClosed,
+  };
 }

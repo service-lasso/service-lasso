@@ -5,6 +5,15 @@ import type {
 } from "../../contracts/service.js";
 import path from "node:path";
 import { withServiceStartSerialization } from "./start-serialization.js";
+import {
+  buildCaddyRegisterPayload,
+  listCaddyIngressRegistrations,
+  registerCaddyIngress,
+  resolveCaddyAdminAddress,
+  resolveCaddyIngressPort,
+  unregisterCaddyIngress,
+} from "../ingress/caddy.js";
+import { windowsTreeInspectionFailureMetadata } from "../process/windows-tree-inspection-diagnostics.js";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { evaluateServiceIsolation, assertIsolationStartAllowed } from "../isolation/evaluate.js";
@@ -13,6 +22,7 @@ import {
   beginManagedProcessStop,
   hasManagedProcess,
   ManagedProcessEnrollmentContainmentError,
+  managedProcessLauncherPayloadFailureBoundary,
   managedProcessStartFailurePhase,
   registerManagedProcessShutdownQuiescer,
   startManagedProcess,
@@ -37,6 +47,7 @@ import {
   resolveSecretsBrokerLaunchLeaseIssuer,
 } from "../broker/launch-lookup.js";
 import { SECRETSBROKER_SERVICE_ID } from "../broker/operator-config.js";
+import { createRAMSecretFileGrant, revokeRAMSecretFileGrant, type RAMSecretFileGrant } from "../broker/ram-webdav.js";
 import { onboardMissingProducerSecrets } from "../broker/onboard.js";
 import {
   mergeServiceVariableResolutionOptions,
@@ -76,6 +87,7 @@ import {
 import {
   materializeConfigArtifacts,
   materializeInstallArtifacts,
+  materializeEphemeralSecretFiles,
 } from "../setup/materialize.js";
 import type { MaterializationWriteHooks, StartupArtifactAcquisitionHooks } from "../startup/materialization.js";
 import { writeServiceState } from "../state/writeState.js";
@@ -90,9 +102,12 @@ import type {
   ServiceStartTraceAttempt,
   ServiceStartTraceEventStatus,
   ServiceStartTracePhase,
+  ServiceRestartTraceAttempt,
+  ServiceRestartTraceStage,
 } from "./types.js";
 
 const START_TRACE_HISTORY_LIMIT = 5;
+const RESTART_TRACE_HISTORY_LIMIT = 4;
 const DEFAULT_RESTART_MAX_ATTEMPTS = 3;
 const DEFAULT_RESTART_BACKOFF_SECONDS = 5;
 const DEFAULT_STOP_ACTION_TIMEOUT_SECONDS = 30;
@@ -103,6 +118,13 @@ const scheduledSupervisionRestarts = new Map<string, ReturnType<typeof setTimeou
 const activeSupervisionRestarts = new Map<string, Promise<void>>();
 const supervisionRestartClaims = new Set<string>();
 const shutdownRequestedServiceIds = new Set<string>();
+let readinessWaiterForTests: typeof waitForServiceReadiness | null = null;
+
+export function setReadinessWaiterForTests(
+  waiter: typeof waitForServiceReadiness | null,
+): void {
+  readinessWaiterForTests = waiter;
+}
 
 registerManagedProcessShutdownQuiescer(async (managedServiceIds) => {
   const serviceIds = new Set([
@@ -230,6 +252,10 @@ export interface ServiceLifecycleActionOptions {
   expectedExecutableRevision?: string;
   expectedExecutableFiles?: readonly ExecutableInputFileDigest[];
   expectedStopExecutableBinding?: ServiceStopExecutableMutationBinding;
+  // Only a supported explicit operator request may begin a new Windows
+  // inspection episode. Automatic supervision/finalization keeps its current
+  // bounded episode so a terminal native result cannot be reopened.
+  newWindowsInspectionEpisode?: boolean;
   expectedDoctorExecutableBindings?: Readonly<Record<string, ServiceExecutableMutationBinding>>;
   supervisionRestart?: {
     reason: ServiceRuntimeSupervisionRestartReason;
@@ -448,6 +474,32 @@ function failStartTraceAndThrow(
   throw new LifecycleStateError(message);
 }
 
+function beginRestartTrace(serviceId: string): ServiceRestartTraceAttempt {
+  const attempt: ServiceRestartTraceAttempt = { status: "running", events: [] };
+  try {
+    updateRuntimeState(serviceId, (state) => ({ ...state, runtime: { ...state.runtime, restartTrace: { ...state.runtime.restartTrace, current: { ...attempt, events: [] } } } }));
+  } catch { /* diagnostics never affect lifecycle behavior */ }
+  return attempt;
+}
+
+function recordRestartTrace(serviceId: string, attempt: ServiceRestartTraceAttempt, stage: ServiceRestartTraceStage, status: ServiceStartTraceEventStatus, oldNewProcessRelation: "unavailable" | "prior_generation_running" | "replacement_spawned" = "unavailable"): void {
+  try {
+    if (attempt.events.length >= 7) return;
+    attempt.events.push({ order: attempt.events.length + 1, stage, status, oldNewProcessRelation });
+    updateRuntimeState(serviceId, (state) => ({ ...state, runtime: { ...state.runtime, restartTrace: { ...state.runtime.restartTrace, current: { ...attempt, events: attempt.events.map((event) => ({ ...event })) } } } }));
+  } catch { /* diagnostics never affect lifecycle behavior */ }
+}
+
+function finishRestartTrace(serviceId: string, attempt: ServiceRestartTraceAttempt, status: "succeeded" | "failed" | "blocked", oldNewProcessRelation: "unavailable" | "prior_generation_running" | "replacement_spawned" = "unavailable"): void {
+  try {
+    if (attempt.status !== "running") return;
+    recordRestartTrace(serviceId, attempt, "response", status === "succeeded" ? "completed" : status, oldNewProcessRelation);
+    attempt.status = status;
+    const completed = { ...attempt, events: attempt.events.map((event) => ({ ...event })) };
+    updateRuntimeState(serviceId, (state) => ({ ...state, runtime: { ...state.runtime, restartTrace: { current: completed, history: [completed, ...state.runtime.restartTrace.history].slice(0, RESTART_TRACE_HISTORY_LIMIT) } } }));
+  } catch { /* diagnostics never affect lifecycle behavior */ }
+}
+
 function uniqueStrings(values: Array<string | undefined>): string[] {
   return [...new Set(values.filter((value): value is string => Boolean(value)))].sort();
 }
@@ -550,6 +602,8 @@ async function resolveBrokerLaunchContext(
 ): Promise<{
   scopedBrokerIdentity: Awaited<ReturnType<typeof issueScopedBrokerIdentity>>;
   variableResolution: ServiceVariableResolutionOptions | undefined;
+  brokerRuntime: SecretsBrokerRuntimeContext | null | undefined;
+  launchLeaseIssuer: Awaited<ReturnType<typeof resolveSecretsBrokerLaunchLeaseIssuer>>;
 }> {
   const brokerService = registry?.getById(SECRETSBROKER_SERVICE_ID);
   // A production broker has no public loopback port. Reuse its persisted
@@ -581,6 +635,8 @@ async function resolveBrokerLaunchContext(
 
   return {
     scopedBrokerIdentity,
+    brokerRuntime,
+    launchLeaseIssuer,
     variableResolution: await resolveLaunchVariableResolution(service, {
       ...options,
       brokerLookup,
@@ -1065,11 +1121,12 @@ async function stopManagedProcessWithOverride(
   service: DiscoveredService,
   current: ServiceLifecycleState,
   expectedBinding?: ServiceStopExecutableMutationBinding,
+  newWindowsInspectionEpisode = false,
 ): Promise<{ exitCode: number | null; message: string }> {
   const serviceId = service.manifest.id;
   const override = getLifecycleStopOverride(service);
   if (!override) {
-    const stopped = await stopManagedProcess(serviceId);
+    const stopped = await stopManagedProcess(serviceId, undefined, { newWindowsInspectionEpisode });
     return {
       exitCode: stopped?.exitCode ?? current.runtime.exitCode ?? 0,
       message: "Stop completed.",
@@ -1087,7 +1144,7 @@ async function stopManagedProcessWithOverride(
     }
   }
 
-  const stopped = await stopManagedProcess(serviceId);
+  const stopped = await stopManagedProcess(serviceId, undefined, { newWindowsInspectionEpisode });
   const reason = overrideResult.timedOut
     ? "timed out"
     : `failed with exit code ${overrideResult.exitCode ?? "unknown"}`;
@@ -1206,6 +1263,78 @@ export async function configService(
     },
     message: "Config completed.",
   }));
+}
+
+function resolveIngressValue(value: string | undefined, globalEnv: Record<string, string | undefined>): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+  return value.replace(/\$\{([A-Za-z0-9_]+)\}/g, (match, key: string) => globalEnv[key] ?? match);
+}
+
+async function applyCaddyIngressOnStart(
+  service: DiscoveredService,
+  globalEnv: Record<string, string | undefined>,
+  resolvedPorts: Record<string, number>,
+): Promise<void> {
+  const ingresses = service.manifest.ingress;
+  if (!ingresses || ingresses.length === 0) {
+    return;
+  }
+
+  const adminAddress = resolveCaddyAdminAddress(globalEnv);
+  const ingressPort = resolveCaddyIngressPort(globalEnv);
+  if (!adminAddress || !ingressPort) {
+    return;
+  }
+
+  for (const [index, ingress] of ingresses.entries()) {
+    try {
+      const proxy = ingress.proxy;
+      const endpointId = proxy.endpoint ?? (proxy.type === "fastcgi" ? "fastcgi" : "web");
+      const port = resolvedPorts[endpointId];
+      if (!port) {
+        continue;
+      }
+      const bind = service.manifest.endpoints?.find((endpoint) => endpoint.id === endpointId)?.bind ?? "127.0.0.1";
+      const routeId = ingresses.length === 1 ? service.manifest.id : `${service.manifest.id}#${index}`;
+      const payload = buildCaddyRegisterPayload({
+        serviceId: service.manifest.id,
+        ingress: {
+          domain: resolveIngressValue(ingress.domain, globalEnv),
+          proxy: {
+            ...proxy,
+            root: resolveIngressValue(proxy.root, globalEnv),
+          },
+        },
+        target: `${bind}:${port}`,
+        ingressPort,
+        routeId,
+      });
+      await registerCaddyIngress(adminAddress, payload, service.manifest.id);
+    } catch (error) {
+      // @caddy is optional; never fail the service lifecycle on ingress wiring.
+      console.warn(
+        `[service-lasso] @caddy ingress registration skipped for "${service.manifest.id}" entry ${index}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+}
+
+async function removeCaddyIngressOnStop(serviceId: string): Promise<void> {
+  for (const registration of listCaddyIngressRegistrations(serviceId)) {
+    try {
+      await unregisterCaddyIngress(registration.adminAddress, registration.routeId);
+    } catch (error) {
+      console.warn(
+        `[service-lasso] @caddy ingress unregistration skipped for "${serviceId}": ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
 }
 
 export async function startService(
@@ -1404,7 +1533,7 @@ async function startServiceSerialized(
     ? collectRuntimeGlobalEnv(registry.list())
     : {};
   revokeServiceScopedBrokerIdentities(serviceId);
-  const { scopedBrokerIdentity, variableResolution } = await resolveBrokerLaunchContext(
+  const { scopedBrokerIdentity, variableResolution, brokerRuntime, launchLeaseIssuer } = await resolveBrokerLaunchContext(
     service,
     registry,
     options,
@@ -1529,14 +1658,20 @@ async function startServiceSerialized(
     },
   }));
   let handle: Awaited<ReturnType<typeof startManagedProcess>>;
+  let secretFileGrant: RAMSecretFileGrant | undefined;
   try {
+    const directory = await materializeEphemeralSecretFiles(service, sharedGlobalEnv, resolvedPorts,
+      variableResolution ?? {}, options.expectedTemplateDigests, async (outputs) => {
+        secretFileGrant = await createRAMSecretFileGrant(service, brokerRuntime, launchLeaseIssuer, outputs);
+        return secretFileGrant.directory;
+      });
     handle = await startManagedProcess({
       service,
       executionPlan,
       sharedGlobalEnv,
       resolvedPorts,
       secureEnv: secureLaunchEnv,
-      variableResolution,
+      variableResolution: { ...variableResolution, ...(directory ? { secretFilesDirectory: directory } : {}) },
       workspaceRoot: options.workspaceRoot,
       runtimeGenerationId: options.runtimeGenerationId,
       runtimeInstanceId: options.runtimeInstanceId,
@@ -1544,6 +1679,7 @@ async function startServiceSerialized(
       verifyBeforeSpawn: verifyApprovedExecutable,
       guardedExecutableLaunch,
       onExit: async ({ exitCode, signal, wasStopping }) => {
+        await secretFileGrant?.revoke();
         if (wasStopping) {
           return;
         }
@@ -1585,12 +1721,17 @@ async function startServiceSerialized(
       }));
       await writeServiceState(service, retainedState);
     } else {
+      await secretFileGrant?.revoke();
       revokeServiceScopedBrokerIdentities(serviceId);
     }
     recordStartTraceEvent(serviceId, trace, "process_spawn", "failed", message, {
       provider: executionPlan.provider,
       providerServiceId: executionPlan.providerServiceId,
       processStartFailurePhase: managedProcessStartFailurePhase(error) ?? "unclassified_error",
+      ...(managedProcessLauncherPayloadFailureBoundary(error)
+        ? { launcherPayloadFailureBoundary: managedProcessLauncherPayloadFailureBoundary(error) }
+        : {}),
+      ...windowsTreeInspectionFailureMetadata(error),
     });
     finishStartTrace(serviceId, trace, "failed", message);
     throw new LifecycleStateError(message);
@@ -1721,6 +1862,7 @@ async function startServiceSerialized(
     message: readiness.message,
   }));
   finishStartTrace(serviceId, trace, "succeeded", readiness.message);
+  await applyCaddyIngressOnStart(service, sharedGlobalEnv, resolvedPorts);
   return { ...result, state: getLifecycleState(serviceId) };
 }
 
@@ -1737,14 +1879,21 @@ export async function stopService(
     );
   }
 
-  const stopped = await stopManagedProcessWithOverride(service, current, options.expectedStopExecutableBinding);
+  const stopped = await stopManagedProcessWithOverride(
+    service,
+    current,
+    options.expectedStopExecutableBinding,
+    options.newWindowsInspectionEpisode,
+  );
   const finishedAt = new Date().toISOString();
+  const secretFilesRevoked = await revokeRAMSecretFileGrant(service);
   const revokedIdentities = revokeServiceScopedBrokerIdentities(serviceId, {
     now: new Date(finishedAt),
   });
   const revokedIdentity =
     revokedIdentities.at(-1) ?? current.runtime.brokerIdentity;
 
+  await removeCaddyIngressOnStop(serviceId);
   return applyState(serviceId, "stop", (state) => ({
     nextState: {
       ...state,
@@ -1759,7 +1908,7 @@ export async function stopService(
         brokerIdentity: revokedIdentity,
       },
     },
-    message: stopped.message,
+    message: secretFilesRevoked ? stopped.message : `${stopped.message} Secret-file grant revocation is pending Broker availability.`,
   }));
 }
 
@@ -1772,12 +1921,20 @@ export async function restartService(
   shutdownRequestedServiceIds.delete(serviceId);
   cancelScheduledSupervisionRestart(serviceId);
   const current = getLifecycleState(serviceId);
+  const restartTrace = beginRestartTrace(serviceId);
+  let replacementSpawned = false;
+  let unexpectedFailureStage: ServiceRestartTraceStage = "replacement_spawn";
+  try {
   if (!current.installed) {
+    recordRestartTrace(serviceId, restartTrace, "precheck", "blocked");
+    finishRestartTrace(serviceId, restartTrace, "blocked");
     throw new LifecycleStateError(
       `Cannot restart service "${serviceId}" before install.`,
     );
   }
   if (!current.configured) {
+    recordRestartTrace(serviceId, restartTrace, "precheck", "blocked");
+    finishRestartTrace(serviceId, restartTrace, "blocked");
     throw new LifecycleStateError(
       `Cannot restart service "${serviceId}" before config.`,
     );
@@ -1785,6 +1942,8 @@ export async function restartService(
   try {
     assertIsolationStartAllowed(evaluateServiceIsolation(service.manifest.isolation), serviceId);
   } catch (error) {
+    recordRestartTrace(serviceId, restartTrace, "precheck", "blocked");
+    finishRestartTrace(serviceId, restartTrace, "blocked");
     throw new LifecycleStateError(
       error instanceof Error
         ? error.message
@@ -1801,14 +1960,31 @@ export async function restartService(
     !service.manifest.executable &&
     !current.installArtifacts.artifact?.command
   ) {
+    recordRestartTrace(serviceId, restartTrace, "precheck", "blocked");
+    finishRestartTrace(serviceId, restartTrace, "blocked");
     throw new LifecycleStateError(
       `Cannot restart service "${serviceId}" because no executable is configured.`,
     );
   }
-  await assertDoctorPreflightAllowsRestart(service, options.expectedDoctorExecutableBindings);
+  try {
+    await assertDoctorPreflightAllowsRestart(service, options.expectedDoctorExecutableBindings);
+    recordRestartTrace(serviceId, restartTrace, "precheck", "completed", current.running ? "prior_generation_running" : "unavailable");
+  } catch (error) {
+    recordRestartTrace(serviceId, restartTrace, "precheck", "blocked", current.running ? "prior_generation_running" : "unavailable");
+    finishRestartTrace(serviceId, restartTrace, "blocked", current.running ? "prior_generation_running" : "unavailable");
+    throw error;
+  }
 
   if (current.running) {
-    const stopped = await stopManagedProcess(serviceId);
+    recordRestartTrace(serviceId, restartTrace, "stop_request", "completed", "prior_generation_running");
+    let stopped: Awaited<ReturnType<typeof stopManagedProcess>>;
+    try {
+      stopped = await stopManagedProcess(serviceId);
+    } catch (error) {
+      recordRestartTrace(serviceId, restartTrace, "finalization_failed", "failed", "prior_generation_running");
+      finishRestartTrace(serviceId, restartTrace, "failed", "prior_generation_running");
+      throw error;
+    }
     const finishedAt = new Date().toISOString();
     const revokedIdentities = revokeServiceScopedBrokerIdentities(serviceId, {
       now: new Date(finishedAt),
@@ -1829,14 +2005,17 @@ export async function restartService(
       },
     }));
     await writeServiceState(service, stoppedState);
+    recordRestartTrace(serviceId, restartTrace, "finalization_settled", "completed", "prior_generation_running");
   } else {
     revokeServiceScopedBrokerIdentities(serviceId);
+    recordRestartTrace(serviceId, restartTrace, "stop_request", "skipped");
+    recordRestartTrace(serviceId, restartTrace, "finalization_settled", "skipped");
   }
 
   const sharedGlobalEnv = registry
     ? collectRuntimeGlobalEnv(registry.list())
     : {};
-  const { scopedBrokerIdentity, variableResolution } = await resolveBrokerLaunchContext(
+  const { scopedBrokerIdentity, variableResolution, brokerRuntime, launchLeaseIssuer } = await resolveBrokerLaunchContext(
     service,
     registry,
     options,
@@ -1885,14 +2064,20 @@ export async function restartService(
     },
   }));
   let handle: Awaited<ReturnType<typeof startManagedProcess>>;
+  let secretFileGrant: RAMSecretFileGrant | undefined;
   try {
+    const directory = await materializeEphemeralSecretFiles(service, sharedGlobalEnv, resolvedPorts,
+      variableResolution ?? {}, options.expectedTemplateDigests, async (outputs) => {
+        secretFileGrant = await createRAMSecretFileGrant(service, brokerRuntime, launchLeaseIssuer, outputs);
+        return secretFileGrant.directory;
+      });
     handle = await startManagedProcess({
       service,
       executionPlan,
       sharedGlobalEnv,
       resolvedPorts,
       secureEnv: secureLaunchEnv,
-      variableResolution,
+      variableResolution: { ...variableResolution, ...(directory ? { secretFilesDirectory: directory } : {}) },
       workspaceRoot: options.workspaceRoot,
       runtimeInstanceId: options.runtimeInstanceId,
       runtimeGenerationId: options.runtimeGenerationId,
@@ -1900,6 +2085,7 @@ export async function restartService(
       verifyBeforeSpawn: verifyApprovedExecutable,
       guardedExecutableLaunch,
       onExit: async ({ exitCode, signal, wasStopping }) => {
+        await secretFileGrant?.revoke();
         if (wasStopping) {
           return;
         }
@@ -1907,6 +2093,8 @@ export async function restartService(
       },
     });
   } catch (error) {
+    recordRestartTrace(serviceId, restartTrace, "replacement_spawn", "failed", current.running ? "prior_generation_running" : "unavailable");
+    finishRestartTrace(serviceId, restartTrace, "failed", current.running ? "prior_generation_running" : "unavailable");
     const message = `Cannot restart service "${serviceId}" because process spawn failed: ${
       error instanceof Error ? error.message : String(error)
     }`;
@@ -1941,10 +2129,13 @@ export async function restartService(
       }));
       await writeServiceState(service, retainedState);
     } else {
+      await secretFileGrant?.revoke();
       revokeServiceScopedBrokerIdentities(serviceId);
     }
     throw new LifecycleStateError(message);
   }
+  recordRestartTrace(serviceId, restartTrace, "replacement_spawn", "completed", "replacement_spawned");
+  replacementSpawned = true;
 
   updateRuntimeState(serviceId, (state) => ({
     ...state,
@@ -1973,17 +2164,20 @@ export async function restartService(
     },
   }));
 
-  const readiness = await waitForServiceReadiness(service, sharedGlobalEnv, {
+  unexpectedFailureStage = "readiness";
+  const readiness = await (readinessWaiterForTests ?? waitForServiceReadiness)(service, sharedGlobalEnv, {
     workspaceRoot: options.workspaceRoot,
     generationId: options.runtimeGenerationId,
     allocationRevision,
     expectedPorts: resolvedPorts,
   });
+  recordRestartTrace(serviceId, restartTrace, "readiness", readiness.ready ? "completed" : "failed", "replacement_spawned");
   if (!readiness.ready) {
     const stopped = await stopManagedProcess(serviceId);
     const revokedIdentities = revokeServiceScopedBrokerIdentities(serviceId);
     const revokedIdentity =
       revokedIdentities.at(-1) ?? scopedBrokerIdentity?.metadata ?? null;
+    finishRestartTrace(serviceId, restartTrace, "failed", "replacement_spawned");
     const failedResult = applyState(
       serviceId,
       "restart",
@@ -2025,6 +2219,8 @@ export async function restartService(
     await transitionProcessOwnership(options.workspaceRoot, "service", serviceId, "running", "owned", handle.pid);
   }
 
+  unexpectedFailureStage = "response";
+  finishRestartTrace(serviceId, restartTrace, "succeeded", "replacement_spawned");
   const result = applyState(serviceId, "restart", (state) => ({
     nextState: {
       ...state,
@@ -2056,4 +2252,14 @@ export async function restartService(
     },
   ]);
   return result;
+  } catch (error) {
+    if (restartTrace.status === "running") {
+      const relation = replacementSpawned ? "replacement_spawned" : "unavailable";
+      if (unexpectedFailureStage !== "response") {
+        recordRestartTrace(serviceId, restartTrace, unexpectedFailureStage, "failed", relation);
+      }
+      finishRestartTrace(serviceId, restartTrace, "failed", relation);
+    }
+    throw error;
+  }
 }

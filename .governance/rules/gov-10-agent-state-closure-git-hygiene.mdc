@@ -1,0 +1,104 @@
+---
+description: agent state closure, working tree accounting, and git hygiene
+alwaysApply: true
+---
+# Governance: Agent State Closure and Git Hygiene
+
+Agent work should end in explicit state, not residue.
+
+Governed repositories should treat repository state as a control surface for agent reliability, reviewability, and recovery.
+
+## Core Principle
+
+- `GOV-10-GIT-001` Every substantive turn or work unit must end with full working-tree accounting.
+- `GOV-10-GIT-002` Agents must not carry ambiguous repository state into the next substantive turn or work unit.
+- `GOV-10-GIT-003` Repository cleanliness is not cosmetic. It is part of execution correctness.
+- `GOV-10-GIT-004` Git hygiene is mandatory, not optional polish.
+- `GOV-10-GIT-005` New governed work must not begin unless the local repo is on `develop`, except for an explicitly documented recovery or escalation exception.
+
+## What Counts as a Substantive Turn
+
+- `GOV-10-GIT-006` A substantive turn is any execution turn that leaves durable repo or issue state behind, changes the governed state of a ticket, or would create carry-over risk if left unresolved.
+- `GOV-10-GIT-007` This includes changing code, docs, specs, tests, config, workflows, issue metadata, branch state, or validation state in a way that affects execution, review, or closure.
+- `GOV-10-GIT-008` This also includes decisions or checks that materially change ticket status, for example moving work into blocked, validated, follow-up-required, or merge-ready state.
+- `GOV-10-GIT-009` Pure discussion, reading, or ephemeral probing with no kept repo or ticket state is not a substantive turn.
+- `GOV-10-GIT-010` If a turn produced kept changes, changed ticket state, or would be risky to leave dirty, treat it as substantive.
+
+## Start-of-Work Preconditions
+
+- `GOV-10-GIT-011` Before starting a new governed slice, the agent must verify the local repo is on `develop`.
+- `GOV-10-GIT-012` If the repo is not on `develop`, the agent must not begin new work until the state is normalized or an explicit recovery/escalation note justifies the exception.
+- `GOV-10-GIT-013` Starting new governed work from an issue branch, archived branch, detached state, or another non-`develop` branch without explicit justification is non-compliant.
+- `GOV-10-GIT-014` This precondition exists to stop branch drift, hidden carry-over, and accidental continuation from the wrong base state.
+- `GOV-10-GIT-014A` Start-of-work hygiene must include an explicit assessment of the inherited repo state before new governed work begins.
+- `GOV-10-GIT-014B` The agent must classify inherited state, including branch position, modified files, untracked files, partial slices, and unmerged work, and decide what should be landed, deferred, archived, followed up, or escalated.
+- `GOV-10-GIT-014C` If the inherited state is mixed, unclear, or not safely attributable, the agent must not begin a new governed slice until treatment is chosen and recorded.
+
+## Working-Tree Accounting
+
+- `GOV-10-GIT-015` Before a substantive turn or work unit is considered complete, blocked, deferred, or handed off, every modified, deleted, and untracked file in scope must be classified.
+- `GOV-10-GIT-016` Allowed classifications are:
+  - committed as intended governed change,
+  - reverted because it is junk, noise, or failed experimentation,
+  - ignored through an explicit ignore rule when the file is generated or intentionally untracked,
+  - intentionally deferred only when an explicit follow-up ticket or bounded follow-up path is recorded.
+- `GOV-10-GIT-017` Intentional deferral notes must name the file or branch, the reason it remains open, and the exact follow-up issue or path that will close it.
+- `GOV-10-GIT-018` "I think this file is probably from earlier work" is not sufficient accounting.
+- `GOV-10-GIT-019` If a file cannot be explained, the substantive turn or work unit is not yet closed.
+
+## Dirty-Tree Discipline
+
+- `GOV-10-GIT-020` Agents must treat unresolved dirty state as actionable repository state, not passive background context.
+- `GOV-10-GIT-021` In single-actor repos or isolated worktrees, unresolved dirty state should be presumed agent-caused until proven otherwise.
+- `GOV-10-GIT-022` Reporting "tree is dirty" without classification, resolution intent, or follow-up path is non-compliant.
+- `GOV-10-GIT-023` If prior residue is discovered while starting new work, the agent should either resolve it first or explicitly escalate why safe resolution cannot happen yet.
+
+## Commit and Ignore Hygiene
+
+- `GOV-10-GIT-024` Durable kept changes must be committed by the end of each substantive turn so the intended state has a real tracking boundary.
+- `GOV-10-GIT-025` Commits should be cohesive, reviewable, and limited to the intended governed change.
+- `GOV-10-GIT-026` Generated or environment-specific noise that should persist locally but not be tracked must be handled through explicit ignore rules rather than repeated manual omission.
+- `GOV-10-GIT-027` Ignore rules should be as narrow as practical so legitimate changes are not accidentally hidden.
+
+## Preserve Before Destructive Change
+
+- `GOV-10-GIT-028` Meaningful state includes kept code, docs, specs, notes, captured investigation output, and generated artifacts that are intentionally being preserved as evidence or deliverable state.
+- `GOV-10-GIT-029` Disposable cache, build output, or other reproducible noise is not meaningful state unless the current work unit explicitly depends on it as evidence or deliverable content.
+- `GOV-10-GIT-030` Before deleting, overwriting, archiving, or otherwise destructively changing meaningful state, the agent must preserve that state in a traceable form when safe to do so, normally through a commit or another durable governed artifact.
+- `GOV-10-GIT-031` If material is secret, unsafe, or otherwise inappropriate to preserve in normal history, the agent should use a separate safe-handling path and record the exception explicitly instead of silently discarding context.
+- `GOV-10-GIT-031A` Resetting, hard cleanup, deletion, or destructive overwrite of inherited state is a last resort, not a default cleanup move.
+- `GOV-10-GIT-031B` When the state may be meaningful, destructive normalization should happen only after discussion or explicit approval, unless the material is already classified as disposable generated noise.
+- `GOV-10-GIT-031C` Default preference is to assess, classify, preserve, land, archive, defer with follow-up, or escalate before considering destructive cleanup.
+- `GOV-10-GIT-032` Cleanup, rollback, and archival actions must not silently erase why a change existed, what was learned, or what state is being retired.
+- `GOV-10-GIT-033` If old behavior or prior content needs to return, it should come back through a new traceable change rather than hidden history surgery or convenience-driven destructive rollback.
+- `GOV-10-GIT-034` This preservation rule does not require noisy micro-commits for trivial or disposable edits, but it does require a deliberate preservation boundary before meaningful destructive change.
+
+## Completion and Handoff Rules
+
+- `GOV-10-GIT-035` Completion claims are invalid if the repository state that remains is unexplained.
+- `GOV-10-GIT-036` A blocked or deferred substantive turn or work unit must still leave the repository in a classified state, even when implementation is incomplete.
+- `GOV-10-GIT-037` If the intended work is not actually complete by turn end, a focused follow-up ticket must be created rather than carrying unresolved branch or dirty-state ambiguity forward.
+- `GOV-10-GIT-038` A slice is not closed until the original ticket is merged into `develop`.
+- `GOV-10-GIT-039` After a PR is merged, the merged work branch should normally be deleted locally and remotely as part of the same closure routine.
+- `GOV-10-GIT-039A` `archive/` branches are for stale, unmerged, or intentionally preserved branches that still need history retention. Do not archive a branch by default when its PR is already merged and the landed history is preserved in the target branch.
+- `GOV-10-GIT-040` After merge and branch cleanup, the local working repo must be returned to the lane's canonical resting branch: `develop` for normal work, `main` for `main`-sourced hotfix or release work.
+- `GOV-10-GIT-040A` If a bounded work turn finishes but the repo is still left on a stray issue/work branch, the turn is not merely untidy; it is failed closure because it blocks or contaminates the next work unit.
+- `GOV-10-GIT-041` Handoff artifacts should state any intentionally deferred files, branches, or follow-up tickets explicitly rather than relying on a future reader to infer them from git status.
+
+## Anti-Patterns
+
+Avoid these failure modes:
+- letting partial experiments silently roll into later commits
+- deleting or overwriting meaningful state before it has a traceable preservation boundary
+- treating untracked temp files as harmless background clutter
+- leaving generated noise unignored across repeated runs
+- carrying mixed unrelated diffs across substantive turns or work units
+- starting new governed work from a non-`develop` branch without explicit exception handling
+- skipping inherited-state assessment and just pushing ahead on top of mixed residue
+- auto-resetting, deleting, or force-cleaning inherited state to feel clean without first classifying it
+- using dirty state as a substitute for real tracking
+- marking a slice done before the original ticket is merged into `develop`
+- archiving a merged work branch by default when simple branch deletion was the correct closure path
+- archiving a work branch without first closing the governed landing path
+- failing to create a follow-up ticket when the current turn cannot honestly close the slice
+- using cleanup, archival, or rollback to erase rationale instead of preserving it

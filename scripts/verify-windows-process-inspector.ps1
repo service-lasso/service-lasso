@@ -1,29 +1,51 @@
 [CmdletBinding()]
 param(
   [switch]$Update,
-  [switch]$ManagedLauncherNative
+  [switch]$ManagedLauncherNative,
+  [switch]$DirectorySyncHelper,
+  [switch]$HeldExitFixture,
+  [switch]$Behavioral
 )
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
+. (Join-Path $PSScriptRoot "windows-compiler-process-budget.ps1")
+. (Join-Path $PSScriptRoot "managed-pe-normalization.ps1")
+. (Join-Path $PSScriptRoot "managed-compiler-transaction.ps1")
 
-if (-not $IsWindows -and $PSVersionTable.PSEdition -eq "Core") {
+if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
   throw "Windows process-inspector provenance verification requires Windows."
 }
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$sourceRelativePath = if ($ManagedLauncherNative) {
+$fixtureCount = $(if ($ManagedLauncherNative) { 1 } else { 0 }) + $(if ($DirectorySyncHelper) { 1 } else { 0 }) + $(if ($HeldExitFixture) { 1 } else { 0 })
+if ($fixtureCount -gt 1) {
+  throw "Select only one Windows native fixture."
+}
+$sourceRelativePath = if ($HeldExitFixture) {
+  "tests/fixtures/windows-held-exit-probe.cs"
+} elseif ($DirectorySyncHelper) {
+  "src/runtime/operator/windows-directory-sync-helper.cs"
+} elseif ($ManagedLauncherNative) {
   "src/runtime/execution/windows-managed-launcher-native.cs"
 } else {
   "src/runtime/process/windows-process-inspector.cs"
 }
-$binaryRelativePath = if ($ManagedLauncherNative) {
-  "src/runtime/execution/windows-managed-launcher-native.exe"
+$binaryRelativePath = if ($HeldExitFixture) {
+  "tests/fixtures/windows-held-exit-probe.exe"
+} elseif ($DirectorySyncHelper) {
+  "src/runtime/operator/windows-directory-sync-helper.exe"
+} elseif ($ManagedLauncherNative) {
+  "src/runtime/execution/windows-managed-launcher-managed.exe"
 } else {
   "src/runtime/process/windows-process-inspector.exe"
 }
-$provenanceRelativePath = if ($ManagedLauncherNative) {
-  "src/runtime/execution/windows-managed-launcher-native.provenance.json"
+$provenanceRelativePath = if ($HeldExitFixture) {
+  "tests/fixtures/windows-held-exit-probe.provenance.json"
+} elseif ($DirectorySyncHelper) {
+  "src/runtime/operator/windows-directory-sync-helper.provenance.json"
+} elseif ($ManagedLauncherNative) {
+  "src/runtime/execution/windows-managed-launcher-managed.provenance.json"
 } else {
   "src/runtime/process/windows-process-inspector.provenance.json"
 }
@@ -39,6 +61,9 @@ $compilerOptions = @(
 )
 if ($ManagedLauncherNative) {
   $compilerOptions += "/reference:System.Web.Extensions.dll"
+}
+if ($HeldExitFixture) {
+  $compilerOptions += "/debug-"
 }
 
 if (-not [IO.Path]::IsPathRooted($compilerPath) -or -not [IO.File]::Exists($compilerPath)) {
@@ -269,26 +294,6 @@ function Invoke-ProvenanceNegativeTests(
   return 15
 }
 
-function Find-UniqueByteSequence([byte[]]$Bytes, [byte[]]$Sequence) {
-  $matches = New-Object Collections.Generic.List[int]
-  for ($offset = 0; $offset -le $Bytes.Length - $Sequence.Length; $offset += 1) {
-    $equal = $true
-    for ($index = 0; $index -lt $Sequence.Length; $index += 1) {
-      if ($Bytes[$offset + $index] -ne $Sequence[$index]) {
-        $equal = $false
-        break
-      }
-    }
-    if ($equal) {
-      $matches.Add($offset)
-    }
-  }
-  if ($matches.Count -ne 1) {
-    throw "The compiled process-inspector module identifier was not uniquely locatable."
-  }
-  return $matches[0]
-}
-
 function Get-NormalizedAssemblyBytes([string]$AssemblyPath) {
   [byte[]]$bytes = [IO.File]::ReadAllBytes($AssemblyPath)
   if ($bytes.Length -lt 512 -or $bytes[0] -ne 0x4d -or $bytes[1] -ne 0x5a) {
@@ -306,25 +311,78 @@ function Get-NormalizedAssemblyBytes([string]$AssemblyPath) {
     throw "The compiled process inspector had invalid PE headers."
   }
 
-  $assembly = [Reflection.Assembly]::Load([IO.File]::ReadAllBytes($AssemblyPath))
-  [byte[]]$moduleVersionId = $assembly.ManifestModule.ModuleVersionId.ToByteArray()
-  $moduleVersionIdOffset = Find-UniqueByteSequence $bytes $moduleVersionId
+  $normalization = Get-ManagedPeNormalizationOffsets $bytes
 
   [Array]::Clear($bytes, $peOffset + 8, 4)
-  [Array]::Clear($bytes, $moduleVersionIdOffset, 16)
+  [Array]::Clear($bytes, $normalization.mvid, 16)
   return $bytes
 }
 
 $temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) ("service-lasso-native-provenance-" + [Guid]::NewGuid().ToString("N"))
+# The held-exit compiler phase has one 15-second absolute budget. Retain this
+# uniquely-created compiler root rather than run an unbounded Remove-Item after
+# that phase; retention is conservative evidence, including successful runs.
+# Managed launcher attempts likewise preserve the raw image and compiler records.
+$retainTemporaryRoot = $HeldExitFixture -or $ManagedLauncherNative
 try {
   $null = New-Item -ItemType Directory -Path $temporaryRoot
   $compiledPath = Join-Path $temporaryRoot (Split-Path -Leaf $binaryRelativePath)
+  # Start before assembling the owned compiler command so configuration,
+  # launch, wait, termination and stream settlement share one absolute bound.
+  [int64]$compilerPhaseStartedAtMilliseconds = if ($HeldExitFixture) { Get-CompilerMonotonicMilliseconds } else { 0 }
   $compilerArguments = @($compilerOptions) + @(
     "/out:$compiledPath",
     $sourcePath
   )
-  & $compilerPath @compilerArguments
-  if ($LASTEXITCODE -ne 0 -or -not [IO.File]::Exists($compiledPath)) {
+  if ($HeldExitFixture) {
+    $compilerProcess = New-Object Diagnostics.Process
+    try {
+      $compilerProcess.StartInfo.FileName = $compilerPath
+      $compilerProcess.StartInfo.UseShellExecute = $false
+      $compilerProcess.StartInfo.CreateNoWindow = $true
+       $compilerProcess.StartInfo.RedirectStandardOutput = $true
+       $compilerProcess.StartInfo.RedirectStandardError = $true
+      if ($null -ne $compilerProcess.StartInfo.ArgumentList) {
+        foreach ($compilerArgument in $compilerArguments) {
+          [void]$compilerProcess.StartInfo.ArgumentList.Add($compilerArgument)
+        }
+      } else {
+        # Windows PowerShell 5's .NET Framework ProcessStartInfo does not
+        # expose ArgumentList. The compiler inputs are fixed, owned paths and
+        # options; quote each one before using its compatible Arguments form.
+        $compilerProcess.StartInfo.Arguments = (($compilerArguments | ForEach-Object {
+          '"' + $_.Replace('"', '\"') + '"'
+        }) -join ' ')
+      }
+       $compilerResult = Invoke-BoundedOwnedCompilerProcess $compilerProcess 15000 -StartedAtMilliseconds $compilerPhaseStartedAtMilliseconds -StartProcess
+       if ($compilerResult.outcome -ne "completed") {
+         $retainTemporaryRoot = $compilerResult.retainTemporaryRoot
+         throw "The Windows held-exit fixture compiler failed closed with $($compilerResult.outcome) inside its 15000ms absolute compiler-phase bound."
+      }
+      if ($compilerProcess.ExitCode -ne 0) {
+        throw "The Windows held-exit fixture provenance compilation failed."
+      }
+    } finally {
+      $compilerProcess.Dispose()
+    }
+  } elseif ($ManagedLauncherNative) {
+    # Preserve the original framework compiler defaults, including csc.rsp.
+    # The compiler receives only these explicit variables and closed stdin.
+    $frameworkDirectory = Split-Path -Parent $compilerPath
+    $systemDirectory = Join-Path $env:WINDIR 'System32'
+    $compilerEnvironment = [ordered]@{
+      SystemRoot = $env:WINDIR
+      WINDIR = $env:WINDIR
+      PATH = $frameworkDirectory + ';' + $systemDirectory
+      TEMP = $temporaryRoot
+      TMP = $temporaryRoot
+      COMSPEC = Join-Path $systemDirectory 'cmd.exe'
+    }
+    Invoke-RetainedManagedCompiler $compilerPath $compilerArguments $compilerEnvironment $temporaryRoot
+  } else {
+    & $compilerPath @compilerArguments
+  }
+  if (-not [IO.File]::Exists($compiledPath)) {
     throw "The Windows process-inspector provenance compilation failed."
   }
 
@@ -391,6 +449,28 @@ try {
   Assert-ProvenanceManifest $actualProvenance $expectedProvenance $sourceSha256 $binarySha256 $normalizedBytes.Length
   $negativeCaseCount = 3 + (Invoke-ProvenanceNegativeTests $actualProvenance $expectedProvenance $sourceSha256 $binarySha256 $normalizedBytes.Length)
 
+  $behavioralCaseCount = 0
+  if ($Behavioral) {
+    if (-not $DirectorySyncHelper) {
+      throw "Behavioral verification is only defined for the Windows directory-sync helper."
+    }
+    $probeDirectory = Join-Path $temporaryRoot "flush-probe"
+    $null = New-Item -ItemType Directory -Path $probeDirectory
+    & $binaryPath $probeDirectory
+    if ($LASTEXITCODE -ne 0) {
+      throw "The Windows directory-sync helper did not report a successful directory flush."
+    }
+    & $binaryPath
+    if ($LASTEXITCODE -ne 2) {
+      throw "The Windows directory-sync helper did not reject an absent directory argument."
+    }
+    & $binaryPath (Join-Path $temporaryRoot "missing-directory")
+    if ($LASTEXITCODE -ne 3) {
+      throw "The Windows directory-sync helper did not report an open failure."
+    }
+    $behavioralCaseCount = 3
+  }
+
   [pscustomobject]@{
     result = "passed"
     compilerPath = "%WINDIR%/Microsoft.NET/Framework64/v4.0.30319/csc.exe"
@@ -400,9 +480,15 @@ try {
     binarySha256 = $binarySha256
     binaryByteLength = $normalizedBytes.Length
     negativeCaseCount = $negativeCaseCount
+    behavioralCaseCount = $behavioralCaseCount
   } | ConvertTo-Json -Compress
 } finally {
-  if ([IO.Directory]::Exists($temporaryRoot)) {
+  if (-not $retainTemporaryRoot -and [IO.Directory]::Exists($temporaryRoot)) {
     Remove-Item -LiteralPath $temporaryRoot -Recurse -Force
   }
 }
+
+# The directory-sync negative probe intentionally exits 3. It is an asserted
+# successful case, so do not leak that child exit code as this verifier's own
+# process status after the result record has been emitted.
+exit 0

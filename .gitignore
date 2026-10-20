@@ -12,6 +12,7 @@ artifacts/
 newcomer-proof-artifacts/
 docs/.docusaurus/
 docs/build/
+.docs-consumer-qualification/
 workspace/
 services/*/.state/
 services/*/data/

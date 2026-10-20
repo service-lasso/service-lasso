@@ -42,10 +42,15 @@ test("development dependency replacements resolve to the reviewed safe boundarie
   );
   assert.equal(packageJson.overrides.qs, "6.16.0");
   assert.equal(packageJson.overrides.hono, "4.13.7");
+  assert.equal(packageJson.overrides["brace-expansion"], "1.1.21");
   assert.equal(packageJson.overrides.sockjs.uuid, "11.1.1");
   assert.equal(packageLock.packages["node_modules/uuid"].version, "11.1.1");
   assert.equal(packageLock.packages["node_modules/qs"].version, "6.16.0");
-  assert.equal(packageLock.packages["node_modules/fast-uri"].version, "3.1.7");
+  assert.equal(
+    packageLock.packages["node_modules/brace-expansion"].version,
+    "1.1.21",
+  );
+  assert.equal(packageLock.packages["node_modules/fast-uri"].version, "3.1.8");
   assert.equal(packageLock.packages["node_modules/hono"].version, "4.13.7");
 });
 
@@ -103,4 +108,25 @@ test("image dimension parsing fails closed instead of accepting attacker-control
     fromFile.imageSizeFromFile("untrusted.icns"),
     /image dimension parsing is disabled/i,
   );
+});
+
+/** GHSA-jqcg-44mw-7w3h: IPv6 trust must not admit IPv4 across families. */
+test("patched proxy-addr preserves explicit IPv4 and IPv6 trust boundaries", () => {
+  const proxyaddr = require("proxy-addr");
+  for (const subnets of [["::/1"], ["::/1", "2001:db8::/32"]]) {
+    const trust = proxyaddr.compile(subnets);
+    assert.equal(trust("127.0.0.1"), false);
+    assert.equal(trust("::ffff:127.0.0.1"), false);
+    assert.equal(trust("2001:db8::1"), true);
+  }
+  for (const subnets of [["127.0.0.0/8"], ["127.0.0.0/8", "10.0.0.0/8"]]) {
+    const trust = proxyaddr.compile(subnets);
+    assert.equal(trust("127.0.0.1"), true);
+    assert.equal(trust("::ffff:127.0.0.1"), true);
+    assert.equal(trust("2001:db8::1"), false);
+  }
+  const mapped = proxyaddr.compile("::ffff:127.0.0.0/104");
+  assert.equal(mapped("127.0.0.1"), true);
+  assert.equal(mapped("::ffff:127.0.0.1"), true);
+  assert.equal(mapped("2001:db8::1"), false);
 });

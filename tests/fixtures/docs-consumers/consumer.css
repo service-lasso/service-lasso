@@ -1,0 +1,5 @@
+.consumer-css > [data-consumer="a"]:nth-child(1),
+.consumer-css > [data-consumer="a"]:nth-child(1) {
+  color: rgb(255, 0, 0);
+  margin-left: calc(1px + 1px);
+}

@@ -11,7 +11,9 @@ const config = {
   projectName: "service-lasso",
   trailingSlash: false,
   onBrokenLinks: "throw",
+  themes: ["@docusaurus/theme-mermaid"],
   markdown: {
+    mermaid: true,
     hooks: {
       onBrokenMarkdownLinks: "warn",
     },

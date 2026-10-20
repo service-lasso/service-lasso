@@ -12,6 +12,7 @@ import {
   stageReleaseArtifact,
 } from "../scripts/release-artifact-lib.mjs";
 import { stagePublishedPackage } from "../scripts/publish-package-lib.mjs";
+import { consumeReleaseMetadataToken } from "../scripts/operator-tool-packaging-lib.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -25,6 +26,7 @@ test("timestamp release versions follow yyyy.m.d-shortsha", () => {
 });
 
 test("staged artifact and package honor SERVICE_LASSO_RELEASE_VERSION overrides", async () => {
+  const releaseMetadataToken = consumeReleaseMetadataToken();
   const releaseOutputRoot = await createTemporaryOutputRoot("service-lasso-release-version-");
   const packageOutputRoot = await createTemporaryOutputRoot("service-lasso-package-version-");
   const originalVersion = process.env[RELEASE_VERSION_ENV];
@@ -36,10 +38,12 @@ test("staged artifact and package honor SERVICE_LASSO_RELEASE_VERSION overrides"
     const stagedArtifact = await stageReleaseArtifact({
       repoRoot,
       outputRoot: releaseOutputRoot,
+      releaseMetadataToken,
     });
     const stagedPackage = await stagePublishedPackage({
       repoRoot,
       outputRoot: packageOutputRoot,
+      releaseMetadataToken,
     });
     const stagedPackageJson = JSON.parse(
       await readFile(path.join(stagedPackage.artifactRoot, "package.json"), "utf8"),

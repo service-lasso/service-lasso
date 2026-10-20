@@ -15,7 +15,8 @@ export type DurableHttpMutationKind =
   | "runtime-startAll"
   | "runtime-stopAll"
   | "runtime-autostart"
-  | "runtime-reload";
+  | "runtime-reload"
+  | "service-registration";
 
 export interface DurableHttpMutationPolicy {
   permission:
@@ -38,6 +39,7 @@ const durableHttpMutationPolicies: Record<DurableHttpMutationKind, DurableHttpMu
   "runtime-stopAll": { permission: "service:stop", sensitive: true },
   "runtime-autostart": { permission: "service:start", sensitive: false },
   "runtime-reload": { permission: "service:reload", sensitive: true },
+  "service-registration": { permission: "service:configure", sensitive: true },
 };
 
 /**

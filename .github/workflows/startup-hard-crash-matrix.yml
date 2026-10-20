@@ -34,7 +34,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Node.js 22
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: npm
@@ -49,4 +49,15 @@ jobs:
         env:
           SERVICE_LASSO_HARD_CRASH_PHASE: ${{ matrix.phase }}
           SERVICE_LASSO_INSTANCE_REGISTRY_PATH: ${{ runner.temp }}/service-lasso-hard-crash-instances.json
-        run: node --test --test-concurrency=1 tests/startup-hard-crash-matrix.test.js
+        run: >-
+          node --test --test-concurrency=1
+          tests/startup-hard-crash-matrix.test.js
+          tests/startup-hard-crash-matrix-preflight-reconciliation.test.js
+          tests/startup-hard-crash-matrix-allocation-reserved.test.js
+          tests/startup-hard-crash-matrix-configuration-materialized.test.js
+          tests/startup-hard-crash-matrix-process-spawned.test.js
+          tests/startup-hard-crash-matrix-ownership-persisted.test.js
+          tests/startup-hard-crash-matrix-owned-readiness-proven.test.js
+          tests/startup-hard-crash-matrix-generation-committed.test.js
+          tests/startup-hard-crash-matrix-recovered-process-spawned.test.js
+          tests/startup-hard-crash-matrix-recovered-generation-committed.test.js

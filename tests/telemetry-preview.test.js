@@ -1120,19 +1120,22 @@ test("POST /api/telemetry/export sends sanitized metadata only when explicitly e
     },
   });
 
-  const collector = await startMockCollector();
   const previousEnabled = process.env.SERVICE_LASSO_OTEL_ENABLED;
   const previousEndpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
   const previousHeaders = process.env.OTEL_EXPORTER_OTLP_HEADERS;
   const previousExportMode = process.env.SERVICE_LASSO_OTEL_EXPORT_MODE;
-  process.env.SERVICE_LASSO_OTEL_ENABLED = "1";
-  process.env.OTEL_EXPORTER_OTLP_ENDPOINT = collector.url + "?token=" + rawSecretSentinel;
-  process.env.OTEL_EXPORTER_OTLP_HEADERS = "authorization=Bearer " + rawSecretSentinel + ",x-safe-route=local";
-  process.env.SERVICE_LASSO_OTEL_EXPORT_MODE = "export";
-
-  const apiServer = await startApiServer({ port: 0, servicesRoot });
+  let collector;
+  let apiServer;
+  let primaryError;
 
   try {
+    collector = await startMockCollector();
+    process.env.SERVICE_LASSO_OTEL_ENABLED = "1";
+    process.env.OTEL_EXPORTER_OTLP_ENDPOINT = collector.url + "?token=" + rawSecretSentinel;
+    process.env.OTEL_EXPORTER_OTLP_HEADERS = "authorization=Bearer " + rawSecretSentinel + ",x-safe-route=local";
+    process.env.SERVICE_LASSO_OTEL_EXPORT_MODE = "export";
+    apiServer = await startApiServer({ port: 0, servicesRoot });
+
     const preview = await getJson(apiServer.url + "/api/telemetry?token=" + rawSecretSentinel);
     assert.equal(preview.status, 200);
     assert.equal(preview.body.telemetry.exportPreview.mode, "export_configured");
@@ -1177,6 +1180,9 @@ test("POST /api/telemetry/export sends sanitized metadata only when explicitly e
     assertNoSecretMaterial(payload, { sentinels });
     assert.equal(JSON.stringify(body).includes("signals"), false);
     assert.equal(JSON.stringify(body).includes(collector.url), false);
+  } catch (error) {
+    primaryError = error;
+    throw error;
   } finally {
     if (previousEnabled === undefined) {
       delete process.env.SERVICE_LASSO_OTEL_ENABLED;
@@ -1198,9 +1204,18 @@ test("POST /api/telemetry/export sends sanitized metadata only when explicitly e
     } else {
       process.env.SERVICE_LASSO_OTEL_EXPORT_MODE = previousExportMode;
     }
-    await apiServer.stop();
-    await collector.stop();
-    await rm(tempRoot, { recursive: true, force: true });
+    const closeResults = await Promise.allSettled([apiServer?.stop(), collector?.stop()]);
+    const removeResult = await Promise.allSettled([rm(tempRoot, { recursive: true, force: true })]);
+    const cleanupFailures = [...closeResults, ...removeResult]
+      .filter((result) => result.status === "rejected")
+      .map((result) => result.reason);
+    if (cleanupFailures.length > 0) {
+      if (primaryError) {
+        Object.defineProperty(primaryError, "cleanupFailures", { value: cleanupFailures });
+      } else {
+        throw new AggregateError(cleanupFailures, "Telemetry export fixture cleanup failed.");
+      }
+    }
   }
 });
 

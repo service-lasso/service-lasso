@@ -42,6 +42,14 @@
       "summary": "Release-backed edge/router service with local certificate and NGINX dependencies."
     },
     {
+      "id": "@caddy",
+      "name": "Caddy Protocol Translator",
+      "repo": "service-lasso/lasso-caddy",
+      "group": "Baseline Core",
+      "status": "Available",
+      "summary": "Release-backed Caddy HTTP-to-FastCGI translator sidecar with a Service Lasso admin API for dynamically registering upstream services such as Nextcloud."
+    },
+    {
       "id": "echo-service",
       "name": "Echo Service",
       "repo": "service-lasso/lasso-echoservice",

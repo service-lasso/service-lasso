@@ -28,6 +28,11 @@ A finished service has:
 
 ## When to Use Reference Docs
 
+For a consuming application, [choose a reference app](../reference-apps.md) and
+[start its host, Service Admin and Echo journey](start-reference-host.md).
+Service authors can also [check the harness starter contract](harness-starter.md);
+that starter's result files do not establish real lifecycle acceptance.
+
 The numbered pages are the process. Use these references only when you need detail while doing a step:
 
 - [service.json Reference](../reference/service-json-reference.md) for exact manifest fields.

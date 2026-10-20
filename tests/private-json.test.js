@@ -185,6 +185,39 @@ test("Windows private JSON rejects missing or altered DPAPI helper assets before
   }
 });
 
+test("Windows private JSON attributes an exhausted post-integrity budget to integrity", {
+  skip: process.platform !== "win32",
+}, async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "service-lasso-private-json-integrity-budget-"));
+  const moduleRoot = path.join(root, "isolated-module");
+  const helperPath = path.join(moduleRoot, "windows-dpapi-helper.exe");
+  const provenancePath = path.join(moduleRoot, "windows-dpapi-helper.provenance.json");
+  await mkdir(moduleRoot);
+  await Promise.all([
+    copyFile("dist/runtime/security/private-json.js", path.join(moduleRoot, "private-json.js")),
+    copyFile("dist/runtime/security/windows-dpapi-helper.exe", helperPath),
+    copyFile("dist/runtime/security/windows-dpapi-helper.provenance.json", provenancePath),
+  ]);
+  const isolated = await import(`${pathToFileURL(path.join(moduleRoot, "private-json.js")).href}?test=${randomUUID()}`);
+  const originalDateNow = Date.now;
+  let reads = 0;
+  Date.now = () => {
+    reads += 1;
+    return reads === 1 ? 1_000_000 : 1_015_000;
+  };
+  try {
+    await assert.rejects(
+      isolated.protectWindowsPrivateBytes(Buffer.from("classification-only")),
+      (error) => error instanceof isolated.PrivateJsonError &&
+        error.code === "private_state_protect_integrity_timeout",
+    );
+    assert.equal(reads, 2);
+  } finally {
+    Date.now = originalDateNow;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("Windows private JSON classifies missing trusted system utilities without exposing a path", {
   skip: process.platform !== "win32",
 }, async () => {

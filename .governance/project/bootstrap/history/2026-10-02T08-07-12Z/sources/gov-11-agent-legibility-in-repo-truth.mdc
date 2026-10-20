@@ -1,0 +1,60 @@
+---
+description: agent legibility, in-repo truth, and promotion of durable operating knowledge
+alwaysApply: true
+---
+# Governance: Agent Legibility and In-Repo Truth
+
+If durable operating knowledge is not discoverable in repository artifacts, it is not reliable system knowledge.
+
+Governed systems should optimize for agent legibility by making intent, constraints, invariants, and prior decisions discoverable in versioned repo truth.
+
+## Core Principle
+
+- `GOV-11-LEG-001` Governed repositories should treat repo-local, versioned artifacts as the primary operating memory for agents.
+- `GOV-11-LEG-002` Durable decisions, constraints, invariants, and execution norms should be promoted into repository truth instead of remaining trapped in chat, review comments, or private human memory.
+- `GOV-11-LEG-003` Agents should prefer discoverable repo truth over transcript archaeology or informal conversational recall when both exist.
+
+## Reliable Knowledge Rules
+
+- `GOV-11-LEG-004` If an instruction or decision is important enough to affect future work repeatedly, it should be encoded into a durable repo artifact.
+- `GOV-11-LEG-005` Acceptable durable artifacts include governance rules, architecture docs, project intent docs, feature specs, execution plans, reference docs, templates, tests, and lint/config enforcement.
+- `GOV-11-LEG-006` Knowledge that exists only in transient chat history should be treated as fragile until promoted.
+- `GOV-11-LEG-007` Agents should not assume hidden human context, unwritten team norms, or remembered chat context will still be available on the next run.
+
+## Promotion Expectations
+
+- `GOV-11-LEG-008` Repeated human corrections should trigger promotion into durable repo truth when they describe reusable behavior rather than one-off preference.
+- `GOV-11-LEG-009` Durable promotion should happen at the narrowest authoritative layer that fits the fact, for example spec, project doc, governance rule, reference doc, test, or lint rule.
+- `GOV-11-LEG-010` When promotion does not happen immediately, the missing promotion path should be tracked explicitly rather than assumed away.
+
+## Discoverability Expectations
+
+- `GOV-11-LEG-011` Important repository knowledge should be organized so a future agent can find it without reading the full repository or relying on external narration.
+- `GOV-11-LEG-012` Entry-point files should act as maps to deeper source-of-truth artifacts rather than attempting to be giant manuals.
+- `GOV-11-LEG-013` Knowledge architecture should support progressive disclosure: brief entry points, structured deeper docs, and stable canonical locations.
+- `GOV-11-LEG-014` When durable knowledge moves, links and references should be updated so discoverability does not silently degrade.
+
+## Enforcement Orientation
+
+- `GOV-11-LEG-015` When a repeated rule or invariant is mechanically enforceable, governed systems should prefer enforcing it through code, tests, or linting over relying only on prose reminders.
+- `GOV-11-LEG-016` Human review should be treated as a source of new invariants to encode, not only as a one-time correction channel.
+
+## Legible Execution and Bounded Autonomy
+
+- `GOV-11-LEG-017` High-agency execution profiles should optimize for interrupt-efficient legibility: enough visible state for an operator to understand progress, risk, and decision boundaries without forcing the agent into constant narration.
+- `GOV-11-LEG-018` Meaningful execution checkpoints should surface start or resume, major plan change, blocker or risk state, validation outcome, and closure outcome when those states occur.
+- `GOV-11-LEG-019` Agents should act autonomously on clear, reversible internal work, but decision boundaries must remain visible for destructive, external, privacy-sensitive, irreversible, or judgment-dependent actions.
+- `GOV-11-LEG-020` Silence is not inherently better than chatter. The governed target is concise, high-signal visibility rather than either status spam or opaque black-box execution.
+- `GOV-11-LEG-021` Throughput-oriented prompting or harness design must not suppress the visibility needed for accountability, recoverability, or safe interruption.
+
+## Anti-Patterns
+
+Avoid these failure modes:
+- relying on chat logs as the main system of record
+- leaving architectural decisions only in pull request discussion
+- expecting future agents to infer unwritten norms from scattered examples
+- storing critical intent in one giant unstructured instruction file
+- keeping durable rules in people’s heads instead of repo artifacts
+- treating silence as superior to operator-legible checkpoints
+- optimizing throughput by hiding meaningful risk, validation, or decision-boundary state
+- applying high autonomy to destructive or externally consequential actions without making the decision boundary visible

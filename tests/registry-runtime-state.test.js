@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { lifecycleFailureDiagnostic } from "./lifecycle-failure-diagnostics.js";
 import os from "node:os";
 import path from "node:path";
 import { execFile } from "node:child_process";
@@ -8,7 +9,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { discoverServices } from "../dist/runtime/discovery/discoverServices.js";
 import { DependencyGraph, createServiceRegistry } from "../dist/runtime/manager/DependencyGraph.js";
 import { startApiServer as startRuntimeApiServer } from "../dist/server/index.js";
-import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
+import { getLifecycleState, resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import {
   beginRuntimeGeneration,
   createRuntimeInstanceSnapshot,
@@ -74,9 +75,10 @@ test("ServiceRegistry and DependencyGraph model dependencies and dependents", as
   const registry = createServiceRegistry(discovered);
   const graph = new DependencyGraph(registry);
 
-  assert.equal(registry.count(), 12);
-  assert.equal(registry.countEnabled(), 10);
+  assert.equal(registry.count(), 13);
+  assert.equal(registry.countEnabled(), 11);
   assert.ok(registry.getById("@archive"));
+  assert.ok(registry.getById("@caddy"));
   assert.ok(registry.getById("@python"));
   assert.ok(registry.getById("echo-service"));
   assert.ok(registry.getById("node-sample-service"));
@@ -203,8 +205,8 @@ test("GET /api/runtime returns runtime summary state", async () => {
     const body = await response.json();
 
     assert.equal(response.status, 200);
-    assert.equal(body.runtime.totalServices, 12);
-    assert.equal(body.runtime.enabledServices, 10);
+    assert.equal(body.runtime.totalServices, 13);
+    assert.equal(body.runtime.enabledServices, 11);
     assert.equal(body.runtime.dependencyEdges, 5);
     assert.equal(body.runtime.servicesRoot, servicesRoot);
   } finally {
@@ -700,7 +702,7 @@ test("GET /api/dependencies returns graph nodes and edges", async () => {
     const body = await response.json();
 
     assert.equal(response.status, 200);
-    assert.equal(body.dependencies.nodes.length, 12);
+    assert.equal(body.dependencies.nodes.length, 13);
     assert.deepEqual(body.dependencies.edges, [
       { from: "@java", to: "@localcert" },
       { from: "@node", to: "@serviceadmin" },
@@ -794,6 +796,13 @@ test("start sequences dependencies in order and waits for dependency readiness",
     const body = await response.json();
     const elapsedMs = Date.now() - startedAt;
 
+    assert.equal(response.status, 200, JSON.stringify({
+      provider: JSON.parse(lifecycleFailureDiagnostic({ httpStatus: response.status, state: getLifecycleState("provider-service") })),
+      consumer: JSON.parse(lifecycleFailureDiagnostic({ httpStatus: response.status, state: getLifecycleState("consumer-service") })),
+    }));
+    assert.equal(body.ok, true);
+    assert.equal(body.state.running, true);
+
     const providerEnvSnapshot = JSON.parse(
       await waitFor(async () => {
         try {
@@ -819,9 +828,6 @@ test("start sequences dependencies in order and waits for dependency readiness",
       }),
     );
 
-    assert.equal(response.status, 200);
-    assert.equal(body.ok, true);
-    assert.equal(body.state.running, true);
     assert.ok(elapsedMs >= 75);
     assert.equal(providerEnvSnapshot.SERVICE_ID, "provider-service");
     assert.equal(consumerEnvSnapshot.SERVICE_ID, "consumer-service");
@@ -851,9 +857,14 @@ test("start does not restart dependencies that are already running", async () =>
   const apiServer = await startApiServer({ port: 0, servicesRoot });
 
   try {
-    await fetch(`${apiServer.url}/api/services/provider-service/install`, { method: "POST" });
-    await fetch(`${apiServer.url}/api/services/provider-service/config`, { method: "POST" });
-    await fetch(`${apiServer.url}/api/services/provider-service/start`, { method: "POST" });
+    for (const action of ["install", "config", "start"]) {
+      const response = await fetch(`${apiServer.url}/api/services/provider-service/${action}`, { method: "POST" });
+      await response.json();
+      assert.equal(response.status, 200, JSON.stringify({
+        fixtureStage: `provider_${action}`,
+        ...JSON.parse(lifecycleFailureDiagnostic({ httpStatus: response.status, state: getLifecycleState("provider-service") })),
+      }));
+    }
     const firstProviderDetail = await fetch(`${apiServer.url}/api/services/provider-service`);
     const firstProviderBody = await firstProviderDetail.json();
 
@@ -865,7 +876,10 @@ test("start does not restart dependencies that are already running", async () =>
     const secondProviderDetail = await fetch(`${apiServer.url}/api/services/provider-service`);
     const secondProviderBody = await secondProviderDetail.json();
 
-    assert.equal(consumerStart.status, 200);
+    assert.equal(consumerStart.status, 200, JSON.stringify({
+      fixtureStage: "consumer_start",
+      ...JSON.parse(lifecycleFailureDiagnostic({ httpStatus: consumerStart.status, state: getLifecycleState("consumer-service") })),
+    }));
     assert.equal(consumerBody.ok, true);
     assert.equal(firstProviderBody.service.lifecycle.runtime.pid, secondProviderBody.service.lifecycle.runtime.pid);
     assert.deepEqual(secondProviderBody.service.lifecycle.actionHistory, ["install", "config", "start"]);

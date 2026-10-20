@@ -1,0 +1,50 @@
+[
+  {
+    "readCompletedUtc": "2026-10-02T08:07:13.1938711Z",
+    "readStartedUtc": "2026-10-02T08:07:12.5785282Z",
+    "file": "readback/develop-protection.json",
+    "sha256": "545A087475BAEACD9D555C0999C018F1CA399BAB7245CB0CF572755B08BB2994",
+    "sourceUrl": "https://api.github.com/repos/service-lasso/service-lasso/branches/develop/protection",
+    "capture": "gh stdout; newline added; bounded safe selected fields for repository and ruleset; no authentication material"
+  },
+  {
+    "readCompletedUtc": "2026-10-02T08:07:13.8303473Z",
+    "readStartedUtc": "2026-10-02T08:07:13.2277033Z",
+    "file": "readback/develop-effective-rules.json",
+    "sha256": "8CFA9BEFF42F6F7BAEDAD05AB5E22BB157A1E2236A4A5B818FB3F0119C957A52",
+    "sourceUrl": "https://api.github.com/repos/service-lasso/service-lasso/rules/branches/develop",
+    "capture": "gh stdout; newline added; bounded safe selected fields for repository and ruleset; no authentication material"
+  },
+  {
+    "readCompletedUtc": "2026-10-02T08:07:14.3601261Z",
+    "readStartedUtc": "2026-10-02T08:07:13.8311622Z",
+    "file": "readback/develop-ruleset.json",
+    "sha256": "7B66E444869E0546D238759560B4F14289BCC2E73BB32636EB3C4356592E5E87",
+    "sourceUrl": "https://api.github.com/repos/service-lasso/service-lasso/rulesets/21891323",
+    "capture": "gh stdout; newline added; bounded safe selected fields for repository and ruleset; no authentication material"
+  },
+  {
+    "readCompletedUtc": "2026-10-02T08:07:15.0286761Z",
+    "readStartedUtc": "2026-10-02T08:07:14.3606060Z",
+    "file": "readback/repository-preflight.json",
+    "sha256": "D18DDEF313A72CEE258DE4EC270D2D5275BCCD1A0AE4BCAA44181A362BC1472B",
+    "sourceUrl": "https://api.github.com/repos/service-lasso/service-lasso",
+    "capture": "gh stdout; newline added; bounded safe selected fields for repository and ruleset; no authentication material"
+  },
+  {
+    "readCompletedUtc": "2026-10-02T08:07:15.9549484Z",
+    "readStartedUtc": "2026-10-02T08:07:15.0315517Z",
+    "file": "readback/pr-1589-baseline.json",
+    "sha256": "DEED7030C4EB95B295E9C20005670341B812B63CCC69A02128F9916338D7591D",
+    "sourceUrl": "https://github.com/service-lasso/service-lasso/pull/1589",
+    "capture": "gh stdout; newline added; bounded safe selected fields for repository and ruleset; no authentication material"
+  },
+  {
+    "readCompletedUtc": "2026-10-02T08:07:16.7115784Z",
+    "readStartedUtc": "2026-10-02T08:07:15.9561661Z",
+    "file": "readback/project-1.json",
+    "sha256": "5ED95ED5A9B271954CE364FDDEEBAF1F4F153D7748F5EC5D7A2BE5F182930496",
+    "sourceUrl": "https://api.github.com/graphql (organization service-lasso projectV2 number 1)",
+    "capture": "gh stdout; newline added; bounded safe selected fields for repository and ruleset; no authentication material"
+  }
+]
