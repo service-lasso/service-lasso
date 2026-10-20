@@ -182,6 +182,116 @@ Stopping the service calls `POST /service-lasso/unregister` for each registered
 route. Registration is best-effort: if `@caddy` is not installed or reachable,
 the service still starts and stops normally.
 
+## Complete configuration
+
+### Generated `runtime/caddy.json`
+
+Service Lasso writes this during the `config` action (the `web` and `admin`
+endpoint ports are resolved into it):
+
+```json
+{
+  "admin": { "listen": "127.0.0.1:2019" },
+  "apps": {
+    "http": {
+      "servers": {
+        "lasso_ingress": {
+          "listen": ["127.0.0.1:8080"],
+          "automatic_https": { "disable": true },
+          "routes": [
+            {
+              "@id": "lasso:health",
+              "match": [{ "path": ["/health"] }],
+              "handle": [{ "handler": "static_response", "body": "ok" }]
+            }
+          ]
+        }
+      }
+    }
+  }
+}
+```
+
+### `@caddy` manifest wiring
+
+The manifest supplies the listener and admin address the core uses for
+registration:
+
+```json
+{
+  "id": "@caddy",
+  "endpoints": [
+    {
+      "id": "web",
+      "kind": "network",
+      "bind": "127.0.0.1",
+      "protocol": "http",
+      "port": { "default": 8080, "strategy": "preferred" }
+    },
+    {
+      "id": "admin",
+      "kind": "network",
+      "bind": "127.0.0.1",
+      "protocol": "http",
+      "port": { "default": 2019, "strategy": "preferred" }
+    }
+  ],
+  "commandline": {
+    "win32": " run --config \"${SERVICE_ROOT}\\runtime\\caddy.json\"",
+    "default": " run --config \"${SERVICE_ROOT}/runtime/caddy.json\""
+  },
+  "env": {
+    "CADDY_HTTP_PORT": "${endpoint.web.port}",
+    "CADDY_ADMIN_PORT": "${endpoint.admin.port}",
+    "CADDY_ADMIN_ADDR": "${endpoint.admin.bind}:${endpoint.admin.port}"
+  }
+}
+```
+
+The full manifest (artifact, healthchecks, config files) is
+`service-lasso/services/@caddy/service.json`.
+
+### App manifest
+
+```json
+{
+  "id": "wordpress",
+  "name": "WordPress",
+  "description": "PHP app served through the shared Caddy translator.",
+  "version": "6.8",
+  "enabled": true,
+  "depend_on": ["php"],
+  "requires": { "php": ">=8.3" },
+  "endpoints": [
+    {
+      "id": "fastcgi",
+      "kind": "network",
+      "direction": "inbound",
+      "transport": "tcp",
+      "protocol": "tcp",
+      "bind": "127.0.0.1",
+      "port": { "default": 9000, "strategy": "preferred" },
+      "exposure": "local",
+      "required": true,
+      "primary": true
+    }
+  ],
+  "ingress": [
+    {
+      "domain": "wordpress.servicelasso.localhost",
+      "proxy": {
+        "type": "fastcgi",
+        "endpoint": "fastcgi",
+        "root": "${SERVICE_ROOT}/runtime/www"
+      }
+    }
+  ]
+}
+```
+
+`requires` resolves `php` to the installed PHP provider
+(`provides: { "php": "8.3.32" }`); `depend_on` pins that provider.
+
 ## 4. Verify both paths
 
 - Direct: `http://127.0.0.1:<service endpoint port>/`
