@@ -90,6 +90,14 @@
       "summary": "Optional release-backed 7-Zip provider for services that need .7z, .rar, .xz, split archives, or legacy archive/install flows beyond built-in zip and tar.gz extraction."
     },
     {
+      "id": "php",
+      "name": "PHP Runtime Provider",
+      "repo": "service-lasso/lasso-php",
+      "group": "Runtime Providers",
+      "status": "Available",
+      "summary": "Release-backed PHP 8.3 runtime provider (php-fpm on POSIX, php-cgi on Windows) for PHP applications fronted by Caddy."
+    },
+    {
       "id": "zitadel",
       "name": "ZITADEL",
       "repo": "service-lasso/lasso-zitadel",
