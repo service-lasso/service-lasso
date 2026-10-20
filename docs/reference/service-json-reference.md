@@ -918,6 +918,7 @@ Example:
 Runtime behavior:
 
 - each capability resolves to one enabled discovered provider before startup ordering
+- version requirements accept `>=`, `<=`, `>`, `<`, `=`, `*`, or an empty string; values are compared as dotted versions
 - the resolved provider service id is treated as a concrete dependency
 - missing providers produce a clear missing-provider message
 - multiple matching providers produce an ambiguous-provider message; pin with `depend_on` or remove duplicate providers before start
