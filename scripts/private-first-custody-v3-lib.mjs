@@ -117,9 +117,16 @@ export async function darwinCacheHeader(file) {
   const parents = await chain(path.dirname(target), boundary);
   const secureParents = async () => {
     await recheck(parents);
-    for (const item of parents.entries) {
+    // A world-writable ancestor above a mount point cannot replace the mounted
+    // directory (busy mount points cannot be renamed or removed without root),
+    // so only ancestors below the nearest mount boundary must be non-writable.
+    const ordered = [...parents.entries].sort((a, b) => b.cursor.length - a.cursor.length);
+    let child = await lstat(target,{bigint:true}), crossedMount = false;
+    for (const item of ordered) {
       const entry = await lstat(item.cursor,{bigint:true});
-      if (entry.uid !== 0n || (entry.mode & 0o022n) !== 0n) throw new Error("first_custody_darwin_cache_parent_not_os_owned DEBUG "+JSON.stringify({target,cursor:item.cursor,uid:String(entry.uid),mode:entry.mode.toString(8)}));
+      if (entry.dev !== child.dev) crossedMount = true;
+      if (entry.uid !== 0n || (!crossedMount && (entry.mode & 0o022n) !== 0n)) throw new Error("first_custody_darwin_cache_parent_not_os_owned");
+      child = entry;
     }
   };
   await secureParents();
