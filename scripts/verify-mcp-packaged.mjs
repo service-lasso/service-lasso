@@ -428,7 +428,7 @@ try {
   );
 } finally {
   try {
-    await removeOwnedTempRoot(tempRoot);
+    await removeOwnedTempRoot(tempRoot, { attempts: 30 });
   } catch (error) {
     const cleanup = ownedTempCleanupObservation(error);
     verificationFailure = {
