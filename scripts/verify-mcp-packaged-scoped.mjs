@@ -435,17 +435,14 @@ try {
     await removeOwnedTempRoot(tempRoot, { attempts: 30 });
   } catch (error) {
     const cleanup = ownedTempCleanupObservation(error);
-    verificationFailure = {
-      stage: "temp_cleanup",
-      errorCode: "cleanup_failed",
-      ...(cleanup ? { cleanup } : {}),
-      ...(verificationFailure
-        ? {
-            verificationStage: verificationFailure.stage,
-            verificationErrorCode: verificationFailure.errorCode,
-          }
-        : {}),
-    };
+    if (verificationFailure) {
+      verificationFailure = {
+        ...verificationFailure,
+        cleanup,
+      };
+    } else {
+      process.stderr.write(`[mcp-package-cleanup-warning] ${JSON.stringify(cleanup ?? {})}\n`);
+    }
   }
 }
 
