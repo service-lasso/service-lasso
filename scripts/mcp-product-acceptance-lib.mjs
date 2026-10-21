@@ -726,7 +726,7 @@ export function validateMcpProductEvidence(evidence, options = {}) {
     ]) ||
     !hasExactKeys(evidence.inspector, ["packageName", "version", "result", "strictSchema"]) ||
     evidence.inspector.packageName !== "@modelcontextprotocol/inspector" ||
-    evidence.inspector.version !== "2.10.1" ||
+    evidence.inspector.version !== "2.11.0" ||
     evidence.inspector.result !== "passed" ||
     evidence.inspector.strictSchema !== "passed" ||
     !hasExactKeys(evidence.packagedRuntime, [

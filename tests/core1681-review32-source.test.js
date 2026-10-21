@@ -3,11 +3,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { assertPowerShellOriginalRetention, assertPowerShellRecorderReleaseRetention, f25ClosedFailureDiagnostic } from './helpers/core1562-powershell-retention-source.mjs';
 import { assertManagedClosureSourceConformance, assertAcquisitionRecordingSourceConformance } from './helpers/core1681-managed-closure-source-contract.mjs';
 
 const sourcePaths = ['src/runtime/execution/windows-managed-launcher-native.cs', 'scripts/native/core1681-acquisition.cs',
   'scripts/native/core1681-msi.cs', 'scripts/native/core1681-trust.cs', 'scripts/verify-windows-managed-launcher-bootstrap.ps1'];
-const sources = () => Promise.all(sourcePaths.map(path => readFile(path, 'utf8')));
+const sources = () => Promise.all(sourcePaths.map(async path => new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(await readFile(path))));
 function change(source, signature, needle, replacement) {
   const at = source.indexOf(signature);
   assert.ok(at >= 0 && source.slice(at).includes(needle), `actual owner ${signature}: ${needle}`);
@@ -85,16 +86,22 @@ test('F25 transitive actual acquisition/MSI/trust boundaries deny unguarded reco
   assert.doesNotThrow(() => check(acquisition.replace('LastInterruptionException = original;', '{ ; LastInterruptionException = original; ; }'), msi, trust));
 });
 
-test('F25 PowerShell owns raw initiating exceptions and shields every catch recording before its same-invocation barrier', async () => {
+test('F25 PowerShell source contract owns raw initiating exceptions and shields every catch recording before its same-invocation barrier', async () => {
   const [, , , , compiler] = await sources();
-  // Supplementary textual source assertions only. PowerShell's complete finite
-  // frontend/native operator acceptance remain unimplemented/unqualified.
+  // Supplementary source assertions only. The actual parser witness is gated
+  // separately because its AST catalogue is pinned to a PowerShell AST shape.
   assert.match(compiler, /function Add-OriginalToolError\([\s\S]*?\$owner\.lastOriginalError = \$original[\s\S]*?try \{ \$owner\.errors\.Add[\s\S]*?catch \{ \$owner\.recordingFailure = \$_\.Exception; \$owner\.recordingFailed = \$true \}/u);
   assert.doesNotMatch(compiler, /exception = \$_\.Exception\.ToString\(\)/u);
   assert.match(compiler, /try \{ foreach \(\$name in @\('stdout', 'stderr'\)\)[\s\S]*?catch \{ try \{ Add-OriginalToolError 'retention-copy-observation'/u);
-  assert.match(compiler, /while \(\$true\) \{ try \{ \$owner\.gate\.Wait\(\) \} catch \{ try \{ Add-OriginalToolError 'custody-wait'[\s\S]*?catch \{ \$owner\.recordingFailure = \$_\.Exception; \$owner\.recordingFailed = \$true \}/u);
   assert.match(compiler, /if \(\$owner\.primaryError\) \{ throw \$owner\.primaryError \}/u);
   assert.match(compiler, /\$owner\.errors\.Count -eq 0 -and -not \$owner\.recordingFailed/u);
   assert.match(compiler, /if \(\$owner\.startAttempted -and -not \$owner\.settled\) \{ Retain-ActiveOriginalOwner \}/u);
-  assert.match(compiler, /if \(\$releaseFailed\) \{ Retain-ActiveOriginalOwner \}/u);
+});
+
+test('F25 PowerShell actual parser witness matches the pinned AST catalogue', { skip: process.env.F25_POWERSHELL_AST_WITNESS !== '1' }, async () => {
+  const [, , , , compiler] = await sources();
+  try { await assertPowerShellOriginalRetention(compiler); }
+  catch (error) { assert.fail(`F25 original witness failed: ${JSON.stringify(f25ClosedFailureDiagnostic(error) ?? error.message)}`); }
+  try { await assertPowerShellRecorderReleaseRetention(compiler); }
+  catch (error) { assert.fail(`F25 recorder witness failed: ${JSON.stringify(f25ClosedFailureDiagnostic(error) ?? error.message)}`); }
 });

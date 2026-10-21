@@ -1,5 +1,5 @@
-import { DIGEST, exact, requireStrictJson, sha256 } from "./private-first-custody-v3-lib.mjs";
-import { nativeHelperScript } from "./native-tool-journal-v4-lib.mjs";
+﻿import { DIGEST, exact, requireStrictJson, sha256 } from "./private-first-custody-v3-lib.mjs";
+import { nativeHelperScript, samePath } from "./native-tool-journal-v4-lib.mjs";
 function refused(observation, reason, predicate) { return observation ? observation.fail(reason, predicate) : predicate(); }
 function accepted(observation, reason, predicate) { return observation ? observation.pass(reason, predicate) : predicate(); }
 export function rawBuffer(value, digest) { return exact(value, ["type", "data"]) && value.type === "Buffer" && Array.isArray(value.data) && value.data.every(byte => Number.isInteger(byte) && byte >= 0 && byte <= 255) && sha256(Buffer.from(value.data)) === digest; }
@@ -8,7 +8,7 @@ function processIdentity(value) { return exact(value, ["pid", "ppid", "birth", "
 function processChain(value) { if (!Array.isArray(value) ||
     !value.length) return false; const seen = new Set(); return value.every((item, index) => processIdentity(item) && !seen.has(item.pid) && (seen.add(item.pid), true) && (index + 1 === value.length ||
     item.ppid === value[index + 1].pid)); }
-export function sameIdentity(left, right) { return left.pid === right.pid && left.ppid === right.ppid && left.birth === right.birth && left.image === right.image && left.imageSha256 === right.imageSha256 && left.uid === right.uid; }
+export function sameIdentity(left, right) { return left.pid === right.pid && left.ppid === right.ppid && left.birth === right.birth && samePath(left.image, right.image) && left.imageSha256 === right.imageSha256 && left.uid === right.uid; }
 function sameChain(left, right) { return left.length === right.length && left.every((item, index) => sameIdentity(item, right[index])); }
 function helperWitness(native, helper, probe, observation) { observation?.enter("helper_witness_evaluation"); let raw; try { raw = requireStrictJson(Buffer.from(probe.stdout.data).toString("utf8"),"first_custody_validator_native_raw"); } catch { observation?.rejected("witness_raw_json"); return null; } const darwinCache = helper.platform === "darwin" && exact(raw.dyldCache, ["requested", "logicalPath", "loadedImageUuid", "cachePath", "cacheUuid", "cacheHeaderUuid", "cacheHeaderSha256"]) && raw.dyldCache.cacheUuid === raw.dyldCache.cacheHeaderUuid && helper.libraries.length === 1 && Object.keys(raw.dyldCache).every(key => raw.dyldCache[key] === helper.libraries[0][key]); if(refused(observation, 'darwin_cache_witness', () => (helper.platform==="darwin"&&!darwinCache)))throw new Error("first_custody_validator_darwin_cache_witness_invalid"); if (refused(observation, 'witness_shape', () => (!(helper.platform === "darwin" ? darwinCache && exact(raw, ["self", "target", "libraries", "dyldCache"]) : exact(raw, ["self", "target", "libraries", "libraryFiles"]) && Array.isArray(raw.libraryFiles) && JSON.stringify(raw.libraryFiles) === JSON.stringify(helper.libraries)))) ||
     refused(observation, 'witness_self_shape', () => (!exact(raw.self, ["pid", "chain"]))) ||
@@ -22,11 +22,11 @@ function helperWitness(native, helper, probe, observation) { observation?.enter(
     refused(observation, 'witness_library_count', () => (raw.libraries.length !== helper.libraries.length)) ||
     refused(observation, 'witness_library_binding', () => (raw.libraries.some((value, index) => value !== helper.libraries[index].requested))) ||
     refused(observation, 'witness_target_binding', () => (!sameChain(raw.target.chain, native.parents)))) return null; const self = raw.self.chain[0]; if(refused(observation, 'witness_spawned_pid', () => (probe.spawnedPid!==self.pid))||refused(observation, 'witness_self_identity', () => (!processIdentity(probe.selfIdentity)))||refused(observation, 'witness_self_binding', () => (!sameIdentity(self,probe.selfIdentity))))return null; const caller = raw.self.chain.at(-1), expected = native.sourceCaller; if (refused(observation, 'witness_uid', () => (self.uid!==expected.uid)) ||
-    refused(observation, 'witness_image', () => (self.image !== helper.executable)) ||
+    refused(observation, 'witness_image', () => (!samePath(self.image, helper.executable))) ||
     refused(observation, 'witness_image_digest', () => (self.imageSha256 !== helper.executableSha256)) ||
     refused(observation, 'witness_caller_pid', () => (caller.pid !== expected.pid)) ||
     refused(observation, 'witness_caller_birth', () => (caller.birth !== expected.birth)) ||
-    refused(observation, 'witness_caller_image', () => (caller.image !== expected.image)) ||
+    refused(observation, 'witness_caller_image', () => (!samePath(caller.image, expected.image))) ||
     refused(observation, 'witness_caller_image_digest', () => (caller.imageSha256 !== expected.imageSha256)) ||
     refused(observation, 'witness_caller_uid', () => (caller.uid !== expected.uid))) return null; return raw.target.chain.map(item => [item.pid, item.ppid, item.birth, item.image, item.imageSha256, item.uid]); }
 export function nativeProof(native, resolved, workspace, platform, observation) {
@@ -36,7 +36,7 @@ export function nativeProof(native, resolved, workspace, platform, observation) 
     refused(observation, 'native_pid', () => (!Number.isSafeInteger(native.pid))) ||
     refused(observation, 'native_ppid', () => (!Number.isSafeInteger(native.ppid))) ||
     refused(observation, 'native_image_type', () => (typeof native.image !== "string")) ||
-    refused(observation, 'native_image_binding', () => (native.image !== resolved)) ||
+    refused(observation, 'native_image_binding', () => (!samePath(native.image, resolved))) ||
     refused(observation, 'native_image_digest', () => (!DIGEST.test(native.imageSha256))) ||
     refused(observation, 'native_parents_type', () => (!Array.isArray(native.parents))) ||
     refused(observation, 'native_parents_empty', () => (!native.parents.length)) ||
@@ -48,7 +48,7 @@ export function nativeProof(native, resolved, workspace, platform, observation) 
     refused(observation, 'caller_image_digest', () => (!DIGEST.test(native.sourceCaller.imageSha256))) ||
     refused(observation, 'caller_uid', () => (!((typeof native.sourceCaller.uid === "string" && native.sourceCaller.uid) ||
     Number.isSafeInteger(native.sourceCaller.uid)))) ||
-    refused(observation, 'caller_workspace', () => (native.sourceCaller.cwd !== workspace))) return false;
+    refused(observation, 'caller_workspace', () => (!samePath(native.sourceCaller.cwd, workspace)))) return false;
   if (platform === "linux" ? refused(observation, 'linux_helper_present', () => (native.helper !== null)) : refused(observation, 'helper_missing', () => (!native.helper)) ||
     refused(observation, 'helper_shape', () => (!exact(native.helper, ["platform", "executable", "args", "executableSha256", "scriptSha256", "scriptBytes", "first", "second", "libraries"]))) ||
     refused(observation, 'helper_platform', () => (native.helper.platform !== platform)) ||
@@ -74,7 +74,7 @@ export function nativeProof(native, resolved, workspace, platform, observation) 
     refused(observation, 'parent_duplicate', () => (seen.has(item.pid))) ||
     refused(observation, 'parent_edge', () => ((index + 1 < native.parents.length && item.ppid !== native.parents[index + 1].pid)))) return false; seen.add(item.pid); }
   if(refused(observation, 'native_id', () => (native.id!==`native-${native.pid}-${sha256(JSON.stringify(native.parents)).slice(0,16)}`)))return false;
-  const caller = native.parents.at(-1); return accepted(observation, 'target_pid', () => (native.parents[0].pid === native.pid)) && accepted(observation, 'target_ppid', () => (native.parents[0].ppid === native.ppid)) && accepted(observation, 'target_image', () => (native.parents[0].image === native.image)) && accepted(observation, 'target_image_digest', () => (native.parents[0].imageSha256 === native.imageSha256)) && accepted(observation, 'chain_caller_pid', () => (caller.pid === native.sourceCaller.pid)) && accepted(observation, 'chain_caller_birth', () => (caller.birth === native.sourceCaller.birth)) && accepted(observation, 'chain_caller_image', () => (caller.image === native.sourceCaller.image)) && accepted(observation, 'chain_caller_image_digest', () => (caller.imageSha256 === native.sourceCaller.imageSha256)) && accepted(observation, 'chain_caller_uid', () => (caller.uid === native.sourceCaller.uid)) && accepted(observation, 'target_uid', () => (native.parents[0].uid===native.sourceCaller.uid));
+  const caller = native.parents.at(-1); return accepted(observation, 'target_pid', () => (native.parents[0].pid === native.pid)) && accepted(observation, 'target_ppid', () => (native.parents[0].ppid === native.ppid)) && accepted(observation, 'target_image', () => samePath(native.parents[0].image, native.image)) && accepted(observation, 'target_image_digest', () => (native.parents[0].imageSha256 === native.imageSha256)) && accepted(observation, 'chain_caller_pid', () => (caller.pid === native.sourceCaller.pid)) && accepted(observation, 'chain_caller_birth', () => (caller.birth === native.sourceCaller.birth)) && accepted(observation, 'chain_caller_image', () => samePath(caller.image, native.sourceCaller.image)) && accepted(observation, 'chain_caller_image_digest', () => (caller.imageSha256 === native.sourceCaller.imageSha256)) && accepted(observation, 'chain_caller_uid', () => (caller.uid === native.sourceCaller.uid)) && accepted(observation, 'target_uid', () => (native.parents[0].uid===native.sourceCaller.uid));
 }
 import { observeCommandValidation } from "./command-validation-observation-lib.mjs";
 export function validateCommand(index, command, journal, toolMap, node, workspace, platform, metadataScript, report) {
@@ -90,7 +90,7 @@ export function validateCommand(index, command, journal, toolMap, node, workspac
     observation.fail('command_resolved', () => (command.command.resolved !== tool.resolved)) ||
     observation.fail('command_native_proof', () => (!nativeProof(command.native, tool.resolved, workspace, platform, observation))) ||
     observation.fail('command_native_digest', () => (command.native.imageSha256 !== tool.file.sha256)) ||
-    observation.fail('command_caller_image', () => (command.native.sourceCaller.image !== node.resolved)) ||
+    observation.fail('command_caller_image', () => (!samePath(command.native.sourceCaller.image, node.resolved))) ||
     observation.fail('command_caller_digest', () => (command.native.sourceCaller.imageSha256 !== node.file.sha256)) ||
     observation.fail('command_common_caller', () => (!sameIdentity(command.native.parents.at(-1), journal.commands[0].native.parents.at(-1)))) ||
     observation.fail('command_result_shape', () => (!exact(command.result, ["naturalWaitForExit", "exitCode", "signal", "stdoutEof", "stderrEof", "stdout", "stderr"]))) ||
@@ -101,3 +101,4 @@ export function validateCommand(index, command, journal, toolMap, node, workspac
     observation.fail('command_stderr_eof', () => (command.result.stderrEof !== true))) throw new Error("first_custody_validator_native_journal_invalid");
   }, report);
 }
+

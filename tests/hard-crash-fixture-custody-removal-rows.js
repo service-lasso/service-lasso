@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { writeFile, readFile, rm } from "node:fs/promises";
+import { createDisposableTestFixture } from "./disposable-test-fixture.js";
 import path from "node:path";
 import { createFixtureCustody, closeFixture, createFixtureCleanupAdapter, createFixtureEvidenceBoundary } from "./hard-crash-fixture-custody.js";
 
@@ -13,7 +13,7 @@ const child = { ...root, pid: 2, createdAt: "child" };
 export function registerTerminalCustodySuccess() {
   const scenario = "success";
   test(`hard-crash terminal custody: ${scenario}`, async () => {
-    const directory = await mkdtemp(path.join(tmpdir(), "hard-crash-custody-regression-"));
+    const { root: directory, token: disposableFixture } = await createDisposableTestFixture("hard-crash-custody-regression-");
     const journal = path.join(directory, "journal.json");
     await writeFile(journal, "PRIVATE-JOURNAL");
     const registryFile = path.join(directory, "registry.json");
@@ -30,7 +30,7 @@ export function registerTerminalCustodySuccess() {
     let resets = 0;
     let summary;
     const observed = [];
-    const evidence = createFixtureEvidenceBoundary(directory);
+    const evidence = createFixtureEvidenceBoundary(directory, { disposableFixture });
     try {
       const work = closeFixture({ primary, custody,
         adapter: createFixtureCleanupAdapter({ workspaceRoot: directory, custodyReaders: [() => [child]] }, {
@@ -86,8 +86,8 @@ export function registerTerminalCustodySuccess() {
 export function registerPostRemovalCustody(failure) {
   if (!["reset", "environment", "copy-tamper"].includes(failure)) throw new Error("Unknown post-removal custody row.");
   test(`verified filesystem evidence survives ${failure} with truthful state`, async () => {
-    const directory = await mkdtemp(path.join(tmpdir(), "hard-crash-partial-removal-"));
-    const evidence = createFixtureEvidenceBoundary(directory);
+    const { root: directory, token: disposableFixture } = await createDisposableTestFixture("hard-crash-partial-removal-");
+    const evidence = createFixtureEvidenceBoundary(directory, { disposableFixture });
     const journal = path.join(directory, "journal.json");
     let summary;
     let restored = false;
