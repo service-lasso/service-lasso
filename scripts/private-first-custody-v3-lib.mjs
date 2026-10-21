@@ -119,7 +119,7 @@ export async function darwinCacheHeader(file) {
     await recheck(parents);
     for (const item of parents.entries) {
       const entry = await lstat(item.cursor,{bigint:true});
-      if (entry.uid !== 0n || (entry.mode & 0o022n) !== 0n) throw new Error("first_custody_darwin_cache_parent_not_os_owned");
+      if (entry.uid !== 0n || (entry.mode & 0o022n) !== 0n) throw new Error("first_custody_darwin_cache_parent_not_os_owned DEBUG "+JSON.stringify({target,cursor:item.cursor,uid:String(entry.uid),mode:entry.mode.toString(8)}));
     }
   };
   await secureParents();
