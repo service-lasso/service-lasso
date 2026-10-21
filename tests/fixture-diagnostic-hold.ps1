@@ -38,9 +38,9 @@ function Record-DiagnosticFailure($operation, $original, $suboperation=$null) {
 try {
 try {
 $ErrorActionPreference = 'Stop'
-# Explicit import: Get-Acl command discovery would write module-analysis
+# Explicit import: cmdlet command discovery would write module-analysis
 # progress to stderr as CLIXML on a fresh Windows PowerShell host.
-Import-Module Microsoft.PowerShell.Security
+Import-Module Microsoft.PowerShell.Utility, Microsoft.PowerShell.Security
 if ($env:SERVICE_LASSO_HELD_FIXTURE_ROLE -cne 'diagnostic') { throw 'Diagnostic role unavailable' }
 Add-Type -TypeDefinition @'
 using System;
