@@ -125,7 +125,7 @@ export async function darwinCacheHeader(file) {
     for (const item of ordered) {
       const entry = await lstat(item.cursor,{bigint:true});
       if (entry.dev !== child.dev) crossedMount = true;
-      if (entry.uid !== 0n || (!crossedMount && (entry.mode & 0o022n) !== 0n)) throw new Error("first_custody_darwin_cache_parent_not_os_owned");
+      if (entry.uid !== 0n || (!crossedMount && (entry.mode & 0o022n) !== 0n)) throw new Error("first_custody_darwin_cache_parent_not_os_owned DEBUG "+JSON.stringify({cursor:item.cursor,uid:String(entry.uid),mode:entry.mode.toString(8),dev:String(entry.dev),childDev:String(child.dev)}));
       child = entry;
     }
   };
