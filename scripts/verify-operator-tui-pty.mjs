@@ -50,6 +50,8 @@ try {
 import json, os, pty, re, select, signal, sys, time
 exe = sys.argv[1]
 api_url = sys.argv[3]
+def visible(value):
+    return re.sub(rb"\x1b\[[0-9;?]*[A-Za-z]", b"", value)
 def run_case(name, connected):
     pid, fd = pty.fork()
     if pid == 0:
@@ -69,7 +71,7 @@ def run_case(name, connected):
                 try: chunk = os.read(fd, 4096)
                 except OSError: break
                 buffer = (buffer + chunk)[-65536:]
-                if all(needle in buffer for needle in needles): return True
+                if all(needle in visible(buffer) for needle in needles): return True
         return False
     try:
         required = [b"Service Lasso TUI", b"q quit"]
@@ -78,7 +80,7 @@ def run_case(name, connected):
             diagnostic = re.sub(rb"\x1b\[[0-9;?]*[A-Za-z]", b"", buffer[-2048:]).decode("utf-8", "replace")
             diagnostic = "".join(ch if ch.isprintable() or ch in "\\n\\r\\t" else "." for ch in diagnostic)[-1024:]
             raise RuntimeError(name + " startup state was not rendered: " + diagnostic)
-        if connected and (b'connection profile "default" credential is unavailable' in buffer or b"Runtime API unavailable" in buffer): raise RuntimeError("connected Core dashboard rendered an unavailable state")
+        if connected and (b'connection profile "default" credential is unavailable' in visible(buffer) or b"Runtime API unavailable" in visible(buffer)): raise RuntimeError("connected Core dashboard rendered an unavailable state")
         os.write(fd, b"d")
         os.write(fd, b"?")
         if not read_until([b"d dashboard", b"esc back"], 5): raise RuntimeError(name + " keyboard navigation did not render help")

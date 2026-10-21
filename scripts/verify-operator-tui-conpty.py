@@ -25,10 +25,14 @@ def child_environment(api_url, api_token):
     return environment
 
 
+def visible(text):
+    return re.sub(r"\x1b\[[0-9;?]*[A-Za-z]", "", text)
+
+
 def wait_for(process, text, expected, timeout_seconds):
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
-        if all(value in text for value in expected):
+        if all(value in visible(text) for value in expected):
             return True, text
         readable, _, _ = select.select([process], [], [], min(0.1, max(0, deadline - time.monotonic())))
         if readable:
@@ -36,7 +40,7 @@ def wait_for(process, text, expected, timeout_seconds):
                 text += process.read()
             except EOFError:
                 break
-    return all(value in text for value in expected), text
+    return all(value in visible(text) for value in expected), text
 
 
 def emit(result):
@@ -80,7 +84,7 @@ def main():
         startup_ok, text = wait_for(process, text, ("Service Lasso TUI", expected), 20)
         if not startup_ok:
             primary_stage = stage
-        if args.mode == "connected" and ('connection profile "default" credential is unavailable' in text or "Runtime API unavailable" in text):
+        if args.mode == "connected" and ('connection profile "default" credential is unavailable' in visible(text) or "Runtime API unavailable" in visible(text)):
             primary_stage = stage
         if primary_stage is None and args.mode == "connected":
             stage = "navigation"
