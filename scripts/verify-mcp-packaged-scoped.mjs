@@ -243,7 +243,7 @@ try {
     "--no-fund",
     "--save-exact",
     staged.packageArchivePath,
-    "@modelcontextprotocol/inspector@2.10.1",
+    "@modelcontextprotocol/inspector@2.11.0",
     `@modelcontextprotocol/sdk@${pinnedSdkVersion}`,
   ], { cwd: consumerRoot, timeoutMs: 300_000, resourceObservation: installObservation });
   verificationStage = "installed_package_binding";
@@ -432,7 +432,7 @@ try {
   );
 } finally {
   try {
-    await removeOwnedTempRoot(tempRoot);
+    await removeOwnedTempRoot(tempRoot, { attempts: 30 });
   } catch (error) {
     const cleanup = ownedTempCleanupObservation(error);
     verificationFailure = {

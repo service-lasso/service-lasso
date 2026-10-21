@@ -209,7 +209,8 @@ test("acquire script SOURCE witness binds ALL8 actual caught roles and preserves
   const verification = source.slice(source.indexOf("function Verify-Held"), source.indexOf("function Read-DiagnosticCommand"));
   assert.match(verification, /Check-Owner \$entry\.Path \(\$entry\.Path -eq \$root\)/);
   assert.doesNotMatch(verification, /Remember-AcquireFailure/);
-  assert.match(source, /if \(\$isRoot\) \{ if \(\$owner -ne \$sid\)/);
+  assert.match(source, /if \(\$isRoot\) \{ if \(\$owner -notin @\(\$sid,\$ownerSid\)\)/);
+  assert.match(source, /\$identity = \[System\.Security\.Principal\.WindowsIdentity\]::GetCurrent\(\)\s+\$sid = \$identity\.User\.Value[\s\S]*\$ownerSid = if \(\$null -ne \$identity\.Owner\) \{ \$identity\.Owner\.Value \} else \{ \$sid \}/);
   assert.match(source, /\$owner -notin @\(\$sid,'S-1-5-18','S-1-5-32-544','S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464'\)/);
   assert.match(source, /CreateFile\(p, 0x80U, 3, IntPtr\.Zero, 3, 0x02200000/);
   assert.match(source, /\$operation -ceq 'acquire_chain' -and \$null -ne \$suboperation/);

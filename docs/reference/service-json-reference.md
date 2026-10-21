@@ -389,7 +389,7 @@ outside the app directory, and are excluded from persistent artifact/preimage
 state. Pass their paths through `${SERVICE_LASSO_SECRETS_DIR}` in app-supported
 environment variables. Legacy `ephemeral` fields are rejected with migration
 guidance; move those declarations into `broker`. See
-[Provision Service Secrets Securely](../getting-started/advanced-provision-service-secrets-securely.md)
+[Provision secrets as RAM files](../getting-started/advanced-provision-service-secrets-securely.md)
 for a real Echo consumer, its opt-in manifest and safe usage checks, and
 [RAM WebDAV secret files](ram-webdav-secret-files-review.md) for URL/UNC delivery
 and access controls. Linux native filesystem delivery is an explicit

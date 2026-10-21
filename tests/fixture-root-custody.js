@@ -52,11 +52,14 @@ public static class FixtureHandle {
 }
 '@
 $root = $env:SERVICE_LASSO_HELD_FIXTURE_ROOT
-$sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+$identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+$sid = $identity.User.Value
+# Elevated runner tokens give new objects their default owner, not the user SID.
+$ownerSid = if ($null -ne $identity.Owner) { $identity.Owner.Value } else { $sid }
 $held = New-Object System.Collections.Generic.List[object]
 function Check-Owner($p, $isRoot) {
   $owner = (Get-Acl -LiteralPath $p).GetOwner([System.Security.Principal.SecurityIdentifier]).Value
-  if ($isRoot) { if ($owner -ne $sid) { throw 'Unknown fixture owner' } }
+  if ($isRoot) { if ($owner -notin @($sid,$ownerSid)) { throw 'Unknown fixture owner' } }
   elseif ($owner -notin @($sid,'S-1-5-18','S-1-5-32-544','S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464')) { throw 'Unknown fixture ancestor owner' }
 }
 function Verify-Held {
@@ -103,7 +106,8 @@ async function holdRoot(root, diagnosticRoot, diagnosticRole) {
     if (diagnosticRole) return holdDiagnosticRootWindows(root, diagnosticRoot);
     const child = spawn(path.join(process.env.SystemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
       ["-NoProfile", "-NonInteractive", "-EncodedCommand", encodeGuardianCommand(guardianScript)],
-      { windowsHide: true, stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, SERVICE_LASSO_HELD_FIXTURE_ROOT: root } });
+      { windowsHide: true, stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, PSModulePath: path.join(process.env.SystemRoot, "System32", "WindowsPowerShell", "v1.0", "Modules"),
+        SERVICE_LASSO_HELD_FIXTURE_ROOT: root } });
     let pending, output = "", privateError = "", closed = false;
     let stdoutEof = false, stderrEof = false, nativeIdentity, callerIdentity, guardianWitness;
     const stdoutBytes = [], stderrBytes = [];

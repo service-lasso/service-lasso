@@ -129,7 +129,7 @@ test("real verifier finalization preserves primary failure and makes success fol
       const evidencePath = "private-evidence-path";
       const acceptance = {
         sdk: { protocolVersion: "2025-11-25", version: "1.32.1" },
-        inspector: { version: "2.10.1" }, packagedRuntime: {}, canonical: {}, coverage: {}, assertions: {},
+        inspector: { version: "2.11.0" }, packagedRuntime: {}, canonical: {}, coverage: {}, assertions: {},
       };
       const context = {
         path, createHash, ownedCommandStderr, relayOwningResourceObservations, packObservation: undefined, stageLockObservation: undefined, installObservation: undefined, consumerObservation: undefined, packagedVerificationDiagnostic, dependencyAcquisitionReceipt,
