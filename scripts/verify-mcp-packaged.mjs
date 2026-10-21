@@ -433,8 +433,11 @@ try {
     const cleanup = ownedTempCleanupObservation(error);
     if (verificationFailure) {
       verificationFailure = {
-        ...verificationFailure,
-        cleanup,
+        stage: "temp_cleanup",
+        errorCode: "cleanup_failed",
+        ...(cleanup ? { cleanup } : {}),
+        verificationStage: verificationFailure.stage,
+        verificationErrorCode: verificationFailure.errorCode,
       };
     } else {
       // Windows can briefly hold the owned temp root after a packaged child
