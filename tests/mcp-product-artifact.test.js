@@ -437,7 +437,7 @@ function evidence(candidateSha, platform) {
       protocolVersion: "2025-11-25",
       supportedProtocolVersions: ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05", "2024-10-07"],
     },
-    inspector: { packageName: "@modelcontextprotocol/inspector", version: "2.10.1", result: "passed", strictSchema: "passed" },
+    inspector: { packageName: "@modelcontextprotocol/inspector", version: "2.11.0", result: "passed", strictSchema: "passed" },
     packagedRuntime: {
       sourceCheckoutRequired: false,
       sourceCheckoutAccess: "denied-by-node-permission-model",
