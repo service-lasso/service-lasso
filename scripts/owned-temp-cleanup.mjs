@@ -34,14 +34,15 @@ export async function removeOwnedTempRoot(tempRoot, {
   remove = rm,
   wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
   report = value => process.stderr.write(value),
+  attempts = 8,
 } = {}) {
-  for (let attempt = 1; attempt <= 8; attempt += 1) {
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
       await remove(tempRoot, { recursive: true, force: true });
       return;
     } catch (error) {
       const filesystemCode = observedFilesystemCode(error);
-      if (!retryableCodes.has(filesystemCode) || attempt === 8) {
+      if (!retryableCodes.has(filesystemCode) || attempt === attempts) {
         const failure = new Error("Owned temporary root cleanup failed.");
         failures.set(failure, {
           operation: "remove_owned_temp_root",

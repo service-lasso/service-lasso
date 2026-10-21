@@ -201,7 +201,7 @@ for (const [label, source] of [
   ["missing read file", null],
   ["truncated duplicate source", '{"schema":"service-lasso.admin-trusted-unlock-consumer.v1","outcome":"nonzero_exit","outcome":"nonzero_exit"}'],
   ["expanded private source", { ...receipt, private: true }],
-  ["contradictory success classification", { ...receipt, outcome: "success", exitCode: 0 }],
+  ["contradictory success classification", { ...receipt, outcome: "success", exitCode: 0, trustedUnlock: { classification: "missing" } }],
   ["contradictory failed classification", { ...receipt, trustedUnlock: { classification: "not_emitted" } }],
 ]) test(`AC-4BY.2 recorder rejects ${label}`, async () => {
   const root = await mkdtemp(path.join(tmpdir(), "packaged-recorder-"));

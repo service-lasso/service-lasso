@@ -396,6 +396,9 @@ test("AC-4BY.2 retains only observed consumer receipts and never upgrades a fail
   );
   const success = retainAdminTrustedUnlockReceipt(JSON.stringify({ schema: "service-lasso.admin-trusted-unlock-consumer.v1", outcome: "success", exitCode: 0, signal: null, trustedUnlock: { classification: "not_emitted" } }), expected);
   assert.deepEqual(success.trustedUnlock, { classification: "not_emitted", reason: "no_failure" });
+  const successWithReceipt = retainAdminTrustedUnlockReceipt(JSON.stringify({ schema: "service-lasso.admin-trusted-unlock-consumer.v1", outcome: "success", exitCode: 0, signal: null, trustedUnlock: { classification: "closed", receipt: JSON.parse(raw).trustedUnlock.receipt } }), expected);
+  assert.equal(successWithReceipt.trustedUnlock.classification, "closed");
+  assert.deepEqual(validateRetainedAdminTrustedUnlockReceipt(successWithReceipt, expected), successWithReceipt);
   const observationFailure = retainAdminTrustedUnlockReceipt(JSON.stringify({ schema: "service-lasso.admin-trusted-unlock-consumer.v1", outcome: "observation_failure", exitCode: 0, signal: null, streamFailure: "malformed_utf8", trustedUnlock: { classification: "closed", receipt: JSON.parse(raw).trustedUnlock.receipt } }), expected);
   assert.deepEqual(observationFailure.consumerFailure, { source: "stream", classification: "malformed_utf8" });
   assert.deepEqual(validateRetainedAdminTrustedUnlockReceipt(observationFailure, expected), observationFailure);

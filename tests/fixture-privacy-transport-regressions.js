@@ -21,6 +21,44 @@ const decode = (chunks) => {
 
 // Register in the existing custody and selected-phase natural test entrypoints.
 export function registerFixturePrivacyTransportTests() {
+  test("SLFP2 closed owner roles remain failed and reject cross-role or expanded identity", async () => {
+    for (const operation of ["owner_ancestor", "owner_original", "owner_protect"]) {
+      const role = operation === "owner_protect" ? "p" : "v";
+      const decoder = createFixturePrivacyDecoder(nonce, role);
+      decoder.feed(frames(normal, nonce, role) + response("failed", operation));
+      const result = decoder.finish(decodeFixturePrivacyResponse);
+      assert.equal(result.response, operation); assert.equal(result.observation.state, "complete");
+      assert.equal(classifyFixturePrivacyCompletion(response("failed", operation), false, false, false), operation);
+      assert.equal(decodeFixturePrivacyResponse(response("passed", operation)), undefined);
+      assert.doesNotMatch(JSON.stringify(result.observation), /SID|PRIVATE|S-1-/);
+      let reported;
+      const original = new Proxy({}, { get() { throw new Error("PRIVATE-ERROR-GETTER"); } });
+      const launch = (_exe, _argv, options, callback) => {
+        const child = new EventEmitter(); child.stdout = new EventEmitter();
+        queueMicrotask(() => {
+          child.emit("spawn");
+          child.stdout.emit("data", frames(normal, options.env.SERVICE_LASSO_FIXTURE_PRIVACY_NONCE,
+            options.env.SERVICE_LASSO_FIXTURE_PRIVACY_ROLE) + response("failed", operation));
+          callback(original, "");
+        });
+        return child;
+      };
+      // Explicit owned-child SURROGATE: not actual native owner identity.
+      const priorSystemRoot = process.env.SystemRoot; process.env.SystemRoot ??= "C:\\Windows";
+      try {
+        let caught = false;
+        try { await runFixturePrivacy("PRIVATE-ROOT", role === "p", value => { reported = value; }, launch); }
+        catch (actual) { caught = true; assert.strictEqual(actual, original); }
+        assert.equal(caught, true);
+      } finally { if (priorSystemRoot === undefined) delete process.env.SystemRoot; else process.env.SystemRoot = priorSystemRoot; }
+      assert.equal(reported, operation);
+    }
+    for (const wire of [frames() + response("failed", "owner_protect"), frames() + response("failed", "owner_unknown"),
+      frames() + response("failed", "owner_original").replace('"operation":', '"sid":"PRIVATE-SID","operation":')]) {
+      const result = decode([wire]);
+      assert.equal(result.response, undefined); assert.equal(result.observation.state, "malformed");
+    }
+  });
   test("SLFP2 decoder accepts every chunk boundary and preserves unavailable prefixes", () => {
     const transport = frames() + response();
     for (let split = 0; split <= transport.length; split++) {

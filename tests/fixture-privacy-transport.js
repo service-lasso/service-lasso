@@ -23,10 +23,14 @@ try { . $payload }
 catch { $privateInvocationError=$_; exit 1 }
 `;
 
+export const FIXTURE_PRIVACY_FAILURE_OPERATIONS = Object.freeze([
+  "compiler", "prepare", "acquire", "information", "type", "redirect", "security", "owner", "inventory", "identity",
+  "descriptor", "protect", "readback", "release", "owner_ancestor", "owner_original", "owner_protect",
+]);
 const normal = ["boot_enter", "parse_enter", "parse_ok", "compiler_enter", "compiler_ok"];
 const native = /^(?:acquire|information|type|redirect|security|owner|inventory|identity|descriptor|protect|readback)$/;
 const finalResponses = [JSON.stringify({ schema: "service-lasso.fixture-privacy-response.v1", outcome: "passed", operation: null }),
-  ...["compiler", "prepare", "acquire", "information", "type", "redirect", "security", "owner", "inventory", "identity", "descriptor", "protect", "readback", "release"]
+  ...FIXTURE_PRIVACY_FAILURE_OPERATIONS
     .map(operation => JSON.stringify({ schema: "service-lasso.fixture-privacy-response.v1", outcome: "failed", operation }))];
 export function createFixturePrivacyDecoder(nonce, role) {
   if (!/^[0-9a-f]{32}$/.test(nonce) || !["v", "p"].includes(role)) throw new Error("Invalid privacy transport binding.");
@@ -79,6 +83,7 @@ export function createFixturePrivacyDecoder(nonce, role) {
       }
       // Compiler failure keeps the original failed final JSON; it cannot pass.
       if (response !== undefined && (events.length < 5 ||
+        (response === "owner_protect" && role !== "p") ||
         (terminal && response !== "compiler") || (response === "compiler" && !terminal) ||
         (!terminal && events.length === 5 && response !== "prepare") ||
         (response === "passed" && events.length !== 6))) {

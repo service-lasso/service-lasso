@@ -10,12 +10,23 @@ import { checkSelectedScalarBody } from './helpers/core1681-selected-body-checke
 import { SelectedMemberIndex } from './helpers/core1681-selected-members.mjs';
 import { bindSelectedInvocation } from './helpers/core1681-selected-invocation.mjs';
 import { bindSelectedPredefinedOperator } from './helpers/core1681-selected-predefined-operators.mjs';
-import { selectCsharpOverload } from './helpers/core1681-selected-overloads.mjs';
+import { selectCsharpOverload, csharpInvocationForm, selectCsharpInvocationForms } from './helpers/core1681-selected-overloads.mjs';
 import { createProofCounter, canonicalData, foldBitvectorComparison, K2_LIMITS } from './helpers/core1681-proof-terms.mjs';
 import { checkedOriginalLiteral } from './helpers/core1681-selected-literals.mjs';
 import { SelectedCScanner } from './helpers/core1681-selected-c-preprocessor.mjs';
 import { SelectedCSyntax } from './helpers/core1681-selected-c-syntax.mjs';
+import { isSourceDenialCode } from './helpers/core1681-source-input.mjs';
 import { copySelectedCTypeObservation, resolveSelectedCSourceHead } from './helpers/core1681-selected-c-types.mjs';
+
+const symbolicFixture = `namespace System {
+ public class Object { public bool Equals(object value) { return false; } }
+ public class ValueType : Object {} public class Enum : ValueType {}
+ public class MulticastDelegate : Object {}
+ public struct Int32 {} public struct Double {} public struct Void {}
+ public struct Boolean {} public struct UInt32 {} public struct Int64 {} public struct UInt64 {}
+ public struct SByte {} public struct Byte {} public struct Int16 {} public struct UInt16 {} public struct Char {}
+ public struct Single {} public struct Decimal {} public class String : Object {}
+}`;
 
 test('finite proof counters keep their once-acquired limits after public mutation', () => {
   const limits = { ...K2_LIMITS, maxInvariantSteps: 1 };
@@ -42,9 +53,10 @@ test('finite proof counters keep their once-acquired limits after public mutatio
 
 test('private proof rebind reuses only its same-counter snapshot while public aliases stay independent', () => {
   const raw = Buffer.from('class C { int F() { return 1; } }', 'utf8');
-  const extent = raw.length, counter = createProofCounter();
+  const extent = raw.length + Buffer.byteLength(symbolicFixture), counter = createProofCounter();
   const compilation = bindSelectedCsharpCompilation([
     { unit: 'private-rebind.cs', compilation: 'private-rebind', role: 'source', rawBytes: raw },
+    { unit: 'symbolic.cs', compilation: 'fixture-symbolic', role: 'catalogue', rawBytes: Buffer.from(symbolicFixture) },
   ], counter);
   raw.fill(0);
   compilation.decodedUnits.get('private-rebind.cs').raw.fill(0);
@@ -76,7 +88,8 @@ test('actual compilation consumes each own-data source value once without Proxy 
       return Reflect.getOwnPropertyDescriptor(target, key);
     },
   });
-  const roster = new Proxy([source], { get() { throw opaque; } });
+  const roster = new Proxy([source,
+    { unit: 'symbolic.cs', compilation: 'fixture-symbolic', role: 'catalogue', rawBytes: Buffer.from(symbolicFixture) }], { get() { throw opaque; } });
   const compilation = bindSelectedCsharpCompilation(roster, createProofCounter());
   assert.equal(compilation.originals[0].unit, 'once.cs');
   assert.deepEqual([...descriptors.keys()], ['unit', 'compilation', 'role', 'rawBytes']);
@@ -95,6 +108,7 @@ test('actual compilation frontend borrow keeps public decoded and original input
   const counter = createProofCounter();
   const compilation = bindSelectedCsharpCompilation([
     { unit: 'private.cs', compilation: 'actual-private-copy', role: 'source', rawBytes },
+    { unit: 'symbolic.cs', compilation: 'fixture-symbolic', role: 'catalogue', rawBytes: Buffer.from(symbolicFixture) },
   ], counter);
   rawBytes.fill(0);
   compilation.originals[0].parser.scanner.decoded.raw.fill(0);
@@ -446,21 +460,15 @@ test('closed source/proof record keys reject accessors and hidden or symbol memb
   assert.equal(keyReads, 0);
 });
 
-const symbolicFixture = `namespace System {
- public class Object { public bool Equals(object value) { return false; } }
- public class ValueType : Object {} public class Enum : ValueType {}
- public class MulticastDelegate : Object {}
- public struct Int32 {} public struct Double {} public struct Void {}
- public struct Boolean {} public struct UInt32 {} public struct Int64 {} public struct UInt64 {}
- public struct SByte {} public struct Byte {} public struct Int16 {} public struct UInt16 {} public struct Char {}
- public struct Single {} public struct Decimal {} public class String : Object {}
-}`;
+
 
 test('original cast disambiguation follows grammar before identifier type lookup', () => {
   for (const [expression, expected] of [
     ['(Unknown)value', 'cast'], ['(IntPtr)value', 'cast'],
     ['(x)-y', 'binary'], ['(int)-y', 'cast'], ['(x)(-y)', 'cast'],
     ['(Unknown<int>)-y', 'cast'],
+    ["(System.Int32)'a'", 'cast'], ["(I)'a'", 'cast'],
+    ['(value)+y', 'binary'], ['(value)', 'group'],
   ]) {
     const counter = createProofCounter();
     const original = new SelectedSyntax(Buffer.from(
@@ -472,6 +480,25 @@ test('original cast disambiguation follows grammar before identifier type lookup
     assert.equal(value.kind, expected);
     if (expression === '(x)-y') assert.equal(value.left.kind, 'group');
     if (expression === '(int)-y') assert.equal(value.operand.kind, 'unary');
+  }
+});
+
+test('qualified and imported Int32 casts bind actual char literals through existing scalar integral transfer', () => {
+  for (const [prefix, target] of [['', 'System.Int32'], ['using I = System.Int32; ', 'I']]) {
+    const counter = createProofCounter();
+    const compilation = bindSelectedCsharpCompilation([
+      { unit: 'char-cast.cs', compilation: 'original-char-cast', role: 'source', rawBytes: Buffer.from(
+        `${prefix}class C { int F() { unchecked { return (${target})'a'; } } }`, 'utf8') },
+      { unit: 'symbolic.cs', compilation: 'fixture-symbolic', role: 'catalogue', rawBytes: Buffer.from(symbolicFixture, 'utf8') },
+    ], counter);
+    const method = compilation.enumeration.find(entry => entry.syntax.kind === 'method' && entry.syntax.name.spelling === 'F');
+    const body = bindSelectedCsharpScalarBody(compilation, method.declId, { counter, typeIndex: compilation.index,
+      declarationMetadata: compilation.bound.declarationMetadata, parameterConstraints: compilation.bound.parameterConstraints,
+      typeGraph: compilation.typeGraph, languageVersion: [5, 0] });
+    const casts = body.nodes.filter(node => node.operation === 'explicitCast');
+    assert.equal(casts.length, 1);
+    assert.deepEqual(casts[0].conversion, { kind: 'explicitIntegral', source: 'char', target: 'int', checkedContext: false });
+    assert.equal(checkSelectedScalarBody(compilation, body, counter).sourceAdmission, false);
   }
 });
 
@@ -1907,7 +1934,7 @@ test('original sibling namespace participates in using binding without importing
   assert.equal(context.namespacePaths.has(canonicalData(['Empty'])), true);
 });
 
-function bindFixture(source) {
+function bindFixture(source, csharpLanguageVersion = [5, 0]) {
   const counter = createProofCounter();
   const { originals, enumeration, byDeclaration, index, compilationGroups, bound, types, context, typeGraph, decodedUnits } =
     bindSelectedCsharpCompilation([
@@ -1922,7 +1949,7 @@ function bindFixture(source) {
     objectType: index.primitive('object', context(sample), sample.origin),
     valueTypeRoot: index.catalogueType(['System'], 'ValueType', context(sample), sample.origin),
     enumTypeRoot: index.catalogueType(['System'], 'Enum', context(sample), sample.origin),
-    csharpLanguageVersion: [5, 0], resolveOriginalDefaults: row => {
+    csharpLanguageVersion: [...csharpLanguageVersion], resolveOriginalDefaults: row => {
       const original = originals.find(unit => unit.unit === row.declaration.unit);
       assert.ok(original);
       return { ...row, parameters: row.parameters.map(parameter => {
@@ -1952,6 +1979,171 @@ function bindFixture(source) {
   };
   return { types, type, entry, group, invoke, bound, environment, byDeclaration, enumeration };
 }
+
+test('generic params infers each original form and retains normal-array preference and return substitution', () => {
+  const bind = (expression, { fallback = false, constraint = '', version = [5, 0] } = {}) => {
+    const fixture = bindFixture(`class C {
+      public T M<T>(params T[] xs) ${constraint} { return xs[0]; }
+      ${fallback ? 'public object M(object value) { return value; }' : ''}
+    } class Caller { public object Invoke(C receiver, int scalar, int[] values) { return ${expression}; } }`, version);
+    const caller = fixture.entry('Invoke'), call = caller.syntax.body.statements[0].value;
+    const originalTarget = call.target.kind === 'genericMember' ? call.target.target : call.target;
+    const group = fixture.group(fixture.type('C'), { ...call, target: originalTarget }, caller);
+    const signature = fixture.bound.declarationMetadata.get(canonicalData(caller.declId));
+    const actuals = call.arguments.map(argument => {
+      const node = argument.expression;
+      if (node.kind === 'name') {
+        assert.equal(node.name.spelling, 'values');
+        return { direction: argument.direction, name: argument.name, type: signature.parameters[2].type, origin: node.origin };
+      }
+      assert.equal(node.kind, 'literal');
+      return { direction: argument.direction, name: argument.name, type: signature.parameters[1].type,
+        constant: BigInt(node.token.spelling), origin: node.origin };
+    });
+    let explicit = null;
+    if (call.target.kind === 'genericMember') {
+      assert.equal(call.target.typeArguments.length, 1);
+      assert.equal(call.target.typeArguments[0].segments[0].name.spelling, 'int');
+      explicit = [signature.parameters[1].type];
+    }
+    return { fixture, group, actuals, call, bind: () => bindSelectedInvocation(group, actuals, explicit, fixture.environment, call) };
+  };
+  for (const [expression, expanded, count] of [
+    ['receiver.M(1)', true, 1], ['receiver.M(1, 2)', true, 2],
+    ['receiver.M(values)', false, null], ['receiver.M<int>()', true, 0],
+  ]) {
+    for (const fallback of [false, true]) {
+      const row = bind(expression, { fallback }), selected = row.bind();
+      const original = row.group.find(candidate => candidate.genericArity === 1);
+      assert.deepEqual(selected.candidate.declaration, original.declaration);
+      assert.equal(selected.expanded, expanded);
+      assert.equal(selected.candidate.genericArguments[0].name, 'int');
+      assert.equal(selected.candidate.returnType.name, 'int');
+      assert.equal(selected.candidate.parameters[0].type.category, 'array');
+      assert.equal(selected.candidate.parameters[0].type.element.name, 'int');
+      if (expanded) {
+        assert.equal(selected.paramsArray.allocation, 'freshArray'); assert.equal(selected.paramsArray.count, count);
+        assert.equal(selected.paramsArray.elementType.name, 'int'); assert.equal(selected.paramsArray.sourceIndices.length, count);
+      } else assert.equal(selected.paramsArray, null, 'Actual array must stay normal; do not add both forms of one original.');
+      const token = csharpInvocationForm(selected.candidate, row.actuals, row.fixture.environment, expanded);
+      assert.ok(token);
+      assert.strictEqual(selectCsharpInvocationForms([token], row.actuals, row.fixture.environment, row.call.origin).candidate, selected.candidate);
+      for (const fake of [{}, structuredClone(token)])
+        assert.throws(() => selectCsharpInvocationForms([fake], row.actuals, row.fixture.environment, row.call.origin), error => isSourceDenialCode(error, 'INVALID_BINDING'));
+      assert.throws(() => selectCsharpInvocationForms([token], [...row.actuals], row.fixture.environment, row.call.origin), error => isSourceDenialCode(error, 'INVALID_BINDING'));
+      assert.throws(() => selectCsharpInvocationForms([token], row.actuals, { ...row.fixture.environment }, row.call.origin), error => isSourceDenialCode(error, 'INVALID_BINDING'));
+    }
+  }
+  assert.throws(() => bind('receiver.M()').bind(), error => isSourceDenialCode(error, 'INVALID_BINDING'));
+  for (const version of [[5, 0], [7, 2], [7, 3], [8, 0]]) {
+    const row = bind('receiver.M(1)', { fallback: true, constraint: 'where T : class', version });
+    if (version[0] < 7 || version[0] === 7 && version[1] < 3)
+      assert.throws(row.bind, error => isSourceDenialCode(error, 'CONSTRAINT_MISMATCH'));
+    else {
+      const selected = row.bind();
+      assert.deepEqual(selected.candidate.declaration, row.group.find(candidate => candidate.genericArity === 0).declaration);
+      assert.equal(selected.expanded, false); assert.equal(selected.candidate.returnType.name, 'object');
+    }
+  }
+});
+
+test('own generic constraints use actual pre7.3 selection and7.3+ candidate pruning', () => {
+  const program = `class C {
+    public int F<T>(T value) where T : class { return 1; }
+    public int F(object value) { return 2; }
+  } class Caller { public int Invoke(C receiver) { return receiver.F(1); } }`;
+  for (const version of [[5, 0], [7, 2], [7, 3], [8, 0]]) {
+    const fixture = bindFixture(program, version);
+    const caller = fixture.entry('Invoke'), call = caller.syntax.body.statements[0].value;
+    const group = fixture.group(fixture.type('C'), call, caller);
+    assert.equal(group.length, 2);
+    if (version[0] < 7 || version[0] === 7 && version[1] < 3) {
+      assert.throws(() => fixture.invoke(group, call, caller), error => isSourceDenialCode(error, 'CONSTRAINT_MISMATCH'));
+    } else {
+      const selected = fixture.invoke(group, call, caller);
+      const originalFallback = group.find(candidate => candidate.genericArity === 0);
+      assert.deepEqual(selected.declaration, originalFallback.declaration);
+      assert.equal(selected.parameters[0].type.name, 'object');
+    }
+    assert.deepEqual(fixture.environment.csharpLanguageVersion, version);
+  }
+});
+
+test('old-profile own constraint failure matters only for the chosen original member', () => {
+  for (const version of [[5, 0], [7, 2], [7, 3], [8, 0]]) {
+    const fixture = bindFixture(`class C {
+      public int F<T>(T value) where T : class { return 1; }
+      public int F(int value) { return 2; }
+    } class Caller { public int Invoke(C receiver) { return receiver.F(1); } }`, version);
+    const caller = fixture.entry('Invoke'), call = caller.syntax.body.statements[0].value;
+    const group = fixture.group(fixture.type('C'), call, caller);
+    const selected = fixture.invoke(group, call, caller);
+    assert.deepEqual(selected.declaration, group.find(candidate => candidate.genericArity === 0).declaration);
+    assert.equal(selected.parameters[0].type.name, 'int');
+  }
+});
+
+test('deferred own constraints preserve the actual enclosing generic substitutions', () => {
+  for (const version of [[5, 0], [7, 3]]) {
+    const fixture = bindFixture(`class C<U> {
+      public int F<T>(T value, U second) where T : class { return 1; }
+      public int F(object value, U second) { return 2; }
+    } class Caller { public int Invoke(C<int> receiver) { return receiver.F(1, 2); } }`, version);
+    const caller = fixture.entry('Invoke'), call = caller.syntax.body.statements[0].value;
+    const receiver = fixture.bound.declarationMetadata.get(canonicalData(caller.declId)).parameters[0].type;
+    const group = fixture.group(receiver, call, caller);
+    if (version[0] === 5) {
+      assert.throws(() => fixture.invoke(group, call, caller), error => isSourceDenialCode(error, 'CONSTRAINT_MISMATCH'));
+    } else {
+      const selected = fixture.invoke(group, call, caller);
+      assert.deepEqual(selected.declaration, group.find(candidate => candidate.genericArity === 0).declaration);
+      assert.equal(selected.parameters[1].type.name, 'int');
+      const enclosing = fixture.bound.declarationMetadata.get(canonicalData(receiver.declaration)).typeParameters[0];
+      assert.equal(selected.substitutions.get(canonicalData(enclosing.declId)).name, 'int');
+    }
+  }
+});
+
+test('valid generic constraints retain the better original generic candidate across versions', () => {
+  for (const version of [[5, 0], [7, 3]]) {
+    const fixture = bindFixture(`class C {
+      public int F<T>(T value) where T : struct { return 1; }
+      public int F(object value) { return 2; }
+    } class Caller { public int Invoke(C receiver) { return receiver.F(1); } }`, version);
+    const caller = fixture.entry('Invoke'), call = caller.syntax.body.statements[0].value;
+    const group = fixture.group(fixture.type('C'), call, caller);
+    const selected = fixture.invoke(group, call, caller);
+    assert.deepEqual(selected.declaration, group.find(candidate => candidate.genericArity === 1).declaration);
+    assert.equal(selected.parameters[0].type.name, 'int');
+  }
+});
+
+test('no generic fallback and missing profile or constraint evidence remain hard failures', () => {
+  const program = `class C { public int F<T>(T value) where T : class { return 1; } }
+    class Caller { public int Invoke(C receiver) { return receiver.F(1); } }`;
+  for (const [version, expected] of [[[5, 0], 'CONSTRAINT_MISMATCH'], [[7, 3], 'INVALID_BINDING']]) {
+    const fixture = bindFixture(program, version);
+    const caller = fixture.entry('Invoke'), call = caller.syntax.body.statements[0].value;
+    const group = fixture.group(fixture.type('C'), call, caller);
+    assert.throws(() => fixture.invoke(group, call, caller), error => isSourceDenialCode(error, expected));
+  }
+  for (const missing of ['csharpLanguageVersion', 'parameterConstraints']) {
+    const fixture = bindFixture(program, [7, 3]);
+    const caller = fixture.entry('Invoke'), call = caller.syntax.body.statements[0].value;
+    const group = fixture.group(fixture.type('C'), call, caller);
+    fixture.environment[missing] = missing === 'parameterConstraints' ? new Map() : undefined;
+    assert.throws(() => fixture.invoke(group, call, caller), error => isSourceDenialCode(error, 'INVALID_BINDING'));
+  }
+  const inheritedVersion = new Array(2);
+  Object.setPrototypeOf(inheritedVersion, { 0: 5, 1: 0 });
+  for (const invalid of [new Array(2), [, 0], [5, ,], inheritedVersion, [NaN, 0], [Infinity, 0], [5, -1], [5, 0.5]]) {
+    const fixture = bindFixture(program);
+    const caller = fixture.entry('Invoke'), call = caller.syntax.body.statements[0].value;
+    const group = fixture.group(fixture.type('C'), call, caller);
+    fixture.environment.csharpLanguageVersion = invalid;
+    assert.throws(() => fixture.invoke(group, call, caller), error => isSourceDenialCode(error, 'INVALID_BINDING'));
+  }
+});
 
 test('applicable derived declaration suppresses exact base conversion only after applicability', () => {
   const fixture = bindFixture(`class Base { public int F(int value) { return 0; } }
@@ -2265,10 +2457,27 @@ test('normal try finally preserves ordered store effects and independently requi
     const throws = routedBody.finalFrontiers.filter(row => row.kind === 'throw');
     assert.ok(throws.length);
     for (const failure of routedBody.exceptionalCompletions) {
-      const entries = routedBody.edges.filter(edge => edge.from === failure.instruction && edge.completion === 'throw');
+      const siblings = routedBody.edges.filter(edge => edge.from === failure.instruction && edge.completion === 'throw');
+      const originals = routedBody.exceptionalCompletions.filter(row => row.instruction === failure.instruction);
+      assert.equal(siblings.length, originals.length);
+      const ordinals = siblings.map(edge => edge.branch?.outcome?.exception);
+      assert.equal(new Set(ordinals).size, originals.length);
+      assert.deepEqual([...ordinals].sort((a, b) => a - b), originals.map(row => row.ordinal).sort((a, b) => a - b));
+      const entries = siblings.filter(edge => edge.branch?.outcome?.exception === failure.ordinal);
       assert.equal(entries.length, 1);
       assert.equal(routedBody.nodes[entries[0].to].operation, 'pendingException');
+      assert.equal(routedBody.nodes[entries[0].to].exception, failure.ordinal);
+      assert.equal(routedBody.nodes[entries[0].to].sourceInstruction, failure.instruction);
       assert.notEqual(entries[0].to, routedBody.exit);
+      for (const mutation of ['duplicate', 'drop', 'relabel']) {
+        const changed = structuredClone(routedBody);
+        const edgeIndex = routedBody.edges.indexOf(entries[0]);
+        if (mutation === 'duplicate') changed.edges.push(structuredClone(changed.edges[edgeIndex]));
+        else if (mutation === 'drop') changed.edges.splice(edgeIndex, 1);
+        else changed.edges[edgeIndex].branch.outcome.exception = routedBody.exceptionalCompletions.length;
+        assert.throws(() => checkSelectedScalarBody(routed.compilation, changed, createProofCounter()),
+          original => isSourceDenialCode(original, 'INVALID_PROOF'));
+      }
     }
     for (const terminal of throws) {
       assert.equal(routedBody.nodes[terminal.instruction].operation, 'resumeException');
@@ -2344,4 +2553,127 @@ test('string concatenation retains required virtual call binding rather than dec
   assert.equal(selected.semantics.requiresOriginalVirtualCallBinding, true);
   assert.deepEqual(selected.semantics.virtualObjectToStringOperands, [1]);
   assert.equal(selected.semantics.resultNonNull, true);
+});
+
+test('optional conversion roots preserve actual catalogue identities without rejecting unrelated scalar candidates', () => {
+  const counter = createProofCounter();
+  const compilation = bindSelectedCsharpCompilation([
+    { unit: 'optional-roots.cs', compilation: 'optional-roots', role: 'source', rawBytes: Buffer.from('enum E { A } class C { int F(int value) { return value; } }') },
+    { unit: 'symbolic.cs', compilation: 'fixture-symbolic', role: 'catalogue', rawBytes: Buffer.from(symbolicFixture) },
+  ], counter);
+  const method = compilation.enumeration.find(row => row.syntax.kind === 'method' && row.syntax.name.spelling === 'F');
+  const context = compilation.context(method), origin = method.origin;
+  const primitive = name => compilation.index.primitive(name, context, origin);
+  const integer = primitive('int'), boolean = primitive('bool'), object = primitive('object');
+  const valueType = compilation.index.catalogueType(['System'], 'ValueType', context, origin);
+  const enumType = compilation.index.catalogueType(['System'], 'Enum', context, origin);
+  const enumeration = compilation.types.find(type => type.category === 'enum');
+  assert.ok(enumeration);
+  const environment = { counter, typeGraph: compilation.typeGraph, parameterConstraints: compilation.bound.parameterConstraints };
+  for (const roots of [{}, { objectType: object }, { valueTypeRoot: valueType, enumTypeRoot: enumType },
+    { objectType: object, valueTypeRoot: valueType, enumTypeRoot: enumType },
+    { objectType: primitive('long'), valueTypeRoot: primitive('long'), enumTypeRoot: primitive('long') }]) {
+    assert.equal(implicitCsharpConversion(integer, boolean, { ...environment, ...roots }), null);
+    assert.equal(implicitCsharpConversion(boolean, integer, { ...environment, ...roots }), null);
+    assert.equal(implicitCsharpConversion(integer, primitive('long'), { ...environment, ...roots }).kind, 'numeric');
+    assert.equal(implicitCsharpConversion(boolean, boolean, { ...environment, ...roots }).kind, 'identity');
+  }
+  const array = { category: 'array', rank: 1, element: integer };
+  assert.equal(implicitCsharpConversion(array, boolean, environment), null);
+  for (const root of [null, {}]) assert.throws(() => implicitCsharpConversion(array, boolean, { ...environment, arrayTypeRoot: root }), original => isSourceDenialCode(original, 'INVALID_BINDING'));
+  assert.equal(implicitCsharpConversion(enumeration, enumType, { ...environment, enumTypeRoot: enumType }).kind, 'boxing');
+  for (const root of [null, {}]) assert.throws(() => implicitCsharpConversion(enumeration, boolean, { ...environment, enumTypeRoot: root }), original => isSourceDenialCode(original, 'INVALID_BINDING'));
+  assert.equal(implicitCsharpConversion(integer, object, { ...environment, objectType: object }).kind, 'boxing');
+  assert.equal(implicitCsharpConversion(integer, valueType, { ...environment, valueTypeRoot: valueType }).kind, 'boxing');
+  for (const roots of [{ objectType: null }, { valueTypeRoot: null }, { objectType: {} }, { valueTypeRoot: {} }]) {
+    let caught = false;
+    try { implicitCsharpConversion(integer, boolean, { ...environment, ...roots }); }
+    catch (original) { caught = true; assert.equal(isSourceDenialCode(original, 'INVALID_BINDING'), true); }
+    assert.equal(caught, true, 'Present malformed roots cannot become absent roots.');
+  }
+});
+
+test('scalar source-call bridge derives mandatory Object and inheritance from actual compilation catalogue', () => {
+  const source = 'class Object {} class C { static int G(int value) { return value; } int F(int input) { return G(input); } }';
+  const counter = createProofCounter();
+  const units = [{ unit: 'call-root.cs', compilation: 'actual-call-root', role: 'source', rawBytes: Buffer.from(source) },
+    { unit: 'symbolic.cs', compilation: 'fixture-symbolic', role: 'catalogue', rawBytes: Buffer.from(symbolicFixture) }];
+  const compilation = bindSelectedCsharpCompilation(units, counter);
+  const method = compilation.enumeration.find(row => row.syntax.kind === 'method' && row.syntax.name.spelling === 'F');
+  const object = compilation.index.primitive('object', compilation.context(method), method.origin);
+  assert.equal(object.declaration.unit, 'symbolic.cs');
+  const environment = { counter, typeIndex: compilation.index, declarationMetadata: compilation.bound.declarationMetadata,
+    parameterConstraints: compilation.bound.parameterConstraints, typeGraph: compilation.typeGraph, languageVersion: [5, 0] };
+  assert.equal(Object.hasOwn(environment, 'objectType'), false);
+  const body = bindSelectedCsharpScalarBody(compilation, method.declId, environment);
+  const call = body.nodes.find(node => node.operation === 'sourceCall'); assert.ok(call);
+  assert.equal(call.calleeBody.nodes[call.calleeBody.returnNode].operation, 'return');
+  assert.equal(checkSelectedScalarBody(compilation, body, counter).sourceAdmission, false);
+  const badCatalogue = symbolicFixture.replace('public class Object ', 'public class MissingObject ');
+  for (const selected of [[units[0]], [units[0], { ...units[1], rawBytes: Buffer.from(badCatalogue) }]])
+    assert.throws(() => bindSelectedCsharpCompilation(selected, createProofCounter()), original => isSourceDenialCode(original, 'INVALID_BINDING'));
+});
+
+test('actual catalogue compilation retains category gates before constructor and initializer slots', () => {
+  const compile = source => bindSelectedCsharpCompilation([
+    { unit: 'category-source.cs', compilation: 'category-fixture', role: 'source', rawBytes: Buffer.from(source) },
+    { unit: 'category-catalogue.cs', compilation: 'category-fixture', role: 'catalogue', rawBytes: Buffer.from(symbolicFixture) },
+  ], createProofCounter());
+  for (const source of ['class C { public static C() {} }', 'class C { abstract int f; }',
+    'static class C { int M(){return 1;} }', 'class C { public static C(){} static int f=1; }'])
+    assert.throws(() => compile(source), original => isSourceDenialCode(original, 'INVALID_SYNTAX'));
+  const compilation = compile('class C { static C(){} static int f=1; public C(int x){} int P {get;set;} }');
+  const entries = compilation.enumeration.filter(entry => entry.declId.unit === 'category-source.cs');
+  assert.equal(entries.filter(entry => entry.syntax.kind === 'constructor' && !entry.generated).length, 2);
+  assert.equal(entries.filter(entry => entry.generated?.role === 'instanceConstructor').length, 0);
+  assert.equal(entries.filter(entry => entry.generated?.role === 'typeInitializer').length, 0);
+  assert.equal(entries.filter(entry => entry.generated?.role === 'backingStorage').length, 1);
+  const implicit = compile('class C { static int f=1; }');
+  const implicitEntries = implicit.enumeration.filter(entry => entry.declId.unit === 'category-source.cs');
+  assert.equal(implicitEntries.filter(entry => entry.generated?.role === 'instanceConstructor').length, 1);
+  assert.equal(implicitEntries.filter(entry => entry.generated?.role === 'typeInitializer').length, 1);
+});
+
+test('volatile catalogue-bound field storage preserves acquire-release and non-atomic compound semantics', () => {
+  const fixture = bindFixture('class C { internal volatile bool CallbackCompleted; public static volatile int Count; readonly int immutable; const int Fixed=1; }');
+  for (const name of ['CallbackCompleted', 'Count']) {
+    const entry = fixture.enumeration.find(row => row.syntax.kind === 'field' && row.syntax.name.spelling === name);
+    assert.ok(entry); const storage = fixture.bound.storageMetadata.get(canonicalData(entry.declId));
+    assert.equal(storage.volatile, true); assert.equal(storage.readOrdering, 'acquire');
+    assert.equal(storage.writeOrdering, 'release'); assert.equal(storage.compoundAtomic, false);
+  }
+  const immutable = fixture.enumeration.find(row => row.syntax.kind === 'field' && row.syntax.name.spelling === 'immutable');
+  const ordinary = fixture.bound.storageMetadata.get(canonicalData(immutable.declId));
+  assert.equal(ordinary.volatile, false); assert.equal(ordinary.readOrdering, 'ordinary'); assert.equal(ordinary.writeOrdering, 'ordinary');
+  for (const source of ['class C { volatile long f; }', 'class C { volatile double f; }'])
+    assert.throws(() => bindFixture(source), original => isSourceDenialCode(original, 'INVALID_BINDING'));
+});
+
+test('bare array initializer declaration plans preserve resolved mixed ranks and same original brace occurrence without executable array claims', () => {
+  const counter=createProofCounter();
+  const compilation=bindSelectedCsharpCompilation([
+    {unit:'arrays.cs',compilation:'arrays',role:'source',rawBytes:Buffer.from('using I=System.Int32; class C { static I[][,] x={}; int[,] y={{1,2},{3,4}}; int M(){I[] z={1};return 1;} }')},
+    {unit:'symbolic.cs',compilation:'symbolic',role:'catalogue',rawBytes:Buffer.from(symbolicFixture)}
+  ],counter);
+  const field=compilation.enumeration.find(row=>row.syntax.kind==='field'&&row.syntax.name.spelling==='x');
+  const row=compilation.bound.storageMetadata.get(canonicalData(field.declId));
+  assert.equal(row.type.category,'array');assert.equal(row.type.rank,1);assert.equal(row.type.element.rank,2);
+  assert.equal(row.type.element.element.name,'int');
+  const owner=compilation.enumeration.find(row=>row.syntax.kind==='type'&&row.syntax.name.spelling==='C');
+  const plan=compilation.bound.initializerPlans.get(canonicalData(owner.declId));
+  assert.equal(plan.static[0].expression,field.syntax.initializer);
+  assert.equal(plan.static[0].originalOccurrence,field.syntax.initializer.origin);
+  assert.equal(plan.static[0].declaration,field.declId);
+  const local=compilation.enumeration.find(row=>row.syntax.kind==='local'&&row.syntax.name.spelling==='z');
+  assert.ok(local);assert.equal(local.syntax.initializer.kind,'initializer');
+  assert.equal(compilation.bound.storageMetadata.has(canonicalData(local.declId)),false);
+  const type=compilation.index.resolve(local.syntax.type,compilation.context(local));
+  assert.equal(type.category,'array');assert.equal(type.rank,1);assert.equal(type.element.name,'int');
+  const method=compilation.enumeration.find(row=>row.syntax.kind==='method'&&row.syntax.name.spelling==='M');
+  assert.throws(()=>bindSelectedCsharpScalarBody(compilation,method.declId,{counter,typeIndex:compilation.index,
+    declarationMetadata:compilation.bound.declarationMetadata,parameterConstraints:compilation.bound.parameterConstraints}),e=>isSourceDenialCode(e,'INCOMPLETE_BODY'));
+  assert.throws(()=>bindSelectedCsharpCompilation([
+    {unit:'bad.cs',compilation:'bad',role:'source',rawBytes:Buffer.from('using I=System.Int32; class C { I x={1}; }')},
+    {unit:'symbolic.cs',compilation:'symbolic',role:'catalogue',rawBytes:Buffer.from(symbolicFixture)}
+  ],createProofCounter()),e=>isSourceDenialCode(e,'INVALID_BINDING'));
 });

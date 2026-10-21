@@ -1,5 +1,6 @@
 import { rawBuffer, sameIdentity, nativeProof, validateCommand } from "./command-native-proof-lib.mjs";
 import { validDirectoryIdentity } from "./exact-native-file-identity-lib.mjs";
+import { samePath } from "./native-tool-journal-v4-lib.mjs";
 // Strict local validator and the only public projector for private v3 custody.
 import { lstat, readdir, realpath } from "node:fs/promises";
 import path from "node:path";
@@ -85,7 +86,25 @@ const bootstrapSeal=requireStrictJson((await regularClosedBytes(path.join(privat
 if(!exact(bootstrapSeal,["schema","private","receiptSha256","journalSha256","session","commands"])||bootstrapSeal.schema!=="service-lasso.qualification-bootstrap-seal.v1"||bootstrapSeal.private!==true||bootstrapSeal.receiptSha256!==sha256(sourceBytes)||bootstrapSeal.journalSha256!==sha256(journalBytes)||!Array.isArray(bootstrapSeal.commands)||(receipt.platform==="win32"?!bootstrapSeal.session||bootstrapSeal.commands.length===0:bootstrapSeal.session!==null||bootstrapSeal.commands.length!==0))throw new Error("first_custody_validator_bootstrap_seal_invalid");
 if(bootstrapSeal.session!==null) {
   const session=bootstrapSeal.session,tool=session.tool,result=session.result,requested=path.join(process.env.SystemRoot??"C:\\Windows","System32","WindowsPowerShell","v1.0","powershell.exe");
-  if(!exact(session,["tool","args","native","result"])||!exact(tool,["name","requested","resolved","file"])||tool.name!=="powershell"||tool.requested!==requested||!fileProof(tool.file)||JSON.stringify(session.args)!==JSON.stringify(["-NoLogo","-NoProfile","-NonInteractive","-Command",bootstrapProtocolScript()])||!nativeProof(session.native,tool.resolved,workspace,receipt.platform)||session.native.imageSha256!==tool.file.sha256||!sameIdentity(session.native.parents.at(-1),journal.commands[0].native.parents.at(-1))||!exact(result,["naturalWaitForExit","exitCode","signal","stdoutEof","stderrEof","stdin","stdout","stderr","stdinSha256","stdoutSha256","stderrSha256"])||result.naturalWaitForExit!==true||result.exitCode!==0||result.signal!==null||result.stdoutEof!==true||result.stderrEof!==true||!rawBuffer(result.stdin,result.stdinSha256)||!rawBuffer(result.stdout,result.stdoutSha256)||!rawBuffer(result.stderr,result.stderrSha256)||result.stderr.data.length!==0)throw new Error("first_custody_validator_bootstrap_native_invalid");
+  let bootstrapProofFailure = "unknown";
+  const bootstrapObservation = { enter() {}, pass(reason, predicate) { const accepted = predicate(); if (!accepted) bootstrapProofFailure = reason; return accepted; }, fail(reason, predicate) { const refused = predicate(); if (refused) bootstrapProofFailure = reason; return refused; }, rejected(reason) { bootstrapProofFailure = reason; } };
+  const failBootstrap = stage => { throw new Error(`first_custody_validator_bootstrap_native_invalid:${stage}`); };
+  if (!exact(session, ["tool", "args", "native", "result"])) failBootstrap("session_shape");
+  if (!exact(tool, ["name", "requested", "resolved", "file"]) || tool.name !== "powershell" || tool.requested !== requested || !fileProof(tool.file)) failBootstrap("tool_shape");
+  if (JSON.stringify(session.args) !== JSON.stringify(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", bootstrapProtocolScript()])) failBootstrap("args");
+  if (!nativeProof(session.native, tool.resolved, workspace, receipt.platform, bootstrapObservation)) failBootstrap(`native:${bootstrapProofFailure}`);
+  if (session.native.imageSha256 !== tool.file.sha256) failBootstrap("image_sha");
+  if (!sameIdentity(session.native.parents.at(-1), journal.commands[0].native.parents.at(-1))) failBootstrap("caller");
+  if (!exact(result, ["naturalWaitForExit", "exitCode", "signal", "stdoutEof", "stderrEof", "stdin", "stdout", "stderr", "stdinSha256", "stdoutSha256", "stderrSha256"])) failBootstrap("result_shape");
+  if (result.naturalWaitForExit !== true) failBootstrap("natural_exit");
+  if (result.exitCode !== 0) failBootstrap("exit");
+  if (result.signal !== null) failBootstrap("signal");
+  if (result.stdoutEof !== true) failBootstrap("stdout_eof");
+  if (result.stderrEof !== true) failBootstrap("stderr_eof");
+  if (!rawBuffer(result.stdin, result.stdinSha256)) failBootstrap("stdin_raw");
+  if (!rawBuffer(result.stdout, result.stdoutSha256)) failBootstrap("stdout_raw");
+  if (!rawBuffer(result.stderr, result.stderrSha256)) failBootstrap("stderr_raw");
+  if (result.stderr.data.length !== 0) failBootstrap("stderr_content");
   const actual=await regularClosedFile(tool.resolved,path.parse(tool.resolved).root);if(actual.size!==tool.file.size||actual.sha256!==tool.file.sha256||await realpath(tool.requested)!==tool.resolved)throw new Error("first_custody_validator_bootstrap_tool_changed");
   const requests=[],outputs=[];
   for(const probe of bootstrapSeal.commands){
@@ -111,6 +130,6 @@ for (const command of [...journal.commands,...(bootstrapSeal.session===null?[]:[
   const expectedHelper=helper.platform==="win32"?path.join(process.env.SystemRoot??process.env.WINDIR,"System32","WindowsPowerShell","v1.0","powershell.exe"):"/usr/bin/python3";
   if(await realpath(expectedHelper)!==helper.executable)throw new Error("first_custody_validator_literal_helper_changed");
   if (executable.sha256 !== helper.executableSha256) throw new Error("first_custody_validator_helper_executable_tampered");
-  for (const library of helper.libraries) { if (helper.platform === "darwin") { const actual = await darwinCacheHeader(library.cachePath); if (actual.uuid !== library.cacheUuid || actual.uuid !== library.cacheHeaderUuid || actual.sha256 !== library.cacheHeaderSha256) throw new Error("first_custody_validator_darwin_cache_header_mismatch"); } else { if(await realpath(library.requested)!==library.resolved)throw new Error("first_custody_validator_helper_library_alias_changed"); const actual = await regularClosedFile(library.resolved, path.parse(library.resolved).root); if (actual.size !== library.size || actual.sha256 !== library.sha256) throw new Error("first_custody_validator_helper_library_tampered"); } }
+  for (const library of helper.libraries) { if (helper.platform === "darwin") { const actual = await darwinCacheHeader(library.cachePath); if (actual.uuid !== library.cacheUuid || actual.uuid !== library.cacheHeaderUuid || actual.sha256 !== library.cacheHeaderSha256) throw new Error("first_custody_validator_darwin_cache_header_mismatch"); } else { if(!samePath(await realpath(library.requested),library.resolved))throw new Error("first_custody_validator_helper_library_alias_changed"); const actual = await regularClosedFile(library.resolved, path.parse(library.resolved).root); if (actual.size !== library.size || actual.sha256 !== library.sha256) throw new Error("first_custody_validator_helper_library_tampered"); } }
 }
 await publishAfterBootstrap(privateRoot, output, { schema: "service-lasso.qualification-first-custody-projection.v2", privateVersion: "v3", candidate: { head: receipt.source.head, tree: receipt.source.tree }, platform: receipt.platform, run: receipt.run, privateInitialReceiptSha256: sha256(sourceBytes), privateJournalSha256: journalFile.sha256, localValidatorAttestation: { schema: "service-lasso.qualification-local-validator-attestation.v2", validated: true } }, journalPath, evidenceRoot);
