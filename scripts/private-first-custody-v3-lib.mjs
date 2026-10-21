@@ -109,6 +109,14 @@ export async function publishAfterBootstrap(privateRoot, output, value, journalP
     throw error;
   }
 }
+const SF_RESTRICTED = 0x80000, SF_NOUNLINK = 0x100000;
+async function darwinFileFlags(files) {
+  const { execFile } = await import("node:child_process");
+  const stdout = await new Promise((resolve, reject) => execFile("/usr/bin/stat", ["-f", "%f", ...files], { encoding: "utf8", env: { PATH: "/usr/bin:/bin" } }, (error, out) => error ? reject(error) : resolve(out)));
+  const values = stdout.trim().split("\n").map(line => /^\d+$/u.test(line) ? Number(line) : NaN);
+  if (values.length !== files.length || values.some(Number.isNaN)) throw new Error("first_custody_darwin_cache_parent_flags_unavailable");
+  return values;
+}
 // This proves only the fixed dyld header, never the complete cache or libproc file.
 // Parent snapshots detect replacement; they are not an atomic directory anchor.
 export async function darwinCacheHeader(file) {
@@ -117,15 +125,17 @@ export async function darwinCacheHeader(file) {
   const parents = await chain(path.dirname(target), boundary);
   const secureParents = async () => {
     await recheck(parents);
-    // A world-writable ancestor above a mount point cannot replace the mounted
-    // directory (busy mount points cannot be renamed or removed without root),
-    // so only ancestors below the nearest mount boundary must be non-writable.
+    // macOS 14 ships /System/Volumes/Preboot/Cryptexes as root-owned 0777. Its
+    // writability cannot replace the cache chain only when the entry beneath it
+    // is root-owned, non-writable and kernel-protected against unlink/rename
+    // (SF_NOUNLINK or SIP SF_RESTRICTED). Every other parent must be non-writable.
     const ordered = [...parents.entries].sort((a, b) => b.cursor.length - a.cursor.length);
-    let child = await lstat(target,{bigint:true}), crossedMount = false;
-    for (const item of ordered) {
+    const flags = (await darwinFileFlags(ordered.map(item => item.cursor)));
+    let child = null;
+    for (const [index, item] of ordered.entries()) {
       const entry = await lstat(item.cursor,{bigint:true});
-      if (entry.dev !== child.dev) crossedMount = true;
-      if (entry.uid !== 0n || (!crossedMount && (entry.mode & 0o022n) !== 0n)) throw new Error("first_custody_darwin_cache_parent_not_os_owned DEBUG "+(await import("node:child_process")).execFileSync("/usr/bin/stat",["-f","%N|%Sp|%Su|%Sf|%d",...ordered.map(e=>e.cursor)],{encoding:"utf8"}).replace(/\n/g,";")+JSON.stringify({cursor:item.cursor,uid:String(entry.uid),mode:entry.mode.toString(8),dev:String(entry.dev),childDev:String(child.dev)}));
+      const childProtected = child !== null && child.uid === 0n && (child.mode & 0o022n) === 0n && (flags[index - 1] & (SF_NOUNLINK | SF_RESTRICTED)) !== 0;
+      if (entry.uid !== 0n || ((entry.mode & 0o022n) !== 0n && !childProtected)) throw new Error("first_custody_darwin_cache_parent_not_os_owned");
       child = entry;
     }
   };
