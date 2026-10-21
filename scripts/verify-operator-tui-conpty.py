@@ -76,11 +76,11 @@ def main():
         process = PtyProcess.spawn([args.executable], cwd=os.path.dirname(args.executable), env=child_environment(api_url, api_token), dimensions=(40, 120), backend=Backend.ConPTY)
         text = ""
         stage = "startup"
-        expected = "Runtime identity:" if args.mode == "connected" else "Runtime API unavailable"
+        expected = "Runtime identity:" if args.mode == "connected" else 'connection profile "default" credential is unavailable'
         startup_ok, text = wait_for(process, text, ("Service Lasso TUI", expected), 20)
         if not startup_ok:
             primary_stage = stage
-        if args.mode == "connected" and "Runtime API unavailable" in text:
+        if args.mode == "connected" and ('connection profile "default" credential is unavailable' in text or "Runtime API unavailable" in text):
             primary_stage = stage
         if primary_stage is None and args.mode == "connected":
             stage = "navigation"

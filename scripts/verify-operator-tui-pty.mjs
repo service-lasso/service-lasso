@@ -73,12 +73,12 @@ def run_case(name, connected):
         return False
     try:
         required = [b"Service Lasso TUI", b"q quit"]
-        required.append(b"Runtime identity:" if connected else b"Runtime API unavailable")
+        required.append(b"Runtime identity:" if connected else b'connection profile "default" credential is unavailable')
         if not read_until(required, 20):
             diagnostic = re.sub(rb"\x1b\[[0-9;?]*[A-Za-z]", b"", buffer[-2048:]).decode("utf-8", "replace")
             diagnostic = "".join(ch if ch.isprintable() or ch in "\\n\\r\\t" else "." for ch in diagnostic)[-1024:]
             raise RuntimeError(name + " startup state was not rendered: " + diagnostic)
-        if connected and b"Runtime API unavailable" in buffer: raise RuntimeError("connected Core dashboard rendered an unavailable state")
+        if connected and (b'connection profile "default" credential is unavailable' in buffer or b"Runtime API unavailable" in buffer): raise RuntimeError("connected Core dashboard rendered an unavailable state")
         os.write(fd, b"d")
         os.write(fd, b"?")
         if not read_until([b"d dashboard", b"esc back"], 5): raise RuntimeError(name + " keyboard navigation did not render help")
