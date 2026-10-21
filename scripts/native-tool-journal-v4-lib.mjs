@@ -2,7 +2,7 @@
 // dependency installation and never imports Service Lasso product code.
 import { createHash } from "node:crypto";
 import { readFile, realpath, lstat, open } from "node:fs/promises";
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import path from "node:path";
 import process from "node:process";
 import { nativeUnsigned, nativeOwnerNumber, sameNativeIdentity } from "./exact-native-file-identity-lib.mjs";
@@ -142,13 +142,33 @@ async function windows(pid, caller) {
   const second=nativeJson(witness.second.stdout.toString("utf8"));
   return { chain: parsed.target.chain, helper: { platform: "win32", ...witness, libraries: await helperLibraries(parsed.libraries,parsed.libraryFiles,second.libraryFiles) } };
 }
+// /usr/bin/python3 is an xcrun stub that hands off, by exec, to the selected
+// developer directory's interpreter, which may hand off again (framework
+// Python re-execs Python.app). The witness reports the final running image,
+// so the helper must be that final program itself. Resolve it only through
+// the system xcode-select/xcrun tools, require it inside the selected
+// developer directory, and require that running it directly hands off nowhere.
+const DARWIN_SELF_IMAGE_PROBE = "import ctypes,os,sys;b=ctypes.create_string_buffer(4096);n=ctypes.CDLL('/usr/lib/libSystem.B.dylib').proc_pidpath(os.getpid(),b,4096);sys.stdout.write(b.raw[:n].decode('utf-8') if n>0 else '')";
+function darwinTool(file, args) {
+  return new Promise((resolve, reject) => execFile(file, args, { encoding: "utf8", timeout: 60_000, windowsHide: true, env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", HOME: process.env.HOME ?? "/" } },
+    (error, stdout) => error ? reject(new Error("first_custody_native_darwin_helper_unresolved")) : resolve(stdout.trim())));
+}
+export async function resolveDarwinPythonHelper() {
+  const developer = await realpath(await darwinTool("/usr/bin/xcode-select", ["-p"]));
+  const launcher = await realpath(await darwinTool("/usr/bin/xcrun", ["--find", "python3"]));
+  const final = await realpath(await darwinTool(launcher, ["-c", DARWIN_SELF_IMAGE_PROBE]));
+  const within = (target) => target.startsWith(developer + path.sep);
+  if (!path.isAbsolute(developer) || !within(launcher) || !within(final)) throw new Error("first_custody_native_darwin_helper_outside_developer_dir");
+  if (await realpath(await darwinTool(final, ["-c", DARWIN_SELF_IMAGE_PROBE])) !== final) throw new Error("first_custody_native_darwin_helper_handoff");
+  return final;
+}
 async function darwin(pid, caller) {
   // proc_pidinfo exposes the kernel start timeval, avoiding ps lstart's
   // second-level granularity for PID-reuse custody.
   // dyld_priv.h supplies these SPI declarations; dyld_cache_format.h fixes
   // the header UUID field at byte offset 88.  Only the fixed header is read.
   const script = nativeHelperScript("darwin",pid,caller);
-  const witness = await helper("/usr/bin/python3", script, body => ["-c", body, String(pid), String(caller)]);
+  const witness = await helper(await resolveDarwinPythonHelper(), script, body => ["-c", body, String(pid), String(caller)]);
   const parsed = nativeJson(witness.first.stdout.toString("utf8"));
   if (!parsed || !Array.isArray(parsed.target?.chain)) throw new Error("first_custody_native_darwin_witness_invalid");
   if (!parsed?.dyldCache || parsed.dyldCache.cacheUuid !== parsed.dyldCache.cacheHeaderUuid) throw new Error("first_custody_native_darwin_cache_invalid");
