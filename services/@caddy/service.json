@@ -1,0 +1,132 @@
+{
+  "id": "@caddy",
+  "name": "Lasso Caddy Protocol Translator",
+  "description": "Core release-backed Caddy HTTP-to-FastCGI translator sidecar with a Service Lasso admin API for dynamically registering upstream services.",
+  "version": "2026.10.19-ba646a7",
+  "enabled": true,
+  "endpoints": [
+    {
+      "id": "web",
+      "kind": "network",
+      "label": "Web",
+      "direction": "inbound",
+      "transport": "tcp",
+      "protocol": "http",
+      "bind": "127.0.0.1",
+      "port": {
+        "default": 8080,
+        "strategy": "preferred"
+      },
+      "exposure": "local",
+      "required": true,
+      "primary": true
+    },
+    {
+      "id": "admin",
+      "kind": "network",
+      "label": "Admin API",
+      "direction": "inbound",
+      "transport": "tcp",
+      "protocol": "http",
+      "bind": "127.0.0.1",
+      "port": {
+        "default": 2019,
+        "strategy": "preferred"
+      },
+      "exposure": "local",
+      "required": true
+    },
+    {
+      "id": "web_url",
+      "kind": "url",
+      "label": "Web",
+      "target": "web",
+      "url": "http://127.0.0.1:${endpoint.web.port}/",
+      "exposure": "local",
+      "primary": true
+    },
+    {
+      "id": "health",
+      "kind": "url",
+      "label": "Health",
+      "target": "web",
+      "url": "http://127.0.0.1:${endpoint.web.port}/health",
+      "exposure": "local",
+      "required": true
+    }
+  ],
+  "commandline": {
+    "win32": " run --config \"${SERVICE_ROOT}\\runtime\\caddy.json\"",
+    "darwin": " run --config \"${SERVICE_ROOT}/runtime/caddy.json\"",
+    "linux": " run --config \"${SERVICE_ROOT}/runtime/caddy.json\"",
+    "default": " run --config \"${SERVICE_ROOT}/runtime/caddy.json\""
+  },
+  "env": {
+    "CADDY_HTTP_PORT": "${endpoint.web.port}",
+    "CADDY_URL": "${endpoint.web_url.url}",
+    "CADDY_ADMIN_PORT": "${endpoint.admin.port}",
+    "CADDY_ADMIN_ADDR": "${endpoint.admin.bind}:${endpoint.admin.port}",
+    "CADDY_ROOT": "${SERVICE_ROOT}"
+  },
+  "globalenv": {
+    "CADDY_HTTP_PORT": "${endpoint.web.port}",
+    "CADDY_URL": "${endpoint.web_url.url}",
+    "CADDY_ADMIN_PORT": "${endpoint.admin.port}",
+    "CADDY_ADMIN_ADDR": "${endpoint.admin.bind}:${endpoint.admin.port}",
+    "CADDY_ROOT": "${SERVICE_ROOT}"
+  },
+  "artifact": {
+    "kind": "archive",
+    "source": {
+      "type": "github-release",
+      "repo": "service-lasso/lasso-caddy",
+      "tag": "2026.10.19-ba646a7"
+    },
+    "platforms": {
+      "win32": {
+        "assetName": "lasso-caddy-2.11.7-win32.zip",
+        "archiveType": "zip",
+        "command": ".\\caddy.exe",
+        "args": ["version"]
+      },
+      "linux": {
+        "assetName": "lasso-caddy-2.11.7-linux.tar.gz",
+        "archiveType": "tar.gz",
+        "command": "./caddy",
+        "args": ["version"]
+      },
+      "darwin": {
+        "assetName": "lasso-caddy-2.11.7-darwin.tar.gz",
+        "archiveType": "tar.gz",
+        "command": "./caddy",
+        "args": ["version"]
+      }
+    }
+  },
+  "install": {
+    "files": [
+      {
+        "path": "./logs/.keep",
+        "content": ""
+      }
+    ]
+  },
+  "config": {
+    "files": [
+      {
+        "path": "./runtime/caddy.json",
+        "content": "{\n  \"admin\": {\n    \"listen\": \"${endpoint.admin.bind}:${endpoint.admin.port}\"\n  },\n  \"apps\": {\n    \"http\": {\n      \"servers\": {\n        \"lasso_ingress\": {\n          \"listen\": [\"${endpoint.web.bind}:${endpoint.web.port}\"],\n          \"automatic_https\": {\n            \"disable\": true\n          },\n          \"routes\": [\n            {\n              \"@id\": \"lasso:health\",\n              \"match\": [\n                {\n                  \"path\": [\"/health\"]\n                }\n              ],\n              \"handle\": [\n                {\n                  \"handler\": \"static_response\",\n                  \"body\": \"ok\"\n                }\n              ]\n            }\n          ]\n        }\n      }\n    }\n  }\n}\n"
+      }
+    ]
+  },
+  "healthchecks": [
+    {
+      "id": "http-health",
+      "type": "http",
+      "url": "http://127.0.0.1:${endpoint.web.port}/health",
+      "expected_status": 200,
+      "retries": 80,
+      "interval": 250
+    }
+  ]
+}

@@ -168,23 +168,22 @@ export function parseConsumerReceipt(source) {
   if (value.outcome === "signal" && (value.exitCode !== null || value.signal === null || value.streamFailure !== undefined || value.executionFailure !== undefined)) return null;
   if (value.outcome === "observation_failure" && (value.streamFailure === undefined) === (value.executionFailure === undefined)) return null;
   const trusted = value.trustedUnlock;
-  if (trusted === null && value.outcome !== "success") return null;
-  if (trusted !== null) {
-    if (!trusted || typeof trusted !== "object" || Array.isArray(trusted)) return null;
-    if (trusted.classification === "closed") {
-      if (Object.keys(trusted).sort().join(",") !== "classification,receipt" || !parseReceipt(JSON.stringify(trusted.receipt))) return null;
-    } else if ((trusted.classification === "missing" || trusted.classification === "invalid" || trusted.classification === "not_emitted") && Object.keys(trusted).length === 1) {
-      // Closed classifications are the only form permitted to carry primitives.
-    } else return null;
-  }
-  if (value.outcome === "success" && trusted?.classification !== "not_emitted") return null;
-  if (trusted?.classification === "not_emitted" && value.outcome !== "success") return null;
+  if (!trusted || typeof trusted !== "object" || Array.isArray(trusted)) return null;
+  if (trusted.classification === "closed") {
+    if (Object.keys(trusted).sort().join(",") !== "classification,receipt" || !parseReceipt(JSON.stringify(trusted.receipt))) return null;
+  } else if ((trusted.classification === "missing" || trusted.classification === "invalid" || trusted.classification === "not_emitted") && Object.keys(trusted).length === 1) {
+    // Closed classifications are the only form permitted to carry primitives.
+  } else return null;
+  // A successful observed provider may either emit a trusted-unlock receipt
+  // (the comprehensive lifecycle exercises that path) or not emit one.
+  if (value.outcome === "success" && !["not_emitted", "closed"].includes(trusted.classification)) return null;
+  if (trusted.classification === "not_emitted" && value.outcome !== "success") return null;
   return value;
 }
 
 export function hasObservedConsumerReceipt(receipt) {
   if (!receipt) return false;
-  if (receipt.outcome === "success") return receipt.exitCode === 0 && receipt.signal === null && receipt.streamFailure === undefined && receipt.executionFailure === undefined && receipt.trustedUnlock?.classification === "not_emitted";
+  if (receipt.outcome === "success") return receipt.exitCode === 0 && receipt.signal === null && receipt.streamFailure === undefined && receipt.executionFailure === undefined && ["not_emitted", "closed"].includes(receipt.trustedUnlock?.classification);
   return receipt.trustedUnlock?.classification === "closed";
 }
 
@@ -301,7 +300,7 @@ export async function consume(command, args, options = {}) {
     });
     stream.on("data", (chunk) => {
       observer.write(chunk);
-      if (observer.shouldDispose() && !stream.destroyed) stream.destroy();
+      if (observer.shouldDispose() && !stream.destroyed) stream.resume();
     });
     stream.on("error", () => {});
     streamClosed.push({ stream, settled });
@@ -509,7 +508,7 @@ export async function consumeWithDurableObserver(command, args, options = {}) {
     binding = { root, source, nonce };
     await retainObserverEvent(binding, stage, "entered");
     const config = {
-      root, command, args, cwd: options.cwd, source, nonce, timeoutMs: options.timeoutMs,
+      root, command, args, cwd: options.cwd, env: options.env, source, nonce, timeoutMs: options.timeoutMs,
       inputs: options.inputs,
     };
     const configPath = path.join(root, "observer-config.json");
@@ -571,7 +570,13 @@ export async function consumeWithDurableObserver(command, args, options = {}) {
       return settle({ code: null, signal: null, executionFailure: "observer_terminal_unresolved", trustedUnlock: { classification: "missing" }, streamFailure: null });
     }
     await retainObserverEvent(binding, stage, "completed");
-    return { code: close.terminal.exitCode, signal: close.terminal.signal, executionFailure: null, trustedUnlock: close.trustedUnlock, streamFailure: null };
+    // A provider that closes successfully without emitting a receipt has
+    // observed "not emitted", not an unavailable receipt. Keep missing/invalid
+    // as failures for a provider that did not succeed.
+    const trustedUnlock = close.terminal.exitCode === 0 && close.terminal.signal === null && close.trustedUnlock?.classification === "missing"
+      ? { classification: "not_emitted" }
+      : close.trustedUnlock;
+    return { code: close.terminal.exitCode, signal: close.terminal.signal, executionFailure: null, trustedUnlock, streamFailure: null };
   } catch (error) {
     await retainObserverEvent(binding, stage, "failed", error);
     await diagnostic();

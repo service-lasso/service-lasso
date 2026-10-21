@@ -2630,7 +2630,11 @@ export async function startManagedProcess(
           cwd: workingDirectory,
           env: windowsManagedLaunchState.environment,
           stdio: [stdinEnabled ? "pipe" : "ignore", "pipe", "pipe"],
-          detached: false,
+          // Keep the bootstrap out of libuv's kill-on-close job. That job allows
+          // silent breakaway, so a runtime crash would kill only the bootstrap
+          // and orphan its managed chain. Detached, the whole chain survives
+          // like a detached POSIX service and recovery can adopt or stop it.
+          detached: true,
           windowsHide: true,
         },
       );

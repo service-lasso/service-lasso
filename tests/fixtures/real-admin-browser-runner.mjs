@@ -25,6 +25,35 @@ if (!sourceBrokerBinaryInput || !adminRootInput)
 const sourceBrokerBinary = path.resolve(sourceBrokerBinaryInput);
 const adminRoot = path.resolve(adminRootInput);
 
+// Top-level awaits above the main `try` (process observation, asset reads,
+// runtime imports) are otherwise unprotected: a rejection fails the module and
+// the child exits 1 with no structured diagnostic. Surface a bounded,
+// secret-free failure code/phase so the Admin harness can record it.
+let startupPhase = "initializing";
+let topLevelPhase = "module_init";
+function emitRunnerTopLevelFailure(error) {
+  const phase = startupPhase === "initializing" ? topLevelPhase : startupPhase;
+  const rawCode =
+    error && typeof error === "object" && typeof error.code === "string"
+      ? error.code.toLowerCase().replace(/[^a-z0-9_]/g, "_")
+      : "";
+  const code = /^[a-z0-9_]{1,64}$/.test(rawCode)
+    ? rawCode
+    : `top_level_${phase}`.toLowerCase().replace(/[^a-z0-9_]/g, "_").slice(0, 64);
+  process.stderr.write(
+    `${JSON.stringify({
+      schema: "service-lasso.real-admin-browser-failure.v1",
+      code,
+      causeClass: error instanceof Error ? error.name : "unknown",
+      phase,
+    })}\n`,
+  );
+  process.exit(1);
+}
+process.on("uncaughtException", emitRunnerTopLevelFailure);
+process.on("unhandledRejection", emitRunnerTopLevelFailure);
+
+
 function requireCallerRuntimePath(name) {
   const value = process.env[name];
   if (
@@ -279,12 +308,14 @@ for (const [left, right] of [
   }
 }
 
+topLevelPhase = "observe_owned_process";
 const runnerIdentity = await observeOwnedProcess(process.pid, process.ppid);
 const runnerPath = path.resolve(process.argv[1] ?? "");
 const sourceRoot = path.resolve(path.dirname(runnerPath), "..", "..");
 if (runnerPath !== path.join(sourceRoot, ...PRELAUNCH_ASSET_PATHS[0].split("/"))) {
   throw new Error("Runner must execute from its fixed qualification fixture path.");
 }
+topLevelPhase = "provider_activation_gate";
 await requireProviderActivationGate(runnerIdentity, { head: sourceHead, tree: sourceTree });
 const initialReceiptPath = path.join(evidenceRoot, "live-initial-receipt.json");
 const prelaunchReceiptPath = path.join(evidenceRoot, "live-prelaunch-receipt.json");
@@ -364,6 +395,7 @@ function createPrivateReceipt(filePath, receipt) {
   }));
 }
 
+topLevelPhase = "receipt_paths";
 for (const receiptPath of [
   prelaunchReceiptPath,
   initialReceiptPath,
@@ -388,6 +420,7 @@ const runtimeInputs = Object.freeze({
   evidenceRoot,
   supportRoot,
 });
+topLevelPhase = "observe_runtime_assets";
 const runtimeAssets = Object.freeze({
   brokerBinary: await observeExternalBoundAsset("brokerBinary", sourceBrokerBinary),
   adminServer: await observeExternalBoundAsset("adminServer", path.join(adminRoot, "runtime", "server.js")),
@@ -398,6 +431,7 @@ const runtimeInvocation = Object.freeze({
   admin: { executable: process.execPath, argv: [path.join(adminRoot, "runtime", "server.js")] },
   os: { platform: process.platform, arch: process.arch, release: os.release() },
 });
+topLevelPhase = "prelaunch_assets";
 const prelaunchReceipt = {
   schema: "service-lasso.real-admin-browser-live-prelaunch.v1",
   private: true,
@@ -454,6 +488,7 @@ if (process.env.SERVICE_LASSO_TEST_PRELAUNCH_ONLY === "1") {
 // Validate explicit caller custody before importing Core runtime or fixture
 // helpers. This runner has no temp-root fallback for the three live Core
 // paths; callers must establish and pass the exact workspace and registries.
+topLevelPhase = "import_core_runtime";
 const { generateLocalhostCertificate } =
   await import("./real-admin-browser-certificate.mjs");
 const { discoverServices } =
@@ -523,7 +558,6 @@ let vaultServer = null;
 let vaultProviderServer = null;
 let brokerRuntimeCredentials = null;
 let shutdownPromise = null;
-let startupPhase = "initializing";
 const brokerIPCClient = new http.Agent({ keepAlive: true, maxSockets: 1 });
 let providerFaultState = "not_armed";
 let providerControlReceipt = null;
