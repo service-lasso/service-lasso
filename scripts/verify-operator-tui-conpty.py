@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+import re
 import select
 import sys
 import time
@@ -42,8 +43,10 @@ def emit(result):
     print(json.dumps(result, separators=(",", ":")))
 
 
-def fail(stage):
-    emit({"ok": False, "stage": stage})
+def fail(stage, text=""):
+    diagnostic = re.sub(r"\x1b\[[0-9;?]*[A-Za-z]", "", text[-2048:])
+    diagnostic = "".join(ch if ch.isprintable() or ch in "\n\r\t" else "." for ch in diagnostic)[-1024:]
+    emit({"ok": False, "stage": stage, "diagnostic": diagnostic})
     return 1
 
 
@@ -64,6 +67,7 @@ def main():
     api_token = os.environ.get("SERVICE_LASSO_API_TOKEN")
 
     stage = "setup"
+    text = ""
     primary_stage = None
     process = None
     cleanup_failed = False
@@ -106,7 +110,7 @@ def main():
         emit({"ok": False, "stage": "cleanup", "primaryStage": primary_stage or "none"})
         return 1
     if primary_stage is not None:
-        return fail(primary_stage)
+        return fail(primary_stage, text)
     if args.mode == "unavailable":
         emit({"ok": True, "mode": "unavailable", "startup": "unavailable", "navigation": "not_applicable", "exit": "q"})
     else:

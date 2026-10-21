@@ -94,6 +94,7 @@ jobs:
         run: node scripts/verify-mcp-product-artifact.mjs
 
   release-artifact:
+    if: false
     needs:
       - qualify-mcp-packaged
     runs-on: ubuntu-latest
