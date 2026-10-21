@@ -1,7 +1,7 @@
 # Broker-owned RAM WebDAV secret files
 
 For a step-by-step Echo consumer and usage checks, follow
-[Advanced - Provision Service Secrets Securely](../getting-started/advanced-provision-service-secrets-securely.md).
+[Advanced — Provision secrets as RAM files](../getting-started/advanced-provision-service-secrets-securely.md).
 The service's `broker.files`/`broker.templates` declaration requests file delivery;
 a Broker import alone does not. Core requests provisioning using scoped refs
 and secret-free templates. Broker resolves internally and returns the WebDAV path.
