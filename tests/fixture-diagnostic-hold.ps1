@@ -1,3 +1,5 @@
+# Module autoload progress (Get-Acl) would otherwise reach stderr as CLIXML.
+$ProgressPreference = 'SilentlyContinue'
 
 $originals = [System.Collections.Generic.List[object]]::new()
 $held = [System.Collections.Generic.List[object]]::new()
