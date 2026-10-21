@@ -1,5 +1,3 @@
-# Module autoload progress (Get-Acl) would otherwise reach stderr as CLIXML.
-$ProgressPreference = 'SilentlyContinue'
 
 $originals = [System.Collections.Generic.List[object]]::new()
 $held = [System.Collections.Generic.List[object]]::new()
@@ -40,6 +38,9 @@ function Record-DiagnosticFailure($operation, $original, $suboperation=$null) {
 try {
 try {
 $ErrorActionPreference = 'Stop'
+# Explicit import: Get-Acl command discovery would write module-analysis
+# progress to stderr as CLIXML on a fresh Windows PowerShell host.
+Import-Module Microsoft.PowerShell.Security
 if ($env:SERVICE_LASSO_HELD_FIXTURE_ROLE -cne 'diagnostic') { throw 'Diagnostic role unavailable' }
 Add-Type -TypeDefinition @'
 using System;
