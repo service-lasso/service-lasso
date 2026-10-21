@@ -86,7 +86,7 @@
     "@docusaurus/theme-mermaid": "3.10.2",
     "@mdx-js/react": "^3.1.1",
     "@mermaid-js/layout-elk": "0.1.9",
-    "@modelcontextprotocol/inspector": "2.10.1",
+    "@modelcontextprotocol/inspector": "2.11.0",
     "@playwright/test": "1.64.0",
     "@types/node": "^26.6.4",
     "pnpm": "12.10.1",
@@ -105,7 +105,7 @@
     },
     "ip-address": "10.7.2",
     "serialize-javascript": "7.1.0",
-    "hono": "4.13.7",
+    "hono": "4.13.13",
     "qs": "6.16.0",
     "brace-expansion": "1.1.21",
     "sockjs": {
