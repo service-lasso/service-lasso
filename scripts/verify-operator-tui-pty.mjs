@@ -76,7 +76,7 @@ def run_case(name, connected):
         required.append(b"Runtime identity:" if connected else b"Runtime API unavailable")
         if not read_until(required, 20):
             diagnostic = re.sub(rb"\x1b\[[0-9;?]*[A-Za-z]", b"", buffer[-2048:]).decode("utf-8", "replace")
-            diagnostic = "".join(ch if ch.isprintable() or ch in "\n\r\t" else "." for ch in diagnostic)[-1024:]
+            diagnostic = "".join(ch if ch.isprintable() or ch in "\\n\\r\\t" else "." for ch in diagnostic)[-1024:]
             raise RuntimeError(name + " startup state was not rendered: " + diagnostic)
         if connected and b"Runtime API unavailable" in buffer: raise RuntimeError("connected Core dashboard rendered an unavailable state")
         os.write(fd, b"d")
