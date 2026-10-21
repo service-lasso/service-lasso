@@ -78,7 +78,10 @@ public static class FixtureHandle {
 }
 '@
 $root = $env:SERVICE_LASSO_HELD_FIXTURE_ROOT
-$sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+$identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+$sid = $identity.User.Value
+# Elevated runner tokens give new objects their default owner, not the user SID.
+$ownerSid = if ($null -ne $identity.Owner) { $identity.Owner.Value } else { $sid }
 } catch { Record-DiagnosticFailure 'bootstrap' $_ }
 function Read-Owner($p, $acquiring=$false) {
   try { $acl = Get-Acl -LiteralPath $p }
@@ -97,7 +100,7 @@ function Read-Owner($p, $acquiring=$false) {
   catch { $caught=$_; if ($acquiring) { Remember-AcquireFailure 'owner_read_sid_value' $caught }; throw $caught }
 }
 function Assert-Owner($owner, $isRoot) {
-  if ($isRoot) { if ($owner -ne $sid) { throw 'Unknown fixture owner' } }
+  if ($isRoot) { if ($owner -notin @($sid,$ownerSid)) { throw 'Unknown fixture owner' } }
   elseif ($owner -notin @($sid,'S-1-5-18','S-1-5-32-544','S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464')) { throw 'Unknown fixture ancestor owner' }
 }
 function Check-Owner($p, $isRoot) { Assert-Owner (Read-Owner $p) $isRoot }

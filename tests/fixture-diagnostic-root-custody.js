@@ -21,6 +21,8 @@ export async function holdDiagnosticRootWindows(root, diagnosticRoot) {
   const child = spawn("C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe",
     ["-NoProfile", "-NonInteractive", "-EncodedCommand", encodeGuardianCommand(source)],
     { windowsHide: true, shell: false, cwd: root, stdio: ["pipe", "pipe", "pipe"], env: { ...process.env,
+      // Windows PowerShell 5.1 must not autoload PowerShell 7 modules inherited from pwsh steps.
+      PSModulePath: path.join(process.env.SystemRoot, "System32", "WindowsPowerShell", "v1.0", "Modules"),
       SERVICE_LASSO_HELD_FIXTURE_ROOT: root, SERVICE_LASSO_HELD_FIXTURE_ROLE: "diagnostic" } });
   const callerPid = process.pid, transport = collectDiagnosticHoldTransport(child, callerPid);
   let receiptAttempted = false;
