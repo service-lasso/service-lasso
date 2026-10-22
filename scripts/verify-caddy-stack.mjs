@@ -5,7 +5,6 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { startApiServer } from "../dist/server/index.js";
 import { getLifecycleState } from "../dist/runtime/lifecycle/store.js";
-import { listCaddyIngressRegistrations } from "../dist/runtime/ingress/caddy.js";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const lessonServices =
@@ -78,7 +77,6 @@ try {
     throw new Error(`[stack] could not resolve @caddy web port: ${JSON.stringify(caddyState?.runtime?.endpoints)}`);
   }
 
-  console.log("[stack] registrations:", JSON.stringify(listCaddyIngressRegistrations("php-page")));
   const routed = await httpGet(webPort, domain, "/index.php");
   const body = routed.body;
   console.log(`[stack] caddy ${webPort} -> ${routed.status} ${JSON.stringify(body.slice(0, 120))}`);
