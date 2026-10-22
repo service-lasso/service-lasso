@@ -1,6 +1,6 @@
 import { rawBuffer, sameIdentity, nativeProof, validateCommand } from "./command-native-proof-lib.mjs";
 import { validDirectoryIdentity } from "./exact-native-file-identity-lib.mjs";
-import { samePath } from "./native-tool-journal-v4-lib.mjs";
+import { resolveDarwinPythonHelper, samePath } from "./native-tool-journal-v4-lib.mjs";
 // Strict local validator and the only public projector for private v3 custody.
 import { lstat, readdir, realpath } from "node:fs/promises";
 import path from "node:path";
@@ -127,7 +127,7 @@ if(receipt.platform==="win32") {
 }
 for (const command of [...journal.commands,...(bootstrapSeal.session===null?[]:[bootstrapSeal.session])]) if (command.native.helper !== null) {
   const helper = command.native.helper, executable = await regularClosedFile(helper.executable, path.parse(helper.executable).root);
-  const expectedHelper=helper.platform==="win32"?path.join(process.env.SystemRoot??process.env.WINDIR,"System32","WindowsPowerShell","v1.0","powershell.exe"):"/usr/bin/python3";
+  const expectedHelper=helper.platform==="win32"?path.join(process.env.SystemRoot??process.env.WINDIR,"System32","WindowsPowerShell","v1.0","powershell.exe"):await resolveDarwinPythonHelper();
   if(await realpath(expectedHelper)!==helper.executable)throw new Error("first_custody_validator_literal_helper_changed");
   if (executable.sha256 !== helper.executableSha256) throw new Error("first_custody_validator_helper_executable_tampered");
   for (const library of helper.libraries) { if (helper.platform === "darwin") { const actual = await darwinCacheHeader(library.cachePath); if (actual.uuid !== library.cacheUuid || actual.uuid !== library.cacheHeaderUuid || actual.sha256 !== library.cacheHeaderSha256) throw new Error("first_custody_validator_darwin_cache_header_mismatch"); } else { if(!samePath(await realpath(library.requested),library.resolved))throw new Error("first_custody_validator_helper_library_alias_changed"); const actual = await regularClosedFile(library.resolved, path.parse(library.resolved).root); if (actual.size !== library.size || actual.sha256 !== library.sha256) throw new Error("first_custody_validator_helper_library_tampered"); } }

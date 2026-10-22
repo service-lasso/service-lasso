@@ -70,7 +70,7 @@ npm run lesson:07 -- --management
 `setup` copies the complete service inventory and creates isolated runtime and
 registry state. `--management` suppresses autostart so you can start OpenBao,
 configure its TLS trust, and start the Broker in the required order. The
-consumer seed is disabled; you start it explicitly after the Broker is ready.
+consumer seed has autostart off; you start it explicitly after the Broker is ready.
 
 The source registry is:
 
@@ -122,8 +122,10 @@ node lessons/07-openbao/scripts/seed-openbao.mjs
 
 The configure command writes the Broker source registry and pins the generated
 CA into the owned `@secretsbroker` manifest. It refuses to replace an existing
-registry unless you pass `--force`. Install/configure/start `@secretsbroker`
-after it runs. The seed script uses the generated `vault-ca.pem` by default,
+registry unless you pass `--force`. If the first-run flow already started
+`@secretsbroker`, restart it after the configure command so it reloads the
+source registry and CA; otherwise install/configure/start it. The seed script
+uses the generated `vault-ca.pem` by default,
 writes `secret/data/todo/demo` with field `value`, reads it back, and prints only
 a success message. The value never appears in its output.
 

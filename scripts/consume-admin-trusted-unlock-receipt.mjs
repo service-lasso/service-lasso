@@ -594,7 +594,10 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
   const receipt = process.argv.indexOf("--receipt"), separator = process.argv.indexOf("--");
   if (receipt < 0 || separator < 0 || !process.argv[receipt + 1] || !process.argv[separator + 1]) process.exitCode = 2;
   else {
-    const observerRoot = process.env.SERVICE_LASSO_ADMIN_RECEIPT_OBSERVER_ROOT;
+    // Runner-composed roots mix separators on Windows (D:\a\_temp/name); give the
+    // observer its canonical spelling. Relative roots stay relative and rejected.
+    const rawObserverRoot = process.env.SERVICE_LASSO_ADMIN_RECEIPT_OBSERVER_ROOT;
+    const observerRoot = rawObserverRoot && path.isAbsolute(rawObserverRoot) ? path.normalize(rawObserverRoot) : rawObserverRoot;
     const result = observerRoot
       ? await consumeWithDurableObserver(process.argv[separator + 1], process.argv.slice(separator + 2), {
         cwd: process.cwd(), env: process.env, observerRoot,
