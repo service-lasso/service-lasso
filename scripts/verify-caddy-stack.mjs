@@ -77,7 +77,6 @@ try {
     throw new Error(`[stack] could not resolve @caddy web port: ${JSON.stringify(caddyState?.runtime?.endpoints)}`);
   }
 
-  console.log("[stack] registrations:", JSON.stringify(listCaddyIngressRegistrations("php-page")));
   const routed = await httpGet(webPort, domain, "/index.php");
   const body = routed.body;
   console.log(`[stack] caddy ${webPort} -> ${routed.status} ${JSON.stringify(body.slice(0, 120))}`);
