@@ -686,26 +686,44 @@ async function waitFor(url, timeoutMs = 30_000) {
   throw new Error(`Timed out waiting for ${new URL(url).pathname}`);
 }
 
+// Receipt settlement, support preservation, original deletion, the exclusive
+// final write and copy retirement share one 5s clock. On Windows, resource
+// teardown before that work (admin exit, Core stop of its managed process tree,
+// server close) has its own bounded allowance: Core's Windows managed-process
+// stop budget alone is 15s, which an undivided 5s clock cannot contain.
+const RECEIPT_WORK_BUDGET_MS = 5_000;
+const WINDOWS_RESOURCE_TEARDOWN_BUDGET_MS = 25_000;
 function shutdown({ exitCode = 0, trigger = "ipc", signal = null } = {}) {
   if (shutdownPromise) return shutdownPromise;
   providerWorkClosing = true;
   // One clock covers resource shutdown, receipt settlement, support preservation,
   // genuine original deletion, exclusive final write and copy retirement.
-  const deadline = performance.now() + 5_000;
+  const resourceBudgetMs = process.platform === "win32" ? WINDOWS_RESOURCE_TEARDOWN_BUDGET_MS : 0;
+  let deadline = performance.now() + resourceBudgetMs + RECEIPT_WORK_BUDGET_MS;
   let deadlineTimer;
+  let expireReceiptWork;
   let terminal = false;
   let firstFailure = null;
   let activePhase = "receipt_work_settlement";
   const retainFailure = (error) => { firstFailure ??= error; return firstFailure; };
   const settlement = settleReceiptWork().then(() => null, retainFailure);
   const deadlineExpired = new Promise((_, reject) => {
-    deadlineTimer = setTimeout(() => {
+    expireReceiptWork = () => {
       reject(retainFailure(new RealAdminBrowserTeardownError([
         ...ownedReceiptFailures.map((error) => ({ phase: "receipt_work_settlement", code: safeFailureCode(error) })),
         { phase: activePhase, code: "receipt_work_timeout" },
       ])));
-    }, Math.max(0, deadline - performance.now()));
+    };
+    deadlineTimer = setTimeout(expireReceiptWork, Math.max(0, deadline - performance.now()));
   });
+  // Entering receipt work tightens the clock to its own 5s budget; it never extends it.
+  const beginReceiptWork = () => {
+    const tightened = Math.min(deadline, performance.now() + RECEIPT_WORK_BUDGET_MS);
+    if (tightened === deadline || terminal) return;
+    deadline = tightened;
+    clearTimeout(deadlineTimer);
+    deadlineTimer = setTimeout(expireReceiptWork, Math.max(0, deadline - performance.now()));
+  };
   const requireTime = () => {
     if (terminal || performance.now() >= deadline) {
       throw retainFailure(new RealAdminBrowserTeardownError([
@@ -735,6 +753,7 @@ function shutdown({ exitCode = 0, trigger = "ipc", signal = null } = {}) {
           activePhase = "temp_root_cleanup";
         },
         settleOwnedWork: async () => {
+          beginReceiptWork();
           const error = await settlement;
           if (error) throw error;
         },
