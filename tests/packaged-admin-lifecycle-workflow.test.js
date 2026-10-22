@@ -92,7 +92,7 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
   );
   assert.match(
     workflow,
-    /ADMIN_HARNESS_REVISION: "6e0deec691b9ea8a9c4d128f68fd174253e1d8f3"/,
+    /ADMIN_HARNESS_REVISION: "7f6ea48c3e94a472e177f7d4d43237e12d6ee1c1"/,
   );
   assert.match(workflow, /ref: \$\{\{ env\.ADMIN_HARNESS_REVISION \}\}/);
   assert.match(workflow, /timeout-minutes: 60/);
@@ -144,7 +144,7 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
   );
   assert.equal(ADMIN_RELEASE.id, "380051618");
   assert.equal(ADMIN_RELEASE.revision, "f015b4445b0526546a309301270186a697588166");
-  assert.equal(ADMIN_HARNESS_REVISION, "6e0deec691b9ea8a9c4d128f68fd174253e1d8f3");
+  assert.equal(ADMIN_HARNESS_REVISION, "7f6ea48c3e94a472e177f7d4d43237e12d6ee1c1");
   assert.equal(BROKER_RELEASE.revision, "35901785afe832eb21ba071cc2c4882c7fbbb13b");
 
   for (const digest of [
@@ -216,7 +216,7 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
   assert.match(workflow, /revision = \$env:ADMIN_HARNESS_REVISION/);
   assert.match(
     workflow,
-    /uses: actions\/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a[\s\S]*?if-no-files-found: error[\s\S]*?retention-days: 90/,
+    /uses: actions\/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9[\s\S]*?if-no-files-found: error[\s\S]*?retention-days: 90/,
   );
   assert.match(workflow, /mutationRetry = \$false/);
   assert.match(workflow, /comprehensive_lifecycle/);

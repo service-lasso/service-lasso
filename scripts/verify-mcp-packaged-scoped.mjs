@@ -23,6 +23,7 @@ import {
 
 import { dependencyAcquisitionReceipt, packagedVerificationDiagnostic } from "./packaged-verification-diagnostics.mjs";
 import { ownedTempCleanupObservation, removeOwnedTempRoot } from "./owned-temp-cleanup.mjs";
+import { windowsTempRootHolderNames } from "./windows-temp-root-holders.mjs";
 
 const allocateResource = owningResourceObservations("verifier");
 const candidateObservation = allocateResource("candidate_command");
@@ -435,10 +436,12 @@ try {
     await removeOwnedTempRoot(tempRoot, { attempts: 30 });
   } catch (error) {
     const cleanup = ownedTempCleanupObservation(error);
+    const holders = typeof windowsTempRootHolderNames === "function" ? await windowsTempRootHolderNames(tempRoot) : [];
     verificationFailure = {
       stage: "temp_cleanup",
       errorCode: "cleanup_failed",
       ...(cleanup ? { cleanup } : {}),
+      ...(holders.length > 0 ? { holders } : {}),
       ...(verificationFailure
         ? {
             verificationStage: verificationFailure.stage,

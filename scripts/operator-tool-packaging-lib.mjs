@@ -5,6 +5,7 @@ import { lstat, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
 import path from "node:path";
 import { assertClosedObject, expectedAssets, parseStrictJson, verifyProtectedCliBytes } from "./operator-tool-cli-contract.mjs";
+import { assertCoreNativeOwnerAsset, assertNativeOwnerManifest, assertNativeOwnerMemberReferences } from "./operator-tool-tui-pair-contract.mjs";
 
 
 function digest(bytes) { return createHash("sha256").update(bytes).digest("hex"); }
@@ -80,13 +81,26 @@ export function assertExactToolRelease(release, { retained = false } = {}) {
     names.add(asset.name);
   }
   if (release.scope) assertScope(release.scope);
+  const pair = tuiPairRelease(release);
   if (release.scope) for (const asset of release.assets) {
-    closed(asset, ["platform", "name", "sha256", "executable", ...(retained ? ["relativePath"] : [])], "scoped TUI source/retained asset");
+    closed(asset, ["platform", "name", "sha256", "executable", ...(pair ? ["members"] : []), ...(retained ? ["relativePath"] : [])], "scoped TUI source/retained asset");
     if (asset.executable !== (asset.platform === "win32-amd64" ? "service-lasso-tui.exe" : "service-lasso-tui")) throw new Error("scoped TUI source executable differs");
+    if (pair) assertNativeOwnerMemberReferences(asset);
   }
   if (release.scope && JSON.stringify(release.assets.map(asset => asset.name)) !== JSON.stringify(release.assets.map(asset => asset.name).sort())) throw new Error("scoped TUI asset ASCII order differs");
   const targets = release.scope ? ["win32-amd64", "linux-amd64"] : ["win32-amd64", "linux-amd64", "darwin-amd64", "darwin-arm64"];
   if (names.size !== targets.length || !targets.every((platform) => release.assets.some((asset) => asset.platform === platform))) throw new Error("operator tool asset inventory is incomplete");
+}
+
+// The complete source-owned ordered pair is the schema discriminator. Mixed
+// source/retained shapes never downcast to the legacy single-image contract.
+export function tuiPairRelease(release) {
+  const count = release.assets?.filter(asset => Object.hasOwn(asset, "members")).length ?? 0;
+  if (count && (!release.scope || count !== 2 || release.assets.length !== 2)) throw new Error("TUI pair source inventory is incomplete");
+  return count === 2;
+}
+function pairArchiveAsset(asset) {
+  return { platform: asset.platform, name: asset.name, sha256: asset.sha256, executable: asset.executable, members: asset.members };
 }
 
 export function assertExactCliRelease(release) {
@@ -126,7 +140,7 @@ function catalogIdentity(release, cli) {
     version: cli ? release?.version : undefined,
     checksumManifest: { name: release?.checksumManifest?.name, sha256: release?.checksumManifest?.sha256 },
     candidateManifest: { name: release?.candidateManifest?.name, sha256: release?.candidateManifest?.sha256 },
-    assets: cli ? [{ name: release?.asset?.name, sha256: release?.asset?.sha256 }] : release?.assets?.map(asset => ({ platform: asset?.platform, name: asset?.name, sha256: asset?.sha256 })),
+    assets: cli ? [{ name: release?.asset?.name, sha256: release?.asset?.sha256 }] : release?.assets?.map(asset => ({ platform: asset?.platform, name: asset?.name, sha256: asset?.sha256, ...(asset?.members ? { members: asset.members } : {}) })),
     supportedPlatforms: cli ? release?.supportedPlatforms : undefined });
 }
 const HISTORICAL_TUI_IDENTITY = catalogIdentity(HISTORICAL_TUI_RELEASE, false);
@@ -162,7 +176,7 @@ function protectedCatalogIdentity(tool, scope) {
   const scopedPin = scope ? SCOPED_TOOL_RELEASES[cli ? "cli" : "tui"] : undefined;
   if (scope && (!scopedPin || scopedPin.repository !== tool.repository || scopedPin.tag !== tool.tag || scopedPin.targetCommit !== tool.targetCommit || !scopedPin.publication)) throw new Error("scoped publication source pins absent or tuple differs");
   return JSON.stringify({ catalog: catalogIdentity(tool, cli),
-    scope, publication: scopedPin?.publication, candidateSchema: scope ? (cli ? 2 : 3) : (cli ? 1 : 2), developmentManifest: cli ? { name: tool.developmentManifest?.name, sha256: tool.developmentManifest?.sha256 } : undefined,
+    scope, publication: scopedPin?.publication, candidateSchema: scope ? (cli ? 2 : tuiPairRelease({ ...tool, scope }) ? 4 : 3) : (cli ? 1 : 2), developmentManifest: cli ? { name: tool.developmentManifest?.name, sha256: tool.developmentManifest?.sha256 } : undefined,
     inventory: cli ? tool.assets?.map(asset => ({ name: asset?.name, kind: asset?.kind, target: asset?.target, sha256: asset?.sha256, size: asset?.size })) : undefined });
 }
 
@@ -238,6 +252,16 @@ function parseCandidateManifest(bytes, name) {
 
 function assertTuiCandidateManifest(bytes, release) {
   const candidate = parseCandidateManifest(bytes, "TUI");
+  if (tuiPairRelease(release)) {
+    assertNativeOwnerManifest(candidate, { sourceRef: "refs/heads/develop", sourceCommit: release.targetCommit,
+      version: release.tag.slice("candidate-".length), tag: release.tag });
+    if (candidate.checksumManifest.sha256 !== release.checksumManifest.sha256 || candidate.assets.some((asset, index) => {
+      const source = release.assets[index];
+      return ["platform", "name", "sha256", "executable"].some(key => asset[key] !== source[key]) ||
+        asset.members.some((member, memberIndex) => ["path", "role", "sha256", "size"].some(key => member[key] !== source.members[memberIndex][key]));
+    })) throw new Error("TUI4 candidate pair differs from source inventory");
+    return;
+  }
   if (isHistoricalRelease(release)) {
     if (candidate.schemaVersion !== 1 || candidate.kind !== "develop-prerelease-candidate" || candidate.source?.repository !== release.repository || candidate.source?.commit !== release.targetCommit || candidate.release?.tag !== release.tag || candidate.release?.prerelease !== true || candidate.checksumManifest?.name !== release.checksumManifest.name || candidate.checksumManifest?.sha256 !== release.checksumManifest.sha256 || !Array.isArray(candidate.assets) || candidate.assets.length !== release.assets.length) throw new Error("historical TUI candidate manifest does not match the catalog");
     const listed = new Map(candidate.assets.map(asset => [asset?.name, asset]));
@@ -330,8 +354,14 @@ export async function stageOperatorTools({ artifactRoot, fetchImpl = fetch, rele
     await writeFile(path.join(root, release.candidateManifest.name), candidateManifest);
     for (const asset of release.assets) {
       const bytes = await downloadExact(fetchImpl, browserAssetUrl(release, asset.name), asset.sha256, scope);
+      if (tuiPairRelease(release)) assertCoreNativeOwnerAsset(pairArchiveAsset(asset), bytes);
       const relativePath = path.posix.join("operator-tools", "service-lasso-tui", asset.name);
       await writeFile(path.join(artifactRoot, relativePath), bytes);
+      if (tuiPairRelease(release)) {
+        const readback = await readRetainedBytes(artifactRoot, relativePath);
+        if (!readback.equals(bytes)) throw new Error("TUI4 retained readback differs");
+        assertCoreNativeOwnerAsset(pairArchiveAsset(asset), readback);
+      }
       assets.push({ ...asset, relativePath });
     }
     tuiTool = { command: "service-lasso-tui", status: "available", receiptKind: isHistoricalRelease(release) ? "historical-mutable" : "protected-immutable", mode: "caller-attached-terminal", repository: release.repository, tag: release.tag, targetCommit: release.targetCommit, checksumManifest: { ...release.checksumManifest, relativePath: "operator-tools/service-lasso-tui/SHA256SUMS.txt" }, candidateManifest: { ...release.candidateManifest, relativePath: "operator-tools/service-lasso-tui/candidate-manifest.json" }, assets };
@@ -431,7 +461,7 @@ export async function validateRetainedOperatorToolBytes({ artifactRoot } = {}) {
     for (const ref of [cli.checksumManifest, cli.candidateManifest, cli.developmentManifest, tui.checksumManifest, tui.candidateManifest]) closed(ref, ["name", "sha256", "relativePath"], "operator3 retained manifest reference");
     for (const asset of cli.assets) closed(asset, ["name", "kind", "target", "sha256", "size", "relativePath"], "operator3 CLI asset");
     for (const asset of tui.assets) {
-      closed(asset, ["platform", "name", "sha256", "relativePath", "executable"], "operator3 TUI retained asset");
+      closed(asset, ["platform", "name", "sha256", "relativePath", "executable", ...(tuiPairRelease({ ...tui, scope: manifest.scope }) ? ["members"] : [])], "operator3 TUI retained asset");
       if (asset.executable !== (asset.platform === "win32-amd64" ? "service-lasso-tui.exe" : "service-lasso-tui")) throw new Error("operator3 TUI executable identity differs");
     }
   }
@@ -473,6 +503,7 @@ export async function validateRetainedOperatorToolBytes({ artifactRoot } = {}) {
     if (asset.relativePath !== path.posix.join("operator-tools", "service-lasso-tui", asset.name)) throw new Error("TUI retained path is noncanonical");
     const bytes = await readRetainedBytes(artifactRoot, asset.relativePath);
     if (digest(bytes) !== asset.sha256) throw new Error("operator tool retained asset checksum mismatch");
+    if (asset.members) assertCoreNativeOwnerAsset(pairArchiveAsset(asset), bytes);
   }
   return { manifest, tuiAssets: tui.assets.map((asset) => asset.relativePath), cliAssets: cli.assets.map((asset) => asset.relativePath) };
 }
