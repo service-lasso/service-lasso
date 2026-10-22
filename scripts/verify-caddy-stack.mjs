@@ -5,7 +5,6 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { startApiServer } from "../dist/server/index.js";
 import { getLifecycleState } from "../dist/runtime/lifecycle/store.js";
-import { listCaddyIngressRegistrations } from "../dist/runtime/ingress/caddy.js";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const lessonServices =
