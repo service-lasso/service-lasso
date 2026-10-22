@@ -1,3 +1,4 @@
+import http from "node:http";
 import net from "node:net";
 import type { ServiceIngress, ServiceIngressType } from "../../contracts/service.js";
 
@@ -17,7 +18,8 @@ export interface CaddyIngressRegistration {
   payload: CaddyRegisterPayload;
 }
 
-type FetchLike = typeof fetch;
+// Admin requests use node:http so Caddy's admin origin checks do not see
+// browser-style fetch headers.
 
 // Keyed by route id so a service can own more than one ingress route.
 const registrations = new Map<string, CaddyIngressRegistration>();
@@ -109,26 +111,50 @@ async function postAdmin(
   adminAddress: string,
   apiPath: string,
   body: unknown,
-  fetchImpl: FetchLike,
 ): Promise<void> {
-  const response = await fetchImpl(`http://${adminAddress}${apiPath}`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
+  const [hostname, portText] = adminAddress.split(":");
+  const port = Number(portText);
+  const payload = JSON.stringify(body);
+
+  await new Promise<void>((resolve, reject) => {
+    const request = http.request(
+      {
+        hostname,
+        port,
+        method: "POST",
+        path: apiPath,
+        agent: false,
+        headers: {
+          "content-type": "application/json",
+          "content-length": Buffer.byteLength(payload),
+        },
+      },
+      (response) => {
+        let detail = "";
+        response.setEncoding("utf8");
+        response.on("data", (chunk) => (detail += chunk));
+        response.on("end", () => {
+          const status = response.statusCode ?? 0;
+          if (status >= 200 && status < 300) {
+            resolve();
+            return;
+          }
+          reject(new Error(`caddy admin ${apiPath} returned ${status}${detail ? `: ${detail.trim()}` : ""}`));
+        });
+      },
+    );
+    request.on("error", reject);
+    request.write(payload);
+    request.end();
   });
-  if (!response.ok) {
-    const detail = await response.text().catch(() => "");
-    throw new Error(`caddy admin ${apiPath} returned ${response.status}${detail ? `: ${detail.trim()}` : ""}`);
-  }
 }
 
 export async function registerCaddyIngress(
   adminAddress: string,
   payload: CaddyRegisterPayload,
   serviceId: string = payload.id,
-  fetchImpl: FetchLike = fetch,
 ): Promise<void> {
-  await postAdmin(adminAddress, "/service-lasso/register", payload, fetchImpl);
+  await postAdmin(adminAddress, "/service-lasso/register", payload);
   registrations.set(payload.id, {
     serviceId,
     routeId: payload.id,
@@ -140,9 +166,8 @@ export async function registerCaddyIngress(
 export async function unregisterCaddyIngress(
   adminAddress: string,
   id: string,
-  fetchImpl: FetchLike = fetch,
 ): Promise<void> {
-  await postAdmin(adminAddress, "/service-lasso/unregister", { id }, fetchImpl);
+  await postAdmin(adminAddress, "/service-lasso/unregister", { id });
   registrations.delete(id);
 }
 

@@ -441,11 +441,6 @@ export async function verifyPublishedPackage({
   const workspaceRoot = path.join(consumerRoot, "workspace");
   const servicesRoot = path.join(repoRoot, "services");
   const probePath = path.join(consumerRoot, "consumer-probe.mjs");
-  const relativeArchivePath = path
-    .relative(consumerRoot, stagedArchivePath)
-    .split(path.sep)
-    .join("/");
-
   try {
     await writeFile(
       path.join(consumerRoot, "package.json"),
@@ -461,7 +456,7 @@ export async function verifyPublishedPackage({
       "utf8",
     );
 
-    await runNpmCommand(["install", relativeArchivePath], {
+    await runNpmCommand(["install", stagedArchivePath], {
       cwd: consumerRoot,
     });
 

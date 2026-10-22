@@ -35,6 +35,7 @@
     "verify:auth-e2e": "npm run build && node scripts/verify-auth-e2e.mjs",
     "verify:multi-instance-ports": "npm run build && node scripts/verify-multi-instance-ports.mjs",
     "verify:service-catalog": "npm run build && node scripts/verify-service-catalog.mjs",
+    "verify:caddy-stack": "npm run build && node scripts/verify-caddy-stack.mjs",
     "local:multi-instance": "npm run build && node scripts/start-local-multi-instance.mjs",
     "verify:reference-app-lifecycle": "npm run build && node scripts/verify-reference-app-lifecycle.mjs",
     "verify:service-updates": "npm run build && node scripts/verify-service-updates.mjs",
@@ -78,7 +79,7 @@
     "jose": "6.2.12",
     "tar": "7.5.22",
     "unicode-case-folding": "1.1.2",
-    "zod": "4.6.5"
+    "zod": "4.6.7"
   },
   "devDependencies": {
     "@docusaurus/core": "3.10.2",
