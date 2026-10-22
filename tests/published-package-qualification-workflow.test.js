@@ -140,13 +140,13 @@ test("AC-4BZ.1 workflow qualifies only exact downloaded publications on all thre
   );
   assert.match(
     workflow,
-    /actions\/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a[\s\S]*?if-no-files-found: error[\s\S]*?retention-days: 90/,
+    /actions\/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9[\s\S]*?if-no-files-found: error[\s\S]*?retention-days: 90/,
   );
   assert.match(workflow, /ADMIN_TRUSTED_UNLOCK_RECEIPT_PATH: \$\{\{ runner\.temp \}\}\/admin-trusted-unlock-receipt\.json/);
   assert.equal(
     (
       workflow.match(
-        /uses: actions\/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a/g,
+        /uses: actions\/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9/g,
       ) ?? []
     ).length,
     1,

@@ -216,7 +216,7 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
   assert.match(workflow, /revision = \$env:ADMIN_HARNESS_REVISION/);
   assert.match(
     workflow,
-    /uses: actions\/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a[\s\S]*?if-no-files-found: error[\s\S]*?retention-days: 90/,
+    /uses: actions\/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9[\s\S]*?if-no-files-found: error[\s\S]*?retention-days: 90/,
   );
   assert.match(workflow, /mutationRetry = \$false/);
   assert.match(workflow, /comprehensive_lifecycle/);

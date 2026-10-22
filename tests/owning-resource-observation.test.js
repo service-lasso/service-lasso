@@ -199,6 +199,7 @@ test("consumer creation and exceptional finally preserve exact resource correlat
         if (name === "service_lasso_runtime_status") return {structuredContent:{runtime:{status:"ready"}}};
         if (name === "service_lasso_list_services") return {structuredContent:{services:[{id:"fixture"}]}};
         if (!args.execute) return {structuredContent:{status:"preflight",confirmation:{id:"test",confirmationPhrase:"test"}}};
+        if (name === "service_lasso_stop_service") { return {structuredContent:{status:"succeeded",result:{resultingState:[{running:false}]}}}; }
         const replayed = this.executed === true; this.executed = true;
         return {structuredContent:{status:replayed ? "replayed" : "succeeded",idempotency:{replayed},correlationId:"test",result:{resultingState:[{running:true}]}}};
       }
