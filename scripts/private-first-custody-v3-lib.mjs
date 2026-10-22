@@ -46,7 +46,7 @@ async function psJson(directory,purpose,error) {
   }catch(cause){session.probe.child.stdin.end();await session.probe.closed;throw cause;}
 }
 const aclRead = "$ErrorActionPreference='Stop';$p=[Environment]::GetEnvironmentVariable('SERVICE_LASSO_CUSTODY_TARGET','Process');$i=[Security.Principal.WindowsIdentity]::GetCurrent();$a=(Get-Item -LiteralPath $p -Force -ErrorAction Stop).GetAccessControl();$r=@($a.Access|%{$s=$_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value;[ordered]@{sid=[string]$s;type=[string]$_.AccessControlType;rights=[int64]$_.FileSystemRights;inherited=[bool]$_.IsInherited;inheritance=[int]$_.InheritanceFlags;propagation=[int]$_.PropagationFlags}}|sort sid,type,rights,inherited,inheritance,propagation);[ordered]@{owner=[string]$a.GetOwner([Security.Principal.SecurityIdentifier]).Value;current=[string]$i.User.Value;protected=[bool]$a.AreAccessRulesProtected;rules=@($r)}|ConvertTo-Json -Compress -Depth 4";
-const aclSet = "$ErrorActionPreference='Stop';$p=[Environment]::GetEnvironmentVariable('SERVICE_LASSO_CUSTODY_TARGET','Process');$i=[Security.Principal.WindowsIdentity]::GetCurrent();$item=Get-Item -LiteralPath $p -Force -ErrorAction Stop;$a=$item.GetAccessControl();$a.SetOwner($i.User);$a.SetAccessRuleProtection($true,$false);@($a.Access)|%{$a.RemoveAccessRuleSpecific($_)};$inh=[Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit';$none=[Security.AccessControl.PropagationFlags]::None;$allow=[Security.AccessControl.AccessControlType]::Allow;@($i.User.Value,'S-1-5-18','S-1-5-32-544')|Select-Object -Unique|%{$a.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($_,[Security.AccessControl.FileSystemRights]::FullControl,$inh,$none,$allow)))};$item.SetAccessControl($a);[ordered]@{applied=$true}|ConvertTo-Json -Compress";
+const aclSet = "$ErrorActionPreference='Stop';$p=[Environment]::GetEnvironmentVariable('SERVICE_LASSO_CUSTODY_TARGET','Process');$i=[Security.Principal.WindowsIdentity]::GetCurrent();$item=Get-Item -LiteralPath $p -Force -ErrorAction Stop;$a=$item.GetAccessControl();$a.SetOwner($i.User);$a.SetAccessRuleProtection($true,$false);@($a.Access)|%{$a.RemoveAccessRuleSpecific($_)};$inh=[Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit';$none=[Security.AccessControl.PropagationFlags]::None;$allow=[Security.AccessControl.AccessControlType]::Allow;@($i.User.Value,'S-1-5-18','S-1-5-32-544')|Select-Object -Unique|%{$sid=New-Object Security.Principal.SecurityIdentifier($_);$a.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($sid,[Security.AccessControl.FileSystemRights]::FullControl,$inh,$none,$allow)))};$item.SetAccessControl($a);[ordered]@{applied=$true}|ConvertTo-Json -Compress";
 export function validAcl(proof) { if (!exact(proof, ["owner", "current", "protected", "rules"]) || proof.owner !== proof.current || typeof proof.current !== "string" || !/^S-1-[0-9]+(?:-[0-9]+)+$/u.test(proof.current) || proof.protected !== true || !Array.isArray(proof.rules)) return false; const trusted = new Set([proof.current, SYSTEM, ADMINS]); return proof.rules.length === trusted.size && proof.rules.every(rule => exact(rule, ["sid", "type", "rights", "inherited", "inheritance", "propagation"]) && trusted.has(rule.sid) && rule.type === "Allow" && rule.rights === 2032127 && rule.inherited === false && rule.inheritance === 3 && rule.propagation === 0) && new Set(proof.rules.map(rule => rule.sid)).size === trusted.size; }
 async function windowsAcl(directory) { const proof = await psJson(directory, "acl_read", "first_custody_windows_acl_probe_invalid"); if (!validAcl(proof)) throw new Error("first_custody_windows_acl_not_exclusive"); return { checked: true, tool: "windows_sid_dacl", ownerSid: proof.owner, currentSid: proof.current, rules: proof.rules }; }
 const reparseRead = "$ErrorActionPreference='Stop';$p=[Environment]::GetEnvironmentVariable('SERVICE_LASSO_CUSTODY_TARGET','Process');$i=Get-Item -LiteralPath $p -Force -ErrorAction Stop;$r=($i.Attributes -band [IO.FileAttributes]::ReparsePoint)-ne 0;if($r){throw 'reparse_parent'};[ordered]@{attributes=[int64]$i.Attributes;reparse=$false;tag=$null}|ConvertTo-Json -Compress";
@@ -109,6 +109,14 @@ export async function publishAfterBootstrap(privateRoot, output, value, journalP
     throw error;
   }
 }
+const SF_RESTRICTED = 0x80000, SF_NOUNLINK = 0x100000;
+async function darwinFileFlags(files) {
+  const { execFile } = await import("node:child_process");
+  const stdout = await new Promise((resolve, reject) => execFile("/usr/bin/stat", ["-f", "%f", ...files], { encoding: "utf8", env: { PATH: "/usr/bin:/bin" } }, (error, out) => error ? reject(error) : resolve(out)));
+  const values = stdout.trim().split("\n").map(line => /^\d+$/u.test(line) ? Number(line) : NaN);
+  if (values.length !== files.length || values.some(Number.isNaN)) throw new Error("first_custody_darwin_cache_parent_flags_unavailable");
+  return values;
+}
 // This proves only the fixed dyld header, never the complete cache or libproc file.
 // Parent snapshots detect replacement; they are not an atomic directory anchor.
 export async function darwinCacheHeader(file) {
@@ -117,9 +125,18 @@ export async function darwinCacheHeader(file) {
   const parents = await chain(path.dirname(target), boundary);
   const secureParents = async () => {
     await recheck(parents);
-    for (const item of parents.entries) {
+    // macOS 14 ships /System/Volumes/Preboot/Cryptexes as root-owned 0777. Its
+    // writability cannot replace the cache chain only when the entry beneath it
+    // is root-owned, non-writable and kernel-protected against unlink/rename
+    // (SF_NOUNLINK or SIP SF_RESTRICTED). Every other parent must be non-writable.
+    const ordered = [...parents.entries].sort((a, b) => b.cursor.length - a.cursor.length);
+    const flags = (await darwinFileFlags(ordered.map(item => item.cursor)));
+    let child = null;
+    for (const [index, item] of ordered.entries()) {
       const entry = await lstat(item.cursor,{bigint:true});
-      if (entry.uid !== 0n || (entry.mode & 0o022n) !== 0n) throw new Error("first_custody_darwin_cache_parent_not_os_owned");
+      const childProtected = child !== null && child.uid === 0n && (child.mode & 0o022n) === 0n && (flags[index - 1] & (SF_NOUNLINK | SF_RESTRICTED)) !== 0;
+      if (entry.uid !== 0n || ((entry.mode & 0o022n) !== 0n && !childProtected)) throw new Error("first_custody_darwin_cache_parent_not_os_owned");
+      child = entry;
     }
   };
   await secureParents();

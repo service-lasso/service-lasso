@@ -11,7 +11,7 @@ export const QUALIFICATION_SCHEMA =
 export const RETENTION_DAYS = 90;
 export const PACKAGE_NAME = "@service-lasso/service-lasso";
 export const ADMIN_HARNESS_REVISION =
-  "90caf8cf0f8e3c599a1a5022936813ac8bf0983b";
+  "7f6ea48c3e94a472e177f7d4d43237e12d6ee1c1";
 
 export const RETAINED_ADMIN_TRUSTED_UNLOCK_RECEIPT_SCHEMA =
   "service-lasso.admin-trusted-unlock-retained.v1";
@@ -111,7 +111,7 @@ export function validateRetainedAdminTrustedUnlockReceipt(receipt, expected) {
   if (!parseConsumerReceipt(JSON.stringify(consumerSource))) {
     fail("invalid_retained_trusted_unlock_receipt", "Retained Admin trusted-unlock receipt is not closed.");
   }
-  if (receipt.consumerOutcome === "success" && (receipt.consumerExitCode !== 0 || receipt.consumerSignal !== null || trustedUnlock.classification !== "not_emitted")) {
+  if (receipt.consumerOutcome === "success" && (receipt.consumerExitCode !== 0 || receipt.consumerSignal !== null || !["not_emitted", "closed"].includes(trustedUnlock.classification))) {
     fail("invalid_retained_trusted_unlock_receipt", "Successful Admin consumer outcome is inconsistent.");
   }
   if ((receipt.consumerOutcome === "nonzero_exit" && !(receipt.consumerExitCode > 0)) || (receipt.consumerOutcome === "signal" && receipt.consumerSignal === null) || (receipt.consumerOutcome !== "success" && !["closed", "missing", "invalid"].includes(trustedUnlock.classification))) {

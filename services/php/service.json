@@ -1,0 +1,67 @@
+{
+  "id": "php",
+  "name": "PHP Runtime",
+  "description": "Release-backed PHP runtime provider (PHP-FPM on POSIX, php-cgi on Windows) for Service Lasso PHP applications.",
+  "version": "8.3.32",
+  "role": "provider",
+  "enabled": true,
+  "provides": {
+    "php": "8.3.32"
+  },
+  "executable": "php",
+  "args": ["-v"],
+  "healthchecks": [
+    {
+      "id": "php-version",
+      "type": "process",
+      "retries": 3,
+      "interval": 1000
+    }
+  ],
+  "env": {
+    "PHP_VERSION": "8.3.32"
+  },
+  "globalenv": {
+    "PHP": "${SERVICE_ARTIFACT_COMMAND}",
+    "PHP_HOME": "${SERVICE_ARTIFACT_ROOT}",
+    "PHP_VERSION": "8.3.32",
+    "PHP_FPM": "${SERVICE_ARTIFACT_ROOT}/php-fpm",
+    "PHP_CGI": "${SERVICE_ARTIFACT_ROOT}/php-cgi.exe",
+    "PHP_EXTENSION_DIR": "${SERVICE_ARTIFACT_ROOT}/ext"
+  },
+  "urls": [
+    {
+      "label": "docs",
+      "url": "https://www.php.net/docs.php",
+      "kind": "external"
+    }
+  ],
+  "artifact": {
+    "kind": "archive",
+    "source": {
+      "type": "github-release",
+      "repo": "service-lasso/lasso-php",
+      "tag": "2026.10.20-220191e"
+    },
+    "platforms": {
+      "win32": {
+        "assetName": "lasso-php-8.3.32-win32.zip",
+        "archiveType": "zip",
+        "command": ".\\php.exe",
+        "args": ["-v"]
+      },
+      "linux": {
+        "assetName": "lasso-php-8.3.32-linux.tar.gz",
+        "archiveType": "tar.gz",
+        "command": "./php",
+        "args": ["-v"]
+      },
+      "darwin": {
+        "assetName": "lasso-php-8.3.32-darwin.tar.gz",
+        "archiveType": "tar.gz",
+        "command": "./php",
+        "args": ["-v"]
+      }
+    }
+  }
+}

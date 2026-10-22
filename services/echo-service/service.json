@@ -4,6 +4,15 @@
   "description": "Baseline Echo Service manifest. Core tests can run the checked-in fixture directly, while install can acquire the canonical Echo Service release artifact.",
   "version": "0.3.0",
   "enabled": true,
+  "ingress": [
+    {
+      "domain": "echo-service.servicelasso.localhost",
+      "proxy": {
+        "type": "http",
+        "endpoint": "service"
+      }
+    }
+  ],
   "executable": "node",
   "args": ["runtime/fixture-harness.mjs"],
   "env": {

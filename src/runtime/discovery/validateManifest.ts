@@ -33,6 +33,8 @@ import type {
   ServiceEnvMap,
   ServiceEnvValue,
   ServiceManifest,
+  ServiceIngress,
+  ServiceIngressType,
   ServiceSetupRerunPolicy,
   ServiceStdinDeclaration,
   ServiceStdinProvider,
@@ -78,6 +80,7 @@ const endpointIdPattern = /^[A-Za-z][A-Za-z0-9_:-]*$/;
 const filesRootIdPattern = /^[A-Za-z][A-Za-z0-9_:-]*$/;
 const logSourceIdPattern = /^[A-Za-z][A-Za-z0-9_.-]*$/;
 const serviceIdPattern = /^@?[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const ingressTypes = new Set<ServiceIngressType>(["fastcgi", "http"]);
 const windowsReservedServiceIdPattern = /^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)/i;
 
 export function validateServiceId(value: unknown, manifestPath: string): string {
@@ -1222,6 +1225,62 @@ function readEndpointPortDeclaration(
     ...(policy !== undefined ? { policy } : {}),
     ...(range !== undefined ? { range } : {}),
   };
+}
+
+function readManifestIngress(value: unknown, manifestPath: string): ServiceIngress[] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const entries = Array.isArray(value) ? value : [value];
+  const seenDomains = new Set<string>();
+
+  return entries.map((entry, index) => {
+    const field = `ingress[${index}]`;
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}" to be an object.`);
+    }
+
+    const record = entry as Record<string, unknown>;
+    const domain =
+      record.domain === undefined ? undefined : expectNonEmptyString(record.domain, `${field}.domain`, manifestPath);
+    if (domain) {
+      if (seenDomains.has(domain)) {
+        throw new Error(`Invalid service manifest at ${manifestPath}: duplicate ingress domain "${domain}".`);
+      }
+      seenDomains.add(domain);
+    }
+
+    const proxyRaw = record.proxy;
+    if (!proxyRaw || typeof proxyRaw !== "object" || Array.isArray(proxyRaw)) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}.proxy" to be an object.`);
+    }
+    const proxyRecord = proxyRaw as Record<string, unknown>;
+    const rawType = expectNonEmptyString(proxyRecord.type, `${field}.proxy.type`, manifestPath);
+    if (!ingressTypes.has(rawType as ServiceIngressType)) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: expected "${field}.proxy.type" to be "fastcgi" or "http".`);
+    }
+    const endpoint =
+      proxyRecord.endpoint === undefined
+        ? undefined
+        : expectNonEmptyString(proxyRecord.endpoint, `${field}.proxy.endpoint`, manifestPath);
+    const root =
+      proxyRecord.root === undefined
+        ? undefined
+        : expectNonEmptyString(proxyRecord.root, `${field}.proxy.root`, manifestPath);
+    if (rawType === "fastcgi" && !root) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: "${field}.proxy.root" is required for fastcgi ingress.`);
+    }
+
+    return {
+      ...(domain !== undefined ? { domain } : {}),
+      proxy: {
+        type: rawType as ServiceIngressType,
+        ...(endpoint !== undefined ? { endpoint } : {}),
+        ...(root !== undefined ? { root } : {}),
+      },
+    };
+  });
 }
 
 function readManifestEndpoints(value: unknown, manifestPath: string): ServiceManifestEndpoint[] | undefined {
@@ -2387,6 +2446,7 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
   const stdin = readStdin(record.stdin, manifestPath);
   const broker = readBrokerPolicy(record.broker, manifestPath, serviceId);
   const endpoints = readManifestEndpoints(record.endpoints, manifestPath);
+  const ingress = readManifestIngress(record.ingress, manifestPath);
   const outputvarregex = readOutputVarRegex(record.outputvarregex, manifestPath);
   validateBrokerCollisions(broker, env, globalenv, manifestPath);
   const artifact = readArtifact(record.artifact, manifestPath);
@@ -2443,6 +2503,7 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
     globalenv,
     broker,
     endpoints,
+    ingress,
     ports: rawPorts
       ? Object.fromEntries(Object.entries(rawPorts as Record<string, number>).map(([key, value]) => [key.trim(), value]))
       : undefined,

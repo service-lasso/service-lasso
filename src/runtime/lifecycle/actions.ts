@@ -5,6 +5,14 @@ import type {
 } from "../../contracts/service.js";
 import path from "node:path";
 import { withServiceStartSerialization } from "./start-serialization.js";
+import {
+  buildCaddyRegisterPayload,
+  listCaddyIngressRegistrations,
+  registerCaddyIngress,
+  resolveCaddyAdminAddress,
+  resolveCaddyIngressPort,
+  unregisterCaddyIngress,
+} from "../ingress/caddy.js";
 import { windowsTreeInspectionFailureMetadata } from "../process/windows-tree-inspection-diagnostics.js";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -1257,6 +1265,78 @@ export async function configService(
   }));
 }
 
+function resolveIngressValue(value: string | undefined, globalEnv: Record<string, string | undefined>): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+  return value.replace(/\$\{([A-Za-z0-9_]+)\}/g, (match, key: string) => globalEnv[key] ?? match);
+}
+
+async function applyCaddyIngressOnStart(
+  service: DiscoveredService,
+  globalEnv: Record<string, string>,
+  resolvedPorts: Record<string, number>,
+): Promise<void> {
+  const ingresses = service.manifest.ingress;
+  if (!ingresses || ingresses.length === 0) {
+    return;
+  }
+
+  const adminAddress = resolveCaddyAdminAddress(globalEnv);
+  const ingressPort = resolveCaddyIngressPort(globalEnv);
+  if (!adminAddress || !ingressPort) {
+    return;
+  }
+
+  for (const [index, ingress] of ingresses.entries()) {
+    try {
+      const proxy = ingress.proxy;
+      const endpointId = proxy.endpoint ?? (proxy.type === "fastcgi" ? "fastcgi" : "web");
+      const port = resolvedPorts[endpointId];
+      if (!port) {
+        continue;
+      }
+      const bind = service.manifest.endpoints?.find((endpoint) => endpoint.id === endpointId)?.bind ?? "127.0.0.1";
+      const routeId = ingresses.length === 1 ? service.manifest.id : `${service.manifest.id}#${index}`;
+      const payload = buildCaddyRegisterPayload({
+        serviceId: service.manifest.id,
+        ingress: {
+          domain: ingress.domain ? resolveServiceText(ingress.domain, service, globalEnv, resolvedPorts) : undefined,
+          proxy: {
+            ...proxy,
+            root: proxy.root ? resolveServiceText(proxy.root, service, globalEnv, resolvedPorts) : undefined,
+          },
+        },
+        target: `${bind}:${port}`,
+        ingressPort,
+        routeId,
+      });
+      await registerCaddyIngress(adminAddress, payload, service.manifest.id);
+    } catch (error) {
+      // @caddy is optional; never fail the service lifecycle on ingress wiring.
+      console.warn(
+        `[service-lasso] @caddy ingress registration skipped for "${service.manifest.id}" entry ${index}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+}
+
+async function removeCaddyIngressOnStop(serviceId: string): Promise<void> {
+  for (const registration of listCaddyIngressRegistrations(serviceId)) {
+    try {
+      await unregisterCaddyIngress(registration.adminAddress, registration.routeId);
+    } catch (error) {
+      console.warn(
+        `[service-lasso] @caddy ingress unregistration skipped for "${serviceId}": ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+}
+
 export async function startService(
   service: DiscoveredService,
   registry?: ServiceRegistry,
@@ -1369,6 +1449,12 @@ async function startServiceSerialized(
     current,
     registry,
   );
+  // Resolve provider/env tokens in the direct execution target (for example a
+  // provider-supplied PHP_CGI path) using the merged global environment.
+  const planGlobalEnv = registry ? collectRuntimeGlobalEnv(registry.list()) : {};
+  const planResolvedPorts = current.runtime.ports ?? {};
+  executionPlan.executable = resolveServiceText(executionPlan.executable, service, planGlobalEnv, planResolvedPorts);
+  executionPlan.args = executionPlan.args.map((arg) => resolveServiceText(arg, service, planGlobalEnv, planResolvedPorts));
   if (
     executionPlan.provider === "direct" &&
     !service.manifest.executable &&
@@ -1782,6 +1868,7 @@ async function startServiceSerialized(
     message: readiness.message,
   }));
   finishStartTrace(serviceId, trace, "succeeded", readiness.message);
+  await applyCaddyIngressOnStart(service, sharedGlobalEnv, resolvedPorts);
   return { ...result, state: getLifecycleState(serviceId) };
 }
 
@@ -1812,6 +1899,7 @@ export async function stopService(
   const revokedIdentity =
     revokedIdentities.at(-1) ?? current.runtime.brokerIdentity;
 
+  await removeCaddyIngressOnStop(serviceId);
   return applyState(serviceId, "stop", (state) => ({
     nextState: {
       ...state,

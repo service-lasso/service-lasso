@@ -19,10 +19,9 @@ src/runtime/execution/windows-managed-launcher-managed.provenance.json text eol=
 tests/fixtures/windows-held-exit-probe.cs text eol=lf
 tests/fixtures/windows-held-exit-probe.exe binary
 tests/fixtures/windows-held-exit-probe.provenance.json text eol=lf
+.governance/project/ga-platform-scope.json -text
 tests/fixture-diagnostic-creator.ps1 text eol=lf
 tests/fixture-diagnostic-hold.ps1 text eol=lf
 tests/fixture-acl-get-classifier.ps1 text eol=lf
-.governance/project/ga-platform-scope.json -text
-
 tests/helpers/core1562-powershell-retention-bootstrap.ps1 text eol=lf
 tests/helpers/core1562-powershell-retention-ast.ps1 text eol=lf
