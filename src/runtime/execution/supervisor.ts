@@ -3539,6 +3539,31 @@ export async function waitForManagedProcessExit(
   return result;
 }
 
+/**
+ * Stdio MCP clients close stdin and then force-kill the runtime about two
+ * seconds later, which is shorter than the serialized Windows ownership-checked
+ * stop. On Windows each managed service's direct child is the native launcher,
+ * whose job object is KILL_ON_JOB_CLOSE, so terminating that owned child takes
+ * the whole launcher tree down at once. The ordinary stop still runs afterwards
+ * and observes those exits. Adopted processes are not our children and are
+ * left to the ordinary stop.
+ */
+export function terminateOwnedWindowsLauncherRoots(): number {
+  if (process.platform !== "win32") return 0;
+  let terminated = 0;
+  for (const record of managedProcesses.values()) {
+    record.stopping = true;
+    const child = record.child;
+    if (child.exitCode !== null || child.signalCode !== null) continue;
+    try {
+      if (child.kill("SIGKILL")) terminated += 1;
+    } catch {
+      // The ordinary stop reports any service that is still running.
+    }
+  }
+  return terminated;
+}
+
 export async function stopAllManagedProcesses(): Promise<void> {
   const MAX_FINALIZATION_PASSES = 8;
   // Quiesce every monitor synchronously before any tree termination starts.

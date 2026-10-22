@@ -1,5 +1,6 @@
 import { startRuntimeApp } from "./runtime/app.js";
 import { resolveRuntimeVersion } from "./runtime/version.js";
+import { terminateOwnedWindowsLauncherRoots } from "./runtime/execution/supervisor.js";
 
 async function main(): Promise<void> {
   const stdioMcp = process.env.SERVICE_LASSO_MCP_STDIO === "1";
@@ -7,6 +8,9 @@ async function main(): Promise<void> {
   let stopRuntime: (() => Promise<void>) | undefined;
   const onInputEnd = () => {
     inputEnded = true;
+    // The client may kill this process shortly after EOF; take owned launcher
+    // trees down first so no managed service outlives the runtime.
+    terminateOwnedWindowsLauncherRoots();
     void stopRuntime?.();
   };
   if (stdioMcp) process.stdin.once("end", onInputEnd);
