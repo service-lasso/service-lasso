@@ -1,0 +1,211 @@
+{
+  "base": "caee004cd93741f617acf65b1a45b9808af686d0",
+  "sourceCustody": "retained Core121 checkpoint; read-only",
+  "requirements": "SPEC-002 AC-4DI.4/R3/C3",
+  "execution": "UNRUN",
+  "files": [
+    {
+      "path": "tests/helpers/core1681-selected-syntax.mjs",
+      "sourceSha256": "A977B0C0867B923DC5D4D4E1D9F33E6578CA7713DEBA62C46A1AAA3DD9F1F661",
+      "bytes": 32957,
+      "previousSha256": null,
+      "previousDevelopBlob": null
+    },
+    {
+      "path": "tests/helpers/core1681-selected-declarations.mjs",
+      "sourceSha256": "3EBDEC488A38A7F8B27DA09A601424465F03FB8391ED517695B1D932D460F756",
+      "bytes": 10636,
+      "previousSha256": null,
+      "previousDevelopBlob": null
+    },
+    {
+      "path": "tests/helpers/core1681-selected-type-index.mjs",
+      "sourceSha256": "38EA1AB85BC171E8D6C462EE861294485326605A4DA334480D2A2C665AC28321",
+      "bytes": 17639,
+      "previousSha256": null,
+      "previousDevelopBlob": null
+    },
+    {
+      "path": "tests/helpers/core1681-selected-imports.mjs",
+      "sourceSha256": "019F89E62BCAA55110A58F34C7E4DEEFE1C0E673CBA565546DC84100DCCA9734",
+      "bytes": 7023,
+      "previousSha256": null,
+      "previousDevelopBlob": null
+    },
+    {
+      "path": "tests/helpers/core1681-selected-compilation.mjs",
+      "sourceSha256": "5616B3ACC77087818462A857C33750941A071B60C0A33C1AAD568938DD65460E",
+      "bytes": 14822,
+      "previousSha256": null,
+      "previousDevelopBlob": null
+    },
+    {
+      "path": "tests/helpers/core1681-selected-members.mjs",
+      "sourceSha256": "B572719D706521334F57EF161FC1B1682058456054FBBEA608A67ADEBB23F6D1",
+      "bytes": 13492,
+      "previousSha256": null,
+      "previousDevelopBlob": null
+    },
+    {
+      "path": "tests/helpers/core1681-selected-invocation.mjs",
+      "sourceSha256": "6C395E4859BA2CE06A75596B3893FE2D81BDB52851FBFD233AEDF7F4DC3DFC84",
+      "bytes": 6161,
+      "previousSha256": null,
+      "previousDevelopBlob": null
+    },
+    {
+      "path": "tests/helpers/core1681-selected-predefined-operators.mjs",
+      "sourceSha256": "BC7D4CA7ADC1FB25CC9513EA0B76151E6DC2B41855687537CCB9D8FAB701A24C",
+      "bytes": 12233,
+      "previousSha256": null,
+      "previousDevelopBlob": null
+    },
+    {
+      "path": "tests/helpers/core1681-selected-overloads.mjs",
+      "sourceSha256": "68660249EFDF5F1FBED4A8F928419A57ADAD30469CA7ED0D451485C531E30851",
+      "bytes": 10144,
+      "previousSha256": null,
+      "previousDevelopBlob": null
+    },
+    {
+      "path": "tests/helpers/core1681-proof-terms.mjs",
+      "sourceSha256": "A095801EED4BA3808832BCF6DDBFB27B0C0E5A2238FB0AF9A966C264921A750C",
+      "bytes": 31961,
+      "previousSha256": null,
+      "previousDevelopBlob": null
+    },
+    {
+      "path": "tests/helpers/core1681-selected-literals.mjs",
+      "sourceSha256": "6B7BF97BC99BB6402AA48D8EB6FE279FAF5EBECCA048CF94F14B9C272A882416",
+      "bytes": 17256,
+      "previousSha256": null,
+      "previousDevelopBlob": null
+    },
+    {
+      "path": "tests/helpers/core1681-selected-c-preprocessor.mjs",
+      "sourceSha256": "F9D686F901778DD287E8C7171784FE05617BF01DAA3F827BC74332566BCB6B8B",
+      "bytes": 33220,
+      "previousSha256": null,
+      "previousDevelopBlob": null
+    },
+    {
+      "path": "tests/helpers/core1681-selected-c-syntax.mjs",
+      "sourceSha256": "93EBEB74DE64593A65D016C14C909803C2A30F9AD1BBF577F34A498F0B10C8C4",
+      "bytes": 31365,
+      "previousSha256": null,
+      "previousDevelopBlob": null
+    },
+    {
+      "path": "tests/helpers/core1681-selected-c-types.mjs",
+      "sourceSha256": "8F386E889740485423E02198C2FF22ED083323CBC8A95C8833CAC75AF9D3C1D9",
+      "bytes": 11125,
+      "previousSha256": null,
+      "previousDevelopBlob": null
+    },
+    {
+      "path": "tests/helpers/core1681-selected-conversions.mjs",
+      "sourceSha256": "62F4FA999751C1F32DCB63681E8B22AA5DA121C240FB9AD696B706F96FC44E26",
+      "bytes": 9490,
+      "previousSha256": null,
+      "previousDevelopBlob": null
+    },
+    {
+      "path": "tests/helpers/core1681-source-input.mjs",
+      "sourceSha256": "968902A3BAC9AD49AAB23A25978D832D57F9EB5CE462499FDC52033682E67A7D",
+      "bytes": 11872,
+      "previousSha256": "95D4963A3DF0FE364A32F11421C4C100C624ED12FFF3208D750654787E57C9C7",
+      "previousDevelopBlob": "f244dd8e9e02a8e3aa92533debbba0d3f249b9cb"
+    },
+    {
+      "path": "tests/helpers/core1681-selected-scanner.mjs",
+      "sourceSha256": "1D650F318C9FCCF334C7A71958C05706C5F5660AC59F5A42816CA42EC55FEA55",
+      "bytes": 15854,
+      "previousSha256": null,
+      "previousDevelopBlob": null
+    },
+    {
+      "path": "tests/helpers/core1681-selected-types.mjs",
+      "sourceSha256": "5839F4C2B00C3B2A000B270B7540F82625C9F42EA6652586442D9CD5811045B3",
+      "bytes": 3962,
+      "previousSha256": null,
+      "previousDevelopBlob": null
+    },
+    {
+      "path": "tests/helpers/core1681-selected-forest.mjs",
+      "sourceSha256": "51B89E52A02897801054F914DB3D1762FAFC49935F03BF7822519078DDF72061",
+      "bytes": 8258,
+      "previousSha256": null,
+      "previousDevelopBlob": null
+    },
+    {
+      "path": "tests/helpers/core1681-selected-names.mjs",
+      "sourceSha256": "80F7709A64D5F51114A1DD6AC94432BE9064B9C8771910E0775E089C673C1660",
+      "bytes": 5914,
+      "previousSha256": null,
+      "previousDevelopBlob": null
+    },
+    {
+      "path": "tests/helpers/core1681-selected-metadata.mjs",
+      "sourceSha256": "F883D58D2DC31A76DDD5DB485784515F51173920CA3AC99F0C4E349D3DE6927F",
+      "bytes": 28292,
+      "previousSha256": null,
+      "previousDevelopBlob": null
+    },
+    {
+      "path": "tests/helpers/core1681-selected-inference.mjs",
+      "sourceSha256": "998B488D0B959F9CB70B1789724A458B067736B67876A2960371F6D4CDF7C3FF",
+      "bytes": 11560,
+      "previousSha256": null,
+      "previousDevelopBlob": null
+    },
+    {
+      "path": "tests/helpers/core1681-selected-arguments.mjs",
+      "sourceSha256": "62C1677F85F0D37312D7565679E3B61CAAA80BB69D28722956BB13BC28B5E243",
+      "bytes": 3247,
+      "previousSha256": null,
+      "previousDevelopBlob": null
+    },
+    {
+      "path": "tests/helpers/core1681-selected-constraints.mjs",
+      "sourceSha256": "895DD542D1D857A4BC09D16CFA26912570D35202C62B48BAACF48856DE22D46C",
+      "bytes": 11182,
+      "previousSha256": null,
+      "previousDevelopBlob": null
+    },
+    {
+      "path": "tests/helpers/core1681-selected-javascript.mjs",
+      "sourceSha256": "DB2A8A0C71980A8445F48112A5B9C5A6DF3E5C2EE85C3177F1DBD2C624D8C4F4",
+      "bytes": 24885,
+      "previousSha256": null,
+      "previousDevelopBlob": null
+    },
+    {
+      "path": "tests/helpers/core1681-selected-powershell.mjs",
+      "sourceSha256": "0149B22649671E235841880CDF044716129F1F1D88D037A67F37399065275769",
+      "bytes": 17323,
+      "previousSha256": null,
+      "previousDevelopBlob": null
+    },
+    {
+      "path": "tests/helpers/core1681-source-binding.mjs",
+      "sourceSha256": "97FED95E267D1E24DA79D5A8E238A18C5D155461DC2700925CAE6FC4B520A916",
+      "bytes": 61931,
+      "previousSha256": "D52893A5942D68DAB828069B2C8CD807ACD8075CF8C73810BCB1E11AA822FCE4",
+      "previousDevelopBlob": "183fc7bc2a41da57e65b16c6bea359f8db3d7b25"
+    },
+    {
+      "path": "tests/helpers/core1681-selected-storage.mjs",
+      "sourceSha256": "9C7E4AEA65BE0D2393269FB326F6C4504DFDC428A674E7ACD247912C0461BFCD",
+      "bytes": 7122,
+      "previousSha256": null,
+      "previousDevelopBlob": null
+    },
+    {
+      "path": "tests/helpers/core1681-source-forest.mjs",
+      "sourceSha256": "DF188BB5653F54A89386E57E983D20A4C2C29A006C8D29DB7AAECA3798049545",
+      "bytes": 47020,
+      "previousSha256": "3CA9E36CC1A5D05BF8E0B0CF9D2C00D76276D8695346F3D20B5CC9A6E1E61E2D",
+      "previousDevelopBlob": "c229343d4ed956f1aad81e56daab33408ccf83f1"
+    }
+  ]
+}

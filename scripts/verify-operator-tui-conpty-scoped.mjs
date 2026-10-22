@@ -11,6 +11,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { extractZipSafely } from "../dist/runtime/files/safe-zip.js";
 import { extractPlatformReleaseArchive, stageReleaseArtifact } from "./release-artifact-lib.mjs";
 import { verifyRetainedOperatorTools } from "./operator-tool-packaging-lib.mjs";
+import { extractTuiPair } from "./operator-tool-tui-pair-extraction.mjs";
 import { runConptyHelper } from "./operator-tui-conpty-runner.mjs";
 import { createOwnedUnavailableEndpoint } from "./operator-tui-conpty-endpoint.mjs";
 
@@ -28,6 +29,7 @@ const helperPath = path.join(repoRoot, "scripts", "verify-operator-tui-conpty.py
 let extractedCoreArchive;
 let apiServer;
 let unavailableEndpoint;
+let pairExtraction;
 const previousLocalAdminToken = process.env.SERVICE_LASSO_LOCAL_ADMIN_TOKEN;
 
 function ownedLoopbackUnavailableEndpoint() {
@@ -43,7 +45,7 @@ async function closeUnavailableEndpoint() {
   await endpoint?.close();
 }
 
-let primaryFailure;
+let primaryFailure, primaryFailureRecorded = false;
 try {
   const staged = await stageReleaseArtifact({ repoRoot, outputRoot, scope });
   const coreArchive = staged.platformArchives.find((archive) => archive.platform === "win32");
@@ -54,23 +56,32 @@ try {
   const tui = operatorTools.tools.find((tool) => tool.command === "service-lasso-tui" && tool.status === "available");
   const asset = tui?.assets?.find((candidate) => candidate.platform === "win32-amd64");
   if (!asset || !/^[A-Za-z0-9._-]+\.zip$/u.test(asset.name)) throw new Error("missing exact Windows TUI archive in extracted Core artifact");
-  await mkdir(tuiRoot, { recursive: true });
-  await extractZipSafely(path.join(coreRoot, asset.relativePath), tuiRoot);
-  const files = await readdir(tuiRoot, { recursive: true });
-  const executable = files.find((file) => file === "service-lasso-tui.exe");
-  if (!executable) throw new Error("Windows TUI archive did not contain its executable");
-  const tuiExecutable = path.join(tuiRoot, executable);
+  let tuiExecutable;
+  if (asset.members) {
+    pairExtraction = await extractTuiPair({ archivePath: path.join(coreRoot, asset.relativePath), asset, root: tuiRoot });
+    tuiExecutable = pairExtraction.executable;
+  } else {
+    await mkdir(tuiRoot, { recursive: true });
+    await extractZipSafely(path.join(coreRoot, asset.relativePath), tuiRoot);
+    const files = await readdir(tuiRoot, { recursive: true });
+    const executable = files.find((file) => file === "service-lasso-tui.exe");
+    if (!executable) throw new Error("Windows TUI archive did not contain its executable");
+    tuiExecutable = path.join(tuiRoot, executable);
+  }
   const unavailableUrl = await ownedLoopbackUnavailableEndpoint();
   const unavailableToken = randomBytes(32).toString("base64url");
+  await pairExtraction?.verifyReadbacks();
   const safeProbe = await runConptyHelper({ helperPath, executable: tuiExecutable, mode: "unavailable", apiUrl: unavailableUrl, apiToken: unavailableToken });
   await closeUnavailableEndpoint();
   const connectedToken = randomBytes(32).toString("base64url");
   process.env.SERVICE_LASSO_LOCAL_ADMIN_TOKEN = connectedToken;
   const core = await import(pathToFileURL(path.join(coreRoot, "packages", "core", "index.js")).href);
   apiServer = await core.startApiServer({ port: 0, servicesRoot: path.join(repoRoot, "services"), workspaceRoot: path.join(tempRoot, "workspace") });
+  await pairExtraction?.verifyReadbacks();
   const connectedProbe = await runConptyHelper({ helperPath, executable: tuiExecutable, mode: "connected", apiUrl: apiServer.url, apiToken: connectedToken });
   console.log(JSON.stringify({ ok: true, evidence: "direct-conpty", platform: "win32-amd64", safeStartup: safeProbe.startup, connectedDashboard: connectedProbe.startup, navigation: connectedProbe.navigation, exit: connectedProbe.exit, artifact: staged.artifactName }));
 } catch (error) {
+  primaryFailureRecorded = true;
   primaryFailure = error;
   throw error;
 } finally {
@@ -78,6 +89,7 @@ try {
   for (const cleanup of [
     () => apiServer?.stop(),
     () => closeUnavailableEndpoint(),
+    () => pairExtraction?.close(),
     () => extractedCoreArchive?.cleanup(),
     () => rm(tempRoot, { recursive: true, force: true }),
     () => {
@@ -91,5 +103,5 @@ try {
       cleanupFailures.push(error);
     }
   }
-  if (cleanupFailures.length && !primaryFailure) throw new AggregateError(cleanupFailures, "Windows ConPTY qualification cleanup failed.");
+  if (cleanupFailures.length) throw new AggregateError([...(primaryFailureRecorded ? [primaryFailure] : []), ...cleanupFailures], "Windows ConPTY qualification cleanup failed.");
 }

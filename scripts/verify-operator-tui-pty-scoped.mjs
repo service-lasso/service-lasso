@@ -8,6 +8,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { extractPlatformReleaseArchive, runCommand, stageReleaseArtifact } from "./release-artifact-lib.mjs";
 import { verifyRetainedOperatorTools } from "./operator-tool-packaging-lib.mjs";
+import { extractTuiPair } from "./operator-tool-tui-pair-extraction.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -25,6 +26,7 @@ const extractRoot = path.join(tempRoot, "tui");
 let extractedCoreArchive;
 const pythonProbe = path.join(tempRoot, "tui-pty-probe.py");
 let apiServer;
+let pairExtraction, primaryFailure, primaryFailureRecorded = false;
 
 try {
   const staged = await stageReleaseArtifact({ repoRoot, outputRoot, scope });
@@ -38,11 +40,18 @@ try {
   const asset = tui?.assets?.find((candidate) => candidate.platform === platform);
   if (!asset || !/^[A-Za-z0-9._-]+\.tar\.gz$/u.test(asset.name) || !/^[a-f0-9]{64}$/u.test(asset.sha256)) throw new Error(`missing exact ${platform} TUI archive in staged Core artifact`);
   const archivePath = path.join(extractedCoreRoot, asset.relativePath);
-  await mkdir(extractRoot, { recursive: true });
-  await runCommand("tar", ["-xzf", archivePath, "-C", extractRoot]);
-  const files = await readdir(extractRoot, { recursive: true });
-  const executable = files.find((entry) => entry === "service-lasso-tui");
-  if (!executable) throw new Error("TUI archive did not contain its expected executable");
+  let tuiExecutable;
+  if (asset.members) {
+    pairExtraction = await extractTuiPair({ archivePath, asset, root: extractRoot });
+    tuiExecutable = pairExtraction.executable;
+  } else {
+    await mkdir(extractRoot, { recursive: true });
+    await runCommand("tar", ["-xzf", archivePath, "-C", extractRoot]);
+    const files = await readdir(extractRoot, { recursive: true });
+    const executable = files.find((entry) => entry === "service-lasso-tui");
+    if (!executable) throw new Error("TUI archive did not contain its expected executable");
+    tuiExecutable = path.join(extractRoot, executable);
+  }
   const stagedCore = await import(pathToFileURL(path.join(extractedCoreRoot, "packages", "core", "index.js")).href);
   apiServer = await stagedCore.startApiServer({
     port: 0,
@@ -124,12 +133,18 @@ run_case("safe_unavailable", False)
 run_case("connected_dashboard", True)
 print(json.dumps({"ok": True, "platform": sys.argv[2], "safeStartup": "unavailable", "connectedDashboard": "rendered", "navigation": "help", "exit": "q"}))
 `, "utf8");
-  const probe = await runCommand("python3", [pythonProbe, path.join(extractRoot, executable), platform, apiServer.url]);
+  await pairExtraction?.verifyReadbacks();
+  const probe = await runCommand("python3", [pythonProbe, tuiExecutable, platform, apiServer.url]);
   const result = JSON.parse(probe.stdout.trim());
   if (!result?.ok) throw new Error("PTY probe did not report success");
   console.log(JSON.stringify({ ...result, evidence: "direct-pty", artifact: staged.artifactName }));
+} catch (original) {
+  primaryFailureRecorded = true; primaryFailure = original; throw original;
 } finally {
-  await apiServer?.stop();
-  await extractedCoreArchive?.cleanup();
-  await rm(tempRoot, { recursive: true, force: true });
+  const failures = [];
+  for (const cleanup of [() => apiServer?.stop(), () => pairExtraction?.close(),
+    () => extractedCoreArchive?.cleanup(), () => rm(tempRoot, { recursive: true, force: true })]) {
+    try { await cleanup(); } catch (original) { failures.push(original); }
+  }
+  if (failures.length) throw new AggregateError([...(primaryFailureRecorded ? [primaryFailure] : []), ...failures], "PTY qualification settlement failed");
 }
