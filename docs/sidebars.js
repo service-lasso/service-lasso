@@ -18,6 +18,7 @@ const sidebars = {
         { type: "doc", id: "getting-started/package-todo-tauri", label: "Advanced — Package Todo as a desktop app" },
         { type: "doc", id: "getting-started/advanced-provision-service-secrets-securely", label: "Advanced — Provision secrets as RAM files" },
         { type: "doc", id: "getting-started/advanced-proxying-services-with-caddy", label: "Advanced — Proxy FastCGI services with Caddy" },
+        { type: "doc", id: "getting-started/advanced-run-nextcloud-behind-caddy", label: "Advanced — Run Nextcloud behind Caddy" },
         { type: "doc", id: "getting-started/advanced-openbao-secret-source", label: "Advanced — Resolve secrets from OpenBao" },
       ] },
       "operate-your-service", "package-your-app", "agent-prompts",
@@ -82,6 +83,9 @@ const sidebars = {
       { type: "doc", id: "contributing/README", label: "Development setup and workflow" },
       { type: "doc", id: "operations/self-hosted-wsl-runner", label: "CI runner operations" },
       { type: "doc", id: "release-asset-policy", label: "Release verification" },
+      { type: "category", label: "Engineering deep dives", collapsed: true, items: [
+        { type: "doc", id: "development/nextcloud-windows-fastcgi-deep-dive", label: "The 5,601-scan loop: Nextcloud on Windows" },
+      ] },
       { type: "category", label: "Plans and evidence", collapsed: true, items: [
         { type: "doc", id: "development/new-lasso-service-guide", label: "Service repository handoff (guide)" },
         { type: "doc", id: "development/service-update-management-plan", label: "Service updates (implementation plan)" },
