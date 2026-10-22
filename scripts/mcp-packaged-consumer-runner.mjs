@@ -600,7 +600,10 @@ try {
   const stdioCredential = "packaged-stdio-capability-not-protocol-data";
   const stdioTransport = await stdioTransportObservation.create(() => new StdioClientTransport({
     command: process.execPath,
-    args: [path.join(installedRoot, "dist", "index.js")],
+    // Read-only stdio acceptance must not autostart services: the SDK transport
+    // force-kills the server shortly after closing stdin, which would orphan
+    // any managed launcher that the runtime started on boot.
+    args: [path.join(installedRoot, "dist", "index.js"), "--noautostart"],
     cwd: consumerRoot,
     env: isolatedRuntimeEnvironment({
       SERVICE_LASSO_PORT: "0",
