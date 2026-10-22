@@ -132,7 +132,7 @@ jobs:
       ADMIN_RELEASE_ID: "380051618"
       ADMIN_RELEASE_TAG: "2026.8.31-f015b44"
       ADMIN_REVISION: "f015b4445b0526546a309301270186a697588166"
-      ADMIN_HARNESS_REVISION: "6e0deec691b9ea8a9c4d128f68fd174253e1d8f3"
+      ADMIN_HARNESS_REVISION: "7f6ea48c3e94a472e177f7d4d43237e12d6ee1c1"
       BROKER_RELEASE_ID: "413998233"
       BROKER_RELEASE_TAG: "2026.10.15-3590178"
       BROKER_REVISION: "35901785afe832eb21ba071cc2c4882c7fbbb13b"
@@ -540,7 +540,7 @@ jobs:
 
       - name: Upload packaged Admin lifecycle evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: packaged-admin-lifecycle-${{ matrix.admin_platform }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |

@@ -350,6 +350,34 @@ const inspectorEnvironment = {
 };
 
 let httpClient;
+let canonicalServiceStarted = false;
+// The canonical service runs under the packaged Windows managed launcher, whose
+// executables live inside the consumer's node_modules. Leaving it running keeps
+// those images mapped, so the owning temp root cannot be removed (EBUSY).
+async function stopCanonicalService(client, configuration, suffix) {
+  const plan = await client.callTool({
+    name: "service_lasso_stop_service",
+    arguments: { serviceId: configuration.serviceId },
+  });
+  if (plan.isError || plan.structuredContent?.status !== "preflight") {
+    throw new SafeAcceptanceFailure({ stage: "guarded_stop", errorCode: "guarded_stop_preflight_failed" });
+  }
+  const stopped = await client.callTool({
+    name: "service_lasso_stop_service",
+    arguments: {
+      serviceId: configuration.serviceId,
+      execute: true,
+      idempotencyKey: `mcp-product-stop-${configuration.candidateSha.slice(0, 12)}-${suffix}`,
+      confirmationId: plan.structuredContent.confirmation.id,
+      confirmationPhrase: plan.structuredContent.confirmation.confirmationPhrase,
+    },
+  });
+  if (stopped.isError || stopped.structuredContent?.status !== "succeeded" ||
+    stopped.structuredContent?.result?.resultingState?.[0]?.running !== false) {
+    throw new SafeAcceptanceFailure({ stage: "guarded_stop", errorCode: "guarded_stop_contract_failed" });
+  }
+}
+
 let httpServer;
 let stdioClient;
 try {
@@ -458,6 +486,7 @@ try {
     confirmationId: plan.structuredContent.confirmation.id,
     confirmationPhrase: plan.structuredContent.confirmation.confirmationPhrase,
   };
+  canonicalServiceStarted = true;
   reportStage("guarded-execute");
   let completed;
   try {
@@ -559,6 +588,9 @@ try {
     });
   }
 
+  reportStage("guarded-stop");
+  await stopCanonicalService(httpClient, configuration, "success");
+  canonicalServiceStarted = false;
   await httpClientObservation.close(() => httpClient.close());
   httpClient = null;
   await httpServerObservation.close(() => httpServer.stop());
@@ -568,7 +600,10 @@ try {
   const stdioCredential = "packaged-stdio-capability-not-protocol-data";
   const stdioTransport = await stdioTransportObservation.create(() => new StdioClientTransport({
     command: process.execPath,
-    args: [path.join(installedRoot, "dist", "index.js")],
+    // Read-only stdio acceptance must not autostart services: the SDK transport
+    // force-kills the server shortly after closing stdin, which would orphan
+    // any managed launcher that the runtime started on boot.
+    args: [path.join(installedRoot, "dist", "index.js"), "--noautostart"],
     cwd: consumerRoot,
     env: isolatedRuntimeEnvironment({
       SERVICE_LASSO_PORT: "0",
@@ -639,6 +674,9 @@ try {
   process.stderr.write(`[mcp-package-acceptance-error] ${JSON.stringify(diagnostic)}\n`);
   process.exitCode = 1;
 } finally {
+  if (canonicalServiceStarted && httpClient) {
+    await stopCanonicalService(httpClient, configuration, "cleanup").catch(() => undefined);
+  }
   if (stdioClient) await stdioClientObservation.close(() => stdioClient.close()).catch(() => undefined);
   if (httpClient) await httpClientObservation.close(() => httpClient.close()).catch(() => undefined);
   if (httpServer) await httpServerObservation.close(() => httpServer.stop()).catch(() => undefined);

@@ -84,9 +84,9 @@ public static class FixturePrivacy {
       Marshal.Copy(descriptor,bytes,0,bytes.Length); return new RawSecurityDescriptor(bytes,0);
     } finally { LocalFree(descriptor); }
   }
-  public static void Protect(SafeFileHandle h, string sid, bool directory) {
+  public static void Protect(SafeFileHandle h, string sid, string ownerSid, bool directory) {
     var prior=Security(h); Operation="owner_protect";
-    if(prior.Owner.Value != sid) throw new Exception("Unknown prior privacy owner");
+    if(prior.Owner == null || (prior.Owner.Value != sid && prior.Owner.Value != ownerSid)) throw new Exception("Unknown prior privacy owner");
     Operation="descriptor";
     var flags=directory ? "OICI" : "";
     var sd=new RawSecurityDescriptor("D:P(A;"+flags+";FA;;;"+sid+")(A;"+flags+";FA;;;SY)");
@@ -100,10 +100,10 @@ public static class FixturePrivacy {
       if(result != 0) throw new System.ComponentModel.Win32Exception((int)result);
     } finally { pin.Free(); }
   }
-  public static void Verify(SafeFileHandle h, string sid, bool protectedRoot) {
+  public static void Verify(SafeFileHandle h, string sid, string ownerSid, bool protectedRoot) {
     var sd=Security(h);
     Operation="readback";
-    if(sd.Owner == null || sd.Owner.Value != sid || (protectedRoot && (sd.ControlFlags & ControlFlags.DiscretionaryAclProtected)==0) || sd.DiscretionaryAcl == null || sd.DiscretionaryAcl.Count != 2) throw new Exception("Private descriptor unresolved");
+    if(sd.Owner == null || (sd.Owner.Value != sid && sd.Owner.Value != ownerSid) || (protectedRoot && (sd.ControlFlags & ControlFlags.DiscretionaryAclProtected)==0) || sd.DiscretionaryAcl == null || sd.DiscretionaryAcl.Count != 2) throw new Exception("Private descriptor unresolved");
     bool own=false,system=false;
     foreach(GenericAce raw in sd.DiscretionaryAcl) {
       var ace=raw as CommonAce;
@@ -120,7 +120,12 @@ public static class FixturePrivacy {
 Emit-FixtureFrame 'compiler_ok'
 $operation='prepare'; [FixturePrivacy]::Operation='prepare'
 $root=[System.IO.Path]::GetFullPath($env:SERVICE_LASSO_FIXTURE_EVIDENCE_ROOT)
-$sid=[System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+$identity=[System.Security.Principal.WindowsIdentity]::GetCurrent()
+$sid=$identity.User.Value
+# An elevated administrator token (GitHub windows-2025 runners) assigns new
+# objects its default owner, the Administrators group, rather than the user SID.
+# Only the current token's own user or default owner is accepted as original.
+$ownerSid=if($null -ne $identity.Owner) { $identity.Owner.Value } else { $sid }
 $protect=$env:SERVICE_LASSO_FIXTURE_EVIDENCE_PROTECT -eq '1'
 function Acquire($p,$isOriginal,$mutate) {
   if(-not $script:fixtureNativeEntered) {
@@ -133,7 +138,7 @@ function Acquire($p,$isOriginal,$mutate) {
     $owner=[FixturePrivacy]::Security($h).Owner.Value
     if($isOriginal) { [FixturePrivacy]::Operation='owner_original' }
     else { [FixturePrivacy]::Operation='owner_ancestor' }
-    if($isOriginal) { if($owner -ne $sid) { throw 'Unknown prior fixture owner' } }
+    if($isOriginal) { if($owner -notin @($sid,$ownerSid)) { throw 'Unknown prior fixture owner' } }
     elseif($owner -notin @($sid,'S-1-5-18','S-1-5-32-544','S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464')) { throw 'Unknown prior ancestor owner' }
     return [pscustomobject]@{Path=$p;Handle=$h;Identity=[FixturePrivacy]::Identity($h);Directory=(($i.Attributes -band 16) -ne 0)}
   } catch {
@@ -185,8 +190,8 @@ try {
   Acquire-Children $root
   Verify-Names
   # Every original prior owner/no-reparse check completed before first change.
-  if($protect) { foreach($entry in $held) { [FixturePrivacy]::Protect($entry.Handle,$sid,$entry.Directory) } }
-  foreach($entry in $held) { [FixturePrivacy]::Verify($entry.Handle,$sid,($entry.Path -eq $root)) }
+  if($protect) { foreach($entry in $held) { [FixturePrivacy]::Protect($entry.Handle,$sid,$ownerSid,$entry.Directory) } }
+  foreach($entry in $held) { [FixturePrivacy]::Verify($entry.Handle,$sid,$ownerSid,($entry.Path -eq $root)) }
   Verify-Names
 } catch { Record-Failure $_ }
 } catch { Record-Failure $_ } finally {

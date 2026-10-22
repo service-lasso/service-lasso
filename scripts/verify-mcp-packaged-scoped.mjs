@@ -23,6 +23,7 @@ import {
 
 import { dependencyAcquisitionReceipt, packagedVerificationDiagnostic } from "./packaged-verification-diagnostics.mjs";
 import { ownedTempCleanupObservation, removeOwnedTempRoot } from "./owned-temp-cleanup.mjs";
+import { windowsTempRootHolderNames } from "./windows-temp-root-holders.mjs";
 
 const allocateResource = owningResourceObservations("verifier");
 const candidateObservation = allocateResource("candidate_command");
@@ -243,7 +244,7 @@ try {
     "--no-fund",
     "--save-exact",
     staged.packageArchivePath,
-    "@modelcontextprotocol/inspector@2.10.1",
+    "@modelcontextprotocol/inspector@2.11.0",
     `@modelcontextprotocol/sdk@${pinnedSdkVersion}`,
   ], { cwd: consumerRoot, timeoutMs: 300_000, resourceObservation: installObservation });
   verificationStage = "installed_package_binding";
@@ -432,13 +433,15 @@ try {
   );
 } finally {
   try {
-    await removeOwnedTempRoot(tempRoot);
+    await removeOwnedTempRoot(tempRoot, { attempts: 30 });
   } catch (error) {
     const cleanup = ownedTempCleanupObservation(error);
+    const holders = typeof windowsTempRootHolderNames === "function" ? await windowsTempRootHolderNames(tempRoot) : [];
     verificationFailure = {
       stage: "temp_cleanup",
       errorCode: "cleanup_failed",
       ...(cleanup ? { cleanup } : {}),
+      ...(holders.length > 0 ? { holders } : {}),
       ...(verificationFailure
         ? {
             verificationStage: verificationFailure.stage,

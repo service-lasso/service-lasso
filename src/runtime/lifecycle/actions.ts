@@ -1274,7 +1274,7 @@ function resolveIngressValue(value: string | undefined, globalEnv: Record<string
 
 async function applyCaddyIngressOnStart(
   service: DiscoveredService,
-  globalEnv: Record<string, string | undefined>,
+  globalEnv: Record<string, string>,
   resolvedPorts: Record<string, number>,
 ): Promise<void> {
   const ingresses = service.manifest.ingress;
@@ -1301,10 +1301,10 @@ async function applyCaddyIngressOnStart(
       const payload = buildCaddyRegisterPayload({
         serviceId: service.manifest.id,
         ingress: {
-          domain: resolveIngressValue(ingress.domain, globalEnv),
+          domain: ingress.domain ? resolveServiceText(ingress.domain, service, globalEnv, resolvedPorts) : undefined,
           proxy: {
             ...proxy,
-            root: resolveIngressValue(proxy.root, globalEnv),
+            root: proxy.root ? resolveServiceText(proxy.root, service, globalEnv, resolvedPorts) : undefined,
           },
         },
         target: `${bind}:${port}`,
@@ -1449,6 +1449,12 @@ async function startServiceSerialized(
     current,
     registry,
   );
+  // Resolve provider/env tokens in the direct execution target (for example a
+  // provider-supplied PHP_CGI path) using the merged global environment.
+  const planGlobalEnv = registry ? collectRuntimeGlobalEnv(registry.list()) : {};
+  const planResolvedPorts = current.runtime.ports ?? {};
+  executionPlan.executable = resolveServiceText(executionPlan.executable, service, planGlobalEnv, planResolvedPorts);
+  executionPlan.args = executionPlan.args.map((arg) => resolveServiceText(arg, service, planGlobalEnv, planResolvedPorts));
   if (
     executionPlan.provider === "direct" &&
     !service.manifest.executable &&

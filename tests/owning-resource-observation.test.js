@@ -98,7 +98,7 @@ test("entire scoped verifier owns nested staging, installation, consumer relay a
       else { assert.equal(options.shell, undefined); assert.equal(options.windowsVerbatimArguments, undefined); }
       const child = new EventEmitter(); child.stdout = new EventEmitter(); child.stderr = new EventEmitter(); child.exitCode = null; child.signalCode = null; child.kill = () => true;
       queueMicrotask(() => {
-        child.stdout.emit("data", Buffer.from(phase === "pack" ? "fixture.tgz\n" : phase === "consumer" ? JSON.stringify({ sdk: { protocolVersion: "test", version: "1.0.0" }, inspector: { version: "2.10.1" }, packagedRuntime: {}, canonical: {}, coverage: {}, assertions: {} }) : ""));
+        child.stdout.emit("data", Buffer.from(phase === "pack" ? "fixture.tgz\n" : phase === "consumer" ? JSON.stringify({ sdk: { protocolVersion: "test", version: "1.0.0" }, inspector: { version: "2.11.0" }, packagedRuntime: {}, canonical: {}, coverage: {}, assertions: {} }) : ""));
         if (phase === "consumer") child.stderr.emit("data", Buffer.from(consumerStderr));
         if (scenario === phase || phase === "consumer" && scenario === "consumer_and_cleanup" || phase === "pack" && scenario === "pack_and_release") child.emit("error", primary);
         child.emit("exit", 0, null); child.emit("close", 0, null);
@@ -199,6 +199,7 @@ test("consumer creation and exceptional finally preserve exact resource correlat
         if (name === "service_lasso_runtime_status") return {structuredContent:{runtime:{status:"ready"}}};
         if (name === "service_lasso_list_services") return {structuredContent:{services:[{id:"fixture"}]}};
         if (!args.execute) return {structuredContent:{status:"preflight",confirmation:{id:"test",confirmationPhrase:"test"}}};
+        if (name === "service_lasso_stop_service") { return {structuredContent:{status:"succeeded",result:{resultingState:[{running:false}]}}}; }
         const replayed = this.executed === true; this.executed = true;
         return {structuredContent:{status:replayed ? "replayed" : "succeeded",idempotency:{replayed},correlationId:"test",result:{resultingState:[{running:true}]}}};
       }
