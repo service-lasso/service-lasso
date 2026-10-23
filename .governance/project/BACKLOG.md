@@ -6,9 +6,6 @@
   Source documentation only; no host changes or publication. Issue/PR evidence
   records documentation build, targeted checks and self-review.
 
-=======
-# Backlog
-
 - #1833, in_progress: parent tracker. Complete the Core release TUI safe-state
   gate, publish the pending custom-domain docs fix, decide the Broker release
   path, and clear the Dependabot backlog. No direct `main` push, force-push,
