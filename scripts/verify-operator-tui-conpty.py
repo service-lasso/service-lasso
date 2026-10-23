@@ -80,8 +80,10 @@ def main():
             primary_stage = stage
         if primary_stage is None and args.mode == "connected":
             stage = "navigation"
-            process.write("d?")
-            navigation_ok, text = wait_for(process, text, ("d dashboard", "esc back"), 5)
+            process.write("d")
+            time.sleep(0.3)
+            process.write("?")
+            navigation_ok, text = wait_for(process, text, ("d dashboard", "esc back"), 10)
             if not navigation_ok:
                 primary_stage = stage
         if primary_stage is None:

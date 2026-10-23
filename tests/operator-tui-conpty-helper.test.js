@@ -379,6 +379,17 @@ test(`${workflowName} runs the pinned Windows ConPTY probe without publication`,
 });
 }
 
+test("release-artifact.yml installs the pinned Windows ConPTY host before the probe", async () => {
+  const workflow = await readFile(path.join(repoRoot, ".github", "workflows", "release-artifact.yml"), "utf8");
+  assert.equal(workflow.match(/uses: actions\/setup-python@/gu)?.length, 1);
+  assert.match(workflow, /name: Set up hash-pinned Windows ConPTY host\n        if: matrix\.platform == 'win32'\n        uses: actions\/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7\.0\.0\n        with:\n          python-version: "3\.12"\n          architecture: "x64"/u);
+  assert.match(workflow, /name: Install hash-pinned Windows ConPTY host\n        if: matrix\.platform == 'win32'\n        run: "python -m pip install --require-hashes --only-binary=:all: --no-deps -r scripts\/requirements-conpty\.txt"/u);
+  const setup = workflow.indexOf("name: Set up hash-pinned Windows ConPTY host");
+  const install = workflow.indexOf("name: Install hash-pinned Windows ConPTY host");
+  const probe = workflow.indexOf("name: Verify attached-terminal TUI behavior (Windows ConPTY)");
+  assert.ok(setup >= 0 && install > setup && probe > install, "the ConPTY host must be installed before the probe runs");
+});
+
 test("Windows ConPTY probe holds a controlled unavailable endpoint and continues cleanup after a stop failure", async () => {
   const source = await readFile(path.join(repoRoot, "scripts", "verify-operator-tui-conpty.mjs"), "utf8");
   const endpoint = await readFile(path.join(repoRoot, "scripts", "operator-tui-conpty-endpoint.mjs"), "utf8");
