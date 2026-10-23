@@ -22,7 +22,7 @@ exe = pathlib.Path(sys.argv[3])
 if scenario == "startup":
     payload = 'import time\nprint("deliberately missing startup state", flush=True)\ntime.sleep(60)\n'
 else:
-    payload = 'import os, time, tty\ntty.setraw(0)\nprint("Service Lasso TUI q quit Runtime identity:", flush=True)\n'
+    payload = 'import os, time, tty\ntty.setraw(0)\nprint("Service Lasso TUI navigate Runtime identity:", flush=True)\n'
     if scenario in ("quit", "clean"):
         payload += 'while True:\n    key = os.read(0, 1)\n    if key == b"?": print("d dashboard esc back", flush=True)\n    if key == b"q" and ' + repr(scenario == "clean") + ': break\n'
     else:
@@ -81,7 +81,7 @@ else:
     while trace and trace.tb_frame.f_code.co_name != "run_case": trace = trace.tb_next
     assert trace and trace.tb_frame.f_locals["primary_error"] is error, "cleanup replaced the original exception object"
     expected = " startup state was not rendered" if scenario == "startup" else " q did not exit within the bounded terminal window" if scenario == "quit" else " keyboard navigation did not render help"
-    assert str(error) == "fixture_" + scenario + expected, str(error)
+    assert str(error).startswith("fixture_" + scenario + expected), str(error)
     assert observed["kills"] == [[owner["pid"], signal.SIGKILL]], observed
 assert len(observed["reaps"]) == 1 and observed["reaps"][0][0] == owner["pid"], observed
 if scenario == "clean":
@@ -119,7 +119,12 @@ for (const script of ["verify-operator-tui-pty.mjs", "verify-operator-tui-pty-sc
         await writeFile(harnessPath, harness);
         const result = await execFileAsync("python3", [harnessPath, probePath, scenario, executablePath], { timeout: 35_000, maxBuffer: 128 * 1024, windowsHide: true });
         const failure = scenario === "startup" ? " startup state was not rendered" : scenario === "quit" ? " q did not exit within the bounded terminal window" : " keyboard navigation did not render help";
-        assert.deepEqual(JSON.parse(result.stdout.trim()), { primary: scenario === "clean" ? null : `fixture_${scenario}${failure}`, killed: scenario !== "clean", reaped: true, closed: true });
+        const observed = JSON.parse(result.stdout.trim());
+        assert.equal(observed.killed, scenario !== "clean");
+        assert.equal(observed.reaped, true);
+        assert.equal(observed.closed, true);
+        if (scenario === "clean") assert.equal(observed.primary, null);
+        else assert.ok(observed.primary.startsWith(`fixture_${scenario}${failure}`), observed.primary);
         assert.equal(result.stderr.trim(), scenario === "help-close-error" ? "owned PTY cleanup failed" : "");
       } finally {
         await rm(root, { recursive: true, force: true });

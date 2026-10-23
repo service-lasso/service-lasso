@@ -85,15 +85,30 @@ def run_case(name, connected):
                 buffer = (buffer + chunk)[-65536:]
                 if all(needle in buffer for needle in needles): return True
         return False
+    def retained_tail():
+        text = buffer.decode("utf-8", "backslashreplace")
+        printable = "".join(ch if 32 <= ord(ch) < 127 else " " for ch in text)
+        return " ".join(printable.split())[-400:]
     try:
-        required = [b"Service Lasso TUI", b"q quit"]
+        # The responsive footer clips its trailing hints at the governed 40x120
+        # size, so startup asserts the rendered frame plus the functional exit
+        # below rather than a hint that can be truncated (AC-4CG.1/AC-4CG.3).
+        required = [b"Service Lasso TUI", b"navigate"]
         required.append(b"Runtime identity:" if connected else b"Runtime API unavailable")
-        if not read_until(required, 20): raise RuntimeError(name + " startup state was not rendered")
+        if not read_until(required, 20): raise RuntimeError(name + " startup state was not rendered: " + retained_tail())
         if connected and b"Runtime API unavailable" in buffer: raise RuntimeError("connected Core dashboard rendered an unavailable state")
         if connected:
+            # The TUI emits terminal capability queries at startup and no PTY
+            # emulator answers them here, so early keystrokes can be consumed as
+            # query input. Allow the query window to close and retry once before
+            # failing the navigation assertion.
+            time.sleep(1)
             os.write(fd, b"d")
+            time.sleep(0.25)
             os.write(fd, b"?")
-            if not read_until([b"d dashboard", b"esc back"], 5): raise RuntimeError(name + " keyboard navigation did not render help")
+            if not read_until([b"d dashboard", b"esc back"], 5):
+                os.write(fd, b"?")
+                if not read_until([b"d dashboard", b"esc back"], 5): raise RuntimeError(name + " keyboard navigation did not render help: " + retained_tail())
         os.write(fd, b"q")
         deadline = time.monotonic() + 5
         while time.monotonic() < deadline:
@@ -104,7 +119,7 @@ def run_case(name, connected):
                 break
             time.sleep(0.05)
         if status is None:
-            raise RuntimeError(name + " q did not exit within the bounded terminal window")
+            raise RuntimeError(name + " q did not exit within the bounded terminal window: " + retained_tail())
         if not os.WIFEXITED(status) or os.WEXITSTATUS(status) != 0: raise RuntimeError(name + " did not exit cleanly")
     except BaseException as error:
         primary_error = error
