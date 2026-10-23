@@ -49,6 +49,12 @@ Raw broker values may be present only in the process environment/config handed t
 
 ## Startup pipeline
 
+Broker policy authorizes delivery; a custom environment does not prevent later
+inspection by processes with sufficient OS rights. Protect the launched process
+and any inherited child environments using the deployment's identity and
+sandbox policy. See [Service environment isolation](../security/service-environment-isolation.md)
+for Linux procfs and Windows process-access limits.
+
 The runtime startup path is formalized as:
 
 1. Compile a selector plan from service `env` plus `broker.imports`.

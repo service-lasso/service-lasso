@@ -1,5 +1,11 @@
 # Backlog
 
+- #1837, in_review: SPEC-002 AC-4CE.1. Document custom env delivery versus OS
+  confidentiality, Linux hidepid cross-UID and same-UID limits, Windows process
+  access and operator verification. Canonical public home: Security and access.
+  Source documentation only; no host changes or publication. Issue/PR evidence
+  records documentation build, targeted checks and self-review.
+
 - #1827, in_progress: SPEC-002 AC-4AJ.12 / AC-4AJ.5. Correct the custom-domain
   URL/base path, validate generated assets/navigation, merge the scoped docs fix
   into develop and publish through the existing explicitly authorized workflow.

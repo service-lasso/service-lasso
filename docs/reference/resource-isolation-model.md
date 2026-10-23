@@ -38,6 +38,13 @@ Isolation providers only decide **how** the service process is launched and cons
 
 ## Recommended ladder
 
+Custom service `env` blocks scope delivery, but do not prevent another process
+with sufficient OS rights from reading the delivered values. In particular,
+Linux `hidepid=2` / `hidepid=invisible` restricts other users' procfs views;
+it does not isolate services sharing one UID. Windows process access rights
+also remain relevant. See [Service environment isolation](../security/service-environment-isolation.md)
+for deployment guidance, verification and limits.
+
 ### 1. Current-user execution
 
 The service runs as the same OS user that launched Service Lasso.

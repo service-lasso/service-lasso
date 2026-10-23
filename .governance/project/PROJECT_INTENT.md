@@ -1,5 +1,16 @@
 # Project Intent
 
+## Service environment isolation documentation (#1837)
+
+Development documentation under SPEC-002 AC-4CE.1 clarifies service-local env
+projection, Linux procfs hardening and Windows process-access boundaries.
+Publishable guidance belongs in Security and access, with manifest/component
+and Broker links. Same-UID services remain a shared trust boundary; hidepid
+is cross-UID defense in depth. No runtime, host, publication or deployment
+change is authorized. Preserve inherited primary release work and evidence;
+the owned issue worktree starts from current origin/develop as the documented
+GOV-10 isolation exception.
+
 ## Custom-domain documentation (#1827)
 
 The owner authorizes correcting the documentation URL to https://servicelasso.com
