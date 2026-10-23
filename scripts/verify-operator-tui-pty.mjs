@@ -56,7 +56,7 @@ try {
   });
 
   await writeFile(pythonProbe, `
-import json, os, pty, select, signal, sys, time
+import fcntl, json, os, pty, select, signal, struct, sys, termios, time
 exe = sys.argv[1]
 api_url = sys.argv[3]
 connected_token = sys.argv[4] if len(sys.argv) > 4 else "fixture-connected-token-value"
@@ -65,10 +65,12 @@ unavailable_token = sys.argv[6] if len(sys.argv) > 6 else "fixture-unavailable-t
 def run_case(name, connected):
     pid, fd = pty.fork()
     if pid == 0:
+        fcntl.ioctl(0, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 120, 0, 0))
         env = {"PATH": os.environ.get("PATH", ""), "HOME": os.environ.get("HOME", "")}
         env["SERVICE_LASSO_API_URL"] = api_url if connected else unavailable_url
         env["SERVICE_LASSO_API_TOKEN"] = connected_token if connected else unavailable_token
         os.execve(exe, [exe], env)
+    fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 120, 0, 0))
     status = None
     reaped = False
     primary_error = None
