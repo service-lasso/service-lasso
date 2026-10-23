@@ -152,27 +152,32 @@ export class SelectedJavaScriptSyntax extends SelectedSyntax {
       const mark = this.mark(); this.consume();
       if (!this.lineBefore() && this.word() === 'function') return this.jsFunction(first, true);
       if (!this.lineBefore()) {
+        // Once '=>' follows valid parameters the arrow production is selected;
+        // later body denials are original and never reinterpreted as a non-arrow form.
+        let committed = false;
         try {
           const parameters = this.word() === '(' ? this.jsParameters() : [this.node('jsParameter', this.peek(), {
             pattern: this.declaration('jsBinding', this.peek(), { name: this.jsName() }), rest: false })];
           if (!this.lineBefore() && this.take('=>')) {
+            committed = true;
             if (!allowArrow) deny('INVALID_SYNTAX', 'ungrouped arrow requires assignment-expression context', first.origin);
             return this.declaration('jsArrow', first, { async: true, parameters, body: this.jsFunctionBody(true, true) });
           }
-        } catch (error) { if (!isSourceDenialCode(error, 'INVALID_SYNTAX') && !isSourceDenialCode(error, 'UNSUPPORTED_FORM')) throw error; }
+        } catch (error) { if (committed || !isSourceDenialCode(error, 'INVALID_SYNTAX') && !isSourceDenialCode(error, 'UNSUPPORTED_FORM')) throw error; }
       }
       this.restore(mark);
     }
     if (this.take('(')) {
-      const mark = this.mark();
+      const mark = this.mark(); let committed = false;
       try {
         this.restore({ ...mark, current: first, at: first.origin.utf16[1], last: null });
         const parameters = this.jsParameters();
         if (!this.lineBefore() && this.take('=>')) {
+          committed = true;
           if (!allowArrow) deny('INVALID_SYNTAX', 'ungrouped arrow requires assignment-expression context', first.origin);
           return this.declaration('jsArrow', first, { async: false, parameters, body: this.jsFunctionBody(false, true) });
         }
-      } catch (error) { if (!isSourceDenialCode(error, 'INVALID_SYNTAX') && !isSourceDenialCode(error, 'UNSUPPORTED_FORM')) throw error; }
+      } catch (error) { if (committed || !isSourceDenialCode(error, 'INVALID_SYNTAX') && !isSourceDenialCode(error, 'UNSUPPORTED_FORM')) throw error; }
       this.restore(mark); const expression = this.jsInExpression(0); this.need(')');
       return this.node('group', first, { expression });
     }

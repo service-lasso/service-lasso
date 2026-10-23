@@ -268,3 +268,184 @@ Backlog and INIT remediation are ACTIVE/INCOMPLETE: implement actual durable iss
 Parent selected `.governance/specs/operator-v2-selected/CONFIRMATION-PHRASE-AMENDMENT.md` exact SHA2560074BD1FFC1F74F5191A12A3418282F44E9D338A18D87B487C0471B7C28D1B8B; receipt `D:/projects/service-lasso/_audit/ga-windows-linux-resume-20261004-01/confirmation-phrase-amendment-parent-selection.json`. This operative source-development adoption supersedes its prospective heading and preserves exact selected bytes, original five and prior three amendments. SPEC-002 OPV2-1/SPEC-006 OPV2-1 require phraseKey to carry the exact displayed canonical-action/nonce server phrase, exact user-entered confirmationResponse, closed required/null tuple, independently owned server hash/actor/root/action/plan/family revision/held custody checks and genuine durable one-use claim/reconciliation. No client mapping/localization/autoacceptance/body actor/phrase-only grant. Existing legacy owner bounds and retained unresolved claims require truthful complete migration rather than eviction or fabricated relation recovery.
 
 Backlog/INIT remediation is ACTIVE/INCOMPLETE: actual guarded-owner reuse and all-writer retained journal/recovery, closed Core/TUI parity and exact comparison, immutable preview targets/effects/revision/confirmation, fresh exact family token/readiness then final trusted context before POST, independent locked execution and genuine successful journeys. Entire all46/compiler/K2/all-nine callers/native/provider closure remains cumulative. Whole fresh independent cumulative SOURCE_GO plus NEW actual full INPUT ROOT and parent admission precede any target execution/import/build/test/repin. Design adoption is neither implemented API nor native qualification, publication, deployment or GA authority; unavailable-only delivery does not complete scope.
+
+## #1562 client release current-head fixture caller repair (2026-10-16)
+
+Development source preparation maps the four natural caee004 complete-suite
+failures in hard-crash-fixture-custody-removal-rows.js to SPEC-012 and SPEC-002
+AC-4BJ.9c. The extracted success/reset/environment/copy-tamper rows must obtain
+an authentic creator-owned disposable token and pass it to their existing
+fixture evidence boundary, matching the original rows. Preserve all original
+assertions, actual error identities, retained evidence and strong writer-exclusion
+contracts. Different entire source review and NEW complete actual-input ROOT
+admission precede execution. Missing selected-helper source, F25 evidence drift,
+foreign-owner ROOT input and Windows EBUSY remain independent unresolved gates.
+
+## #1562 retained selected-language helper integration (2026-10-16)
+
+AC-4DI.4/R3/C3 source integration restores the genuine dependency closure of
+already-landed core1681-selected-overloads.test.js from the retained Core121
+checkpoint. Copy 26 absent modules and the three forward helper deltas; bind
+existing foundation test callers to authentic original envelope/counter creation
+without changing any assertion. The complete source/raw hash inventory and
+current-base identity are CORE1562_CLIENT_RELEASE_HELPER_TRANSFER.json. Full
+source binding remains incomplete/unqualified; these helpers confer no ROOT or
+native authority. Different entire cumulative review and NEW complete actual-input
+ROOT admission precede execution. Natural CI remains the next failure observation.
+
+#1562 F25 source-evidence amendment is PROPOSED in
+CORE1562_F25_SOURCE_EVIDENCE_AMENDMENT_PROPOSAL.md under AC-4DI.4/R3/C3/G1.
+The stale gate.Wait witness disagrees with the actual shielded infinite Thread.Sleep
+barrier. The proposal specifies exact same-invocation/rooted-owner requirements
+and finite/return/unshielded adversaries; it changes no test or selected criterion.
+Different entire review and explicit durable selection precede witness mutation;
+NEW complete ROOT admission precedes local execution. Current cumulative source
+is frozen for the parent-arranged different entire review, not qualified.
+
+#1562 different entire0f60 review adopted two source corrections under
+AC-4DI.4/R3/C3/G1. Selected C#/JavaScript speculative catches classify only
+genuine original INVALID_SYNTAX/UNSUPPORTED_FORM denials with isSourceDenialCode;
+all opaque throws keep exact identity without code-property observation. Actual
+catch-path regressions cover null/undefined/getter/copied-code/genuine denials.
+The separate F25 proposal is prospectively selected by parent after different
+review: implement complete rooted-owner/same-invocation/infinite shielded tail
+witness and all proposed adversaries; preserve native obligations. New final
+source requires another different entire review and NEW complete ROOT before
+local execution. No whole SOURCE_GO or native acceptance follows selection.
+
+#1562 entire b9fc review correction (2026-10-16): JavaScript catch regressions
+must instantiate the real SelectedJavaScriptSyntax subclass. F25 requires a
+reachable original caller prefix from function entry through direct owner rooting;
+consume every selected initialization/conditional/owner field before the root,
+and reject inserted return before it, then preserve complete same-invocation tail.
+Separate protected supplementary evidence correction: the actual post-release
+retention guard is releaseFailed OR owner.recordingFailed, which is stronger
+than the stale releaseFailed-only witness. Require both alternatives with OR
+and reject AND or either omitted condition; recorder failure must never escape
+retention. This requirement/evidence reconciliation preserves original F25
+recording/native obligations and is subject to DIFFERENT final entire review.
+All authored regressions remain locally UNRUN; NEW complete ROOT still required.
+
+#1562 entire173b F25 witness correction: preserve original token source spans
+and require each of the three Add-OriginalToolError command/phase/Exception
+operand regions to remain one uninterrupted physical command line. A newline
+or line-comment boundary cannot be normalized into an argument separator;
+explicit continuations and unknown forms are denied, not treated as equivalent.
+Add actual-source newline/comment operand-boundary adversaries for retention
+copy, custody record and custody wait calls. This is a closed selected source
+witness, never a complete PowerShell parser/native proof. Root-prefix b9fc and
+newline173b are two evidenceful false-positive iterations; another equivalent
+finding requires scoped circuit-break/model reassessment, not blind lexer churn.
+Different final entire review and NEW complete ROOT still precede execution.
+
+#1562 F25 custom source-witness is SCOPED BLOCKED after third equivalent
+false-positive at a71ab726 (recordingFailure assignment split by newline).
+CORE1562_F25_AST_WITNESS_CIRCUIT_BREAK.md records all3 evidenceful iterations,
+actual adversaries and parent-selected real Microsoft Language.Parser AST
+replacement. Different intent review precedes child/parser implementation;
+then new entire final review and NEW complete input/command ROOT. No further
+handwritten lexer patch, source snapshot or target-script execution. Independent
+fixture/helper/opaque-denial work remains active; no whole-delivery pause.
+
+#1562 F25 AST intent revision1 addresses independent REVISIONS_REQUIRED:
+complete outer/function signatures/defaults/attributes/named blocks/traps,
+whole ordered rooted caller interval and protected helper bodies, precise AST
+member/command/assignment roles, strict source/JSON/schema/child closure and
+expected-denial identities, fixed physical command/env proposal, and actual
+source/transport adversaries. Tool source mapping remains UNQUALIFIED. This is
+intent only; different review precedes implementation and NEW ROOT precedes
+execution. Existing handwritten witness remains scoped blocked SOURCE_NO_GO.
+
+#1562 F25 AST intent revision2 closes the entire enclosing script source context
+using ordered semantic AST roles over all313 original source lines, all10
+complete function definitions/bodies and the actual definition-before-tool-call
+bindings. Canonical Dictionary[string,object]/Ordinal initialization and all
+relevant state/alias/provider/function/hook effects are closed by complete role
+consumption, not isolated blacklists or source snapshots. Actual outer alias/
+registry replacement/definition/call adversaries are required. Correct baseline
+Exception access is nonstatic; reject STATIC/nullconditional/computed drift.
+Supplementary only: ambient runtime binding remains unproved. Different intent
+review still precedes implementation; tools/provenance/NEW ROOT remain unmet.
+
+#1562 AST implementation after DIFFERENT4d INTENT_GO: author the complete typed
+semantic-role catalogue, fixed real-parser child and strict framed transport.
+No new adapter-owned timer/cancellation/output bound or retry/fallback; retain
+external original admitted supervision and genuine full channel closure.
+Every source adversary must require an authenticated real closed rejection,
+not any infrastructure failure. No local parser/test/native execution until
+NEW entire source GO and complete actual-input ROOT admission. Privacy native
+initialization blocker remains separate and unchanged.
+
+#1562 real-AST source unit: the independently authored semantic catalogue covers
+76 ordered outer roles and all ten definitions. The actual fixed child matches
+whole typed AST operands/blocks; unknown kinds fail closed. Tests await genuine
+closed source denials, and separately test malformed framed input through the
+same fixed child, canonical response framing and complete closure receipts.
+The raw-frame/receipt seams cannot mint authenticated source denials or select
+tools. Original transport errors and raw receipts stay private. Physical signed
+PowerShell/source-tag mismatch remains UNQUALIFIED; fixed platform recipes are
+not ROOT. All parser/tests/native execution remains NOT_RUN pending different
+ENTIRE source review and NEW complete actual-input/tool/environment admission.
+#1562 ENTIRE4c64 first real-AST model iteration NO_GO: close the two confirmed
+P1 omissions for invoked-member GenericTypeArguments and every script body's
+ScriptRequirements. Add actual registry/retention/resource generic-call and
+module/version/administrator requirement adversaries with authentic real-child
+rejection and baseline conformance. This implements the existing selected
+closed model; no new scope or native/ambient claim. Different ENTIRE source
+review and NEW complete actual-input ROOT remain required; parser/tests UNRUN.
+#1562 ENTIREdc9 acceptance-gap source repair: add the committed complete
+function/block/context/member adversary roster with actual-source mutation
+checks and authenticated real-child rejection only. Factor one owned event
+collector shared by the fixed actual spawn and explicitly labelled SURROGATE
+transport tests. The collector returns plain correspondence or closed private
+failure; only the fixed actual-source path can mint denial identity. Drive
+spawn/stdin/EPIPE/stdout/stderr/repeated/null/undefined/throwing-getter errors,
+channel/exit/close orders and exact first/later private identity without early
+settlement or raw cause/log publication. No selector, timer, kill or execution
+is introduced. This is acceptance coverage, not native/runtime acceptance.
+#1562 repeated incomplete normative adversary roster dc9->39e is iteration2;
+CORE1562_F25_NORMATIVE_COVERAGE_MAP.md now maps each committed coverage clause
+to named actual-source mutants, both real tool calls, registry variants,
+context effects, all four selected helper duplicates/relocations, all three
+recorders and all eighteen original shield assignments. A third same-signature
+gap requires scoped GOV13 circuit/model reassessment; no requirement is removed.
+Close the existing disable-autoload child obligation using None and pure strict
+IO/JsonDocument ordinal-key/exact-Int64/null/nonflattened-array conversion;
+remove implicit module cmdlets. Source consumers decode raw fixture bytes with
+fatal UTF8/BOM preservation. ParseInput may perform module-discovery lookups;
+all actual source/mutants/tool/runtime/ENV remain inputs requiring NEW ROOT.
+Shared Node collector/denial authority is unchanged. SOURCE_UNRUN: complete
+DIFFERENT ENTIRE cumulative source review still precedes target execution.
+#1562 dce8 DIFFERENT ENTIRE all50 source review resolved F25 normative gaps
+and found independent P2 own-generic-constraint version semantics. The selected
+CS-FINITE profile5.0 must select the better generic method then fail its own
+constraint;7.3+ may prune it. CORE1562_DCE8_CONSTRAINT_AND_PRIVACY_REPAIR.md
+records exact caller/profile trace, enclosing-substitution/error identity and
+paired original-source regression obligations. No default profile is added to
+the bridge. Same coherent unit contains only the selected two privacy List
+ToArray snapshots, preserving ancestors->held validation and held->ancestors
+release, original entries/handles/errors and compiler-response assertions.
+Published binder report is a source hypothesis, not current-native cause proof.
+No diagnostic grammar, privileges, ACLs, timeout or privacy authority changes.
+Full fresh ENTIRE review and NEW complete actual-input ROOT remain required;
+all local target execution remains NOT_RUN. Native exact-head CI is separate.
+#1562 ENTIRE89c SOURCE_GO is source-only, not execution admission. Before any
+execution, close the confirmed sparse language-profile tuple gap with two own
+indexed finite integer components; prospective sparse/inherited-hole/NaN
+regressions require authentic INVALID_BINDING. CORE1562_OWNER_POLICY_ROLE_DIAGNOSTIC.md
+selects owner_ancestor/owner_original/owner_protect FAILED operations at their
+source-owned unchanged checks. Single explicit failure-operation catalogue
+feeds fixed JSON grammar, custody/history and tests; no positional native
+ranges, extra event, raw SID/path/error, privilege, allowlist or ACL changes.
+Protect roles cannot count as read-only verification. Foreign-owner evidence
+narrows ambiguous owner to owner_original/acquire while retaining different
+native owner and unchanged ACL assertions; no fixture is fabricated. Original
+compiler313/assertions/opaque originals/timeouts remain. Fresh ENTIRE source
+review and NEW complete actual-input admission precede all local target work.
+#1562 B replacement PRECODE checkpoint (2026-10-16): parent selected the complete CORE1562_OWNED_STDIO_FAMILY_INTENT.md replacement proposal after reading the17792B EC6DCBA17EF07EAA97D49CEB6FC49BE4A808598E75BF560C3E6C2784E4E94039 candidate. SPEC-002 AC-4DI.4/R3/C3 and existing native/root/finite-resource/closure obligations remain mapped to the fixed consumer Transport and genuine verifier-held family. Concrete proposed interfaces now distinguish actual Windows ChildProcess/current-loop borrowed native assignment from Linux NativeCommandOwner/controller/original fork/unreaped pidfd join; fd3 exact byte plus second-read EOF, existing root-only deadline authority, complete fixed source actor/native-borrower matrix and T0–T7 cleanup/failure custody replace the prior unresolved architecture label. Full source-qualified noescape/startup/provider/native costs and actual loaded/tool/source/kernel/ENV/parent/owner bootstrap qualification remain failclosed, not metadata receipts or helper callbacks. No B body, native qualification, product ROOT, test execution, publication or GA is authorized. Exact774fa8b945418e03fe4125a30c600558eff965fd/treeff7b5e4994cc0a65bbb2419ba90b2b2222466a72 retains its prior ENTIRE_SOURCE_GO scope only. Fresh DIFFERENT full bounded B intent review is next; complete body/whole source review/new actual inputs follow only after selection. Development-infrastructure trust choice remains owner PENDING and cannot be inferred from this proposal. Existing full14/full-suite/WindowsLinux/foreignowner/F25/EBUSY gates remain mandatory; macOS N/A.
+
+#1562 B59fee bounded intent review INTENT_NO_GO (report9A00EFF78FE84949D10A3A5AE2EA80A7BBC9796E5B317353BB2670F9DFE74577) identified deletion of concrete common Transport obligations, not body authorization. Revised complete CORE1562_OWNED_STDIO_FAMILY_INTENT.md restores exact runner2/569 source integration, public SDK start/send/close/callback contract/start-once/shared idempotent close, real partial owner, FULL schema/framing with explicit10485760-byte incomplete-frame buffer versus2097152-byte per-stream capture/drain-fail, write callback+backpressure and exact original failure/EOF/exit/realclose/finally obligations. HTTP server is correctly consumer-contained startApiServer role, not invented child root. Existing family refinements and all native/source/input/reservation/ROOT gates remain; fresh DIFFERENT whole bounded intent review required before B body. Prior774 sourceGO is old exact source scope only; pending external-development-infrastructure choice grants no target authorization.
+
+#1562 complete B intent selected for connected source implementation: fresh DIFFERENT wholeab1 review INTENT_GO report1000D06A5BFBBC9238CBDC3A96204248762BE4E99CDDF7FB4730F535AB4776C8/coverage97D951386EFA846D769C95ED4237B3301E8DE721932F4CB9D23F1110697C39A4 covers all six proposal/map paths. Parent selects actual public SDK ownedTransport plus runner/verifier/native entry/build/Windows borrowed-original job/Linux distinct controller-pidfd/fixed fd3 barrier/finite actor-cost/T0–T7 body under CORE1562_OWNED_STDIO_FAMILY_INTENT.md. Helpers must be connected, no fake factory/unused closure/activation bypass; actual source/kernel/resource qualification remains failclosed and prior774 sourceGO does not qualify new body. Complete coherent bundle requires immediate commit/push freeze and fresh DIFFERENT ENTIRE cumulative source review. No local target execution until pending owner infrastructure decision and applicable actual-input admission; no new kill/deadline/host/permission/publication authority.
+
+#1562 development infrastructure trust choice SELECTED by actual release-owner answer (2026-10-16): Use trusted development infrastructure (Recommended), referring to BUILD-TEST-BOOTSTRAP-TRUST-CHOICE-20261016.md SHA02BE1D1E1B1DAB295B4814EE164FE7F82529B6FA1EB581E0FB49DD92BD8F80B7. Existing local Windows shell/installed tools and GitHub-hosted runners may perform exact reviewed development install/build/test/package and external acceptance orchestration without first building product-style ROOT for those infrastructure tools. Ordinary exit/stdout/stderr/source/tool records are development observations, NOT complete native-handle/loaded-input custody or product ROOT. Product principal/provider/native/source/capacity/borrower checks, actual Windows/Linux operator/consumer acceptance, exact-byte Core integration and protected qualified Development publication remain mandatory; no flags, permissions, deadlines, tests, GA or deployment are waived. Parent owns reviewed774 first pure3 verification; current connected B WIP is not reviewed774 and remains unexecuted until its applicable source review/actual input qualification. This resolves the initial infrastructure execution cycle only, not unfinished native constructors or qualification.

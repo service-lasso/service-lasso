@@ -12,6 +12,8 @@ import { promisify } from 'node:util';
 import { chromium } from '@playwright/test';
 
 const repo = fileURLToPath(new URL('../', import.meta.url));
+// AC-4AJ.12: serve and visit the actual site's configured path, including `/`.
+const siteBasePath = createRequire(import.meta.url)('../docs/docusaurus.config.js').baseUrl;
 const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
 const parent = path.join(repo, '.docs-consumer-qualification');
 await mkdir(parent, { recursive: true });
@@ -241,8 +243,8 @@ async function browserCheck(buildResult, expected) {
     const task = (async () => {
     try {
       const pathname = decodeURIComponent(new URL(request.url, 'http://localhost').pathname);
-      assert.ok(pathname.startsWith('/service-lasso/'));
-      let relative = pathname.slice('/service-lasso/'.length);
+      assert.ok(pathname.startsWith(siteBasePath));
+      let relative = pathname.slice(siteBasePath.length);
       assert.ok(!relative.split('/').includes('..'));
       if (!relative || relative.endsWith('/')) relative += 'index.html';
       else if (!path.extname(relative)) relative += '.html';
@@ -323,7 +325,7 @@ async function browserCheck(buildResult, expected) {
           const url = new URL(response.url());
           assert.equal(url.origin, origin, 'the qualification consumer must use only its local built assets');
           const body = await response.body();
-          const relative = decodeURIComponent(url.pathname.slice('/service-lasso/'.length));
+          const relative = decodeURIComponent(url.pathname.slice(siteBasePath.length));
           record.path = relative; record.bodyBytes = body.length; record.sha256 = sha256(body);
           record.sizes = await request.sizes(); record.timing = request.timing();
           } catch (error) { record.error = describeError(error); throw error; }
@@ -332,7 +334,7 @@ async function browserCheck(buildResult, expected) {
         task.catch(() => {});
         pending.push(task);
       });
-        await page.goto(`${origin}/service-lasso/__qualification/${scenario}`, { waitUntil: 'networkidle' });
+        await page.goto(`${origin}${siteBasePath}__qualification/${scenario}`, { waitUntil: 'networkidle' });
         const containers = page.locator('.docusaurus-mermaid-container');
         if (scenario === 'invalid-mermaid') {
           await page.getByText(/This page crashed|Parse error|Error parsing/i).first().waitFor();
