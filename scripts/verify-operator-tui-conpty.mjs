@@ -68,6 +68,7 @@ try {
   console.log(JSON.stringify({ ok: true, evidence: "direct-conpty", platform: "win32-amd64", safeStartup: safeProbe.startup, connectedDashboard: connectedProbe.startup, navigation: connectedProbe.navigation, exit: connectedProbe.exit, artifact: staged.artifactName }));
 } catch (error) {
   primaryFailure = error;
+  if (error?.conptyStage) console.error(`Windows ConPTY failure stage: ${error.conptyStage}`);
   throw error;
 } finally {
   const cleanupFailures = [];

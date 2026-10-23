@@ -24,6 +24,27 @@ const FAILURE_STAGES = new Set([
   "cleanup",
 ]);
 
+export function conptyProbeFailureStage(stdout) {
+  if (typeof stdout !== "string") return null;
+  let result;
+  try {
+    result = JSON.parse(stdout.trim());
+  } catch {
+    return null;
+  }
+  if (!result || typeof result !== "object" || Array.isArray(result) || result.ok !== false) return null;
+  if (Object.keys(result).length === 2 && FAILURE_STAGES.has(result.stage)) return result.stage;
+  if (
+    Object.keys(result).length === 3 &&
+    result.stage === "cleanup" &&
+    typeof result.primaryStage === "string" &&
+    (result.primaryStage === "none" || FAILURE_STAGES.has(result.primaryStage))
+  ) {
+    return "cleanup";
+  }
+  return null;
+}
+
 function exactObject(value, expected) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const keys = Object.keys(value).sort();
