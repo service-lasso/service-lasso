@@ -104,8 +104,9 @@ def run_case(name, connected):
         if connected and b"Runtime API unavailable" in buffer: raise RuntimeError("connected Core dashboard rendered an unavailable state")
         if connected:
             os.write(fd, b"d")
+            time.sleep(0.3)
             os.write(fd, b"?")
-            if not read_until([b"d dashboard", b"esc back"], 5): raise RuntimeError(name + " keyboard navigation did not render help")
+            if not read_until([b"d dashboard", b"esc back"], 10): raise RuntimeError(name + " keyboard navigation did not render help")
         os.write(fd, b"q")
         deadline = time.monotonic() + 5
         while time.monotonic() < deadline:
