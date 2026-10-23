@@ -1,5 +1,14 @@
 # Project Intent
 
+## Custom-domain documentation (#1827)
+
+The owner authorizes correcting the documentation URL to https://servicelasso.com
+and its base path to `/`, merging the scoped fix into develop, and explicitly
+publishing through the existing Docs Site workflow. SPEC-002 AC-4AJ.12 governs
+asset, navigation, canonical URL and live desktop/mobile verification. Preserve
+HTTPS enforcement and all existing publication gates; no runtime release,
+product promotion, DNS, Cloudflare or credential changes are in scope.
+
 ## Current Broker example review (#1749)
 
 Review SPEC-011 ESM-13/14/15 against current develop, correct and merge Echo

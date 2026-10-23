@@ -1,5 +1,10 @@
 # Backlog
 
+- #1827, in_progress: SPEC-002 AC-4AJ.12 / AC-4AJ.5. Correct the custom-domain
+  URL/base path, validate generated assets/navigation, merge the scoped docs fix
+  into develop and publish through the existing explicitly authorized workflow.
+  Verify exact-source live receipt, HTTPS redirect, desktop and mobile rendering.
+
 - #1749, done: SPEC-011 ESM-12/13/14/15. Current contract reviewed;
   corrected Echo PR #17 merged. Ubuntu native selection passed 105/105, zero
   skips; real setup and unchanged sample passed missing-ref denial, reads,

@@ -5,8 +5,8 @@ const { themes: prismThemes } = require("prism-react-renderer");
 const config = {
   title: "Service Lasso Docs",
   tagline: "Runtime, services, manifests, and release-backed local orchestration.",
-  url: "https://service-lasso.github.io",
-  baseUrl: "/service-lasso/",
+  url: "https://servicelasso.com",
+  baseUrl: "/",
   organizationName: "service-lasso",
   projectName: "service-lasso",
   trailingSlash: false,

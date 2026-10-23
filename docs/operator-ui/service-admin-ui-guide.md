@@ -99,11 +99,11 @@ command. The Dashboard remains omitted until a fresh policy-controlled capture
 has passed independent visual review; the policy masks Dashboard values rather
 than treating password masking as sufficient protection.
 
-<img alt="Service Admin Services overview" src="/service-lasso/img/service-admin-tour/services.png" />
+<img alt="Service Admin Services overview" src="/img/service-admin-tour/services.png" />
 
-<img alt="Archive Utility Provider overview" src="/service-lasso/img/service-admin-tour/archive-overview.png" />
+<img alt="Archive Utility Provider overview" src="/img/service-admin-tour/archive-overview.png" />
 
-<img alt="Service Admin Help Center overview" src="/service-lasso/img/service-admin-tour/help-center.png" />
+<img alt="Service Admin Help Center overview" src="/img/service-admin-tour/help-center.png" />
 
 ## Troubleshooting and glossary
 
