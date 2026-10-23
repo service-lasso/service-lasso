@@ -1,5 +1,11 @@
 # Backlog
 
+- #1837, in_review: SPEC-002 AC-4CE.1. Document custom env delivery versus OS
+  confidentiality, Linux hidepid cross-UID and same-UID limits, Windows process
+  access and operator verification. Canonical public home: Security and access.
+  Source documentation only; no host changes or publication. Issue/PR evidence
+  records documentation build, targeted checks and self-review.
+
 - #1833, in_progress: parent tracker. Complete the Core release TUI safe-state
   gate, publish the pending custom-domain docs fix, decide the Broker release
   path, and clear the Dependabot backlog. No direct `main` push, force-push,

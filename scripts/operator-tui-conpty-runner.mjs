@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseConptyProbeResult } from "./operator-tui-conpty-result.mjs";
+import { conptyProbeFailureStage, parseConptyProbeResult } from "./operator-tui-conpty-result.mjs";
 import { createConptyNativeContainment } from "./conpty-native-containment.mjs";
 
 const MAX_CAPTURED_BYTES = 16 * 1024;
@@ -44,8 +44,10 @@ export function conptyHelperEnvironment({ apiUrl, apiToken, source = process.env
   return environment;
 }
 
-function safeFailure() {
-  return new Error(SAFE_HELPER_FAILURE);
+function safeFailure(stage) {
+  const error = new Error(SAFE_HELPER_FAILURE);
+  if (stage) error.conptyStage = stage;
+  return error;
 }
 
 async function sha256File(filePath) {
@@ -192,7 +194,7 @@ export async function runConptyHelper({ command = "python", helperPath, executab
         throw safeFailure();
       }
     }
-    throw safeFailure();
+    throw safeFailure(conptyProbeFailureStage(stdout));
   } finally {
     if (!returnedChild || cleanupAuthorized) {
       await containment?.cleanup();

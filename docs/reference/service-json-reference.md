@@ -571,6 +571,11 @@ Do not use this when:
 
 Service-local environment variables.
 
+This scopes values supplied at launch; it is not an OS process-inspection
+boundary. See [Service environment isolation](../security/service-environment-isolation.md)
+for Windows access controls and Linux procfs hardening, including why `hidepid`
+does not separate services sharing one UID.
+
 Example:
 
 ```json
