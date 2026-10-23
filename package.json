@@ -104,7 +104,7 @@
     "@docusaurus/core": {
       "tinypool": "2.1.2"
     },
-    "ip-address": "10.7.2",
+    "ip-address": "10.7.4",
     "serialize-javascript": "7.1.0",
     "hono": "4.13.13",
     "qs": "6.16.0",
