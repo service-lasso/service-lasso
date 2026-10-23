@@ -35,9 +35,20 @@ tree differences found older promotion content superseded by current develop:
 No destination-only behavior requires restoring older file bytes. An explicit
 `ours` strategy merge records the destination ancestry while preserving every
 existing develop file byte. This record is the sole file added by the repair.
-The repair branch originates from develop and targets develop through a PR.
-That PR must use an ancestry-preserving merge commit: squash/rebase would
-discard the second-parent relationship needed to resolve #1830.
+The initial repair branch originated from develop and targeted develop in
+PR #1832. GitHub rejected its ancestry-preserving merge because both classic
+develop protection and ruleset 21891323 require linear history. Neither
+protection was modified. Squash/rebase would discard the second-parent
+relationship needed to resolve #1830.
+
+The owner then explicitly selected a replacement conflict-free release-branch
+PR while preserving develop protection. `release/reconcile-develop-1831`
+continues the prepared reconciliation, includes both pinned branch heads as
+ancestors, and targets main under the existing release-reconciliation branch
+policy. The replacement supersedes #1830 and #1832. Develop remains unchanged.
+Creating the replacement does not authorize its promotion merge, publication,
+deployment or a GA declaration. Exact-head release qualification remains
+required before an independently authorized promotion.
 
 ## Conflict inventory
 
@@ -70,7 +81,7 @@ All paths retain their complete current develop version:
 Before adding this record, the staged tree equals the original develop tree
 exactly. After adding it, the only diff against that input must be this file.
 Git diff hygiene, merge parents and ancestry are checked before push; provider
-mergeability is read back after landing. These are direct ancestry/file-byte
+mergeability is read back on the replacement PR. These are direct ancestry/file-byte
 proofs, not executable behavior or native qualification.
 
 No local dependency install, product import, parser, compiler, build, test or
