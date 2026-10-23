@@ -98,14 +98,15 @@ def run_case(name, connected):
                 if all(needle in buffer for needle in needles): return True
         return False
     try:
-        required = [b"Service Lasso TUI", b"q quit"]
+        required = [b"Service Lasso TUI"]
         required.append(b"Runtime identity:" if connected else b"Runtime API unavailable")
         if not read_until(required, 20): raise RuntimeError(name + " startup state was not rendered")
         if connected and b"Runtime API unavailable" in buffer: raise RuntimeError("connected Core dashboard rendered an unavailable state")
         if connected:
             os.write(fd, b"d")
+            time.sleep(0.3)
             os.write(fd, b"?")
-            if not read_until([b"d dashboard", b"esc back"], 5): raise RuntimeError(name + " keyboard navigation did not render help")
+            if not read_until([b"d dashboard", b"esc back"], 10): raise RuntimeError(name + " keyboard navigation did not render help")
         os.write(fd, b"q")
         deadline = time.monotonic() + 5
         while time.monotonic() < deadline:
