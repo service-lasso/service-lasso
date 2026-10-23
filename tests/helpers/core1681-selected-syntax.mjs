@@ -87,7 +87,7 @@ export class SelectedSyntax {
     this.last = { ...token, spelling: '>', origin: this.scanner.origin(start, start + 1) };
     this.current = { ...token, spelling: token.spelling.slice(1), origin: this.scanner.origin(start + 1, token.origin.utf16[1]) };
   }
-  typeRef(array = true) {
+  typeRef(array = true, relational = false) {
     const first = this.peek(), segments = [];
     do {
       const name = this.name(true), arguments_ = [];
@@ -95,7 +95,14 @@ export class SelectedSyntax {
       segments.push({ name, arguments: arguments_ });
     } while (this.take('.'));
     let type = this.node('namedType', first, { segments });
-    if (this.take('?')) type = this.node('nullableType', first, { element: type });
+    // ECMA-334 grammar ambiguity (is/as type followed by '?'): the '?' completes
+    // a nullable_type only when the next token cannot begin the conditional
+    // operator's true expression; otherwise it is the conditional operator.
+    if (this.word() === '?') {
+      const mark = this.mark(); this.consume();
+      if (relational && this.beginsConditionalOperand(this.peek())) this.restore(mark);
+      else type = this.node('nullableType', first, { element: type });
+    }
     const ranks = [];
     if (array) while (this.word() === '[') {
       const rankFirst = this.peek();
@@ -111,6 +118,11 @@ export class SelectedSyntax {
     for (let index = ranks.length - 1; index >= 0; index--)
       type = this.node('arrayType', first, { element: type, rank: ranks[index].rank, rankOrigin: ranks[index].first.origin });
     return type;
+  }
+  beginsConditionalOperand(token) {
+    if (['identifier', 'number', 'string', 'char', 'interpolatedStart'].includes(token.kind))
+      return token.kind !== 'identifier' || !['is', 'as'].includes(token.spelling) || token.escapedIdentifier === true;
+    return token.kind === 'punctuation' && ['(', '!', '~', '-', '+', '++', '--'].includes(token.spelling);
   }
   attributes() {
     const attributes = [];
@@ -334,7 +346,7 @@ export class SelectedSyntax {
       const operation = this.word(), level = precedence.get(operation);
       if (level === undefined || level < minimum) break;
       const operatorToken = this.consume();
-      const right = ['is', 'as'].includes(operation) ? this.typeRef() : this.expression(level === 1 || operation === '??' ? level : level + 1);
+      const right = ['is', 'as'].includes(operation) ? this.typeRef(true, true) : this.expression(level === 1 || operation === '??' ? level : level + 1);
       left = this.node(level === 1 ? 'assignment' : 'binary', first, { operation, operatorToken, left, right });
     }
     return left;

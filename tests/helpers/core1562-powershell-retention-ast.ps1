@@ -1,4 +1,4 @@
-﻿# Supplementary source witness only. Never execute the supplied source.
+# Supplementary source witness only. Never execute the supplied source.
 using namespace System.Management.Automation.Language
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -28,16 +28,18 @@ function Read-CatalogueValue($element) {
 }
 
 function Require([bool]$condition) { if (-not $condition) { throw [InvalidOperationException]::new('shape_mismatch') } }
+# Optional AST collections are null when absent; @($null) would count one element.
+function Size($value) { if ($null -eq $value) { return 0 }; return @($value).Count }
 function Type-Is($node, [string]$name) { return $null -ne $node -and $node.GetType().Name -ceq $name }
 function Statements($block, $expected) {
-    Require ($null -ne $block -and @($block.Traps).Count -eq 0)
+    Require ($null -ne $block -and (Size $block.Traps) -eq 0)
     $actual = @($block.Statements)
     Require ($actual.Count -eq @($expected).Count)
     for ($i = 0; $i -lt $actual.Count; $i++) { Match $actual[$i] $expected[$i] }
 }
 function Parameters($actual, $expected) {
-    Require (@($actual).Count -eq @($expected).Count)
-    for ($i = 0; $i -lt @($actual).Count; $i++) {
+    Require ((Size $actual) -eq @($expected).Count)
+    for ($i = 0; $i -lt (Size $actual); $i++) {
         $a = $actual[$i]; $e = $expected[$i]
         Require (Type-Is $a 'ParameterAst')
         Match $a.Name @{kind='var'; name=$e.name}
@@ -52,14 +54,14 @@ function Body($node, $expected, $parameters, $attributes) {
     Require ($null -eq $node.ScriptRequirements)
     Require ($null -eq $node.DynamicParamBlock -and $null -eq $node.BeginBlock -and $null -eq $node.ProcessBlock -and $null -eq $node.CleanBlock)
     Require ($null -ne $node.EndBlock -and $node.EndBlock.Unnamed)
-    Require (@($node.Attributes).Count -eq 0 -and @($node.UsingStatements).Count -eq 0)
+    Require ((Size $node.Attributes) -eq 0 -and (Size $node.UsingStatements) -eq 0)
     if ($null -eq $parameters) { Require ($null -eq $node.ParamBlock) }
     else {
         Require ($null -ne $node.ParamBlock)
         Parameters $node.ParamBlock.Parameters $parameters
         $attrs = @($node.ParamBlock.Attributes)
         Require ($attrs.Count -eq @($attributes).Count)
-        for ($i=0; $i -lt $attrs.Count; $i++) { Require (Type-Is $attrs[$i] 'AttributeAst'); Require ($attrs[$i].TypeName.FullName -ceq $attributes[$i]); Require (@($attrs[$i].PositionalArguments).Count -eq 0 -and @($attrs[$i].NamedArguments).Count -eq 0) }
+        for ($i=0; $i -lt $attrs.Count; $i++) { Require (Type-Is $attrs[$i] 'AttributeAst'); Require ($attrs[$i].TypeName.FullName -ceq $attributes[$i]); Require ((Size $attrs[$i].PositionalArguments) -eq 0 -and (Size $attrs[$i].NamedArguments) -eq 0) }
     }
     Statements $node.EndBlock $expected
 }
@@ -71,15 +73,15 @@ function Match($a, $e) {
         Require (-not $a.Background -and $a.PipelineElements.Count -eq 1)
         Match $a.PipelineElements[0] $e; return
     }
-    if (Type-Is $a 'CommandExpressionAst') { Require (@($a.Redirections).Count -eq 0); Match $a.Expression $e; return }
+    if (Type-Is $a 'CommandExpressionAst') { Require ((Size $a.Redirections) -eq 0); Match $a.Expression $e; return }
     switch -CaseSensitive ($e.kind) {
         'var' { Require (Type-Is $a 'VariableExpressionAst'); Require (-not $a.Splatted -and $a.VariablePath.UserPath -ceq $e.name) }
         'literal' { Require (Type-Is $a 'StringConstantExpressionAst'); Require ($a.Value -ceq $e.value -and $a.StringConstantType.ToString() -ceq $e.form) }
         'number' { Require (Type-Is $a 'ConstantExpressionAst'); Require ($a.Value -eq $e.value) }
         'type' { Require (Type-Is $a 'TypeExpressionAst'); Require ($a.TypeName.FullName -ceq $e.name) }
         'member' { Require (Type-Is $a 'MemberExpressionAst'); Require ($a.Static -eq $e.static -and -not $a.NullConditional); Match $a.Expression $e.target; Match $a.Member $e.member }
-        'invokeMember' { Require (Type-Is $a 'InvokeMemberExpressionAst'); Require ($a.Static -eq $e.static -and -not $a.NullConditional -and @($a.GenericTypeArguments).Count -eq 0); Match $a.Expression $e.target; Match $a.Member $e.member; MatchSequence $a.Arguments $e.args }
-        'command' { Require (Type-Is $a 'CommandAst'); Require ($a.InvocationOperator.ToString() -ceq 'Unknown' -and @($a.Redirections).Count -eq 0 -and $null -eq $a.DefiningKeyword); Require ($a.CommandElements.Count -eq @($e.args).Count + 1); Match $a.CommandElements[0] @{kind='literal';value=$e.name;form='BareWord'}; for($i=0;$i -lt @($e.args).Count;$i++){ Match $a.CommandElements[$i+1] $e.args[$i] } }
+        'invokeMember' { Require (Type-Is $a 'InvokeMemberExpressionAst'); Require ($a.Static -eq $e.static -and -not $a.NullConditional -and (Size $a.GenericTypeArguments) -eq 0); Match $a.Expression $e.target; Match $a.Member $e.member; MatchSequence $a.Arguments $e.args }
+        'command' { Require (Type-Is $a 'CommandAst'); Require ($a.InvocationOperator.ToString() -ceq 'Unknown' -and (Size $a.Redirections) -eq 0 -and $null -eq $a.DefiningKeyword); Require ($a.CommandElements.Count -eq @($e.args).Count + 1); Match $a.CommandElements[0] @{kind='literal';value=$e.name;form='BareWord'}; for($i=0;$i -lt @($e.args).Count;$i++){ Match $a.CommandElements[$i+1] $e.args[$i] } }
         'parameter' { Require (Type-Is $a 'CommandParameterAst'); Require ($a.ParameterName -ceq $e.name -and $null -eq $a.Argument) }
         'binary' { Require (Type-Is $a 'BinaryExpressionAst'); Require ($a.Operator.ToString() -ceq $e.op); Match $a.Left $e.left; Match $a.Right $e.right }
         'unary' { Require (Type-Is $a 'UnaryExpressionAst'); Require ($a.TokenKind.ToString() -ceq $e.op); Match $a.Child $e.child }
@@ -106,7 +108,7 @@ function Match($a, $e) {
         default { throw [InvalidOperationException]::new('unknown_catalogue_kind') }
     }
 }
-function MatchSequence($actual,$expected){ Require (@($actual).Count -eq @($expected).Count); for($i=0;$i -lt @($actual).Count;$i++){ Match $actual[$i] $expected[$i] } }
+function MatchSequence($actual,$expected){ Require ((Size $actual) -eq @($expected).Count); for($i=0;$i -lt (Size $actual);$i++){ Match $actual[$i] $expected[$i] } }
 function Optional($actual,$expected){ if($null -eq $expected){ Require ($null -eq $actual) }else{ Match $actual $expected } }
 
 # Input framing errors are infrastructure failures, never source rejections.
