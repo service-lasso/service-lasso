@@ -5,6 +5,11 @@ values, derived service variables, endpoint selectors, and explicit Secrets
 Broker selectors. The final process environment that Service Lasso spawns is
 always a string map.
 
+Service scope controls delivery, not OS permission to inspect another process.
+See [Service environment isolation](../../security/service-environment-isolation.md)
+for Windows process access and Linux `hidepid` hardening. Services sharing one
+Linux UID remain within the same trust boundary even with `hidepid=invisible`.
+
 ## Scope types
 
 - `env`: service-local values for one service or one action

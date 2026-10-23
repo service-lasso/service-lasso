@@ -14,6 +14,10 @@ a convention, not automatic conversion by Core.
 
 ## Service manifest
 
+RAM storage does not establish service-to-service confidentiality when apps
+share a UID. Linux procfs hardening has the same identity limitation; see
+[Service environment isolation](../security/service-environment-isolation.md).
+
 ```json
 {
   "broker": {

@@ -58,6 +58,7 @@ const sidebars = {
     ] },
     { type: "category", label: "Security and access", collapsed: true, items: [
       { type: "doc", id: "security/README", label: "Security and access" },
+      { type: "doc", id: "security/service-environment-isolation", label: "Service environment isolation" },
       { type: "doc", id: "reference/vault-key-bootstrap", label: "Vault setup and key custody" },
       { type: "doc", id: "reference/first-run-vault-bootstrap-permissions", label: "Users and permissions" },
       { type: "doc", id: "reference/service-secret-access-policy", label: "Service secret access" },
