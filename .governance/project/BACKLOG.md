@@ -1,5 +1,17 @@
 # Backlog
 
+- #1833, in_progress: parent tracker. Complete the Core release TUI safe-state
+  gate, publish the pending custom-domain docs fix, decide the Broker release
+  path, and clear the Dependabot backlog. No direct `main` push, force-push,
+  check bypass, or unapproved publication.
+
+- #1829, in_progress: SPEC-002 AC-4CG.3; SPEC-007 AC-7G. Parent #1833. Repair
+  the POSIX PTY probes to use an owned closed loopback endpoint and synthetic
+  token for safe-unavailable, and an attempt-local staged Core credential for
+  the connected case. Preserve the TUI pin, deadlines, Windows ConPTY contract,
+  and release authority. Exact-head Linux/Darwin Release Artifact execution
+  remains required; source-only evidence is not release readiness.
+
 - #1827, in_progress: SPEC-002 AC-4AJ.12 / AC-4AJ.5. Correct the custom-domain
   URL/base path, validate generated assets/navigation, merge the scoped docs fix
   into develop and publish through the existing explicitly authorized workflow.
