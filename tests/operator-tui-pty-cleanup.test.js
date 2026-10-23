@@ -107,7 +107,7 @@ for (const script of ["verify-operator-tui-pty.mjs", "verify-operator-tui-pty-sc
       const root = await mkdtemp(path.join(os.tmpdir(), "lasso-tui-pty-cleanup-"));
       try {
         const source = await readFile(new URL(`../scripts/${script}`, import.meta.url), "utf8");
-        const marker = /\r?\nimport json, os, pty, select, signal, sys, time\r?\n/u.exec(source);
+        const marker = /\r?\nimport fcntl, json, os, pty, select, signal, struct, sys, termios, time\r?\n/u.exec(source);
         const start = marker?.index ?? -1;
         const endMarker = /\r?\n`, "utf8"\);/u.exec(source.slice(start + (marker?.[0].length ?? 0)));
         const end = endMarker ? start + marker[0].length + endMarker.index : -1;
