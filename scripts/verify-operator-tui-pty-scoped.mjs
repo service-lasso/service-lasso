@@ -2,6 +2,7 @@ import { assertDevelopIdentity, assertPolicyEnvironment, readSourceScope, REQUIR
 assertDevelopIdentity(); assertPolicyEnvironment();
 const scope = await readSourceScope();
 if (!REQUIRED_GA_PLATFORMS.includes(process.platform) || process.arch !== "x64") throw new Error("Scoped native qualification platform is outside policy");
+import { randomBytes } from "node:crypto";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -9,6 +10,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { extractPlatformReleaseArchive, runCommand, stageReleaseArtifact } from "./release-artifact-lib.mjs";
 import { verifyRetainedOperatorTools } from "./operator-tool-packaging-lib.mjs";
 import { extractTuiPair } from "./operator-tool-tui-pair-extraction.mjs";
+import { createOwnedUnavailableEndpoint } from "./operator-tui-conpty-endpoint.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -26,6 +28,8 @@ const extractRoot = path.join(tempRoot, "tui");
 let extractedCoreArchive;
 const pythonProbe = path.join(tempRoot, "tui-pty-probe.py");
 let apiServer;
+let unavailableEndpoint;
+const previousLocalAdminToken = process.env.SERVICE_LASSO_LOCAL_ADMIN_TOKEN;
 let pairExtraction, primaryFailure, primaryFailureRecorded = false;
 
 try {
@@ -52,6 +56,10 @@ try {
     if (!executable) throw new Error("TUI archive did not contain its expected executable");
     tuiExecutable = path.join(extractRoot, executable);
   }
+  const connectedToken = randomBytes(32).toString("base64url");
+  const unavailableToken = randomBytes(32).toString("base64url");
+  unavailableEndpoint = await createOwnedUnavailableEndpoint();
+  process.env.SERVICE_LASSO_LOCAL_ADMIN_TOKEN = connectedToken;
   const stagedCore = await import(pathToFileURL(path.join(extractedCoreRoot, "packages", "core", "index.js")).href);
   apiServer = await stagedCore.startApiServer({
     port: 0,
@@ -63,11 +71,15 @@ try {
 import json, os, pty, select, signal, sys, time
 exe = sys.argv[1]
 api_url = sys.argv[3]
+connected_token = sys.argv[4] if len(sys.argv) > 4 else "fixture-connected-token-value"
+unavailable_url = sys.argv[5] if len(sys.argv) > 5 else "http://127.0.0.1:1"
+unavailable_token = sys.argv[6] if len(sys.argv) > 6 else "fixture-unavailable-token-value"
 def run_case(name, connected):
     pid, fd = pty.fork()
     if pid == 0:
         env = {"PATH": os.environ.get("PATH", ""), "HOME": os.environ.get("HOME", "")}
-        if connected: env["SERVICE_LASSO_API_URL"] = api_url
+        env["SERVICE_LASSO_API_URL"] = api_url if connected else unavailable_url
+        env["SERVICE_LASSO_API_TOKEN"] = connected_token if connected else unavailable_token
         os.execve(exe, [exe], env)
     status = None
     reaped = False
@@ -134,7 +146,7 @@ run_case("connected_dashboard", True)
 print(json.dumps({"ok": True, "platform": sys.argv[2], "safeStartup": "unavailable", "connectedDashboard": "rendered", "navigation": "help", "exit": "q"}))
 `, "utf8");
   await pairExtraction?.verifyReadbacks();
-  const probe = await runCommand("python3", [pythonProbe, tuiExecutable, platform, apiServer.url]);
+  const probe = await runCommand("python3", [pythonProbe, tuiExecutable, platform, apiServer.url, connectedToken, unavailableEndpoint.url, unavailableToken]);
   const result = JSON.parse(probe.stdout.trim());
   if (!result?.ok) throw new Error("PTY probe did not report success");
   console.log(JSON.stringify({ ...result, evidence: "direct-pty", artifact: staged.artifactName }));
@@ -142,8 +154,12 @@ print(json.dumps({"ok": True, "platform": sys.argv[2], "safeStartup": "unavailab
   primaryFailureRecorded = true; primaryFailure = original; throw original;
 } finally {
   const failures = [];
-  for (const cleanup of [() => apiServer?.stop(), () => pairExtraction?.close(),
-    () => extractedCoreArchive?.cleanup(), () => rm(tempRoot, { recursive: true, force: true })]) {
+  for (const cleanup of [() => apiServer?.stop(), () => unavailableEndpoint?.close(), () => pairExtraction?.close(),
+    () => extractedCoreArchive?.cleanup(), () => rm(tempRoot, { recursive: true, force: true }),
+    () => {
+      if (previousLocalAdminToken === undefined) delete process.env.SERVICE_LASSO_LOCAL_ADMIN_TOKEN;
+      else process.env.SERVICE_LASSO_LOCAL_ADMIN_TOKEN = previousLocalAdminToken;
+    }]) {
     try { await cleanup(); } catch (original) { failures.push(original); }
   }
   if (failures.length) throw new AggregateError([...(primaryFailureRecorded ? [primaryFailure] : []), ...failures], "PTY qualification settlement failed");

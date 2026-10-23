@@ -9,6 +9,17 @@ asset, navigation, canonical URL and live desktop/mobile verification. Preserve
 HTTPS enforcement and all existing publication gates; no runtime release,
 product promotion, DNS, Cloudflare or credential changes are in scope.
 
+## Core release TUI safe-state gate (#1829, parent #1833)
+
+Development source repair under SPEC-002 AC-4CG.3 and SPEC-007 AC-7G. The POSIX
+PTY probes hold an owned closed loopback endpoint and synthetic token for the
+unavailable case, start staged Core with an attempt-local credential for the
+connected case, and restore prior environment state in bounded cleanup. Preserve
+the TUI pin, product deadlines, Windows ConPTY contract, protected gates, and
+release-owner authority. Exact-head Linux/Darwin Release Artifact execution and
+the Windows ConPTY diagnosis remain required; no promotion, publication,
+deployment, or GA claim follows.
+
 ## Current Broker example review (#1749)
 
 Review SPEC-011 ESM-13/14/15 against current develop, correct and merge Echo
