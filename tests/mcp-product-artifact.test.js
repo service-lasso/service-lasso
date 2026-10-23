@@ -658,6 +658,21 @@ test("#864 retained evidence verifies downloaded content, exact SHA, three OSes,
       assert.match(publicationWorkflow, /node scripts\/verify-mcp-product-artifact\.mjs/u);
     }
 
+    for (const workflowPath of [
+      ".github/workflows/publish-package.yml",
+      ".github/workflows/release-artifact.yml",
+      ".github/workflows/publish-package-scoped.yml",
+      ".github/workflows/release-artifact-scoped.yml",
+    ]) {
+      const publicationWorkflow = await readFile(workflowPath, "utf8");
+      const provisionIndex = publicationWorkflow.indexOf("name: Provision publication test fixtures");
+      const suiteIndex = publicationWorkflow.indexOf("name: Run tests");
+      assert.ok(provisionIndex > -1 && suiteIndex > provisionIndex, `${workflowPath} must provision the external fixtures before the isolated suite`);
+      assert.match(publicationWorkflow, /sudo install -d -m 0700 -o root -g root "\$foreign_root"/u);
+      assert.match(publicationWorkflow, /SERVICE_LASSO_UNOWNED_FIXTURE_ROOT=\$foreign_root/u);
+      assert.match(publicationWorkflow, /mkdir -p \.tmp\n          chmod 0700 \.tmp\n          test "\$\(stat -c '%u' \.tmp\)" = "\$\(id -u\)"/u);
+    }
+
     const packagedBootstrap = await readFile("scripts/verify-mcp-packaged-bootstrap.mjs", "utf8");
     assert.match(packagedBootstrap, /bootstrapReleaseMetadataToken\(\);[\s\S]*?await import\("\.\/verify-mcp-packaged\.mjs"\)/u);
     const packagedVerifier = await readFile("scripts/verify-mcp-packaged.mjs", "utf8");
