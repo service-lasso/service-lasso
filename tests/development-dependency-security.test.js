@@ -38,8 +38,9 @@ test("development dependency replacements resolve to the reviewed safe boundarie
   );
   assert.equal(
     packageLock.packages["node_modules/serialize-javascript"].version,
-    "7.1.0",
+    "7.1.4",
   );
+  assert.equal(packageJson.overrides["serialize-javascript"], "7.1.4");
   assert.equal(packageJson.overrides.qs, "6.16.0");
   assert.equal(packageJson.overrides.hono, "4.13.13");
   assert.equal(packageJson.overrides["brace-expansion"], "1.1.21");
@@ -51,6 +52,7 @@ test("development dependency replacements resolve to the reviewed safe boundarie
     "1.1.21",
   );
   assert.equal(packageJson.overrides["fast-uri"], "3.1.9");
+  assert.equal(packageJson.overrides["undici"], "8.12.3");
   assert.equal(packageLock.packages["node_modules/fast-uri"].version, "3.1.9");
   assert.equal(packageLock.packages["node_modules/hono"].version, "4.13.13");
 });
