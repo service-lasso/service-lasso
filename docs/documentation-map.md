@@ -8,6 +8,9 @@ This inventory records every Markdown page that existed when issue [#1258](https
 
 | Existing page | Primary home | Type | Sidebar status / reason |
 | --- | --- | --- | --- |
+| `why-service-lasso.md` | Start here | explanation | Listed: app-owned native services and independent agent testing |
+| `one-worktree-one-runtime.md` | Start here | guide | Listed: source worktree proof, identity, endpoint discovery and owned cleanup |
+| `service-lasso-containers-process-managers.md` | Start here | explanation | Listed: natural-fit comparison with official competitor sources |
 | `security/service-environment-isolation.md` | Security and access | guide | Listed: custom env delivery, Linux procfs hardening and Windows process-access boundaries |
 | `README.md` | Start here | explanation | Listed: Docs Home |
 | `INTRODUCTION.md` | Start here | explanation | Listed: core orientation |
