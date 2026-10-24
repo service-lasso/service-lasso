@@ -50,7 +50,8 @@ test("development dependency replacements resolve to the reviewed safe boundarie
     packageLock.packages["node_modules/brace-expansion"].version,
     "1.1.21",
   );
-  assert.equal(packageLock.packages["node_modules/fast-uri"].version, "3.1.8");
+  assert.equal(packageJson.overrides["fast-uri"], "3.1.9");
+  assert.equal(packageLock.packages["node_modules/fast-uri"].version, "3.1.9");
   assert.equal(packageLock.packages["node_modules/hono"].version, "4.13.13");
 });
 
