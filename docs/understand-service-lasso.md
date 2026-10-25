@@ -50,6 +50,11 @@ For the example desktop app, start with an Electron or Tauri app template. If it
 
 ## Where to start
 
+For the application-builder and independent-agent use cases, read
+[Why Service Lasso](why-service-lasso.md), then
+[One worktree, one runtime](one-worktree-one-runtime.md). Compare the fit with
+[containers and process managers](service-lasso-containers-process-managers.md).
+
 | You want to… | Start here |
 | --- | --- |
 | See it work before choosing anything | [Run the demo](quick-start.md) |
