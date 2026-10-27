@@ -1821,6 +1821,249 @@ function serviceEnablesStdin(service: DiscoveredService): boolean {
   return service.manifest.stdin?.enabled === true;
 }
 
+export interface ServiceTerminalConfig {
+  rows: number;
+  cols: number;
+}
+
+interface TerminalChunk {
+  sequence: number;
+  data: Buffer;
+}
+
+interface TerminalSession {
+  rows: number;
+  cols: number;
+  childPid: number | null;
+  sequence: number;
+  chunks: TerminalChunk[];
+  bytes: number;
+  closed: boolean;
+  error: string | null;
+}
+
+const terminalSessions = new Map<string, TerminalSession>();
+const TERMINAL_BUFFER_LIMIT_BYTES = 256 * 1024;
+export const TERMINAL_INPUT_LIMIT_BYTES = 64 * 1024;
+
+export function serviceTerminalConfig(service: DiscoveredService): ServiceTerminalConfig | null {
+  const declaration = service.manifest.terminal;
+  if (declaration?.enabled !== true) {
+    return null;
+  }
+  const clamp = (value: number | undefined, fallback: number): number =>
+    Math.min(1000, Math.max(1, Math.trunc(value ?? fallback)));
+  return { rows: clamp(declaration.rows, 24), cols: clamp(declaration.cols, 80) };
+}
+
+function ensureTerminalSession(serviceId: string, config: ServiceTerminalConfig): TerminalSession {
+  const existing = terminalSessions.get(serviceId);
+  if (existing) {
+    existing.rows = config.rows;
+    existing.cols = config.cols;
+    existing.closed = false;
+    existing.error = null;
+    existing.chunks = [];
+    existing.bytes = 0;
+    existing.sequence = 0;
+    existing.childPid = null;
+    return existing;
+  }
+  const session: TerminalSession = {
+    rows: config.rows,
+    cols: config.cols,
+    childPid: null,
+    sequence: 0,
+    chunks: [],
+    bytes: 0,
+    closed: false,
+    error: null,
+  };
+  terminalSessions.set(serviceId, session);
+  return session;
+}
+
+function pushTerminalData(serviceId: string, data: Buffer): void {
+  const session = terminalSessions.get(serviceId);
+  if (!session || session.closed) {
+    return;
+  }
+  session.sequence += 1;
+  session.chunks.push({ sequence: session.sequence, data });
+  session.bytes += data.byteLength;
+  while (session.bytes > TERMINAL_BUFFER_LIMIT_BYTES && session.chunks.length > 1) {
+    const removed = session.chunks.shift()!;
+    session.bytes -= removed.data.byteLength;
+  }
+}
+
+function closeTerminalSession(serviceId: string): void {
+  const session = terminalSessions.get(serviceId);
+  if (!session) {
+    return;
+  }
+  session.closed = true;
+}
+
+export interface ManagedTerminalInspection {
+  available: boolean;
+  rows: number;
+  cols: number;
+  sequence: number;
+  childPid: number | null;
+  error: string | null;
+}
+
+export function inspectTerminalSession(serviceId: string): ManagedTerminalInspection {
+  const record = managedProcesses.get(serviceId);
+  const session = terminalSessions.get(serviceId);
+  return {
+    available: Boolean(record && !record.stopping && session && !session.closed),
+    rows: session?.rows ?? 24,
+    cols: session?.cols ?? 80,
+    sequence: session?.sequence ?? 0,
+    childPid: session?.childPid ?? null,
+    error: session?.error ?? null,
+  };
+}
+
+export interface ManagedTerminalOutput {
+  available: boolean;
+  rows: number;
+  cols: number;
+  sequence: number;
+  data: string;
+  truncated: boolean;
+  error: string | null;
+}
+
+export function readTerminalOutput(serviceId: string, after = 0): ManagedTerminalOutput {
+  const inspection = inspectTerminalSession(serviceId);
+  const session = terminalSessions.get(serviceId);
+  const selected = session
+    ? session.chunks.filter((chunk) => chunk.sequence > after)
+    : [];
+  const truncated = Boolean(session && session.chunks.length > 0 && session.chunks[0].sequence > after + 1);
+  return {
+    ...inspection,
+    data: Buffer.concat(selected.map((chunk) => chunk.data)).toString("base64"),
+    truncated,
+  };
+}
+
+export type ManagedTerminalWriteResult =
+  | { ok: true; byteLength: number }
+  | { ok: false; code: "not_running" | "no_pipe" | "write_failed" | "invalid"; message: string };
+
+function writeTerminalFrame(serviceId: string, frame: Record<string, unknown>, byteLength: number): ManagedTerminalWriteResult {
+  const record = managedProcesses.get(serviceId);
+  if (!record || record.stopping) {
+    return { ok: false, code: "not_running", message: "The managed terminal process is not running." };
+  }
+  const stdin = record.child.stdin;
+  if (!stdin || stdin.destroyed || !stdin.writable) {
+    return { ok: false, code: "no_pipe", message: "No live terminal pipe is attached to this service." };
+  }
+  try {
+    stdin.write(JSON.stringify(frame) + "\n");
+    return { ok: true, byteLength };
+  } catch (error) {
+    return {
+      ok: false,
+      code: "write_failed",
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+export function writeTerminalInput(serviceId: string, data: Buffer): ManagedTerminalWriteResult {
+  if (data.byteLength === 0 || data.byteLength > TERMINAL_INPUT_LIMIT_BYTES) {
+    return { ok: false, code: "invalid", message: `Terminal input must be between 1 and ${String(TERMINAL_INPUT_LIMIT_BYTES)} bytes.` };
+  }
+  return writeTerminalFrame(serviceId, { t: "input", b: data.toString("base64") }, data.byteLength);
+}
+
+export function resizeTerminalSession(serviceId: string, rows: number, cols: number): ManagedTerminalWriteResult {
+  if (!Number.isInteger(rows) || !Number.isInteger(cols) || rows < 1 || rows > 1000 || cols < 1 || cols > 1000) {
+    return { ok: false, code: "invalid", message: "Terminal rows and cols must be integers between 1 and 1000." };
+  }
+  const session = terminalSessions.get(serviceId);
+  if (session) {
+    session.rows = rows;
+    session.cols = cols;
+  }
+  return writeTerminalFrame(serviceId, { t: "resize", rows, cols }, 0);
+}
+
+function attachTerminalCapture(record: ManagedProcessRecord, config: ServiceTerminalConfig): void {
+  const serviceId = record.service.manifest.id;
+  const session = ensureTerminalSession(serviceId, config);
+  const stream = record.child.stdout;
+  let buffer = "";
+  const consume = (line: string): void => {
+    let frame: unknown;
+    try {
+      frame = JSON.parse(line);
+    } catch {
+      return;
+    }
+    if (!frame || typeof frame !== "object") {
+      return;
+    }
+    const value = frame as { t?: unknown; pid?: unknown; b?: unknown; message?: unknown };
+    if (value.t === "data" && typeof value.b === "string") {
+      const data = Buffer.from(value.b, "base64");
+      pushTerminalData(serviceId, data);
+      if (!record.logStreams.stdout.destroyed) {
+        record.logStreams.stdout.write(data);
+      }
+    } else if (value.t === "ready" && typeof value.pid === "number") {
+      session.childPid = value.pid;
+    } else if (value.t === "error" && typeof value.message === "string") {
+      session.error = value.message;
+    }
+  };
+  if (stream) {
+    stream.setEncoding("utf8");
+    stream.on("data", (chunk: string) => {
+      buffer += chunk;
+      let index = buffer.indexOf("\n");
+      while (index >= 0) {
+        const line = buffer.slice(0, index).trim();
+        buffer = buffer.slice(index + 1);
+        if (line) {
+          consume(line);
+        }
+        index = buffer.indexOf("\n");
+      }
+    });
+    stream.on("error", () => undefined);
+  }
+  record.logCapturePromise = new Promise<void>((resolve) => {
+    if (!stream) {
+      resolve();
+      return;
+    }
+    let settled = false;
+    const settle = () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      stream.removeListener("end", settle);
+      stream.removeListener("close", settle);
+      stream.removeListener("error", settle);
+      resolve();
+    };
+    stream.once("end", settle);
+    stream.once("close", settle);
+    stream.once("error", settle);
+    if (stream.readableEnded || stream.destroyed) {
+      settle();
+    }
+  });
+}
+
 async function waitForManagedProcessSpawn(child: ManagedChildHandle): Promise<void> {
   const deadlineMs = processControlDeadline(managedProcessSpawnTimeoutMs);
   await withProcessControlDeadline(
@@ -2571,7 +2814,32 @@ export async function startManagedProcess(
   const startedAt = new Date().toISOString();
   const { paths: logPaths, streams: logStreams } =
     await prepareRuntimeLogStreams(service.serviceRoot, startedAt);
-  const stdinEnabled = serviceEnablesStdin(service);
+  const terminalConfig = serviceTerminalConfig(service);
+  const terminalHelper = terminalConfig
+    ? (process.env.SERVICE_LASSO_PTY_HELPER ?? "").trim()
+    : "";
+  if (terminalConfig && !terminalHelper) {
+    await closeRuntimeLogStreams(logStreams);
+    throw new ManagedProcessStartError(
+      "launch_state_creation",
+      new Error("SERVICE_LASSO_PTY_HELPER is required for a service with terminal.enabled."),
+    );
+  }
+  const spawnExecutable = terminalConfig ? terminalHelper : executable;
+  const spawnArgs = terminalConfig
+    ? [
+        "--rows",
+        String(terminalConfig.rows),
+        "--cols",
+        String(terminalConfig.cols),
+        "--cwd",
+        workingDirectory,
+        "--",
+        executable,
+        ...args,
+      ]
+    : args;
+  const stdinEnabled = serviceEnablesStdin(service) || Boolean(terminalConfig);
 
   let approvedLaunchFiles: readonly ManagedLaunchFileBinding[] = [];
   try {
@@ -2587,7 +2855,7 @@ export async function startManagedProcess(
     throw new ManagedProcessStartError("prelaunch_verification", failure);
   }
   const useWindowsManagedLauncher =
-    process.platform === "win32" && Boolean(workspaceRoot);
+    process.platform === "win32" && Boolean(workspaceRoot) && !terminalConfig;
   let windowsManagedLaunchState: WindowsManagedLaunchState | null = null;
   try {
     windowsManagedLaunchState = useWindowsManagedLauncher
@@ -2639,7 +2907,7 @@ export async function startManagedProcess(
         },
       );
     } else {
-      child = managedProcessSpawner(executable, args, {
+      child = managedProcessSpawner(spawnExecutable, spawnArgs, {
         cwd: workingDirectory,
         env: environment,
         stdio: [stdinEnabled ? "pipe" : "ignore", "pipe", "pipe"],
@@ -2740,7 +3008,11 @@ export async function startManagedProcess(
   };
   observeFixtureStartupPath("enrollment", "managed", serviceId);
   observeFixtureRecord(record);
-  attachRuntimeLogCapture(record);
+  if (terminalConfig) {
+    attachTerminalCapture(record, terminalConfig);
+  } else {
+    attachRuntimeLogCapture(record);
+  }
 
   let managedRecordActivated = false;
   const activateManagedRecord = () => {
@@ -2788,6 +3060,7 @@ export async function startManagedProcess(
           const current = managedProcesses.get(serviceId);
           if (current?.child === child) {
             managedProcesses.delete(serviceId);
+            closeTerminalSession(serviceId);
           }
 
           if (onExit) {
