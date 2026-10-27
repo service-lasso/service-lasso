@@ -51,6 +51,7 @@ This reference tracks each runtime-facing field as:
 | `requires` | implemented | `ServiceManifest.requires?: Record<string, string>` | Validated as a capability-to-version-requirement map; dependency graph resolves each capability to exactly one enabled provider service and reports missing or ambiguous provider choices with operator-action messages. |
 | `provides` | implemented | `ServiceManifest.provides?: Record<string, string>` | Validated as provider capability metadata and surfaced in service summaries/diagnostics so consumers can see capability/version information. |
 | `stdin` | implemented | `ServiceManifest.stdin?: ServiceStdinDeclaration` with `enabled` and optional `provider: "direct"` | Opt-in only. Supervised spawn pipes stdin when enabled; log-info advertises a live writable pipe; `POST /api/services/{serviceId}/stdin` writes a bounded line. Default remains no stdin and no advertised channel. |
+| `terminal` | experimental | `ServiceManifest.terminal?: ServiceTerminalDeclaration` with `enabled`, optional `rows`/`cols` (1-1000, default 24x80) | Opt-in pseudo-terminal attachment. When enabled and `SERVICE_LASSO_PTY_HELPER` names the `service-lasso-pty` helper, the service is spawned under a real PTY and `GET /api/services/{serviceId}/terminal`, `.../terminal/output`, `.../terminal/input` and `.../terminal/resize` expose a bounded terminal session. The PTY merges stdout/stderr; output is kept in a 256 KiB memory ring, never a transcript. Default is no terminal and no advertised channel. |
 
 ## Purpose of `service.json`
 
@@ -142,7 +143,7 @@ Current direction:
 
 - required
 - should be stable
-- should align with the service repo’s identity
+- should align with the service repoâ€™s identity
 
 ### `name`
 
@@ -460,7 +461,7 @@ Example:
 
 Primary service port.
 
-In the sample, `0` is being used as a simple first-pass placeholder/default meaning “no fixed service port required by this sample”.
+In the sample, `0` is being used as a simple first-pass placeholder/default meaning â€œno fixed service port required by this sampleâ€.
 
 New manifests should use canonical `endpoints[]` declarations. A non-zero
 legacy numeric port is a `preferred` proposal, not a fixed binding. Declare
@@ -1285,7 +1286,7 @@ Runtime behavior:
 - Setup runs capture stdout/stderr logs and persist results in `.state/setup.json`.
 - `rerun` supports `ifMissing`, `manual`, `always`, and `ifChanged`; baseline bootstrap runs non-manual setup steps and skips already successful `ifMissing` steps.
 - Optional `creates` lists at most 32 file or directory paths expected after success. Paths resolve Service Lasso variables, must stay inside the service root, and are existence guards for `rerun: ifMissing`: present outputs skip, missing or deleted-after-success outputs rerun. Setup state records the latest secret-free guard snapshot (`declared`, service-root-relative path, `present`, `kind`).
-- Optional `fingerprint` lists at most 32 input templates for `rerun: ifChanged`. Templates resolve through Service Lasso variables. Setup state stores `algorithm`, `hash`, `declared`, and `evaluatedAt` only — never raw resolved values. The hash also includes the installed artifact release tag, so an artifact-version change reruns the step even when other declared inputs are unchanged. `ifChanged` requires a non-empty `fingerprint` list. Existing `manual`, `always`, and `ifMissing` skip behaviour is unchanged.
+- Optional `fingerprint` lists at most 32 input templates for `rerun: ifChanged`. Templates resolve through Service Lasso variables. Setup state stores `algorithm`, `hash`, `declared`, and `evaluatedAt` only â€” never raw resolved values. The hash also includes the installed artifact release tag, so an artifact-version change reruns the step even when other declared inputs are unchanged. `ifChanged` requires a non-empty `fingerprint` list. Existing `manual`, `always`, and `ifMissing` skip behaviour is unchanged.
 - Optional `outputs` lists at most 32 service-root-relative regular files that the step may create or replace. Transactional runtime startup records bounded private preimages before execution and restores/removes only unchanged transaction postimages on rollback. An executed step without `outputs` remains backward-compatible, but a later startup rollback fails closed because its filesystem side effects cannot be verified.
 
 CLI:
