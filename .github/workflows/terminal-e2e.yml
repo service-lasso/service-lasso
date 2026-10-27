@@ -1,0 +1,63 @@
+name: Terminal E2E
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/terminal-e2e.yml"
+      - "scripts/verify-terminal-attach.mjs"
+      - "src/runtime/execution/supervisor.ts"
+      - "src/server/index.ts"
+      - "src/contracts/service.ts"
+      - "src/runtime/discovery/validateManifest.ts"
+
+permissions:
+  contents: read
+
+jobs:
+  terminal:
+    name: terminal (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asset: service-lasso-pty-linux-amd64
+          - os: macos-14
+            asset: service-lasso-pty-darwin-arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Download the pinned PTY helper
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/pty"
+          gh release download v0.1.1 \
+            --repo service-lasso/service-lasso-pty \
+            --pattern "${{ matrix.asset }}" \
+            --dir "$RUNNER_TEMP/pty"
+          chmod +x "$RUNNER_TEMP/pty/${{ matrix.asset }}"
+
+      - name: Attach to the Echo TUI through Core
+        env:
+          SERVICE_LASSO_PTY_HELPER: ${{ runner.temp }}/pty/${{ matrix.asset }}
+          GITHUB_TOKEN: ${{ github.token }}
+          SERVICE_LASSO_RELEASE_METADATA_TOKEN: ${{ github.token }}
+        run: node scripts/verify-terminal-attach.mjs

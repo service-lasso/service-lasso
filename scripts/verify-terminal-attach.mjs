@@ -138,9 +138,9 @@ try {
   const installed = await lifecycle("install");
   const configured = await lifecycle("config");
   const started = await lifecycle("start");
-  record("install", installed.ok, { status: installed.status });
-  record("config", configured.ok, { status: configured.status });
-  record("start", started.ok && started.outcome?.state?.running === true, { status: started.status });
+  record("install", installed.ok, { status: installed.status, message: installed.outcome?.message ?? installed.outcome?.skippedReason ?? null });
+  record("config", configured.ok, { status: configured.status, message: configured.outcome?.message ?? configured.outcome?.skippedReason ?? null });
+  record("start", started.ok && started.outcome?.state?.running === true, { status: started.status, message: started.outcome?.message ?? started.outcome?.skippedReason ?? null });
 
   const startedState = await state();
   record("service-state", true, { running: startedState?.lifecycle?.running, pid: startedState?.lifecycle?.runtime?.pid, command: startedState?.lifecycle?.runtime?.command, helper: process.env.SERVICE_LASSO_PTY_HELPER });
