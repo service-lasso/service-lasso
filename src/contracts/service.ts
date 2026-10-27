@@ -62,6 +62,16 @@ export interface ServiceStdinDeclaration {
   provider?: ServiceStdinProvider;
 }
 
+/**
+ * Opt-in pseudo-terminal attachment. Services started with this enabled run
+ * under the service-lasso-pty host so a terminal emulator can attach.
+ */
+export interface ServiceTerminalDeclaration {
+  enabled: boolean;
+  rows?: number;
+  cols?: number;
+}
+
 export interface ServicePortDeclaration {
   [name: string]: number;
 }
@@ -474,6 +484,8 @@ export interface ServiceManifest {
   urls?: ServiceUrlEndpoint[];
   logSources?: ServiceLogSourceDeclaration[];
   stdin?: ServiceStdinDeclaration;
+  /** Opt-in pseudo-terminal host for interactive terminal attachment. */
+  terminal?: ServiceTerminalDeclaration;
   monitoring?: ServiceMonitoringPolicy;
   restartPolicy?: ServiceRestartPolicy;
   doctor?: ServiceDoctorPolicy;

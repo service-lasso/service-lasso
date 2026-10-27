@@ -38,6 +38,7 @@ import type {
   ServiceSetupRerunPolicy,
   ServiceStdinDeclaration,
   ServiceStdinProvider,
+  ServiceTerminalDeclaration,
   ServiceUpdateInstallWindow,
   ServiceUpdateMode,
   ServiceUpdateRunningServicePolicy,
@@ -625,6 +626,31 @@ function readStdin(value: unknown, manifestPath: string): ServiceStdinDeclaratio
     enabled,
     provider: record.provider as ServiceStdinProvider,
   };
+}
+
+function readTerminal(value: unknown, manifestPath: string): ServiceTerminalDeclaration | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "terminal" to be an object.`);
+  }
+  const record = value as Record<string, unknown>;
+  const enabled = expectOptionalBoolean(record.enabled, "terminal.enabled", manifestPath);
+  if (enabled === undefined) {
+    throw new Error(`Invalid service manifest at ${manifestPath}: expected "terminal.enabled" to be a boolean.`);
+  }
+  const dimension = (field: "rows" | "cols"): number | undefined => {
+    const candidate = record[field];
+    if (candidate === undefined) {
+      return undefined;
+    }
+    if (typeof candidate !== "number" || !Number.isInteger(candidate) || candidate < 1 || candidate > 1000) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: expected "terminal.${field}" to be an integer between 1 and 1000.`);
+    }
+    return candidate;
+  };
+  return { enabled, rows: dimension("rows"), cols: dimension("cols") };
 }
 
 function expectBrokerNamespace(value: unknown, field: string, manifestPath: string): string {
@@ -2444,6 +2470,7 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
 
   const logSources = readLogSources(record.logSources, manifestPath);
   const stdin = readStdin(record.stdin, manifestPath);
+  const terminal = readTerminal(record.terminal, manifestPath);
   const broker = readBrokerPolicy(record.broker, manifestPath, serviceId);
   const endpoints = readManifestEndpoints(record.endpoints, manifestPath);
   const ingress = readManifestIngress(record.ingress, manifestPath);
@@ -2522,6 +2549,7 @@ export function validateServiceManifest(input: unknown, manifestPath: string): S
     })),
     logSources,
     stdin,
+    terminal,
     monitoring,
     restartPolicy,
     doctor,
