@@ -11,6 +11,11 @@ Start with the [Beginner — Todo app](../getting-started/beginner-todo-app.md),
 
 ## Integration path
 
+For the ownership model, start with [Why Service Lasso](../why-service-lasso.md).
+For independent development and agent test lanes, use
+[One worktree, one runtime](../one-worktree-one-runtime.md). If you are still
+choosing an approach, see [containers or process managers](../service-lasso-containers-process-managers.md).
+
 1. [Choose a reference app](../reference-apps.md) for Node, web, desktop, or executable packaging outputs.
 2. Install the published `@service-lasso/service-lasso` runtime using the [CLI, HTTP API, and npm guide](../runtime/README.md).
 3. Provide an app-owned `services/` inventory; [Services and companion projects](../ecosystem/README.md) and the [service.json reference](../reference/service-json-reference.md) define the ownership boundary and contract.

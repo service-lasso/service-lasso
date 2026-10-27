@@ -9,6 +9,12 @@ Service Lasso discovers, configures, runs, observes, and updates local services 
 
 ## Choose your starting point
 
+**Explore the fit:** [Why Service Lasso: app-owned local services](why-service-lasso.md)
+explains application embedding and independent agent testing.
+[One worktree, one runtime](one-worktree-one-runtime.md) gives the concrete proof
+workflow; [Service Lasso, containers or process managers?](service-lasso-containers-process-managers.md)
+helps you choose an approach.
+
 **First useful result:** [Getting started](getting-started/README.md) → [Beginner — Todo app](getting-started/beginner-todo-app.md) → [Intermediate — Make the Todo durable](getting-started/intermediate-make-todo-app-durable.md) → [Advanced — Go Todo API](getting-started/advanced-add-go-todo-api-service.md) → [Advanced — Add Zitadel SSO to Todo](getting-started/zitadel-sso-hub.md) → [Advanced — Package Todo as a desktop app](getting-started/package-todo-tauri.md) → [Advanced — Provision secrets as RAM files](getting-started/advanced-provision-service-secrets-securely.md) → [Configure and recover](operate-your-service.md) → [Package it](package-your-app.md). Optional visual demo: [Quick start](quick-start.md).
 
 [Copy a task for your agent or connect MCP](agent-prompts.md).

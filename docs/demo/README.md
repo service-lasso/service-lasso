@@ -8,6 +8,9 @@ title: Demo operations
 
 Use this guide after the [first run](../quick-start.md), when you need endpoint details, status checks, recovery, or an isolated development instance.
 
+For a developer/agent lane from preparation through verification and cleanup,
+follow [One worktree, one runtime](../one-worktree-one-runtime.md).
+
 ## Start and stop
 
 Start the local demo (Node.js 22+, npm, Git, and internet access required):

@@ -284,7 +284,15 @@ import { ProviderNotReadyError, resolveProviderExecution } from "../runtime/prov
 import { buildRuntimeDoctorStatus } from "../runtime/doctor/status.js";
 import { ensureRuntimeConfig, resolveRuntimeConfig, type RuntimeConfig } from "../runtime/config.js";
 import { rehydrateDiscoveredServices } from "../runtime/state/rehydrate.js";
-import { stopAllManagedProcesses, writeManagedProcessStdin } from "../runtime/execution/supervisor.js";
+import {
+  inspectTerminalSession,
+  readTerminalOutput,
+  resizeTerminalSession,
+  stopAllManagedProcesses,
+  TERMINAL_INPUT_LIMIT_BYTES,
+  writeManagedProcessStdin,
+  writeTerminalInput,
+} from "../runtime/execution/supervisor.js";
 import { isProviderRole } from "../runtime/roles.js";
 import {
   bootstrapBaselineServices,
@@ -7013,6 +7021,64 @@ async function routeRequestWithoutMutationCoordination(
         auditId: audit.id,
         message: "Input accepted by runtime stdin.",
       });
+      return;
+    }
+
+if (request.method === "GET" && pathParts.length === 4 && pathParts[3] === "terminal") {
+      writeJson(response, 200, {
+        serviceId: service.manifest.id,
+        ...inspectTerminalSession(service.manifest.id),
+      });
+      return;
+    }
+
+    if (request.method === "GET" && pathParts.length === 5 && pathParts[3] === "terminal" && pathParts[4] === "output") {
+      const after = Number.parseInt(url.searchParams.get("after") ?? "0", 10);
+      writeJson(response, 200, {
+        serviceId: service.manifest.id,
+        ...readTerminalOutput(service.manifest.id, Number.isFinite(after) ? after : 0),
+      });
+      return;
+    }
+
+    if (request.method === "POST" && pathParts.length === 5 && pathParts[3] === "terminal" && pathParts[4] === "input") {
+      const body = (await readJsonBody(request)) as { data?: unknown };
+      const data = typeof body.data === "string" ? Buffer.from(body.data, "base64") : Buffer.alloc(0);
+      if (data.byteLength > TERMINAL_INPUT_LIMIT_BYTES) {
+        throw new ApiError("terminal_input_too_large", 413, "Terminal input exceeds the bounded frame size.");
+      }
+      const result = writeTerminalInput(service.manifest.id, data);
+      if (!result.ok) {
+        throw new ApiError(result.code, result.code === "invalid" ? 400 : 409, result.message);
+      }
+      await appendAuditEvent({
+        workspaceRoot: config.workspaceRoot,
+        serviceRoot: service.serviceRoot,
+        source: "runtime-api",
+        action: "service.terminal.input",
+        actor: permissionActorFromRuntimeAuth(auth).id,
+        subject: "service-terminal",
+        serviceId,
+        method: "POST",
+        routeTemplate: "/api/services/{serviceId}/terminal/input",
+        outcome: "success",
+        statusCode: 200,
+        summary: `Accepted terminal input for service "${serviceId}" (${String(result.byteLength)} bytes).`,
+        metadata: { byteLength: result.byteLength },
+      });
+      writeJson(response, 200, { serviceId: service.manifest.id, accepted: true, byteLength: result.byteLength });
+      return;
+    }
+
+    if (request.method === "POST" && pathParts.length === 5 && pathParts[3] === "terminal" && pathParts[4] === "resize") {
+      const body = (await readJsonBody(request)) as { rows?: unknown; cols?: unknown };
+      const rows = typeof body.rows === "number" ? body.rows : Number.NaN;
+      const cols = typeof body.cols === "number" ? body.cols : Number.NaN;
+      const result = resizeTerminalSession(service.manifest.id, rows, cols);
+      if (!result.ok) {
+        throw new ApiError(result.code, result.code === "invalid" ? 400 : 409, result.message);
+      }
+      writeJson(response, 200, { serviceId: service.manifest.id, resized: true, rows, cols });
       return;
     }
 
