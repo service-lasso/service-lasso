@@ -60,5 +60,6 @@ jobs:
       - name: Attach to the Echo TUI through Core
         env:
           SERVICE_LASSO_PTY_HELPER: ${{ runner.temp }}/pty/${{ matrix.asset }}
+          GITHUB_TOKEN: ${{ github.token }}
           SERVICE_LASSO_RELEASE_METADATA_TOKEN: ${{ github.token }}
         run: node scripts/verify-terminal-attach.mjs
