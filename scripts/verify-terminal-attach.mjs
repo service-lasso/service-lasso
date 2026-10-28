@@ -40,7 +40,7 @@ const manifest = {
     source: {
       type: "github-release",
       repo: "service-lasso/lasso-echoservice",
-      tag: "2026.10.27-0ce628b",
+      tag: "2026.10.28-75d046b",
     },
     platforms: {
       win32: { assetName: "echo-service-win32.zip", archiveType: "zip", command: ".\\echo-service.exe", args: ["-tui"] },
