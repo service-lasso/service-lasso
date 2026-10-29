@@ -650,7 +650,25 @@ function readTerminal(value: unknown, manifestPath: string): ServiceTerminalDecl
     }
     return candidate;
   };
-  return { enabled, rows: dimension("rows"), cols: dimension("cols") };
+  const bounded = (field: "idleTimeoutMs" | "maxSessionMs", min: number, max: number): number | undefined => {
+    const candidate = record[field];
+    if (candidate === undefined) {
+      return undefined;
+    }
+    if (typeof candidate !== "number" || !Number.isInteger(candidate) || candidate < min || candidate > max) {
+      throw new Error(`Invalid service manifest at ${manifestPath}: expected "terminal.${field}" to be an integer between ${min} and ${max}.`);
+    }
+    return candidate;
+  };
+  const readOnly = expectOptionalBoolean(record.readOnly, "terminal.readOnly", manifestPath);
+  return {
+    enabled,
+    rows: dimension("rows"),
+    cols: dimension("cols"),
+    ...(readOnly === undefined ? {} : { readOnly }),
+    idleTimeoutMs: bounded("idleTimeoutMs", 60000, 86400000),
+    maxSessionMs: bounded("maxSessionMs", 3600000, 604800000),
+  };
 }
 
 function expectBrokerNamespace(value: unknown, field: string, manifestPath: string): string {
