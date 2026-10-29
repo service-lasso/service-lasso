@@ -3,10 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { startApiServer } from "../dist/server/index.js";
 
-const helper = process.env.SERVICE_LASSO_PTY_HELPER ?? "";
-if (!helper) {
-  throw new Error("SERVICE_LASSO_PTY_HELPER must point at the service-lasso-pty helper");
-}
+const helper = (process.env.SERVICE_LASSO_PTY_HELPER ?? "").trim() || "bundled native/pty helper";
 
 const tempRoot = await mkdtemp(path.join(os.tmpdir(), "service-lasso-terminal-e2e-"));
 const servicesRoot = path.join(tempRoot, "services");
