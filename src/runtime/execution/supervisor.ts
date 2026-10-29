@@ -1856,6 +1856,34 @@ export function serviceTerminalConfig(service: DiscoveredService): ServiceTermin
   return { rows: clamp(declaration.rows, 24), cols: clamp(declaration.cols, 80) };
 }
 
+async function resolvePtyHelper(): Promise<string | null> {
+  const explicit = (process.env.SERVICE_LASSO_PTY_HELPER ?? "").trim();
+  if (explicit) {
+    return explicit;
+  }
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
+  const platform = `${process.platform}-${process.arch}`;
+  const name = process.platform === "win32" ? "service-lasso-pty.exe" : "service-lasso-pty";
+  const binary = path.join(root, "native", "pty", platform, name);
+  try {
+    await stat(binary);
+  } catch {
+    return null;
+  }
+  const manifest = JSON.parse(
+    await readFile(path.join(root, "native", "pty", "checksums.json"), "utf8"),
+  ) as Record<string, unknown>;
+  const expected = manifest[`${platform}/${name}`];
+  if (typeof expected !== "string" || !/^[a-f0-9]{64}$/u.test(expected)) {
+    throw new Error("Bundled PTY helper checksum entry is missing or invalid.");
+  }
+  const actual = createHash("sha256").update(await readFile(binary)).digest("hex");
+  if (actual !== expected) {
+    throw new Error("Bundled PTY helper checksum mismatch.");
+  }
+  return binary;
+}
+
 function ensureTerminalSession(serviceId: string, config: ServiceTerminalConfig): TerminalSession {
   const existing = terminalSessions.get(serviceId);
   if (existing) {
@@ -2815,14 +2843,12 @@ export async function startManagedProcess(
   const { paths: logPaths, streams: logStreams } =
     await prepareRuntimeLogStreams(service.serviceRoot, startedAt);
   const terminalConfig = serviceTerminalConfig(service);
-  const terminalHelper = terminalConfig
-    ? (process.env.SERVICE_LASSO_PTY_HELPER ?? "").trim()
-    : "";
+  const terminalHelper = terminalConfig ? (await resolvePtyHelper()) ?? "" : "";
   if (terminalConfig && !terminalHelper) {
     await closeRuntimeLogStreams(logStreams);
     throw new ManagedProcessStartError(
       "launch_state_creation",
-      new Error("SERVICE_LASSO_PTY_HELPER is required for a service with terminal.enabled."),
+      new Error("No PTY helper is available for a service with terminal.enabled. Set SERVICE_LASSO_PTY_HELPER or ship the bundled native/pty helper for this platform."),
     );
   }
   const spawnExecutable = terminalConfig ? terminalHelper : executable;

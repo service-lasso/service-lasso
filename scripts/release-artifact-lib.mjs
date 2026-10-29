@@ -21,6 +21,7 @@ import {
 } from "../dist/runtime/files/safe-zip.js";
 import { assertScope, REQUIRED_GA_PLATFORMS } from "./ga-platform-scope-lib.mjs";
 import { SUPPORTED_RELEASE_PLATFORMS } from "./release-asset-policy.mjs";
+import { stagePtyHelpers } from "./pty-helper-release.mjs";
 import { getNpmCommand } from "./npm-command-lib.mjs";
 import {
   getReleaseVersion,
@@ -632,13 +633,14 @@ export async function stageReleaseArtifact({
     cwd: artifactRoot,
   });
   await stageOperatorTools({ artifactRoot, releaseMetadataToken: metadataToken, ...(scope ? { scope } : {}) });
+  await stagePtyHelpers({ artifactRoot, token: metadataToken });
 
   const manifest = await writeReleaseManifest({
     repoRoot,
     artifactRoot,
     artifactName,
     version: resolvedVersion,
-    shippedFiles: [...RELEASE_FILES, "node_modules", "operator-tools", "sbom.cdx.json"],
+    shippedFiles: [...RELEASE_FILES, "node_modules", "operator-tools", "native", "sbom.cdx.json"],
     operatorTools: true,
   });
   const { sbom } = await writeArtifactSBOM({
@@ -697,6 +699,7 @@ export async function stageBundledReleaseArtifact({
   });
 
   await stageOperatorTools({ artifactRoot, releaseMetadataToken: metadataToken, ...(scope ? { scope } : {}) });
+  await stagePtyHelpers({ artifactRoot, token: metadataToken });
 
   const bundledServices = await acquireBundledServices({
     repoRoot,
@@ -714,6 +717,7 @@ export async function stageBundledReleaseArtifact({
       "services",
       "node_modules",
       "operator-tools",
+      "native",
       "sbom.cdx.json",
     ],
     runtimeRoots: {
