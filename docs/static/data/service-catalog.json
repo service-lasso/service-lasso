@@ -58,6 +58,14 @@
       "summary": "Harness service for lifecycle, UI/API, health, logs, state, SQLite, and failure testing."
     },
     {
+      "id": "echo-tui",
+      "name": "Echo TUI",
+      "repo": "service-lasso/lasso-echoservice",
+      "group": "Baseline Core",
+      "status": "Available",
+      "summary": "Echo Service full-screen terminal dashboard used to demonstrate PTY attachment through the runtime terminal API."
+    },
+    {
       "id": "@serviceadmin",
       "name": "Service Admin",
       "repo": "service-lasso/lasso-serviceadmin",

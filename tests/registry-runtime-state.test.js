@@ -75,8 +75,8 @@ test("ServiceRegistry and DependencyGraph model dependencies and dependents", as
   const registry = createServiceRegistry(discovered);
   const graph = new DependencyGraph(registry);
 
-  assert.equal(registry.count(), 14);
-  assert.equal(registry.countEnabled(), 12);
+  assert.equal(registry.count(), 15);
+  assert.equal(registry.countEnabled(), 13);
   assert.ok(registry.getById("@archive"));
   assert.ok(registry.getById("@caddy"));
   assert.ok(registry.getById("@python"));
