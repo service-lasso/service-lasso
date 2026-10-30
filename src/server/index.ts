@@ -7042,14 +7042,16 @@ if (request.method === "GET" && pathParts.length === 4 && pathParts[3] === "term
     }
 
     if (request.method === "POST" && pathParts.length === 5 && pathParts[3] === "terminal" && pathParts[4] === "input") {
-      const body = (await readJsonBody(request)) as { data?: unknown };
+      const body = (await readJsonBody(request)) as { data?: unknown; actor?: unknown };
       const data = typeof body.data === "string" ? Buffer.from(body.data, "base64") : Buffer.alloc(0);
       if (data.byteLength > TERMINAL_INPUT_LIMIT_BYTES) {
         throw new ApiError("terminal_input_too_large", 413, "Terminal input exceeds the bounded frame size.");
       }
-      const result = writeTerminalInput(service.manifest.id, data);
+      const actor = typeof body.actor === "string" && body.actor.trim() ? body.actor.trim() : "operator";
+      const result = writeTerminalInput(service.manifest.id, data, actor);
       if (!result.ok) {
-        throw new ApiError(result.code, result.code === "invalid" ? 400 : 409, result.message);
+        const status = result.code === "invalid" ? 400 : result.code === "read_only" ? 403 : 409;
+        throw new ApiError(result.code, status, result.message);
       }
       await appendAuditEvent({
         workspaceRoot: config.workspaceRoot,
@@ -7076,7 +7078,8 @@ if (request.method === "GET" && pathParts.length === 4 && pathParts[3] === "term
       const cols = typeof body.cols === "number" ? body.cols : Number.NaN;
       const result = resizeTerminalSession(service.manifest.id, rows, cols);
       if (!result.ok) {
-        throw new ApiError(result.code, result.code === "invalid" ? 400 : 409, result.message);
+        const status = result.code === "invalid" ? 400 : result.code === "read_only" ? 403 : 409;
+        throw new ApiError(result.code, status, result.message);
       }
       writeJson(response, 200, { serviceId: service.manifest.id, resized: true, rows, cols });
       return;

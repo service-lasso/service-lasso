@@ -70,6 +70,12 @@ export interface ServiceTerminalDeclaration {
   enabled: boolean;
   rows?: number;
   cols?: number;
+  /** Reject terminal input and resize; output remains readable. */
+  readOnly?: boolean;
+  /** Drop buffered output after this much inactivity (default 15 minutes). */
+  idleTimeoutMs?: number;
+  /** Reject input/resize and hide output after this session age (default 8 hours). */
+  maxSessionMs?: number;
 }
 
 export interface ServicePortDeclaration {
