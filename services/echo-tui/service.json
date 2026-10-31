@@ -1,0 +1,66 @@
+{
+  "id": "echo-tui",
+  "name": "Echo TUI",
+  "description": "Echo Service full-screen terminal dashboard for PTY attachment.",
+  "version": "0.1.0",
+  "enabled": true,
+  "logoutput": true,
+  "args": [
+    "-tui"
+  ],
+  "terminal": {
+    "enabled": true,
+    "rows": 30,
+    "cols": 100
+  },
+  "env": {
+    "ECHO_PORT": "0",
+    "ECHO_HTTP_HEALTH_PORT": "0",
+    "ECHO_TCP_PORT": "0",
+    "ECHO_FASTCGI_PORT": "0",
+    "ECHO_MESSAGE": "echo-tui from the Service Lasso catalog",
+    "ECHO_LOG_PATH": "${SERVICE_ROOT}/runtime/echo.log",
+    "ECHO_STATE_PATH": "${SERVICE_ROOT}/runtime/state.json",
+    "ECHO_DB_PATH": "${SERVICE_ROOT}/runtime/echo.sqlite"
+  },
+  "artifact": {
+    "kind": "archive",
+    "source": {
+      "type": "github-release",
+      "repo": "service-lasso/lasso-echoservice",
+      "tag": "2026.10.28-75d046b"
+    },
+    "platforms": {
+      "win32": {
+        "assetName": "echo-service-win32.zip",
+        "archiveType": "zip",
+        "command": ".\\echo-service.exe",
+        "args": [
+          "-tui"
+        ]
+      },
+      "linux": {
+        "assetName": "echo-service-linux.tar.gz",
+        "archiveType": "tar.gz",
+        "command": "./echo-service",
+        "args": [
+          "-tui"
+        ]
+      },
+      "darwin": {
+        "assetName": "echo-service-darwin.tar.gz",
+        "archiveType": "tar.gz",
+        "command": "./echo-service",
+        "args": [
+          "-tui"
+        ]
+      }
+    }
+  },
+  "healthchecks": [
+    {
+      "id": "process-health",
+      "type": "process"
+    }
+  ]
+}
