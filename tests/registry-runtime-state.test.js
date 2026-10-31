@@ -205,8 +205,8 @@ test("GET /api/runtime returns runtime summary state", async () => {
     const body = await response.json();
 
     assert.equal(response.status, 200);
-    assert.equal(body.runtime.totalServices, 14);
-    assert.equal(body.runtime.enabledServices, 12);
+    assert.equal(body.runtime.totalServices, 15);
+    assert.equal(body.runtime.enabledServices, 13);
     assert.equal(body.runtime.dependencyEdges, 5);
     assert.equal(body.runtime.servicesRoot, servicesRoot);
   } finally {
@@ -702,7 +702,7 @@ test("GET /api/dependencies returns graph nodes and edges", async () => {
     const body = await response.json();
 
     assert.equal(response.status, 200);
-    assert.equal(body.dependencies.nodes.length, 14);
+    assert.equal(body.dependencies.nodes.length, 15);
     assert.deepEqual(body.dependencies.edges, [
       { from: "@java", to: "@localcert" },
       { from: "@node", to: "@serviceadmin" },
