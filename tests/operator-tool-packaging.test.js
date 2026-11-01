@@ -72,6 +72,7 @@ async function importFixtureStagers(root) {
     .replace("./release-version-lib.mjs", pathToFileURL(path.join(scriptsRoot, "release-version-lib.mjs")).href)
     .replace("./npm-command-lib.mjs", npmCommandModuleUrl)
     .replace("./operator-tool-packaging-lib.mjs", operatorModuleUrl));
+  await writeFile(path.join(root, "pty-helper-release.mjs"), "export async function stagePtyHelpers() { return {}; }\n");
 
   const publishSource = await readFile(path.join(scriptsRoot, "publish-package-lib.mjs"), "utf8");
   await writeFile(publishModulePath, publishSource
@@ -80,6 +81,7 @@ async function importFixtureStagers(root) {
     .replace("./release-version-lib.mjs", pathToFileURL(path.join(scriptsRoot, "release-version-lib.mjs")).href)
     .replace("./npm-command-lib.mjs", npmCommandModuleUrl)
     .replace("./operator-tool-packaging-lib.mjs", operatorModuleUrl));
+  await writeFile(path.join(root, "pty-helper-release.mjs"), "export async function stagePtyHelpers() { return {}; }\n");
 
   return {
     ...(await import(`${releaseModuleUrl}?fixture=${Date.now()}`)),

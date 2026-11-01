@@ -168,13 +168,16 @@ jobs:
         env:
           SERVICE_LASSO_VERIFY_PACKAGE_VERSION: ${{ steps.publish_version.outputs.version }}
           SERVICE_LASSO_VERIFY_PACKAGE_REGISTRY: https://registry.npmjs.org
+          # Avoid stale registry metadata in the verification window.
+          npm_config_prefer_online: "true"
+          npm_config_cache: ${{ runner.temp }}/npm-verify-cache
         run: |
-          for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+          for attempt in $(seq 1 40); do
             if npm run verify:package-consumer; then
               exit 0
             fi
 
-            echo "Published package is not visible from npm yet; retry ${attempt}/12 after registry propagation delay."
+            echo "Published package is not visible from npm yet; retry ${attempt}/40 after registry propagation delay."
             sleep 10
           done
 

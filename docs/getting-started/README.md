@@ -17,6 +17,7 @@ Newcomer path for Service Lasso. Do these in order.
 | Advanced | [Proxy FastCGI services with Caddy](advanced-proxying-services-with-caddy.md) | Windows: publish Echo by host name through the shared Caddy translator, the same route FastCGI apps use behind Traefik |
 | Advanced | [Run Nextcloud behind Caddy](advanced-run-nextcloud-behind-caddy.md) | Windows: serve a real FastCGI app through Caddy, prove WebDAV PUT/GET/PROPFIND, and inspect the Windows ancestor-loop fix |
 | Advanced | [Resolve secrets from OpenBao](advanced-openbao-secret-source.md) | Map a Broker ref to OpenBao KV v2, resolve it into Echo, and verify fail-closed startup |
+| Advanced | [Attach to a service terminal UI](advanced-attach-to-service-tuis.md) | Run a service under a PTY, drive its full-screen dashboard from the runtime terminal API, and shut it down cleanly |
 | Optional demo | [Quick start](../quick-start.md) | Visual Admin + Echo tour |
 
 After that: [Configure and recover a service](../operate-your-service.md), [package your app](../package-your-app.md), or [browse services](../service-catalog.md).
