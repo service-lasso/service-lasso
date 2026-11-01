@@ -1851,7 +1851,7 @@ interface TerminalSession {
   maxSessionMs: number;
   startedAt: number;
   lastActivityAt: number;
-  controller: string | null;
+  token: string | null;
   expiredReason: string | null;
 }
 
@@ -1919,7 +1919,7 @@ function ensureTerminalSession(serviceId: string, config: ServiceTerminalConfig)
     existing.maxSessionMs = config.maxSessionMs;
     existing.startedAt = Date.now();
     existing.lastActivityAt = Date.now();
-    existing.controller = null;
+    existing.token = null;
     existing.expiredReason = null;
     return existing;
   }
@@ -1937,7 +1937,7 @@ function ensureTerminalSession(serviceId: string, config: ServiceTerminalConfig)
     maxSessionMs: config.maxSessionMs,
     startedAt: Date.now(),
     lastActivityAt: Date.now(),
-    controller: null,
+    token: null,
     expiredReason: null,
   };
   terminalSessions.set(serviceId, session);
@@ -1986,6 +1986,58 @@ function terminalExpiry(session: TerminalSession | undefined): string | null {
     session.expiredReason = "max_session_exceeded";
   }
   return session.expiredReason;
+}
+
+export type ManagedTerminalAttachResult =
+  | { ok: true; sessionToken: string; readOnly: boolean; rows: number; cols: number; expiresAt: number }
+  | { ok: false; code: "not_running" | "expired" | "controlled"; message: string };
+
+export function attachTerminalSession(serviceId: string): ManagedTerminalAttachResult {
+  const record = managedProcesses.get(serviceId);
+  const session = terminalSessions.get(serviceId);
+  if (!record || record.stopping || !session || session.closed) {
+    return { ok: false, code: "not_running", message: "The managed terminal process is not running." };
+  }
+  if (terminalExpiry(session)) {
+    return { ok: false, code: "expired", message: "This terminal session has expired; restart the service to attach again." };
+  }
+  if (session.token) {
+    return { ok: false, code: "controlled", message: "A terminal session is already attached." };
+  }
+  session.token = randomBytes(32).toString("base64url");
+  session.lastActivityAt = Date.now();
+  return {
+    ok: true,
+    sessionToken: session.token,
+    readOnly: session.readOnly,
+    rows: session.rows,
+    cols: session.cols,
+    expiresAt: session.startedAt + session.maxSessionMs,
+  };
+}
+
+export type ManagedTerminalAuthResult =
+  | { ok: true; session: TerminalSession }
+  | { ok: false; code: "unauthorized" | "expired" | "not_running" };
+
+export function authorizeTerminalSession(serviceId: string, token: string | null | undefined): ManagedTerminalAuthResult {
+  const record = managedProcesses.get(serviceId);
+  const session = terminalSessions.get(serviceId);
+  if (!record || record.stopping || !session || session.closed) {
+    return { ok: false, code: "not_running" };
+  }
+  if (terminalExpiry(session)) {
+    return { ok: false, code: "expired" };
+  }
+  if (!session.token || !token) {
+    return { ok: false, code: "unauthorized" };
+  }
+  const expected = Buffer.from(session.token);
+  const actual = Buffer.from(token);
+  if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
+    return { ok: false, code: "unauthorized" };
+  }
+  return { ok: true, session };
 }
 
 export function inspectTerminalSession(serviceId: string): ManagedTerminalInspection {
@@ -2061,7 +2113,7 @@ function writeTerminalFrame(serviceId: string, frame: Record<string, unknown>, b
   }
 }
 
-export function writeTerminalInput(serviceId: string, data: Buffer, actor = "operator"): ManagedTerminalWriteResult {
+export function writeTerminalInput(serviceId: string, data: Buffer): ManagedTerminalWriteResult {
   if (data.byteLength === 0 || data.byteLength > TERMINAL_INPUT_LIMIT_BYTES) {
     return { ok: false, code: "invalid", message: `Terminal input must be between 1 and ${String(TERMINAL_INPUT_LIMIT_BYTES)} bytes.` };
   }
@@ -2074,11 +2126,6 @@ export function writeTerminalInput(serviceId: string, data: Buffer, actor = "ope
     if (reason) {
       return { ok: false, code: "expired", message: "This terminal session has expired; restart the service to attach again." };
     }
-    const controller = (actor || "operator").trim() || "operator";
-    if (session.controller !== null && session.controller !== controller) {
-      return { ok: false, code: "controlled", message: "Another operator controls this terminal session." };
-    }
-    session.controller = controller;
     session.lastActivityAt = Date.now();
   }
   return writeTerminalFrame(serviceId, { t: "input", b: data.toString("base64") }, data.byteLength);

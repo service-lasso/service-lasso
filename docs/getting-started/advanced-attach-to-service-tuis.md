@@ -56,19 +56,26 @@ stream. Keep the service's own log files if you need separate streams.
 Start the service as usual, then use the runtime terminal API.
 
 ~~~bash
+# 0. Attach and keep the returned token in memory
+TOKEN=$(curl -s -X POST \
+  "$SERVICE_LASSO_API/api/services/echo-tui/terminal/attach" | jq -r .sessionToken)
+
 # 1. Is the session available?
 curl -s "$SERVICE_LASSO_API/api/services/echo-tui/terminal"
 
 # 2. Read output after a sequence number
-curl -s "$SERVICE_LASSO_API/api/services/echo-tui/terminal/output?after=0"
+curl -s -H "x-service-lasso-terminal-token: $TOKEN" \
+  "$SERVICE_LASSO_API/api/services/echo-tui/terminal/output?after=0"
 
-# 3. Send input (base64) and declare the controlling operator
+# 3. Send input (base64)
 curl -s -X POST "$SERVICE_LASSO_API/api/services/echo-tui/terminal/input" \
+  -H "x-service-lasso-terminal-token: $TOKEN" \
   -H 'content-type: application/json' \
-  -d '{"data":"ZQ==","actor":"alice"}'
+  -d '{"data":"ZQ=="}'
 
 # 4. Resize when the emulator window changes
 curl -s -X POST "$SERVICE_LASSO_API/api/services/echo-tui/terminal/resize" \
+  -H "x-service-lasso-terminal-token: $TOKEN" \
   -H 'content-type: application/json' \
   -d '{"rows":40,"cols":120}'
 ~~~
@@ -101,7 +108,7 @@ this article describes the runtime API they use.
 | --- | --- |
 | `terminal.available=false` with `reason=max_session_exceeded` | Restart the service. |
 | Input returns `403` with `read_only` | The manifest sets `terminal.readOnly`. |
-| Input returns `409` with `controlled` | Another actor already controls the session. |
+| Attach returns `409` with `controlled` | A terminal session is already attached; restart the service or detach in the client. |
 | Start fails with "No PTY helper is available" | Source checkout without `SERVICE_LASSO_PTY_HELPER`. |
 | Start fails with "Bundled PTY helper checksum mismatch" | The artifact's `native/pty` bytes were modified. |
 
