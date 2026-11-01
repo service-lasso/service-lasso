@@ -75,11 +75,12 @@ const runtime = await startApiServer({
 const base = runtime.url;
 let latestSequence = 0;
 let output = "";
+let terminalToken = "";
 
 async function request(pathname, options = {}) {
   const response = await fetch(new URL(pathname, base), {
     ...options,
-    headers: options.body ? { "content-type": "application/json" } : undefined,
+    headers: { ...(options.body ? { "content-type": "application/json" } : {}), ...(options.headers ?? {}) },
     signal: AbortSignal.timeout(120000),
   });
   const text = await response.text();
@@ -93,7 +94,7 @@ async function request(pathname, options = {}) {
 }
 
 async function readOutput(after = 0) {
-  const response = await request(`/api/services/echo-tui/terminal/output?after=${String(after)}`);
+  const response = await request(`/api/services/echo-tui/terminal/output?after=${String(after)}`, { headers: { "x-service-lasso-terminal-token": terminalToken } });
   if (!response.ok) {
     throw new Error(`terminal output HTTP ${response.status}: ${JSON.stringify(response.payload).slice(0, 300)}`);
   }
@@ -139,6 +140,13 @@ try {
   record("config", configured.ok, { status: configured.status, message: configured.outcome?.message ?? configured.outcome?.skippedReason ?? null });
   record("start", started.ok && started.outcome?.state?.running === true, { status: started.status, message: started.outcome?.message ?? started.outcome?.skippedReason ?? null });
 
+  const attachResponse = await request("/api/services/echo-tui/terminal/attach", { method: "POST" });
+  terminalToken = attachResponse.payload?.sessionToken ?? "";
+  record("terminal-attach", attachResponse.ok && Boolean(terminalToken), {
+    readOnly: attachResponse.payload?.readOnly,
+    rows: attachResponse.payload?.rows,
+    cols: attachResponse.payload?.cols,
+  });
   const startedState = await state();
   record("service-state", true, { running: startedState?.lifecycle?.running, pid: startedState?.lifecycle?.runtime?.pid, command: startedState?.lifecycle?.runtime?.command, helper: process.env.SERVICE_LASSO_PTY_HELPER });
   const inspection = await request("/api/services/echo-tui/terminal");
@@ -164,6 +172,7 @@ try {
   const before = /actions: (\d+)/.exec(output)?.[1];
   await request("/api/services/echo-tui/terminal/input", {
     method: "POST",
+    headers: { "x-service-lasso-terminal-token": terminalToken },
     body: JSON.stringify({ data: Buffer.from("e").toString("base64") }),
   });
   await waitFor("tui-echo-event", async () => {
@@ -173,6 +182,7 @@ try {
 
   const resized = await request("/api/services/echo-tui/terminal/resize", {
     method: "POST",
+    headers: { "x-service-lasso-terminal-token": terminalToken },
     body: JSON.stringify({ rows: 40, cols: 120 }),
   });
   record("resize-accepted", resized.ok && resized.payload?.rows === 40 && resized.payload?.cols === 120);
@@ -180,6 +190,7 @@ try {
 
   await request("/api/services/echo-tui/terminal/input", {
     method: "POST",
+    headers: { "x-service-lasso-terminal-token": terminalToken },
     body: JSON.stringify({ data: Buffer.from("q").toString("base64") }),
   });
   await waitFor("clean-tui-shutdown", async () => {
