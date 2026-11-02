@@ -1824,7 +1824,13 @@ function serviceEnablesStdin(service: DiscoveredService): boolean {
 export interface ServiceTerminalConfig {
   rows: number;
   cols: number;
+  readOnly: boolean;
+  idleTimeoutMs: number;
+  maxSessionMs: number;
 }
+
+const DEFAULT_TERMINAL_IDLE_TIMEOUT_MS = 15 * 60 * 1000;
+const DEFAULT_TERMINAL_MAX_SESSION_MS = 8 * 60 * 60 * 1000;
 
 interface TerminalChunk {
   sequence: number;
@@ -1840,6 +1846,13 @@ interface TerminalSession {
   bytes: number;
   closed: boolean;
   error: string | null;
+  readOnly: boolean;
+  idleTimeoutMs: number;
+  maxSessionMs: number;
+  startedAt: number;
+  lastActivityAt: number;
+  token: string | null;
+  expiredReason: string | null;
 }
 
 const terminalSessions = new Map<string, TerminalSession>();
@@ -1853,7 +1866,41 @@ export function serviceTerminalConfig(service: DiscoveredService): ServiceTermin
   }
   const clamp = (value: number | undefined, fallback: number): number =>
     Math.min(1000, Math.max(1, Math.trunc(value ?? fallback)));
-  return { rows: clamp(declaration.rows, 24), cols: clamp(declaration.cols, 80) };
+  return {
+    rows: clamp(declaration.rows, 24),
+    cols: clamp(declaration.cols, 80),
+    readOnly: declaration.readOnly === true,
+    idleTimeoutMs: Math.min(86_400_000, Math.max(60_000, Math.trunc(declaration.idleTimeoutMs ?? DEFAULT_TERMINAL_IDLE_TIMEOUT_MS))),
+    maxSessionMs: Math.min(604_800_000, Math.max(3_600_000, Math.trunc(declaration.maxSessionMs ?? DEFAULT_TERMINAL_MAX_SESSION_MS))),
+  };
+}
+
+async function resolvePtyHelper(): Promise<string | null> {
+  const explicit = (process.env.SERVICE_LASSO_PTY_HELPER ?? "").trim();
+  if (explicit) {
+    return explicit;
+  }
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
+  const platform = `${process.platform}-${process.arch}`;
+  const name = process.platform === "win32" ? "service-lasso-pty.exe" : "service-lasso-pty";
+  const binary = path.join(root, "native", "pty", platform, name);
+  try {
+    await stat(binary);
+  } catch {
+    return null;
+  }
+  const manifest = JSON.parse(
+    await readFile(path.join(root, "native", "pty", "checksums.json"), "utf8"),
+  ) as Record<string, unknown>;
+  const expected = manifest[`${platform}/${name}`];
+  if (typeof expected !== "string" || !/^[a-f0-9]{64}$/u.test(expected)) {
+    throw new Error("Bundled PTY helper checksum entry is missing or invalid.");
+  }
+  const actual = createHash("sha256").update(await readFile(binary)).digest("hex");
+  if (actual !== expected) {
+    throw new Error("Bundled PTY helper checksum mismatch.");
+  }
+  return binary;
 }
 
 function ensureTerminalSession(serviceId: string, config: ServiceTerminalConfig): TerminalSession {
@@ -1867,6 +1914,13 @@ function ensureTerminalSession(serviceId: string, config: ServiceTerminalConfig)
     existing.bytes = 0;
     existing.sequence = 0;
     existing.childPid = null;
+    existing.readOnly = config.readOnly;
+    existing.idleTimeoutMs = config.idleTimeoutMs;
+    existing.maxSessionMs = config.maxSessionMs;
+    existing.startedAt = Date.now();
+    existing.lastActivityAt = Date.now();
+    existing.token = null;
+    existing.expiredReason = null;
     return existing;
   }
   const session: TerminalSession = {
@@ -1878,6 +1932,13 @@ function ensureTerminalSession(serviceId: string, config: ServiceTerminalConfig)
     bytes: 0,
     closed: false,
     error: null,
+    readOnly: config.readOnly,
+    idleTimeoutMs: config.idleTimeoutMs,
+    maxSessionMs: config.maxSessionMs,
+    startedAt: Date.now(),
+    lastActivityAt: Date.now(),
+    token: null,
+    expiredReason: null,
   };
   terminalSessions.set(serviceId, session);
   return session;
@@ -1889,6 +1950,7 @@ function pushTerminalData(serviceId: string, data: Buffer): void {
     return;
   }
   session.sequence += 1;
+  session.lastActivityAt = Date.now();
   session.chunks.push({ sequence: session.sequence, data });
   session.bytes += data.byteLength;
   while (session.bytes > TERMINAL_BUFFER_LIMIT_BYTES && session.chunks.length > 1) {
@@ -1912,18 +1974,85 @@ export interface ManagedTerminalInspection {
   sequence: number;
   childPid: number | null;
   error: string | null;
+  readOnly: boolean;
+  reason: string | null;
+}
+
+function terminalExpiry(session: TerminalSession | undefined): string | null {
+  if (!session || session.expiredReason) {
+    return session?.expiredReason ?? null;
+  }
+  if (Date.now() - session.startedAt > session.maxSessionMs) {
+    session.expiredReason = "max_session_exceeded";
+  }
+  return session.expiredReason;
+}
+
+export type ManagedTerminalAttachResult =
+  | { ok: true; sessionToken: string; readOnly: boolean; rows: number; cols: number; expiresAt: number }
+  | { ok: false; code: "not_running" | "expired" | "controlled"; message: string };
+
+export function attachTerminalSession(serviceId: string): ManagedTerminalAttachResult {
+  const record = managedProcesses.get(serviceId);
+  const session = terminalSessions.get(serviceId);
+  if (!record || record.stopping || !session || session.closed) {
+    return { ok: false, code: "not_running", message: "The managed terminal process is not running." };
+  }
+  if (terminalExpiry(session)) {
+    return { ok: false, code: "expired", message: "This terminal session has expired; restart the service to attach again." };
+  }
+  if (session.token) {
+    return { ok: false, code: "controlled", message: "A terminal session is already attached." };
+  }
+  session.token = randomBytes(32).toString("base64url");
+  session.lastActivityAt = Date.now();
+  return {
+    ok: true,
+    sessionToken: session.token,
+    readOnly: session.readOnly,
+    rows: session.rows,
+    cols: session.cols,
+    expiresAt: session.startedAt + session.maxSessionMs,
+  };
+}
+
+export type ManagedTerminalAuthResult =
+  | { ok: true; session: TerminalSession }
+  | { ok: false; code: "unauthorized" | "expired" | "not_running" };
+
+export function authorizeTerminalSession(serviceId: string, token: string | null | undefined): ManagedTerminalAuthResult {
+  const record = managedProcesses.get(serviceId);
+  const session = terminalSessions.get(serviceId);
+  if (!record || record.stopping || !session || session.closed) {
+    return { ok: false, code: "not_running" };
+  }
+  if (terminalExpiry(session)) {
+    return { ok: false, code: "expired" };
+  }
+  if (!session.token || !token) {
+    return { ok: false, code: "unauthorized" };
+  }
+  const expected = Buffer.from(session.token);
+  const actual = Buffer.from(token);
+  if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
+    return { ok: false, code: "unauthorized" };
+  }
+  return { ok: true, session };
 }
 
 export function inspectTerminalSession(serviceId: string): ManagedTerminalInspection {
   const record = managedProcesses.get(serviceId);
   const session = terminalSessions.get(serviceId);
+  const reason = terminalExpiry(session);
   return {
-    available: Boolean(record && !record.stopping && session && !session.closed),
+    available: Boolean(record && !record.stopping && session && !session.closed && reason === null),
     rows: session?.rows ?? 24,
     cols: session?.cols ?? 80,
     sequence: session?.sequence ?? 0,
     childPid: session?.childPid ?? null,
     error: session?.error ?? null,
+    readOnly: session?.readOnly ?? false,
+    reason,
   };
 }
 
@@ -1935,11 +2064,19 @@ export interface ManagedTerminalOutput {
   data: string;
   truncated: boolean;
   error: string | null;
+  reason: string | null;
 }
 
 export function readTerminalOutput(serviceId: string, after = 0): ManagedTerminalOutput {
   const inspection = inspectTerminalSession(serviceId);
   const session = terminalSessions.get(serviceId);
+  if (session && inspection.available) {
+    if (Date.now() - session.lastActivityAt > session.idleTimeoutMs && session.chunks.length > 0) {
+      session.chunks = [];
+      session.bytes = 0;
+    }
+    session.lastActivityAt = Date.now();
+  }
   const selected = session
     ? session.chunks.filter((chunk) => chunk.sequence > after)
     : [];
@@ -1953,7 +2090,7 @@ export function readTerminalOutput(serviceId: string, after = 0): ManagedTermina
 
 export type ManagedTerminalWriteResult =
   | { ok: true; byteLength: number }
-  | { ok: false; code: "not_running" | "no_pipe" | "write_failed" | "invalid"; message: string };
+  | { ok: false; code: "not_running" | "no_pipe" | "write_failed" | "invalid" | "read_only" | "expired" | "controlled"; message: string };
 
 function writeTerminalFrame(serviceId: string, frame: Record<string, unknown>, byteLength: number): ManagedTerminalWriteResult {
   const record = managedProcesses.get(serviceId);
@@ -1980,6 +2117,17 @@ export function writeTerminalInput(serviceId: string, data: Buffer): ManagedTerm
   if (data.byteLength === 0 || data.byteLength > TERMINAL_INPUT_LIMIT_BYTES) {
     return { ok: false, code: "invalid", message: `Terminal input must be between 1 and ${String(TERMINAL_INPUT_LIMIT_BYTES)} bytes.` };
   }
+  const session = terminalSessions.get(serviceId);
+  const reason = terminalExpiry(session);
+  if (session) {
+    if (session.readOnly) {
+      return { ok: false, code: "read_only", message: "This terminal session is read-only." };
+    }
+    if (reason) {
+      return { ok: false, code: "expired", message: "This terminal session has expired; restart the service to attach again." };
+    }
+    session.lastActivityAt = Date.now();
+  }
   return writeTerminalFrame(serviceId, { t: "input", b: data.toString("base64") }, data.byteLength);
 }
 
@@ -1988,9 +2136,17 @@ export function resizeTerminalSession(serviceId: string, rows: number, cols: num
     return { ok: false, code: "invalid", message: "Terminal rows and cols must be integers between 1 and 1000." };
   }
   const session = terminalSessions.get(serviceId);
+  const reason = terminalExpiry(session);
+  if (session?.readOnly) {
+    return { ok: false, code: "read_only", message: "This terminal session is read-only." };
+  }
+  if (session && reason) {
+    return { ok: false, code: "expired", message: "This terminal session has expired; restart the service to attach again." };
+  }
   if (session) {
     session.rows = rows;
     session.cols = cols;
+    session.lastActivityAt = Date.now();
   }
   return writeTerminalFrame(serviceId, { t: "resize", rows, cols }, 0);
 }
@@ -2815,14 +2971,12 @@ export async function startManagedProcess(
   const { paths: logPaths, streams: logStreams } =
     await prepareRuntimeLogStreams(service.serviceRoot, startedAt);
   const terminalConfig = serviceTerminalConfig(service);
-  const terminalHelper = terminalConfig
-    ? (process.env.SERVICE_LASSO_PTY_HELPER ?? "").trim()
-    : "";
+  const terminalHelper = terminalConfig ? (await resolvePtyHelper()) ?? "" : "";
   if (terminalConfig && !terminalHelper) {
     await closeRuntimeLogStreams(logStreams);
     throw new ManagedProcessStartError(
       "launch_state_creation",
-      new Error("SERVICE_LASSO_PTY_HELPER is required for a service with terminal.enabled."),
+      new Error("No PTY helper is available for a service with terminal.enabled. Set SERVICE_LASSO_PTY_HELPER or ship the bundled native/pty helper for this platform."),
     );
   }
   const spawnExecutable = terminalConfig ? terminalHelper : executable;

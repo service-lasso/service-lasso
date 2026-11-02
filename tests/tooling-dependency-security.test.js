@@ -47,7 +47,7 @@ test("compression releases its actual gzip stream after a client disconnect", { 
 
 test("every copy of the six newly reported tooling roots uses its official patched release", () => {
   const patched = {
-    compression: "1.8.2", joi: "17.13.8", katex: "0.18.2",
+    compression: "1.8.2", joi: "17.13.9", katex: "0.18.2",
     "postcss-selector-parser": "7.1.6", "source-map-js": "1.2.2", tinypool: "2.1.2",
   };
   for (const [name, version] of Object.entries(patched)) {

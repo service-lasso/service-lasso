@@ -25,3 +25,6 @@ services/*/temp/
 # Python bytecode from local probe syntax checks
 __pycache__/
 *.pyc
+
+# Generated PTY helper staging for local bundled runs
+/native/pty/

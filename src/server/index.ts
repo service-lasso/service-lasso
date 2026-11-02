@@ -285,6 +285,8 @@ import { buildRuntimeDoctorStatus } from "../runtime/doctor/status.js";
 import { ensureRuntimeConfig, resolveRuntimeConfig, type RuntimeConfig } from "../runtime/config.js";
 import { rehydrateDiscoveredServices } from "../runtime/state/rehydrate.js";
 import {
+  attachTerminalSession,
+  authorizeTerminalSession,
   inspectTerminalSession,
   readTerminalOutput,
   resizeTerminalSession,
@@ -7032,7 +7034,36 @@ if (request.method === "GET" && pathParts.length === 4 && pathParts[3] === "term
       return;
     }
 
+    if (request.method === "POST" && pathParts.length === 5 && pathParts[3] === "terminal" && pathParts[4] === "attach") {
+      const result = attachTerminalSession(service.manifest.id);
+      if (!result.ok) {
+        throw new ApiError(result.code, 409, result.message);
+      }
+      await appendAuditEvent({
+        workspaceRoot: config.workspaceRoot,
+        serviceRoot: service.serviceRoot,
+        source: "runtime-api",
+        action: "service.terminal.attach",
+        actor: permissionActorFromRuntimeAuth(auth).id,
+        subject: "service-terminal",
+        serviceId,
+        method: "POST",
+        routeTemplate: "/api/services/{serviceId}/terminal/attach",
+        outcome: "success",
+        statusCode: 200,
+        summary: `Attached a terminal session for service "${serviceId}".`,
+        metadata: { rows: result.rows, cols: result.cols, readOnly: result.readOnly },
+      });
+      writeJson(response, 200, { serviceId: service.manifest.id, ...result });
+      return;
+    }
+
     if (request.method === "GET" && pathParts.length === 5 && pathParts[3] === "terminal" && pathParts[4] === "output") {
+      const token = request.headers["x-service-lasso-terminal-token"];
+      const terminalAuth = authorizeTerminalSession(service.manifest.id, typeof token === "string" ? token : null);
+      if (!terminalAuth.ok) {
+        throw new ApiError(terminalAuth.code, terminalAuth.code === "unauthorized" ? 401 : 409, "A valid terminal session token is required.");
+      }
       const after = Number.parseInt(url.searchParams.get("after") ?? "0", 10);
       writeJson(response, 200, {
         serviceId: service.manifest.id,
@@ -7042,6 +7073,11 @@ if (request.method === "GET" && pathParts.length === 4 && pathParts[3] === "term
     }
 
     if (request.method === "POST" && pathParts.length === 5 && pathParts[3] === "terminal" && pathParts[4] === "input") {
+      const token = request.headers["x-service-lasso-terminal-token"];
+      const terminalAuth = authorizeTerminalSession(service.manifest.id, typeof token === "string" ? token : null);
+      if (!terminalAuth.ok) {
+        throw new ApiError(terminalAuth.code, terminalAuth.code === "unauthorized" ? 401 : 409, "A valid terminal session token is required.");
+      }
       const body = (await readJsonBody(request)) as { data?: unknown };
       const data = typeof body.data === "string" ? Buffer.from(body.data, "base64") : Buffer.alloc(0);
       if (data.byteLength > TERMINAL_INPUT_LIMIT_BYTES) {
@@ -7049,7 +7085,8 @@ if (request.method === "GET" && pathParts.length === 4 && pathParts[3] === "term
       }
       const result = writeTerminalInput(service.manifest.id, data);
       if (!result.ok) {
-        throw new ApiError(result.code, result.code === "invalid" ? 400 : 409, result.message);
+        const status = result.code === "invalid" ? 400 : result.code === "read_only" ? 403 : 409;
+        throw new ApiError(result.code, status, result.message);
       }
       await appendAuditEvent({
         workspaceRoot: config.workspaceRoot,
@@ -7071,12 +7108,18 @@ if (request.method === "GET" && pathParts.length === 4 && pathParts[3] === "term
     }
 
     if (request.method === "POST" && pathParts.length === 5 && pathParts[3] === "terminal" && pathParts[4] === "resize") {
+      const token = request.headers["x-service-lasso-terminal-token"];
+      const terminalAuth = authorizeTerminalSession(service.manifest.id, typeof token === "string" ? token : null);
+      if (!terminalAuth.ok) {
+        throw new ApiError(terminalAuth.code, terminalAuth.code === "unauthorized" ? 401 : 409, "A valid terminal session token is required.");
+      }
       const body = (await readJsonBody(request)) as { rows?: unknown; cols?: unknown };
       const rows = typeof body.rows === "number" ? body.rows : Number.NaN;
       const cols = typeof body.cols === "number" ? body.cols : Number.NaN;
       const result = resizeTerminalSession(service.manifest.id, rows, cols);
       if (!result.ok) {
-        throw new ApiError(result.code, result.code === "invalid" ? 400 : 409, result.message);
+        const status = result.code === "invalid" ? 400 : result.code === "read_only" ? 403 : 409;
+        throw new ApiError(result.code, status, result.message);
       }
       writeJson(response, 200, { serviceId: service.manifest.id, resized: true, rows, cols });
       return;

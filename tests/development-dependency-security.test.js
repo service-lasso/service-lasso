@@ -41,12 +41,12 @@ test("development dependency replacements resolve to the reviewed safe boundarie
     "7.1.4",
   );
   assert.equal(packageJson.overrides["serialize-javascript"], "7.1.4");
-  assert.equal(packageJson.overrides.qs, "6.16.0");
+  assert.equal(packageJson.overrides.qs, "6.17.0");
   assert.equal(packageJson.overrides.hono, "4.13.13");
   assert.equal(packageJson.overrides["brace-expansion"], "1.1.21");
   assert.equal(packageJson.overrides.sockjs.uuid, "11.1.1");
   assert.equal(packageLock.packages["node_modules/uuid"].version, "11.1.1");
-  assert.equal(packageLock.packages["node_modules/qs"].version, "6.16.0");
+  assert.equal(packageLock.packages["node_modules/qs"].version, "6.17.0");
   assert.equal(
     packageLock.packages["node_modules/brace-expansion"].version,
     "1.1.21",
@@ -59,9 +59,9 @@ test("development dependency replacements resolve to the reviewed safe boundarie
 
 /**
  * Nested copies of qs must also resolve to the patched override.
- * Advisory GHSA-4mjr-xmp4-gh2g / GHSA-x5fp-wj9c-mxmx require >= 6.16.0.
+ * Advisory GHSA-4mjr-xmp4-gh2g / GHSA-x5fp-wj9c-mxmx require >= 6.16.0 and GHSA-6pq8-jhm2-2vcw requires >= 6.17.0.
  */
-test("every lockfile qs copy is the patched 6.16.0 override", () => {
+test("every lockfile qs copy is the patched 6.17.0 override", () => {
   const qsPackages = Object.entries(packageLock.packages).filter(
     ([name, pkg]) =>
       (name === "node_modules/qs" || name.endsWith("/node_modules/qs")) &&
@@ -69,7 +69,7 @@ test("every lockfile qs copy is the patched 6.16.0 override", () => {
   );
   assert.ok(qsPackages.length > 0, "expected at least one lockfile qs entry");
   for (const [name, pkg] of qsPackages) {
-    assert.equal(pkg.version, "6.16.0", `${name} must resolve to patched qs`);
+    assert.equal(pkg.version, "6.17.0", `${name} must resolve to patched qs`);
   }
 });
 
