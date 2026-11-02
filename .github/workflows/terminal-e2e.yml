@@ -25,7 +25,7 @@ jobs:
             asset: service-lasso-pty-linux-amd64
           - os: macos-15-intel
             asset: service-lasso-pty-darwin-amd64
-          - os: macos-14
+          - os: macos-15
             asset: service-lasso-pty-darwin-arm64
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
