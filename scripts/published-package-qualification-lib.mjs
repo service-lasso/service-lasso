@@ -11,7 +11,7 @@ export const QUALIFICATION_SCHEMA =
 export const RETENTION_DAYS = 90;
 export const PACKAGE_NAME = "@service-lasso/service-lasso";
 export const ADMIN_HARNESS_REVISION =
-  "7f6ea48c3e94a472e177f7d4d43237e12d6ee1c1";
+  "dda9f964fb131e4d0f75c788cc629a739e86e8c6";
 
 export const RETAINED_ADMIN_TRUSTED_UNLOCK_RECEIPT_SCHEMA =
   "service-lasso.admin-trusted-unlock-retained.v1";
@@ -122,37 +122,37 @@ export function validateRetainedAdminTrustedUnlockReceipt(receipt, expected) {
 
 export const ADMIN_RELEASE = Object.freeze({
   repo: "service-lasso/lasso-serviceadmin",
-  id: "380051618",
-  tag: "2026.8.31-f015b44",
-  revision: "f015b4445b0526546a309301270186a697588166",
+  id: "431358857",
+  tag: "2026.11.2-dda9f96",
+  revision: "dda9f964fb131e4d0f75c788cc629a739e86e8c6",
   manifestSha256:
     "ccd0bd85cde734c1699294a821e381924726a735133c7009b35d49cd27f5f47a",
   checksumSha256:
-    "5bb6911dde9c9cadda9b7c703de7736791c073ca6c2f7ab4340d2342b4c0e4c7",
+    "5b244a1afe5a46907bad57fde27ea6e321ab5b76963e6cb05c33b350d1bc213c",
   platforms: Object.freeze({
     win32: Object.freeze({
       asset: "@serviceadmin-win32.zip",
       sbom: "serviceadmin-win32.cdx.json",
       sha256:
-        "fe5e5fe01d1202f3874097e6223652d634c94677c765c5f82d20e6d274c0161c",
+        "9e5504e0c10ae8ff4a571176b1fafaf60c16478e5126bfcbf903c6156b6b451e",
       sbomSha256:
-        "2b31de0f3113da920b55215d8bcd217a6d13f34164b406ab3e3930da3bf0ca97",
+        "7bf9ab593514f5653ba31cd442f697da94c49acdc994fe774dc846089eb32048",
     }),
     linux: Object.freeze({
       asset: "@serviceadmin-linux.tar.gz",
       sbom: "serviceadmin-linux.cdx.json",
       sha256:
-        "8f80b124967fa1e0efe9fa4c6c0d3aaa9f4f64ffdd15d1180359d2c6185d3e71",
+        "051f904a36fcec92c5e120a3aad28842c2dc02ccd0c4de448fd160f4134f1642",
       sbomSha256:
-        "5f9109a5ce15f244efae2bef937005bf9ec79474ce2de17280fbaac58c5e830a",
+        "86adffcd327c6a5a08731f56efc5adfd186496f580ebd9c801decd699fac4736",
     }),
     darwin: Object.freeze({
       asset: "@serviceadmin-darwin.tar.gz",
       sbom: "serviceadmin-darwin.cdx.json",
       sha256:
-        "2b5cdd80861819a7eb6f92ed5743c208baae8b35e7f4232fd3df928f34bfcb81",
+        "9572cf85de4b6d9c62b9e533088cd0012c967d4cb064260a6913ad86f4801af3",
       sbomSha256:
-        "cb37461f20f0a8174f7ce52c642f6252778861c12dfc3323fb5a88692181cc21",
+        "41d6c8f2e3847ccdbe66bbe72830f742574823bcff65e316a72bbe37f21f4c7a",
     }),
   }),
 });
