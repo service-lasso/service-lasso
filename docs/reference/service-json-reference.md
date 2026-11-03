@@ -143,7 +143,7 @@ Current direction:
 
 - required
 - should be stable
-- should align with the service repoÃ¢â‚¬â„¢s identity
+- should align with the service repo’s identity
 
 ### `name`
 
@@ -461,7 +461,7 @@ Example:
 
 Primary service port.
 
-In the sample, `0` is being used as a simple first-pass placeholder/default meaning Ã¢â‚¬Å“no fixed service port required by this sampleÃ¢â‚¬Â.
+In the sample, `0` is being used as a simple first-pass placeholder/default meaning “no fixed service port required by this sample”.
 
 New manifests should use canonical `endpoints[]` declarations. A non-zero
 legacy numeric port is a `preferred` proposal, not a fixed binding. Declare
@@ -1286,7 +1286,7 @@ Runtime behavior:
 - Setup runs capture stdout/stderr logs and persist results in `.state/setup.json`.
 - `rerun` supports `ifMissing`, `manual`, `always`, and `ifChanged`; baseline bootstrap runs non-manual setup steps and skips already successful `ifMissing` steps.
 - Optional `creates` lists at most 32 file or directory paths expected after success. Paths resolve Service Lasso variables, must stay inside the service root, and are existence guards for `rerun: ifMissing`: present outputs skip, missing or deleted-after-success outputs rerun. Setup state records the latest secret-free guard snapshot (`declared`, service-root-relative path, `present`, `kind`).
-- Optional `fingerprint` lists at most 32 input templates for `rerun: ifChanged`. Templates resolve through Service Lasso variables. Setup state stores `algorithm`, `hash`, `declared`, and `evaluatedAt` only Ã¢â‚¬â€ never raw resolved values. The hash also includes the installed artifact release tag, so an artifact-version change reruns the step even when other declared inputs are unchanged. `ifChanged` requires a non-empty `fingerprint` list. Existing `manual`, `always`, and `ifMissing` skip behaviour is unchanged.
+- Optional `fingerprint` lists at most 32 input templates for `rerun: ifChanged`. Templates resolve through Service Lasso variables. Setup state stores `algorithm`, `hash`, `declared`, and `evaluatedAt` only — never raw resolved values. The hash also includes the installed artifact release tag, so an artifact-version change reruns the step even when other declared inputs are unchanged. `ifChanged` requires a non-empty `fingerprint` list. Existing `manual`, `always`, and `ifMissing` skip behaviour is unchanged.
 - Optional `outputs` lists at most 32 service-root-relative regular files that the step may create or replace. Transactional runtime startup records bounded private preimages before execution and restores/removes only unchanged transaction postimages on rollback. An executed step without `outputs` remains backward-compatible, but a later startup rollback fails closed because its filesystem side effects cannot be verified.
 
 CLI:
