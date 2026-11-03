@@ -1,6 +1,6 @@
 # Core scoped release evidence
 
-Issue #1626 implements SPEC-008 R1â€“R7 and ADR-001 in Development. This is prospective source, UNEXECUTED until an entire independent final-source review and NEW complete-input admission. Source delivery does not establish native qualification, publication, catalog admission or GA readiness.
+Issue #1626 implements SPEC-008 R1–R7 and ADR-001 in Development. This is prospective source, UNEXECUTED until an entire independent final-source review and NEW complete-input admission. Source delivery does not establish native qualification, publication, catalog admission or GA readiness.
 
 ## Source and workflow boundary
 
