@@ -136,7 +136,7 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
     workflow,
     /test "\$admin_revision" = "\$ADMIN_HARNESS_REVISION"/,
   );
-  assert.match(workflow, /ADMIN_RELEASE_TAG: "2026\.8\.31-f015b44"/);
+  assert.match(workflow, /ADMIN_RELEASE_TAG: "2026\.11\.2-dda9f96"/);
   assert.match(workflow, /BROKER_RELEASE_TAG: "2026\.10\.15-3590178"/);
   assert.match(
     workflow,
