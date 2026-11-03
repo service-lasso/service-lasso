@@ -361,7 +361,7 @@ test(`${workflowName} runs the pinned Windows ConPTY probe without publication`,
   assert.match(requirements, /^pywinpty==3\.0\.5 ; python_version == "3\.12" and platform_system == "Windows" and platform_machine == "AMD64" --hash=sha256:d62946adf14b15b54c0b8d785f93fe18b04da23f4ad59e2e8c4612646e9abd23$/mu);
   assert.equal(requirements.trim(), 'pywinpty==3.0.5 ; python_version == "3.12" and platform_system == "Windows" and platform_machine == "AMD64" --hash=sha256:d62946adf14b15b54c0b8d785f93fe18b04da23f4ad59e2e8c4612646e9abd23');
   assert.equal(workflow.match(/uses: actions\/setup-python@/gu)?.length, 1);
-  assert.match(workflow, /name: Set up hash-pinned Windows ConPTY host\n        if: matrix\.platform == 'win32'\n        uses: actions\/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7\.0\.0\n        with:\n          python-version: "3\.12"\n          architecture: "x64"/u);
+  assert.match(workflow, /name: Set up hash-pinned Windows ConPTY host\n        if: matrix\.platform == 'win32'\n        uses: actions\/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7\.1\.0\n        with:\n          python-version: "3\.12"\n          architecture: "x64"/u);
   assert.match(workflow, /python-version: "3\.12"\n          architecture: "x64"/u);
   assert.match(workflow, /python -m pip install --require-hashes --only-binary=:all: --no-deps -r scripts\/requirements-conpty\.txt/u);
   assert.equal(workflow.match(/name: Install hash-pinned Windows ConPTY host/gu)?.length, 1);
@@ -382,7 +382,7 @@ test(`${workflowName} runs the pinned Windows ConPTY probe without publication`,
 test("release-artifact.yml installs the pinned Windows ConPTY host before the probe", async () => {
   const workflow = await readFile(path.join(repoRoot, ".github", "workflows", "release-artifact.yml"), "utf8");
   assert.equal(workflow.match(/uses: actions\/setup-python@/gu)?.length, 1);
-  assert.match(workflow, /name: Set up hash-pinned Windows ConPTY host\n        if: matrix\.platform == 'win32'\n        uses: actions\/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7\.0\.0\n        with:\n          python-version: "3\.12"\n          architecture: "x64"/u);
+  assert.match(workflow, /name: Set up hash-pinned Windows ConPTY host\n        if: matrix\.platform == 'win32'\n        uses: actions\/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7\.1\.0\n        with:\n          python-version: "3\.12"\n          architecture: "x64"/u);
   assert.match(workflow, /name: Install hash-pinned Windows ConPTY host\n        if: matrix\.platform == 'win32'\n        run: "python -m pip install --require-hashes --only-binary=:all: --no-deps -r scripts\/requirements-conpty\.txt"/u);
   const setup = workflow.indexOf("name: Set up hash-pinned Windows ConPTY host");
   const install = workflow.indexOf("name: Install hash-pinned Windows ConPTY host");
