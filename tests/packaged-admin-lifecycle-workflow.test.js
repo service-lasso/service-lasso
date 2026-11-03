@@ -88,11 +88,11 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
   assert.match(workflow, /repository: service-lasso\/lasso-serviceadmin/);
   assert.match(
     workflow,
-    /ADMIN_REVISION: "f015b4445b0526546a309301270186a697588166"/,
+    /ADMIN_REVISION: "dda9f964fb131e4d0f75c788cc629a739e86e8c6"/,
   );
   assert.match(
     workflow,
-    /ADMIN_HARNESS_REVISION: "7f6ea48c3e94a472e177f7d4d43237e12d6ee1c1"/,
+    /ADMIN_HARNESS_REVISION: "dda9f964fb131e4d0f75c788cc629a739e86e8c6"/,
   );
   assert.match(workflow, /ref: \$\{\{ env\.ADMIN_HARNESS_REVISION \}\}/);
   assert.match(workflow, /timeout-minutes: 60/);
@@ -136,21 +136,21 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
     workflow,
     /test "\$admin_revision" = "\$ADMIN_HARNESS_REVISION"/,
   );
-  assert.match(workflow, /ADMIN_RELEASE_TAG: "2026\.8\.31-f015b44"/);
+  assert.match(workflow, /ADMIN_RELEASE_TAG: "2026\.11\.2-dda9f96"/);
   assert.match(workflow, /BROKER_RELEASE_TAG: "2026\.10\.15-3590178"/);
   assert.match(
     workflow,
     /BROKER_REVISION: "35901785afe832eb21ba071cc2c4882c7fbbb13b"/,
   );
-  assert.equal(ADMIN_RELEASE.id, "380051618");
-  assert.equal(ADMIN_RELEASE.revision, "f015b4445b0526546a309301270186a697588166");
-  assert.equal(ADMIN_HARNESS_REVISION, "7f6ea48c3e94a472e177f7d4d43237e12d6ee1c1");
+  assert.equal(ADMIN_RELEASE.id, "431358857");
+  assert.equal(ADMIN_RELEASE.revision, "dda9f964fb131e4d0f75c788cc629a739e86e8c6");
+  assert.equal(ADMIN_HARNESS_REVISION, "dda9f964fb131e4d0f75c788cc629a739e86e8c6");
   assert.equal(BROKER_RELEASE.revision, "35901785afe832eb21ba071cc2c4882c7fbbb13b");
 
   for (const digest of [
-    "fe5e5fe01d1202f3874097e6223652d634c94677c765c5f82d20e6d274c0161c",
-    "8f80b124967fa1e0efe9fa4c6c0d3aaa9f4f64ffdd15d1180359d2c6185d3e71",
-    "2b5cdd80861819a7eb6f92ed5743c208baae8b35e7f4232fd3df928f34bfcb81",
+    "9e5504e0c10ae8ff4a571176b1fafaf60c16478e5126bfcbf903c6156b6b451e",
+    "051f904a36fcec92c5e120a3aad28842c2dc02ccd0c4de448fd160f4134f1642",
+    "9572cf85de4b6d9c62b9e533088cd0012c967d4cb064260a6913ad86f4801af3",
     "0be11e53feb902871c407bd4bed7f557ec5aa11b52e769e703f9f7555350c852",
     "5827a621bca6173d2d578e1acf9a4f074fc836bc5c89e73a15aedbf259124614",
     "bfb5cf5a3f80964dbc947f84d6129c3b1d6caa39effe9af49c0090ba2c509a23",
