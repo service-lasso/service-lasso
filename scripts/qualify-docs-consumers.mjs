@@ -310,8 +310,12 @@ async function browserCheck(buildResult, expected) {
       for (const label of expectedSidebarLabels) {
         const matches = links.filter((link) => link.text === label);
         assert.ok(matches.length > 0, `missing docs sidebar label: ${label}`);
-        for (const match of matches) {
-          assert.ok(match.href?.startsWith(siteBasePath), `docs sidebar href must stay on the site: ${match.href}`);
+        // Docusaurus renders a collapsible category header as href="#" after
+        // hydration; validate the navigable link for the same label instead.
+        const navigable = matches.filter((match) => match.href && match.href !== '#');
+        assert.ok(navigable.length > 0, `docs sidebar label has no navigable link: ${label}`);
+        for (const match of navigable) {
+          assert.ok(match.href.startsWith(siteBasePath), `docs sidebar href must stay on the site: ${match.href}`);
           const response = await context.request.get(`${origin}${match.href}`);
           responses.push({ label, href: match.href, status: response.status() });
           assert.equal(response.status(), 200, `docs sidebar link target missing: ${match.href}`);
