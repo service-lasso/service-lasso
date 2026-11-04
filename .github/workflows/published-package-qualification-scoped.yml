@@ -233,6 +233,14 @@ jobs:
           set -euo pipefail
           node "$GITHUB_WORKSPACE/scripts/establish-admin-trusted-unlock-receipt-caller.mjs"
 
+      - name: Build exact Core qualification harness
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$QUALIFICATION_CANDIDATE_SHA"
+          npm ci
+          npm run build
+
       - name: Verify and prepare published packages
         id: prepare
         shell: bash
