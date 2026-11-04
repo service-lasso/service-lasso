@@ -27,7 +27,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: service-lasso/lasso-serviceadmin
-          ref: 1757686812a96c145dba16e36306dfce5b667476
+          ref: 646c9fb904ec33f6e8772ad5d788af2267734a54
           path: qualification/admin
 
       - name: Set up Node
