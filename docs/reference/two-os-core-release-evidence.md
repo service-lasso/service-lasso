@@ -2,6 +2,12 @@
 
 Issue #1626 implements SPEC-008 R1–R7 and ADR-001 in Development. This is prospective source, UNEXECUTED until an entire independent final-source review and NEW complete-input admission. Source delivery does not establish native qualification, publication, catalog admission or GA readiness.
 
+## Route reconciliation (#1897)
+
+Issue #1897 selects the scoped Windows/Linux route for new GA candidates. The scoped entrypoints (`release-artifact-scoped.yml`, `publish-package-scoped.yml`, `release-qualification-scoped.yml`, `published-package-qualification-scoped.yml`) are the only publication and qualification route for a new GA candidate. The legacy three-platform entrypoints keep their original inputs, matrices and inventories as the historical distribution route; their immutable releases remain independently readable but cannot produce or qualify current GA authority.
+
+`assertScopedCoreReleaseCatalog` rejects a release whose inventory exactly matches the historical seventeen-asset three-platform inventory with a route-specific `legacy three-platform release inventory` error before any catalog admission. A release produced by the legacy route, such as `2026.11.4-d42185d`, remains qualified by the three-OS workflow and must not be submitted to the scoped qualifier. The scoped route stays unavailable for publication until its approved catalog is populated by a separately reviewed pins-only admission after an actual scoped publication; the empty catalog continues to deny eligibility.
+
 ## Source and workflow boundary
 
 `scripts/ga-platform-scope-lib.mjs` binds original policy bytes, Git blob and SHA-256 to Core commit a0384e676c1b2dbf66b915563ea70c176c09d598. Its requirements revision remains d2df8e4bb9533da24acfece6beee4578b1d50357. It rejects duplicate keys, changed scope, mutable policy references and caller-selected target lists. `bind-scoped-workflow-source.mjs` requires develop, checkout HEAD, candidate assertion and workflow SHA to identify the same exact candidate before acquisition or runtime work.

@@ -20,7 +20,7 @@ import {
   extractZipSafely,
 } from "../dist/runtime/files/safe-zip.js";
 import { assertScope, REQUIRED_GA_PLATFORMS } from "./ga-platform-scope-lib.mjs";
-import { SUPPORTED_RELEASE_PLATFORMS } from "./release-asset-policy.mjs";
+import { HISTORICAL_RELEASE_PLATFORMS } from "./release-asset-policy.mjs";
 import { stagePtyHelpers } from "./pty-helper-release.mjs";
 import { getNpmCommand } from "./npm-command-lib.mjs";
 import {
@@ -592,7 +592,7 @@ export async function createPlatformReleaseArchives(outputRoot, artifactName, sc
   if (scope) assertScope(scope);
   const archives = [];
 
-  for (const platform of scope ? REQUIRED_GA_PLATFORMS : SUPPORTED_RELEASE_PLATFORMS) {
+  for (const platform of scope ? REQUIRED_GA_PLATFORMS : HISTORICAL_RELEASE_PLATFORMS) {
     const archiveName =
       platform === "win32"
         ? `${artifactName}-${platform}.zip`
@@ -797,7 +797,7 @@ export async function verifyStagedArtifact({
   });
 
   const platformArchiveVerifications = await Promise.all(
-    (scope ? (assertScope(scope), REQUIRED_GA_PLATFORMS) : SUPPORTED_RELEASE_PLATFORMS).filter((platform) => platform !== "win32").map((platform) => verifyPlatformReleaseArchive({
+    (scope ? (assertScope(scope), REQUIRED_GA_PLATFORMS) : HISTORICAL_RELEASE_PLATFORMS).filter((platform) => platform !== "win32").map((platform) => verifyPlatformReleaseArchive({
       archivePath: path.join(path.dirname(stagedArchivePath), `${artifactName}-${platform}.tar.gz`),
       artifactName,
       platform,

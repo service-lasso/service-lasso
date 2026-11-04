@@ -5,6 +5,7 @@ import { assertByteRef, assertScope, assertSource, closed, digest, parseScopedJs
 import { assertNames, validateNpmPublicationEvidence, verifyFullReleaseBytes } from "./scoped-release-evidence-lib.mjs";
 import { assertProtectedOperatorTools } from "./operator-tool-packaging-lib.mjs";
 import { validateTerminalJobMetadata } from "./published-package-qualification-lib.mjs";
+import { getExpectedReleaseAssetNames as historicalReleaseAssetNames } from "./release-asset-policy.mjs";
 
 // A provider response is evidence only. Source pins remain the sole catalog
 // authority. This object deliberately stays empty until a pins-only review.
@@ -17,7 +18,11 @@ export function assertScopedPublicationCatalog(identity) {
 export function assertScopedCoreReleaseCatalog(metadata, scope, sourceCommit, expectedNames) {
   assertScope(scope);
   if (!Number.isSafeInteger(metadata?.id) || metadata.id < 1 || metadata.draft !== false || metadata.prerelease !== false || metadata.immutable !== true || metadata.target_commitish !== sourceCommit || metadata.name !== metadata.tag_name || !Array.isArray(metadata.assets)) throw new Error("scoped Core publication metadata differs");
-  assertNames(metadata.assets.map(row => row.name), expectedNames);
+  const actualNames = metadata.assets.map(row => row.name);
+  let historicalNames = null;
+  try { historicalNames = historicalReleaseAssetNames(metadata.tag_name); } catch { historicalNames = null; }
+  if (historicalNames && isDeepStrictEqual([...actualNames].sort(), [...historicalNames].sort())) throw new Error("legacy three-platform release inventory cannot qualify the scoped Windows/Linux route; publish and qualify a release produced by .github/workflows/release-artifact-scoped.yml (see ADR-001 and issue #1897)");
+  assertNames(actualNames, expectedNames);
   const ids = new Set();
   const assets = [...metadata.assets].sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0).map(row => {
     if (!Number.isSafeInteger(row.id) || row.id < 1 || ids.has(row.id) || !Number.isSafeInteger(row.size) || row.size < 1 || !/^sha256:[a-f0-9]{64}$/u.test(row.digest) || row.state !== "uploaded" || row.url !== `https://api.github.com/repos/service-lasso/service-lasso/releases/assets/${row.id}` || row.browser_download_url !== `https://github.com/service-lasso/service-lasso/releases/download/${metadata.tag_name}/${row.name}`) throw new Error("scoped Core publication asset identity differs");

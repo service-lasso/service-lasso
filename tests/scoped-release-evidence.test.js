@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { digest, parseScopedJson, readSourceScope, scopeIdentity, sourceIdentity } from "../scripts/ga-platform-scope-lib.mjs";
 import { createCandidate2Evidence, scopedArchiveNames, scopedReleaseAssetNames, validatePublishedEvidence4, verifyCandidate2Bytes, verifyFullReleaseBytes, wrapPublishedEvidence } from "../scripts/scoped-release-evidence-lib.mjs";
 import { ADMIN_HARNESS_REVISION, ADMIN_RELEASE, BROKER_RELEASE, retainAdminTrustedUnlockReceipt, validateRetainedEvidence } from "../scripts/published-package-qualification-lib.mjs";
-import { assertScopedPublicationCatalog, requireScopedPublisherCredential, publishFullRelease, resolvePublicationTag, verifyImmutablePublicBytes, verifyPublicationQualification } from "../scripts/scoped-publication-lib.mjs";
+import { assertScopedCoreReleaseCatalog, assertScopedPublicationCatalog, requireScopedPublisherCredential, publishFullRelease, resolvePublicationTag, verifyImmutablePublicBytes, verifyPublicationQualification } from "../scripts/scoped-publication-lib.mjs";
+import { getExpectedReleaseAssetNames as historicalReleaseAssetNames } from "../scripts/release-asset-policy.mjs";
 import { MCP_PRODUCT_EVIDENCE_CONTRACT, MCP_PACKAGED_COVERAGE_KEYS } from "../scripts/mcp-product-acceptance-lib.mjs";
 import { stageOperatorTools, validateRetainedOperatorToolBytes, verifyRetainedOperatorTools } from "../scripts/operator-tool-packaging-lib.mjs";
 import { selectScopedCurrentAttemptArtifacts } from "../scripts/published-package-qualification-reliability.mjs";
@@ -219,6 +220,14 @@ test("actual full release consumer binds thirteen held assets and twelve ASCII s
   }
   const mixed = clone(evidence); mixed.qualification[1].platform = "darwin";
   assert.throws(() => verifyFullReleaseBytes(mixed, source, held), /receipt/);
+});
+test("scoped qualification refuses a legacy three-platform release inventory", () => {
+  const legacyVersion = "2026.11.4-d42185d";
+  const metadataFor = names => ({ id: 1, name: legacyVersion, tag_name: legacyVersion, target_commitish: source.commit, draft: false, prerelease: false, immutable: true, assets: names.map(name => ({ name })) });
+  assert.throws(
+    () => assertScopedCoreReleaseCatalog(metadataFor(historicalReleaseAssetNames(legacyVersion)), scope, source.commit, scopedReleaseAssetNames(legacyVersion)),
+    /legacy three-platform release inventory/u,
+  );
 });
 test("actual scoped stager and publisher fail before acquisition or provider write with empty production catalogs", async () => {
   let externalCalls = 0;
