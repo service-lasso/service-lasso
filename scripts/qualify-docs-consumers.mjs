@@ -14,6 +14,19 @@ import { chromium } from '@playwright/test';
 const repo = fileURLToPath(new URL('../', import.meta.url));
 // AC-4AJ.12: serve and visit the actual site's configured path, including `/`.
 const siteBasePath = createRequire(import.meta.url)('../docs/docusaurus.config.js').baseUrl;
+const expectedSidebarLabels = Object.freeze([
+  'Getting started',
+  'Beginner — Todo app',
+  'Intermediate — Make the Todo durable',
+  'Advanced — Add a Go Todo API service',
+  'Advanced — Add Zitadel SSO to Todo',
+  'Advanced — Package Todo as a desktop app',
+  'Advanced — Provision secrets as RAM files',
+  'Advanced — Proxy FastCGI services with Caddy',
+  'Advanced — Run Nextcloud behind Caddy',
+  'Advanced — Resolve secrets from OpenBao',
+]);
+const mojibakePattern = /[ÃÂ]|â€|\uFFFD/u;
 const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
 const parent = path.join(repo, '.docs-consumer-qualification');
 await mkdir(parent, { recursive: true });
@@ -275,6 +288,52 @@ async function browserCheck(buildResult, expected) {
     task.catch(() => {}); serverTasks.push(task);
   });
   let browser;
+  async function docsSidebarCheck(origin) {
+    const scenario = 'docs-sidebar';
+    const pageErrors = [], failures = [], responses = [];
+    const diagnostic = { scenario, pageErrors, failures, responses, status: 'provisional' };
+    let context, page;
+    try {
+      context = await browser.newContext();
+      page = await context.newPage();
+      page.on('pageerror', (error) => pageErrors.push(error.message));
+      page.on('requestfailed', (request) => failures.push({ url: request.url(), error: request.failure() }));
+      await page.goto(`${origin}${siteBasePath}getting-started/beginner-todo-app`, { waitUntil: 'networkidle' });
+      const sidebar = page.locator('nav[aria-label="Docs sidebar"]');
+      await sidebar.waitFor();
+      const sidebarText = await sidebar.innerText();
+      assert.doesNotMatch(sidebarText, mojibakePattern, 'docs sidebar must not contain mojibake');
+      const links = await sidebar.locator('a.menu__link').evaluateAll((nodes) => nodes.map((node) => ({
+        text: (node.textContent ?? '').trim(),
+        href: node.getAttribute('href'),
+      })));
+      for (const label of expectedSidebarLabels) {
+        const matches = links.filter((link) => link.text === label);
+        assert.ok(matches.length > 0, `missing docs sidebar label: ${label}`);
+        // Docusaurus renders a collapsible category header as href="#" after
+        // hydration; validate the navigable link for the same label instead.
+        const navigable = matches.filter((match) => match.href && match.href !== '#');
+        assert.ok(navigable.length > 0, `docs sidebar label has no navigable link: ${label}`);
+        for (const match of navigable) {
+          assert.ok(match.href.startsWith(siteBasePath), `docs sidebar href must stay on the site: ${match.href}`);
+          const response = await context.request.get(`${origin}${match.href}`);
+          responses.push({ label, href: match.href, status: response.status() });
+          assert.equal(response.status(), 200, `docs sidebar link target missing: ${match.href}`);
+        }
+      }
+      assert.deepEqual(pageErrors, [], 'docs UI must not raise page errors');
+      assert.deepEqual(failures, [], 'docs UI must load every asset');
+      await page.screenshot({ path: path.join(root, `${scenario}.png`), fullPage: true });
+      await writeFile(path.join(root, `${scenario}-browser.html`), await page.content());
+    } catch (error) {
+      diagnostic.error = describeError(error);
+      diagnostic.status = 'failed';
+      throw error;
+    } finally {
+      if (page) await attempt('docs-sidebar-context.close', () => context.close(), cleanupErrors);
+    }
+    return diagnostic;
+  }
   try {
     server.listen(0, '127.0.0.1');
     await once(server, 'listening');
@@ -429,6 +488,7 @@ async function browserCheck(buildResult, expected) {
       if (scenarioError) throw scenarioError;
       if (scenarioCaptureErrors.length || scenarioCleanupErrors.length) throw new Error(`browser evidence/cleanup failed: ${scenario}`);
     }
+    scenarioResults.push(await docsSidebarCheck(origin));
   } catch (error) {
     primaryError = error;
   } finally {
