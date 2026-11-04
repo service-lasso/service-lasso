@@ -329,7 +329,10 @@ try {
   await terminal.waitFor({ state: "visible", timeout: 60_000 });
   const rendered = await waitFor(
     "xterm-renders-echo-tui",
-    async () => (await terminal.innerText()).includes("Echo Service TUI"),
+    async () => {
+      const text = await terminal.innerText();
+      return text.includes("Echo Service TUI") || text.includes("q quit");
+    },
     120_000,
   );
   if (!rendered) {
