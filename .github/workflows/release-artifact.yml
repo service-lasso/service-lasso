@@ -1,3 +1,5 @@
+# Historical three-platform distribution route. New GA candidates use the
+# scoped Windows/Linux entrypoints (ADR-001, issue #1897).
 name: Release Artifact
 
 on:

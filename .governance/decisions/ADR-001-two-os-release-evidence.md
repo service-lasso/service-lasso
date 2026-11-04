@@ -32,6 +32,10 @@ Existing Admin/Broker source-owned release policies retain their real independen
 
 Rollback disables the new source-selected route and retains all immutable assets, failures and receipts. Historical distribution may continue under exact original catalog identities. Never retag, edit immutable releases, splice older Darwin assets, relax catalog emptiness or upgrade historical evidence into new GA proof. Future platform addition requires new policy/candidate/evidence and review.
 
+## Reconciliation (#1897)
+
+Issue #1897 chooses the scoped Windows/Linux route for new GA candidates. Legacy three-platform workflows and inventories remain the historical distribution route and stay readable, but cannot produce or qualify current GA authority. `assertScopedCoreReleaseCatalog` rejects a release whose inventory exactly matches the historical seventeen-asset inventory with a route-specific error before catalog admission. The already-published `2026.11.4-d42185d` remains qualified by the three-OS workflow and is not a scoped GA candidate. This decision does not populate either empty catalog, change the canonical policy or qualify any release.
+
 ## Readiness and normative origin
 
 Windows/Linux cleanup EBUSY, native/operator/runtime failures, normal input namespace/materialization/source preservation, native observer/compiler/fixture ownership, private custody/credentials/provider controls, empty tool/template catalogs and absent actual publication remain unresolved. Darwin-only helper/grant obligations are deferred; shared dependencies remain required. All original deadlines, ownership, non-destructive local-input promises, private/public separation and first-failure rules survive. Guaranteed finite physical syscalls on arbitrary filesystems and zero OS read-access metadata changes were stronger agent/parent proposals, not original human requirements; separate input architecture must disposition its own actual contract.
