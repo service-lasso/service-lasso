@@ -937,6 +937,7 @@ try {
   );
   await appendGithubEnv({
     SERVICE_LASSO_TEST_CORE_ROOT: coreRoot,
+    SERVICE_LASSO_TEST_CORE_SOURCE_ROOT: workspace,
     SERVICE_LASSO_TEST_ADMIN_ROOT: adminArtifact.extractedPath,
     SERVICE_LASSO_TEST_BROKER_BINARY: brokerBinary,
     QUALIFICATION_PREPARED: "1",

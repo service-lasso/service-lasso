@@ -92,7 +92,7 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
   );
   assert.match(
     workflow,
-    /ADMIN_HARNESS_REVISION: "dda9f964fb131e4d0f75c788cc629a739e86e8c6"/,
+    /ADMIN_HARNESS_REVISION: "919cdb8fbfef65977890a9d7237fcb0b74deb82b"/,
   );
   assert.match(workflow, /ref: \$\{\{ env\.ADMIN_HARNESS_REVISION \}\}/);
   assert.match(workflow, /timeout-minutes: 60/);
@@ -144,7 +144,7 @@ test("AC-4BY.2 packaged Admin workflow binds exact checksum releases to three-OS
   );
   assert.equal(ADMIN_RELEASE.id, "431358857");
   assert.equal(ADMIN_RELEASE.revision, "dda9f964fb131e4d0f75c788cc629a739e86e8c6");
-  assert.equal(ADMIN_HARNESS_REVISION, "dda9f964fb131e4d0f75c788cc629a739e86e8c6");
+  assert.equal(ADMIN_HARNESS_REVISION, "919cdb8fbfef65977890a9d7237fcb0b74deb82b");
   assert.equal(BROKER_RELEASE.revision, "35901785afe832eb21ba071cc2c4882c7fbbb13b");
 
   for (const digest of [
