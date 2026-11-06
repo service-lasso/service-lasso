@@ -22,12 +22,24 @@ import {
   readdir,
   rm,
   stat,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
+async function linkPublishedRuntime(workspace, coreRoot) {
+  for (const name of ["dist", "node_modules"]) {
+    const link = path.join(workspace, name);
+    await rm(link, { recursive: true, force: true });
+    await symlink(
+      path.join(coreRoot, name),
+      link,
+      process.platform === "win32" ? "junction" : "dir",
+    );
+  }
+}
 import { extractScopedCoreArchive } from "./scoped-core-archive-lib.mjs";
 import { digest } from "./ga-platform-scope-lib.mjs";
 import {
@@ -854,6 +866,7 @@ try {
   await mkdir(coreExtraction);
   await extractScopedCoreArchive(originalCoreBytes, coreExtraction, platform, `service-lasso-${coreTag}`, coreSha256);
   const coreRoot = path.join(coreExtraction, `service-lasso-${coreTag}`);
+  await linkPublishedRuntime(workspace, coreRoot);
   const releaseManifest = await readJsonFile(path.join(coreRoot, "release-artifact.json"), "Core release manifest");
   const corePackageJson = await readJsonFile(path.join(coreRoot, "package.json"), "Core release package.json");
   if (
