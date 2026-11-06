@@ -16,7 +16,15 @@ function run(command, args) {
 }
 
 export function extractionCommand(platform, archivePath, extractionRoot) {
-  if (platform === "win32" || platform === "linux" || platform === "darwin") {
+  if (platform === "win32") {
+    // Windows ships bsdtar at System32, which extracts the published ZIP.
+    // The PATH `tar` in Git Bash is GNU tar and cannot read ZIP archives.
+    return {
+      command: `${process.env.SystemRoot ?? "C:\\Windows"}\\System32\\tar.exe`,
+      args: ["-xf", archivePath, "-C", extractionRoot],
+    };
+  }
+  if (platform === "linux" || platform === "darwin") {
     return {
       command: "tar",
       args: ["-xf", archivePath, "-C", extractionRoot],

@@ -12,13 +12,17 @@ import {
 } from "../scripts/published-package-archive.mjs";
 
 test("published qualification selects an explicit platform archive extractor", () => {
-  for (const platform of ["win32", "linux", "darwin"]) {
+  for (const platform of ["linux", "darwin"]) {
     const plan = extractionCommand(platform, "core.archive", "destination");
     assert.deepEqual(plan, {
       command: "tar",
       args: ["-xf", "core.archive", "-C", "destination"],
     });
   }
+  assert.deepEqual(extractionCommand("win32", "core.zip", "destination"), {
+    command: `${process.env.SystemRoot ?? "C:\\Windows"}\\System32\\tar.exe`,
+    args: ["-xf", "core.zip", "-C", "destination"],
+  });
   assert.throws(
     () => extractionCommand("aix", "core.tar.gz", "destination"),
     /Unsupported qualification platform/u,
