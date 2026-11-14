@@ -39,3 +39,34 @@ Reuse tests/durable-lifecycle-http.test.js patterns and tests/test-helpers.js
 without editing shared helpers or existing large tests. Existing single-action
 claims/replay/actor tests remain independent; this test adds actual five-action
 file/process effects and preservation of a RUNNING control identity.
+
+## Actual Linux source proof — 2026-11-15
+
+Distinct root accepted source candidate e0bd0103 and requested reserved cleanup
+time. Final executed ac49ac6bcbc8d2242b23d9d6e049ac5f698bdc96 adds an internal45s
+HTTP execution deadline with t.signal cancellation, retaining the outer120s and
+separate cleanup request bounds. Process snapshots compare stable PID/start ticks,
+not scheduler R/S transitions; live checks still reject zombies.
+
+The genuine OAuth maintainer profile requires all four scopes: read, lifecycle:
+write, config:write AND update:write. No runtime-admin scope is granted. This
+follows resolveMcpPermissionProfile; config scope alone is not a maintainer.
+
+Node22.23.2 focused test PASS1/1, zero skipped, ~9.5s execution. Production Core
+source inputs are unchanged from the fresh merged #1921 build; artifact SHA256
+2d56792a3841f38e5e478da419c2d6b8c557543d0df36d7f4c8b6b25bbc580fb.
+Five target operations succeeded with unique IDs and actual installed/configured
+file assertions. Start PID1678466/startticks31713270 became absent on stop;
+restart-from-stopped PID1679212 was replaced by running restart PID1679595 with
+new birth ticks. Same-key completed replay preserved its operation ID, process
+and files with no added operation; altered same-key action409. Reader403 and
+foreign-signature401 had unchanged actual owner snapshots. Running control
+PID1677831/startticks31713074 and manifest/fixture/config hashes+mtime were stable.
+All four recorded original process identities absent at cleanup, no forced cleanup,
+API/JWKS ports closed. Evidence retained privately at
+/tmp/operator-source-lifecycle-0QVGUh/receipt.json; test log
+/tmp/core1923-first-test.log. No credential appears in receipt or test output.
+
+These are real host Node source-fixture effects through the actual Core API,
+not immutable template creation or native/package/product qualification. Final
+root review, develop PR landing and postmerge focused source proof remain required.
