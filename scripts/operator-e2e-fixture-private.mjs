@@ -18,14 +18,16 @@ async function windows(mode,target) {
   if(!systemRoot||!path.win32.isAbsolute(systemRoot))throw Error('Windows private setup system path is unavailable');
   const executable=path.win32.join(systemRoot,'System32','WindowsPowerShell','v1.0','powershell.exe');
   try {
-    const {stdout}=await run(executable,['-NoLogo','-NoProfile','-NonInteractive','-File',setup,'-Mode',mode,'-Target',target],{
+    const operation=run(executable,['-NoLogo','-NoProfile','-NonInteractive','-File',setup,'-Mode',mode,'-Target',target],{
       windowsHide:true,timeout:15000,maxBuffer:32768,
       env:{SystemRoot:systemRoot,WINDIR:systemRoot,PATH:path.win32.join(systemRoot,'System32')},
     });
+    operation.child.stdin.end();
+    const {stdout}=await operation;
     const observed=JSON.parse(stdout);
     if(observed?.verified!==true||observed.platform!=='win32'||observed.policy!=='current-owner-and-system')throw Error('Unverified private setup');
     return observed;
-  }catch{throw Error('Ordinary fixture Windows private setup failed');}
+  }catch(error){const code=/^(?:[A-Z_]+|[0-9]+)$/.test(String(error.code))?String(error.code):'unknown';const signal=/^SIG[A-Z]+$/.test(error.signal??'')?error.signal:'none';const safe=Error(`Ordinary fixture Windows private setup failed (${mode}; code=${code}; signal=${signal}; terminated=${error.killed===true})`);safe.code='ordinary_fixture_windows_private_setup';throw safe;}
 }
 async function verifyObject(target,directory) {
   await noRedirectedPath(target);

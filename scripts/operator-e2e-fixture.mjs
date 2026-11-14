@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Ordinary source/API smoke fixture; never native/package qualification.
-import {createPrivateDirectory} from './operator-e2e-fixture-private.mjs';
+import {createPrivateDirectory,writePrivateFile} from './operator-e2e-fixture-private.mjs';
 import {spawn,spawnSync} from 'node:child_process';
 import {mkdir,readFile,writeFile,readdir,unlink,realpath,lstat,access} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
@@ -20,7 +20,7 @@ export async function main(args=process.argv.slice(2)){
  if(!samePath(path.resolve(root),root)||!samePath(await realpath(root),root)||!samePath(path.resolve(out),out)||!samePath(await realpath(path.dirname(out)),path.dirname(out)))throw Error('Core/output paths must be canonical without symlink parents');
  if(out===root||out.startsWith(root+path.sep))throw Error('Output must be outside selected Core checkout');
  if(process.platform==='win32'&&options['--build-core']&&!options['--npm-cli'])throw Error('Windows source build requires explicit --npm-cli');
- const privateProof=await createPrivateDirectory(out);const privateProofBytes=JSON.stringify(privateProof)+'\n';await writeFile(path.join(out,'privacy-proof.private.json'),privateProofBytes,{mode:0o600});const privacy={verified:privateProof.verified,platform:privateProof.platform,policy:privateProof.policy,proofSHA256:hash(privateProofBytes)};
+ const privateProof=await createPrivateDirectory(out);const privateProofBytes=JSON.stringify(privateProof)+'\n';await writePrivateFile(path.join(out,'privacy-proof.private.json'),privateProofBytes);const privacy={verified:privateProof.verified,platform:privateProof.platform,policy:privateProof.policy,proofSHA256:hash(privateProofBytes)};
  const receiptFile=path.join(out,'receipt.json');let child;let stopped=false;let timer;let exited;let exitCode=1;let timedOut=false;let protocolFailed=false;let sawReady=false;let readinessWrite=Promise.resolve();let termTimer;let killTimer;let forced=false;
  const receipt={schemaVersion:1,coreRevision:expected,coreArtifactSHA256:null,url:null,stage:'identity',status:'starting',classification:options['--build-core']?'source-built-ordinary-smoke':'unqualified-artifact',cleanup:{status:'pending'},privacy,tools:{node:process.version}};
  const save=()=>writeFile(receiptFile,JSON.stringify(receipt,null,2)+'\n',{mode:0o600});
@@ -69,4 +69,4 @@ export async function main(args=process.argv.slice(2)){
  finally{clearTimeout(timer);clearTimeout(termTimer);clearTimeout(killTimer);process.stdin.removeListener('data',onData);process.stdin.removeListener('end',onEnd);process.removeListener('SIGINT',onSignal);process.removeListener('SIGTERM',onSignal);process.stdin.pause();}
  process.exitCode=exitCode;
 }
-if(process.argv[1]===fileURLToPath(import.meta.url))main().catch(()=>{process.stderr.write('Operator E2E fixture arguments/output rejected.\n');process.exitCode=1;});
+if(process.argv[1]===fileURLToPath(import.meta.url))main().catch(error=>{process.stderr.write(error.code==='ordinary_fixture_windows_private_setup'?error.message+'\n':'Operator E2E fixture arguments/output rejected.\n');process.exitCode=1;});

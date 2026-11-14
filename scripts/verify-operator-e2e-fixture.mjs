@@ -5,7 +5,7 @@ import {createHash} from 'node:crypto';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import assert from 'node:assert/strict';
-const sourceRoot=fileURLToPath(new URL('../',import.meta.url));
+const sourceRoot=path.resolve(fileURLToPath(new URL('../',import.meta.url)));
 const args=process.argv.slice(2);const option=name=>{const i=args.indexOf(name);return i<0?undefined:args[i+1];};
 const output=option('--output-dir');const npmCLI=option('--npm-cli');
 assert.ok(output&&path.isAbsolute(output),'Explicit absent absolute output required');

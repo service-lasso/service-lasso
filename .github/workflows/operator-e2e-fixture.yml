@@ -38,6 +38,9 @@ jobs:
           cache: npm
       - name: Install dependencies without lifecycle scripts
         run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Verify Windows private setup directly before controller tests
+        if: runner.os == 'Windows'
+        run: node --test --test-timeout=90000 --test-name-pattern="reusable private root and exclusive JSON" tests/operator-e2e-fixture.test.js
       - name: Verify actual private paths and protocol refusal/teardown
         run: node --test --test-timeout=90000 tests/operator-e2e-fixture.test.js
       - name: Fresh actual Core source fixture (Linux)
