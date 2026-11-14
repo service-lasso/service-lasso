@@ -13,7 +13,9 @@ npm run build; no new download, shell interpolation or lifecycle hook is introdu
 
 WIN-FIXTURE-2: Reusable scripts/operator-e2e-fixture-private.mjs exports
 createPrivateDirectory(absentAbsolutePath), verifyPrivateDirectory(path), and
-writePrivateJsonFile(file,value). Linux verifies current-owner0700/0600. Windows
+writePrivateJsonFile(file,value) and additive writePrivateFile(file,bytesOrString).
+The generic exclusive writer caps8MiB and zeros only an internal copy; JSON caps
+1MiB. Both perform empty-file owner/ACL preparation before held writes. Linux verifies current-owner0700/0600. Windows
 uses constant reviewed operator-e2e-fixture-private-dir.ps1 through absolute
 System32 PowerShell -NoProfile -NonInteractive -File with literal arguments.
 Create/read back current TokenUser owner, protected root DACL, only current owner

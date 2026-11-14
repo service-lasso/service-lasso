@@ -8,7 +8,7 @@ import {createHash} from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {createPrivateDirectory,verifyPrivateDirectory,verifyPrivateFile,writePrivateJsonFile} from '../scripts/operator-e2e-fixture-private.mjs';
+import {createPrivateDirectory,verifyPrivateDirectory,verifyPrivateFile,writePrivateJsonFile,writePrivateFile} from '../scripts/operator-e2e-fixture-private.mjs';
 const helper=fileURLToPath(new URL('../scripts/operator-e2e-fixture.mjs',import.meta.url));
 async function fixture(){const root=await realpath(await mkdtemp(path.join(os.tmpdir(),'operator-fixture-test-')));const core=path.join(root,'core');await mkdir(path.join(core,'dist/server'),{recursive:true});await writeFile(path.join(core,'package.json'),'{"type":"module"}');const module=`import {createServer} from 'node:http';export function createApiServer(){return createServer((q,r)=>{r.setHeader('content-type','application/json');r.end(JSON.stringify({auth:{actor:{kind:q.headers['x-service-lasso-admin-token']===process.env.SERVICE_LASSO_LOCAL_ADMIN_TOKEN?'local-token':'local-root',authenticated:true},policy:{localTokenConfigured:true}}}));});}export async function waitForApiServerInitialization(){}`;await writeFile(path.join(core,'dist/server/index.js'),module);await writeFile(path.join(core,'.gitignore'),'dist/\n');const git=(...args)=>{const r=spawnSync('git',args,{cwd:core,encoding:'utf8'});assert.equal(r.status,0,r.stderr);return r.stdout.trim();};git('init','--initial-branch=develop');git('config','user.name','fixture');git('config','user.email','fixture@example.invalid');git('config','commit.gpgsign','false');git('add','.');git('commit','-m','synthetic Core protocol fixture');return {root,core,revision:git('rev-parse','HEAD'),sha:createHash('sha256').update(module).digest('hex')};}
 function launch(f,timeout=process.platform==='win32'?'20000':'5000'){const out=path.join(f.root,'output');const child=spawn(process.execPath,[helper,'--core-dir',f.core,'--expected-core-revision',f.revision,'--output-dir',out,'--allow-unqualified-artifact','--expected-core-artifact-sha256',f.sha,'--timeout-ms',timeout],{stdio:['pipe','pipe','pipe']});let stdout='',stderr='';child.stdout.on('data',b=>stdout+=b);child.stderr.on('data',b=>stderr+=b);const exit=new Promise((resolve,reject)=>{child.once('error',reject);child.once('exit',(code,signal)=>resolve({code,signal,stdout,stderr}));});return {out,child,exit,get stdout(){return stdout;}};}
@@ -57,4 +57,13 @@ test('explicit npm CLI is invoked by Node with literal paths containing spaces a
  const out=path.join(f.root,'literal-output');const child=spawn(process.execPath,[helper,'--core-dir',f.core,'--expected-core-revision',f.revision,'--output-dir',out,'--build-core','--npm-cli',npmCLI,'--timeout-ms',process.platform==='win32'?'20000':'5000'],{stdio:['pipe','pipe','pipe']});
  let stdout='';child.stdout.on('data',b=>{stdout+=b;if(stdout.includes('\n'))child.stdin.end('stop\n');});child.stderr.resume();const result=await new Promise((resolve,reject)=>{child.once('error',reject);child.once('exit',(code,signal)=>resolve({code,signal}));});assert.equal(result.code,0);assert.equal(result.signal,null);
  const receipt=JSON.parse(await readFile(path.join(out,'receipt.json')));assert.equal(receipt.tools.npmCLI.path,npmCLI);assert.deepEqual(receipt.build.command,[process.execPath,npmCLI,'run','build']);assert.equal(receipt.status,'passed');
+});
+
+
+test('private raw evidence writer preserves caller bytes and enforces bounded exclusive writes',async()=>{
+ const root=await realpath(await mkdtemp(path.join(os.tmpdir(),'ordinary-private-bytes-')));const directory=path.join(root,'private');await createPrivateDirectory(directory);
+ const bytes=Buffer.from('owned raw evidence sentinel');const original=Buffer.from(bytes);const file=path.join(directory,'raw.log');
+ await writePrivateFile(file,bytes);assert.deepEqual(bytes,original);assert.deepEqual(await readFile(file),original);assert.equal((await verifyPrivateFile(file)).verified,true);
+ await assert.rejects(writePrivateFile(file,Buffer.from('replacement')));assert.deepEqual(await readFile(file),original);
+ const large=Buffer.alloc(8*1024*1024+1,7);await assert.rejects(writePrivateFile(path.join(directory,'oversized'),large));assert.equal(large[0],7);await assert.rejects(access(path.join(directory,'oversized')),{code:'ENOENT'});
 });

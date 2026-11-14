@@ -44,11 +44,14 @@ export async function createPrivateDirectory(target) {
 }
 export async function verifyPrivateDirectory(target) {return verifyObject(target,true);}
 export async function verifyPrivateFile(target) {return verifyObject(target,false);}
-export async function writePrivateJsonFile(file,value) {
+export async function writePrivateFile(file,value) {
+  if(typeof value!=='string'&&!(value instanceof Uint8Array))throw Error('Ordinary private file requires bytes or text');
+  const length=typeof value==='string'?Buffer.byteLength(value):value.byteLength;
+  if(length>8*1024*1024)throw Error('Ordinary private file exceeds limit');
   const parent=path.dirname(file);
   await verifyPrivateDirectory(parent);
-  const bytes=Buffer.from(JSON.stringify(value)+'\n');
-  if(bytes.length>1024*1024)throw Error('Ordinary private JSON exceeds limit');
+  // Always copy: erasing our owned working bytes must not modify the caller.
+  const bytes=Buffer.from(value);
   let handle;
   try {
     handle=await open(file,'wx',0o600);
@@ -61,4 +64,11 @@ export async function writePrivateJsonFile(file,value) {
     await verifyPrivateDirectory(parent);await verifyPrivateFile(file);
   }catch(error){if(handle)await unlink(file).catch(()=>{});throw error;}
   finally{bytes.fill(0);await handle?.close();}
+}
+export async function writePrivateJsonFile(file,value) {
+  const bytes=Buffer.from(JSON.stringify(value)+'\n');
+  try {
+    if(bytes.length>1024*1024)throw Error('Ordinary private JSON exceeds limit');
+    await writePrivateFile(file,bytes);
+  }finally{bytes.fill(0);}
 }
