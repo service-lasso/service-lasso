@@ -8,12 +8,14 @@ param(
 # Disposable ordinary test setup only. No runtime/native authority is issued.
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
+[Console]::Error.WriteLine('ORDINARY_PRIVATE_STAGE:entry')
 try {
     if (-not [IO.Path]::IsPathRooted($Target) -or $Target.StartsWith('\\')) {
         throw 'Local absolute path required'
     }
     $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User
     $system = [Security.Principal.SecurityIdentifier]::new('S-1-5-18')
+    [Console]::Error.WriteLine('ORDINARY_PRIVATE_STAGE:identity')
     if ($Mode -eq 'create-directory') {
         if ([IO.Directory]::Exists($Target) -or [IO.File]::Exists($Target)) {
             throw 'Private directory already exists'
@@ -29,15 +31,20 @@ try {
                 [Security.AccessControl.AccessControlType]::Allow)
             [void]$acl.AddAccessRule($rule)
         }
+        [Console]::Error.WriteLine('ORDINARY_PRIVATE_STAGE:create')
         [void][IO.Directory]::CreateDirectory($Target, $acl)
+        [Console]::Error.WriteLine('ORDINARY_PRIVATE_STAGE:created')
     }
     $item = Get-Item -LiteralPath $Target -Force -ErrorAction Stop
     $fileMode = $Mode -in @('verify-file', 'prepare-empty-file')
     if ($fileMode -eq [bool]$item.PSIsContainer) {
         throw 'Private object kind mismatch'
     }
+    [Console]::Error.WriteLine('ORDINARY_PRIVATE_STAGE:ancestors')
     $cursor = $item
+    $ancestors = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     while ($null -ne $cursor) {
+        if (-not $ancestors.Add([string]$cursor.FullName) -or $ancestors.Count -gt 256) { throw 'Private ancestor cycle or depth bound' }
         if (($cursor.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
             throw 'Redirected private path'
         }
@@ -50,6 +57,7 @@ try {
         $emptyAcl.SetOwner($sid)
         $item.SetAccessControl($emptyAcl)
     }
+    [Console]::Error.WriteLine('ORDINARY_PRIVATE_STAGE:readback')
     $actual = $item.GetAccessControl()
     $owner = $actual.GetOwner([Security.Principal.SecurityIdentifier]).Value
     if ($owner -ne $sid.Value) { throw 'Private owner mismatch' }
@@ -71,6 +79,7 @@ try {
             throw 'Private directory ACE inheritance mismatch'
         }
     }
+    [Console]::Error.WriteLine('ORDINARY_PRIVATE_STAGE:complete')
     [ordered]@{
         platform = 'win32'; policy = 'current-owner-and-system'; ownerSid = $owner
         currentSid = $sid.Value; protected = [bool]$actual.AreAccessRulesProtected

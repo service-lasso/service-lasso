@@ -27,7 +27,7 @@ async function windows(mode,target) {
     const observed=JSON.parse(stdout);
     if(observed?.verified!==true||observed.platform!=='win32'||observed.policy!=='current-owner-and-system')throw Error('Unverified private setup');
     return observed;
-  }catch(error){const code=/^(?:[A-Z_]+|[0-9]+)$/.test(String(error.code))?String(error.code):'unknown';const signal=/^SIG[A-Z]+$/.test(error.signal??'')?error.signal:'none';const safe=Error(`Ordinary fixture Windows private setup failed (${mode}; code=${code}; signal=${signal}; terminated=${error.killed===true})`);safe.code='ordinary_fixture_windows_private_setup';throw safe;}
+  }catch(error){const code=/^(?:[A-Z_]+|[0-9]+)$/.test(String(error.code))?String(error.code):'unknown';const signal=/^SIG[A-Z]+$/.test(error.signal??'')?error.signal:'none';const stages=[...String(error.stderr??'').matchAll(/ORDINARY_PRIVATE_STAGE:(entry|identity|create|created|ancestors|readback|complete)/g)].map(value=>value[1]);const stage=stages.at(-1)??'startup';const safe=Error(`Ordinary fixture Windows private setup failed (${mode}; stage=${stage}; code=${code}; signal=${signal}; terminated=${error.killed===true})`);safe.code='ordinary_fixture_windows_private_setup';throw safe;}
 }
 async function verifyObject(target,directory) {
   await noRedirectedPath(target);
