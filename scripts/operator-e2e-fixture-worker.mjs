@@ -1,6 +1,6 @@
 // Private clean-environment child. Token is never an argument or public output.
 import {verifyPrivateDirectory,writePrivateJsonFile} from './operator-e2e-fixture-private.mjs';
-import {mkdir,readFile,writeFile,unlink,access} from 'node:fs/promises';
+import {mkdir,lstat,realpath,readFile,writeFile,unlink,access} from 'node:fs/promises';
 import {randomBytes,createHash} from 'node:crypto';
 import {once} from 'node:events';
 import {pathToFileURL} from 'node:url';
@@ -14,10 +14,12 @@ function requestStop(reason){void close(reason).catch(()=>{process.exitCode=1;})
 process.stdin.setEncoding('utf8');process.stdin.on('data',b=>{if(b.includes('stop'))requestStop('requested');});process.stdin.once('end',()=>requestStop('stdin-end'));process.once('SIGTERM',()=>requestStop('signal'));process.once('SIGINT',()=>requestStop('signal'));process.stdin.resume();timer=setTimeout(()=>requestStop('deadline'),config.timeout);
 try{
  mark('private-root');await verifyPrivateDirectory(out);
- // Fresh descendants inherit the verified owner+SYSTEM root policy on Windows.
- for(const name of ['home','config','cache','tmp','workspace','services','registry','appdata','localappdata']){mark('private-directory-'+name);await mkdir(path.join(out,name),{mode:0o700});}
+ // The controller exclusively created these before exposing profile paths to
+ // child startup. Verify the owned roster rather than adopting existing paths.
+ const names=['home','config','cache','tmp','workspace','services','registry','appdata','localappdata'];if(!config.runtimeDirectories||Object.keys(config.runtimeDirectories).sort().join(',')!==[...names].sort().join(','))throw Error('Invalid owned directory roster');
+ for(const name of names){mark('private-directory-'+name);const directory=path.join(out,name);const expected=config.runtimeDirectories[name];const info=await lstat(directory,{bigint:true});const resolved=await realpath(directory);const equal=process.platform==='win32'?path.normalize(resolved).toLowerCase()===path.normalize(directory).toLowerCase():resolved===directory;if(!info.isDirectory()||info.isSymbolicLink()||!equal||String(info.dev)!==expected.dev||String(info.ino)!==expected.ino)throw Error('Owned directory identity changed');}
  await verifyPrivateDirectory(out);
- Object.assign(process.env,{SERVICE_LASSO_WORKSPACE_ROOT:path.join(out,'workspace'),SERVICE_LASSO_SERVICES_ROOT:path.join(out,'services'),SERVICE_LASSO_INSTANCE_REGISTRY_PATH:path.join(out,'registry','instances.json'),SERVICE_LASSO_HOST_PORT_REGISTRY_PATH:path.join(out,'registry','ports.json'),SERVICE_LASSO_LOCAL_ADMIN_TOKEN:randomBytes(32).toString('base64url')});
+ Object.assign(process.env,{HOME:path.join(out,'home'),USERPROFILE:path.join(out,'home'),XDG_CONFIG_HOME:path.join(out,'config'),XDG_CACHE_HOME:path.join(out,'cache'),APPDATA:path.join(out,'appdata'),LOCALAPPDATA:path.join(out,'localappdata'),TMPDIR:path.join(out,'tmp'),TEMP:path.join(out,'tmp'),TMP:path.join(out,'tmp'),SERVICE_LASSO_WORKSPACE_ROOT:path.join(out,'workspace'),SERVICE_LASSO_SERVICES_ROOT:path.join(out,'services'),SERVICE_LASSO_INSTANCE_REGISTRY_PATH:path.join(out,'registry','instances.json'),SERVICE_LASSO_HOST_PORT_REGISTRY_PATH:path.join(out,'registry','ports.json'),SERVICE_LASSO_LOCAL_ADMIN_TOKEN:randomBytes(32).toString('base64url')});
  mark('artifact');
  const artifact=path.join(config.root,'dist/server/index.js');if(createHash('sha256').update(await readFile(artifact)).digest('hex')!==config.artifactSHA256)throw Error('Artifact changed');
  mark('import');
