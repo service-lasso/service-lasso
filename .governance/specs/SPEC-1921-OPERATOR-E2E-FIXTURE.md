@@ -42,3 +42,35 @@ fixture (actual process, control service preservation) stays separate from smoke
 Root independently reviews exact source and applicable source-build scope before
 execution. Normal signed PR/develop merge, postmerge integration and issue closure
 remain required. No native source programme execution gate is silently waived.
+
+## Verified ordinary evidence — 2026-11-15
+
+Candidate 90a3da204a46d69243dcd50f3539db120fa2fd40 received distinct root source
+review. Node22.23.2 controlled fixture tests PASS6/6, no skips: actual configured
+token/privacy/mode/stop, wrong revision, artifact hash/dirty input rejection,
+closed import failure, deadline failure and active-handle initialization stall.
+Initial stalled-module test used an unresolved promise without a remaining handle;
+Node naturally exited13, so it did not establish watchdog termination. The final
+controlled stall retains an interval and independently proves owned SIGKILL after
+the normal-stop/SIGTERM grace; its receipt remains FAILED, never cleanup PASS.
+
+Scripts-disabled npm ci installed1521 packages. Actual npm run build succeeded in
+the initially dist-absent clean isolated checkout with Node22.23.2/npm11.19.0 and
+TypeScript7.0.2, compiler SHA256
+cbdfbf11c26ed00dfc073155e316a42d6d6d8a387be61006b82fa9aa93ac572e.
+Existing source programme native/tool qualification is not inferred. Exact server
+artifact2d56792a3841f38e5e478da419c2d6b8c557543d0df36d7f4c8b6b25bbc580fb;
+source input aggregate58ca4596c3858bbc24ee6e36ee964f3a26bd37c70e89625c11f485baf11fc522;
+artifact inventory99377a00064fcc02380f6772afd97fd4e9dc682b4106927bcdf330ad1385f5f2.
+Public/private evidence retained under /tmp/core1921-real-first-20261115 with
+credential removed. Actual ephemeral loopback39371 served authenticated security,
+health/services/instance/capabilities200; default v2 discovery404 was observed,
+not adapted. Awaited initialization and natural stdin stop yielded child0,
+serverClosed/portClosed/parentPortClosed/credentialRemoved/parentCredentialRemoved
+true, forcedTermination false. Independent root reviewed the exact receipt.
+
+Source mode requires initially absent dist; it never deletes a caller artifact.
+Dependencies must be installed separately with scripts disabled before --build-core.
+Forced termination is bounded cleanup failure, not graceful shutdown success.
+No native/package/release, real lifecycle mutation or operator-v2 acceptance claim.
+Postmerge source binding and ordinary proof remain required before issue closure.
