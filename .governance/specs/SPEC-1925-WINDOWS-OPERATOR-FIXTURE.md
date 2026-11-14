@@ -47,3 +47,25 @@ The Windows source-clean preflight identified its sole changed path by matching
 the bounded status hash; npm bin-links normalizes CRLF shebangs even with install
 scripts disabled. Preserve the source-clean gate by stable checkout bytes, never
 restore/ignore a modified source after installation.
+
+WIN-FIXTURE-3 controlled test budgets: Windows synthetic launch/ready/stalled
+initialization use 20s/15s/15s, compared with unchanged POSIX 5s/4s/1s.
+These budgets include the new matching-host PowerShell privacy setup before the
+controlled condition. The stalled case must observe its actual initialization
+entry marker before asserting forced termination and failed cleanup. They are
+ordinary test setup budgets, not product/native deadlines; no further widening
+is authorized by this slice.
+
+Observed hosted evidence (2026-11-15): run43614942357, exact3efaccf0e82b4f97fa9eaa157dd25e1c9811e1f8,
+both Ubuntu and Windows jobs terminal SUCCESS. Windows passed all10 protocol/
+privacy cases and the actual fresh Core build/authenticated read smoke. Its
+receipt records Node22.23.2/npm10.9.8/TypeScript7.0.2, build exit0,
+artifact SHA256 2d56792a3841f38e5e478da419c2d6b8c557543d0df36d7f4c8b6b25bbc580fb,
+inventory SHA256 99377a00064fcc02380f6772afd97fd4e9dc682b4106927bcdf330ad1385f5f2,
+actual initialization, natural child0, no forced termination, server/parent
+port closure and credential removal. Public privacy evidence contains no SID/ACE
+values. Linux additionally passed the genuine five-action lifecycle/control
+preservation test. Earlier Windows setup/EEXIST/dirty-source failures remain
+failed observations, not retroactively passed. Workflow-only9e130a57 adds the
+checkout-policy trigger and has separate host checks. This is ordinary source
+API integration; template/native/privileged admission and publication excluded.
