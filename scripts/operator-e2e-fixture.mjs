@@ -22,7 +22,7 @@ export async function main(args=process.argv.slice(2)){
  if(out===root||out.startsWith(root+path.sep))throw Error('Output must be outside selected Core checkout');
  if(process.platform==='win32'&&options['--build-core']&&!options['--npm-cli'])throw Error('Windows source build requires explicit --npm-cli');
  const privateProof=await createPrivateDirectory(out);const privateProofBytes=JSON.stringify(privateProof)+'\n';await writePrivateFile(path.join(out,'privacy-proof.private.json'),privateProofBytes);const privacy={verified:privateProof.verified,platform:privateProof.platform,policy:privateProof.policy,proofSHA256:hash(privateProofBytes)};
- const receiptFile=path.join(out,'receipt.json');let child;let stopped=false;let timer;let exited;let exitCode=1;let timedOut=false;let protocolFailed=false;let sawReady=false;let readinessWrite=Promise.resolve();let termTimer;let killTimer;let forced=false;
+ const receiptFile=path.join(out,'receipt.json');let child;let stopped=false;let timer;let exited;let exitCode=1;let timedOut=false;let protocolFailed=false;let sawReady=false;let readinessWrite=Promise.resolve();let termTimer;let killTimer;let forced=false;let controllerStage='revision';
  const receipt={schemaVersion:1,coreRevision:expected,coreArtifactSHA256:null,url:null,stage:'identity',status:'starting',classification:options['--build-core']?'source-built-ordinary-smoke':'unqualified-artifact',cleanup:{status:'pending'},privacy,tools:{node:process.version}};
  const save=()=>writeFile(receiptFile,JSON.stringify(receipt,null,2)+'\n',{mode:0o600});
  const terminate=(signal)=>{if(!child||child.exitCode!==null||child.signalCode!==null)return;forced=true;if(process.platform==='win32'){const systemRoot=process.env.SystemRoot;if(!systemRoot||!path.win32.isAbsolute(systemRoot)){child.kill(signal);return;}const killer=path.win32.join(systemRoot,'System32','taskkill.exe');const result=spawnSync(killer,['/PID',String(child.pid),'/T','/F'],{windowsHide:true,timeout:3000,encoding:'utf8'});receipt.forcedTreeTermination={tool:'taskkill',exitCode:result.status};if(result.status!==0)child.kill(signal);}else child.kill(signal);};
@@ -30,12 +30,12 @@ export async function main(args=process.argv.slice(2)){
  const onData=b=>{if(b.toString().includes('stop'))stop();};const onEnd=()=>stop();const onSignal=()=>stop();
  try{
   if(git(root,'rev-parse','HEAD')!==expected)throw Error('Core revision mismatch');
-  if(git(root,'status','--porcelain','--untracked-files=all')!=='')throw Error('Core checkout must be clean');
-  receipt.coreTree=git(root,'rev-parse','HEAD^{tree}');receipt.cleanSource=true;
+  controllerStage='clean-source';const initialStatus=git(root,'status','--porcelain','--untracked-files=all');if(initialStatus!==''){receipt.dirtySource={entryCount:initialStatus.split('\n').length,statusSHA256:hash(initialStatus)};throw Error('Core checkout must be clean');}
+  controllerStage='source-inputs';receipt.coreTree=git(root,'rev-parse','HEAD^{tree}');receipt.cleanSource=true;
   const tracked=git(root,'ls-files','-z','src','tsconfig.json','package.json','package-lock.json','scripts/copy-runtime-assets.mjs').split('\0').filter(Boolean);
   const sourceInputs=[];for(const name of tracked)sourceInputs.push({path:name,sha256:hash(await readFile(path.join(root,name)))});
   receipt.sourceInputSHA256=hash(JSON.stringify(sourceInputs));await writeFile(path.join(out,'source-inputs.json'),JSON.stringify(sourceInputs,null,2),{mode:0o600});
-  if(options['--build-core']){
+  if(options['--build-core']){controllerStage='build';
    try{await lstat(path.join(root,'dist'));throw Error('Source build requires absent dist; use a fresh selected checkout');}catch(error){if(error.code!=='ENOENT')throw error;}
    receipt.stage='build';await save();const npmCLI=options['--npm-cli'];let npmCommand='npm';let npmPrefix=[];
    receipt.tools.nodeSHA256=hash(await readFile(process.execPath));
@@ -47,12 +47,12 @@ export async function main(args=process.argv.slice(2)){
    const build=spawnSync(npmCommand,[...npmPrefix,'run','build'],{cwd:root,encoding:'utf8',timeout:120000,maxBuffer:8*1024*1024,env:buildEnv});
    await writeFile(path.join(out,'build.log'),(build.stdout??'')+(build.stderr??''),{mode:0o600});receipt.build={command:[npmCommand,...npmPrefix,'run','build'],exitCode:build.status,signal:build.signal};if(build.status!==0)throw Error('Core build failed; stale artifact will not execute');
   }
-  for(const row of sourceInputs)if(hash(await readFile(path.join(root,row.path)))!==row.sha256)throw Error('Core source changed during preparation');
+  controllerStage='artifact-binding';for(const row of sourceInputs)if(hash(await readFile(path.join(root,row.path)))!==row.sha256)throw Error('Core source changed during preparation');
   if(git(root,'rev-parse','HEAD')!==expected||git(root,'status','--porcelain','--untracked-files=all')!=='')throw Error('Core source changed during preparation');
   const artifact=path.join(root,'dist/server/index.js');receipt.coreArtifactSHA256=hash(await readFile(artifact));
   if(options['--allow-unqualified-artifact']&&receipt.coreArtifactSHA256!==options['--expected-core-artifact-sha256'])throw Error('Unqualified artifact hash mismatch');
   const outputs=await inventory(root,'dist');await writeFile(path.join(out,'artifact-inventory.json'),JSON.stringify(outputs,null,2),{mode:0o600});receipt.artifactInventorySHA256=hash(JSON.stringify(outputs));
-  receipt.stage='startup';await save();
+  controllerStage='runtime-startup';receipt.stage='startup';await save();
   const runtimeDirectories={};for(const name of ['home','config','cache','tmp','workspace','services','registry','appdata','localappdata']){const directory=path.join(out,name);await mkdir(directory,{mode:0o700});const info=await lstat(directory,{bigint:true});if(!info.isDirectory()||info.isSymbolicLink())throw Error('Invalid owned runtime directory');runtimeDirectories[name]={dev:String(info.dev),ino:String(info.ino)};}await verifyPrivateDirectory(out);
   const env={...privateWindowsHome(path.join(out,'home')),PATH:process.env.PATH,HOME:path.join(out,'home'),USERPROFILE:path.join(out,'home'),XDG_CONFIG_HOME:path.join(out,'config'),XDG_CACHE_HOME:path.join(out,'cache'),APPDATA:path.join(out,'appdata'),LOCALAPPDATA:path.join(out,'localappdata'),TMPDIR:path.join(out,'tmp'),TEMP:path.join(out,'tmp'),TMP:path.join(out,'tmp'),LANG:'C.UTF-8',...(process.env.SystemRoot?{SystemRoot:process.env.SystemRoot}:{}),SERVICE_LASSO_FIXTURE_CONFIG:JSON.stringify({root,out,artifactSHA256:receipt.coreArtifactSHA256,sourceBuilt:Boolean(options['--build-core']),timeout,runtimeDirectories})};
   child=spawn(process.execPath,[fileURLToPath(new URL('./operator-e2e-fixture-worker.mjs',import.meta.url))],{cwd:out,env,stdio:['pipe','pipe','pipe']});
@@ -68,7 +68,7 @@ export async function main(args=process.argv.slice(2)){
   let portClosed=null;if(receipt.url){const port=Number(new URL(receipt.url).port);portClosed=await new Promise(resolve=>{const socket=net.connect({host:'127.0.0.1',port});socket.once('connect',()=>{socket.destroy();resolve(false);});socket.once('error',e=>resolve(e.code==='ECONNREFUSED'));socket.setTimeout(1000,()=>{socket.destroy();resolve(false);});});}
   receipt.cleanup={...cleanup,parentPortClosed:portClosed,parentCredentialRemoved:credentialAbsent,forcedTermination:forced};if(portClosed!==true||!credentialAbsent||forced)receipt.cleanup.status='failed';
   receipt.status=exitCode===0&&receipt.cleanup.status==='complete'?'passed':'failed';if(receipt.status!=='passed')exitCode=1;receipt.stage='closed';await save();
- }catch{exitCode=1;stop();if(exited)await exited.catch(()=>{});receipt.status='failed';receipt.stage='failed';await unlink(path.join(out,'connection.json')).catch(()=>{});receipt.cleanup={status:'startup-failed'};await save();process.stderr.write('Operator E2E fixture failed; inspect private receipt.\n');}
+ }catch(error){receipt.controllerFailure={stage:controllerStage,code:['ENOENT','EEXIST','EPERM','EACCES'].includes(error.code)?error.code:'other'};exitCode=1;stop();if(exited)await exited.catch(()=>{});receipt.status='failed';receipt.stage='failed';await unlink(path.join(out,'connection.json')).catch(()=>{});receipt.cleanup={status:'startup-failed'};await save();process.stderr.write('Operator E2E fixture failed; inspect private receipt.\n');}
  finally{clearTimeout(timer);clearTimeout(termTimer);clearTimeout(killTimer);process.stdin.removeListener('data',onData);process.stdin.removeListener('end',onEnd);process.removeListener('SIGINT',onSignal);process.removeListener('SIGTERM',onSignal);process.stdin.pause();}
  process.exitCode=exitCode;
 }
