@@ -13,9 +13,9 @@ async function close(reason){if(closing)return closing;closing=(async()=>{clearT
 function requestStop(reason){void close(reason).catch(()=>{process.exitCode=1;});}
 process.stdin.setEncoding('utf8');process.stdin.on('data',b=>{if(b.includes('stop'))requestStop('requested');});process.stdin.once('end',()=>requestStop('stdin-end'));process.once('SIGTERM',()=>requestStop('signal'));process.once('SIGINT',()=>requestStop('signal'));process.stdin.resume();timer=setTimeout(()=>requestStop('deadline'),config.timeout);
 try{
- await verifyPrivateDirectory(out);
+ mark('private-root');await verifyPrivateDirectory(out);
  // Fresh descendants inherit the verified owner+SYSTEM root policy on Windows.
- for(const name of ['home','config','cache','tmp','workspace','services','registry','appdata','localappdata'])await mkdir(path.join(out,name),{mode:0o700});
+ for(const name of ['home','config','cache','tmp','workspace','services','registry','appdata','localappdata']){mark('private-directory-'+name);await mkdir(path.join(out,name),{mode:0o700});}
  await verifyPrivateDirectory(out);
  Object.assign(process.env,{SERVICE_LASSO_WORKSPACE_ROOT:path.join(out,'workspace'),SERVICE_LASSO_SERVICES_ROOT:path.join(out,'services'),SERVICE_LASSO_INSTANCE_REGISTRY_PATH:path.join(out,'registry','instances.json'),SERVICE_LASSO_HOST_PORT_REGISTRY_PATH:path.join(out,'registry','ports.json'),SERVICE_LASSO_LOCAL_ADMIN_TOKEN:randomBytes(32).toString('base64url')});
  mark('artifact');
