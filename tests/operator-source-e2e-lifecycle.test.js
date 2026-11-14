@@ -53,7 +53,7 @@ test('source API five-action effects preserve a running control and enforce OAut
   const submission={action,serviceId:id,execute:true,idempotencyKey:key,confirmationId:preview.body.confirmation.id,confirmationPhrase:preview.body.confirmation.confirmationPhrase};
   const accepted=await request('/api/operator/lifecycle/operations','POST',submission);assert.equal(accepted.status,202,`execute ${action}: HTTP ${accepted.status}`);const operationId=accepted.body.operation.operationId;assert.match(operationId,/^mcp-operation-/);
   const terminal=await poll(()=>request(`/api/operator/lifecycle/operations/${operationId}`),value=>value.status===200&&value.body.operation?.outcome!==null,`terminal ${action}`);
-  assert.equal(terminal.body.operation.outcome,'succeeded');assert.equal(terminal.body.operation.operationId,operationId);assert.equal(terminal.body.operation.action,action==='config'?'service_configure':`service_${action}`);assert.deepEqual(terminal.body.operation.targets,[id]);
+  assert.equal(terminal.body.operation.outcome,'succeeded');assert.equal(terminal.body.operation.operationId,operationId);assert.equal(terminal.body.operation.action,action==='config'?'service_configure':`service_${action}`);assert.deepEqual(terminal.body.operation.targetIds,[id]);
   await trackedIdentity(id);return {operationId,submission};
  }
  try{
