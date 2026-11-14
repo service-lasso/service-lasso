@@ -30,3 +30,6 @@ tests/helpers/core1562-powershell-retention-ast.ps1 text eol=lf
 scripts/operator-e2e-fixture*.mjs text eol=lf
 scripts/operator-e2e-fixture-private-dir.ps1 text eol=lf
 scripts/verify-operator-e2e-fixture.mjs text eol=lf
+
+# npm bin linking normalizes the workspace CLI shebang; keep checkout bytes stable.
+packages/core/cli.js text eol=lf

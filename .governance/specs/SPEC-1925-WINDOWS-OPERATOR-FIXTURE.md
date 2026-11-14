@@ -41,3 +41,9 @@ five-action test against the same fresh build, never labeled Windows acceptance.
 Distinct root source review precedes execution; actual Windows terminal CI PASS,
 normal squash/develop merge, postmerge applicable proof and clean closure required.
 Freeze landed fixture SHA for both client platform consumers.
+
+WIN-FIXTURE-4 checkout prerequisite: packages/core/cli.js uses LF explicitly.
+The Windows source-clean preflight identified its sole changed path by matching
+the bounded status hash; npm bin-links normalizes CRLF shebangs even with install
+scripts disabled. Preserve the source-clean gate by stable checkout bytes, never
+restore/ignore a modified source after installation.
