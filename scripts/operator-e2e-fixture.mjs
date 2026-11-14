@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Ordinary source/API smoke fixture; never native/package qualification.
 import {spawn,spawnSync} from 'node:child_process';
-import {mkdir,readFile,writeFile,readdir,unlink,realpath} from 'node:fs/promises';
+import {mkdir,readFile,writeFile,readdir,unlink,realpath,lstat,access} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import path from 'node:path';
 import net from 'node:net';
@@ -31,6 +31,7 @@ export async function main(args=process.argv.slice(2)){
   const sourceInputs=[];for(const name of tracked)sourceInputs.push({path:name,sha256:hash(await readFile(path.join(root,name)))});
   receipt.sourceInputSHA256=hash(JSON.stringify(sourceInputs));await writeFile(path.join(out,'source-inputs.json'),JSON.stringify(sourceInputs,null,2),{mode:0o600});
   if(options['--build-core']){
+   try{await lstat(path.join(root,'dist'));throw Error('Source build requires absent dist; use a fresh selected checkout');}catch(error){if(error.code!=='ENOENT')throw error;}
    receipt.stage='build';await save();const npm=process.platform==='win32'?'npm.cmd':'npm';const version=spawnSync(npm,['--version'],{encoding:'utf8'});receipt.tools.npm=version.stdout?.trim();
    const compiler=path.join(root,'node_modules/typescript/package.json');receipt.tools.typescript=JSON.parse(await readFile(compiler,'utf8')).version;receipt.tools.compilerSHA256=hash(await readFile(path.join(root,'node_modules/typescript/lib/_tsc.js')).catch(()=>readFile(path.join(root,'node_modules/typescript/lib/tsc.js'))));const pkg=JSON.parse(await readFile(path.join(root,'package.json'),'utf8'));receipt.installedDependencies={};for(const name of Object.keys(pkg.dependencies??{})){const bytes=await readFile(path.join(root,'node_modules',name,'package.json'));receipt.installedDependencies[name]={version:JSON.parse(bytes).version,packageSHA256:hash(bytes)};}
    const build=spawnSync(npm,['run','build'],{cwd:root,encoding:'utf8',timeout:120000,maxBuffer:8*1024*1024,env:{PATH:process.env.PATH,SystemRoot:process.env.SystemRoot,...(process.env.TEMP?{TEMP:process.env.TEMP}:{}),HOME:out,npm_config_cache:path.join(out,'npm-cache')}});
@@ -50,9 +51,10 @@ export async function main(args=process.argv.slice(2)){
   child.stderr.resume();process.stdin.on('data',onData);process.stdin.once('end',onEnd);process.once('SIGINT',onSignal);process.once('SIGTERM',onSignal);process.stdin.resume();timer=setTimeout(()=>{timedOut=true;stop();},timeout);
   if(stopped)child.stdin.end('stop\n');const result=await exited;await readinessWrite;clearTimeout(termTimer);clearTimeout(killTimer);exitCode=result.code===0&&sawReady&&!protocolFailed&&!timedOut&&!forced?0:1;receipt.childExit=result;receipt.timedOut=timedOut;receipt.forcedTermination=forced;
   await unlink(path.join(out,'connection.json')).catch(e=>{if(e.code!=='ENOENT')throw e;});
+  let credentialAbsent=false;try{await access(path.join(out,'connection.json'));}catch(e){if(e.code==='ENOENT')credentialAbsent=true;else throw e;}
   let cleanup;try{cleanup=JSON.parse(await readFile(path.join(out,'worker-cleanup.json'),'utf8'));}catch{cleanup={status:'failed',workerReceiptMissing:true};}
   let portClosed=null;if(receipt.url){const port=Number(new URL(receipt.url).port);portClosed=await new Promise(resolve=>{const socket=net.connect({host:'127.0.0.1',port});socket.once('connect',()=>{socket.destroy();resolve(false);});socket.once('error',e=>resolve(e.code==='ECONNREFUSED'));socket.setTimeout(1000,()=>{socket.destroy();resolve(false);});});}
-  receipt.cleanup={...cleanup,parentPortClosed:portClosed,forcedTermination:forced};if(portClosed!==true||forced)receipt.cleanup.status='failed';
+  receipt.cleanup={...cleanup,parentPortClosed:portClosed,parentCredentialRemoved:credentialAbsent,forcedTermination:forced};if(portClosed!==true||!credentialAbsent||forced)receipt.cleanup.status='failed';
   receipt.status=exitCode===0&&receipt.cleanup.status==='complete'?'passed':'failed';if(receipt.status!=='passed')exitCode=1;receipt.stage='closed';await save();
  }catch{exitCode=1;stop();if(exited)await exited.catch(()=>{});receipt.status='failed';receipt.stage='failed';await unlink(path.join(out,'connection.json')).catch(()=>{});receipt.cleanup={status:'startup-failed'};await save();process.stderr.write('Operator E2E fixture failed; inspect private receipt.\n');}
  finally{clearTimeout(timer);clearTimeout(termTimer);clearTimeout(killTimer);process.stdin.removeListener('data',onData);process.stdin.removeListener('end',onEnd);process.removeListener('SIGINT',onSignal);process.removeListener('SIGTERM',onSignal);process.stdin.pause();}
