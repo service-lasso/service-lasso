@@ -9,6 +9,9 @@ param(
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 [Console]::Error.WriteLine('ORDINARY_PRIVATE_STAGE:entry')
+# Process-only built-in module discovery; no user/PS7 module path or cache.
+# The caller disables the documented PS5.1 ModuleAnalysisCache before startup.
+[Environment]::SetEnvironmentVariable('PSModulePath', [IO.Path]::Combine($PSHOME, 'Modules'), 'Process')
 try {
     if (-not [IO.Path]::IsPathRooted($Target) -or $Target.StartsWith('\\')) {
         throw 'Local absolute path required'

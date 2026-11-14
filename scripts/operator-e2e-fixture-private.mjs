@@ -20,7 +20,7 @@ async function windows(mode,target) {
   try {
     const operation=run(executable,['-NoLogo','-NoProfile','-NonInteractive','-File',setup,'-Mode',mode,'-Target',target],{
       windowsHide:true,timeout:15000,maxBuffer:32768,
-      env:{SystemRoot:systemRoot,WINDIR:systemRoot,PATH:path.win32.join(systemRoot,'System32')},
+      env:{SystemRoot:systemRoot,WINDIR:systemRoot,PATH:path.win32.join(systemRoot,'System32'),PSModulePath:path.win32.join(path.win32.dirname(executable),'Modules'),PSModuleAnalysisCachePath:'nul'},
     });
     operation.child.stdin.end();
     const {stdout}=await operation;
