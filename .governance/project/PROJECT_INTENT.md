@@ -1723,3 +1723,8 @@ Full direct+actualforest tests cover constructor import in root/return/for/arrow
 ## Core #1921 shared ordinary operator E2E fixture
 
 Active SPEC-1921-OPERATOR-E2E-FIXTURE / E2E-FIXTURE-1..4 owns scripts/operator-e2e-fixture*.mjs and tests/operator-e2e-fixture.test.js. Exact selected Core source build or separately labeled hash-bound unqualified artifact, private actual token, loopback direct-server smoke and awaited teardown. Reuses shipped lifecycle peer initialization pattern. CLI/TUI ordinary E2E remain separate from #1681/native/package/release qualification; no API fabrication.
+
+
+## Core #1923 ordinary source API lifecycle E2E
+
+Active SPEC-1923-SOURCE-API-LIFECYCLE / SOURCE-API-1..4 owns tests/operator-source-e2e-lifecycle.test.js only plus issue mappings. Actual Linux file/process five-action effects, genuine ephemeral JWKS OAuth denial/replay and RUNNING control identity preservation; safe private direct API initialization/teardown. Native/template/v2/package/release claims excluded.
