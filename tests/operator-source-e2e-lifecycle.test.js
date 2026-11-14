@@ -43,11 +43,12 @@ test('source API five-action effects preserve a running control and enforce OAut
  Object.assign(process.env,{HOME:path.join(root,'home'),USERPROFILE:path.join(root,'home'),XDG_CONFIG_HOME:path.join(root,'config'),SERVICE_LASSO_WORKSPACE_ROOT:workspaceRoot,SERVICE_LASSO_SERVICES_ROOT:servicesRoot,SERVICE_LASSO_INSTANCE_REGISTRY_PATH:path.join(root,'registry','instances.json'),SERVICE_LASSO_HOST_PORT_REGISTRY_PATH:path.join(root,'registry','ports.json')});
  const evidence={schemaVersion:1,classification:'linux-source-api-integration',status:'running',actions:[],negative:[],cleanup:{status:'pending'}};
  const owned=[];let api,jwks,apiPort,jwksPort,getLifecycleState,stopAllManagedProcesses,token;let primaryFailure;
- let request;
+ let request;let cleaning=false;const executionDeadline=Date.now()+45000;
  const trackedIdentity=async id=>{const identity=await birth(getLifecycleState(id).runtime.pid);if(identity&&!owned.some(value=>sameBirth(value,identity)))owned.push(identity);return identity;};
  const files=async id=>Object.fromEntries(await Promise.all(['service.json','runtime/fixture-service.mjs','runtime/install.txt','runtime/config.env'].map(async name=>[name,await fileEvidence(path.join(servicesRoot,id,name))])));
  const operationIds=async()=>{const result=await request('/api/operator/lifecycle/operations');assert.equal(result.status,200);assert.ok(Array.isArray(result.body.operations));return result.body.operations.map(value=>value.operationId).sort();};
- const snapshot=async()=>({operations:await operationIds(),target:await trackedIdentity(targetId),control:await trackedIdentity(controlId),targetFiles:await files(targetId),controlFiles:await files(controlId)});
+ const stableIdentity=identity=>identity?{pid:identity.pid,startTimeTicks:identity.startTimeTicks}:null;
+ const snapshot=async()=>({operations:await operationIds(),target:stableIdentity(await trackedIdentity(targetId)),control:stableIdentity(await trackedIdentity(controlId)),targetFiles:await files(targetId),controlFiles:await files(controlId)});
  async function execute(action,id,key=`source-e2e-${action}-${randomUUID()}`){
   const preview=await request('/api/operator/lifecycle/operations','POST',{action,serviceId:id});assert.equal(preview.status,200,`preview ${action}: HTTP ${preview.status}`);assert.equal(preview.body.confirmation?.status,'pending');
   const submission={action,serviceId:id,execute:true,idempotencyKey:key,confirmationId:preview.body.confirmation.id,confirmationPhrase:preview.body.confirmation.confirmationPhrase};
@@ -71,7 +72,7 @@ test('source API five-action effects preserve a running control and enforce OAut
   // update:write; no runtime-admin scope is granted to this test actor.
   token=await sign('service-lasso:read service-lasso:lifecycle:write service-lasso:config:write service-lasso:update:write');const reader=await sign('service-lasso:read');const wrong=await generateKeyPair('RS256');const invalid=await sign('service-lasso:read service-lasso:lifecycle:write',wrong.privateKey);
   api=core.createApiServer({host:'127.0.0.1',servicesRoot,workspaceRoot,autostart:false,monitor:false,updateScheduler:false,mcpHttpIdentity:{env:{SERVICE_LASSO_MCP_MODE:'guarded',SERVICE_LASSO_MCP_OAUTH_ISSUER:issuer,SERVICE_LASSO_MCP_OAUTH_JWKS_URI:`http://127.0.0.1:${jwksPort}/jwks`,SERVICE_LASSO_MCP_RESOURCE_URI:resource,SERVICE_LASSO_MCP_OAUTH_AUDIENCE:audience}}});await core.waitForApiServerInitialization(api);api.listen(0,'127.0.0.1');await once(api,'listening');apiPort=api.address().port;
-  request=async(route,method='GET',body,credential=token)=>{const r=await fetch(`http://127.0.0.1:${apiPort}${route}`,{method,headers:{authorization:`Bearer ${credential}`,...(body===undefined?{}:{'content-type':'application/json'})},...(body===undefined?{}:{body:JSON.stringify(body)}),signal:AbortSignal.timeout(5000)});return {status:r.status,body:await r.json()};};
+  request=async(route,method='GET',body,credential=token)=>{if(!cleaning&&(Date.now()>=executionDeadline||t.signal.aborted))throw Error('Source lifecycle execution deadline/cancellation; cleanup reserved');const r=await fetch(`http://127.0.0.1:${apiPort}${route}`,{method,headers:{authorization:`Bearer ${credential}`,...(body===undefined?{}:{'content-type':'application/json'})},...(body===undefined?{}:{body:JSON.stringify(body)}),signal:cleaning?AbortSignal.timeout(5000):AbortSignal.any([AbortSignal.timeout(Math.max(1,Math.min(5000,executionDeadline-Date.now()))),t.signal])});return {status:r.status,body:await r.json()};};
   await execute('start',controlId);const control=await trackedIdentity(controlId);assert.ok(control&&control.state!=='Z');const controlFiles=await files(controlId);
   async function unchangedControl(){assert.ok(sameBirth(control,await trackedIdentity(controlId)));assert.deepEqual(await files(controlId),controlFiles);}
   for(const action of ['install','config','start','stop','restart']){
@@ -90,6 +91,7 @@ test('source API five-action effects preserve a running control and enforce OAut
   assert.equal(new Set(evidence.actions.map(value=>value.operationId)).size,5);evidence.control={identity:control,files:controlFiles,preserved:true};evidence.status='passed';
  }catch(error){primaryFailure=error;evidence.status='failed';}
  finally{
+  cleaning=true;
   const cleanupFailures=[];let forced=false;
   if(getLifecycleState){for(const id of [targetId,controlId]){try{const current=await trackedIdentity(id);if(current&&request){await execute('stop',id);await assertGone(current);}}catch(error){cleanupFailures.push(error);}}}
   if(cleanupFailures.length&&stopAllManagedProcesses){forced=true;try{await stopAllManagedProcesses();}catch(error){cleanupFailures.push(error);}}
