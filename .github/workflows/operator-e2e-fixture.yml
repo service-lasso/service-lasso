@@ -3,6 +3,7 @@ on:
   pull_request:
     branches: [develop]
     paths:
+      - '.gitattributes'
       - 'scripts/operator-e2e-fixture*'
       - 'scripts/verify-operator-e2e-fixture.mjs'
       - 'tests/operator-e2e-fixture.test.js'
@@ -11,6 +12,7 @@ on:
   push:
     branches: [develop]
     paths:
+      - '.gitattributes'
       - 'scripts/operator-e2e-fixture*'
       - 'scripts/verify-operator-e2e-fixture.mjs'
       - 'tests/operator-e2e-fixture.test.js'
