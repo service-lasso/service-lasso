@@ -1,4 +1,5 @@
 // Private clean-environment child. Token is never an argument or public output.
+import {verifyPrivateDirectory,writePrivateJsonFile} from './operator-e2e-fixture-private.mjs';
 import {mkdir,readFile,writeFile,unlink,access} from 'node:fs/promises';
 import {randomBytes,createHash} from 'node:crypto';
 import {once} from 'node:events';
@@ -12,7 +13,10 @@ async function close(reason){if(closing)return closing;closing=(async()=>{clearT
 function requestStop(reason){void close(reason).catch(()=>{process.exitCode=1;});}
 process.stdin.setEncoding('utf8');process.stdin.on('data',b=>{if(b.includes('stop'))requestStop('requested');});process.stdin.once('end',()=>requestStop('stdin-end'));process.once('SIGTERM',()=>requestStop('signal'));process.once('SIGINT',()=>requestStop('signal'));process.stdin.resume();timer=setTimeout(()=>requestStop('deadline'),config.timeout);
 try{
- for(const name of ['home','config','cache','tmp','workspace','services','registry'])await mkdir(path.join(out,name),{mode:0o700,recursive:true});
+ await verifyPrivateDirectory(out);
+ // Fresh descendants inherit the verified owner+SYSTEM root policy on Windows.
+ for(const name of ['home','config','cache','tmp','workspace','services','registry','appdata','localappdata'])await mkdir(path.join(out,name),{mode:0o700});
+ await verifyPrivateDirectory(out);
  Object.assign(process.env,{SERVICE_LASSO_WORKSPACE_ROOT:path.join(out,'workspace'),SERVICE_LASSO_SERVICES_ROOT:path.join(out,'services'),SERVICE_LASSO_INSTANCE_REGISTRY_PATH:path.join(out,'registry','instances.json'),SERVICE_LASSO_HOST_PORT_REGISTRY_PATH:path.join(out,'registry','ports.json'),SERVICE_LASSO_LOCAL_ADMIN_TOKEN:randomBytes(32).toString('base64url')});
  const artifact=path.join(config.root,'dist/server/index.js');if(createHash('sha256').update(await readFile(artifact)).digest('hex')!==config.artifactSHA256)throw Error('Artifact changed');
  const core=await import(pathToFileURL(artifact).href);if(closing)throw Error('Stopped before startup');
@@ -24,6 +28,6 @@ try{
  const observations=[];for(const token of [false,true]){const r=await fetch(url+'/api/runtime/security',{headers:token?{'x-service-lasso-admin-token':process.env.SERVICE_LASSO_LOCAL_ADMIN_TOKEN}:{},signal:AbortSignal.timeout(5000)});const x=await r.json();observations.push({status:r.status,kind:x.auth?.actor?.kind,authenticated:x.auth?.actor?.authenticated,configured:x.auth?.policy?.localTokenConfigured});}
  if(observations[0].status!==200||observations[0].kind!=='local-root'||observations[1].status!==200||observations[1].kind!=='local-token'||observations[1].authenticated!==true||observations[1].configured!==true)throw Error('Actual local token not admitted');
  await writeFile(path.join(out,'auth-observation.json'),JSON.stringify(observations),{mode:0o600});if(closing)throw Error('Stopped during auth');
- await writeFile(path.join(out,'connection.json'),JSON.stringify({url,token:process.env.SERVICE_LASSO_LOCAL_ADMIN_TOKEN}),{mode:0o600});
+ await writePrivateJsonFile(path.join(out,'connection.json'),{url,token:process.env.SERVICE_LASSO_LOCAL_ADMIN_TOKEN});
  process.stdout.write(JSON.stringify({ready:true,url,initializationAPI})+'\n');
 }catch{process.exitCode=1;process.stderr.write('Private Core fixture startup failed.\n');requestStop('startup-failure');}finally{finishStartup();}
