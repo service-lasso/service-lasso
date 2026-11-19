@@ -42,7 +42,8 @@ test("development dependency replacements resolve to the reviewed safe boundarie
   );
   assert.equal(packageJson.overrides["serialize-javascript"], "7.1.4");
   assert.equal(packageJson.overrides.qs, "6.17.0");
-  assert.equal(packageJson.overrides.hono, "4.13.13");
+  assert.equal(packageJson.overrides.hono, "4.13.19");
+  assert.equal(packageJson.overrides["@hono/node-server"], "2.1.9");
   assert.equal(packageJson.overrides["brace-expansion"], "1.1.21");
   assert.equal(packageJson.overrides.sockjs.uuid, "11.1.1");
   assert.equal(packageLock.packages["node_modules/uuid"].version, "11.1.1");
@@ -54,7 +55,11 @@ test("development dependency replacements resolve to the reviewed safe boundarie
   assert.equal(packageJson.overrides["fast-uri"], "3.1.9");
   assert.equal(packageJson.overrides["undici"], "8.12.3");
   assert.equal(packageLock.packages["node_modules/fast-uri"].version, "3.1.9");
-  assert.equal(packageLock.packages["node_modules/hono"].version, "4.13.13");
+  assert.equal(packageLock.packages["node_modules/hono"].version, "4.13.19");
+  assert.equal(
+    packageLock.packages["node_modules/@hono/node-server"].version,
+    "2.1.9",
+  );
 });
 
 /**
