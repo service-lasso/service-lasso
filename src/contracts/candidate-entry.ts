@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 export const CANDIDATE_ENTRY_LEASE_CONTRACT = "service-lasso.candidate-entry-lease.v1" as const;
+export const CANDIDATE_ENTRY_HANDOFF_CONTRACT = "service-lasso.candidate-entry-handoff.v1" as const;
 
 const noNul = (value: string) => !value.includes("\0");
 
@@ -52,6 +53,15 @@ export type CandidateEntryConsumerIdentity = z.infer<typeof consumerIdentitySche
 export type CandidateEntryPublicInput = z.infer<typeof publicInputSchema>;
 export type CandidateEntryLease = z.infer<typeof leaseSchema>;
 export type CandidateEntryConsumerObservation = z.infer<typeof consumerObservationSchema>;
+
+export const candidateEntryHandoffSchema = z
+  .object({
+    contract: z.literal(CANDIDATE_ENTRY_HANDOFF_CONTRACT),
+    lease: leaseSchema,
+  })
+  .strict();
+
+export type CandidateEntryHandoff = z.infer<typeof candidateEntryHandoffSchema>;
 
 export type CandidateEntryRefusalCode =
   | "lease_shape_invalid"
@@ -121,6 +131,17 @@ function refusal<T>(code: CandidateEntryRefusalCode): CandidateEntryResult<T> {
 
 export function parseCandidateEntryLease(value: unknown): CandidateEntryResult<CandidateEntryLease> {
   const parsed = leaseSchema.safeParse(value);
+  return parsed.success ? { ok: true, value: parsed.data } : refusal("lease_shape_invalid");
+}
+
+export function encodeCandidateEntryHandoff(lease: CandidateEntryLease): string {
+  return JSON.stringify({ contract: CANDIDATE_ENTRY_HANDOFF_CONTRACT, lease });
+}
+
+export function parseCandidateEntryHandoff(
+  value: unknown,
+): CandidateEntryResult<CandidateEntryHandoff> {
+  const parsed = candidateEntryHandoffSchema.safeParse(value);
   return parsed.success ? { ok: true, value: parsed.data } : refusal("lease_shape_invalid");
 }
 

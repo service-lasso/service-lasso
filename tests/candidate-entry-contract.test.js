@@ -1,8 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  CANDIDATE_ENTRY_HANDOFF_CONTRACT,
   CANDIDATE_ENTRY_LEASE_CONTRACT,
   CandidateEntryLeaseBook,
+  encodeCandidateEntryHandoff,
+  parseCandidateEntryHandoff,
   parseCandidateEntryLease,
 } from '../dist/contracts/candidate-entry.js';
 
@@ -211,4 +214,32 @@ test('an issued lease is frozen against later mutation', () => {
   assert.throws(() => {
     result.value.consumer.pid = 1;
   }, TypeError);
+});
+
+test('handoff is closed and versioned around the issued lease', () => {
+  const book = new CandidateEntryLeaseBook();
+  const result = book.issue(lease());
+  assert.equal(result.ok, true);
+  const encoded = encodeCandidateEntryHandoff(result.value);
+  const value = JSON.parse(encoded);
+  assert.equal(value.contract, CANDIDATE_ENTRY_HANDOFF_CONTRACT);
+  assert.deepEqual(parseCandidateEntryHandoff(value), { ok: true, value });
+});
+
+test('handoff refuses a mismatched contract or lease shape', () => {
+  const book = new CandidateEntryLeaseBook();
+  const result = book.issue(lease());
+  assert.equal(result.ok, true);
+  const value = JSON.parse(encodeCandidateEntryHandoff(result.value));
+  for (const candidate of [
+    { ...value, contract: 'service-lasso.candidate-entry-handoff.v0' },
+    { ...value, extra: true },
+    { ...value, lease: { ...value.lease, version: 2 } },
+    { ...value, lease: { ...value.lease, leaseId: '' } },
+  ]) {
+    assert.deepEqual(parseCandidateEntryHandoff(candidate), {
+      ok: false,
+      code: 'lease_shape_invalid',
+    });
+  }
 });
