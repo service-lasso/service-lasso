@@ -15,6 +15,14 @@ import {
   type CandidateEntryRelease,
   type CandidateEntryResult,
 } from "../../contracts/candidate-entry.js";
+import {
+  CANDIDATE_ENTRY_BINDER_MAX_BYTES,
+  type CandidateEntryBinderRefusalCode,
+} from "../../contracts/candidate-entry-binder.js";
+import type {
+  CandidateEntryBinderArtifact,
+  CandidateEntryBinderSource,
+} from "./candidate-entry-binder.js";
 
 export const CANDIDATE_ENTRY_HANDOFF_FD = 3 as const;
 export const CANDIDATE_ENTRY_ACK_FD = 4 as const;
@@ -37,8 +45,13 @@ export interface CandidateEntryLaunchRequest {
   timeoutMs?: number;
 }
 
+export interface CandidateEntryLaunchOptions {
+  binderSource?: CandidateEntryBinderSource;
+}
+
 export type CandidateEntryLaunchRefusalCode =
   | CandidateEntryRefusalCode
+  | CandidateEntryBinderRefusalCode
   | "launch_input_invalid"
   | "launch_executable_unavailable"
   | "launch_spawn_failed"
@@ -54,6 +67,7 @@ export type CandidateEntryLaunchRefusalCode =
 export interface CandidateEntryLaunch {
   binding: CandidateEntryBinding;
   child: ChildProcess;
+  imageSha256?: string;
   release: (nowMs?: number) => CandidateEntryResult<CandidateEntryRelease>;
 }
 
@@ -260,6 +274,7 @@ async function terminate(
 export async function launchCandidateEntry(
   book: CandidateEntryLeaseBook,
   request: CandidateEntryLaunchRequest,
+  options: CandidateEntryLaunchOptions = {},
 ): Promise<CandidateEntryLaunchResult> {
   const invalid = validateRequest(request);
   if (invalid !== null) return { ok: false, code: invalid };
@@ -355,9 +370,10 @@ export async function launchCandidateEntry(
     return issued;
   }
 
+  const handoffLine = encodeCandidateEntryHandoff(issued.value);
   const response = readJsonLine(ack, timeoutMs);
   try {
-    handoff.write(`${encodeCandidateEntryHandoff(issued.value)}\n`);
+    handoff.write(`${handoffLine}\n`);
   } catch {
     await terminate(child, handle, book, request.lease.leaseId);
     return { ok: false, code: "launch_handoff_failed" };
@@ -382,15 +398,121 @@ export async function launchCandidateEntry(
     return { ok: false, code: "launch_consumer_refused" };
   }
 
-  const bound = book.bind(
-    request.lease.leaseId,
-    (message as { observation?: unknown }).observation,
-    Date.now(),
-  );
+  const observation = (message as { observation?: unknown }).observation;
+  let imageSha256: string | undefined;
+
+  if (options.binderSource !== undefined) {
+    const validated = book.validate(request.lease.leaseId, observation, Date.now());
+    if (!validated.ok) {
+      try {
+        handoff.write(`${JSON.stringify({ kind: "refused", code: validated.code })}\n`);
+      } catch {}
+      await terminate(child, handle, book, request.lease.leaseId);
+      return validated;
+    }
+
+    let artifact: CandidateEntryBinderArtifact;
+    try {
+      artifact = options.binderSource.materialize({
+        lease: issued.value,
+        observation: observation as CandidateEntryConsumerObservation,
+        handoffLine: Buffer.from(handoffLine, "utf8"),
+      });
+    } catch {
+      artifact = { ok: false, code: "binder_image_encoding_failed" };
+    }
+    if (!artifact || typeof artifact !== "object" || typeof artifact.ok !== "boolean") {
+      artifact = { ok: false, code: "binder_image_encoding_failed" };
+    }
+    if (!artifact.ok) {
+      try {
+        handoff.write(`${JSON.stringify({ kind: "refused", code: artifact.code })}\n`);
+      } catch {}
+      options.binderSource.release(request.lease.leaseId);
+      await terminate(child, handle, book, request.lease.leaseId);
+      return { ok: false, code: artifact.code };
+    }
+
+    const image = artifact.image;
+    const imageHash = artifact.imageSha256;
+    const actualSha256 =
+      image instanceof Uint8Array
+        ? `sha256:${createHash("sha256").update(image).digest("hex")}`
+        : "";
+    if (
+      !(image instanceof Uint8Array) ||
+      image.length === 0 ||
+      image.length > CANDIDATE_ENTRY_BINDER_MAX_BYTES ||
+      typeof imageHash !== "string" ||
+      !/^sha256:[a-f0-9]{64}$/u.test(imageHash) ||
+      actualSha256 !== imageHash
+    ) {
+      try {
+        handoff.write(`${JSON.stringify({ kind: "refused", code: "binder_image_encoding_failed" })}\n`);
+      } catch {}
+      options.binderSource.release(request.lease.leaseId);
+      await terminate(child, handle, book, request.lease.leaseId);
+      return { ok: false, code: "binder_image_encoding_failed" };
+    }
+
+    const ackResponse = readJsonLine(ack, timeoutMs);
+    try {
+      handoff.write(
+        `${JSON.stringify({
+          kind: "binding",
+          leaseId: request.lease.leaseId,
+          imageBytes: image.length,
+          imageSha256: imageHash,
+        })}\n`,
+      );
+      handoff.write(Buffer.from(image));
+    } catch {
+      book.fail(request.lease.leaseId, Date.now());
+      options.binderSource.release(request.lease.leaseId);
+      await terminate(child, handle, book, request.lease.leaseId);
+      return { ok: false, code: "launch_handoff_failed" };
+    }
+
+    let ackMessage: unknown;
+    try {
+      ackMessage = await ackResponse;
+    } catch (error) {
+      book.fail(request.lease.leaseId, Date.now());
+      options.binderSource.release(request.lease.leaseId);
+      await terminate(child, handle, book, request.lease.leaseId);
+      if (error instanceof HandoffTimeoutError) return { ok: false, code: "binder_timeout" };
+      if (error instanceof HandoffClosedError) return { ok: false, code: "binder_channel_closed" };
+      return { ok: false, code: "binder_ack_mismatch" };
+    }
+
+    if (
+      !ackMessage ||
+      typeof ackMessage !== "object" ||
+      (ackMessage as { kind?: unknown }).kind !== "ack" ||
+      (ackMessage as { leaseId?: unknown }).leaseId !== request.lease.leaseId ||
+      (ackMessage as { imageSha256?: unknown }).imageSha256 !== imageHash
+    ) {
+      try {
+        handoff.write(`${JSON.stringify({ kind: "refused", code: "binder_ack_mismatch" })}\n`);
+      } catch {}
+      book.fail(request.lease.leaseId, Date.now());
+      options.binderSource.release(request.lease.leaseId);
+      await terminate(child, handle, book, request.lease.leaseId);
+      return { ok: false, code: "binder_ack_mismatch" };
+    }
+
+    imageSha256 = imageHash;
+  }
+
+  const bound = book.bind(request.lease.leaseId, observation, Date.now());
   if (!bound.ok) {
     try {
       handoff.write(`${JSON.stringify({ kind: "refused", code: bound.code })}\n`);
     } catch {}
+    if (options.binderSource !== undefined) {
+      book.fail(request.lease.leaseId, Date.now());
+      options.binderSource.release(request.lease.leaseId);
+    }
     await terminate(child, handle, book, request.lease.leaseId);
     return bound;
   }
@@ -410,7 +532,12 @@ export async function launchCandidateEntry(
     value: {
       binding: bound.value,
       child,
-      release: (nowMs = Date.now()) => book.release(request.lease.leaseId, nowMs),
+      imageSha256,
+      release: (nowMs = Date.now()) => {
+        const released = book.release(request.lease.leaseId, nowMs);
+        if (released.ok) options.binderSource?.release(request.lease.leaseId);
+        return released;
+      },
     },
   };
 }

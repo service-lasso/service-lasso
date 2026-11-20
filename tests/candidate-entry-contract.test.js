@@ -243,3 +243,63 @@ test('handoff refuses a mismatched contract or lease shape', () => {
     });
   }
 });
+
+test('non-mutating observation validation leaves the lease available for image delivery', () => {
+  const book = issued();
+  const validated = book.validate('lease-original', observation(), 1_500);
+  assert.equal(validated.ok, true);
+  assert.equal(book.bind('lease-original', observation(), 1_500).ok, true);
+});
+
+test('a failed lease is terminal and cannot bind or release', () => {
+  const book = issued();
+  assert.deepEqual(book.fail('lease-original', 1_500), {
+    ok: true,
+    value: { leaseId: 'lease-original', failedAtMs: 1_500 },
+  });
+  assert.deepEqual(book.validate('lease-original', observation(), 1_500), {
+    ok: false,
+    code: 'lease_failed',
+  });
+  assert.deepEqual(book.bind('lease-original', observation(), 1_500), {
+    ok: false,
+    code: 'lease_failed',
+  });
+  assert.deepEqual(book.release('lease-original', 1_500), {
+    ok: false,
+    code: 'lease_failed',
+  });
+  assert.deepEqual(book.fail('lease-original', 1_500), {
+    ok: false,
+    code: 'lease_failed',
+  });
+});
+
+test('failure only applies to an issued lease', () => {
+  const book = issued();
+  assert.equal(book.bind('lease-original', observation(), 1_500).ok, true);
+  assert.deepEqual(book.fail('lease-original', 1_500), {
+    ok: false,
+    code: 'lease_state_invalid',
+  });
+
+  const releasedBook = issued();
+  assert.equal(releasedBook.release('lease-original', 1_500).ok, true);
+  assert.deepEqual(releasedBook.fail('lease-original', 1_500), {
+    ok: false,
+    code: 'lease_state_invalid',
+  });
+});
+
+test('failure refuses unknown leases and invalid clocks', () => {
+  const book = new CandidateEntryLeaseBook();
+  assert.deepEqual(book.fail('lease-missing', 1_500), {
+    ok: false,
+    code: 'lease_unknown',
+  });
+  const value = issued();
+  assert.deepEqual(value.fail('lease-original', Number.NaN), {
+    ok: false,
+    code: 'clock_invalid',
+  });
+});

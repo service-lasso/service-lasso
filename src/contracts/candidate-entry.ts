@@ -73,6 +73,8 @@ export type CandidateEntryRefusalCode =
   | "lease_released"
   | "lease_replayed"
   | "lease_release_replayed"
+  | "lease_failed"
+  | "lease_state_invalid"
   | "consumer_observation_shape_invalid"
   | "consumer_pid_mismatch"
   | "consumer_start_mismatch"
@@ -101,12 +103,18 @@ export interface CandidateEntryRelease {
   releasedAtMs: number;
 }
 
-type LeaseState = "issued" | "bound" | "released" | "expired";
+export interface CandidateEntryFailure {
+  leaseId: string;
+  failedAtMs: number;
+}
+
+type LeaseState = "issued" | "bound" | "released" | "expired" | "failed";
 
 interface LeaseRecord {
   lease: CandidateEntryLease;
   state: LeaseState;
   boundAtMs?: number;
+  failedAtMs?: number;
 }
 
 function sameStrings(left: readonly string[], right: readonly string[]): boolean {
@@ -157,7 +165,7 @@ export class CandidateEntryLeaseBook {
     return { ok: true, value: lease };
   }
 
-  bind(
+  validate(
     leaseId: string,
     observation: unknown,
     nowMs: number,
@@ -165,6 +173,7 @@ export class CandidateEntryLeaseBook {
     const record = this.#leases.get(leaseId);
     if (!record) return refusal("lease_unknown");
     if (!validClock(nowMs)) return refusal("clock_invalid");
+    if (record.state === "failed") return refusal("lease_failed");
     if (record.state === "released") return refusal("lease_released");
     if (record.state === "expired") return refusal("lease_expired");
     if (record.state === "bound") return refusal("lease_replayed");
@@ -190,8 +199,6 @@ export class CandidateEntryLeaseBook {
       return refusal("public_environment_mismatch");
     }
 
-    record.state = "bound";
-    record.boundAtMs = nowMs;
     return {
       ok: true,
       value: {
@@ -207,10 +214,36 @@ export class CandidateEntryLeaseBook {
     };
   }
 
+  bind(
+    leaseId: string,
+    observation: unknown,
+    nowMs: number,
+  ): CandidateEntryResult<CandidateEntryBinding> {
+    const validated = this.validate(leaseId, observation, nowMs);
+    if (!validated.ok) return validated;
+    const record = this.#leases.get(leaseId);
+    if (!record) return refusal("lease_unknown");
+    record.state = "bound";
+    record.boundAtMs = nowMs;
+    return validated;
+  }
+
+  fail(leaseId: string, nowMs: number): CandidateEntryResult<CandidateEntryFailure> {
+    const record = this.#leases.get(leaseId);
+    if (!record) return refusal("lease_unknown");
+    if (!validClock(nowMs)) return refusal("clock_invalid");
+    if (record.state === "failed") return refusal("lease_failed");
+    if (record.state !== "issued") return refusal("lease_state_invalid");
+    record.state = "failed";
+    record.failedAtMs = nowMs;
+    return { ok: true, value: { leaseId, failedAtMs: nowMs } };
+  }
+
   release(leaseId: string, nowMs: number): CandidateEntryResult<CandidateEntryRelease> {
     const record = this.#leases.get(leaseId);
     if (!record) return refusal("lease_unknown");
     if (!validClock(nowMs)) return refusal("clock_invalid");
+    if (record.state === "failed") return refusal("lease_failed");
     if (record.state === "released") return refusal("lease_release_replayed");
     record.state = "released";
     return { ok: true, value: { leaseId, releasedAtMs: nowMs } };
