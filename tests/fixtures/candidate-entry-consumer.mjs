@@ -74,7 +74,7 @@ else if (mode === "delay") await new Promise((resolve) => setTimeout(resolve, 3_
 
 writeLine(4, { kind: "observation", observation });
 
-if (mode === "bind-image" || mode === "bind-image-bad-ack") {
+if (mode === "bind-image" || mode === "bind-image-bad-ack" || mode === "bind-image-release") {
   let binding;
   try {
     binding = JSON.parse(input.line());
@@ -104,7 +104,11 @@ if (mode === "bind-image" || mode === "bind-image-bad-ack") {
   } catch {
     process.exit(7);
   }
-  process.exit(bound?.kind === "bound" ? 0 : 8);
+  if (bound?.kind !== "bound") process.exit(8);
+  if (mode === "bind-image-release") {
+    writeLine(4, { kind: "release", leaseId: binding.leaseId });
+  }
+  process.exit(0);
 }
 
 let response;

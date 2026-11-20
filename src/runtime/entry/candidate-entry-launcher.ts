@@ -256,6 +256,36 @@ function readJsonLine(stream: NodeJS.ReadableStream, timeoutMs: number): Promise
   });
 }
 
+function watchRelease(stream: NodeJS.ReadableStream, onRelease: () => void): void {
+  let pending = "";
+  const cleanup = () => {
+    stream.off("data", onData);
+    stream.off("close", cleanup);
+    stream.off("error", cleanup);
+  };
+  const onData = (chunk: Buffer | string) => {
+    pending += chunk.toString();
+    for (;;) {
+      const index = pending.indexOf("\n");
+      if (index < 0) break;
+      const line = pending.slice(0, index);
+      pending = pending.slice(index + 1);
+      try {
+        const message = JSON.parse(line) as { kind?: unknown };
+        if (message?.kind === "release") {
+          cleanup();
+          onRelease();
+          return;
+        }
+      } catch {}
+    }
+    if (pending.length > 64 * 1024) cleanup();
+  };
+  stream.on("data", onData);
+  stream.once("close", cleanup);
+  stream.once("error", cleanup);
+}
+
 async function terminate(
   child: ChildProcess,
   handle: FileHandle,
@@ -527,17 +557,24 @@ export async function launchCandidateEntry(
   try {
     await handle.close();
   } catch {}
+  let released = false;
+  const releaseLease = (nowMs = Date.now()) => {
+    if (released) return book.release(request.lease.leaseId, nowMs);
+    released = true;
+    const result = book.release(request.lease.leaseId, nowMs);
+    if (result.ok) options.binderSource?.release(request.lease.leaseId);
+    return result;
+  };
+  watchRelease(ack, () => {
+    releaseLease();
+  });
   return {
     ok: true,
     value: {
       binding: bound.value,
       child,
       imageSha256,
-      release: (nowMs = Date.now()) => {
-        const released = book.release(request.lease.leaseId, nowMs);
-        if (released.ok) options.binderSource?.release(request.lease.leaseId);
-        return released;
-      },
+      release: releaseLease,
     },
   };
 }

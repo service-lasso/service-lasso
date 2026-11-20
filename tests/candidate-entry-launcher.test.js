@@ -270,3 +270,15 @@ test('a mismatched consumer ack fails the delivered lease', linuxOnly, async () 
     code: 'lease_failed',
   });
 });
+
+test('Core observes the consumer release handshake', linuxOnly, async () => {
+  const book = new CandidateEntryLeaseBook();
+  const input = request({ argv: [process.execPath, fixture, 'bind-image-release'] });
+  const result = await launchCandidateEntry(book, input, { binderSource: syntheticBinderSource() });
+  assert.equal(result.ok, true);
+  assert.deepEqual(await waitForExit(result.value.child), { code: 0, signal: null });
+  assert.deepEqual(book.release(input.lease.leaseId, Date.now()), {
+    ok: false,
+    code: 'lease_release_replayed',
+  });
+});
