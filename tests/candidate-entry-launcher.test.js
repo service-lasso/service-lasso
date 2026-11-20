@@ -5,6 +5,10 @@ import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 import { CandidateEntryLeaseBook } from '../dist/contracts/candidate-entry.js';
+import {
+  CANDIDATE_ENTRY_BINDER_SECTION,
+  encodeCandidateEntryBinderImage,
+} from '../dist/contracts/candidate-entry-binder.js';
 import { launchCandidateEntry } from '../dist/runtime/entry/candidate-entry-launcher.js';
 
 const linuxOnly = process.platform === 'linux' ? {} : { skip: 'Linux-only candidate entry launcher' };
@@ -150,4 +154,119 @@ test('invalid public input is refused before spawn', linuxOnly, async () => {
     const result = await launchCandidateEntry(new CandidateEntryLeaseBook(), request(overrides));
     assert.deepEqual(result, { ok: false, code: 'launch_input_invalid' });
   }
+});
+
+
+function syntheticSections() {
+  return [
+    CANDIDATE_ENTRY_BINDER_SECTION.CHARGE,
+    CANDIDATE_ENTRY_BINDER_SECTION.SOURCE,
+    CANDIDATE_ENTRY_BINDER_SECTION.DOMAIN,
+    CANDIDATE_ENTRY_BINDER_SECTION.ACTORS,
+    CANDIDATE_ENTRY_BINDER_SECTION.BASES,
+    CANDIDATE_ENTRY_BINDER_SECTION.PUBLIC_INPUT,
+    CANDIDATE_ENTRY_BINDER_SECTION.DEADLINE,
+    CANDIDATE_ENTRY_BINDER_SECTION.ISSUER,
+    CANDIDATE_ENTRY_BINDER_SECTION.CUSTODY,
+  ].map((kind) => ({ kind, bytes: Buffer.from(`synthetic-section-${kind}`) }));
+}
+
+function syntheticBinderSource() {
+  const released = [];
+  return {
+    released,
+    materialize({ handoffLine }) {
+      const image = encodeCandidateEntryBinderImage({
+        handoffLine,
+        sections: syntheticSections(),
+        synthetic: true,
+      });
+      assert.equal(image.ok, true);
+      return {
+        ok: true,
+        image: image.value.bytes,
+        imageSha256: image.value.imageSha256,
+      };
+    },
+    release(leaseId) {
+      released.push(leaseId);
+    },
+  };
+}
+
+test('Core delivers a validated binder image before binding', linuxOnly, async () => {
+  const input = request({ argv: [process.execPath, fixture, 'bind-image'] });
+  const source = syntheticBinderSource();
+  const result = await launchCandidateEntry(
+    new CandidateEntryLeaseBook(),
+    input,
+    { binderSource: source },
+  );
+  assert.equal(result.ok, true);
+  assert.equal(result.value.binding.leaseId, input.lease.leaseId);
+  assert.match(result.value.imageSha256, /^sha256:[a-f0-9]{64}$/);
+  assert.deepEqual(await waitForExit(result.value.child), { code: 0, signal: null });
+  assert.equal(result.value.release().ok, true);
+  assert.deepEqual(source.released, [input.lease.leaseId]);
+});
+
+test('a production binder without originals refuses before native entry', linuxOnly, async () => {
+  const released = [];
+  const source = {
+    materialize() {
+      return { ok: false, code: 'binder_originals_unavailable' };
+    },
+    release(leaseId) {
+      released.push(leaseId);
+    },
+  };
+  const book = new CandidateEntryLeaseBook();
+  const input = request({ argv: [process.execPath, fixture, 'bind-image'] });
+  const result = await launchCandidateEntry(book, input, { binderSource: source });
+  assert.deepEqual(result, { ok: false, code: 'binder_originals_unavailable' });
+  assert.equal(released.length, 1);
+  assert.deepEqual(book.bind(input.lease.leaseId, {}, Date.now()), {
+    ok: false,
+    code: 'lease_released',
+  });
+});
+
+test('a binder image hash mismatch is refused before delivery', linuxOnly, async () => {
+  const source = {
+    materialize({ handoffLine }) {
+      const image = encodeCandidateEntryBinderImage({
+        handoffLine,
+        sections: syntheticSections(),
+        synthetic: true,
+      });
+      assert.equal(image.ok, true);
+      return {
+        ok: true,
+        image: image.value.bytes,
+        imageSha256: `sha256:${'0'.repeat(64)}`,
+      };
+    },
+    release() {},
+  };
+  const result = await launchCandidateEntry(
+    new CandidateEntryLeaseBook(),
+    request({ argv: [process.execPath, fixture, 'bind-image'] }),
+    { binderSource: source },
+  );
+  assert.deepEqual(result, { ok: false, code: 'binder_image_encoding_failed' });
+});
+
+test('a mismatched consumer ack fails the delivered lease', linuxOnly, async () => {
+  const released = [];
+  const source = syntheticBinderSource();
+  source.release = (leaseId) => released.push(leaseId);
+  const book = new CandidateEntryLeaseBook();
+  const input = request({ argv: [process.execPath, fixture, 'bind-image-bad-ack'] });
+  const result = await launchCandidateEntry(book, input, { binderSource: source });
+  assert.deepEqual(result, { ok: false, code: 'binder_ack_mismatch' });
+  assert.equal(released.length, 1);
+  assert.deepEqual(book.bind(input.lease.leaseId, {}, Date.now()), {
+    ok: false,
+    code: 'lease_failed',
+  });
 });

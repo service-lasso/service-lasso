@@ -1,17 +1,38 @@
+import { createHash } from "node:crypto";
 import { readSync, writeSync } from "node:fs";
 
-import { observeCandidateEntryConsumer } from "../../dist/runtime/entry/candidate-entry-launcher.js";
+import {
+  observeCandidateEntryConsumer,
+} from "../../dist/runtime/entry/candidate-entry-launcher.js";
+import { decodeCandidateEntryBinderImage } from "../../dist/contracts/candidate-entry-binder.js";
 
-function readLine(fd) {
-  const buffer = Buffer.alloc(4096);
-  let pending = "";
-  for (;;) {
+function reader(fd) {
+  let pending = Buffer.alloc(0);
+  const fill = () => {
+    const buffer = Buffer.alloc(4096);
     const count = readSync(fd, buffer, 0, buffer.length, null);
     if (count === 0) throw new Error("handoff closed");
-    pending += buffer.subarray(0, count).toString("utf8");
-    const index = pending.indexOf("\n");
-    if (index >= 0) return pending.slice(0, index);
-  }
+    pending = Buffer.concat([pending, buffer.subarray(0, count)]);
+  };
+  return {
+    line() {
+      for (;;) {
+        const index = pending.indexOf(0x0a);
+        if (index >= 0) {
+          const line = pending.subarray(0, index).toString("utf8");
+          pending = pending.subarray(index + 1);
+          return line;
+        }
+        fill();
+      }
+    },
+    exact(count) {
+      while (pending.length < count) fill();
+      const value = pending.subarray(0, count);
+      pending = pending.subarray(count);
+      return value;
+    },
+  };
 }
 
 function writeLine(fd, value) {
@@ -22,9 +43,12 @@ function refuse() {
   process.exit(2);
 }
 
+const input = reader(3);
+let handoffLine;
 let handoff;
 try {
-  handoff = JSON.parse(readLine(3));
+  handoffLine = input.line();
+  handoff = JSON.parse(handoffLine);
 } catch {
   refuse();
 }
@@ -50,9 +74,42 @@ else if (mode === "delay") await new Promise((resolve) => setTimeout(resolve, 3_
 
 writeLine(4, { kind: "observation", observation });
 
+if (mode === "bind-image" || mode === "bind-image-bad-ack") {
+  let binding;
+  try {
+    binding = JSON.parse(input.line());
+  } catch {
+    process.exit(4);
+  }
+  if (binding?.kind !== "binding") process.exit(3);
+  const image = input.exact(binding.imageBytes);
+  const actual = `sha256:${createHash("sha256").update(image).digest("hex")}`;
+  if (actual !== binding.imageSha256) process.exit(5);
+  const decoded = decodeCandidateEntryBinderImage({
+    image,
+    imageSha256: binding.imageSha256,
+    handoffLine,
+    allowSynthetic: true,
+  });
+  if (!decoded.ok) process.exit(6);
+  writeLine(4, {
+    kind: "ack",
+    leaseId: binding.leaseId,
+    imageSha256:
+      mode === "bind-image-bad-ack" ? `sha256:${"0".repeat(64)}` : binding.imageSha256,
+  });
+  let bound;
+  try {
+    bound = JSON.parse(input.line());
+  } catch {
+    process.exit(7);
+  }
+  process.exit(bound?.kind === "bound" ? 0 : 8);
+}
+
 let response;
 try {
-  response = JSON.parse(readLine(3));
+  response = JSON.parse(input.line());
 } catch {
   process.exit(1);
 }

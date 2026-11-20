@@ -1,8 +1,11 @@
 # Core/TUI candidate-entry binder design (proposed, 2026-11-20)
 
-Status: design only. This document selects no source body, native ABI, compiler
-input, ROOT admission, execution, qualification, publication, or authority. It
-responds to Core #1562 and the proposed TUI #28 Core entry contract at
+Status: design plus source-only implementation. Core now owns the image,
+lease-failure, launch-handoff, and refusal contract; the TUI has a consumer
+binder that validates and seals the image. This document still selects no
+native ABI, compiler input, ROOT admission, execution, qualification,
+publication, or authority. It responds to Core #1562 and the proposed TUI #28
+Core entry contract at
 [service-lasso-tui PR #54](https://github.com/service-lasso/service-lasso-tui/pull/54).
 
 Traceability: Core #1562, TUI #28, SPEC-002 AC-4DI.4 (source-only boundary),
@@ -507,9 +510,52 @@ linker. Do not weaken `nativeEntrySupplied:false` or
 
 ## 13. Non-claims
 
-This document is not an implementation, a Core API, a closed ABI, a native
-entry, a product `main`, or evidence of issuer authority. It does not authorize
-a compiler, native build, test execution, ROOT admission, pin change,
+This document is not a closed native ABI, native entry, product `main`, or
+evidence of issuer authority. It does not authorize a compiler, native build,
+ROOT admission, pin change, qualification, publication, or deployment. The
+existing lease contract, launcher tests, TUI native input bundle, and all
+protected evidence remain unchanged.
+
+## 14. Source-only implementation status (2026-11-20)
+
+Implemented source units:
+
+- `src/contracts/candidate-entry-binder.ts` — versioned image encoder/decoder,
+  exact handoff digest, section validation, refusal codes, and synthetic-image
+  gate.
+- `src/contracts/candidate-entry.ts` — non-mutating observation validation,
+  terminal `failed` lease state, and failure result.
+- `src/runtime/entry/candidate-entry-binder.ts` — Core binder source seam; the
+  production source refuses with `binder_originals_unavailable`.
+- `src/runtime/entry/candidate-entry-launcher.ts` — Core-owned image delivery,
+  exact binding line plus raw image, ack validation, and post-ack binding.
+- `service-lasso-tui/internal/coreentry/` — TUI consumer binder that observes
+  itself, validates the Core image, seals it into a read-only memfd, builds
+  offset views, acknowledges the exact image digest, and refuses an absent
+  channel.
+
+Source tests cover the image format, digest domains, section refusal classes,
+lease failure, Core image handoff, ack mismatch, and TUI sealing/consumption.
+`npm run typecheck`, the candidate-entry tests, `go vet`, and `go test ./...`
+pass for these units.
+
+Still gated, not implemented:
+
+- authentic Core charge/source/domain/actors/bases/deadline/issuer/custody
+  originals;
+- a production binder adapter that materializes those originals;
+- the private native ABI and a product TUI entry;
+- native execution, ROOT admission, qualification, and publication.
+
+The legacy lease-only launcher path remains for existing callers; production
+launch must supply the Core binder source and must not treat the lease alone as
+entry authority.
+
+## 15. Non-claims
+
+This document is not a Core API grant, a closed native ABI, a native entry, a
+product `main`, or evidence of issuer authority. It does not authorize a
+compiler, native build, test execution, ROOT admission, pin change,
 qualification, merge, publication, or deployment. The existing lease contract,
 launcher tests, TUI native input bundle, and all protected evidence remain
 unchanged.
