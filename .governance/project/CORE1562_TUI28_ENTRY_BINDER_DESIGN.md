@@ -476,14 +476,15 @@ native execution, issuer authority, or qualification.
    originals are unavailable. Do not add synthetic production data.
 4. TUI binder: fd `3`/`4` client, image validation, sealed memfd, view table,
    and refusal path. This can be source-tested without native execution.
-5. Native ABI: replace the operand-free seam with the reviewed private ABI and
-   compile/link a refusal fixture. No product `main` before authentic inputs.
+5. Native ABI: add the private link-in contract, compile/link a refusal fixture,
+   and bridge the bound TUI record to `sl_core_initial_entry_acquire`.
 6. End-to-end native execution only after authentic inputs, separate ROOT
    admission, and matching-host qualification.
 
-Do not reorder step 3 before step 2. Do not add a product `main` to satisfy a
-linker. Do not weaken `nativeEntrySupplied:false` or
-`authenticatedIssuer:false` before the real path exists.
+Steps 2-5 are source-implemented. Do not reorder step 3 before step 2. Do not
+add a product entry that bypasses native acquisition. Do not weaken
+`nativeEntrySupplied:false` or `authenticatedIssuer:false` before the real path
+exists.
 
 ## 12. Open decisions for review
 
@@ -510,8 +511,8 @@ linker. Do not weaken `nativeEntrySupplied:false` or
 
 ## 13. Non-claims
 
-This document is not a closed native ABI, native entry, product `main`, or
-evidence of issuer authority. It does not authorize a compiler, native build,
+This document is not a closed native ABI, native execution path, or evidence of
+issuer authority. It does not authorize a compiler, native build,
 ROOT admission, pin change, qualification, publication, or deployment. The
 existing lease contract, launcher tests, TUI native input bundle, and all
 protected evidence remain unchanged.
@@ -528,11 +529,20 @@ Implemented source units:
 - `src/runtime/entry/candidate-entry-binder.ts` — Core binder source seam; the
   production source refuses with `binder_originals_unavailable`.
 - `src/runtime/entry/candidate-entry-launcher.ts` — Core-owned image delivery,
-  exact binding line plus raw image, ack validation, and post-ack binding.
+  exact binding line plus raw image, ack validation, post-ack binding, and
+  release observation.
+- `src/runtime/entry/retained-candidate-entry-binder.ts` — authentic retained
+  originals adapter; missing or incomplete originals refuse.
+- `src/runtime/entry/candidate-entry-production.ts` — production launch seam
+  that requires retained originals.
 - `service-lasso-tui/internal/coreentry/` — TUI consumer binder that observes
   itself, validates the Core image, seals it into a read-only memfd, builds
-  offset views, acknowledges the exact image digest, and refuses an absent
-  channel.
+  offset views, acknowledges the exact image digest, releases once, and refuses
+  an absent channel.
+- `service-lasso-tui/cmd/service-lasso-tui/core_main_linux.go` — Core-bound
+  product entry that requires native acquisition.
+- `service-lasso-tui/native/entry/sl_core_initial_entry.[ch]` — private link-in
+  contract that refuses without authentic originals.
 
 Source tests cover the image format, digest domains, section refusal classes,
 lease failure, Core image handoff, ack mismatch, and TUI sealing/consumption.
