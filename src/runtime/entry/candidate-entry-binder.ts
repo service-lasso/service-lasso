@@ -2,7 +2,7 @@ import type {
   CandidateEntryConsumerObservation,
   CandidateEntryLease,
 } from "../../contracts/candidate-entry.js";
-import type { CandidateEntryBinderCoreRefusalCode } from "../../contracts/candidate-entry-binder.js";
+import type { CandidateEntryBinderRefusalCode } from "../../contracts/candidate-entry-binder.js";
 
 export interface CandidateEntryBinderMaterializeRequest {
   lease: CandidateEntryLease;
@@ -18,7 +18,7 @@ export type CandidateEntryBinderArtifact =
     }
   | {
       ok: false;
-      code: CandidateEntryBinderCoreRefusalCode;
+      code: CandidateEntryBinderRefusalCode;
     };
 
 export interface CandidateEntryBinderSource {
