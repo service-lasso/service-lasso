@@ -223,68 +223,112 @@ function waitForSpawn(
   });
 }
 
-function readJsonLine(stream: NodeJS.ReadableStream, timeoutMs: number): Promise<unknown> {
-  return new Promise((resolve, reject) => {
-    let pending = "";
-    let settled = false;
-    const finish = (error: Error | null, value?: unknown) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      stream.off("data", onData);
-      stream.off("close", onClose);
-      stream.off("error", onError);
-      if (error) reject(error);
-      else resolve(value);
-    };
-    const timer = setTimeout(() => finish(new HandoffTimeoutError("Handoff timed out.")), timeoutMs);
-    const onData = (chunk: Buffer | string) => {
-      pending += chunk.toString();
-      const index = pending.indexOf("\n");
-      if (index < 0) return;
-      const line = pending.slice(0, index);
-      try {
-        finish(null, JSON.parse(line));
-      } catch {
-        finish(new Error("Handoff response was not JSON."));
-      }
-    };
-    const onClose = () => finish(new HandoffClosedError("Consumer closed before handoff."));
-    const onError = (error: Error) => finish(error);
-    stream.on("data", onData);
-    stream.on("close", onClose);
-    stream.on("error", onError);
-  });
+const NO_LINE = Symbol("no-line");
+
+class JsonLineReader {
+  readonly #stream: NodeJS.ReadableStream;
+  readonly #timeoutMs: number;
+  #pending = "";
+  #closed = false;
+  #waiter: {
+    resolve: (value: unknown) => void;
+    reject: (error: Error) => void;
+    timer: NodeJS.Timeout;
+  } | null = null;
+
+  constructor(stream: NodeJS.ReadableStream, timeoutMs: number) {
+    this.#stream = stream;
+    this.#timeoutMs = timeoutMs;
+    stream.on("data", this.#onData);
+    stream.once("close", this.#onClose);
+    stream.once("error", this.#onError);
+  }
+
+  #cleanup(): void {
+    this.#stream.off("data", this.#onData);
+    this.#stream.off("close", this.#onClose);
+    this.#stream.off("error", this.#onError);
+  }
+
+  #take(): unknown | typeof NO_LINE {
+    const index = this.#pending.indexOf("\n");
+    if (index < 0) return NO_LINE;
+    const line = this.#pending.slice(0, index);
+    this.#pending = this.#pending.slice(index + 1);
+    return JSON.parse(line);
+  }
+
+  #fail(error: Error): void {
+    this.#closed = true;
+    this.#cleanup();
+    if (this.#waiter) {
+      clearTimeout(this.#waiter.timer);
+      const waiter = this.#waiter;
+      this.#waiter = null;
+      waiter.reject(error);
+    }
+  }
+
+  #onData = (chunk: Buffer | string): void => {
+    if (this.#closed) return;
+    this.#pending += chunk.toString();
+    if (!this.#waiter) return;
+    try {
+      const value = this.#take();
+      if (value === NO_LINE) return;
+      clearTimeout(this.#waiter.timer);
+      const waiter = this.#waiter;
+      this.#waiter = null;
+      waiter.resolve(value);
+    } catch (error) {
+      this.#fail(error instanceof Error ? error : new Error("Handoff response was not JSON."));
+    }
+  };
+
+  #onClose = (): void => {
+    this.#fail(new HandoffClosedError("Consumer closed before handoff."));
+  };
+
+  #onError = (error: Error): void => {
+    this.#fail(error);
+  };
+
+  read(): Promise<unknown> {
+    if (this.#closed) {
+      return Promise.reject(new HandoffClosedError("Consumer closed before handoff."));
+    }
+    try {
+      const value = this.#take();
+      if (value !== NO_LINE) return Promise.resolve(value);
+    } catch (error) {
+      const failure = error instanceof Error ? error : new Error("Handoff response was not JSON.");
+      this.#fail(failure);
+      return Promise.reject(failure);
+    }
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.#fail(new HandoffTimeoutError("Handoff timed out."));
+      }, this.#timeoutMs);
+      this.#waiter = { resolve, reject, timer };
+    });
+  }
 }
 
-function watchRelease(stream: NodeJS.ReadableStream, onRelease: () => void): void {
-  let pending = "";
-  const cleanup = () => {
-    stream.off("data", onData);
-    stream.off("close", cleanup);
-    stream.off("error", cleanup);
-  };
-  const onData = (chunk: Buffer | string) => {
-    pending += chunk.toString();
+function watchRelease(reader: JsonLineReader, onRelease: () => void): void {
+  void (async () => {
     for (;;) {
-      const index = pending.indexOf("\n");
-      if (index < 0) break;
-      const line = pending.slice(0, index);
-      pending = pending.slice(index + 1);
+      let message: unknown;
       try {
-        const message = JSON.parse(line) as { kind?: unknown };
-        if (message?.kind === "release") {
-          cleanup();
-          onRelease();
-          return;
-        }
-      } catch {}
+        message = await reader.read();
+      } catch {
+        return;
+      }
+      if (message && typeof message === "object" && (message as { kind?: unknown }).kind === "release") {
+        onRelease();
+        return;
+      }
     }
-    if (pending.length > 64 * 1024) cleanup();
-  };
-  stream.on("data", onData);
-  stream.once("close", cleanup);
-  stream.once("error", cleanup);
+  })();
 }
 
 async function terminate(
@@ -359,6 +403,7 @@ export async function launchCandidateEntry(
   }
   handoff.on("error", () => {});
   ack.on("error", () => {});
+  const ackLines = new JsonLineReader(ack, timeoutMs);
 
   let observed: CandidateEntryConsumerObservation;
   try {
@@ -402,7 +447,7 @@ export async function launchCandidateEntry(
   }
 
   const handoffLine = encodeCandidateEntryHandoff(issued.value);
-  const response = readJsonLine(ack, timeoutMs);
+  const response = ackLines.read();
   try {
     handoff.write(`${handoffLine}\n`);
   } catch {
@@ -486,7 +531,7 @@ export async function launchCandidateEntry(
       return { ok: false, code: "binder_image_encoding_failed" };
     }
 
-    const ackResponse = readJsonLine(ack, timeoutMs);
+    const ackResponse = ackLines.read();
     try {
       handoff.write(
         `${JSON.stringify({
@@ -571,7 +616,7 @@ export async function launchCandidateEntry(
     resolveReleased(result);
     return result;
   };
-  watchRelease(ack, () => {
+  watchRelease(ackLines, () => {
     releaseLease();
   });
   return {

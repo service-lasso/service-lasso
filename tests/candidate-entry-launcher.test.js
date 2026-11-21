@@ -11,6 +11,7 @@ import {
 } from '../dist/contracts/candidate-entry-binder.js';
 import { launchCandidateEntry } from '../dist/runtime/entry/candidate-entry-launcher.js';
 import {
+  launchCandidateEntryFromBundle,
   launchCandidateEntryWithOriginals,
   launchCandidateEntryWithProducer,
 } from '../dist/runtime/entry/candidate-entry-production.js';
@@ -332,4 +333,35 @@ test('production helper seam validates the producer image', linuxOnly, async () 
   assert.match(result.value.imageSha256, /^sha256:[a-f0-9]{64}$/);
   assert.deepEqual(await waitForExit(result.value.child), { code: 0, signal: null });
   assert.equal(result.value.release().ok, true);
+});
+
+
+test('production bundle seam passes the bundle to the producer', linuxOnly, async () => {
+  const producer = new URL('./fixtures/candidate-entry-producer.mjs', import.meta.url);
+  const result = await launchCandidateEntryFromBundle(
+    new CandidateEntryLeaseBook(),
+    request({ argv: [process.execPath, fixture, 'bind-image'] }),
+    {
+      executable: process.execPath,
+      args: [fileURLToPath(producer)],
+      bundleDirectory: '/tmp/service-lasso-test-bundle',
+      environment: { ...process.env, PRODUCER_REFUSE: '' },
+      allowSynthetic: true,
+    },
+  );
+  assert.equal(result.ok, true);
+  assert.deepEqual(await waitForExit(result.value.child), { code: 0, signal: null });
+  assert.equal(result.value.release().ok, true);
+});
+
+test('production bundle seam refuses an unsafe bundle path', linuxOnly, async () => {
+  const result = await launchCandidateEntryFromBundle(
+    new CandidateEntryLeaseBook(),
+    request({ argv: [process.execPath, fixture, 'bind-image'] }),
+    {
+      executable: process.execPath,
+      bundleDirectory: 'relative/bundle',
+    },
+  );
+  assert.deepEqual(result, { ok: false, code: 'binder_channel_closed' });
 });
