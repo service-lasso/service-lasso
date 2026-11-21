@@ -69,6 +69,7 @@ export interface CandidateEntryLaunch {
   child: ChildProcess;
   imageSha256?: string;
   release: (nowMs?: number) => CandidateEntryResult<CandidateEntryRelease>;
+  released: Promise<CandidateEntryResult<CandidateEntryRelease>>;
 }
 
 export type CandidateEntryLaunchResult =
@@ -558,11 +559,16 @@ export async function launchCandidateEntry(
     await handle.close();
   } catch {}
   let released = false;
+  let resolveReleased!: (value: CandidateEntryResult<CandidateEntryRelease>) => void;
+  const releasedPromise = new Promise<CandidateEntryResult<CandidateEntryRelease>>((resolve) => {
+    resolveReleased = resolve;
+  });
   const releaseLease = (nowMs = Date.now()) => {
     if (released) return book.release(request.lease.leaseId, nowMs);
     released = true;
     const result = book.release(request.lease.leaseId, nowMs);
     if (result.ok) options.binderSource?.release(request.lease.leaseId);
+    resolveReleased(result);
     return result;
   };
   watchRelease(ack, () => {
@@ -575,6 +581,7 @@ export async function launchCandidateEntry(
       child,
       imageSha256,
       release: releaseLease,
+      released: releasedPromise,
     },
   };
 }

@@ -10,7 +10,10 @@ import {
   encodeCandidateEntryBinderImage,
 } from '../dist/contracts/candidate-entry-binder.js';
 import { launchCandidateEntry } from '../dist/runtime/entry/candidate-entry-launcher.js';
-import { launchCandidateEntryWithOriginals } from '../dist/runtime/entry/candidate-entry-production.js';
+import {
+  launchCandidateEntryWithOriginals,
+  launchCandidateEntryWithProducer,
+} from '../dist/runtime/entry/candidate-entry-production.js';
 
 const linuxOnly = process.platform === 'linux' ? {} : { skip: 'Linux-only candidate entry launcher' };
 const fixture = fileURLToPath(new URL('./fixtures/candidate-entry-consumer.mjs', import.meta.url));
@@ -278,6 +281,8 @@ test('Core observes the consumer release handshake', linuxOnly, async () => {
   const result = await launchCandidateEntry(book, input, { binderSource: syntheticBinderSource() });
   assert.equal(result.ok, true);
   assert.deepEqual(await waitForExit(result.value.child), { code: 0, signal: null });
+  const released = await result.value.released;
+  assert.equal(released.ok, true);
   assert.deepEqual(book.release(input.lease.leaseId, Date.now()), {
     ok: false,
     code: 'lease_release_replayed',
@@ -308,4 +313,23 @@ test('production launch seam refuses missing retained originals', linuxOnly, asy
     { sections: () => null, release() {} },
   );
   assert.deepEqual(result, { ok: false, code: 'binder_originals_unavailable' });
+});
+
+
+test('production helper seam validates the producer image', linuxOnly, async () => {
+  const producer = new URL('./fixtures/candidate-entry-producer.mjs', import.meta.url);
+  const result = await launchCandidateEntryWithProducer(
+    new CandidateEntryLeaseBook(),
+    request({ argv: [process.execPath, fixture, 'bind-image'] }),
+    {
+      executable: process.execPath,
+      args: [fileURLToPath(producer)],
+      environment: { ...process.env, PRODUCER_REFUSE: '' },
+      allowSynthetic: true,
+    },
+  );
+  assert.equal(result.ok, true);
+  assert.match(result.value.imageSha256, /^sha256:[a-f0-9]{64}$/);
+  assert.deepEqual(await waitForExit(result.value.child), { code: 0, signal: null });
+  assert.equal(result.value.release().ok, true);
 });
