@@ -594,7 +594,13 @@ export async function launchCandidateEntry(
   }
 
   try {
-    handoff.write(`${JSON.stringify({ kind: "bound", binding: bound.value })}\n`);
+    handoff.write(
+      `${JSON.stringify({
+        kind: "bound",
+        leaseId: request.lease.leaseId,
+        binding: bound.value,
+      })}\n`,
+    );
   } catch {
     await terminate(child, handle, book, request.lease.leaseId);
     return { ok: false, code: "launch_handoff_failed" };
