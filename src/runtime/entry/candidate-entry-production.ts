@@ -41,3 +41,27 @@ export async function launchCandidateEntryWithProducer(
     binderSource: new NativeProducerCandidateEntryBinderSource(options),
   });
 }
+
+export interface CandidateEntryBundleLaunchOptions extends NativeProducerOptions {
+  bundleDirectory: string;
+}
+
+/**
+ * Production bundle launch. Core executes the selected producer with the
+ * authorization bundle and still validates the returned image/handoff.
+ */
+export async function launchCandidateEntryFromBundle(
+  book: CandidateEntryLeaseBook,
+  request: CandidateEntryLaunchRequest,
+  options: CandidateEntryBundleLaunchOptions,
+): Promise<CandidateEntryLaunchResult> {
+  if (!options.bundleDirectory.startsWith("/") || options.bundleDirectory.includes("\0")) {
+    return { ok: false, code: "binder_channel_closed" };
+  }
+  return launchCandidateEntry(book, request, {
+    binderSource: new NativeProducerCandidateEntryBinderSource({
+      ...options,
+      args: [...(options.args ?? []), options.bundleDirectory],
+    }),
+  });
+}
