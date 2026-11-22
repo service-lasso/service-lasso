@@ -32,6 +32,13 @@ import {
   createDashboardSummaryResponse,
 } from "./routes/dashboard.js";
 import { createOperatorNotificationsResponse } from "./routes/operator-notifications.js";
+import {
+  buildOperatorV2Detail,
+  buildOperatorV2Discovery,
+  buildOperatorV2LifecycleAvailability,
+  buildOperatorV2ServicesPage,
+  operatorV2Envelope,
+} from "./operator-v2.js";
 import type { DiscoveredService } from "../contracts/service.js";
 import { discoverServices } from "../runtime/discovery/discoverServices.js";
 import { DependencyGraph, createServiceRegistry } from "../runtime/manager/DependencyGraph.js";
@@ -4617,7 +4624,46 @@ async function routeRequestWithoutMutationCoordination(
     return;
   }
 
-  if (request.method === "GET" && url.pathname === "/api/operator/lifecycle/reconciliation-context") {
+  if (url.pathname === "/api/operator/v2" || url.pathname.startsWith("/api/operator/v2/")) {
+    const requestId = randomUUID();
+    if (request.method === "GET" && url.pathname === "/api/operator/v2/discovery") {
+      writeJson(response, 200, operatorV2Envelope(buildOperatorV2Discovery(), requestId));
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/operator/v2/services") {
+      const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+      const page = buildOperatorV2ServicesPage(runtimeModel.discovered.map((service) => ({
+        id: service.manifest.id,
+        name: service.manifest.name,
+        description: service.manifest.description,
+        running: getLifecycleState(service.manifest.id).running,
+      })));
+      writeJson(response, 200, operatorV2Envelope(page, requestId));
+      return;
+    }
+    if (request.method === "GET" && url.pathname.startsWith("/api/operator/v2/services/")) {
+      const pathParts = url.pathname.split("/").filter(Boolean);
+      const serviceId = decodeURIComponent(pathParts[4] ?? "");
+      const runtimeModel = await loadRuntimeModel(config.servicesRoot);
+      const service = runtimeModel.registry.getById(serviceId);
+      if (!service) throw new ApiError("service_not_found", 404, "The requested service is not available.");
+      if (pathParts.length === 6 && pathParts[5] === "lifecycle-availability") {
+        writeJson(response, 200, operatorV2Envelope(buildOperatorV2LifecycleAvailability(serviceId), requestId));
+        return;
+      }
+      if (pathParts.length === 5) {
+        writeJson(response, 200, operatorV2Envelope(buildOperatorV2Detail({
+          id: service.manifest.id,
+          name: service.manifest.name,
+          description: service.manifest.description,
+          running: getLifecycleState(service.manifest.id).running,
+        }), requestId));
+        return;
+      }
+    }
+  }
+
+  if (request.method === "GET" && (url.pathname === "/api/operator/lifecycle/reconciliation-context" || url.pathname === "/api/operator/v2/reconciliation-context")) {
     const authorization = await authorizeDurableReconciliationContextRequest(request, response, auth, config);
     if (!authorization) return;
     try {
