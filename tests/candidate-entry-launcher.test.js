@@ -15,6 +15,11 @@ import {
   launchCandidateEntryWithOriginals,
   launchCandidateEntryWithProducer,
 } from '../dist/runtime/entry/candidate-entry-production.js';
+import {
+  candidateEntryProductionConfigFromEnvironment,
+  launchProductionCandidateEntry,
+  validateCandidateEntryProductionConfig,
+} from '../dist/runtime/entry/candidate-entry-production-config.js';
 
 const linuxOnly = process.platform === 'linux' ? {} : { skip: 'Linux-only candidate entry launcher' };
 const fixture = fileURLToPath(new URL('./fixtures/candidate-entry-consumer.mjs', import.meta.url));
@@ -361,6 +366,37 @@ test('production bundle seam refuses an unsafe bundle path', linuxOnly, async ()
     {
       executable: process.execPath,
       bundleDirectory: 'relative/bundle',
+    },
+  );
+  assert.deepEqual(result, { ok: false, code: 'binder_channel_closed' });
+});
+
+
+test('production config requires absolute producer and bundle paths', () => {
+  assert.equal(validateCandidateEntryProductionConfig({ producerExecutable: 'producer', bundleDirectory: '/bundle' }), null);
+  assert.equal(validateCandidateEntryProductionConfig({ producerExecutable: '/producer', bundleDirectory: 'bundle' }), null);
+  assert.deepEqual(
+    validateCandidateEntryProductionConfig({ producerExecutable: '/producer', bundleDirectory: '/bundle' }),
+    { producerExecutable: '/producer', bundleDirectory: '/bundle' },
+  );
+  assert.deepEqual(
+    candidateEntryProductionConfigFromEnvironment({
+      SERVICE_LASSO_ENTRY_PRODUCER: '/producer',
+      SERVICE_LASSO_ENTRY_BUNDLE: '/bundle',
+    }),
+    { producerExecutable: '/producer', bundleDirectory: '/bundle' },
+  );
+  assert.equal(candidateEntryProductionConfigFromEnvironment({}), null);
+});
+
+test('production config seam refuses an unavailable producer', linuxOnly, async () => {
+  const result = await launchProductionCandidateEntry(
+    new CandidateEntryLeaseBook(),
+    request({ argv: [process.execPath, fixture, 'bind-image'] }),
+    {
+      producerExecutable: '/service-lasso-missing-producer',
+      bundleDirectory: '/tmp/service-lasso-test-bundle',
+      timeoutMs: 10_000,
     },
   );
   assert.deepEqual(result, { ok: false, code: 'binder_channel_closed' });
