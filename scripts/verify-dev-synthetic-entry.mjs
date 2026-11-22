@@ -11,7 +11,10 @@ import { launchCandidateEntryFromBundle } from "../dist/runtime/entry/candidate-
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const tuiRoot = process.env.SERVICE_LASSO_TUI_ROOT ?? path.resolve(root, "../service-lasso-tui");
 const go = process.env.GO ?? "go";
-const bundle = process.env.SERVICE_LASSO_DEV_SYNTHETIC_BUNDLE ?? path.join(tuiRoot, "fixtures/dev-synthetic/bundle");
+const authorization = process.env.SERVICE_LASSO_ENTRY_AUTHORIZATION === "1";
+const bundle = process.env.SERVICE_LASSO_ENTRY_BUNDLE ??
+  process.env.SERVICE_LASSO_DEV_SYNTHETIC_BUNDLE ??
+  path.join(tuiRoot, "fixtures/dev-synthetic/bundle");
 const owned = await mkdtemp(path.join(os.tmpdir(), "service-lasso-dev-entry-"));
 const producer = path.join(owned, "service-lasso-entry-producer");
 const consumer = path.join(owned, "service-lasso-entry-consumer");
@@ -37,16 +40,16 @@ try {
     new CandidateEntryLeaseBook(),
     {
       executable: consumer,
-      argv: [consumer, "--development-synthetic"],
+      argv: authorization ? [consumer] : [consumer, "--development-synthetic"],
       environment: [`PATH=${process.env.PATH ?? ""}`, "LANG=C", "SERVICE_LASSO_TEST=1"],
       lease,
       timeoutMs: 10_000,
     },
     {
       executable: producer,
-      args: ["--development-synthetic"],
+      args: authorization ? [] : ["--development-synthetic"],
       bundleDirectory: bundle,
-      allowSynthetic: true,
+      allowSynthetic: !authorization,
       timeoutMs: 10_000,
     },
   );
@@ -66,6 +69,7 @@ try {
     ok: true,
     leaseId: result.value.binding.leaseId,
     imageSha256: result.value.imageSha256,
+    mode: authorization ? "authorization" : "development-synthetic",
     producer,
     consumer,
     bundle,
