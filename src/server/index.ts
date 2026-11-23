@@ -36,6 +36,8 @@ import {
   buildOperatorV2Detail,
   buildOperatorV2Discovery,
   buildOperatorV2LifecycleAvailability,
+  buildOperatorV2Operation,
+  buildOperatorV2Readback,
   buildOperatorV2ServicesPage,
   operatorV2Envelope,
 } from "./operator-v2.js";
@@ -4626,6 +4628,28 @@ async function routeRequestWithoutMutationCoordination(
 
   if (url.pathname === "/api/operator/v2" || url.pathname.startsWith("/api/operator/v2/")) {
     const requestId = randomUUID();
+    if (request.method === "GET" && url.pathname.startsWith("/api/operator/v2/operations/")) {
+      const authorization = await authorizeDurableLifecycleOperationRequest(request, response, auth, config);
+      if (!authorization) return;
+      const operationId = decodeURIComponent(url.pathname.slice("/api/operator/v2/operations/".length));
+      const operationService = new McpOperationService({ workspaceRoot: config.workspaceRoot });
+      const payload = await operationService.get(operationId, authorization);
+      const operation = buildOperatorV2Operation({
+        operationId: payload.operation.operationId,
+        action: payload.operation.action,
+        targetIds: payload.operation.targetIds,
+        status: payload.operation.status,
+        phase: payload.operation.phase,
+        outcome: payload.operation.outcome,
+        correlationId: payload.operation.correlationId,
+        createdAt: payload.operation.createdAt,
+        updatedAt: payload.operation.updatedAt,
+        expiresAt: payload.operation.expiresAt,
+        cancellationSupported: payload.operation.cancellationSupported,
+      });
+      writeJson(response, 200, operatorV2Envelope(buildOperatorV2Readback(operation), requestId));
+      return;
+    }
     if (request.method === "GET" && url.pathname === "/api/operator/v2/discovery") {
       writeJson(response, 200, operatorV2Envelope(buildOperatorV2Discovery(), requestId));
       return;
