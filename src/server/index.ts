@@ -35,10 +35,13 @@ import { createOperatorNotificationsResponse } from "./routes/operator-notificat
 import {
   buildOperatorV2Detail,
   buildOperatorV2Discovery,
-  buildOperatorV2LifecycleAvailability,
+  buildOperatorV2LifecycleAvailabilityReady,
   buildOperatorV2Operation,
+  buildOperatorV2Preview,
   buildOperatorV2Readback,
   buildOperatorV2ServicesPage,
+  operatorV2ActionFromPhrase,
+  operatorV2ActionToGuarded,
   operatorV2Envelope,
 } from "./operator-v2.js";
 import type { DiscoveredService } from "../contracts/service.js";
@@ -4672,8 +4675,127 @@ async function routeRequestWithoutMutationCoordination(
       const service = runtimeModel.registry.getById(serviceId);
       if (!service) throw new ApiError("service_not_found", 404, "The requested service is not available.");
       if (pathParts.length === 6 && pathParts[5] === "lifecycle-availability") {
-        writeJson(response, 200, operatorV2Envelope(buildOperatorV2LifecycleAvailability(serviceId), requestId));
+        writeJson(response, 200, operatorV2Envelope(buildOperatorV2LifecycleAvailabilityReady(serviceId), requestId));
         return;
+      }
+      if (pathParts.length === 6 && pathParts[5] === "preview") {
+        const authorization = await authorizeDurableLifecycleOperationRequest(request, response, auth, config);
+        if (!authorization) return;
+        const body = await readJsonBody(request) as { actionId?: unknown; definitionRevision?: unknown; expectedRevision?: unknown };
+        if (typeof body?.actionId !== "string") throw new ApiError("invalid_request", 400, "actionId is required.");
+        const guardedAction = operatorV2ActionToGuarded(body.actionId);
+        if (!guardedAction) throw new ApiError("invalid_request", 400, "Unsupported actionId.");
+        const facade = createMcpGuardedActionFacade(runtimeModel, config);
+        try {
+          const preview = await invokeMcpGuardedAction({
+            workspaceRoot: config.workspaceRoot,
+            operatingMode: "guarded",
+            authorization,
+            facade,
+            action: guardedAction as McpGuardedActionName,
+            parameters: { serviceId, execute: false },
+          });
+          const expiresAt = preview.confirmation.expiresAt ?? new Date(Date.now() + 60_000).toISOString();
+          writeJson(response, 200, operatorV2Envelope(buildOperatorV2Preview({
+            serviceId,
+            actionId: body.actionId,
+            definitionRevision: "definition-1",
+            expectedRevision: "definition-1",
+            generation: "generation-1",
+            modelEpoch: "operator-v2-epoch-1",
+            planId: preview.preflight.planId,
+            targets: preview.preflight.targets,
+            effects: preview.preflight.effects,
+            confirmationId: preview.confirmation.id,
+            confirmationPhrase: preview.confirmation.confirmationPhrase ?? null,
+            confirmationExpiresAt: preview.confirmation.expiresAt,
+            expiresAt,
+          }), requestId));
+          return;
+        } catch (error) {
+          throw durableLifecycleOperationError(error) ?? error;
+        }
+      }
+      if (pathParts.length === 6 && pathParts[5] === "execute") {
+        const authorization = await authorizeDurableLifecycleOperationRequest(request, response, auth, config);
+        if (!authorization) return;
+        const body = await readJsonBody(request) as {
+          planId?: unknown; idempotencyKey?: unknown; confirmationId?: unknown; confirmationResponse?: unknown; expectedRevision?: unknown;
+        };
+        if (typeof body?.idempotencyKey !== "string" || typeof body?.confirmationResponse !== "string") {
+          throw new ApiError("invalid_request", 400, "idempotencyKey and confirmationResponse are required.");
+        }
+        const idempotencyKey = body.idempotencyKey as string;
+        const confirmationResponse = body.confirmationResponse as string;
+        const actionId = operatorV2ActionFromPhrase(confirmationResponse);
+        if (!actionId) throw new ApiError("invalid_request", 400, "confirmationResponse action is invalid.");
+        const action = operatorV2ActionToGuarded(actionId);
+        if (!action) throw new ApiError("invalid_request", 400, "Unsupported action.");
+        const facade = createMcpGuardedActionFacade(runtimeModel, config);
+        try {
+          const preflight = await preflightMcpGuardedActionExecution({
+            workspaceRoot: config.workspaceRoot,
+            operatingMode: "guarded",
+            authorization,
+            facade,
+            action: action as McpGuardedActionName,
+            parameters: {
+              serviceId,
+              execute: true,
+              idempotencyKey,
+              confirmationId: typeof body.confirmationId === "string" ? body.confirmationId : undefined,
+              confirmationPhrase: confirmationResponse,
+            },
+            hasDurableClaim: async () => false,
+          });
+          const operationService = new McpOperationService({ workspaceRoot: config.workspaceRoot });
+          const submission = await operationService.submit({
+            authorization,
+            action: action as McpGuardedActionName,
+            targetIds: [serviceId],
+            cancellationSupported: isSafelyCancellableMcpAction(action as McpGuardedActionName),
+            guardedExecutionId: preflight.guardedExecutionId,
+            requestFingerprint: preflight.requestFingerprint,
+            alwaysAccept: true,
+            deduplicateByGuardedExecution: true,
+            execute: async (signal, reportProgress, correlationId) => await invokeMcpGuardedAction({
+              workspaceRoot: config.workspaceRoot,
+              operatingMode: "guarded",
+              authorization,
+              facade,
+              action: action as McpGuardedActionName,
+              parameters: {
+                serviceId,
+                execute: true,
+                idempotencyKey,
+                confirmationId: typeof body.confirmationId === "string" ? body.confirmationId : undefined,
+                confirmationPhrase: confirmationResponse,
+              },
+              signal,
+              reportProgress,
+              correlationId,
+            }),
+          });
+          if (submission.kind !== "accepted") throw new ApiError("invalid_request", 400, "Durable submission was not accepted.");
+          const record = submission.payload.operation;
+          const operation = buildOperatorV2Operation({
+            operationId: record.operationId,
+            action: record.action,
+            targetIds: record.targetIds,
+            status: record.status,
+            phase: record.phase,
+            outcome: record.outcome,
+            correlationId: record.correlationId,
+            createdAt: record.createdAt,
+            updatedAt: record.updatedAt,
+            expiresAt: record.expiresAt,
+            cancellationSupported: record.cancellationSupported,
+          });
+          writeJson(response, 200, operatorV2Envelope({ kind: "accepted", operation }, requestId));
+          return;
+        } catch (error) {
+          throw durableLifecycleOperationError(error) ?? error;
+        }
       }
       if (pathParts.length === 5) {
         writeJson(response, 200, operatorV2Envelope(buildOperatorV2Detail({
