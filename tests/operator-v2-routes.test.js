@@ -36,6 +36,10 @@ test('Core serves v2 discovery and an empty services page', async () => {
 
     const missingResponse = await fetch(`${server.url}/api/operator/v2/services/missing`);
     assert.equal(missingResponse.status, 404);
+    const missing = await missingResponse.json();
+    assert.equal(missing.contractVersion, "service-lasso-operator.v2");
+    assert.equal(missing.error.code, "not_found");
+    assert.equal(missing.error.messageKey, "operator.error.not_found");
 
     const legacyResponse = await fetch(`${server.url}/api/operator/lifecycle/operations`);
     assert.equal(legacyResponse.status, 404);

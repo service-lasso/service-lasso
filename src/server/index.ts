@@ -8244,6 +8244,61 @@ if (request.method === "GET" && pathParts.length === 4 && pathParts[3] === "term
   notFound(response);
 }
 
+function operatorV2ErrorStatus(error: unknown): number {
+  const code = toApiErrorBody(error).error;
+  switch (code) {
+  case "service_not_found": return 404;
+  case "revision_conflict": return 409;
+  case "confirmation_required":
+  case "confirmation_expired":
+  case "binding_stale": return 409;
+  case "permission_denied":
+  case "forbidden":
+  case "insufficient_scope": return 403;
+  case "authentication_required": return 401;
+  case "invalid_request":
+  case "invalid_body":
+  case "invalid_json": return 400;
+  case "unsupported_capability":
+  case "dependency_blocked": return 422;
+  default: return 500;
+  }
+}
+
+function operatorV2ErrorBody(error: unknown): { contractVersion: string; requestId: string; generatedAt: string; error: { code: string; messageKey: string; retryability: string; fieldErrors: unknown[] } } {
+  const code = toApiErrorBody(error).error;
+  const mapped = (() => {
+    switch (code) {
+    case "service_not_found": return { code: "not_found", retryability: "never" };
+    case "revision_conflict": return { code: "revision_conflict", retryability: "new_preview" };
+    case "confirmation_required": return { code: "confirmation_required", retryability: "new_preview" };
+    case "confirmation_expired": return { code: "confirmation_expired", retryability: "new_preview" };
+    case "binding_stale": return { code: "binding_stale", retryability: "new_preview" };
+    case "permission_denied":
+    case "forbidden":
+    case "insufficient_scope": return { code: "permission_denied", retryability: "never" };
+    case "authentication_required": return { code: "authentication_required", retryability: "never" };
+    case "invalid_request":
+    case "invalid_body":
+    case "invalid_json": return { code: "invalid_request", retryability: "never" };
+    case "unsupported_capability": return { code: "unsupported_capability", retryability: "never" };
+    case "dependency_blocked": return { code: "dependency_blocked", retryability: "new_preview" };
+    default: return { code: "internal_error", retryability: "never" };
+    }
+  })();
+  return {
+    contractVersion: "service-lasso-operator.v2",
+    requestId: randomUUID(),
+    generatedAt: new Date().toISOString(),
+    error: {
+      code: mapped.code,
+      messageKey: `operator.error.${mapped.code}`,
+      retryability: mapped.retryability,
+      fieldErrors: [],
+    },
+  };
+}
+
 async function routeRequest(
   request: IncomingMessage,
   response: ServerResponse,
@@ -8383,6 +8438,11 @@ function createApiServerOnCandidate(options: ApiServerOptions, existingServer?: 
       () => apiRequestTelemetryState.droppedCount,
       getTelemetryContinuousExportState,
     ).catch((error: unknown) => {
+      const pathname = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
+      if (pathname === "/api/operator/v2" || pathname.startsWith("/api/operator/v2/")) {
+        if (!response.writableEnded) writeJson(response, operatorV2ErrorStatus(error), operatorV2ErrorBody(error));
+        return;
+      }
       const body = toApiErrorBody(error);
       writeJson(response, body.statusCode, body);
     });
