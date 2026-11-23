@@ -207,3 +207,53 @@ export function buildOperatorV2LifecycleAvailability(serviceId: string): {
     availability: unsupported(),
   };
 }
+
+export interface OperatorV2Operation {
+  operationId: string;
+  actionId: string;
+  serviceId: string;
+  targets: string[];
+  status: string;
+  phase: string;
+  outcome: string | null;
+  correlationId: string;
+  createdAt: string;
+  updatedAt: string;
+  expiresAt: string;
+  cancellationSupported: boolean;
+}
+
+export function buildOperatorV2Operation(input: {
+  operationId: string;
+  action: string;
+  targetIds: readonly string[];
+  status: string;
+  phase: string;
+  outcome: string | null;
+  correlationId: string;
+  createdAt: string;
+  updatedAt: string;
+  expiresAt: string;
+  cancellationSupported: boolean;
+}): OperatorV2Operation {
+  const serviceId = input.targetIds[0];
+  if (!serviceId) throw new Error("operator operation has no target service");
+  return {
+    operationId: input.operationId,
+    actionId: input.action,
+    serviceId,
+    targets: [...input.targetIds],
+    status: input.status,
+    phase: input.phase,
+    outcome: input.outcome,
+    correlationId: input.correlationId,
+    createdAt: input.createdAt,
+    updatedAt: input.updatedAt,
+    expiresAt: input.expiresAt,
+    cancellationSupported: input.cancellationSupported,
+  };
+}
+
+export function buildOperatorV2Readback(operation: OperatorV2Operation): { operation: OperatorV2Operation } {
+  return { operation };
+}

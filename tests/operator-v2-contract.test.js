@@ -6,6 +6,8 @@ import {
   buildOperatorV2Detail,
   buildOperatorV2Discovery,
   buildOperatorV2LifecycleAvailability,
+  buildOperatorV2Operation,
+  buildOperatorV2Readback,
   buildOperatorV2ServicesPage,
   operatorV2Envelope,
 } from '../dist/server/operator-v2.js';
@@ -81,4 +83,24 @@ test('v2 lifecycle availability fails closed as unsupported', () => {
     available: false,
     reasonCode: 'unsupported_capability',
   });
+});
+
+
+test('v2 operation readback maps the durable v1 operation', () => {
+  const operation = buildOperatorV2Operation({
+    operationId: 'mcp-operation-12345678-1234-1234-1234-123456789abc',
+    action: 'service_start',
+    targetIds: ['root'],
+    status: 'running',
+    phase: 'executing',
+    outcome: null,
+    correlationId: 'mcp-operation-correlation-12345678-1234-1234-1234-123456789abc',
+    createdAt: '2026-11-20T12:00:00.000Z',
+    updatedAt: '2026-11-20T12:00:01.000Z',
+    expiresAt: '2026-11-21T12:00:00.000Z',
+    cancellationSupported: false,
+  });
+  assert.equal(operation.serviceId, 'root');
+  assert.equal(operation.actionId, 'service_start');
+  assert.deepEqual(buildOperatorV2Readback(operation), { operation });
 });
