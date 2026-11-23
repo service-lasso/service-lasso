@@ -4450,6 +4450,48 @@ async function runSecretsBrokerBootstrapStage<T>(
   }
 }
 
+function createDurableOperationService(config: ApiRouteConfig): McpOperationService {
+  return new McpOperationService({
+    workspaceRoot: config.workspaceRoot,
+    afterDurableClaim: config.mcpPolicyTestHooks?.afterDurableClaim,
+    afterCancellationAccepted: config.mcpPolicyTestHooks?.afterCancellationAccepted,
+    beforeTerminalStage: config.mcpPolicyTestHooks?.beforeTerminalStage,
+    recoverDetached: async (operation) => {
+      if (!operation.guardedExecutionId) {
+        return {
+          status: "unknown_after_crash",
+          phase: "unknown_after_crash",
+          progress: 100,
+          summary: "The durable operation has no persisted guarded execution result after runtime recovery.",
+        };
+      }
+      const completed = await readMcpGuardedActionExecution({
+        workspaceRoot: config.workspaceRoot,
+        executionId: operation.guardedExecutionId,
+        expectedCorrelationId: operation.correlationId,
+      });
+      if (!completed) {
+        return {
+          status: "unknown_after_crash",
+          phase: "unknown_after_crash",
+          progress: 100,
+          summary: "The durable operation has no authoritative guarded result after runtime recovery.",
+        };
+      }
+      return {
+        status: completed.status === "skipped" || completed.status === "replayed"
+          ? "skipped"
+          : completed.ok
+            ? "succeeded"
+            : "failed",
+        phase: completed.status === "replayed" ? "replayed" : "guarded_result_reconciled",
+        progress: 100,
+        summary: completed.summary,
+      };
+    },
+  });
+}
+
 async function routeRequestWithoutMutationCoordination(
   request: IncomingMessage,
   response: ServerResponse,
@@ -4637,7 +4679,7 @@ async function routeRequestWithoutMutationCoordination(
       if (!authorization) return;
       const parts = url.pathname.split("/").filter(Boolean);
       const operationId = decodeURIComponent(parts[4] ?? "");
-      const operationService = new McpOperationService({ workspaceRoot: config.workspaceRoot });
+      const operationService = createDurableOperationService(config);
       if (request.method === "POST" && parts.length === 6 && parts[5] === "cancel") {
         const payload = await operationService.cancel(operationId, authorization);
         const operation = buildOperatorV2Operation({
@@ -4681,13 +4723,16 @@ async function routeRequestWithoutMutationCoordination(
     }
     if (request.method === "GET" && url.pathname === "/api/operator/v2/services") {
       const runtimeModel = await loadRuntimeModel(config.servicesRoot);
-      const page = buildOperatorV2ServicesPage(runtimeModel.discovered.map((service) => ({
+      const services = await Promise.all(runtimeModel.discovered.map(async (service) => ({
         id: service.manifest.id,
         name: service.manifest.name,
         description: service.manifest.description,
+        definitionRevision: await buildServiceMutationDefinitionRevision(service),
+        generation: config.runtimeGenerationId ?? "generation-1",
+        modelEpoch: config.runtimeGenerationId ?? "operator-v2-epoch-1",
         running: getLifecycleState(service.manifest.id).running,
       })));
-      writeJson(response, 200, operatorV2Envelope(page, requestId));
+      writeJson(response, 200, operatorV2Envelope(buildOperatorV2ServicesPage(services), requestId));
       return;
     }
     if (request.method === "GET" && url.pathname.startsWith("/api/operator/v2/services/")) {
@@ -4697,7 +4742,13 @@ async function routeRequestWithoutMutationCoordination(
       const service = runtimeModel.registry.getById(serviceId);
       if (!service) throw new ApiError("service_not_found", 404, "The requested service is not available.");
       if (pathParts.length === 6 && pathParts[5] === "lifecycle-availability") {
-        writeJson(response, 200, operatorV2Envelope(buildOperatorV2LifecycleAvailabilityReady(serviceId), requestId));
+        const revision = await buildServiceMutationDefinitionRevision(service);
+        writeJson(response, 200, operatorV2Envelope(buildOperatorV2LifecycleAvailabilityReady(
+          serviceId,
+          revision,
+          config.runtimeGenerationId ?? "generation-1",
+          config.runtimeGenerationId ?? "operator-v2-epoch-1",
+        ), requestId));
         return;
       }
       if (pathParts.length === 6 && pathParts[5] === "preview") {
@@ -4717,14 +4768,18 @@ async function routeRequestWithoutMutationCoordination(
             action: guardedAction as McpGuardedActionName,
             parameters: { serviceId, execute: false },
           });
+          const revision = await buildServiceMutationDefinitionRevision(service);
+          if (body.definitionRevision !== revision || body.expectedRevision !== revision) {
+            throw new ApiError("revision_conflict", 409, "The service definition revision is stale.");
+          }
           const expiresAt = preview.confirmation.expiresAt ?? new Date(Date.now() + 60_000).toISOString();
           writeJson(response, 200, operatorV2Envelope(buildOperatorV2Preview({
             serviceId,
             actionId: body.actionId,
-            definitionRevision: "definition-1",
-            expectedRevision: "definition-1",
-            generation: "generation-1",
-            modelEpoch: "operator-v2-epoch-1",
+            definitionRevision: revision,
+            expectedRevision: revision,
+            generation: config.runtimeGenerationId ?? "generation-1",
+            modelEpoch: config.runtimeGenerationId ?? "operator-v2-epoch-1",
             planId: preview.preflight.planId,
             targets: preview.preflight.targets,
             effects: preview.preflight.effects,
@@ -4753,6 +4808,10 @@ async function routeRequestWithoutMutationCoordination(
         if (!actionId) throw new ApiError("invalid_request", 400, "confirmationResponse action is invalid.");
         const action = operatorV2ActionToGuarded(actionId);
         if (!action) throw new ApiError("invalid_request", 400, "Unsupported action.");
+        const revision = await buildServiceMutationDefinitionRevision(service);
+        if (body.expectedRevision !== revision) {
+          throw new ApiError("revision_conflict", 409, "The service definition revision is stale.");
+        }
         const facade = createMcpGuardedActionFacade(runtimeModel, config);
         try {
           const preflight = await preflightMcpGuardedActionExecution({
@@ -4770,7 +4829,7 @@ async function routeRequestWithoutMutationCoordination(
             },
             hasDurableClaim: async () => false,
           });
-          const operationService = new McpOperationService({ workspaceRoot: config.workspaceRoot });
+          const operationService = createDurableOperationService(config);
           const submission = await operationService.submit({
             authorization,
             action: action as McpGuardedActionName,
@@ -4820,10 +4879,14 @@ async function routeRequestWithoutMutationCoordination(
         }
       }
       if (pathParts.length === 5) {
+        const definitionRevision = await buildServiceMutationDefinitionRevision(service);
         writeJson(response, 200, operatorV2Envelope(buildOperatorV2Detail({
           id: service.manifest.id,
           name: service.manifest.name,
           description: service.manifest.description,
+          definitionRevision,
+          generation: config.runtimeGenerationId ?? "generation-1",
+          modelEpoch: config.runtimeGenerationId ?? "operator-v2-epoch-1",
           running: getLifecycleState(service.manifest.id).running,
         }), requestId));
         return;
