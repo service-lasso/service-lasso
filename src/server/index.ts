@@ -1504,7 +1504,7 @@ function isUnauthenticatedRuntimeRoute(method: string, pathname: string): boolea
 }
 
 function isMcpOwnedAuthenticationRoute(pathname: string): boolean {
-  return pathname === "/api/mcp" || pathname === MCP_PROTECTED_RESOURCE_METADATA_PATH || pathname === "/api/operator/lifecycle/reconciliation-context";
+  return pathname === "/api/mcp" || pathname === MCP_PROTECTED_RESOURCE_METADATA_PATH || pathname === "/api/operator/v2/reconciliation-context";
 }
 
 function writeMcpPolicyError(response: ServerResponse, error: McpHttpPolicyError): void {
@@ -2176,7 +2176,7 @@ async function authorizeDurableReconciliationContextRequest(
           authorization,
           error.code,
           undefined,
-          "/api/operator/lifecycle/reconciliation-context",
+          "/api/operator/v2/reconciliation-context",
         );
       } catch (auditError) {
         writeMcpPolicyError(
@@ -4831,7 +4831,7 @@ async function routeRequestWithoutMutationCoordination(
     }
   }
 
-  if (request.method === "GET" && (url.pathname === "/api/operator/lifecycle/reconciliation-context" || url.pathname === "/api/operator/v2/reconciliation-context")) {
+  if (request.method === "GET" && (url.pathname === "/api/operator/v2/reconciliation-context" || url.pathname === "/api/operator/v2/reconciliation-context")) {
     const authorization = await authorizeDurableReconciliationContextRequest(request, response, auth, config);
     if (!authorization) return;
     try {
@@ -4844,7 +4844,7 @@ async function routeRequestWithoutMutationCoordination(
         authorization,
         undefined,
         undefined,
-        "/api/operator/lifecycle/reconciliation-context",
+        "/api/operator/v2/reconciliation-context",
       );
       writeJson(response, 200, reconciliationContext);
     } catch (error) {
@@ -4858,7 +4858,7 @@ async function routeRequestWithoutMutationCoordination(
             authorization,
             "reconciliation_context_unavailable",
             undefined,
-            "/api/operator/lifecycle/reconciliation-context",
+            "/api/operator/v2/reconciliation-context",
             "allowed",
           );
         } catch (auditError) {

@@ -138,7 +138,7 @@ async function startCrossProcessReconciliationPeer(options) {
 }
 
 async function readContext(api, accessToken, headers = {}) {
-  const response = await fetch(`${api.url}/api/operator/lifecycle/reconciliation-context`, {
+  const response = await fetch(`${api.url}/api/operator/v2/reconciliation-context`, {
     headers: { connection: "close", ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}), ...headers },
   });
   return { status: response.status, body: await response.json() };
@@ -146,7 +146,7 @@ async function readContext(api, accessToken, headers = {}) {
 
 async function readContextWithHost(api, host, accessToken) {
   return await new Promise((resolve, reject) => {
-    const request = httpRequest(`${api.url}/api/operator/lifecycle/reconciliation-context`, {
+    const request = httpRequest(`${api.url}/api/operator/v2/reconciliation-context`, {
       headers: { host, connection: "close", ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}) },
     }, (response) => {
       let body = "";
@@ -637,19 +637,19 @@ test("#1553 records the actual redacted authorization and context outcome before
     for (const event of events) {
       assert.equal(Object.hasOwn(event, "workspaceRoot"), false);
       assert.equal(Object.hasOwn(event, "serviceRoot"), false);
-      assert.equal(event.routeTemplate, "/api/operator/lifecycle/reconciliation-context");
+      assert.equal(event.routeTemplate, "/api/operator/v2/reconciliation-context");
       assert.equal(event.method, "GET");
       assert.equal(JSON.stringify(event).includes(allowed), false);
       assert.equal(JSON.stringify(event).includes(denied), false);
       assert.equal(JSON.stringify(event).includes(fixture.tempRoot), false);
       assert.equal(JSON.stringify(event).includes(fixture.workspaceRoot), false);
       assert.equal(JSON.stringify(event).includes("Bearer "), false);
-      assert.equal(JSON.stringify(event).includes("/api/operator/lifecycle/reconciliation-context"), true);
+      assert.equal(JSON.stringify(event).includes("/api/operator/v2/reconciliation-context"), true);
       assert.match(event.correlationId, /^mcp-auth-[0-9a-f-]{36}$/u);
     }
     const persistedAudit = await readAuditEvents({ workspaceRoot: fixture.workspaceRoot });
     const persistedAuthorization = persistedAudit.events
-      .filter((event) => event.routeTemplate === "/api/operator/lifecycle/reconciliation-context")
+      .filter((event) => event.routeTemplate === "/api/operator/v2/reconciliation-context")
       .sort((left, right) => left.sequence - right.sequence);
     assert.deepEqual(
       persistedAuthorization.map((event) => [event.action, event.outcome, event.statusCode, event.correlationId]),
