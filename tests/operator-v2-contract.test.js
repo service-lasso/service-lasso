@@ -7,6 +7,7 @@ import {
   buildOperatorV2Discovery,
   buildOperatorV2Cancel,
   buildOperatorV2LifecycleAvailability,
+  buildOperatorV2LifecycleAvailabilityFromActions,
   buildOperatorV2LifecycleAvailabilityReady,
   buildOperatorV2Preview,
   operatorV2ActionFromPhrase,
@@ -176,4 +177,27 @@ test('v2 cancellation maps the durable cancellation status', () => {
     actionId: 'service_start',
     status: 'requested',
   });
+});
+
+
+test('v2 availability reflects per-action preflight results', () => {
+  const value = buildOperatorV2LifecycleAvailabilityFromActions(
+    'root', 'revision-real', 'generation-real', 'epoch-real',
+    {
+      install: { available: true, reasonCode: null },
+      config: { available: false, reasonCode: 'permission_denied' },
+      start: { available: true, reasonCode: null },
+      stop: { available: true, reasonCode: null },
+      restart: { available: false, reasonCode: 'dependency_blocked' },
+      update_check: { available: true, reasonCode: null },
+      update_download: { available: true, reasonCode: null },
+    },
+  );
+  const install = value.capabilities.find((entry) => entry.id === 'service_install');
+  const config = value.capabilities.find((entry) => entry.id === 'service_configure');
+  assert.equal(install.availability.available, true);
+  assert.equal(config.availability.available, false);
+  assert.equal(config.availability.reasonCode, 'permission_denied');
+  assert.equal(value.mutationBindings.find((entry) => entry.actionId === 'service_install').expectedRevision, 'revision-real');
+  assert.equal(value.mutationBindings.find((entry) => entry.actionId === 'service_configure').expectedRevision, null);
 });
