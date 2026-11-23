@@ -35,6 +35,7 @@ import { createOperatorNotificationsResponse } from "./routes/operator-notificat
 import {
   buildOperatorV2Detail,
   buildOperatorV2Discovery,
+  buildOperatorV2Cancel,
   buildOperatorV2LifecycleAvailabilityReady,
   buildOperatorV2Operation,
   buildOperatorV2Preview,
@@ -4631,27 +4632,48 @@ async function routeRequestWithoutMutationCoordination(
 
   if (url.pathname === "/api/operator/v2" || url.pathname.startsWith("/api/operator/v2/")) {
     const requestId = randomUUID();
-    if (request.method === "GET" && url.pathname.startsWith("/api/operator/v2/operations/")) {
+    if ((request.method === "GET" || request.method === "POST") && url.pathname.startsWith("/api/operator/v2/operations/")) {
       const authorization = await authorizeDurableLifecycleOperationRequest(request, response, auth, config);
       if (!authorization) return;
-      const operationId = decodeURIComponent(url.pathname.slice("/api/operator/v2/operations/".length));
+      const parts = url.pathname.split("/").filter(Boolean);
+      const operationId = decodeURIComponent(parts[4] ?? "");
       const operationService = new McpOperationService({ workspaceRoot: config.workspaceRoot });
-      const payload = await operationService.get(operationId, authorization);
-      const operation = buildOperatorV2Operation({
-        operationId: payload.operation.operationId,
-        action: payload.operation.action,
-        targetIds: payload.operation.targetIds,
-        status: payload.operation.status,
-        phase: payload.operation.phase,
-        outcome: payload.operation.outcome,
-        correlationId: payload.operation.correlationId,
-        createdAt: payload.operation.createdAt,
-        updatedAt: payload.operation.updatedAt,
-        expiresAt: payload.operation.expiresAt,
-        cancellationSupported: payload.operation.cancellationSupported,
-      });
-      writeJson(response, 200, operatorV2Envelope(buildOperatorV2Readback(operation), requestId));
-      return;
+      if (request.method === "POST" && parts.length === 6 && parts[5] === "cancel") {
+        const payload = await operationService.cancel(operationId, authorization);
+        const operation = buildOperatorV2Operation({
+          operationId: payload.operation.operationId,
+          action: payload.operation.action,
+          targetIds: payload.operation.targetIds,
+          status: payload.operation.status,
+          phase: payload.operation.phase,
+          outcome: payload.operation.outcome,
+          correlationId: payload.operation.correlationId,
+          createdAt: payload.operation.createdAt,
+          updatedAt: payload.operation.updatedAt,
+          expiresAt: payload.operation.expiresAt,
+          cancellationSupported: payload.operation.cancellationSupported,
+        });
+        writeJson(response, 200, operatorV2Envelope(buildOperatorV2Cancel(operation, payload.cancellation.result), requestId));
+        return;
+      }
+      if (request.method === "GET" && parts.length === 5) {
+        const payload = await operationService.get(operationId, authorization);
+        const operation = buildOperatorV2Operation({
+          operationId: payload.operation.operationId,
+          action: payload.operation.action,
+          targetIds: payload.operation.targetIds,
+          status: payload.operation.status,
+          phase: payload.operation.phase,
+          outcome: payload.operation.outcome,
+          correlationId: payload.operation.correlationId,
+          createdAt: payload.operation.createdAt,
+          updatedAt: payload.operation.updatedAt,
+          expiresAt: payload.operation.expiresAt,
+          cancellationSupported: payload.operation.cancellationSupported,
+        });
+        writeJson(response, 200, operatorV2Envelope(buildOperatorV2Readback(operation), requestId));
+        return;
+      }
     }
     if (request.method === "GET" && url.pathname === "/api/operator/v2/discovery") {
       writeJson(response, 200, operatorV2Envelope(buildOperatorV2Discovery(), requestId));

@@ -5,6 +5,7 @@ import {
   OPERATOR_V2_CONTRACT,
   buildOperatorV2Detail,
   buildOperatorV2Discovery,
+  buildOperatorV2Cancel,
   buildOperatorV2LifecycleAvailability,
   buildOperatorV2LifecycleAvailabilityReady,
   buildOperatorV2Preview,
@@ -153,4 +154,26 @@ test('v2 preview and action mapping bind the guarded action', () => {
   assert.equal(operatorV2ActionToGuarded('service_start'), 'start');
   assert.equal(operatorV2ActionFromPhrase(preview.confirmation.phraseKey), 'service_start');
   assert.equal(operatorV2ActionFromPhrase('confirm unknown 0123'), null);
+});
+
+
+test('v2 cancellation maps the durable cancellation status', () => {
+  const operation = buildOperatorV2Operation({
+    operationId: 'mcp-operation-12345678-1234-1234-1234-123456789abc',
+    action: 'service_start',
+    targetIds: ['root'],
+    status: 'cancelling',
+    phase: 'cancellation_requested',
+    outcome: null,
+    correlationId: 'mcp-operation-correlation-12345678-1234-1234-1234-123456789abc',
+    createdAt: '2026-11-20T12:00:00.000Z',
+    updatedAt: '2026-11-20T12:00:01.000Z',
+    expiresAt: '2026-11-21T12:00:00.000Z',
+    cancellationSupported: true,
+  });
+  assert.deepEqual(buildOperatorV2Cancel(operation, 'requested'), {
+    operationId: operation.operationId,
+    actionId: 'service_start',
+    status: 'requested',
+  });
 });
