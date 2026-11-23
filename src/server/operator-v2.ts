@@ -424,3 +424,80 @@ export function operatorV2ActionFromPhrase(phrase: string | null): string | null
     "update-download": true,
   } ? actionId.replaceAll("-", "_") : null;
 }
+
+export function buildOperatorV2LifecycleAvailabilityFromActions(
+  serviceId: string,
+  definitionRevision: string,
+  generation: string,
+  modelEpoch: string,
+  actions: Readonly<Record<string, { available: boolean; reasonCode?: string | null }>>,
+): ReturnType<typeof buildOperatorV2LifecycleAvailabilityReady> {
+  const ids: Array<[string, string]> = [
+    ["service_install", "install"],
+    ["service_configure", "config"],
+    ["service_start", "start"],
+    ["service_stop", "stop"],
+    ["service_restart", "restart"],
+    ["update_check", "update_check"],
+    ["update_download", "update_download"],
+    ["service_reload", "reload"],
+  ];
+  const capabilities: OperatorV2Capability[] = [];
+  const mutationBindings: Array<{
+    actionId: string;
+    expectedRevision: string | null;
+    availability: OperatorV2Availability;
+  }> = [];
+  for (const [id, action] of ids) {
+    if (id === "service_reload") {
+      const reloadAvailability = unsupported();
+      capabilities.push({
+        id,
+        availability: reloadAvailability,
+        requiredProfile: "operator",
+        requiredScopes: READ_SCOPES,
+        confirmationPolicy: "required",
+        bindingRequirements: [],
+      });
+      mutationBindings.push({ actionId: id, expectedRevision: null, availability: reloadAvailability });
+      continue;
+    }
+    const result = actions[action] ?? { available: false, reasonCode: "dependency_blocked" };
+    const reason = result.available
+      ? null
+      : result.reasonCode === "permission_denied" || result.reasonCode === "forbidden" || result.reasonCode === "insufficient_scope"
+        ? "permission_denied"
+        : result.reasonCode === "confirmation_required"
+          ? "confirmation_required"
+          : result.reasonCode === "authentication_required"
+            ? "authentication_required"
+            : "dependency_blocked";
+    const availability: OperatorV2Availability = {
+      supported: true,
+      available: result.available,
+      reasonCode: reason,
+    };
+    capabilities.push({
+      id,
+      availability,
+      requiredProfile: "operator",
+      requiredScopes: ["service-lasso:read", "service-lasso:lifecycle:write"],
+      confirmationPolicy: "required",
+      bindingRequirements: ["definition_revision", "runtime_generation", "model_epoch"],
+    });
+    mutationBindings.push({
+      actionId: id,
+      expectedRevision: result.available ? definitionRevision : null,
+      availability,
+    });
+  }
+  return {
+    serviceId,
+    definitionRevision,
+    generation,
+    modelEpoch,
+    capabilities,
+    mutationBindings,
+    availability: available(),
+  };
+}

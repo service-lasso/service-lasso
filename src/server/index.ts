@@ -36,6 +36,7 @@ import {
   buildOperatorV2Detail,
   buildOperatorV2Discovery,
   buildOperatorV2Cancel,
+  buildOperatorV2LifecycleAvailabilityFromActions,
   buildOperatorV2LifecycleAvailabilityReady,
   buildOperatorV2Operation,
   buildOperatorV2Preview,
@@ -4742,12 +4743,35 @@ async function routeRequestWithoutMutationCoordination(
       const service = runtimeModel.registry.getById(serviceId);
       if (!service) throw new ApiError("service_not_found", 404, "The requested service is not available.");
       if (pathParts.length === 6 && pathParts[5] === "lifecycle-availability") {
+        const authorization = await authorizeDurableLifecycleOperationRequest(request, response, auth, config);
+        if (!authorization) return;
         const revision = await buildServiceMutationDefinitionRevision(service);
-        writeJson(response, 200, operatorV2Envelope(buildOperatorV2LifecycleAvailabilityReady(
+        const facade = createMcpGuardedActionFacade(runtimeModel, config);
+        const actionAvailability: Record<string, { available: boolean; reasonCode: string | null }> = {};
+        for (const [name, action] of Object.entries(durableLifecycleOperationActions)) {
+          try {
+            await assertMcpGuardedActionAuthorization({
+              workspaceRoot: config.workspaceRoot,
+              operatingMode: "guarded",
+              authorization,
+              action,
+            });
+            const plan = await facade.preflight(action, { serviceId });
+            actionAvailability[name] = { available: plan.executable === true, reasonCode: plan.skippedReason };
+          } catch (error) {
+            actionAvailability[name] = {
+              available: false,
+              reasonCode: error instanceof McpGuardedActionError ? error.code : "dependency_blocked",
+            };
+          }
+        }
+        actionAvailability.reload = { available: false, reasonCode: "unsupported_capability" };
+        writeJson(response, 200, operatorV2Envelope(buildOperatorV2LifecycleAvailabilityFromActions(
           serviceId,
           revision,
           config.runtimeGenerationId ?? "generation-1",
           config.runtimeGenerationId ?? "operator-v2-epoch-1",
+          actionAvailability,
         ), requestId));
         return;
       }
