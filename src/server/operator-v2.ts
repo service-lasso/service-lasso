@@ -258,6 +258,14 @@ export function buildOperatorV2Readback(operation: OperatorV2Operation): { opera
   return { operation };
 }
 
+export function buildOperatorV2Cancel(operation: OperatorV2Operation, status: string): {
+  operationId: string;
+  actionId: string;
+  status: string;
+} {
+  return { operationId: operation.operationId, actionId: operation.actionId, status };
+}
+
 export interface OperatorV2Preview {
   planId: string;
   serviceId: string;
