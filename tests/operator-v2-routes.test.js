@@ -36,6 +36,9 @@ test('Core serves v2 discovery and an empty services page', async () => {
 
     const missingResponse = await fetch(`${server.url}/api/operator/v2/services/missing`);
     assert.equal(missingResponse.status, 404);
+
+    const legacyResponse = await fetch(`${server.url}/api/operator/lifecycle/operations`);
+    assert.equal(legacyResponse.status, 404);
   } finally {
     await server.stop().catch(() => undefined);
     await rm(root, { recursive: true, force: true });
