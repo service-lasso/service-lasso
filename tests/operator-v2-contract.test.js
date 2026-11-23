@@ -6,6 +6,10 @@ import {
   buildOperatorV2Detail,
   buildOperatorV2Discovery,
   buildOperatorV2LifecycleAvailability,
+  buildOperatorV2LifecycleAvailabilityReady,
+  buildOperatorV2Preview,
+  operatorV2ActionFromPhrase,
+  operatorV2ActionToGuarded,
   buildOperatorV2Operation,
   buildOperatorV2Readback,
   buildOperatorV2ServicesPage,
@@ -103,4 +107,50 @@ test('v2 operation readback maps the durable v1 operation', () => {
   assert.equal(operation.serviceId, 'root');
   assert.equal(operation.actionId, 'service_start');
   assert.deepEqual(buildOperatorV2Readback(operation), { operation });
+});
+
+
+test('v2 ready lifecycle availability has eight capabilities and bindings', () => {
+  const value = buildOperatorV2LifecycleAvailabilityReady('root');
+  assert.equal(value.availability.available, true);
+  assert.equal(value.definitionRevision, 'definition-1');
+  assert.equal(value.capabilities.length, 8);
+  assert.equal(value.mutationBindings.length, 8);
+  assert.deepEqual(value.capabilities.map((entry) => entry.id), [
+    'service_install',
+    'service_configure',
+    'service_start',
+    'service_stop',
+    'service_restart',
+    'update_check',
+    'update_download',
+    'service_reload',
+  ]);
+  assert.equal(value.capabilities[0].availability.available, true);
+  assert.equal(value.capabilities.at(-1).availability.supported, false);
+  assert.equal(value.mutationBindings[0].expectedRevision, 'definition-1');
+  assert.equal(value.mutationBindings.at(-1).expectedRevision, null);
+});
+
+test('v2 preview and action mapping bind the guarded action', () => {
+  const preview = buildOperatorV2Preview({
+    serviceId: 'root',
+    actionId: 'service_start',
+    definitionRevision: 'definition-1',
+    expectedRevision: 'definition-1',
+    generation: 'generation-1',
+    modelEpoch: 'operator-v2-epoch-1',
+    planId: 'plan-1',
+    targets: ['root'],
+    effects: ['start_runtime'],
+    confirmationId: 'confirmation-1',
+    confirmationPhrase: 'confirm service-start 0123456789abcdef0123456789abcdef',
+    confirmationExpiresAt: '2026-11-20T12:01:00.000Z',
+    expiresAt: '2026-11-20T12:01:00.000Z',
+  });
+  assert.equal(preview.actionId, 'service_start');
+  assert.equal(preview.confirmation.required, true);
+  assert.equal(operatorV2ActionToGuarded('service_start'), 'start');
+  assert.equal(operatorV2ActionFromPhrase(preview.confirmation.phraseKey), 'service_start');
+  assert.equal(operatorV2ActionFromPhrase('confirm unknown 0123'), null);
 });

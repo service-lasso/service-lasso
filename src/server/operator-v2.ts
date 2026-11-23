@@ -18,9 +18,9 @@ export interface OperatorV2Availability {
 export interface OperatorV2Capability {
   id: string;
   availability: OperatorV2Availability;
-  requiredProfile: "observer";
+  requiredProfile: "observer" | "operator" | "maintainer" | "administrator";
   requiredScopes: string[];
-  confirmationPolicy: "none";
+  confirmationPolicy: "none" | "required";
   bindingRequirements: string[];
 }
 
@@ -256,4 +256,162 @@ export function buildOperatorV2Operation(input: {
 
 export function buildOperatorV2Readback(operation: OperatorV2Operation): { operation: OperatorV2Operation } {
   return { operation };
+}
+
+export interface OperatorV2Preview {
+  planId: string;
+  serviceId: string;
+  actionId: string;
+  definitionRevision: string;
+  expectedRevision: string;
+  generation: string;
+  modelEpoch: string;
+  targets: string[];
+  effects: string[];
+  availability: OperatorV2Availability;
+  confirmation: {
+    required: boolean;
+    id: string | null;
+    phraseKey: string | null;
+    expiresAt: string | null;
+  };
+  expiresAt: string;
+}
+
+const MUTATION_CAPABILITIES = [
+  "service_install",
+  "service_configure",
+  "service_start",
+  "service_stop",
+  "service_restart",
+  "update_check",
+  "update_download",
+  "service_reload",
+] as const;
+
+export function buildOperatorV2LifecycleAvailabilityReady(
+  serviceId: string,
+  definitionRevision = "definition-1",
+  generation = "generation-1",
+  modelEpoch = "operator-v2-epoch-1",
+): {
+  serviceId: string;
+  definitionRevision: string;
+  generation: string;
+  modelEpoch: string;
+  capabilities: OperatorV2Capability[];
+  mutationBindings: Array<{
+    actionId: string;
+    expectedRevision: string | null;
+    availability: OperatorV2Availability;
+  }>;
+  availability: OperatorV2Availability;
+} {
+  const capabilities: OperatorV2Capability[] = [];
+  const mutationBindings: Array<{
+    actionId: string;
+    expectedRevision: string | null;
+    availability: OperatorV2Availability;
+  }> = [];
+  for (const id of MUTATION_CAPABILITIES) {
+    if (id === "service_reload") {
+      const reloadAvailability = unsupported();
+      capabilities.push({
+        id,
+        availability: reloadAvailability,
+        requiredProfile: "operator",
+        requiredScopes: READ_SCOPES,
+        confirmationPolicy: "required",
+        bindingRequirements: [],
+      });
+      mutationBindings.push({ actionId: id, expectedRevision: null, availability: reloadAvailability });
+      continue;
+    }
+    const mutationAvailability = available();
+    capabilities.push({
+      id,
+      availability: mutationAvailability,
+      requiredProfile: "operator",
+      requiredScopes: ["service-lasso:read", "service-lasso:lifecycle:write"],
+      confirmationPolicy: "required",
+      bindingRequirements: ["definition_revision", "runtime_generation", "model_epoch"],
+    });
+    mutationBindings.push({
+      actionId: id,
+      expectedRevision: definitionRevision,
+      availability: mutationAvailability,
+    });
+  }
+  return {
+    serviceId,
+    definitionRevision,
+    generation,
+    modelEpoch,
+    capabilities,
+    mutationBindings,
+    availability: available(),
+  };
+}
+
+export function buildOperatorV2Preview(input: {
+  serviceId: string;
+  actionId: string;
+  definitionRevision: string;
+  expectedRevision: string;
+  generation: string;
+  modelEpoch: string;
+  planId: string;
+  targets: string[];
+  effects: string[];
+  confirmationId: string | null;
+  confirmationPhrase: string | null;
+  confirmationExpiresAt: string | null;
+  expiresAt: string;
+}): OperatorV2Preview {
+  return {
+    planId: input.planId,
+    serviceId: input.serviceId,
+    actionId: input.actionId,
+    definitionRevision: input.definitionRevision,
+    expectedRevision: input.expectedRevision,
+    generation: input.generation,
+    modelEpoch: input.modelEpoch,
+    targets: [...input.targets],
+    effects: [...input.effects],
+    availability: available(),
+    confirmation: {
+      required: input.confirmationId !== null && input.confirmationPhrase !== null,
+      id: input.confirmationId,
+      phraseKey: input.confirmationPhrase,
+      expiresAt: input.confirmationExpiresAt,
+    },
+    expiresAt: input.expiresAt,
+  };
+}
+
+export function operatorV2ActionToGuarded(actionId: string): string | null {
+  const actions: Record<string, string> = {
+    service_install: "install",
+    service_configure: "config",
+    service_start: "start",
+    service_stop: "stop",
+    service_restart: "restart",
+    update_check: "update_check",
+    update_download: "update_download",
+  };
+  return actions[actionId] ?? null;
+}
+
+export function operatorV2ActionFromPhrase(phrase: string | null): string | null {
+  if (!phrase || !phrase.startsWith("confirm ")) return null;
+  const actionId = phrase.slice("confirm ".length).split(" ")[0];
+  return actionId && actionId in {
+    "service-install": true,
+    "service-configure": true,
+    "service-start": true,
+    "service-stop": true,
+    "service-restart": true,
+    "update-check": true,
+    "update-download": true,
+  } ? actionId.replaceAll("-", "_") : null;
 }
