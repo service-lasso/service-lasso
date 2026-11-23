@@ -6,6 +6,7 @@ export interface OperatorV2ServiceInput {
   description?: string;
   definitionRevision?: string;
   generation?: string;
+  modelEpoch?: string;
   running?: boolean;
 }
 
@@ -144,7 +145,7 @@ export function buildOperatorV2Service(input: OperatorV2ServiceInput): OperatorV
     description: input.description ?? "",
     definitionRevision: input.definitionRevision ?? "definition-1",
     generation: input.generation ?? "generation-1",
-    modelEpoch: "operator-v2-epoch-1",
+    modelEpoch: input.modelEpoch ?? "operator-v2-epoch-1",
     installed: "yes",
     configured: "unknown",
     running: input.running === true ? "yes" : input.running === false ? "no" : "unknown",
