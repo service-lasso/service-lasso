@@ -33,7 +33,7 @@ try {
     throw new Error("CLI did not read the Core operator/v2 service page");
   }
   const tuiOutput = (await execFileAsync(probe, [server.url], { encoding: "utf8" })).stdout.trim();
-  const expected = `${cliDiscovery.metadataRevision} 0`;
+  const expected = `${cliDiscovery.metadataRevision} 0 true`;
   if (tuiOutput !== expected) throw new Error(`TUI v2 probe mismatch: ${tuiOutput} != ${expected}`);
   process.stdout.write(`${JSON.stringify({
     ok: true,
