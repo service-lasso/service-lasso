@@ -99,10 +99,10 @@ function unsupported(): OperatorV2Availability {
   return { supported: false, available: false, reasonCode: "unsupported_capability" };
 }
 
-function readCapability(id: string, scopes: string[] = READ_SCOPES): OperatorV2Capability {
+function readCapability(id: string, scopes: string[] = READ_SCOPES, admitted = true): OperatorV2Capability {
   return {
     id,
-    availability: available(),
+    availability: admitted ? available() : { supported: true, available: false, reasonCode: "permission_denied" },
     requiredProfile: "observer",
     requiredScopes: scopes,
     confirmationPolicy: "none",
@@ -124,7 +124,10 @@ export function operatorV2Envelope<T>(data: T, requestId: string, generatedAt = 
   };
 }
 
-export function buildOperatorV2Discovery(): OperatorV2Discovery {
+export function buildOperatorV2Discovery(permissions: readonly string[] = ["*"]): OperatorV2Discovery {
+  const all = permissions.includes("*");
+  const read = all || permissions.includes("workspace:read");
+  const logs = all || permissions.includes("service:diagnose");
   return {
     metadataRevision: "operator-v2-metadata-1",
     modelEpoch: "operator-v2-epoch-1",
@@ -132,10 +135,10 @@ export function buildOperatorV2Discovery(): OperatorV2Discovery {
     mutationSemantics: "unavailable",
     limits: { ...V2_LIMITS },
     capabilities: [
-      readCapability("read_overview"),
-      readCapability("read_detail"),
-      readCapability("read_graph"),
-      readCapability("read_logs", ["service-lasso:read", "service-lasso:logs:read"]),
+      readCapability("read_overview", READ_SCOPES, read),
+      readCapability("read_detail", READ_SCOPES, read),
+      readCapability("read_graph", READ_SCOPES, read),
+      readCapability("read_logs", ["service-lasso:read", "service-lasso:logs:read"], logs),
     ],
   };
 }
