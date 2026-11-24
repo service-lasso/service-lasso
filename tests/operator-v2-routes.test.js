@@ -41,6 +41,15 @@ test('Core serves v2 discovery and an empty services page', async () => {
     assert.equal(missing.error.code, "not_found");
     assert.equal(missing.error.messageKey, "operator.error.not_found");
 
+    const contextResponse = await fetch(`${server.url}/api/operator/v2/reconciliation-context`);
+    assert.equal(contextResponse.status, 200);
+    const context = await contextResponse.json();
+    assert.equal(context.contractVersion, "service-lasso-durable-reconciliation-context.v1");
+    assert.match(context.context.instanceBinding, /^slrc_[a-f0-9]{64}$/);
+    assert.match(context.context.workspaceBinding, /^slrc_[a-f0-9]{64}$/);
+    assert.match(context.context.actorBinding, /^slrc_[a-f0-9]{64}$/);
+    assert.match(context.context.clientBinding, /^slrc_[a-f0-9]{64}$/);
+
     const legacyResponse = await fetch(`${server.url}/api/operator/lifecycle/operations`);
     assert.equal(legacyResponse.status, 404);
   } finally {

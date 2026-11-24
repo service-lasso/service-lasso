@@ -4931,9 +4931,22 @@ async function routeRequestWithoutMutationCoordination(
     }
   }
 
-  if (request.method === "GET" && (url.pathname === "/api/operator/v2/reconciliation-context" || url.pathname === "/api/operator/v2/reconciliation-context")) {
-    const authorization = await authorizeDurableReconciliationContextRequest(request, response, auth, config);
-    if (!authorization) return;
+  if (request.method === "GET" && url.pathname === "/api/operator/v2/reconciliation-context") {
+    let authorization: McpHttpAuthorization | null;
+    if (auth.request.local && auth.actor.authenticated && (auth.actor.kind === "local-root" || auth.actor.kind === "local-token")) {
+      authorization = {
+        actor: {
+          kind: auth.actor.kind,
+          actorId: auth.actor.actorId ?? "local-operator",
+          clientId: "service-lasso-tui",
+          scopes: ["service-lasso:read"],
+          permissionProfile: "administrator",
+        },
+      } as unknown as McpHttpAuthorization;
+    } else {
+      authorization = await authorizeDurableReconciliationContextRequest(request, response, auth, config);
+      if (!authorization) return;
+    }
     try {
       const reconciliationContext = await createDurableReconciliationContextResponse(config, authorization);
       await recordMcpAuthorizationAudit(
