@@ -4904,6 +4904,7 @@ async function routeRequestWithoutMutationCoordination(
       }
       if (pathParts.length === 5) {
         const definitionRevision = await buildServiceMutationDefinitionRevision(service);
+        const dependencySummary = runtimeModel.graph.getServiceDependencies(service.manifest.id);
         writeJson(response, 200, operatorV2Envelope(buildOperatorV2Detail({
           id: service.manifest.id,
           name: service.manifest.name,
@@ -4912,6 +4913,18 @@ async function routeRequestWithoutMutationCoordination(
           generation: config.runtimeGenerationId ?? "generation-1",
           modelEpoch: config.runtimeGenerationId ?? "operator-v2-epoch-1",
           running: getLifecycleState(service.manifest.id).running,
+          dependencies: dependencySummary.dependencies.map((id) => ({
+            fromServiceId: id,
+            toServiceId: service.manifest.id,
+            kind: "service",
+            state: "unknown",
+          })),
+          endpoints: Object.entries(service.manifest.ports ?? {}).map(([label, port]) => ({
+            label,
+            protocol: "tcp",
+            port,
+            availability: { supported: true, available: true, reasonCode: null },
+          })),
         }), requestId));
         return;
       }
