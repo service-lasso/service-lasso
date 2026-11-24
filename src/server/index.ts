@@ -4925,6 +4925,29 @@ async function routeRequestWithoutMutationCoordination(
             port,
             availability: { supported: true, available: true, reasonCode: null },
           })),
+          setupMetadata: Object.entries(service.manifest.setup?.steps ?? {}).slice(0, 128).map(([stepId, step]) => ({
+            stepId,
+            description: step.description ?? stepId,
+            rerun: step.rerun ?? "manual",
+            definitionRevision,
+            inputFields: [],
+            status: null,
+            availability: { supported: true, available: true, reasonCode: null },
+            expectedRevision: definitionRevision,
+          })),
+          actionMetadata: Object.entries(service.manifest.actions ?? {}).slice(0, 128).map(([actionId, action]) => ({
+            actionId,
+            description: action.description ?? action.label ?? actionId,
+            definitionRevision,
+            payloadPolicy: { inline: false, references: false, allowMixed: false, required: false },
+            inputFields: null,
+            payloadReferences: [],
+            requiredProfile: "operator",
+            requiredScopes: [],
+            declaredPermission: action.permissions?.[0] ?? "service:read",
+            availability: { supported: true, available: true, reasonCode: null },
+            expectedRevision: definitionRevision,
+          })),
         }), requestId));
         return;
       }
