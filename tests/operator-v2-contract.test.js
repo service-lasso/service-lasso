@@ -70,9 +70,14 @@ test('v2 service page and detail are stable read-only projections', () => {
   assert.equal(page.rows[0].running, 'yes');
   assert.equal(page.rows[1].running, 'no');
   assert.equal(page.rows[0].healthStatus, 'unknown');
-  const detail = buildOperatorV2Detail({ id: 'root', name: 'Root', running: true });
+  const detail = buildOperatorV2Detail({
+    id: 'root', name: 'Root', running: true,
+    dependencies: [{ fromServiceId: 'db', toServiceId: 'root', kind: 'service', state: 'unknown' }],
+    endpoints: [{ label: 'http', protocol: 'tcp', port: 8080, availability: { supported: true, available: true, reasonCode: null } }],
+  });
   assert.equal(detail.summary.serviceId, 'root');
-  assert.deepEqual(detail.dependencies, []);
+  assert.deepEqual(detail.dependencies, [{ fromServiceId: 'db', toServiceId: 'root', kind: 'service', state: 'unknown' }]);
+  assert.deepEqual(detail.endpoints, [{ label: 'http', protocol: 'tcp', port: 8080, availability: { supported: true, available: true, reasonCode: null } }]);
   assert.deepEqual(detail.actionMetadata, []);
 });
 

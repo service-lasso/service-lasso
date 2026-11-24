@@ -8,6 +8,8 @@ export interface OperatorV2ServiceInput {
   generation?: string;
   modelEpoch?: string;
   running?: boolean;
+  dependencies?: Array<{ fromServiceId: string; toServiceId: string; kind: string; state: string }>;
+  endpoints?: Array<{ label: string; protocol: string; port: number | null; availability: OperatorV2Availability }>;
 }
 
 export interface OperatorV2Availability {
@@ -181,8 +183,8 @@ export function buildOperatorV2Detail(input: OperatorV2ServiceInput): {
   return {
     summary: buildOperatorV2Service(input),
     provider: { role: "service", availability: available() },
-    dependencies: [],
-    endpoints: [],
+    dependencies: [...(input.dependencies ?? [])],
+    endpoints: [...(input.endpoints ?? [])],
     variableMetadata: [],
     setupMetadata: [],
     actionMetadata: [],
