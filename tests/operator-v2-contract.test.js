@@ -12,6 +12,7 @@ import {
   buildOperatorV2Preview,
   operatorV2ActionFromPhrase,
   operatorV2ActionToGuarded,
+  operatorV2Effects,
   buildOperatorV2Operation,
   buildOperatorV2Readback,
   buildOperatorV2ServicesPage,
@@ -70,6 +71,8 @@ test('v2 service page and detail are stable read-only projections', () => {
   assert.equal(page.rows[0].running, 'yes');
   assert.equal(page.rows[1].running, 'no');
   assert.equal(page.rows[0].healthStatus, 'unknown');
+  assert.equal(page.rows[0].inboxUnread, null);
+  assert.equal(page.rows[0].queuePending, null);
   const detail = buildOperatorV2Detail({
     id: 'root', name: 'Root', running: true,
     dependencies: [{ fromServiceId: 'db', toServiceId: 'root', kind: 'service', state: 'unknown' }],
@@ -160,7 +163,9 @@ test('v2 preview and action mapping bind the guarded action', () => {
   });
   assert.equal(preview.actionId, 'service_start');
   assert.equal(preview.confirmation.required, true);
-  assert.equal(operatorV2ActionToGuarded('service_start'), 'start');
+  assert.equal(operatorV2ActionToGuarded('service_start'), 'service_start');
+  assert.deepEqual(operatorV2Effects('service_start', ['start operator-v2-fixture']), ['start_runtime']);
+  assert.deepEqual(operatorV2Effects('service_install', ['install fixture']), ['install_runtime', 'materialize_config']);
   assert.equal(operatorV2ActionFromPhrase(preview.confirmation.phraseKey), 'service_start');
   assert.equal(operatorV2ActionFromPhrase('confirm unknown 0123'), null);
 });

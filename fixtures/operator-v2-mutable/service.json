@@ -1,0 +1,15 @@
+{
+  "id": "operator-v2-fixture",
+  "name": "Operator v2 fixture",
+  "description": "Disposable local fixture for v2 lifecycle acceptance. No ingress, no public ports.",
+  "version": "0.0.1",
+  "enabled": true,
+  "executable": "/bin/sh",
+  "args": ["runtime/fixture.sh"],
+  "healthchecks": [
+    {
+      "id": "process-health",
+      "type": "process"
+    }
+  ]
+}
