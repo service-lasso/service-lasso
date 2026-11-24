@@ -206,3 +206,13 @@ test('v2 availability reflects per-action preflight results', () => {
   assert.equal(value.mutationBindings.find((entry) => entry.actionId === 'service_install').expectedRevision, 'revision-real');
   assert.equal(value.mutationBindings.find((entry) => entry.actionId === 'service_configure').expectedRevision, null);
 });
+
+
+test('v2 discovery reflects read permissions', () => {
+  const viewer = buildOperatorV2Discovery(['workspace:read']);
+  assert.equal(viewer.capabilities.find((entry) => entry.id === 'read_overview').availability.available, true);
+  assert.equal(viewer.capabilities.find((entry) => entry.id === 'read_logs').availability.available, false);
+  assert.equal(viewer.capabilities.find((entry) => entry.id === 'read_logs').availability.reasonCode, 'permission_denied');
+  const full = buildOperatorV2Discovery(['*']);
+  assert.equal(full.capabilities.find((entry) => entry.id === 'read_logs').availability.available, true);
+});

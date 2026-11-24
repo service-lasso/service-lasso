@@ -4719,7 +4719,7 @@ async function routeRequestWithoutMutationCoordination(
       }
     }
     if (request.method === "GET" && url.pathname === "/api/operator/v2/discovery") {
-      writeJson(response, 200, operatorV2Envelope(buildOperatorV2Discovery(), requestId));
+      writeJson(response, 200, operatorV2Envelope(buildOperatorV2Discovery(auth.actor.permissions), requestId));
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/operator/v2/services") {
