@@ -2152,6 +2152,26 @@ async function authorizeDurableLifecycleOperationRequest(
   }
 }
 
+async function authorizeOperatorV2LifecycleRequest(
+  request: IncomingMessage,
+  response: ServerResponse,
+  auth: RuntimeAuthPolicyStatus,
+  config: ApiRouteConfig,
+): Promise<McpHttpAuthorization | null> {
+  if (auth.request.local && auth.actor.authenticated && (auth.actor.kind === "local-root" || auth.actor.kind === "local-token")) {
+    return {
+      actor: {
+        kind: auth.actor.kind,
+        actorId: auth.actor.actorId ?? "local-operator",
+        clientId: "service-lasso-tui",
+        scopes: ["service-lasso:read", "service-lasso:lifecycle:write"],
+        permissionProfile: "administrator",
+      },
+    } as unknown as McpHttpAuthorization;
+  }
+  return authorizeDurableLifecycleOperationRequest(request, response, auth, config);
+}
+
 async function authorizeDurableReconciliationContextRequest(
   request: IncomingMessage,
   response: ServerResponse,
@@ -4676,7 +4696,7 @@ async function routeRequestWithoutMutationCoordination(
   if (url.pathname === "/api/operator/v2" || url.pathname.startsWith("/api/operator/v2/")) {
     const requestId = randomUUID();
     if ((request.method === "GET" || request.method === "POST") && url.pathname.startsWith("/api/operator/v2/operations/")) {
-      const authorization = await authorizeDurableLifecycleOperationRequest(request, response, auth, config);
+      const authorization = await authorizeOperatorV2LifecycleRequest(request, response, auth, config);
       if (!authorization) return;
       const parts = url.pathname.split("/").filter(Boolean);
       const operationId = decodeURIComponent(parts[4] ?? "");
@@ -4743,7 +4763,7 @@ async function routeRequestWithoutMutationCoordination(
       const service = runtimeModel.registry.getById(serviceId);
       if (!service) throw new ApiError("service_not_found", 404, "The requested service is not available.");
       if (pathParts.length === 6 && pathParts[5] === "lifecycle-availability") {
-        const authorization = await authorizeDurableLifecycleOperationRequest(request, response, auth, config);
+        const authorization = await authorizeOperatorV2LifecycleRequest(request, response, auth, config);
         if (!authorization) return;
         const revision = await buildServiceMutationDefinitionRevision(service);
         const facade = createMcpGuardedActionFacade(runtimeModel, config);
@@ -4776,7 +4796,7 @@ async function routeRequestWithoutMutationCoordination(
         return;
       }
       if (pathParts.length === 6 && pathParts[5] === "preview") {
-        const authorization = await authorizeDurableLifecycleOperationRequest(request, response, auth, config);
+        const authorization = await authorizeOperatorV2LifecycleRequest(request, response, auth, config);
         if (!authorization) return;
         const body = await readJsonBody(request) as { actionId?: unknown; definitionRevision?: unknown; expectedRevision?: unknown };
         if (typeof body?.actionId !== "string") throw new ApiError("invalid_request", 400, "actionId is required.");
@@ -4818,7 +4838,7 @@ async function routeRequestWithoutMutationCoordination(
         }
       }
       if (pathParts.length === 6 && pathParts[5] === "execute") {
-        const authorization = await authorizeDurableLifecycleOperationRequest(request, response, auth, config);
+        const authorization = await authorizeOperatorV2LifecycleRequest(request, response, auth, config);
         if (!authorization) return;
         const body = await readJsonBody(request) as {
           planId?: unknown; idempotencyKey?: unknown; confirmationId?: unknown; confirmationResponse?: unknown; expectedRevision?: unknown;
