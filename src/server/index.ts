@@ -40,6 +40,7 @@ import {
   buildOperatorV2LifecycleAvailabilityReady,
   buildOperatorV2Operation,
   buildOperatorV2Preview,
+  operatorV2Effects,
   buildOperatorV2Readback,
   buildOperatorV2ServicesPage,
   operatorV2ActionFromPhrase,
@@ -243,6 +244,7 @@ import {
   createMcpProtectedResourceMetadata,
   mcpPolicyErrorBody,
   requiredMcpScopesForRequest,
+  resolveMcpOAuthConfiguration,
   resolveMcpOperatingMode,
   resolveMcpStdioAuthorization,
   type McpHttpAuthorization,
@@ -2158,7 +2160,7 @@ async function authorizeOperatorV2LifecycleRequest(
   auth: RuntimeAuthPolicyStatus,
   config: ApiRouteConfig,
 ): Promise<McpHttpAuthorization | null> {
-  if (auth.request.local && auth.actor.authenticated && (auth.actor.kind === "local-root" || auth.actor.kind === "local-token")) {
+  if (!request.headers.authorization && !resolveMcpOAuthConfiguration(config.mcpHttpIdentity).enabled && auth.request.local && auth.actor.authenticated && (auth.actor.kind === "local-root" || auth.actor.kind === "local-token")) {
     return {
       actor: {
         kind: auth.actor.kind,
@@ -4756,7 +4758,7 @@ async function routeRequestWithoutMutationCoordination(
       writeJson(response, 200, operatorV2Envelope(buildOperatorV2ServicesPage(services), requestId));
       return;
     }
-    if (request.method === "GET" && url.pathname.startsWith("/api/operator/v2/services/")) {
+    if ((request.method === "GET" || request.method === "POST") && url.pathname.startsWith("/api/operator/v2/services/")) {
       const pathParts = url.pathname.split("/").filter(Boolean);
       const serviceId = decodeURIComponent(pathParts[4] ?? "");
       const runtimeModel = await loadRuntimeModel(config.servicesRoot);
@@ -4826,7 +4828,7 @@ async function routeRequestWithoutMutationCoordination(
             modelEpoch: config.runtimeGenerationId ?? "operator-v2-epoch-1",
             planId: preview.preflight.planId,
             targets: preview.preflight.targets,
-            effects: preview.preflight.effects,
+            effects: operatorV2Effects(body.actionId, preview.preflight.effects),
             confirmationId: preview.confirmation.id,
             confirmationPhrase: preview.confirmation.confirmationPhrase ?? null,
             confirmationExpiresAt: preview.confirmation.expiresAt,
@@ -4976,7 +4978,7 @@ async function routeRequestWithoutMutationCoordination(
 
   if (request.method === "GET" && url.pathname === "/api/operator/v2/reconciliation-context") {
     let authorization: McpHttpAuthorization | null;
-    if (auth.request.local && auth.actor.authenticated && (auth.actor.kind === "local-root" || auth.actor.kind === "local-token")) {
+    if (!request.headers.authorization && !resolveMcpOAuthConfiguration(config.mcpHttpIdentity).enabled && auth.request.local && auth.actor.authenticated && (auth.actor.kind === "local-root" || auth.actor.kind === "local-token")) {
       authorization = {
         actor: {
           kind: auth.actor.kind,

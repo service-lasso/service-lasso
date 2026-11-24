@@ -1,0 +1,10 @@
+{
+  "schema": "service-lasso.operator-v2-mutable-admission.v1",
+  "mode": "local-disposable",
+  "manifestSha256": "d5a1c99f9b941fb78226402912e0c665bfbee58305348b21596a5d5000bff65d",
+  "allowedActions": ["preview", "start", "readback", "cancel", "stop"],
+  "deadlineSeconds": 60,
+  "host": "loopback-only",
+  "cleanup": "required",
+  "production": false
+}

@@ -64,6 +64,8 @@ export interface OperatorV2Service {
   running: "yes" | "no" | "unknown";
   healthStatus: "healthy" | "unhealthy" | "unknown" | "not_configured";
   updateStatus: string;
+  inboxUnread: number | null;
+  queuePending: number | null;
   capabilityIds: string[];
 }
 
@@ -158,6 +160,8 @@ export function buildOperatorV2Service(input: OperatorV2ServiceInput): OperatorV
     running: input.running === true ? "yes" : input.running === false ? "no" : "unknown",
     healthStatus: "unknown",
     updateStatus: "not_checked",
+    inboxUnread: null,
+    queuePending: null,
     capabilityIds: ["read_overview", "read_detail"],
   };
 }
@@ -369,6 +373,27 @@ export function buildOperatorV2LifecycleAvailabilityReady(
   };
 }
 
+const operatorV2EffectsByAction: Record<string, string[]> = {
+  service_install: ["install_runtime", "materialize_config"],
+  service_configure: ["materialize_config"],
+  service_start: ["start_runtime"],
+  service_stop: ["stop_runtime"],
+  service_restart: ["restart_runtime"],
+  update_check: ["check_update"],
+  update_download: ["download_update"],
+  update_install: ["install_update"],
+  setup_step_run: ["run_setup"],
+  declared_action_run: ["run_declared_action"],
+  queue_plan_execute: ["acknowledge_queue"],
+  config_patch: ["materialize_config"],
+};
+
+export function operatorV2Effects(actionId: string, effects: string[]): string[] {
+  const mapped = operatorV2EffectsByAction[actionId];
+  if (mapped) return [...mapped];
+  return [...new Set(effects)];
+}
+
 export function buildOperatorV2Preview(input: {
   serviceId: string;
   actionId: string;
@@ -393,7 +418,7 @@ export function buildOperatorV2Preview(input: {
     generation: input.generation,
     modelEpoch: input.modelEpoch,
     targets: [...input.targets],
-    effects: [...input.effects],
+    effects: operatorV2Effects(input.actionId, input.effects),
     availability: available(),
     confirmation: {
       required: input.confirmationId !== null && input.confirmationPhrase !== null,
@@ -407,11 +432,11 @@ export function buildOperatorV2Preview(input: {
 
 export function operatorV2ActionToGuarded(actionId: string): string | null {
   const actions: Record<string, string> = {
-    service_install: "install",
-    service_configure: "config",
-    service_start: "start",
-    service_stop: "stop",
-    service_restart: "restart",
+    service_install: "service_install",
+    service_configure: "service_configure",
+    service_start: "service_start",
+    service_stop: "service_stop",
+    service_restart: "service_restart",
     update_check: "update_check",
     update_download: "update_download",
   };
