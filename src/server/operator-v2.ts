@@ -10,6 +10,8 @@ export interface OperatorV2ServiceInput {
   running?: boolean;
   dependencies?: Array<{ fromServiceId: string; toServiceId: string; kind: string; state: string }>;
   endpoints?: Array<{ label: string; protocol: string; port: number | null; availability: OperatorV2Availability }>;
+  setupMetadata?: unknown[];
+  actionMetadata?: unknown[];
 }
 
 export interface OperatorV2Availability {
@@ -189,8 +191,8 @@ export function buildOperatorV2Detail(input: OperatorV2ServiceInput): {
     dependencies: [...(input.dependencies ?? [])],
     endpoints: [...(input.endpoints ?? [])],
     variableMetadata: [],
-    setupMetadata: [],
-    actionMetadata: [],
+    setupMetadata: [...(input.setupMetadata ?? [])],
+    actionMetadata: [...(input.actionMetadata ?? [])],
   };
 }
 

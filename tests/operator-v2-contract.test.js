@@ -74,11 +74,14 @@ test('v2 service page and detail are stable read-only projections', () => {
     id: 'root', name: 'Root', running: true,
     dependencies: [{ fromServiceId: 'db', toServiceId: 'root', kind: 'service', state: 'unknown' }],
     endpoints: [{ label: 'http', protocol: 'tcp', port: 8080, availability: { supported: true, available: true, reasonCode: null } }],
+    setupMetadata: [{ stepId: 'step-1', description: 'step', rerun: 'manual', definitionRevision: 'revision-real', inputFields: [], status: null, availability: { supported: true, available: true, reasonCode: null }, expectedRevision: 'revision-real' }],
+    actionMetadata: [{ actionId: 'action-1', description: 'action', definitionRevision: 'revision-real', payloadPolicy: { inline: false, references: false, allowMixed: false, required: false }, inputFields: null, payloadReferences: [], requiredProfile: 'operator', requiredScopes: [], declaredPermission: 'service:read', availability: { supported: true, available: true, reasonCode: null }, expectedRevision: 'revision-real' }],
   });
   assert.equal(detail.summary.serviceId, 'root');
   assert.deepEqual(detail.dependencies, [{ fromServiceId: 'db', toServiceId: 'root', kind: 'service', state: 'unknown' }]);
   assert.deepEqual(detail.endpoints, [{ label: 'http', protocol: 'tcp', port: 8080, availability: { supported: true, available: true, reasonCode: null } }]);
-  assert.deepEqual(detail.actionMetadata, []);
+  assert.equal(detail.setupMetadata.length, 1);
+  assert.equal(detail.actionMetadata.length, 1);
 });
 
 test('v2 lifecycle availability fails closed as unsupported', () => {
