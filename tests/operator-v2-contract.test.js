@@ -50,8 +50,6 @@ test('v2 discovery has bounded read capabilities and no mutations', () => {
   assert.deepEqual(discovery.capabilities.map((entry) => entry.id), [
     'read_overview',
     'read_detail',
-    'read_graph',
-    'read_logs',
   ]);
   assert.ok(discovery.capabilities.every((entry) => entry.confirmationPolicy === 'none'));
   assert.ok(discovery.capabilities.every((entry) => entry.availability.available === true));
@@ -216,11 +214,12 @@ test('v2 availability reflects per-action preflight results', () => {
 });
 
 
-test('v2 discovery reflects read permissions', () => {
+test('v2 discovery advertises only implemented read journeys', () => {
   const viewer = buildOperatorV2Discovery(['workspace:read']);
   assert.equal(viewer.capabilities.find((entry) => entry.id === 'read_overview').availability.available, true);
-  assert.equal(viewer.capabilities.find((entry) => entry.id === 'read_logs').availability.available, false);
-  assert.equal(viewer.capabilities.find((entry) => entry.id === 'read_logs').availability.reasonCode, 'permission_denied');
+  assert.equal(viewer.capabilities.some((entry) => entry.id === 'read_graph'), false);
+  assert.equal(viewer.capabilities.some((entry) => entry.id === 'read_logs'), false);
+  assert.deepEqual(viewer.supportedJourneys, ['overview', 'detail']);
   const full = buildOperatorV2Discovery(['*']);
-  assert.equal(full.capabilities.find((entry) => entry.id === 'read_logs').availability.available, true);
+  assert.deepEqual(full.capabilities.map((entry) => entry.id), ['read_overview', 'read_detail']);
 });
