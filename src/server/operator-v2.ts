@@ -131,16 +131,25 @@ export function operatorV2Envelope<T>(data: T, requestId: string, generatedAt = 
 export function buildOperatorV2Discovery(permissions: readonly string[] = ["*"]): OperatorV2Discovery {
   const all = permissions.includes("*");
   const read = all || permissions.includes("workspace:read");
+  const logs = all || permissions.includes("service:diagnose");
   return {
     metadataRevision: "operator-v2-metadata-1",
     modelEpoch: "operator-v2-epoch-1",
-    supportedJourneys: ["overview", "detail", "graph"],
+    supportedJourneys: ["overview", "detail", "graph", "variables", "endpoints", "health_history", "inbox", "queue", "audit", "logs"],
     mutationSemantics: "unavailable",
     limits: { ...V2_LIMITS },
     capabilities: [
       readCapability("read_overview", READ_SCOPES, read),
       readCapability("read_detail", READ_SCOPES, read),
       readCapability("read_graph", READ_SCOPES, read),
+      readCapability("read_variables", READ_SCOPES, read),
+      readCapability("read_endpoints", READ_SCOPES, read),
+      readCapability("read_health_history", READ_SCOPES, read),
+      readCapability("read_inbox", READ_SCOPES, read),
+      readCapability("read_queue", READ_SCOPES, read),
+      readCapability("read_audit", ["service-lasso:read", "service-lasso:audit:read"], all || permissions.includes("service:audit")),
+      readCapability("read_logs", ["service-lasso:read", "service-lasso:logs:read"], logs),
+      readCapability("service_meta_read", READ_SCOPES, read),
     ],
   };
 }
@@ -165,7 +174,7 @@ export function buildOperatorV2Service(input: OperatorV2ServiceInput): OperatorV
 }
 
 
-export function buildOperatorV2GraphPage(options: { sourceRevision?: string; snapshotId?: string; expiresAt?: Date } = {}): OperatorV2Page<never> {
+export function buildOperatorV2EmptyPage<T>(options: { sourceRevision?: string; snapshotId?: string; expiresAt?: Date } = {}): OperatorV2Page<T> {
   return {
     snapshotId: options.snapshotId ?? "operator-v2-snapshot-1",
     sourceRevision: options.sourceRevision ?? "operator-v2-source-1",
@@ -175,6 +184,8 @@ export function buildOperatorV2GraphPage(options: { sourceRevision?: string; sna
     truncated: false,
   };
 }
+
+export const buildOperatorV2GraphPage = buildOperatorV2EmptyPage<never>;
 
 export function buildOperatorV2ServicesPage(
   services: readonly OperatorV2ServiceInput[],

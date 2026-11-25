@@ -82,11 +82,30 @@ try {
   const stopSettled = await waitOperation(stopped.operation.operationId);
   if (stopSettled.operation.status !== "succeeded") throw new Error(`stop operation ${stopSettled.operation.status}`);
 
-  const tuiOutput = (await execFileAsync(probe, [server.url, "operator-v2-fixture"], { encoding: "utf8" })).stdout.trim().split("\n");
+  const tuiOutput = (await execFileAsync(probe, [server.url, "operator-v2-fixture"], {
+    encoding: "utf8",
+    env: { ...process.env, SERVICE_LASSO_PROBE_MUTATE: "1", SERVICE_LASSO_PROBE_ACTION: "service_start" },
+  })).stdout.trim().split("\n");
   if (!tuiOutput[0].endsWith(" 1 true")) throw new Error(`TUI discovery/context mismatch: ${tuiOutput[0]}`);
   if (!tuiOutput.includes("detail operator-v2-fixture " + preview.expectedRevision)) throw new Error("TUI detail revision mismatch");
   if (!tuiOutput.includes("availability operator-v2-fixture true")) throw new Error("TUI availability mismatch");
   if (!tuiOutput.some((line) => line.startsWith("preview operator-v2-fixture "))) throw new Error("TUI preview missing");
+  if (!tuiOutput.some((line) => /^reads 0 0 0 0 0 0 0 0 operator-v2-fixture$/.test(line))) throw new Error("TUI read journeys missing");
+  if (!tuiOutput.some((line) => line.startsWith("execute accepted ") || line.startsWith("execute completed "))) throw new Error("TUI execute missing");
+  if (!tuiOutput.some((line) => /^cancel (requested|too_late|unsupported)$/.test(line))) throw new Error("TUI cancel missing");
+
+  const tuiStopPreview = await cliCommand(["operator", "preview", "operator-v2-fixture", "service_stop", "--json"]);
+  const tuiStopped = await cliCommand([
+    "operator", "execute", "operator-v2-fixture",
+    "--plan-id", tuiStopPreview.planId,
+    "--idempotency-key", "fixture-tui-stop-000001",
+    "--confirmation-id", tuiStopPreview.confirmation.id,
+    "--confirmation-response", tuiStopPreview.confirmation.phraseKey,
+    "--expected-revision", tuiStopPreview.expectedRevision,
+    "--confirm", "--json",
+  ]);
+  const tuiStopSettled = await waitOperation(tuiStopped.operation.operationId);
+  if (tuiStopSettled.operation.status !== "succeeded") throw new Error(`TUI stop operation ${tuiStopSettled.operation.status}`);
 
   process.stdout.write(`${JSON.stringify({
     ok: true,
@@ -94,6 +113,9 @@ try {
     start: settled.operation.status,
     cancel: cancelled.status,
     stop: stopSettled.operation.status,
+    tuiStart: tuiOutput.find((line) => line.startsWith("execute ")),
+    tuiCancel: tuiOutput.find((line) => line.startsWith("cancel ")),
+    tuiStop: tuiStopSettled.operation.status,
     tui: tuiOutput,
   })}\n`);
 } finally {

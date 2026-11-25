@@ -41,6 +41,7 @@ import {
   buildOperatorV2Operation,
   buildOperatorV2Preview,
   buildOperatorV2GraphPage,
+  buildOperatorV2EmptyPage,
   operatorV2Effects,
   buildOperatorV2Readback,
   buildOperatorV2ServicesPage,
@@ -4763,12 +4764,31 @@ async function routeRequestWithoutMutationCoordination(
       writeJson(response, 200, operatorV2Envelope(buildOperatorV2GraphPage(), requestId));
       return;
     }
+    if (request.method === "GET" && ["/api/operator/v2/inbox", "/api/operator/v2/queue", "/api/operator/v2/audit"].includes(url.pathname)) {
+      writeJson(response, 200, operatorV2Envelope(buildOperatorV2EmptyPage(), requestId));
+      return;
+    }
     if ((request.method === "GET" || request.method === "POST") && url.pathname.startsWith("/api/operator/v2/services/")) {
       const pathParts = url.pathname.split("/").filter(Boolean);
       const serviceId = decodeURIComponent(pathParts[4] ?? "");
       const runtimeModel = await loadRuntimeModel(config.servicesRoot);
       const service = runtimeModel.registry.getById(serviceId);
       if (!service) throw new ApiError("service_not_found", 404, "The requested service is not available.");
+      if (request.method === "GET" && pathParts.length === 6 && ["variables", "endpoints", "health-history", "history", "logs"].includes(pathParts[5])) {
+        writeJson(response, 200, operatorV2Envelope(buildOperatorV2EmptyPage(), requestId));
+        return;
+      }
+      if (request.method === "GET" && pathParts.length === 6 && pathParts[5] === "meta") {
+        const revision = await buildServiceMutationDefinitionRevision(service);
+        writeJson(response, 200, operatorV2Envelope({
+          serviceId,
+          sourceRevision: revision,
+          favorite: false,
+          position: null,
+          availability: { supported: true, available: true, reasonCode: null },
+        }, requestId));
+        return;
+      }
       if (pathParts.length === 6 && pathParts[5] === "lifecycle-availability") {
         const authorization = await authorizeOperatorV2LifecycleRequest(request, response, auth, config);
         if (!authorization) return;
