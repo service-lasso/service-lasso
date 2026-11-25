@@ -55,6 +55,18 @@ node scripts/run-local-e2e.mjs --suite v2 --core-dir <clean-core> \
   --npm-cli <npm-cli.js> --python <python>
 ```
 
+## Measured coverage (24 November 2026)
+
+- Core `operator-v2.js`: 99.68% lines, 75.00% branches, 100.00% functions.
+- Core `src/server/index.ts`: 15.54% lines with the v2-only suite; it contains all
+  non-v2 runtime routes, so this is not a v2 contract percentage.
+- TUI `internal/api`: 55.3% statements; `internal/app`: 56.9%; `internal/coreentry`:
+  75.8%.
+- CLI targeted v2 tests pass; line coverage is not yet enforced.
+
+The actual gate is the operation matrix above. Whole-repository line coverage is
+not 100% and is not claimed.
+
 ## Remaining non-v2 gaps
 
 - macOS privileged native helper/ConPTY lanes.
