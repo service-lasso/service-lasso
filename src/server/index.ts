@@ -2122,8 +2122,9 @@ function parseDurableLifecycleOperationBody(input: unknown): {
 }
 
 function durableLifecycleOperationError(error: unknown): ApiError | null {
-  if (!(error instanceof McpGuardedActionError) && !(error instanceof McpOperationError)) return null;
-  const code = error.code;
+  const candidate = error && typeof error === "object" ? error as { code?: unknown; message?: unknown } : null;
+  if (!candidate || typeof candidate.code !== "string") return null;
+  const code = candidate.code;
   const statusCode = code === "authorization_required" ? 401
     : code === "forbidden" || code === "insufficient_profile" || code === "insufficient_scope" || code === "mcp_read_only_mode" ? 403
       : code === "operation_not_found" ? 404
@@ -2131,7 +2132,7 @@ function durableLifecycleOperationError(error: unknown): ApiError | null {
           : code === "operation_capacity" ? 429
             : code.endsWith("_unavailable") || code.endsWith("_state_invalid") || code === "mcp_operation_audit_unavailable" || code === "mcp_audit_unavailable" ? 503
               : 400;
-  return new ApiError(code, statusCode, error.message);
+  return new ApiError(code, statusCode, typeof candidate.message === "string" ? candidate.message : code);
 }
 
 async function authorizeDurableLifecycleOperationRequest(
@@ -8350,7 +8351,9 @@ function operatorV2ErrorStatus(error: unknown): number {
   case "binding_stale": return 409;
   case "permission_denied":
   case "forbidden":
-  case "insufficient_scope": return 403;
+  case "insufficient_profile":
+  case "insufficient_scope":
+  case "mcp_read_only_mode": return 403;
   case "authentication_required": return 401;
   case "invalid_request":
   case "invalid_body":
@@ -8372,7 +8375,9 @@ function operatorV2ErrorBody(error: unknown): { contractVersion: string; request
     case "binding_stale": return { code: "binding_stale", retryability: "new_preview" };
     case "permission_denied":
     case "forbidden":
-    case "insufficient_scope": return { code: "permission_denied", retryability: "never" };
+    case "insufficient_profile":
+    case "insufficient_scope":
+    case "mcp_read_only_mode": return { code: "permission_denied", retryability: "never" };
     case "authentication_required": return { code: "authentication_required", retryability: "never" };
     case "invalid_request":
     case "invalid_body":
