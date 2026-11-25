@@ -90,6 +90,7 @@ try {
   if (!tuiOutput.includes("detail operator-v2-fixture " + preview.expectedRevision)) throw new Error("TUI detail revision mismatch");
   if (!tuiOutput.includes("availability operator-v2-fixture true")) throw new Error("TUI availability mismatch");
   if (!tuiOutput.some((line) => line.startsWith("preview operator-v2-fixture "))) throw new Error("TUI preview missing");
+  if (!tuiOutput.some((line) => /^reads 0 0 0 0 0 0 0 0 operator-v2-fixture$/.test(line))) throw new Error("TUI read journeys missing");
   if (!tuiOutput.some((line) => line.startsWith("execute accepted ") || line.startsWith("execute completed "))) throw new Error("TUI execute missing");
   if (!tuiOutput.some((line) => /^cancel (requested|too_late|unsupported)$/.test(line))) throw new Error("TUI cancel missing");
 

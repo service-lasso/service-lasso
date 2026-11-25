@@ -24,6 +24,14 @@ test('Core serves v2 discovery and an empty services page', async () => {
       'read_overview',
       'read_detail',
       'read_graph',
+      'read_variables',
+      'read_endpoints',
+      'read_health_history',
+      'read_inbox',
+      'read_queue',
+      'read_audit',
+      'read_logs',
+      'service_meta_read',
     ]);
 
     const graphResponse = await fetch(`${server.url}/api/operator/v2/graph`);
