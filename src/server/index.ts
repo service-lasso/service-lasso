@@ -40,6 +40,7 @@ import {
   buildOperatorV2LifecycleAvailabilityReady,
   buildOperatorV2Operation,
   buildOperatorV2Preview,
+  buildOperatorV2GraphPage,
   operatorV2Effects,
   buildOperatorV2Readback,
   buildOperatorV2ServicesPage,
@@ -4756,6 +4757,10 @@ async function routeRequestWithoutMutationCoordination(
         running: getLifecycleState(service.manifest.id).running,
       })));
       writeJson(response, 200, operatorV2Envelope(buildOperatorV2ServicesPage(services), requestId));
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/operator/v2/graph") {
+      writeJson(response, 200, operatorV2Envelope(buildOperatorV2GraphPage(), requestId));
       return;
     }
     if ((request.method === "GET" || request.method === "POST") && url.pathname.startsWith("/api/operator/v2/services/")) {

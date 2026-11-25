@@ -23,7 +23,15 @@ test('Core serves v2 discovery and an empty services page', async () => {
     assert.deepEqual(discovery.data.capabilities.map((entry) => entry.id), [
       'read_overview',
       'read_detail',
+      'read_graph',
     ]);
+
+    const graphResponse = await fetch(`${server.url}/api/operator/v2/graph`);
+    assert.equal(graphResponse.status, 200);
+    const graph = await graphResponse.json();
+    assert.equal(graph.contractVersion, 'service-lasso-operator.v2');
+    assert.deepEqual(graph.data.rows, []);
+    assert.equal(graph.data.truncated, false);
 
     const servicesResponse = await fetch(`${server.url}/api/operator/v2/services`);
     assert.equal(servicesResponse.status, 200);

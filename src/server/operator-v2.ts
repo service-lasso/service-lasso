@@ -134,12 +134,13 @@ export function buildOperatorV2Discovery(permissions: readonly string[] = ["*"])
   return {
     metadataRevision: "operator-v2-metadata-1",
     modelEpoch: "operator-v2-epoch-1",
-    supportedJourneys: ["overview", "detail"],
+    supportedJourneys: ["overview", "detail", "graph"],
     mutationSemantics: "unavailable",
     limits: { ...V2_LIMITS },
     capabilities: [
       readCapability("read_overview", READ_SCOPES, read),
       readCapability("read_detail", READ_SCOPES, read),
+      readCapability("read_graph", READ_SCOPES, read),
     ],
   };
 }
@@ -160,6 +161,18 @@ export function buildOperatorV2Service(input: OperatorV2ServiceInput): OperatorV
     inboxUnread: null,
     queuePending: null,
     capabilityIds: ["read_overview", "read_detail"],
+  };
+}
+
+
+export function buildOperatorV2GraphPage(options: { sourceRevision?: string; snapshotId?: string; expiresAt?: Date } = {}): OperatorV2Page<never> {
+  return {
+    snapshotId: options.snapshotId ?? "operator-v2-snapshot-1",
+    sourceRevision: options.sourceRevision ?? "operator-v2-source-1",
+    rows: [],
+    nextCursor: null,
+    expiresAt: (options.expiresAt ?? new Date(Date.now() + 60_000)).toISOString(),
+    truncated: false,
   };
 }
 
