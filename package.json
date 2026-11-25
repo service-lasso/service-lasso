@@ -20,6 +20,7 @@
     "test": "node scripts/run-tests-isolated.mjs",
     "test:v2": "npm run build && node --test --test-concurrency=1 tests/operator-v2-contract.test.js tests/operator-v2-routes.test.js",
     "test:v2:coverage": "npm run build && node --experimental-test-coverage --test --test-concurrency=1 tests/operator-v2-contract.test.js tests/operator-v2-routes.test.js",
+    "e2e:v2": "node scripts/run-v2-e2e.mjs",
     "dev": "npm run build && node --enable-source-maps dist/index.js",
     "start": "npm run build && node --enable-source-maps dist/index.js",
     "release:artifact": "npm run build && node scripts/release-artifact.mjs",
