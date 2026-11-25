@@ -23,8 +23,6 @@ test('Core serves v2 discovery and an empty services page', async () => {
     assert.deepEqual(discovery.data.capabilities.map((entry) => entry.id), [
       'read_overview',
       'read_detail',
-      'read_graph',
-      'read_logs',
     ]);
 
     const servicesResponse = await fetch(`${server.url}/api/operator/v2/services`);

@@ -131,18 +131,15 @@ export function operatorV2Envelope<T>(data: T, requestId: string, generatedAt = 
 export function buildOperatorV2Discovery(permissions: readonly string[] = ["*"]): OperatorV2Discovery {
   const all = permissions.includes("*");
   const read = all || permissions.includes("workspace:read");
-  const logs = all || permissions.includes("service:diagnose");
   return {
     metadataRevision: "operator-v2-metadata-1",
     modelEpoch: "operator-v2-epoch-1",
-    supportedJourneys: ["overview", "detail", "graph", "logs"],
+    supportedJourneys: ["overview", "detail"],
     mutationSemantics: "unavailable",
     limits: { ...V2_LIMITS },
     capabilities: [
       readCapability("read_overview", READ_SCOPES, read),
       readCapability("read_detail", READ_SCOPES, read),
-      readCapability("read_graph", READ_SCOPES, read),
-      readCapability("read_logs", ["service-lasso:read", "service-lasso:logs:read"], logs),
     ],
   };
 }
