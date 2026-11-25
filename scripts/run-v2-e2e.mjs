@@ -2,7 +2,7 @@
 // Cross-repository operator/v2 product suite. Every selected lane runs even if an
 // earlier lane fails; the process exits nonzero only after the summary.
 import { spawn } from "node:child_process";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -37,12 +37,14 @@ function runLane(name, command, args, cwd, extraEnv = {}) {
       append(`\n[${name}] TIMEOUT after ${timeoutMs}ms; terminating\n`);
       child.kill("SIGKILL");
     }, timeoutMs);
-    child.once("error", (error) => {
+    child.once("error", async (error) => {
       clearTimeout(timer);
+      await writeFile(logPath, `${output}\n[${name}] spawn error: ${String(error)}\n`).catch(() => undefined);
       resolve({ name, status: "failed", code: null, signal: null, durationMs: Date.now() - started, logPath, output, error: String(error) });
     });
-    child.once("close", (code, signal) => {
+    child.once("close", async (code, signal) => {
       clearTimeout(timer);
+      await writeFile(logPath, output).catch(() => undefined);
       resolve({ name, status: code === 0 && !signal ? "passed" : "failed", code, signal, durationMs: Date.now() - started, logPath, output });
     });
   });
