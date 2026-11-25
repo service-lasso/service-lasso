@@ -10,6 +10,7 @@ qualification evidence.
 | discovery | `tests/operator-v2-contract.test.js`; `tests/operator-v2-routes.test.js` | `tests/core-client.test.js` | `internal/api/operator_*_test.go` | `verify-v2-clients.mjs` |
 | services | `tests/operator-v2-routes.test.js` | `tests/core-client.test.js`; `real-core-read-acceptance.test.js` | `internal/api/operator_*_test.go` | `verify-v2-clients.mjs`; mutable harness |
 | detail | `tests/operator-v2-contract.test.js` | `tests/core-client.test.js` | `internal/api/operator_*_test.go` | mutable harness |
+| graph | `tests/operator-v2-routes.test.js` | `tests/core-client.test.js` | `internal/api/operator_graph_test.go` | TUI terminal E2E |
 | reconciliation context | `tests/durable-reconciliation-context-http.test.js` | `tests/core-client.test.js` | `internal/api/operator_context_http_test.go` | `verify-v2-clients.mjs`; mutable harness |
 | lifecycle availability | `tests/operator-v2-contract.test.js`; `tests/operator-v2-routes.test.js` | `tests/real-core-durable-acceptance.test.js` | `internal/api/operator_*_test.go` | mutable harness |
 | preview | `tests/operator-v2-contract.test.js`; `tests/operator-v2-routes.test.js` | `tests/real-core-durable-acceptance.test.js` | `internal/api/operator_mutations` tests | mutable harness |
@@ -21,9 +22,10 @@ qualification evidence.
 
 ## Advertised journeys
 
-Only `overview` and `detail` are implemented and advertised. `graph`, `logs`,
-and later mutation metadata journeys are not advertised until corresponding Core
-routes exist. This prevents a TUI navigation from turning into a 404.
+`overview`, `detail`, and `graph` are implemented and advertised. `logs` and the
+remaining mutation/form journeys are not advertised until corresponding Core
+routes exist. TUI navigation skips unadmitted journeys, so it cannot turn into a
+404.
 
 ## Executable gates
 
@@ -71,4 +73,4 @@ not 100% and is not claimed.
 
 - macOS privileged native helper/ConPTY lanes.
 - Authentic native originals, independent ROOT admission, qualification, GA.
-- Full TUI journeys beyond `overview`/`detail` are intentionally not advertised.
+- Full TUI journeys beyond `overview`/`detail`/`graph` are intentionally not advertised.
