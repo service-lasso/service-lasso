@@ -74,3 +74,27 @@ not 100% and is not claimed.
 - macOS privileged native helper/ConPTY lanes.
 - Authentic native originals, independent ROOT admission, qualification, GA.
 - Full TUI journeys beyond `overview`/`detail`/`graph` are intentionally not advertised.
+
+## Passive HTTP check samples (#1973 graph slice)
+
+Selected contract: `.governance/specs/operator-v2-selected/HEALTH-CHECK-SAMPLES-AMENDMENT.md`
+AC-HCS-1..6. GET `/api/operator/v2/health-check-samples?serviceId=...` accepts
+1..25 distinct known IDs with authenticated runtime identity and workspace:read.
+It returns the first effective configured HTTP check's real monitor observations,
+up to 60 chronological samples in 900 seconds per service. No new probe schedule
+is introduced: launch the normal CLI with `SERVICE_LASSO_MONITOR=1` to opt into
+the existing monitor (default off; explicit `monitor:false` overrides it). The
+product wrapper forwards `monitor` and `monitorIntervalMs`. Existing monitor
+requires enabled monitoring, enabled restart
+policy, and installed/configured/running lifecycle. Disabled restarts can retain
+`onCrash:false,onUnhealthy:false`. A configured check with no observations is
+configured with an empty sample list. The existing monitor boot snapshot remains
+unchanged; changing the current check yields an empty projection until a matching
+source runs (normally after restarting the runtime). Reads never probe or mutate
+the recorder. Buffer state disappears with its runtime generation.
+
+Direct real HTTP/timer proof and denied/invalid/isolation/configuration/window
+proof: `npm run build && node --test tests/health-check-samples.test.js`. Existing
+`tests/recovery-monitor.test.js`, v2 contract/routes, health-state and health-timeout
+suites guard compatibility. This slice does not complete uptime/restart/incident
+work in #1973 and is not native/release qualification.

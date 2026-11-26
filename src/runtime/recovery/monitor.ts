@@ -1,3 +1,4 @@
+import type { HttpCheckSampleRecorder } from "../health/samples.js";
 import type { DiscoveredService } from "../../contracts/service.js";
 import { evaluateServiceHealth } from "../health/evaluateHealth.js";
 import { hasPendingSupervisionRestart, restartService } from "../lifecycle/actions.js";
@@ -45,6 +46,7 @@ export interface RuntimeServiceMonitorPermissionOptions {
 
 export interface RuntimeServiceMonitorOptions {
   registry: ServiceRegistry;
+  healthCheckSamples?: HttpCheckSampleRecorder;
   intervalMs?: number;
   logger?: Pick<Console, "log" | "warn">;
   now?: () => Date;
@@ -206,7 +208,7 @@ export function createRuntimeServiceMonitor(options: RuntimeServiceMonitorOption
     }
 
     const sharedGlobalEnv = collectRuntimeGlobalEnv(options.registry.list());
-    const health = await evaluateServiceHealth(service.manifest, lifecycle, service.serviceRoot, service, sharedGlobalEnv);
+    const health = await evaluateServiceHealth(service.manifest, lifecycle, service.serviceRoot, service, sharedGlobalEnv, options.healthCheckSamples?.observer(service, lifecycle, sharedGlobalEnv));
     if (health.healthy) {
       unhealthyCounts.set(serviceId, 0);
       return createEvent(service, "healthy", "healthy", "Service is healthy.", now);

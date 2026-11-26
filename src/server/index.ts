@@ -1,3 +1,5 @@
+import { validateServiceId } from "../runtime/discovery/validateManifest.js";
+import { HttpCheckSampleRecorder } from "../runtime/health/samples.js";
 import { observeFixtureStartupPath, observeFixtureStartupDiscovery, withFixtureStartupPathForTests, type FixtureStartupPathHook } from "../runtime/startup/fixture-path-observation.js";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { once } from "node:events";
@@ -586,6 +588,7 @@ interface ApiRequestTelemetryState {
 }
 
 interface ApiRouteConfig extends RuntimeConfig {
+  healthCheckSamples: HttpCheckSampleRecorder;
   bindHost: string;
   features: {
     autostart: boolean;
@@ -4747,6 +4750,31 @@ async function routeRequestWithoutMutationCoordination(
       writeJson(response, 200, operatorV2Envelope(buildOperatorV2Discovery(auth.actor.permissions), requestId));
       return;
     }
+    if (request.method === "GET" && url.pathname === "/api/operator/v2/health-check-samples") {
+      if (!auth.actor.authenticated) throw new ApiError("authentication_required", 401, "Authentication is required.");
+      await enforcePermission({
+        workspaceRoot: config.workspaceRoot,
+        actor: permissionActorFromRuntimeAuth(auth), permission: "workspace:read",
+        method: "GET", routeTemplate: "/api/operator/v2/health-check-samples", subject: "read_overview",
+      });
+      const ids = url.searchParams.getAll("serviceId");
+      let validIds = true;
+      try { ids.forEach(id => validateServiceId(id, "operator selection")); } catch { validIds = false; }
+      if ([...url.searchParams.keys()].some(key => key !== "serviceId") || ids.length < 1 || ids.length > 25 ||
+          new Set(ids).size !== ids.length || !validIds) {
+        throw new ApiError("invalid_request", 400, "Invalid service selection.");
+      }
+      const model = await loadRuntimeModel(config.servicesRoot);
+      const selected = ids.map(id => model.registry.getById(id));
+      if (selected.some(service => !service)) throw new ApiError("invalid_request", 400, "Invalid service selection.");
+      const env = collectRuntimeGlobalEnv(model.registry.list());
+      const observedAt = new Date();
+      writeJson(response, 200, operatorV2Envelope({
+        observedAt: observedAt.toISOString(), windowSeconds: 900,
+        rows: selected.map(service => config.healthCheckSamples.row(service!, getLifecycleState(service!.manifest.id), env, observedAt)),
+      }, requestId));
+      return;
+    }
     if (request.method === "GET" && url.pathname === "/api/operator/v2/services") {
       const runtimeModel = await loadRuntimeModel(config.servicesRoot);
       const services = await Promise.all(runtimeModel.discovered.map(async (service) => ({
@@ -8354,6 +8382,10 @@ function operatorV2ErrorStatus(error: unknown): number {
   case "insufficient_profile":
   case "insufficient_scope":
   case "mcp_read_only_mode": return 403;
+  case "remote_auth_required":
+  case "trusted_ingress_identity_missing":
+  case "trusted_ingress_identity_mismatch":
+  case "force_sso_required":
   case "authentication_required": return 401;
   case "invalid_request":
   case "invalid_body":
@@ -8378,6 +8410,10 @@ function operatorV2ErrorBody(error: unknown): { contractVersion: string; request
     case "insufficient_profile":
     case "insufficient_scope":
     case "mcp_read_only_mode": return { code: "permission_denied", retryability: "never" };
+    case "remote_auth_required":
+    case "trusted_ingress_identity_missing":
+    case "trusted_ingress_identity_mismatch":
+    case "force_sso_required":
     case "authentication_required": return { code: "authentication_required", retryability: "never" };
     case "invalid_request":
     case "invalid_body":
@@ -8446,7 +8482,7 @@ export function createApiServer(options: ApiServerOptions = {}): Server {
   return createApiServerOnCandidate(options);
 }
 
-function createApiServerOnCandidate(options: ApiServerOptions, existingServer?: Server): Server {
+function createApiServerOnCandidate(options: ApiServerOptions, existingServer?: Server, healthCheckSamples = new HttpCheckSampleRecorder()): Server {
   if (options.mcpPolicyTestHooks && process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS !== "1") {
     throw new Error("MCP policy test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
   }
@@ -8460,6 +8496,7 @@ function createApiServerOnCandidate(options: ApiServerOptions, existingServer?: 
   );
   const routeConfig: ApiRouteConfig = {
     ...resolvedConfig,
+    healthCheckSamples,
     bindHost: options.host ?? process.env.SERVICE_LASSO_HOST ?? "127.0.0.1",
     features: {
       autostart: options.autostart === true,
@@ -8977,9 +9014,11 @@ async function startApiServerGeneration(
   const automaticApiRange = requestedPort === 0 && apiPortPolicy === "automatic"
     ? getConfiguredPortRange()
     : null;
+  const healthCheckSamples = new HttpCheckSampleRecorder();
   const monitor = options.monitor
     ? createRuntimeServiceMonitor({
         registry: bootModel.registry,
+        healthCheckSamples,
         intervalMs: options.monitorIntervalMs,
         lifecycleOptions: () => ({
           workspaceRoot: config.workspaceRoot,
@@ -9104,7 +9143,7 @@ async function startApiServerGeneration(
         stagedServiceTransfer: options.stagedServiceTransfer,
         stagedServiceTransferCatalogPath: options.stagedServiceTransferCatalogPath,
         runtimeShutdownSlot,
-      }, candidateServer ?? undefined);
+      }, candidateServer ?? undefined, healthCheckSamples);
       await waitForApiServerInitialization(candidateServer);
       await recordProcessOwnership(config.workspaceRoot, {
         ownerType: "runtime",
