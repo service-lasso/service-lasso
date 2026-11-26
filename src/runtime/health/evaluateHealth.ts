@@ -49,6 +49,7 @@ async function evaluateHealthcheck(
   serviceRoot?: string,
   service?: DiscoveredService,
   sharedGlobalEnv: Record<string, string> = {},
+  observer?: HealthcheckObserver,
 ): Promise<ServiceHealthResult> {
   if (healthcheck.type === "process") {
     return checkProcessHealth(lifecycle);
@@ -57,7 +58,7 @@ async function evaluateHealthcheck(
   const resolvedPorts = portsForHealthcheck(manifest, lifecycle);
 
   if (healthcheck.type === "http") {
-    return checkHttpHealth({
+    const resolvedHttp = {
       ...healthcheck,
       url: service ? resolveServiceText(healthcheck.url, service, sharedGlobalEnv, resolvedPorts) : healthcheck.url,
       cookies: service
@@ -68,7 +69,11 @@ async function evaluateHealthcheck(
             ]),
           )
         : healthcheck.cookies,
-    });
+    };
+    const started = performance.now();
+    const health = await checkHttpHealth(resolvedHttp);
+    observer?.(healthcheck, health.healthy, performance.now() - started);
+    return health;
   }
 
   if (healthcheck.type === "tcp") {
@@ -188,6 +193,8 @@ function aggregateHealth(checks: ServiceHealthcheckResult[]): ServiceHealthResul
   };
 }
 
+export type HealthcheckObserver = (check: ServiceHealthcheck, passed: boolean, durationMs: number) => void;
+
 export async function evaluateServiceHealthcheck(
   healthcheck: ServiceHealthcheck,
   manifest: ServiceManifest,
@@ -195,8 +202,9 @@ export async function evaluateServiceHealthcheck(
   serviceRoot?: string,
   service?: DiscoveredService,
   sharedGlobalEnv: Record<string, string> = {},
+  observer?: HealthcheckObserver,
 ): Promise<ServiceHealthcheckResult> {
-  const health = await evaluateHealthcheck(healthcheck, manifest, lifecycle, serviceRoot, service, sharedGlobalEnv);
+  const health = await evaluateHealthcheck(healthcheck, manifest, lifecycle, serviceRoot, service, sharedGlobalEnv, observer);
   return toCheckResult(healthcheck, health);
 }
 
@@ -210,6 +218,7 @@ export async function evaluateServiceHealth(
   serviceRoot?: string,
   service?: DiscoveredService,
   sharedGlobalEnv: Record<string, string> = {},
+  observer?: HealthcheckObserver,
 ): Promise<ServiceHealthResult> {
   const healthcheck = manifest.healthcheck;
   const healthchecks = manifest.healthchecks && (!isProviderRole(manifest) || healthcheck) ? manifest.healthchecks : undefined;
@@ -217,7 +226,7 @@ export async function evaluateServiceHealth(
   if (healthchecks && healthchecks.length > 0) {
     const checks: ServiceHealthcheckResult[] = [];
     for (const entry of healthchecks) {
-      checks.push(await evaluateServiceHealthcheck(entry, manifest, lifecycle, serviceRoot, service, sharedGlobalEnv));
+      checks.push(await evaluateServiceHealthcheck(entry, manifest, lifecycle, serviceRoot, service, sharedGlobalEnv, observer));
     }
     return aggregateHealth(checks);
   }
@@ -237,5 +246,5 @@ export async function evaluateServiceHealth(
     return checkProcessHealth(lifecycle);
   }
 
-  return evaluateHealthcheck(healthcheck, manifest, lifecycle, serviceRoot, service, sharedGlobalEnv);
+  return evaluateHealthcheck(healthcheck, manifest, lifecycle, serviceRoot, service, sharedGlobalEnv, observer);
 }

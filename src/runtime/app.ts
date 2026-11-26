@@ -37,6 +37,8 @@ export async function startRuntimeApp(options: ApiServerOptions = {}): Promise<R
     autostart,
     noAutostart: options.noAutostart,
     baselineBootstrap: options.baselineBootstrap,
+    monitor: options.monitor ?? process.env.SERVICE_LASSO_MONITOR === "1",
+    monitorIntervalMs: options.monitorIntervalMs,
     mcpStdio: options.mcpStdio ?? (process.env.SERVICE_LASSO_MCP_STDIO === "1" ? { env: process.env } : undefined),
   });
   process.env.SERVICE_LASSO_RUNTIME_API_BASE_URL = apiServer.url;

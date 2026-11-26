@@ -1,5 +1,14 @@
 # Project Intent
 
+## Stack Monitor real HTTP graph slice (#1973)
+
+Development adds only the selected HEALTH-CHECK-SAMPLES-AMENDMENT AC-HCS-1..6.
+The clean isolated worktree was supplied detached at current develop 8ea20e0;
+its issue branch starts at that exact develop commit (GOV-10 isolation exception).
+Use runtime-owned passive bounded samples from existing monitor probes; preserve
+probe admission, closed DTOs and release boundaries. Broad #1973 stays open.
+
+
 ## Service environment isolation documentation (#1837)
 
 Development documentation under SPEC-002 AC-4CE.1 clarifies service-local env
