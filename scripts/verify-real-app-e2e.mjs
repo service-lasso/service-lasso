@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { selectArtifactPlatform } from "../dist/runtime/setup/artifact-platform.js";
 import { buildReachabilityTargets } from "./demo-verify-canonical.mjs";
 import {
   discoverOwningRuntime,
@@ -450,7 +451,7 @@ try {
     const isProvider = providerServiceIds.has(serviceId);
     const manifest = await readJson(path.join(servicesRoot, serviceId, "service.json"));
     const platforms = manifest.artifact?.platforms;
-    const platformSupported = !platforms || Boolean(platforms[process.platform] ?? platforms.default);
+    const platformSupported = !platforms || selectArtifactPlatform(platforms) !== null;
     platformSupportByService.set(serviceId, platformSupported);
     liveServices.set(
       serviceId,
