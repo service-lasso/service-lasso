@@ -22,13 +22,13 @@ export function run(command, args, cwd, { capture = false, env = process.env } =
     child.once('error', () => reject(new Error(`Cannot run ${path.basename(command)}. Install the documented prerequisite and retry npm run operator:setup.`)));
     child.once('exit', (code, signal) => {
       if (code === 0) resolve(output.trim());
-      else reject(Object.assign(new Error(`${path.basename(command)} failed${signal ? ` (${signal})` : ` (exit ${code})`}. Check prerequisites/network and retry npm run operator:setup.`), { exitCode: code || 1 }));
+      else reject(Object.assign(new Error(`${path.basename(command)} failed${signal ? ` (${signal})` : ` (exit ${code})`}.`), { exitCode: code || 1 }));
     });
   });
 }
 
 export async function prepareTool(name) {
-  const pin = sourceTools[name];
+  const pin = Object.hasOwn(sourceTools, name) ? sourceTools[name] : undefined;
   if (!pin) throw new Error('Choose cli or tui.');
   const cache = path.join(root, '.operator-tools');
   const destination = path.join(cache, `${name}-${pin.commit}`);
