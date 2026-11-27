@@ -1,3 +1,4 @@
+import { selectArtifactPlatform } from "./artifact-platform.js";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { access, chmod, link, lstat, mkdir, open, readFile, rm, unlink, writeFile } from "node:fs/promises";
@@ -188,18 +189,14 @@ function getCurrentPlatformArtifact(artifact: ServiceArchiveArtifact): {
   platformKey: string;
   definition: ServiceArtifactPlatform;
 } {
-  const platformKey = Object.prototype.hasOwnProperty.call(artifact.platforms, process.platform)
-    ? process.platform
-    : "default";
-  const definition = artifact.platforms[platformKey];
-
-  if (!definition) {
+  const selected = selectArtifactPlatform(artifact.platforms);
+  if (!selected) {
     throw new Error(
       `Service artifact for "${process.platform}" is not configured and no "default" artifact entry exists.`,
     );
   }
 
-  return { platformKey, definition };
+  return selected;
 }
 
 async function resolveGitHubReleaseDownload(

@@ -1,3 +1,4 @@
+import { selectArtifactPlatform } from "../setup/artifact-platform.js";
 import { observeFixtureStartupPath } from "../startup/fixture-path-observation.js";
 import type { DiscoveredService } from "../../contracts/service.js";
 import { LifecycleStateError } from "../../server/errors.js";
@@ -42,7 +43,7 @@ function hasStartableCommand(service: DiscoveredService, state: ServiceLifecycle
 function isDisabledProviderWithoutCurrentPlatformArtifact(service: DiscoveredService): boolean {
   if (service.manifest.enabled !== false || !isProviderRole(service.manifest)) return false;
   const platforms = service.manifest.artifact?.platforms;
-  return Boolean(platforms && !platforms[process.platform] && !platforms.default);
+  return Boolean(platforms && !selectArtifactPlatform(platforms));
 }
 
 async function persistResult(service: DiscoveredService, result: Pick<LifecycleActionResult, "state">): Promise<void> {

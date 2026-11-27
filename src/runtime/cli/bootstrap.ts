@@ -1,3 +1,4 @@
+import { selectArtifactPlatform } from "../setup/artifact-platform.js";
 import type { DiscoveredService } from "../../contracts/service.js";
 import { hasManagedProcess } from "../execution/supervisor.js";
 import { configService, installService, startService, type ServiceLifecycleActionOptions } from "../lifecycle/actions.js";
@@ -78,13 +79,13 @@ export function isSetupBootstrapService(serviceId: string): boolean {
   return serviceId === "@node" || serviceId === "@serviceadmin";
 }
 
-export function serviceArtifactSupportsHostPlatform(service: DiscoveredService, hostPlatform = process.platform): boolean {
+export function serviceArtifactSupportsHostPlatform(service: DiscoveredService, hostPlatform: string = process.platform, hostArch: string = process.arch): boolean {
   const platforms = service.manifest.artifact?.platforms;
   if (!platforms) {
     return true;
   }
 
-  return Boolean(platforms[hostPlatform] ?? platforms.default);
+  return Boolean(selectArtifactPlatform(platforms, hostPlatform, hostArch));
 }
 
 async function runLifecycleAction(

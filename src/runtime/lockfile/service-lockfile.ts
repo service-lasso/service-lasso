@@ -1,6 +1,7 @@
+import { selectArtifactPlatform } from "../setup/artifact-platform.js";
 import path from "node:path";
 import { readFile, writeFile } from "node:fs/promises";
-import type { DiscoveredService, ServiceArchiveArtifact, ServiceArtifactPlatform } from "../../contracts/service.js";
+import type { DiscoveredService } from "../../contracts/service.js";
 
 export const SERVICE_LOCKFILE_NAME = "service-lasso.lock.json";
 export const SERVICE_LOCKFILE_VERSION = 1;
@@ -55,14 +56,6 @@ export function resolveServiceLockfilePath(servicesRoot: string): string {
   return path.join(servicesRoot, SERVICE_LOCKFILE_NAME);
 }
 
-function currentPlatformArtifact(artifact: ServiceArchiveArtifact, platform: string): {
-  platformKey: string;
-  definition: ServiceArtifactPlatform;
-} | null {
-  const platformKey = Object.prototype.hasOwnProperty.call(artifact.platforms, platform) ? platform : "default";
-  const definition = artifact.platforms[platformKey];
-  return definition ? { platformKey, definition } : null;
-}
 
 function trimOrNull(value: string | undefined): string | null {
   const trimmed = value?.trim();
@@ -72,13 +65,14 @@ function trimOrNull(value: string | undefined): string | null {
 export function getExpectedServiceLockfileEntry(
   service: DiscoveredService,
   platform: string = process.platform,
+  arch: string = process.arch,
 ): ServiceLockfileEntry | null {
   const artifact = service.manifest.artifact;
   if (!artifact) {
     return null;
   }
 
-  const selected = currentPlatformArtifact(artifact, platform);
+  const selected = selectArtifactPlatform(artifact.platforms, platform, arch);
   if (!selected) {
     return null;
   }
