@@ -2,7 +2,7 @@ import { randomBytes, createHash } from "node:crypto";
 import { createServer, createConnection, type Server } from "node:net";
 import { chmod, lstat, mkdir, realpath, rm } from "node:fs/promises";
 import type { IncomingMessage } from "node:http";
-import { LOCAL_OPERATOR_SESSION_TTL_MS } from "./local-auth-constants.js";
+import { LOCAL_ADMIN_TOKEN_HEADER, LOCAL_OPERATOR_SESSION_TTL_MS } from "./local-auth-constants.js";
 import { isLoopbackAddress } from "./request-policy.js";
 
 export interface LocalTuiBinding {
@@ -101,7 +101,7 @@ export function verifyLocalTuiSession(
   // A loopback reverse proxy must never turn this into a remote credential.
   if (!isLoopbackAddress(request.socket.remoteAddress)
       || Object.keys(request.headers).some(name => name === "forwarded" || name.startsWith("x-forwarded-")
-        || (name.startsWith("x-service-lasso-") && name !== "x-service-lasso-admin-token"))) return false;
+        || (name.startsWith("x-service-lasso-") && name !== LOCAL_ADMIN_TOKEN_HEADER))) return false;
   return session.binding.workspaceRoot === binding.workspaceRoot
     && session.binding.servicesRoot === binding.servicesRoot && session.binding.generationId === binding.generationId;
 }

@@ -27,7 +27,7 @@ test('AC-2001 OS-private socket gates mint and binds lifetime/workspace/generati
     assert.equal(verifyLocalTuiSession({...b,workspaceRoot:'/other'},token,request()),false);
     assert.equal(verifyLocalTuiSession(b,token,request('192.0.2.5')),false);
     for (const headers of [{'x-forwarded-for':'127.0.0.1'},{forwarded:'for=127.0.0.1'},{'x-service-lasso-trusted-ingress':'serviceadmin-loopback'}]) {
-      assert.equal(verifyLocalTuiSession(b,token,request('127.0.0.1',headers)),false);
+      assert.equal(verifyLocalTuiSession(b,token,request('127.0.0.1',{'x-service-lasso-admin-token':token,...headers})),false);
     }
     const socket=socketPath(b);const directory=socket.slice(0,socket.lastIndexOf('/'));
     assert.equal((await lstat(socket)).mode&0o777,0o600);
