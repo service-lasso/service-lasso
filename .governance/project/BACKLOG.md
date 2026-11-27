@@ -2,6 +2,7 @@
 
 - #2007 in_progress: SPEC-002 AC-4CG.2007. Resume the invocation-selected managed baseline after successful protected first-run provisioning, retaining service failure evidence and explicit startup opt-outs.
 
+
 ## Source-checkout operator tools (#1977)
 
 - #1977 in_progress: SPEC-002 AC-4CG.1977. Root setup/CLI/TUI commands, secure newcomer README and clean Core-connected source proofs; release distribution remains separate.

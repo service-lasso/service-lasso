@@ -571,6 +571,7 @@ export interface ApiServerOptions {
 type McpAuthorizationAuditProjection = Omit<AppendAuditEventInput, "workspaceRoot" | "serviceRoot">;
 
 interface RuntimeShutdownSlot {
+  stopping?: boolean;
   invoke: (() => Promise<void>) | null;
 }
 
@@ -2820,6 +2821,64 @@ async function buildLifecycleActionResponse(
     statePaths: persisted.paths,
     provider,
   };
+}
+
+/** Resume selected daemons without repeating baseline materialization or setup. */
+export async function continuePreparedBaselineServices(
+  runtimeModel: RuntimeModel,
+  selectedServiceIds: ReadonlySet<string>,
+  options: {
+    workspaceRoot: string;
+    runtimeGenerationId?: string | null;
+    runtimeInstanceId?: string | null;
+    endpointAllocationPlan?: RuntimeEndpointAllocationPlan;
+  },
+): Promise<RuntimeOrchestrationResponse> {
+  const results: LifecycleActionResponse[] = [];
+  let failed = false;
+  const skipped: RuntimeOrchestrationResponse["skipped"] = [];
+  const { workspaceRoot, runtimeGenerationId, runtimeInstanceId } = options;
+  const plannedPortsByService = options.endpointAllocationPlan
+    ? servicePortsFromEndpointAllocation(options.endpointAllocationPlan) : undefined;
+  for (const serviceId of runtimeModel.graph.getGlobalStartupOrder()) {
+    if (!selectedServiceIds.has(serviceId)) continue;
+    const service = runtimeModel.registry.getById(serviceId);
+    if (!service || service.manifest.enabled === false || isProviderRole(service.manifest)
+      || !serviceArtifactSupportsHostPlatform(service)) continue;
+    const lifecycle = getLifecycleState(serviceId);
+    if (!shouldStartService(service, lifecycle)) continue;
+    if (!lifecycle.installed || !lifecycle.configured || lifecycle.running) {
+      skipped.push({ serviceId, reason: lifecycle.running ? "already_running"
+        : !lifecycle.installed ? "not_installed" : "not_configured" });
+      continue;
+    }
+    const blockedDependency = runtimeModel.graph.getStartupOrder(serviceId).some((dependencyId) => {
+      const dependency = runtimeModel.registry.getById(dependencyId);
+      const state = getLifecycleState(dependencyId);
+      return !dependency || !state.installed || !state.configured
+        || (!isProviderRole(dependency.manifest) && !state.running);
+    });
+    if (blockedDependency) {
+      skipped.push({ serviceId, reason: "dependency_not_ready" });
+      continue;
+    }
+    try {
+      const result = await startService(service, runtimeModel.registry, {
+        workspaceRoot, runtimeGenerationId, runtimeInstanceId,
+        allocationRevision: options.endpointAllocationPlan?.allocationId,
+        plannedPorts: plannedPortsByService?.[serviceId],
+      });
+      await writeServiceState(service, result.state);
+      results.push(await buildLifecycleActionResponse(service, runtimeModel.registry, result, workspaceRoot));
+    } catch {
+      // Failures already recorded by the lifecycle remain available to Admin.
+      // Do not include arbitrary exception text or invalidate onboarding.
+      failed = true;
+      await writeServiceState(service, getLifecycleState(serviceId)).catch(() => undefined);
+    }
+  }
+  return { action: "startAll", ok: !failed && results.every((result) => result.ok)
+    && !skipped.some((entry) => entry.reason === "dependency_not_ready"), results, skipped };
 }
 
 async function executeRuntimeOrchestrationAction(
@@ -5976,11 +6035,30 @@ async function routeRequestWithoutMutationCoordination(
       knownBrokerFactsFromRuntime(runtimeModel.registry, completedSetup),
     );
 
+    let continuation: RuntimeOrchestrationResponse | undefined;
+    if (config.baselineServiceIds && config.runtimeShutdownSlot?.invoke && !config.runtimeShutdownSlot.stopping) {
+      try {
+        continuation = await continuePreparedBaselineServices(
+          runtimeModel, config.baselineServiceIds, {
+            workspaceRoot: config.workspaceRoot,
+            runtimeGenerationId: config.runtimeGenerationId,
+            runtimeInstanceId: resolveRuntimeInstanceId(config),
+            endpointAllocationPlan: config.endpointAllocationPlan,
+          },
+        );
+      } catch {
+        // Onboarding has succeeded. Keep it successful even when continuation
+        // fails; existing lifecycle state/start traces retain service evidence.
+        continuation = { action: "startAll", ok: false, results: [], skipped: [] };
+      }
+    }
+
     writeJson(response, 201, {
       bootstrap: {
         ok: bootstrap.ok,
         state: bootstrap.state,
         provisionedSecretCount: provisionedSecrets.length,
+        ...(continuation ? { continuation } : {}),
       },
       setup: {
         ...toPublicRuntimeSetupStatus(completedSetup),
@@ -9676,6 +9754,7 @@ async function startApiServerGeneration(
       await stopOnce;
       return;
     }
+    runtimeShutdownSlot.stopping = true;
     stopOnce = (async () => {
       await localTui?.close();
       await publishRuntimeGeneration(config, runtimeGenerationId, { phase: "stopping" });
@@ -9692,7 +9771,9 @@ async function startApiServerGeneration(
       await updateScheduler?.stop();
       await telemetryExportScheduler?.stop();
       await mcpStdio?.close();
-      await stopAllManagedProcesses();
+      await withRuntimeMutationCoordination(config.workspaceRoot, async () => {
+        await stopAllManagedProcesses();
+      });
       await markRuntimeInstanceStopped(config, runtimeGenerationId);
       await closeApiServer(server);
       await transitionProcessOwnership(

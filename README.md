@@ -31,8 +31,10 @@ artifacts are explicitly skipped; this is the real managed stack, not a fixture.
 Open **[Service Admin](http://127.0.0.1:17700/)** using the reported endpoint if it
 was allocated differently. Complete first-run setup and privately save its
 credentials and recovery information. Regular services wait for onboarding.
-After saving the credential and completing setup, run `npm restart` from another
-terminal in the same checkout to resume baseline startup. Use Admin to inspect
+Successful setup resumes the selected prepared baseline services automatically
+in the same runtime; no manual restart is needed. Saved autostart settings govern
+subsequent ordinary Core starts; they do not widen this managed baseline selection.
+`--noautostart` keeps this launch API-only. Use Admin to inspect
 any service-specific prerequisites or failures. Once running, try the [Echo service](http://127.0.0.1:4010/).
 [First-run help →](docs/quick-start.md)
 
