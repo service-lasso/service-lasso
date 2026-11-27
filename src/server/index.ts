@@ -1,3 +1,4 @@
+import { startLocalTuiSessionServer, verifyLocalTuiSession } from "../runtime/auth/local-tui-session.js";
 import { validateServiceId } from "../runtime/discovery/validateManifest.js";
 import { HttpCheckSampleRecorder } from "../runtime/health/samples.js";
 import { observeFixtureStartupPath, observeFixtureStartupDiscovery, withFixtureStartupPathForTests, type FixtureStartupPathHook } from "../runtime/startup/fixture-path-observation.js";
@@ -4548,7 +4549,10 @@ async function routeRequestWithoutMutationCoordination(
     localOperatorConfigured: localAuth.localOperatorConfigured,
     firstRunPending: localAuth.firstRunPending,
     credentialsAcknowledged: localAuth.credentialsAcknowledged,
-    verifyLocalSecret: localAuth.verifyLocalSecret,
+    verifyLocalSecret: provided => localAuth.verifyLocalSecret(provided) || verifyLocalTuiSession({
+      workspaceRoot: path.resolve(config.workspaceRoot), servicesRoot: path.resolve(config.servicesRoot),
+      generationId: config.runtimeGenerationId ?? "",
+    }, provided, request),
   });
   if (
     !isUnauthenticatedRuntimeRoute(method, url.pathname) &&
@@ -9656,6 +9660,15 @@ async function startApiServerGeneration(
     );
   }
 
+  const localTui = await startLocalTuiSessionServer({
+    workspaceRoot: path.resolve(config.workspaceRoot), servicesRoot: path.resolve(config.servicesRoot),
+    generationId: runtimeGenerationId, origin: new URL(instance.apiUrl).origin,
+  }, async () => {
+    const setup = await readRuntimeSetupStatus({ workspaceRoot: config.workspaceRoot });
+    const state = await readLocalOperatorAuthState(config.workspaceRoot);
+    return setup.vault.ready && !setup.setupMode && state?.credentialsAcknowledged === true;
+  }).catch(() => null);
+
   let stopOnce: Promise<void> | null = null;
   let stop: () => Promise<void> = async () => {};
   stop = async (): Promise<void> => {
@@ -9664,6 +9677,7 @@ async function startApiServerGeneration(
       return;
     }
     stopOnce = (async () => {
+      await localTui?.close();
       await publishRuntimeGeneration(config, runtimeGenerationId, { phase: "stopping" });
       clearInterval(leaseHeartbeat);
       await transitionProcessOwnership(

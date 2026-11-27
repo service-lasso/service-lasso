@@ -1759,5 +1759,6 @@ Active SPEC-1923-SOURCE-API-LIFECYCLE / SOURCE-API-1..4 owns tests/operator-sour
 
 Active SPEC-1925-WINDOWS-OPERATOR-FIXTURE / WIN-FIXTURE-1..4 owns shared fixture controller/worker/private utility+constant PS helper, tests and dedicated hosted workflow. Current-owner+SYSTEM directory/file ACL readback before sensitive writes, literal selected Node/npm-cli build, truthful platform cleanup. Actual Windows CI and separate Linux lifecycle proof required; no runtime/native/release authority changes.
 
+Core #2001 / SPEC-2001 adds Linux same-OS-owner generation-bound local TUI sessions after actual secure setup and credential acknowledgement; explicit remote authentication and first-run gates remain authoritative.
 
 #1991 Development: SPEC-002 AC-4CG.1991 binds generation-owned Admin upstream to the matching current endpoint allocation and projects both API environment names at launch/restart. Remove fixed17883 manifest overrides; preserve unrelated callers and secure onboarding. Owned pinned Admin read-only identity/setup proof precedes integrated browser mutations.
