@@ -11,6 +11,19 @@ alwaysApply: true
 - decision-oriented over status-noise
 - explicit about assumptions, risks, and blockers
 
+## Questions Direct Action
+
+- **GOV-03-ACTION-001** A user question about a defect, missing requirement, or
+  incomplete result directs the agent to inspect, fix, and verify it within
+  the current authorization. This includes yes/no questions about whether a
+  requested step was done. Answer with the verified result after taking the
+  in-scope action.
+- Start with the evidence and any reversible work that can proceed. Ask only
+  when a material scope decision, authorization, or prerequisite is required.
+  If blocked, report the exact blocker and continue independent work.
+- Respect explicit requests for explanation only or read-only work, and explicit
+  pauses, stops, or reserved execution and release gates.
+
 ## Required Communication Events
 
 Communicate clearly when:

@@ -42,6 +42,12 @@ Read before making governed changes or bootstrap claims:
 - `main` access belongs only to an explicitly authorised release-promotion, urgent-hotfix, or branch-reconciliation role. That exception does not turn `main` into development input.
 - If normal development instructions, automation, or backlog context point at `main`, stop and correct the workflow before touching product code.
 
+## Questions Direct Action
+
+When the user asks about a defect, missing requirement, or incomplete result,
+treat it as a direction to fix and verify the work within existing authority.
+Follow `GOV-03-ACTION-001`, including explicit explanation-only and stop requests.
+
 ## Pre-Code Gate
 Before product-code implementation:
 - keep `.governance/project/PROJECT_INTENT.md` current
