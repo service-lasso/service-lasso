@@ -6,6 +6,8 @@
 - #1983 done: SPEC-002 AC-4CG.1983. Core #1987 landed startup diagnostics and passed focused postmerge verification.
 - #1984 done: SPEC-002 AC-4Z and AC-4CG.1984. Core #1986 landed default HTTP observation. Combined cadence and onboarded acceptance remain tracked by #1985.
 - #1985 in_progress: Stack Runtime Amendment AC-SR-6/7 and SPEC-002 AC-4CG.1977. Checkout connection, Stack runtime intent, exact reviewed TUI source pin and combined real-source acceptance.
+- #1994 in_progress: SPEC-1994 AC-1994-1 through AC-1994-4. Launch installed release-backed operator clients. #1992 owns exact released-manifest pins and cutover.
+
 
 
 - #1837, in_review: SPEC-002 AC-4CE.1. Document custom env delivery versus OS
