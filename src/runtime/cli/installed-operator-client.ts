@@ -1,3 +1,4 @@
+import { requestLocalTuiSession } from "../auth/local-tui-session.js";
 import { spawn } from "node:child_process";
 import { readFile, realpath, stat } from "node:fs/promises";
 import { isIP } from "node:net";
@@ -51,7 +52,7 @@ async function cliHasSavedTarget(): Promise<boolean> {
   }
 }
 
-async function checkoutOrigin(config: RuntimeConfig): Promise<string | null> {
+async function checkoutTarget(config: RuntimeConfig): Promise<{ origin: string; generationId: string } | null> {
   const lane = await discoverRuntimeLane(config);
   if (lane.classification !== "selected" || !lane.endpoint) return null;
   const url = URL.parse(lane.endpoint);
@@ -59,7 +60,7 @@ async function checkoutOrigin(config: RuntimeConfig): Promise<string | null> {
       url.pathname !== "/" || url.search || url.hash) return null;
   const loopback = ["localhost", "[::1]"].includes(url.hostname)
     || (isIP(url.hostname) === 4 && url.hostname.startsWith("127."));
-  return loopback ? url.origin : null;
+  return loopback && lane.selectedGenerationId ? { origin: url.origin, generationId: lane.selectedGenerationId } : null;
 }
 
 export async function launchInstalledOperatorClient(
@@ -110,10 +111,25 @@ export async function launchInstalledOperatorClient(
   const env = { ...process.env };
   const forwarded = [...(definition.args ?? []), ...args];
   if (selectCheckoutTarget(client, forwarded, env) && !(client === "cli" && await cliHasSavedTarget())) {
-    const origin = await checkoutOrigin(config).catch(() => {
+    const target = await checkoutTarget(config).catch(() => {
       throw new Error("Cannot verify the running Core for this checkout. Run service-lasso instance or select an explicit connection.");
     });
-    if (origin) env[originEnv] = origin;
+    if (target) {
+      env[originEnv] = target.origin;
+      if (client === "tui" && process.platform === "linux"
+          && !hasFlag(forwarded, "--token-env", "-token-env")
+          && !env.SERVICE_LASSO_API_TOKEN_ENV && !env.SERVICE_LASSO_API_TOKEN) {
+        const token = await requestLocalTuiSession({
+          workspaceRoot: path.resolve(config.workspaceRoot), servicesRoot: path.resolve(config.servicesRoot),
+          generationId: target.generationId, origin: target.origin,
+        }).catch(() => null);
+        const current = await checkoutTarget(config);
+        if (!current || current.generationId !== target.generationId || current.origin !== target.origin) {
+          throw new Error("The owning Core generation changed before TUI launch.");
+        }
+        if (token) env.SERVICE_LASSO_API_TOKEN = token;
+      }
+    }
     else if (client === "tui") forwarded.unshift("--connect");
     else throw new Error("No running Core found for this checkout. Run service-lasso start or pass --core-url.");
   }

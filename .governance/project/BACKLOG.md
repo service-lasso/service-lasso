@@ -2050,3 +2050,5 @@ Active SPEC-1923-SOURCE-API-LIFECYCLE / SOURCE-API-1..4 owns tests/operator-sour
 ## Core #1925 ordinary Windows fixture portability
 
 Active SPEC-1925-WINDOWS-OPERATOR-FIXTURE / WIN-FIXTURE-1..4 owns shared fixture controller/worker/private utility+constant PS helper, tests and dedicated hosted workflow. Current-owner+SYSTEM directory/file ACL readback before sensitive writes, literal selected Node/npm-cli build, truthful platform cleanup. Actual Windows CI and separate Linux lifecycle proof required; no runtime/native/release authority changes.
+
+- #2001: Linux token-free installed TUI launch, SPEC-2001 AC-2001-1..4; Development in progress. CLI/platform extensions remain follow-up.
