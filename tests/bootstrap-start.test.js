@@ -61,6 +61,10 @@ test("bootstrapBaselineServices installs, configures, and starts baseline servic
       role: "provider",
       healthcheck: null,
     });
+    await writeExecutableFixtureService(servicesRoot, "@cli", {
+      role: "provider",
+      healthcheck: null,
+    });
 
     const result = await bootstrapBaselineServices({
       servicesRoot,
@@ -68,13 +72,13 @@ test("bootstrapBaselineServices installs, configures, and starts baseline servic
       version: "test-version",
     });
 
-    assert.deepEqual(result.requestedServiceIds, ["@archive", "@java", "@localcert", "@nginx", "@traefik", "@node", "@python", "@secretsbroker", "echo-service", "@serviceadmin", "@tui"]);
-    assert.deepEqual(result.serviceOrder, ["@archive", "@java", "@localcert", "@nginx", "@node", "@python", "@secretsbroker", "@serviceadmin", "@traefik", "@tui", "echo-service"]);
-    assert.equal(result.services.length, 11);
+    assert.deepEqual(result.requestedServiceIds, ["@archive", "@java", "@localcert", "@nginx", "@traefik", "@node", "@python", "@secretsbroker", "echo-service", "@serviceadmin", "@tui", "@cli"]);
+    assert.deepEqual(result.serviceOrder, ["@archive", "@cli", "@java", "@localcert", "@nginx", "@node", "@python", "@secretsbroker", "@serviceadmin", "@traefik", "@tui", "echo-service"]);
+    assert.equal(result.services.length, 12);
 
     for (const service of result.services) {
       assert.equal(service.status, "completed");
-      const provider = ["@archive", "@python", "@tui"].includes(service.serviceId);
+      const provider = ["@archive", "@python", "@tui", "@cli"].includes(service.serviceId);
       const expectedActions = provider
         ? ["install:completed", "config:completed", "start:skipped"]
         : ["install:completed", "config:completed", "start:completed"];

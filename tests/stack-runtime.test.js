@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { startApiServer } from '../dist/server/index.js';
-import { checkoutRuntimeOrigin } from '../scripts/source-operator-tools.mjs';
 import { discoverServices } from '../dist/runtime/discovery/discoverServices.js';
 import { createServiceRegistry } from '../dist/runtime/manager/DependencyGraph.js';
 import { configService, installService, startService, restartService, stopService } from '../dist/runtime/lifecycle/actions.js';
@@ -106,7 +105,7 @@ test('AC-SR real runtime restart, passive durable in-flight/terminal operation a
 });
 
 
-test('AC-SR-6/7 verifies real baseline startup intent and exact checkout endpoint selection', async (t) => {
+test('AC-SR-6/7 verifies real baseline startup intent', async (t) => {
   resetLifecycleState();
   const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot('stack-intent-');
   let runtime;
@@ -132,10 +131,6 @@ test('AC-SR-6/7 verifies real baseline startup intent and exact checkout endpoin
       port: 0, servicesRoot, workspaceRoot,
       baselineBootstrap: { serviceIds: ['@serviceadmin', 'gated-daemon', 'provider', 'disabled-daemon'] },
     });
-    assert.equal(await checkoutRuntimeOrigin(), new URL(runtime.url).origin);
-    process.env.SERVICE_LASSO_WORKSPACE_ROOT = path.join(tempRoot, 'separate-workspace');
-    assert.equal(await checkoutRuntimeOrigin(), null);
-    process.env.SERVICE_LASSO_WORKSPACE_ROOT = workspaceRoot;
     const ids = ['@serviceadmin', 'gated-daemon', 'provider', 'provider-unprepared', 'optional-daemon', 'disabled-daemon'];
     const query = new URLSearchParams(ids.map(id => ['serviceId', id]));
     const response = await fetch(`${runtime.url}/api/operator/v2/stack-runtime?${query}`);

@@ -152,6 +152,7 @@ const canonicalFixtureServices = [
   { id: "@node", repo: "service-lasso/lasso-node", tag: "2026.4.27-good", assetName: "node-win32.zip", role: "provider", ports: {} },
   { id: "@python", repo: "service-lasso/lasso-python", tag: "2026.4.27-good", assetName: "python-win32.zip", role: "provider", ports: {} },
   { id: "@tui", repo: "service-lasso/service-lasso-tui", tag: "candidate-2026.11.28-deadbee", assetName: "tui-win32.zip", role: "provider", ports: {} },
+  { id: "@cli", repo: "service-lasso/service-lasso-cli", tag: "cli-v0.1.0-dev.deadbee-candidate-deadbee", assetName: "cli-win32.zip", role: "provider", ports: {} },
   {
     id: "@secretsbroker",
     repo: "service-lasso/lasso-secretsbroker",

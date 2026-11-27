@@ -92,7 +92,7 @@ if (!nginxReleaseVersion) {
   throw new Error("Core @nginx manifest must be pinned to artifact.source.tag for baseline smoke.");
 }
 
-const baselineProviderServiceIds = new Set(["@archive", "@java", "@localcert", "@node", "@python", "@tui"]);
+const baselineProviderServiceIds = new Set(["@archive", "@cli", "@java", "@localcert", "@node", "@python", "@tui"]);
 const baselineDaemonServiceIds = new Set(["@nginx", "@secretsbroker", "@serviceadmin", "@traefik", "echo-service"]);
 const baselineArtifactVersions = new Map([
   ["@archive", archiveReleaseVersion],
@@ -902,6 +902,7 @@ try {
   await writeArchiveProviderService(servicesRoot);
   await writeProviderDependencyService(servicesRoot, "@java");
   await writeProviderDependencyService(servicesRoot, "@tui");
+  await writeProviderDependencyService(servicesRoot, "@cli");
   await writeLocalcertService(servicesRoot);
   await writeNginxService(servicesRoot, nginxHttpPort);
   await writeNodeProviderService(servicesRoot);
@@ -937,9 +938,10 @@ try {
 
   const services = await waitForJson(`http://127.0.0.1:${apiPort}/api/services`);
   const serviceIds = services.services.map((service) => service.id).sort();
-  const expectedServiceIds = ["@archive", "@java", "@localcert", "@nginx", "@node", "@secretsbroker", "@serviceadmin", "@traefik", "@tui", "echo-service"];
+  const expectedServiceIds = ["@archive", "@cli", "@java", "@localcert", "@nginx", "@node", "@secretsbroker", "@serviceadmin", "@traefik", "@tui", "echo-service"];
   if (serviceIds.includes("@python")) {
-    expectedServiceIds.splice(5, 0, "@python");
+    expectedServiceIds.push("@python");
+    expectedServiceIds.sort();
   }
   assert(
     JSON.stringify(serviceIds) === JSON.stringify(expectedServiceIds),

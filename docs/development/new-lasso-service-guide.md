@@ -303,6 +303,7 @@ Default baseline services currently are:
 - `echo-service`
 - `@serviceadmin`
 - `@tui` as an on-demand terminal client provider
+- `@cli` as an on-demand command-line client provider on Windows x64 and Linux x64
 
 Non-baseline provider and app-owned manifests such as `zitadel`, `keycloak`, and `dagu` should not be added to default baseline start unless the app has the needed config and dependencies.
 

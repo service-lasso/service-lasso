@@ -1,14 +1,32 @@
 {
   "id": "@cli",
   "name": "Service Lasso CLI",
-  "description": "Standalone command-line client launched on demand. Pending a pinned native release.",
+  "description": "On-demand standalone Service Lasso command provider.",
   "role": "provider",
-  "enabled": false,
-  "autostart": false,
-  "meta": {
-    "repository": {
-      "type": "git",
-      "url": "https://github.com/service-lasso/service-lasso-cli.git"
+  "enabled": true,
+  "version": "0.1.0-dev.fac4318",
+  "artifact": {
+    "kind": "archive",
+    "source": {
+      "type": "github-release",
+      "repo": "service-lasso/service-lasso-cli",
+      "tag": "cli-v0.1.0-dev.fac4318-candidate-fac4318"
+    },
+    "platforms": {
+      "win32-x64": {
+        "assetName": "service-lassoctl-0.1.0-dev.fac4318-win32-x64.tar.gz",
+        "archiveType": "tar.gz",
+        "sha256": "f188cd35bfdc514bc9f8803ab4752672eda1734693397a491d2cf186fa865ff0",
+        "command": "./service-lassoctl.exe",
+        "args": []
+      },
+      "linux-x64": {
+        "assetName": "service-lassoctl-0.1.0-dev.fac4318-linux-x64.tar.gz",
+        "archiveType": "tar.gz",
+        "sha256": "4f92fd7b10a9b5df94f6e09c8156039caa686d212e2e8760ba4bcdab577db2fb",
+        "command": "./service-lassoctl",
+        "args": []
+      }
     }
   }
 }
