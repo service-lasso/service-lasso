@@ -101,7 +101,7 @@ export function verifyLocalTuiSession(
   // A loopback reverse proxy must never turn this into a remote credential.
   if (!isLoopbackAddress(request.socket.remoteAddress)
       || Object.keys(request.headers).some(name => name === "forwarded" || name.startsWith("x-forwarded-")
-        || name.startsWith("x-service-lasso-"))) return false;
+        || (name.startsWith("x-service-lasso-") && name !== "x-service-lasso-admin-token"))) return false;
   return session.binding.workspaceRoot === binding.workspaceRoot
     && session.binding.servicesRoot === binding.servicesRoot && session.binding.generationId === binding.generationId;
 }

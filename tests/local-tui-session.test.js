@@ -22,6 +22,7 @@ test('AC-2001 OS-private socket gates mint and binds lifetime/workspace/generati
     ready=true;
     const token = await requestLocalTuiSession(b);
     assert.equal(verifyLocalTuiSession(b,token,request()),true);
+    assert.equal(verifyLocalTuiSession(b,token,request('127.0.0.1',{'x-service-lasso-admin-token':token})),true);
     assert.equal(verifyLocalTuiSession({...b,generationId:randomUUID()},token,request()),false);
     assert.equal(verifyLocalTuiSession({...b,workspaceRoot:'/other'},token,request()),false);
     assert.equal(verifyLocalTuiSession(b,token,request('192.0.2.5')),false);
@@ -71,7 +72,7 @@ test('AC-2001 installed TUI receives local session only after setup+ack, explici
   await writeFile(path.join(fixture,'client'),`#!/usr/bin/env node
     const token=process.env.SERVICE_LASSO_API_TOKEN;
     const origin=process.env.SERVICE_LASSO_API_URL;
-    const auth=token && origin && !process.argv.includes('--explicit') ? await (await fetch(origin+'/api/runtime/security',{headers:{authorization:'Bearer '+token}})).json() : null;
+    const auth=token && origin && !process.argv.includes('--explicit') ? await (await fetch(origin+'/api/runtime/security',{headers:{'x-service-lasso-admin-token':token}})).json() : null;
     console.log(JSON.stringify({credential:Boolean(token),actor:auth?.auth?.actor?.kind??null,args:process.argv.slice(2)}));
   `);
   await chmod(path.join(fixture,'client'),0o700);
