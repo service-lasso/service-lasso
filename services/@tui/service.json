@@ -1,0 +1,14 @@
+{
+  "id": "@tui",
+  "name": "Service Lasso TUI",
+  "description": "Keyboard-first terminal client launched on demand. Pending a pinned native release.",
+  "role": "provider",
+  "enabled": false,
+  "autostart": false,
+  "meta": {
+    "repository": {
+      "type": "git",
+      "url": "https://github.com/service-lasso/service-lasso-tui.git"
+    }
+  }
+}
