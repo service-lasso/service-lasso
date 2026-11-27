@@ -25,7 +25,7 @@ The start command builds Core and starts the baseline using the checked-in `serv
 
 Open **[http://127.0.0.1:17700/](http://127.0.0.1:17700/)**.
 
-A fresh workspace may show first-run setup. Complete the setup and save the credentials and recovery information it provides. Regular services wait until setup is complete. After saving the credential and completing setup, run `npm restart` from another terminal in the same checkout to resume the baseline. Inspect any service-specific prerequisites or failures in Admin. The [independent example review](development/documented-examples-verification.md) records a current Windows recycle/shutdown defect; recycle is not a qualified recovery step. For setup details, see [vault bootstrap](reference/vault-key-bootstrap.md).
+A fresh workspace may show first-run setup. Complete the setup and save the credentials and recovery information it provides. Regular services wait until setup is complete. Successful setup automatically resumes the selected prepared baseline daemons in the same runtime; no manual restart is needed. The saved Startup preference controls subsequent ordinary Core launches; the explicit managed checkout baseline retains its own service selection, and `--noautostart` keeps this launch API-only. Inspect any service-specific prerequisites or failures in Admin. The [independent example review](development/documented-examples-verification.md) records a current Windows recycle/shutdown defect; recycle is not a qualified recovery step. For setup details, see [vault bootstrap](reference/vault-key-bootstrap.md).
 
 ## 3. Try a service
 
