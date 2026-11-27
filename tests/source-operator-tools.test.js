@@ -4,13 +4,13 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { spawnSync } from 'node:child_process';
-import { buildEnvironment, main, prepareTool, run, sourceTools } from '../scripts/source-operator-tools.mjs';
+import { buildEnvironment, main, prepareTool, run, sourceClientInvocation, sourceTools } from '../scripts/source-operator-tools.mjs';
 
 // SPEC-002 AC-4CG.1977: source convenience cannot weaken release admission.
 test('source pins are fixed reviewed official source identities', async () => {
   assert.deepEqual(sourceTools, {
     cli: { url: 'https://github.com/service-lasso/service-lasso-cli.git', commit: 'b6383e1b125bdf1626ce380f9a36ffdd8bc001ae' },
-    tui: { url: 'https://github.com/service-lasso/service-lasso-tui.git', commit: '90ef4b232b223bc7be7c7a1c6c572b94933f01b7' },
+    tui: { url: 'https://github.com/service-lasso/service-lasso-tui.git', commit: '2fcdf2c16d7c56e70a6501c3117ddcb4730c9499' },
   });
   assert.ok(Object.isFrozen(sourceTools.cli));
   await assert.rejects(prepareTool('https://example.invalid/tool'), /Choose cli or tui/);
@@ -82,4 +82,39 @@ test('acquired wrong source identity fails before checkout or build', { skip: pr
     assert.doesNotMatch(result.stderr, /do-not-inherit|exit 81|exit 82/);
     assert.deepEqual(await readdir(path.join(cwd, '.operator-tools')), []);
   } finally { await rm(cwd, { recursive: true, force: true }); }
+});
+
+
+test('checkout clients use the owned origin and preserve explicit connection selection', async () => {
+  const local = 'http://127.0.0.1:48083';
+  const selected = async () => local;
+  const skip = async () => assert.fail('explicit and offline commands do not inspect the local workspace');
+  assert.deepEqual(await sourceClientInvocation('tui', [], {}, selected), {
+    args: [], env: { SERVICE_LASSO_API_URL: local },
+  });
+  assert.deepEqual(await sourceClientInvocation('cli', ['instance', 'status'], {}, selected), {
+    args: ['instance', 'status'], env: { SERVICE_LASSO_CORE_URL: local },
+  });
+  for (const [name, args, env] of [
+    ['tui', ['--api=https://example.test'], {}],
+    ['tui', ['--connect'], {}],
+    ['tui', ['-profile', 'ops'], {}],
+    ['tui', [], { SERVICE_LASSO_CONNECTIONS_CONFIG: '/profiles' }],
+    ['tui', [], { SERVICE_LASSO_API_URL: 'https://example.test' }],
+    ['cli', ['operator', 'services'], { SERVICE_LASSO_CONNECTION: 'ops' }],
+    ['cli', ['--connection=ops', 'instance', 'status'], {}],
+    ['cli', ['service', 'init', 'example', '--dry-run'], {}],
+    ['cli', ['config', 'path'], {}],
+  ]) {
+    assert.deepEqual(await sourceClientInvocation(name, args, env, skip), {args, env});
+  }
+});
+
+test('checkout clients never fall back to the default port after workspace lookup', async () => {
+  const missing = async () => null;
+  assert.deepEqual(await sourceClientInvocation('tui', [], {}, missing), { args: ['--connect'], env: {} });
+  await assert.rejects(sourceClientInvocation('cli', ['instance', 'status'], {}, missing), /No running Core found for this checkout/);
+  const failed = async () => { throw new Error('private workspace details'); };
+  await assert.rejects(sourceClientInvocation('tui', [], {}, failed), (error) =>
+    error.message.includes('Cannot verify the running Core') && !error.message.includes('private workspace details'));
 });

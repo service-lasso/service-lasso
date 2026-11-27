@@ -37,7 +37,13 @@ Once the services are running:
 2. Find `echo-service` in Service Admin, open **Details**, and inspect its status and logs.
 3. On that detail page, click **Stop service**, accept its confirmation dialog, wait for **Stopped**, then click **Start service** and reload the Echo page.
 
-For the attached TUI, follow the [root README client setup](https://github.com/service-lasso/service-lasso/blob/develop/README.md#cli-and-tui-for-that-same-instance), open **Stack**, and select `echo-service` to see real HTTP health latency. Allow up to about 30 seconds for the first scheduled sample; the process check remains available alongside HTTP health.
+Run `npm run tui` in the same checkout and workspace environment. Confirm the
+discovered Core URL and sign in with the local admin token from setup if asked.
+In **Stack**, select a service to see its HTTP health latency. Admin, NGINX,
+Traefik and Echo have scheduled HTTP checks. Allow about 30 seconds for the first
+sample. Providers and the IPC-based Secrets Broker have no HTTP latency graph.
+See the [root README client setup](https://github.com/service-lasso/service-lasso/blob/develop/README.md#cli-and-tui-for-that-same-instance)
+for CLI and remote TUI connection options.
 
 Use the detail-page controls: the evaluated Admin release's table-row Stop button rejects the action because it does not present the required confirmation.
 

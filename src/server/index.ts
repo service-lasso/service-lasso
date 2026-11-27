@@ -143,6 +143,7 @@ import {
   bootstrapLocalVault,
   isSetupBootstrapAllowed,
   readRuntimeSetupStatus,
+  shouldBlockNormalAutostart,
   toPublicRuntimeSetupStatus,
 } from "../runtime/setup/first-run.js";
 import {
@@ -320,6 +321,9 @@ import { isProviderRole } from "../runtime/roles.js";
 import {
   bootstrapBaselineServices,
   DEFAULT_BASELINE_SERVICE_IDS,
+  isSetupBootstrapService,
+  serviceArtifactSupportsHostPlatform,
+  shouldStartService,
   type BootstrapBaselineResult,
 } from "../runtime/cli/bootstrap.js";
 import type { LifecycleAction, LifecycleActionResult } from "../runtime/lifecycle/types.js";
@@ -593,6 +597,7 @@ interface ApiRouteConfig extends RuntimeConfig {
   healthCheckSamples: HttpCheckSampleRecorder;
   runtimeStartedMonotonic: number;
   bindHost: string;
+  baselineServiceIds: ReadonlySet<string> | null;
   features: {
     autostart: boolean;
     monitor: boolean;
@@ -4769,9 +4774,13 @@ async function routeRequestWithoutMutationCoordination(
       const model = await loadRuntimeModel(config.servicesRoot);
       if (ids.some(id => !model.registry.getById(id))) throw new ApiError("invalid_request", 400, "Invalid service selection.");
       const entitled = actorHasPermission(actor, "*");
-      const [operations, history] = await Promise.all([
+      const [operations, history, setupBlocked] = await Promise.all([
         entitled ? readPassiveMcpOperations(config.workspaceRoot).catch(() => null) : Promise.resolve(null),
         readOperatorInbox(config.workspaceRoot, { strict: true }).catch(() => null),
+        config.baselineServiceIds && ids.some(id => config.baselineServiceIds?.has(id) && !isSetupBootstrapService(id))
+          ? readRuntimeSetupStatus({ workspaceRoot: config.workspaceRoot, bindHost: config.bindHost })
+            .then(shouldBlockNormalAutostart, () => undefined)
+          : undefined,
       ]);
       const observedAt = new Date();
       const incidents: Array<{ at: string; serviceId: string; kind: "health_failed" | "operation_failed" | "operation_active" | "service_stopped" }> = [];
@@ -4808,7 +4817,9 @@ async function routeRequestWithoutMutationCoordination(
         rows: ids.map(serviceId => {
           const lifecycle = getLifecycleState(serviceId);
           const start = Date.parse(lifecycle.runtime.startedAt ?? "");
+          const service = model.registry.getById(serviceId);
           return { serviceId,
+            stackIntent: service ? stackServiceIntent(service, lifecycle, config, setupBlocked) : undefined,
             uptimeMs: lifecycle.running && Number.isFinite(start) ? Math.max(0, observedAt.getTime() - start) : null,
             restartCount: lifecycle.runtime.metrics.launchCount > 0 || lifecycle.lastAction !== null ? lifecycle.runtime.metrics.restartCount : null,
           };
@@ -8549,6 +8560,26 @@ export function createApiServer(options: ApiServerOptions = {}): Server {
   return createApiServerOnCandidate(options);
 }
 
+function stackServiceIntent(
+  service: DiscoveredService,
+  lifecycle: ReturnType<typeof getLifecycleState>,
+  config: ApiRouteConfig,
+  setupBlocked: boolean | undefined,
+): "expected" | "gated" | "optional" | "disabled" | "unsupported" | "prepared" | "unprepared" | undefined {
+  if (!serviceArtifactSupportsHostPlatform(service)) return "unsupported";
+  if (isProviderRole(service.manifest)) {
+    return lifecycle.installed && lifecycle.configured ? "prepared" : "unprepared";
+  }
+  if (service.manifest.enabled === false) return "disabled";
+  const selected = config.baselineServiceIds?.has(service.manifest.id) ?? config.features.autostart;
+  if (!selected) return "optional";
+  if (config.baselineServiceIds !== null && !isSetupBootstrapService(service.manifest.id)) {
+    if (setupBlocked === undefined) return undefined;
+    if (setupBlocked) return "gated";
+  }
+  return shouldStartService(service, lifecycle) ? "expected" : "optional";
+}
+
 function createApiServerOnCandidate(options: ApiServerOptions, existingServer?: Server, healthCheckSamples = new HttpCheckSampleRecorder()): Server {
   if (options.mcpPolicyTestHooks && process.env.SERVICE_LASSO_ENABLE_TEST_HOOKS !== "1") {
     throw new Error("MCP policy test hooks require SERVICE_LASSO_ENABLE_TEST_HOOKS=1.");
@@ -8565,6 +8596,9 @@ function createApiServerOnCandidate(options: ApiServerOptions, existingServer?: 
     ...resolvedConfig,
     healthCheckSamples,
     runtimeStartedMonotonic: performance.now(),
+    baselineServiceIds: options.baselineBootstrap
+      ? new Set(options.baselineBootstrap.serviceIds ?? DEFAULT_BASELINE_SERVICE_IDS)
+      : null,
     bindHost: options.host ?? process.env.SERVICE_LASSO_HOST ?? "127.0.0.1",
     features: {
       autostart: options.autostart === true,
@@ -9196,6 +9230,7 @@ async function startApiServerGeneration(
         ...config,
         host: bindHost,
         autostart: runtimeAutostart,
+        baselineBootstrap: options.baselineBootstrap,
         monitor: options.monitor,
         updateScheduler: options.updateScheduler,
         serviceCatalogUrl: options.serviceCatalogUrl,

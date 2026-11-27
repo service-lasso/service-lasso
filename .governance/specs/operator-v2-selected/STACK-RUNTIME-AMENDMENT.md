@@ -29,3 +29,26 @@ Existing closed operator DTOs remain untouched. No release/deployment authority.
 - AC-SR-5: prove real disposable runtime uptime/restart, in-flight/terminal ops,
   incidents, passive repeated reads, auth/invalid/failure behavior and regression.
   Broad #1973 stays open until coordinator confirms consumer/joint coverage.
+
+## Checkout Stack and connection intent (#1985)
+
+- AC-SR-6: a Stack runtime row may include a `stackIntent` value. When
+  available, `expected` identifies a service selected by this Core
+  generation's startup plan and eligible to start. `gated` identifies a
+  selected daemon waiting for secure first-run setup. `optional`, `disabled`
+  and `unsupported` identify services without a running expectation for
+  this generation. Providers use `prepared` only when Core reports both
+  installed and configured, and `unprepared` otherwise. Platform support
+  and bootstrap eligibility reuse the startup predicates. The authenticated
+  scoped read exposes only this enum and preserves the existing row data.
+- AC-SR-7: implicit source client launch uses the same local services and
+  workspace roots as source startup. Resolve a live, owned loopback
+  endpoint with the existing generation selector. No checked-in or
+  fallback port substitutes for a missing or stale workspace instance.
+  Preserve explicit client target flags, connection profiles and environment
+  configuration. Without a selected local runtime, an interactive TUI
+  opens its connect screen. When authentication is required, the TUI
+  displays the target and requires confirmation before requesting a masked
+  credential. Remote connection keeps the existing HTTPS admission policy.
+  Secrets remain outside source, argv, output and stored connection profiles.
+  Verify both checkout-local and explicit-connect outcomes with the pinned tool.

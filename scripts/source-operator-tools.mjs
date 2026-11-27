@@ -1,11 +1,12 @@
 import { spawn } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, writeFile, rename, rm } from 'node:fs/promises';
+import { isIP } from 'node:net';
+import { access, mkdir, mkdtemp, readFile, writeFile, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 export const sourceTools = Object.freeze({
   cli: Object.freeze({ url: 'https://github.com/service-lasso/service-lasso-cli.git', commit: 'b6383e1b125bdf1626ce380f9a36ffdd8bc001ae' }),
-  tui: Object.freeze({ url: 'https://github.com/service-lasso/service-lasso-tui.git', commit: '90ef4b232b223bc7be7c7a1c6c572b94933f01b7' }),
+  tui: Object.freeze({ url: 'https://github.com/service-lasso/service-lasso-tui.git', commit: '2fcdf2c16d7c56e70a6501c3117ddcb4730c9499' }),
 });
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -66,6 +67,65 @@ export async function prepareTool(name) {
   }
 }
 
+const hasFlag = (args, ...names) => args.some(arg => names.some(name => arg === name || arg.startsWith(name + '=')));
+
+function usesCheckoutTarget(name, args, environment) {
+  if (hasFlag(args, '--help', '-help', '-h', '--version', '-V')) return false;
+  if (name === 'tui') {
+    return !hasFlag(args, '--api', '-api', '--profile', '-profile', '--connections', '-connections', '--connect', '-connect')
+      && !environment.SERVICE_LASSO_API_URL
+      && !environment.SERVICE_LASSO_API_PROFILE
+      && !environment.SERVICE_LASSO_CONNECTIONS_CONFIG;
+  }
+  const [group, action] = args.filter(arg => !arg.startsWith('-'));
+  const runtimeCommand = group === 'instance' || group === 'operator'
+    || (group === 'service' && ['list', 'register', 'operation'].includes(action));
+  return runtimeCommand && !hasFlag(args, '--core-url', '--connection')
+    && !environment.SERVICE_LASSO_CORE_URL
+    && !environment.SERVICE_LASSO_CONNECTION;
+}
+
+export async function checkoutRuntimeOrigin() {
+  const configPath = new URL('../dist/runtime/config.js', import.meta.url);
+  try { await access(configPath); }
+  catch (error) {
+    if (error.code === 'ENOENT') return null;
+    throw error;
+  }
+  const [{ resolveRuntimeConfig }, { discoverRuntimeLane }] = await Promise.all([
+    import(configPath.href),
+    import('../dist/runtime/instance/registry.js'),
+  ]);
+  const config = resolveRuntimeConfig({
+    servicesRoot: path.resolve(root, process.env.SERVICE_LASSO_SERVICES_ROOT || 'services'),
+    workspaceRoot: path.resolve(root, process.env.SERVICE_LASSO_WORKSPACE_ROOT || 'workspace'),
+  });
+  const lane = await discoverRuntimeLane(config);
+  if (lane.classification !== 'selected' || !lane.endpoint) return null;
+  const url = URL.parse(lane.endpoint);
+  if (!url || url.protocol !== 'http:' || url.username || url.password ||
+      url.pathname !== '/' || url.search || url.hash) return null;
+  const loopback = ['localhost', '[::1]'].includes(url.hostname)
+    || (isIP(url.hostname) === 4 && url.hostname.startsWith('127.'));
+  return loopback ? url.origin : null;
+}
+
+export async function sourceClientInvocation(name, args, environment = process.env, resolveOrigin = checkoutRuntimeOrigin) {
+  if (!usesCheckoutTarget(name, args, environment)) return { args, env: environment };
+  const origin = await resolveOrigin().catch(() => {
+    throw new Error('Cannot verify the running Core for this checkout. Run npm run status or select an explicit connection.');
+  });
+  if (name === 'tui') {
+    return origin
+      ? { args, env: { ...environment, SERVICE_LASSO_API_URL: origin } }
+      : { args: ['--connect', ...args], env: environment };
+  }
+  if (!origin) {
+    throw new Error('No running Core found for this checkout. Run npm start in this workspace or pass --core-url.');
+  }
+  return { args, env: { ...environment, SERVICE_LASSO_CORE_URL: origin } };
+}
+
 export async function main(args = process.argv.slice(2)) {
   const [name, ...forwarded] = args;
   if (name === 'setup' && forwarded.length === 0) {
@@ -74,9 +134,10 @@ export async function main(args = process.argv.slice(2)) {
     return;
   }
   if (!Object.hasOwn(sourceTools, name ?? '')) throw new Error('Usage: npm run operator:setup | npm run cli -- <args> | npm run tui -- <args>');
+  const { args: clientArgs, env } = await sourceClientInvocation(name, forwarded);
   const executable = await prepareTool(name);
-  if (name === 'cli') await run(process.execPath, [executable, ...forwarded], root);
-  else await run(executable, forwarded, root);
+  if (name === 'cli') await run(process.execPath, [executable, ...clientArgs], root, { env });
+  else await run(executable, clientArgs, root, { env });
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   main().catch(error => { console.error(`[operator-tools] ${error.message}`); process.exitCode = error.exitCode || 1; });

@@ -66,7 +66,7 @@ export interface BootstrapBaselineResult {
   registry: ServiceRegistry;
 }
 
-function shouldStartService(service: DiscoveredService, state: ServiceLifecycleState): boolean {
+export function shouldStartService(service: DiscoveredService, state: ServiceLifecycleState): boolean {
   if (isProviderRole(service.manifest)) {
     return false;
   }
