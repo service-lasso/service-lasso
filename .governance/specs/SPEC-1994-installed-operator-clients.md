@@ -31,3 +31,8 @@ when those exact production inputs are admitted.
   import/preparation, removal of npm source-build launchers and the combined
   postmerge consumer run remain gated by the exact approved published
   inputs in #1992. No temporary artifact or movable tag becomes a catalog pin.
+
+- AC-1994-5 (#1999): Core checks in discoverable, disabled service definitions
+  for @cli and @tui with their owning repository metadata. Until #1992 binds
+  exact published artifacts, these entries have no artifact locator or command
+  and are excluded from default startup preparation.
