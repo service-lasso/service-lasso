@@ -1,3 +1,4 @@
+import { managedAdminUpstreamEnvironment } from "./admin-upstream.js";
 import type {
   DiscoveredService,
   ServiceActionDefinition,
@@ -1554,6 +1555,7 @@ async function startServiceSerialized(
   const secureLaunchEnv = {
     ...(brokerLaunchEnv ?? {}),
     ...(scopedBrokerIdentity?.env ?? {}),
+    ...await managedAdminUpstreamEnvironment(serviceId, options),
   };
   const resolvedPorts = options.plannedPorts ?? await negotiateServicePorts(
     service,
@@ -2032,6 +2034,7 @@ export async function restartService(
   const secureLaunchEnv = {
     ...(brokerLaunchEnv ?? {}),
     ...(scopedBrokerIdentity?.env ?? {}),
+    ...await managedAdminUpstreamEnvironment(serviceId, options),
   };
   const resolvedPorts = options.plannedPorts ?? await negotiateServicePorts(
     service,

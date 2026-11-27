@@ -1421,3 +1421,5 @@ Active SPEC-1925-WINDOWS-OPERATOR-FIXTURE / WIN-FIXTURE-1..4 owns shared fixture
 - #1977 in_progress: SPEC-002 AC-4CG.1977 source-checkout operator commands and newcomer proof; no release admission changes.
 
 - #1979 in_progress: SPEC-002 AC-4CG.1979 clone-to-managed-stack startup and isolated actual baseline proof.
+
+- #1991 in_progress: SPEC-002 AC-4CG.1991 source stack Admin upstream remediation; owned default/alternate projection and pinned read-only routing proof.
