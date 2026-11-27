@@ -15,8 +15,8 @@ import {
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const cliPath = path.join(repoRoot, "dist", "cli.js");
 const sourceServicesRoot = path.join(repoRoot, "services");
-const baselineServiceIds = ["@archive", "@java", "@localcert", "@nginx", "@node", "@python", "@secretsbroker", "@serviceadmin", "@traefik", "echo-service", "node-sample-service"];
-const providerServiceIds = new Set(["@archive", "@java", "@localcert", "@node", "@python"]);
+const baselineServiceIds = ["@archive", "@java", "@localcert", "@nginx", "@node", "@python", "@secretsbroker", "@serviceadmin", "@traefik", "@tui", "echo-service", "node-sample-service"];
+const providerServiceIds = new Set(["@archive", "@java", "@localcert", "@node", "@python", "@tui"]);
 const baselineDaemonServiceIds = ["@nginx", "@traefik", "echo-service"];
 const REAL_APP_PUBLICATION_TIMEOUT_MS = 10 * 60_000;
 

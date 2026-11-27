@@ -21,7 +21,7 @@ import type {
   StartupMaterializationKind,
 } from "../startup/materialization.js";
 
-export const DEFAULT_BASELINE_SERVICE_IDS = ["@archive", "@java", "@localcert", "@nginx", "@traefik", "@node", "@python", "@secretsbroker", "echo-service", "@serviceadmin"] as const;
+export const DEFAULT_BASELINE_SERVICE_IDS = ["@archive", "@java", "@localcert", "@nginx", "@traefik", "@node", "@python", "@secretsbroker", "echo-service", "@serviceadmin", "@tui"] as const;
 
 export type BaselineServiceStatus = "completed" | "skipped";
 

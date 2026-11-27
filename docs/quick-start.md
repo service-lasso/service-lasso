@@ -19,7 +19,7 @@ npm ci
 npm start
 ```
 
-The start command builds Core and invokes its owned baseline installer/startup with the checked-in `services/` manifests and persistent `workspace/`. The API uses loopback port 17883 with a fixed port policy; an occupied port fails rather than silently moving. Keep the terminal open. Core and the optional CLI use Node/npm and Git. Only the optional TUI needs Go 1.26+ for its first source build; `npm run operator:setup` builds both clients.
+The start command builds Core and starts the baseline using the checked-in `services/` manifests and persistent `workspace/`. It prepares the pinned `@tui` binary for your terminal. The API uses a fixed loopback port, 17883. Keep the terminal open.
 
 ## 2. Open Service Admin
 
@@ -37,8 +37,10 @@ Once the services are running:
 2. Find `echo-service` in Service Admin, open **Details**, and inspect its status and logs.
 3. On that detail page, click **Stop service**, accept its confirmation dialog, wait for **Stopped**, then click **Start service** and reload the Echo page.
 
-Run `npm run tui` in the same checkout and workspace environment. Confirm the
-discovered Core URL and sign in with the local admin token from setup if asked.
+Run `node dist/cli.js tui` or `npm run tui` in the same checkout and workspace
+environment. On Linux, the onboarded local Core signs in the TUI automatically
+when both run under the same user. Use `node dist/cli.js tui --connect` to confirm
+a remote target and sign in to it.
 In **Stack**, select a service to see its HTTP health latency. Admin, NGINX,
 Traefik and Echo have scheduled HTTP checks. Allow about 30 seconds for the first
 sample. Providers and the IPC-based Secrets Broker have no HTTP latency graph.

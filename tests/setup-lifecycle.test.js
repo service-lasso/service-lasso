@@ -521,6 +521,7 @@ test("bootstrapBaselineServices runs non-manual setup steps for provider-role se
     await writeExecutableFixtureService(servicesRoot, "@secretsbroker");
     await writeExecutableFixtureService(servicesRoot, "echo-service", { depend_on: ["@node", "@traefik"] });
     await writeExecutableFixtureService(servicesRoot, "@serviceadmin", { depend_on: ["@node"] });
+    await writeExecutableFixtureService(servicesRoot, "@tui", { role: "provider", healthcheck: null });
 
     const result = await bootstrapBaselineServices({ servicesRoot, workspaceRoot, version: "setup-bootstrap-test" });
     const localcertResult = result.services.find((service) => service.serviceId === "@localcert");

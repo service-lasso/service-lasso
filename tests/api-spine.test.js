@@ -1327,6 +1327,7 @@ test("GET /api/runtime/capabilities returns versioned runtime capability metadat
       "@secretsbroker",
       "echo-service",
       "@serviceadmin",
+      "@tui",
     ]);
     assert.deepEqual(result.body.capabilities.baseline.serviceRoles, [
       {
