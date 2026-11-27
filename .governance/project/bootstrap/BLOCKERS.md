@@ -1,7 +1,15 @@
 # Bootstrap blockers
 
-Current repair bundle: [blockers](history/2026-10-02T08-07-12Z/blockers.md).
+Full bootstrap: **blocked-with-tracked-issue**, [#1588](https://github.com/service-lasso/service-lasso/issues/1588). Owner: authorized project/repository administrator under a separately reviewed provider migration. #1988 is repository-only and grants no board/settings authority.
 
-PR [#1589](https://github.com/service-lasso/service-lasso/pull/1589) is OPEN into develop; last pushed pre-repair snapshot 939e2cb87e76415893e9f5acecf2dfe961d388e0. The enclosing repair commit and live PR head identify the later candidate; independent review and exact-head CI remain pending. Full bootstrap remains incomplete on provider gaps tracked by [#1588](https://github.com/service-lasso/service-lasso/issues/1588).
+Exact next actions under #1588:
+- Preserve existing items, assignments, fields and board identity. Record before/after readbacks and an explicit migration/authority decision before changes.
+- Set default View 1 visible columns/order to Title, Assignees, Status, Project Priority, Order, Priority, Repository; hide Labels and retain other fields as appropriate. If API view configuration is unsupported, an authorized board administrator must perform this in the project UI and attach a verifiable readback.
+- Configure existing Priority single-select options to Urgent, High, Medium, Low (currently empty); retain existing field identity and reconcile affected assignments explicitly.
+- Decide whether existing P5 is an approved extension or requires item-by-item migration before retirement. No deletion is authorized here.
+- Reconcile develop ruleset 21891323 with the repository checklist: approving review, stale dismissal, conversation resolution, CODEOWNERS/last-push policy where intended, required CI checks and direct-push enforcement. Live readback currently has zero required approvals and no required-status-check rule. Do not infer unavailable enforcement from a successful administrative read.
+- Verify applicable open-issue attachment completeness and repeat final board/link/rules readback. Authentication and viewerCanUpdate already work; no credential refresh is currently required.
 
-Original 07:53 history is preserved as partial evidence; new readback has actual times in the linked repair bundle.
+These blockers prevent a full bootstrap pass, not the bounded reviewed repository reporting repair. No release, deployment or product execution authority is conferred.
+
+Historical snapshot for this run: [blockers](history/2026-11-27T08-53-53Z/blockers.md).
