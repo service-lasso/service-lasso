@@ -29,3 +29,14 @@ test('explicit noautostart stays serve and flags can override defaults', () => {
   assert.equal(restart.args[1], 'restart');
   assert.equal(restart.args[restart.args.indexOf('--port') + 1], '19000');
 });
+
+test('managed start and restart sample health by default while preserving opt-outs', () => {
+  for (const action of ['start', 'restart']) {
+    assert.equal(stackInvocation(action, [], {}).env.SERVICE_LASSO_MONITOR, '1');
+    assert.equal(stackInvocation(action, [], { SERVICE_LASSO_MONITOR: '0' }).env.SERVICE_LASSO_MONITOR, '0');
+  }
+  for (const [action, flags] of [['start', ['--noautostart']], ['status', []], ['stop', []]]) {
+    assert.equal(stackInvocation(action, flags, {}).env.SERVICE_LASSO_MONITOR, undefined);
+    assert.equal(stackInvocation(action, flags, { SERVICE_LASSO_MONITOR: '0' }).env.SERVICE_LASSO_MONITOR, '0');
+  }
+});

@@ -86,6 +86,20 @@
     {
       "id": "process-health",
       "type": "process"
+    },
+    {
+      "id": "http-health",
+      "type": "http",
+      "url": "http://127.0.0.1:${HEALTH_PORT}/health",
+      "expected_status": 200
     }
-  ]
+  ],
+  "monitoring": {
+    "enabled": true
+  },
+  "restartPolicy": {
+    "enabled": true,
+    "onCrash": false,
+    "onUnhealthy": false
+  }
 }
