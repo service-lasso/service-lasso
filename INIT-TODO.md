@@ -28,16 +28,17 @@ This file tracks bootstrap/adoption/remediation work required before product imp
 
 ## Commit Policy
 
-- Current bootstrap update run policy: `allowed`
+- Current #1988 bootstrap update policy: `required`; signed commits and immediate pushes through a reviewed PR into develop.
 
-## Dirty Start Resolution
+## Current Start State
 
-- Starting repo state was dirty because bootstrap feedback artifacts were already present but uncommitted.
-- Resolution used for this update run: normalize those artifacts into the current bootstrap-update output rather than discard or ignore them.
+- #1988 starts clean at current develop `e97686dd8247cc26c548c910b114ac76bea2fedc` in an exclusive detached checkout, then `docs/1988-vibegov-update`; no inherited changes or untracked files. Earlier dirty-start descriptions remain historical only.
+- Current run: `.governance/project/bootstrap/history/2026-11-27T08-53-53Z/`. Repository reporting repair and instance handover expectations map to SPEC-001 AC-2–AC-7. Full bootstrap remains blocked on separate provider #1588; no board/settings mutation is authorized.
 
 ## Open Items
-- `#1587` VibeGov bootstrap update is in review. Current reporting now lives in `.governance/project/bootstrap/` and its current linked repair history bundle (original `history/2026-10-02T07-53-15Z/` remains partial history). Do not extend the legacy `BOOTSTRAP_*.md` or `bootstrap-runs/` layout for new runs.
+- `#1587` VibeGov bootstrap update is closed; PR #1589 merged on 2026-10-02. #1988 refreshes current reporting. Current reporting now lives in `.governance/project/bootstrap/` and its current linked repair history bundle (original `history/2026-10-02T07-53-15Z/` remains partial history). Do not extend the legacy `BOOTSTRAP_*.md` or `bootstrap-runs/` layout for new runs.
 - GitHub Project `service-lasso Delivery` (#1) was read-only audited. API readback shows its default `View 1` table has `Title`, `Status`, `Labels`, `Repository`, `Project Priority`, `Priority`, `Order`, so it does not meet the required visible columns/order. Issue `#1588` tracks provider-side remediation; the user did not authorize provider-setting mutation in this run.
+- Existing Priority SINGLE_SELECT has zero options; #1588 must configure Urgent, High, Medium, Low under separate provider authority. Order is verified NUMBER; repository linkage is verified. Develop ruleset requires PR/linear history but zero approvals and no required-status-check rule; #1588 owns checklist reconciliation.
 - Project Priority currently includes an additional `P5` option alongside required `P0`–`P4`. Preserve existing board options and assignments. A project administrator must decide whether to retire or retain it, then document the decision; do not destructively replace field options during a bootstrap update.
 - `ISS-1463-implementation`: retain remote-develop implementation traceability, local direct proof, independent whole review, and separate owner-catalog/TAR T1-T5 blockers.
 

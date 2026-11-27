@@ -24,6 +24,14 @@ This repository keeps concise, factual continuity in versioned artifacts so work
 | Project | Durable constraints, specifications, workflows, and backlog | `AGENTS.md`, `.governance/project/`, `.governance/specs/`, `.governance/rules/` |
 | Durable global/operator | Cross-project operator facts that are safe and authorized to retain | Operator-managed continuity surface; do not copy secrets, credentials, raw logs, paths, or private payloads into the repository |
 
+## Instance Handover and Credential References
+
+Before an instance ends or transfers custody, record the governing issue/spec, owner and next owner, mode, exact base/head and branch, checkout/worktree ownership and clean/dirty classification, preserved artifacts, verification results and limitations, active processes and retained evidence, unresolved gates, cleanup responsibility/trigger, and one next action. Use the issue/PR and scoped history bundle as the durable entry points. Keep private instance locations and payloads in the authorized operator handover surface rather than versioned repository artifacts.
+
+A replacement instance must reread current instructions, live issue/PR/check state and the referenced evidence before acting; a past passing report or access capability does not grant current execution authority. Preserve owned pending work and foreign state until explicit disposition. Normal authorized delivery includes distinct review, eligible merge, postmerge verification and recorded clean resting checkout or documented detached equivalent.
+
+Carry credential **references** only: the logical purpose/service, operator-approved reference identifier, custodian and approved retrieval/refresh procedure. Never copy secret values, tokens, private keys, credential-bearing URLs, machine-local credential locations or raw environment/log dumps into git, issue comments or handover prompts. The incoming instance checks required capabilities without exposing access material; missing authority or access becomes a scoped blocker with its owner and exact next action. Do not invent a new credential location or reuse another instance's consumed authorization.
+
 ## Checkpoint Triggers
 
 Checkpoint after new instructions or corrections, a material decision, a blocker or open loop, a change of phase or execution mode, prolonged multi-step work, or likely compaction/handoff risk. Each checkpoint states the governing issue/spec, exact checkout and branch, evidence obtained, unresolved risk, and one next action.
