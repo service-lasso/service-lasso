@@ -53,6 +53,23 @@ for every command. `SERVICE_LASSO_PORT` changes the API port; point clients at t
 actual URL. Explicit root flags, for example `npm start -- --port 18080`, also work.
 The separate [demo commands](docs/demo/README.md) use their own demo workspace.
 
+If that fixed API port is occupied (including by another application), startup
+reports `service=runtime-api phase=port_selection` and fails without stopping or
+adopting the listener. Choose an unused port explicitly, for example
+`npm start -- --port 18080` or `SERVICE_LASSO_PORT=18080 npm start` in a
+Bash-compatible shell. Set the same port for `npm restart`, keep the same workspace
+for every command, and connect Admin/CLI/TUI to the actual reported API URL.
+Do not delete another instance's workspace or stop an unrelated process to clear
+this conflict.
+
+Baseline failures name the service, lifecycle action, observed startup phase and a
+safe reason (for example `phase=health_check reason=required_readiness_failed`).
+`github_release_metadata_rate_limited` means wait for the public API limit to
+reset before retrying. An unclassified failure reports `<action>_failed` rather
+than exposing exception text. Startup stops at the first failure and rolls back
+its owned work; later services have not been proved running. Inspect that
+service's private diagnostics in the same workspace before retrying.
+
 ## CLI and TUI for that same instance
 
 Core owns services; these are attached operator tools launched when requested.

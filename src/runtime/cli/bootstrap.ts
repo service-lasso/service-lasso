@@ -4,7 +4,7 @@ import { configService, installService, startService, type ServiceLifecycleActio
 import { getLifecycleState } from "../lifecycle/store.js";
 import type { LifecycleAction, LifecycleActionResult, ServiceLifecycleState } from "../lifecycle/types.js";
 import { listSetupStepIds, runServiceSetup, type SetupTransactionHooks } from "../setup/steps.js";
-import { ReleaseAcquisitionError } from "../setup/acquire.js";
+import { BaselineStartupError } from "./startup-diagnostics.js";
 import { DependencyGraph, createServiceRegistry } from "../manager/DependencyGraph.js";
 import type { ServiceRegistry } from "../manager/ServiceRegistry.js";
 import { discoverServices } from "../discovery/discoverServices.js";
@@ -66,14 +66,6 @@ export interface BootstrapBaselineResult {
   registry: ServiceRegistry;
 }
 
-function formatActionFailure(serviceId: string, action: LifecycleAction, error: unknown): Error {
-  if (error instanceof ReleaseAcquisitionError) {
-    return error;
-  }
-  const detail = error instanceof Error ? error.message : String(error);
-  return new Error(`Baseline bootstrap failed for service "${serviceId}" during "${action}": ${detail}`);
-}
-
 function shouldStartService(service: DiscoveredService, state: ServiceLifecycleState): boolean {
   if (isProviderRole(service.manifest)) {
     return false;
@@ -82,11 +74,11 @@ function shouldStartService(service: DiscoveredService, state: ServiceLifecycleS
   return Boolean(service.manifest.execservice || service.manifest.executable || state.installArtifacts.artifact?.command);
 }
 
-function isSetupBootstrapService(serviceId: string): boolean {
+export function isSetupBootstrapService(serviceId: string): boolean {
   return serviceId === "@node" || serviceId === "@serviceadmin";
 }
 
-function serviceArtifactSupportsHostPlatform(service: DiscoveredService, hostPlatform = process.platform): boolean {
+export function serviceArtifactSupportsHostPlatform(service: DiscoveredService, hostPlatform = process.platform): boolean {
   const platforms = service.manifest.artifact?.platforms;
   if (!platforms) {
     return true;
@@ -112,28 +104,39 @@ async function runLifecycleAction(
       : undefined,
     allocationRevision: endpointAllocationPlan?.allocationId,
   };
+  const previousAttemptId = getLifecycleState(service.manifest.id).runtime.startTrace.current?.attemptId;
+  const requireSuccess = async (result: LifecycleActionResult): Promise<LifecycleActionResult> => {
+    if (!result.ok) {
+      // Preserve the failed lifecycle state before the enclosing startup rolls back.
+      await writeServiceState(service, result.state);
+      throw new Error(result.message);
+    }
+    return result;
+  };
   try {
     if (action === "install") {
-      return await installService(service, registry, {
+      return await requireSuccess(await installService(service, registry, {
         ...allocationOptions,
         materializationHooks: transactionHooks?.materializationHooksFor(service, "install"),
         artifactAcquisitionHooks: transactionHooks?.artifactAcquisitionHooksFor(service),
-      });
+      }));
     }
 
     if (action === "config") {
-      return await configService(service, registry, {
+      return await requireSuccess(await configService(service, registry, {
         ...allocationOptions,
         materializationHooks: transactionHooks?.materializationHooksFor(service, "config"),
-      });
+      }));
     }
 
     if (action === "start") {
       await transactionHooks?.beforeServiceStart(service);
-      return await startService(service, registry, allocationOptions);
+      return await requireSuccess(await startService(service, registry, allocationOptions));
     }
   } catch (error) {
-    throw formatActionFailure(service.manifest.id, action, error);
+    const trace = getLifecycleState(service.manifest.id).runtime.startTrace.current;
+    throw new BaselineStartupError(service.manifest.id, action, error,
+      action === "start" && trace?.attemptId !== previousAttemptId ? trace : null);
   }
 
   throw new Error(`Unsupported baseline bootstrap action: ${action}`);
@@ -252,7 +255,7 @@ export async function bootstrapBaselineServices(options: BootstrapBaselineOption
           runtimeInstanceId: options.transactionHooks?.runtimeInstanceId,
           allocationRevision: options.endpointAllocationPlan?.allocationId,
         },
-      });
+      }).catch(error => { throw new BaselineStartupError(serviceId, "setup", error); });
       await writeServiceState(service, result.state);
       state = result.state;
       actions.push({
@@ -261,7 +264,7 @@ export async function bootstrapBaselineServices(options: BootstrapBaselineOption
         message: result.message,
       });
       if (!result.ok) {
-        throw formatActionFailure(serviceId, "setup", new Error(result.message));
+        throw new BaselineStartupError(serviceId, "setup", new Error(result.message));
       }
       if (result.runs.length > 0) {
         await options.transactionHooks?.afterAction(service, "setup");
@@ -294,9 +297,6 @@ export async function bootstrapBaselineServices(options: BootstrapBaselineOption
         options.transactionHooks,
       );
       await writeServiceState(service, result.state);
-      if (!result.ok) {
-        throw formatActionFailure(serviceId, "start", new Error(result.message));
-      }
       if (result.ok && result.state.running) {
         await options.transactionHooks?.afterServiceStart(service);
       }
