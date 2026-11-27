@@ -56,8 +56,9 @@ The separate [demo commands](docs/demo/README.md) use their own demo workspace.
 ## CLI and TUI for that same instance
 
 Core owns services; these are attached operator tools launched when requested.
-Install **Go 1.26+** on PATH for their first source build. No sibling clones or
-global installs are needed. `npm run operator:setup` optionally builds both ahead
+The CLI needs Node/npm and Git. Install **Go 1.26+** on PATH for the TUI's first
+source build. No sibling clones or global installs are needed.
+`npm run operator:setup` optionally builds both ahead
 of time; otherwise each command builds its own reviewed tool on first use in
 ignored `.operator-tools/`. See [the pinned sources](scripts/source-operator-tools.mjs).
 These source builds do not confer packaged release qualification.
@@ -75,7 +76,9 @@ npm run tui -- --api http://127.0.0.1:17883
 unset SERVICE_LASSO_CLI_LOCAL_ADMIN_TOKEN SERVICE_LASSO_API_TOKEN
 ```
 
-The TUI requires an attached terminal. Use Arrow keys, Tab and Enter, then `q`
+Bare `npm run tui` uses loopback Core and requires the token exported in that
+shell as shown above. The TUI requires an attached terminal. Use Arrow keys, Tab
+and Enter, then `q`
 to quit. API/authentication failures stay visible; an open dashboard alone does
 not prove a connection. For another configured authentication mode, use its
 normal client credential configuration. Never print or commit credentials.

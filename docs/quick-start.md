@@ -19,7 +19,7 @@ npm ci
 npm start
 ```
 
-The start command builds Core and invokes its owned baseline installer/startup with the checked-in `services/` manifests and persistent `workspace/`. The API uses loopback port 17883 with a fixed port policy; an occupied port fails rather than silently moving. Keep the terminal open. No Go is required for Core; the optional CLI/TUI source tools described in the root README require Go on first build.
+The start command builds Core and invokes its owned baseline installer/startup with the checked-in `services/` manifests and persistent `workspace/`. The API uses loopback port 17883 with a fixed port policy; an occupied port fails rather than silently moving. Keep the terminal open. Core and the optional CLI use Node/npm and Git. Only the optional TUI needs Go 1.26+ for its first source build; `npm run operator:setup` builds both clients.
 
 ## 2. Open Service Admin
 
