@@ -9,6 +9,7 @@ import {
   observeBoundedJsonObject,
   ownerExitFailure,
   requireRuntimeServicePort,
+  requireRuntimeServiceGeneration,
   RuntimeOwnerFailure,
   waitForBaselineCompletion,
 } from "./runtime-owner.mjs";
@@ -18,7 +19,7 @@ const cliPath = path.join(repoRoot, "dist", "cli.js");
 const sourceServicesRoot = path.join(repoRoot, "services");
 const baselineServiceIds = ["@archive", "@cli", "@java", "@localcert", "@nginx", "@node", "@python", "@secretsbroker", "@serviceadmin", "@traefik", "@tui", "echo-service", "node-sample-service"];
 const providerServiceIds = new Set(["@archive", "@cli", "@java", "@localcert", "@node", "@python", "@tui"]);
-const baselineDaemonServiceIds = ["@nginx", "@traefik", "echo-service"];
+const baselineDaemonServiceIds = ["@nginx", "@traefik", "echo-service", "@secretsbroker", "@serviceadmin"];
 const REAL_APP_PUBLICATION_TIMEOUT_MS = 10 * 60_000;
 
 function sleep(ms) {
@@ -425,6 +426,14 @@ try {
     "First-run Secrets Broker bootstrap did not provision declared generated secrets.",
   );
 
+  assert(setupBootstrap.bootstrap?.continuation?.ok === true,
+    "First-run setup did not successfully resume the selected baseline daemons.");
+  const afterBootstrap = await waitForJson(`${apiUrl}/api/runtime/instance`);
+  assert(afterBootstrap.instance?.generationId === activeRuntimeIdentity.generationId
+    && afterBootstrap.instance?.instanceId === activeRuntimeIdentity.instanceId
+    && afterBootstrap.instance?.pid === activeRuntimeIdentity.ownerPid,
+  "First-run bootstrap did not retain the original owning Core instance/generation.");
+
   verificationStep = "service_catalog";
   const services = await waitForJson(`${apiUrl}/api/services`);
   const serviceIds = services.services.map((service) => service.id).sort();
@@ -435,14 +444,22 @@ try {
   }
   verificationEvidence = null;
 
+  // Onboarding must resume the real default daemons itself. A manual start
+  // here would conceal a continuation regression (or fail as already-running).
   for (const serviceId of baselineDaemonServiceIds) {
-    verificationStep = `baseline_start_${serviceId.replace(/[^a-z0-9]+/giu, "_")}`;
-    await postJson(`${apiUrl}/api/services/${encodeURIComponent(serviceId)}/start`);
+    verificationStep = `baseline_automatic_start_${serviceId.replace(/[^a-z0-9]+/giu, "_")}`;
+    const service = await waitForServiceState(apiUrl, serviceId, { running: true });
+    requireRuntimeServiceGeneration(service, activeRuntimeIdentity.generationId);
   }
 
-  for (const action of ["install", "config", "start"]) {
+  // The sample is outside DEFAULT_BASELINE_SERVICE_IDS; prepare only missing
+  // prerequisites and start it only when its observed lifecycle requires it.
+  for (const [action, stateField] of [["install", "installed"], ["config", "configured"], ["start", "running"]]) {
     verificationStep = `node_sample_${action}`;
-    await postJson(`${apiUrl}/api/services/${encodeURIComponent("node-sample-service")}/${action}`);
+    const detail = await waitForJson(`${apiUrl}/api/services/${encodeURIComponent("node-sample-service")}`);
+    if (detail.service?.lifecycle?.[stateField] !== true) {
+      await postJson(`${apiUrl}/api/services/${encodeURIComponent("node-sample-service")}/${action}`);
+    }
   }
 
   const liveServices = new Map();

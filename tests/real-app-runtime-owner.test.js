@@ -10,6 +10,7 @@ import {
   discoverOwningRuntime,
   observeBoundedJsonObject,
   requireRuntimeServicePort,
+  requireRuntimeServiceGeneration,
   RuntimeOwnerFailure,
   waitForBaselineCompletion,
 } from "../scripts/runtime-owner.mjs";
@@ -24,6 +25,17 @@ test("real-app reachability uses authoritative negotiated service ports", () => 
     () => requireRuntimeServicePort({ id: "fixture-service", lifecycle: { runtime: { ports: {} } } }, "service"),
     /authoritative runtime port is unavailable/i,
   );
+});
+
+test("real-app automatic startup requires running daemons from the original generation", () => {
+  const service = { id: "daemon", lifecycle: { running: true, runtime: { generationId: "owned-generation" } } };
+  assert.equal(requireRuntimeServiceGeneration(service, "owned-generation"), service);
+  for (const other of [undefined, { id: "daemon", lifecycle: { running: false, runtime: { generationId: "owned-generation" } } },
+    { id: "daemon", lifecycle: { running: true, runtime: { generationId: "foreign-generation" } } },
+    { id: "daemon", lifecycle: { running: true, runtime: {} } }]) {
+    assert.throws(() => requireRuntimeServiceGeneration(other, "owned-generation"), /owning runtime generation/);
+  }
+  assert.throws(() => requireRuntimeServiceGeneration(service, undefined), /owning runtime generation/);
 });
 
 const fixtureSource = String.raw`
