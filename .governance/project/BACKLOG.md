@@ -1,5 +1,7 @@
 # Backlog
 
+- #2011 in_progress: SPEC-002 AC-4CG.2011. Observe real automatic same-generation daemon startup after protected onboarding instead of unconditional duplicate starts; retain optional sample and existing faults/cleanup.
+
 - #2007 in_progress: SPEC-002 AC-4CG.2007. Resume the invocation-selected managed baseline after successful protected first-run provisioning, retaining service failure evidence and explicit startup opt-outs.
 
 

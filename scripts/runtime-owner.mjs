@@ -18,6 +18,15 @@ export function requireRuntimeServicePort(service, portName) {
   return port;
 }
 
+export function requireRuntimeServiceGeneration(service, generationId) {
+  if (!generationId || service?.lifecycle?.running !== true
+      || service?.lifecycle?.runtime?.generationId !== generationId) {
+    const serviceId = typeof service?.id === "string" ? service.id : "unknown";
+    throw new Error(`Service ${serviceId} did not prove running in the owning runtime generation.`);
+  }
+  return service;
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
