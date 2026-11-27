@@ -1,4 +1,5 @@
 import test from 'node:test';
+import path from 'node:path';
 import assert from 'node:assert/strict';
 import { stackInvocation } from '../scripts/source-stack.mjs';
 
@@ -7,8 +8,8 @@ test('source startup delegates baseline ownership with stable loopback defaults'
   assert.equal(args[1], 'start');
   assert.equal(args[args.indexOf('--port') + 1], '17883');
   assert.equal(args[args.indexOf('--port-policy') + 1], 'fixed');
-  assert.match(args[args.indexOf('--workspace-root') + 1], /\/workspace$/);
-  assert.match(args[args.indexOf('--services-root') + 1], /\/services$/);
+  assert.equal(path.basename(args[args.indexOf('--workspace-root') + 1]), 'workspace');
+  assert.equal(path.basename(args[args.indexOf('--services-root') + 1]), 'services');
   assert.equal(env.SERVICE_LASSO_HOST, '127.0.0.1');
 });
 test('same custom workspace flows to status and shutdown without baseline startup', () => {
