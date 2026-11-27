@@ -10,90 +10,86 @@ Service Lasso installs, configures, starts, and monitors local services for you.
 
 Use it to bring up a local app stack or ship supporting services with a Node, web, or desktop app. Manage native service processes through the UI, CLI, or HTTP API.
 
-## Core, CLI, and TUI from one checkout
+## Start the recommended stack from a clone
 
-For an API-first local start, install **Node.js 22.12+**, **npm**, **Git**, and
-**Go 1.26+** (`go` on your PATH). Internet access is needed for dependencies and
-first-use client sources. Run these commands in a Bash-compatible terminal:
+Install **Node.js 22.12+**, **npm**, and **Git**. Internet access is needed for
+service releases on the first start. Core itself does not require Go.
 
 ```sh
 git clone --single-branch --branch develop https://github.com/service-lasso/service-lasso.git
 cd service-lasso
 npm ci
-npm run operator:setup
-npm run build
-
-# Keep this generated local credential in this shell; do not print or commit it.
-export SERVICE_LASSO_LOCAL_ADMIN_TOKEN="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))')"
-export SERVICE_LASSO_CLI_LOCAL_ADMIN_TOKEN="$SERVICE_LASSO_LOCAL_ADMIN_TOKEN"
-export SERVICE_LASSO_API_TOKEN="$SERVICE_LASSO_LOCAL_ADMIN_TOKEN"
-export SERVICE_LASSO_HOST=127.0.0.1
-
-# Start the actual Core owner in the background so this shell can run both tools.
-node --enable-source-maps dist/cli.js serve --noautostart --port 18080 &
-core_pid=$!
+npm start
 ```
 
-Wait for Core to report its API at **http://127.0.0.1:18080**. Then, in the
-**same terminal and folder**, run:
+Keep this terminal open. This builds Core and uses its owned baseline startup to
+install/configure the recommended services from `services/`, with persistent data
+in `workspace/`. The API defaults to **http://127.0.0.1:17883** with a fixed port;
+a conflicting listener is an error. Startup reports the actual API URL. First-use downloads can take several minutes. Unsupported provider
+artifacts are explicitly skipped; this is the real managed stack, not a fixture.
+
+Open **[Service Admin](http://127.0.0.1:17700/)** using the reported endpoint if it
+was allocated differently. Complete first-run setup and privately save its
+credentials and recovery information. Regular services wait for onboarding.
+After saving the credential and completing setup, run `npm restart` from another
+terminal in the same checkout to resume baseline startup. Use Admin to inspect
+any service-specific prerequisites or failures. Once running, try the [Echo service](http://127.0.0.1:4010/).
+[First-run help →](docs/quick-start.md)
+
+From another terminal in the same checkout:
 
 ```sh
-npm run cli -- --core-url http://127.0.0.1:18080 instance status
-npm run tui -- --api http://127.0.0.1:18080
+npm run status
+npm stop
+npm start
+# Or restart the same workspace in one foreground command:
+npm restart
 ```
 
-The TUI needs an attached terminal. Use Arrow keys, Tab, and Enter to navigate the Stack dashboard and
-`q` to quit. API failures remain visible; an open dashboard alone does not prove
-Core is connected. `--noautostart` starts Core without launching services. Core
-owns service lifecycle; the CLI and TUI run only when requested.
+Ctrl+C in the start terminal also shuts down the owned runtime. Stop/restart use
+Core's workspace ownership checks and retain data. Use the same
+`SERVICE_LASSO_WORKSPACE_ROOT` (and `SERVICE_LASSO_SERVICES_ROOT` if customized)
+for every command. `SERVICE_LASSO_PORT` changes the API port; point clients at that
+actual URL. Explicit root flags, for example `npm start -- --port 18080`, also work.
+The separate [demo commands](docs/demo/README.md) use their own demo workspace.
 
-After quitting the TUI, stop the exact Core process and clear this shell's token:
+## CLI and TUI for that same instance
+
+Core owns services; these are attached operator tools launched when requested.
+Install **Go 1.26+** on PATH for their first source build. No sibling clones or
+global installs are needed. `npm run operator:setup` optionally builds both ahead
+of time; otherwise each command builds its own reviewed tool on first use in
+ignored `.operator-tools/`. See [the pinned sources](scripts/source-operator-tools.mjs).
+These source builds do not confer packaged release qualification.
+
+For authenticated operation, use the local administrator token saved during
+onboarding. In a Bash-compatible terminal, read it privately without placing it
+in shell history, then connect both tools to the running Core:
 
 ```sh
-kill -TERM "$core_pid"
-wait "$core_pid"
-unset SERVICE_LASSO_LOCAL_ADMIN_TOKEN SERVICE_LASSO_CLI_LOCAL_ADMIN_TOKEN SERVICE_LASSO_API_TOKEN
+read -r -s -p "Local admin token: " SERVICE_LASSO_CLI_LOCAL_ADMIN_TOKEN; printf '\n'
+export SERVICE_LASSO_CLI_LOCAL_ADMIN_TOKEN
+export SERVICE_LASSO_API_TOKEN="$SERVICE_LASSO_CLI_LOCAL_ADMIN_TOKEN"
+npm run cli -- --core-url http://127.0.0.1:17883 instance status
+npm run tui -- --api http://127.0.0.1:17883
+unset SERVICE_LASSO_CLI_LOCAL_ADMIN_TOKEN SERVICE_LASSO_API_TOKEN
 ```
 
-For later foreground starts, `npm run serve -- --noautostart --port 18080`
-uses the same Core server and supports Ctrl+C shutdown. The explicit API flags above select port 18080. The clients and existing demo
-below otherwise default to port 17883; use the actual Core URL and its configured
-credentials when connecting to another instance.
+The TUI requires an attached terminal. Use Arrow keys, Tab and Enter, then `q`
+to quit. API/authentication failures stay visible; an open dashboard alone does
+not prove a connection. For another configured authentication mode, use its
+normal client credential configuration. Never print or commit credentials.
 
-`operator:setup` builds the reviewed CLI and TUI source commits listed in
-[scripts/source-operator-tools.mjs](scripts/source-operator-tools.mjs). `cli` and
-`tui` also set up their own tool on first use. Builds live in the ignored
-`.operator-tools/` folder; no sibling clones or global installs are needed.
-Nothing downloads during `npm ci` beyond its ordinary dependencies. An interrupted
-setup can be retried; if a setup lock remains after its process has stopped,
-remove only its named `.operator-tools/cli.lock` or `.operator-tools/tui.lock`
-directory before retrying. These are development source tools; packaged releases
-retain their separate published-artifact requirements.
-
-## Try it
-
-You need **Node.js 22+**, **npm**, **Git**, and internet access to download service releases. The first start takes longer while those downloads complete.
+## API-only development alternate
 
 ```sh
-git clone --branch develop https://github.com/service-lasso/service-lasso.git
-cd service-lasso
-npm ci
-npm run demo
+npm start -- --noautostart
+# Or invoke the explicit serve entrypoint with your own port:
+npm run serve -- --noautostart --port 18080
 ```
 
-The normal runtime starts enabled services automatically. Use `npm start -- --noautostart` when you only want the runtime API for this launch; the Service Admin **Settings → Startup** preference controls the default for future launches.
-
-Open **[Service Admin](http://127.0.0.1:17700/)**. If first-run setup appears, complete it and save the recovery information it provides. [First-run help →](docs/quick-start.md)
-
-Once setup is complete and services are running, open the [Echo demo](http://127.0.0.1:4010/). Find `echo-service` in Service Admin to inspect its status and logs, then try stopping and starting it.
-
-To stop the demo, run this from the same folder in another terminal:
-
-```sh
-npm run demo:stop
-```
-
-[How Service Lasso, Secrets Broker, and templates fit together →](docs/understand-service-lasso.md)
+The opt-out skips service startup for this launch and preserves the saved
+startup preference. `npm run dev` retains the development server flow.
 
 ## Make it yours
 
