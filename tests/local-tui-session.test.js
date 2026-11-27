@@ -75,7 +75,10 @@ test('AC-2001 installed clients receive a local session only after setup+ack', {
     const origin=isCLI?process.env.SERVICE_LASSO_CORE_URL:process.env.SERVICE_LASSO_API_URL;
     const headers=isCLI?{authorization:'Bearer '+token}:{'x-service-lasso-admin-token':token};
     const auth=token && origin && !process.argv.includes('--explicit') ? await (await fetch(origin+'/api/runtime/security',{headers})).json() : null;
-    console.log(JSON.stringify({credential:Boolean(token),actor:auth?.auth?.actor?.kind??null,args:process.argv.slice(2)}));
+    const availability=isCLI && token && origin ? await fetch(origin+'/api/operator/v2/services/%40cli/lifecycle-availability',{
+      headers:process.argv.includes('--forwarded')?{...headers,forwarded:'for=127.0.0.1'}:headers
+    }) : null;
+    console.log(JSON.stringify({credential:Boolean(token),actor:auth?.auth?.actor?.kind??null,availability:availability?.status??null,args:process.argv.slice(2)}));
   `);
   await chmod(path.join(fixture,'client'),0o700);
   const archivePath=path.join(tempRoot,'client.tar.gz');assert.equal(spawnSync('tar',['-czf',archivePath,'-C',fixture,'client']).status,0);
@@ -112,11 +115,16 @@ test('AC-2001 installed clients receive a local session only after setup+ack', {
     assert.equal((await launch(['--api','https://remote.example'])).credential,false);
     assert.equal((await launch(['--profile','work'])).credential,false);
     assert.equal((await launch(['--explicit'],{SERVICE_LASSO_API_TOKEN:'explicit-kept'})).credential,true);
-    assert.equal((await cli()).actor,'local-token');
+    const cliSession = await cli();
+    assert.equal(cliSession.actor,'local-token');
+    assert.equal(cliSession.availability,200);
+    assert.notEqual((await cli(['operator','services','--forwarded'])).availability,200);
     assert.equal((await cli(['operator','services','--core-url','https://remote.example'])).credential,false);
     assert.equal((await cli(['service','init','sample'])).credential,false);
     assert.equal((await cli(['operator','services'],{SERVICE_LASSO_CLI_LOCAL_ADMIN_TOKEN:'explicit-registration-token'})).credential,false);
-    assert.equal((await cli(['operator','services','--explicit'],{SERVICE_LASSO_CORE_TOKEN:'explicit-kept'})).credential,true);
+    const explicitCli = await cli(['operator','services','--explicit'],{SERVICE_LASSO_CORE_TOKEN:'explicit-kept'});
+    assert.equal(explicitCli.credential,true);
+    assert.notEqual(explicitCli.availability,200);
     assert.equal(process.env.SERVICE_LASSO_CORE_TOKEN,undefined);
     const authFile=await readFile(path.join(workspaceRoot,'.service-lasso/local-operator-auth.json'),'utf8');
     assert.ok(!authFile.includes('fixture-long-lived-not-transferred'));

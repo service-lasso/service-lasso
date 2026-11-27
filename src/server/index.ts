@@ -137,6 +137,7 @@ import {
 } from "../runtime/auth/local-auth-store.js";
 import {
   FIRST_RUN_VAULT_FIELD_NAMES,
+  LOCAL_ADMIN_TOKEN_HEADER,
   LOCAL_OPERATOR_SECRET_KV_PATH,
 } from "../runtime/auth/local-auth-constants.js";
 import { parseLocalAuthValidateInput, validateLocalAuth } from "../runtime/auth/local-auth-validate.js";
@@ -2176,7 +2177,8 @@ async function authorizeOperatorV2LifecycleRequest(
   auth: RuntimeAuthPolicyStatus,
   config: ApiRouteConfig,
 ): Promise<McpHttpAuthorization | null> {
-  if (!request.headers.authorization && !resolveMcpOAuthConfiguration(config.mcpHttpIdentity).enabled && auth.request.local && auth.actor.authenticated && (auth.actor.kind === "local-root" || auth.actor.kind === "local-token")) {
+  if (!resolveMcpOAuthConfiguration(config.mcpHttpIdentity).enabled && auth.request.local && auth.actor.authenticated && (auth.actor.kind === "local-root" || auth.actor.kind === "local-token")
+      && (!request.headers.authorization || hasPrivateOperatorBearer(request, auth, config))) {
     return {
       actor: {
         kind: auth.actor.kind,
@@ -2188,6 +2190,19 @@ async function authorizeOperatorV2LifecycleRequest(
     } as unknown as McpHttpAuthorization;
   }
   return authorizeDurableLifecycleOperationRequest(request, response, auth, config);
+}
+
+function operatorSessionBinding(config: ApiRouteConfig) {
+  return {
+    workspaceRoot: path.resolve(config.workspaceRoot), servicesRoot: path.resolve(config.servicesRoot),
+    generationId: config.runtimeGenerationId ?? "",
+  };
+}
+
+function hasPrivateOperatorBearer(request: IncomingMessage, auth: RuntimeAuthPolicyStatus, config: ApiRouteConfig): boolean {
+  const token = request.headers.authorization?.match(/^Bearer ([A-Za-z0-9_-]{43})$/i)?.[1];
+  return Boolean(token && auth.actor.kind === "local-token" && !request.headers[LOCAL_ADMIN_TOKEN_HEADER]
+    && verifyLocalTuiSession(operatorSessionBinding(config), token, request));
 }
 
 async function authorizeDurableReconciliationContextRequest(
@@ -4616,10 +4631,8 @@ async function routeRequestWithoutMutationCoordination(
     localOperatorConfigured: localAuth.localOperatorConfigured,
     firstRunPending: localAuth.firstRunPending,
     credentialsAcknowledged: localAuth.credentialsAcknowledged,
-    verifyLocalSecret: provided => localAuth.verifyLocalSecret(provided) || verifyLocalTuiSession({
-      workspaceRoot: path.resolve(config.workspaceRoot), servicesRoot: path.resolve(config.servicesRoot),
-      generationId: config.runtimeGenerationId ?? "",
-    }, provided, request),
+    verifyLocalSecret: provided => localAuth.verifyLocalSecret(provided)
+      || verifyLocalTuiSession(operatorSessionBinding(config), provided, request),
   });
   if (
     !isUnauthenticatedRuntimeRoute(method, url.pathname) &&

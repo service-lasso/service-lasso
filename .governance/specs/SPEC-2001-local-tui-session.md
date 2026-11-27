@@ -13,4 +13,6 @@ Same uid is the trusted principal; root/same-uid malicious process mutation is o
 - AC-2001-5 (#2009): The checkout-owned installed CLI can use the same
   Linux handoff under AC-1994-9. The child receives the existing CLI Bearer
   environment only when an explicit client credential is absent. Authenticated
-  CLI requests remain direct to the verified loopback endpoint.
+  CLI requests remain direct to the verified loopback endpoint. Core's existing
+  non-OAuth local lifecycle authorization accepts the verified private session
+  in its Bearer form. Other Bearer credentials retain their existing path.
