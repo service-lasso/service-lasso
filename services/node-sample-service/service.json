@@ -147,5 +147,13 @@
         "required": true
       }
     ]
+  },
+  "monitoring": {
+    "enabled": true
+  },
+  "restartPolicy": {
+    "enabled": true,
+    "onCrash": false,
+    "onUnhealthy": false
   }
 }

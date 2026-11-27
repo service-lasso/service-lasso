@@ -116,5 +116,13 @@
       "retries": 80,
       "interval": 250
     }
-  ]
+  ],
+  "monitoring": {
+    "enabled": true
+  },
+  "restartPolicy": {
+    "enabled": true,
+    "onCrash": false,
+    "onUnhealthy": false
+  }
 }

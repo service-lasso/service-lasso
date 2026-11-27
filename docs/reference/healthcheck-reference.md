@@ -418,3 +418,14 @@ When changing healthcheck behaviour, update:
 - regression tests for startup readiness and direct health evaluation
 
 Keep the schema clean. Prefer canonical Service Lasso field names over compatibility aliases unless there is a real existing manifest migration requirement.
+
+## Readiness versus scheduled observation
+
+HTTP readiness checks run against the real service listener during startup.
+Scheduled checks require the runtime monitor plus the service's explicit
+monitoring/restart-policy opt-in. Observe-only configuration uses
+`monitoring: { "enabled": true }` and
+`restartPolicy: { "enabled": true, "onCrash": false, "onUnhealthy": false }`.
+The ordinary monitor timer is 30 seconds; enabling observations does not enable
+automatic restart. See [Service Health History](./service-health-history.md) for
+managed-service coverage and the passive per-check sample API.
