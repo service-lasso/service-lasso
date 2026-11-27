@@ -28,3 +28,6 @@ __pycache__/
 
 # Generated PTY helper staging for local bundled runs
 /native/pty/
+
+# Source-checkout operator builds (never release distribution)
+/.operator-tools/

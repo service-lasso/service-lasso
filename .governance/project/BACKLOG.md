@@ -1,5 +1,9 @@
 # Backlog
 
+## Source-checkout operator tools (#1977)
+
+- #1977 in_progress: SPEC-002 AC-4CG.1977. Root setup/CLI/TUI commands, secure newcomer README and clean Core-connected source proofs; release distribution remains separate.
+
 - #1837, in_review: SPEC-002 AC-4CE.1. Document custom env delivery versus OS
   confidentiality, Linux hidepid cross-UID and same-UID limits, Windows process
   access and operator verification. Canonical public home: Security and access.

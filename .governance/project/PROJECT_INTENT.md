@@ -1,5 +1,9 @@
 # Project Intent
 
+## Source-checkout operator tools (#1977)
+
+Development source-only AC-4CG.1977 adds explicit root CLI/TUI setup and launch from the Core checkout using exact reviewed sources. Existing release staging/admission remains unchanged. No runtime data, service catalog or deployment changes.
+
 ## Stack Monitor real HTTP graph slice (#1973)
 
 Development adds only the selected HEALTH-CHECK-SAMPLES-AMENDMENT AC-HCS-1..6.
