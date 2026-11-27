@@ -117,7 +117,7 @@ export async function verifyServiceCatalog(root = repoRoot) {
     loadCatalog(root),
     loadDefaultBaselineIds(root),
   ]);
-  const readme = await readFile(path.join(root, 'README.md'), 'utf8');
+  const ecosystemReadme = await readFile(path.join(root, 'docs', 'ecosystem', 'README.md'), 'utf8');
   const serviceGuide = await readFile(path.join(root, 'docs', 'development', 'new-lasso-service-guide.md'), 'utf8');
   const problems = [];
   const manifestsById = new Map(manifests.map((entry) => [entry.manifest.id, entry]));
@@ -151,11 +151,11 @@ export async function verifyServiceCatalog(root = repoRoot) {
     if (!manifestsById.has(serviceId)) problems.push(`DEFAULT_BASELINE_SERVICE_IDS includes ${serviceId}, but services/${serviceId}/service.json is missing.`);
   }
 
-  const readmeBaseline = parseReadmeBaselineTable(readme);
-  addMismatch(problems, 'README baseline table', readmeBaseline.map((entry) => entry.serviceId), baselineIds);
+  const readmeBaseline = parseReadmeBaselineTable(ecosystemReadme);
+  addMismatch(problems, 'Ecosystem baseline table', readmeBaseline.map((entry) => entry.serviceId), baselineIds);
   for (const entry of readmeBaseline) {
     const tag = manifestsById.get(entry.serviceId)?.manifest.artifact?.source?.tag ?? null;
-    if (tag) addMismatch(problems, `${entry.serviceId} README release tag`, entry.releaseTag, tag);
+    if (tag) addMismatch(problems, `${entry.serviceId} ecosystem release tag`, entry.releaseTag, tag);
   }
 
   const guideBaselineIds = parseMarkdownBulletIds(serviceGuide, 'Default baseline services currently are:');

@@ -312,6 +312,28 @@
       "group": "Reference Apps",
       "status": "Template",
       "summary": "Packaging template for teams evaluating nexe-based Node executable distribution."
+    },
+    {
+      "id": "@cli",
+      "name": "Service Lasso CLI",
+      "repo": "service-lasso/service-lasso-cli",
+      "group": "Runtime Providers",
+      "status": "Awaiting release",
+      "summary": "Standalone command-line client launched on demand. Core will prepare the provider once its exact native release is pinned.",
+      "enabled": false,
+      "role": "provider",
+      "releaseTag": null
+    },
+    {
+      "id": "@tui",
+      "name": "Service Lasso TUI",
+      "repo": "service-lasso/service-lasso-tui",
+      "group": "Runtime Providers",
+      "status": "Awaiting release",
+      "summary": "Keyboard-first terminal client launched on demand. Core will prepare the provider once its exact native release is pinned.",
+      "enabled": false,
+      "role": "provider",
+      "releaseTag": null
     }
   ]
 }
