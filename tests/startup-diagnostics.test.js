@@ -97,3 +97,30 @@ test('AC-4CG.1983 occupied fixed source API fails visibly and preserves the fore
     await rm(fixture.tempRoot, { recursive: true, force: true });
   }
 });
+
+test('AC-4CG.1983 required daemon preflight port conflict retains service attribution', async () => {
+  const fixture = await makeTempServicesRoot('service-lasso-daemon-conflict-');
+  const listener = net.createServer(socket => socket.end('preserved'));
+  await new Promise(resolve => listener.listen(0, '127.0.0.1', resolve));
+  const port = listener.address().port;
+  try {
+    await writeExecutableFixtureService(fixture.servicesRoot, 'required-daemon', {
+      endpoints: [{ id: 'http', kind: 'network', direction: 'inbound', transport: 'tcp',
+        bind: '127.0.0.1', port: { default: port, strategy: 'fixed' } }],
+    });
+    await assert.rejects(promisify(execFile)(process.execPath, ['dist/cli.js', 'start',
+      '--services-root', fixture.servicesRoot, '--workspace-root', fixture.workspaceRoot], {
+      env: { ...process.env, SERVICE_LASSO_HOST_PORT_REGISTRY_PATH: path.join(fixture.tempRoot, 'ports.json'),
+        SERVICE_LASSO_INSTANCE_REGISTRY_PATH: path.join(fixture.tempRoot, 'instances.json') }, timeout: 15000,
+    }), error => {
+      assert.equal(error.code, 1);
+      assert.match(error.stderr, /service="required-daemon" phase=port_selection reason=endpoint_allocation_conflict/);
+      assert.equal(error.stderr.includes(fixture.tempRoot), false);
+      return true;
+    });
+    assert.equal(listener.listening, true);
+  } finally {
+    await new Promise(resolve => listener.close(resolve));
+    await rm(fixture.tempRoot, { recursive: true, force: true });
+  }
+});

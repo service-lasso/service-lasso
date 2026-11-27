@@ -41,5 +41,8 @@ export function startupFailureMessage(error: unknown): string | null {
   if (error instanceof RuntimeEndpointAllocationError && error.ownerId === "runtime-api") {
     return `Runtime startup failed: service=runtime-api phase=port_selection reason=${error.code}; API endpoint ${error.host}:${error.port ?? "unavailable"} is occupied or unavailable. No foreign listener was stopped or adopted. For source startup choose another fixed API port with SERVICE_LASSO_PORT or npm start -- --port <port>; use the same workspace for start/stop/restart/status and point clients at the reported URL.`;
   }
+  if (error instanceof RuntimeEndpointAllocationError) {
+    return `Runtime startup failed: service=${JSON.stringify(error.ownerId)} phase=port_selection reason=${error.code}; endpoint ${error.host}:${error.port ?? "unavailable"} is occupied or unavailable. No foreign listener was stopped or adopted. Inspect this service's endpoint configuration in the same workspace before retrying.`;
+  }
   return null;
 }
