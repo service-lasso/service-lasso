@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 
 const manifest = async id => JSON.parse(await readFile(new URL(`../services/${id}/service.json`, import.meta.url), 'utf8'));
 
-test('managed HTTP daemons declare actual readiness and observe without automatic restarts', async () => {
+test('managed HTTP daemons declare readiness; default services observe without automatic restarts', async () => {
   const targets = {
     '@serviceadmin': 'http://127.0.0.1:${UI_PORT}/',
     '@nginx': 'http://127.0.0.1:${HTTP_PORT}/health',
@@ -17,8 +17,13 @@ test('managed HTTP daemons declare actual readiness and observe without automati
   for (const [id, url] of Object.entries(targets)) {
     const service = await manifest(id);
     assert.ok(service.healthchecks.some(check => check.type === 'http' && check.url === url && check.expected_status === 200), id);
-    assert.equal(service.monitoring.enabled, true, id);
-    assert.deepEqual(service.restartPolicy, { enabled: true, onCrash: false, onUnhealthy: false }, id);
+    if (['@serviceadmin', '@nginx', '@traefik', 'echo-service'].includes(id)) {
+      assert.equal(service.monitoring.enabled, true, id);
+      assert.deepEqual(service.restartPolicy, { enabled: true, onCrash: false, onUnhealthy: false }, id);
+    } else {
+      assert.equal(service.monitoring, undefined, id);
+      assert.equal(service.restartPolicy, undefined, id);
+    }
   }
   const admin = await manifest('@serviceadmin');
   assert.ok(admin.healthchecks.some(check => check.type === 'process'));

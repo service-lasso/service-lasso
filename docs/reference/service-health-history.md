@@ -71,7 +71,7 @@ Managed source-stack start/restart enables the existing monitor by default;
 `SERVICE_LASSO_MONITOR=0` disables it. The monitor probes installed, configured,
 running services every 30 seconds. `monitoring.enabled` and
 `restartPolicy.enabled` must both be true for this existing monitor path.
-The checked-in HTTP daemons enable observation with `onCrash: false` and
+The default managed HTTP daemons (Echo, NGINX, Traefik and Admin) enable observation with `onCrash: false` and
 `onUnhealthy: false`, so an unhealthy response records failure without restarting
 the process. `monitoring.intervalSeconds` does not override the monitor's global
 timer; the ordinary cadence is 30 seconds.
@@ -84,7 +84,8 @@ transition history, and an empty sample list is not a healthy result.
 
 HTTP coverage includes Echo's health listener, NGINX `/health`, Traefik `/ping`,
 Admin `/`, optional Caddy `/health`, Node Sample `/health`, and OpenObserve
-`/healthz`. Admin's pinned `2026.11.2-dda9f96` release serves its real static root
+`/healthz`. Optional Caddy, Node Sample and OpenObserve retain readiness checks
+without opting into scheduled monitoring. Admin's pinned `2026.11.2-dda9f96` release serves its real static root
 before and after onboarding; it has no dedicated health endpoint. Its HTTP root
 check proves UI listener/static readiness, while its retained process check and
 Core setup state describe separate concerns. Secrets Broker uses production
