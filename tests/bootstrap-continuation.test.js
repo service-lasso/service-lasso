@@ -30,7 +30,7 @@ test("continuation starts selected prepared daemons in dependency order without 
     assert.equal(again.skipped.filter(row => row.reason === "already_running").length, 2);
     assert.deepEqual((await continuePreparedBaselineServices(model, new Set(), { workspaceRoot: fixture.workspaceRoot })).results, []);
   } finally {
-    await stopAllManagedProcesses(); resetLifecycleState(); await rm(fixture.tempRoot, { recursive: true, force: true });
+    await stopAllManagedProcesses(); resetLifecycleState(); await rm(fixture.tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });
 
@@ -58,7 +58,7 @@ test("continuation preserves failed start evidence and refuses to start an unsel
     assert.equal(getLifecycleState("broken").running, false);
     assert.ok(getLifecycleState("broken").runtime.startTrace.current);
   } finally {
-    await stopAllManagedProcesses(); resetLifecycleState(); await rm(fixture.tempRoot, { recursive: true, force: true });
+    await stopAllManagedProcesses(); resetLifecycleState(); await rm(fixture.tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });
 
@@ -77,6 +77,6 @@ test("managed bootstrap arriving before runtime commit fails safely before mutat
     assert.deepEqual(await readdir(fixture.servicesRoot), []);
   } finally {
     await new Promise(resolve => server.close(resolve));
-    await rm(fixture.tempRoot, { recursive: true, force: true });
+    await rm(fixture.tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });
