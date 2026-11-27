@@ -1,0 +1,95 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import { startApiServer } from '../dist/server/index.js';
+import { discoverServices } from '../dist/runtime/discovery/discoverServices.js';
+import { createServiceRegistry } from '../dist/runtime/manager/DependencyGraph.js';
+import { configService, installService, startService, restartService, stopService } from '../dist/runtime/lifecycle/actions.js';
+import { getLifecycleState, resetLifecycleState } from '../dist/runtime/lifecycle/store.js';
+import { writeServiceState } from '../dist/runtime/state/writeState.js';
+import { emitOperatorInboxServiceEvent, mutateOperatorInboxItem } from '../dist/runtime/operator/inbox.js';
+import { McpOperationService, mcpOperationStatePath } from '../dist/runtime/operator/mcp-operations.js';
+import { makeTempServicesRoot, writeExecutableFixtureService } from './test-helpers.js';
+
+test('AC-SR real runtime restart, passive durable in-flight/terminal operation and safe incidents', async () => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot } = await makeTempServicesRoot('stack-runtime-');
+  const workspaceRoot = path.join(tempRoot, 'workspace'); await mkdir(workspaceRoot, { recursive:true });
+  await writeExecutableFixtureService(servicesRoot, 'stack-service');
+  await writeExecutableFixtureService(servicesRoot, 'never-run');
+  let runtime = await startApiServer({ port:0, servicesRoot, workspaceRoot });
+  const registry = createServiceRegistry(await discoverServices(servicesRoot));
+  const service = registry.getById('stack-service');
+  const act = async action => { const result = await action(service, registry); assert.equal(result.ok, true); await writeServiceState(service, result.state); };
+  const read = async (query = 'serviceId=stack-service&serviceId=never-run', headers) => {
+    const res = await fetch(`${runtime.url}/api/operator/v2/stack-runtime?${query}`, { headers });
+    return {status:res.status, body:await res.json()};
+  };
+  let release; const gate = new Promise(resolve => release = resolve);
+  let submission;
+  try {
+    let result = await read(); assert.equal(result.status, 200);
+    assert.equal(result.body.data.rows[0].uptimeMs, null);
+    assert.equal(result.body.data.rows[0].restartCount, null);
+    assert.deepEqual(result.body.data.activeOperations, {scope:'workspace', count:0});
+    for (const action of [installService, configService, startService]) await act(action);
+    const first = (await read()).body.data;
+    assert.ok(first.coreUptimeMs >= 0); assert.ok(first.rows[0].uptimeMs >= 0);
+    assert.equal(first.rows[0].restartCount, 0);
+    await act(restartService);
+    result = await read(); assert.equal(result.body.data.rows[0].restartCount, 1);
+    assert.ok(result.body.data.coreUptimeMs >= first.coreUptimeMs);
+    await act(stopService); assert.equal((await read()).body.data.rows[0].uptimeMs, null);
+    await act(startService);
+    process.kill(getLifecycleState('stack-service').runtime.pid, 'SIGKILL');
+    for (let i=0; i<100 && getLifecycleState('stack-service').running; i++) await new Promise(resolve=>setTimeout(resolve,10));
+    result = await read();
+    assert.equal(result.body.data.rows[0].uptimeMs, null);
+    assert.equal(result.body.data.incidents[0].kind, 'service_stopped');
+    assert.ok(Number.isFinite(Date.parse(result.body.data.incidents[0].at)));
+    // Restart then intentionally stop: ordinary operator stops are not incidents.
+    await act(startService); await act(stopService);
+    const emitted = await emitOperatorInboxServiceEvent(workspaceRoot, {serviceId:'stack-service', kind:'health.unhealthy', summary:'PRIVATE_URL_SECRET', observedAt:'2026-11-27T00:00:00.000Z'});
+    result = await read(); assert.deepEqual(result.body.data.incidents, [{at:'2026-11-27T00:00:00.000Z', serviceId:'stack-service', kind:'health_failed'}]);
+    await mutateOperatorInboxItem(workspaceRoot, emitted.items.find(item => item.relatedTarget?.serviceId === 'stack-service').id, 'hide');
+    assert.deepEqual((await read()).body.data.incidents, []);
+    const operations = new McpOperationService({workspaceRoot, requestBudgetMs:10});
+    submission = await operations.submit({
+      authorization:{actor:{kind:'local-token', actorId:'test-owner', clientId:'test-client', scopes:['service-lasso:read','service-lasso:update:write'], permissionProfile:'maintainer'}},
+      action:'update_check', targetIds:['stack-service'], cancellationSupported:false,
+      execute:async () => { await gate; throw new Error('PRIVATE_OPERATION_FAILURE'); },
+    });
+    assert.equal(submission.kind, 'accepted');
+    const before = await readFile(mcpOperationStatePath(workspaceRoot));
+    result = await read(); assert.equal(result.body.data.activeOperations.count, 1);
+    assert.equal(result.body.data.incidents[0].kind, 'operation_active');
+    await read(); assert.deepEqual(await readFile(mcpOperationStatePath(workspaceRoot)), before, 'reads must not mutate operation records');
+    release();
+    for (let i=0; i<100; i++) { result = await read(); if(result.body.data.activeOperations.count === 0) break; await new Promise(resolve=>setTimeout(resolve,10)); }
+    assert.equal(result.body.data.activeOperations.count, 0); assert.equal(result.body.data.incidents[0].kind, 'operation_failed');
+    assert.doesNotMatch(JSON.stringify(result.body), /PRIVATE_|test-owner|test-client|operationId|summary/);
+    const trusted = {'x-service-lasso-internal-proxy':'serviceadmin','x-service-lasso-proxy':'serviceadmin','x-service-lasso-trusted-ingress':'serviceadmin-loopback','x-service-lasso-client-address':'192.0.2.61'};
+    assert.equal((await read(undefined, trusted)).status,401);
+    assert.equal((await read(undefined, {...trusted,'x-service-lasso-zitadel-user-id':'denied','x-service-lasso-zitadel-roles':'no-permissions'})).status,403);
+    const viewer = await read(undefined, {...trusted,'x-service-lasso-zitadel-user-id':'viewer','x-service-lasso-zitadel-roles':'viewer'});
+    assert.equal(viewer.status,200); assert.equal(viewer.body.data.activeOperations,null);
+    for (const query of ['serviceId=missing','serviceId=..','serviceId=stack-service&serviceId=stack-service','other=x',Array.from({length:26},(_,i)=>`serviceId=s${i}`).join('&')]) assert.equal((await read(query)).status,400);
+    assert.deepEqual((await read('')).body.data.rows,[]);
+    const inboxPath = path.join(workspaceRoot, '.state', 'operator-inbox.json');
+    const savedInbox = await readFile(inboxPath);
+    await writeFile(inboxPath, '{bad json');
+    assert.equal((await read()).body.data.incidents, null);
+    assert.equal((await read()).body.data.activeOperations.count, 0);
+    await writeFile(inboxPath, savedInbox);
+    const opPath = mcpOperationStatePath(workspaceRoot);
+    const savedOps = await readFile(opPath);
+    await writeFile(opPath, '{bad json');
+    result = await read(); assert.equal(result.body.data.activeOperations,null); assert.equal(result.body.data.incidents,null);
+    assert.ok(result.body.data.coreUptimeMs >= first.coreUptimeMs);
+    await writeFile(opPath,savedOps);
+    await runtime.stop(); resetLifecycleState();
+    runtime = await startApiServer({port:0, servicesRoot, workspaceRoot});
+    assert.equal((await read()).body.data.rows[0].restartCount,1,'restart counter survives runtime hydration');
+  } finally { release(); await runtime.stop(); await rm(tempRoot,{recursive:true,force:true}); resetLifecycleState(); }
+});

@@ -327,10 +327,15 @@ async function withQueueLock<T>(filePath: string, operation: () => Promise<T>): 
   }
 }
 
-export async function readOperatorInbox(workspaceRoot: string): Promise<OperatorInboxStateFile> {
+export async function readOperatorInbox(workspaceRoot: string, options: { strict?: boolean } = {}): Promise<OperatorInboxStateFile> {
   try {
-    return normalizeOperatorInboxState(JSON.parse(await readFile(inboxPath(workspaceRoot), "utf8")) as unknown);
-  } catch {
+    const raw: unknown = JSON.parse(await readFile(inboxPath(workspaceRoot), "utf8"));
+    if (options.strict && (!isRecord(raw) || !Array.isArray(raw.items) || raw.items.some(item =>
+      !isRecord(item) || typeof item.createdAt !== "string" || !Number.isFinite(Date.parse(item.createdAt))
+    ))) throw new Error("Inbox history is unavailable.");
+    return normalizeOperatorInboxState(raw);
+  } catch (error) {
+    if (options.strict && (error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     return normalizeOperatorInboxState(null);
   }
 }

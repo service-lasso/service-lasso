@@ -222,6 +222,7 @@ import {
   type McpGuardedActionInput,
 } from "../runtime/operator/mcp-guarded-actions.js";
 import {
+  readPassiveMcpOperations,
   McpOperationError,
   McpOperationService,
   isSafelyCancellableMcpAction,
@@ -357,6 +358,7 @@ import {
 } from "../runtime/setup/steps.js";
 import { listServiceActionRuns, parseServiceActionRunRequest, runServiceAction } from "../runtime/actions/runs.js";
 import {
+  actorHasPermission,
   enforcePermission,
   isPermissionGateError,
   permissionActorFromRuntimeAuth,
@@ -589,6 +591,7 @@ interface ApiRequestTelemetryState {
 
 interface ApiRouteConfig extends RuntimeConfig {
   healthCheckSamples: HttpCheckSampleRecorder;
+  runtimeStartedMonotonic: number;
   bindHost: string;
   features: {
     autostart: boolean;
@@ -4750,6 +4753,70 @@ async function routeRequestWithoutMutationCoordination(
       writeJson(response, 200, operatorV2Envelope(buildOperatorV2Discovery(auth.actor.permissions), requestId));
       return;
     }
+    if (request.method === "GET" && url.pathname === "/api/operator/v2/stack-runtime") {
+      if (!auth.actor.authenticated) throw new ApiError("authentication_required", 401, "Authentication is required.");
+      const actor = permissionActorFromRuntimeAuth(auth);
+      if (!actorHasPermission(actor, "workspace:read")) {
+        throw new ApiError("permission_denied", 403, "Read permission is required.");
+      }
+      const ids = url.searchParams.getAll("serviceId");
+      let validIds = true;
+      try { ids.forEach(id => validateServiceId(id, "operator selection")); } catch { validIds = false; }
+      if ([...url.searchParams.keys()].some(key => key !== "serviceId") || ids.length > 25 ||
+          new Set(ids).size !== ids.length || !validIds) {
+        throw new ApiError("invalid_request", 400, "Invalid service selection.");
+      }
+      const model = await loadRuntimeModel(config.servicesRoot);
+      if (ids.some(id => !model.registry.getById(id))) throw new ApiError("invalid_request", 400, "Invalid service selection.");
+      const entitled = actorHasPermission(actor, "*");
+      const [operations, history] = await Promise.all([
+        entitled ? readPassiveMcpOperations(config.workspaceRoot).catch(() => null) : Promise.resolve(null),
+        readOperatorInbox(config.workspaceRoot, { strict: true }).catch(() => null),
+      ]);
+      const observedAt = new Date();
+      const incidents: Array<{ at: string; serviceId: string; kind: "health_failed" | "operation_failed" | "operation_active" | "service_stopped" }> = [];
+      for (const item of history?.items ?? []) {
+        const serviceId = item.relatedTarget?.serviceId;
+        if (!serviceId || !ids.includes(serviceId) || item.visibility !== "visible") continue;
+        if (item.source !== "service" || !Number.isFinite(Date.parse(item.createdAt)) || Date.parse(item.createdAt) > observedAt.getTime()) continue;
+        if (item.dedupeKey.startsWith("service:health.unhealthy:") || item.dedupeKey.startsWith("service:health.degraded:")) {
+          incidents.push({ at: new Date(item.createdAt).toISOString(), serviceId, kind: "health_failed" });
+        } else if (item.dedupeKey.startsWith("service:lifecycle.failed:")) {
+          incidents.push({ at: new Date(item.createdAt).toISOString(), serviceId, kind: "operation_failed" });
+        }
+      }
+      for (const operation of operations ?? []) {
+        if (!Number.isFinite(Date.parse(operation.updatedAt)) || Date.parse(operation.updatedAt) > observedAt.getTime()) continue;
+        const active = ["queued", "running", "cancelling"].includes(operation.status);
+        if (!active && operation.status !== "failed") continue;
+        for (const serviceId of operation.targetIds.filter(id => ids.includes(id))) {
+          incidents.push({ at: new Date(operation.updatedAt).toISOString(), serviceId, kind: active ? "operation_active" : "operation_failed" });
+        }
+      }
+      for (const serviceId of ids) {
+        const lifecycle = getLifecycleState(serviceId);
+        const finished = Date.parse(lifecycle.runtime.finishedAt ?? "");
+        if (!lifecycle.running && lifecycle.runtime.lastTermination === "crashed" && Number.isFinite(finished) && finished <= observedAt.getTime()) {
+          incidents.push({ at: new Date(finished).toISOString(), serviceId, kind: "service_stopped" });
+        }
+      }
+      incidents.sort((a, b) => b.at.localeCompare(a.at));
+      writeJson(response, 200, operatorV2Envelope({
+        observedAt: observedAt.toISOString(),
+        coreUptimeMs: Math.max(0, Math.floor(performance.now() - config.runtimeStartedMonotonic)),
+        activeOperations: operations === null ? null : { scope: "workspace", count: operations.filter(op => ["queued", "running", "cancelling"].includes(op.status)).length },
+        rows: ids.map(serviceId => {
+          const lifecycle = getLifecycleState(serviceId);
+          const start = Date.parse(lifecycle.runtime.startedAt ?? "");
+          return { serviceId,
+            uptimeMs: lifecycle.running && Number.isFinite(start) ? Math.max(0, observedAt.getTime() - start) : null,
+            restartCount: lifecycle.runtime.metrics.launchCount > 0 || lifecycle.lastAction !== null ? lifecycle.runtime.metrics.restartCount : null,
+          };
+        }),
+        incidents: history === null || (entitled && operations === null) ? null : incidents.slice(0, 12),
+      }, requestId));
+      return;
+    }
     if (request.method === "GET" && url.pathname === "/api/operator/v2/health-check-samples") {
       if (!auth.actor.authenticated) throw new ApiError("authentication_required", 401, "Authentication is required.");
       await enforcePermission({
@@ -8497,6 +8564,7 @@ function createApiServerOnCandidate(options: ApiServerOptions, existingServer?: 
   const routeConfig: ApiRouteConfig = {
     ...resolvedConfig,
     healthCheckSamples,
+    runtimeStartedMonotonic: performance.now(),
     bindHost: options.host ?? process.env.SERVICE_LASSO_HOST ?? "127.0.0.1",
     features: {
       autostart: options.autostart === true,

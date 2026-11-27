@@ -865,6 +865,20 @@ export class McpOperationService {
   }
 }
 
+/** Passive validated snapshot: never reconciles, prunes or writes durable records. */
+export async function readPassiveMcpOperations(workspaceRoot: string): Promise<Array<{
+  status: McpOperationStatus; targetIds: string[]; updatedAt: string;
+}>> {
+  const state = await readState(workspaceRoot, { fresh: true });
+  const now = new Date();
+  if (state.operations.some(record => !isTerminal(record.status) && (
+    Date.parse(record.expiresAt) <= now.getTime() || Date.parse(record.heartbeatAt) > now.getTime() ||
+    !runnerOwnsLiveOperation(record, now)
+  ))) throw new McpOperationError("operation_state_unavailable", "Active operation state is ambiguous.");
+  return state.operations.filter(record => Date.parse(record.expiresAt) > now.getTime())
+    .map(({ status, targetIds, updatedAt }) => ({ status, targetIds: [...targetIds], updatedAt }));
+}
+
 export function mcpOperationStatePath(workspaceRoot: string): string {
   return path.join(workspaceRoot, ".service-lasso", "mcp", "operations.json");
 }
