@@ -12,7 +12,6 @@ import { resetLifecycleState } from "../dist/runtime/lifecycle/store.js";
 import { ensureLocalVaultMarker } from "../dist/runtime/setup/first-run.js";
 import { writeLocalOperatorAuthState } from "../dist/runtime/auth/local-auth-store.js";
 import {
-  clearPersistedFixtureState,
   ensureTestSecretsBrokerReady,
   makeTempServicesRoot,
   writeManifest,
@@ -694,26 +693,31 @@ test("runtime app host option overrides SERVICE_LASSO_HOST", async () => {
   }
 });
 
-test("GET /api/services returns discovered services from the tracked services root", async () => {
-  const servicesRoot = path.resolve("services");
-  await clearPersistedFixtureState(servicesRoot);
-  const apiServer = await startApiServer({ port: 0, servicesRoot });
-
+test("GET /api/services returns the tracked service manifest inventory", async () => {
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot();
+  let apiServer;
   try {
+    const trackedRoot = path.resolve("services");
+    for (const entry of await readdir(trackedRoot, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const destination = path.join(servicesRoot, entry.name);
+      await mkdir(destination);
+      await cp(path.join(trackedRoot, entry.name, "service.json"), path.join(destination, "service.json"));
+    }
+    apiServer = await startApiServer({ port: 0, servicesRoot, workspaceRoot });
     const result = await getJson(`${apiServer.url}/api/services`);
 
     assert.equal(result.status, 200);
     assert.ok(Array.isArray(result.body.services));
-    assert.equal(result.body.services.length, 15);
     assert.deepEqual(
       result.body.services.map((service) => service.id),
-      ["@archive", "@caddy", "@java", "@localcert", "@nginx", "@node", "@python", "@secretsbroker", "@serviceadmin", "@traefik", "echo-service", "echo-tui", "node-sample-service", "openobserve", "php"],
+      ["@archive", "@caddy", "@cli", "@java", "@localcert", "@nginx", "@node", "@python", "@secretsbroker", "@serviceadmin", "@traefik", "@tui", "echo-service", "echo-tui", "node-sample-service", "openobserve", "php"],
     );
     assert.equal(result.body.services[0].status, "discovered");
     assert.equal(result.body.services[0].source, "manifest");
   } finally {
-    await apiServer.stop();
-    await clearPersistedFixtureState(servicesRoot);
+    await apiServer?.stop();
+    await rm(tempRoot, { recursive: true, force: true });
   }
 });
 
