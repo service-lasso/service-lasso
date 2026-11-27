@@ -25,15 +25,15 @@ npm start
 Keep this terminal open. This builds Core and uses its owned baseline startup to
 install/configure the recommended services from `services/`, with persistent data
 in `workspace/`. The API defaults to **http://127.0.0.1:17883** with a fixed port;
-a conflicting listener is an error. Startup reports the actual API and service
-endpoints. First-use downloads can take several minutes. Unsupported provider
+a conflicting listener is an error. Startup reports the actual API URL. First-use downloads can take several minutes. Unsupported provider
 artifacts are explicitly skipped; this is the real managed stack, not a fixture.
 
 Open **[Service Admin](http://127.0.0.1:17700/)** using the reported endpoint if it
 was allocated differently. Complete first-run setup and privately save its
-credentials and recovery information. Regular services wait for onboarding;
-use Admin to install/configure/start remaining services when offered. Once
-running, try the [Echo service](http://127.0.0.1:4010/).
+credentials and recovery information. Regular services wait for onboarding.
+After saving the credential and completing setup, run `npm restart` from another
+terminal in the same checkout to resume baseline startup. Use Admin to inspect
+any service-specific prerequisites or failures. Once running, try the [Echo service](http://127.0.0.1:4010/).
 [First-run help →](docs/quick-start.md)
 
 From another terminal in the same checkout:
