@@ -19,7 +19,7 @@ npm ci
 npm start
 ```
 
-The start command builds Core and starts the baseline using the checked-in `services/` manifests and persistent `workspace/`. It prepares the pinned `@tui` binary for your terminal. The API uses a fixed loopback port, 17883. Keep the terminal open.
+The start command builds Core and starts the baseline using the checked-in `services/` manifests and persistent `workspace/`. It prepares the pinned `@tui` and `@cli` binaries on supported hosts. The API uses a fixed loopback port, 17883. Keep the terminal open.
 
 ## 2. Open Service Admin
 
@@ -44,8 +44,9 @@ a remote target and sign in to it.
 In **Stack**, select a service to see its HTTP health latency. Admin, NGINX,
 Traefik and Echo have scheduled HTTP checks. Allow about 30 seconds for the first
 sample. Providers and the IPC-based Secrets Broker have no HTTP latency graph.
-See the [root README client setup](https://github.com/service-lasso/service-lasso/blob/develop/README.md#cli-and-tui-for-that-same-instance)
-for CLI and remote TUI connection options.
+Run `node dist/cli.js cli operator services` to list the services from the same
+checkout on Windows x64 or Linux x64. For connection options, see the
+[root README client setup](https://github.com/service-lasso/service-lasso/blob/develop/README.md#cli-and-tui-for-that-same-instance).
 
 Use the detail-page controls: the evaluated Admin release's table-row Stop button rejects the action because it does not present the required confirmation.
 

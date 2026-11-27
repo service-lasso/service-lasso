@@ -318,11 +318,11 @@
       "name": "Service Lasso CLI",
       "repo": "service-lasso/service-lasso-cli",
       "group": "Runtime Providers",
-      "status": "Awaiting release",
-      "summary": "Standalone command-line client launched on demand. Core will prepare the provider once its exact native release is pinned.",
-      "enabled": false,
+      "status": "Available",
+      "summary": "Standalone command-line client prepared at startup and launched on demand on Windows x64 and Linux x64.",
+      "enabled": true,
       "role": "provider",
-      "releaseTag": null
+      "releaseTag": "cli-v0.1.0-dev.fac4318-candidate-fac4318"
     },
     {
       "id": "@tui",

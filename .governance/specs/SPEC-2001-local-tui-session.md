@@ -1,4 +1,4 @@
-# SPEC-2001 Local installed TUI session
+# SPEC-2001 Local installed operator session
 
 Active Development; #2001; SPEC-005 local operator auth and SPEC-1994 launcher amendment.
 Coordinator approved the Linux same-UID private socket boundary before implementation.
@@ -8,4 +8,11 @@ Coordinator approved the Linux same-UID private socket boundary before implement
 - AC-2001-3: The existing TUI token environment interface receives the session solely in the direct child's environment, never process.env or managed-service environment, arguments, files, logs or source. Explicit URL/profile/config/connect/token selection retains existing authority, and no anonymous HTTP policy changes.
 - AC-2001-4: Bounded socket requests/responses and deadlines fail closed for wrong workspace/generation/origin, insecure/replaced paths, missing runtime, denied onboarding/ack, expired/revoked credentials and foreign uid. Linux disposable Core and installed provider fixtures prove authenticated handoff, PTY/args preserved, no persistent credential; actual published provider integration remains coordinator-owned.
 
-Same uid is the trusted principal; root/same-uid malicious process mutation is outside this boundary. Filesystem checks do not claim protection against a trusted same-uid attacker. Stale socket directories contain no credential and are retained after crashes; generation-specific exclusive creation refuses reuse. CLI token-free behavior remains follow-up.
+Same uid is the trusted principal; root/same-uid malicious process mutation is outside this boundary. Filesystem checks do not claim protection against a trusted same-uid attacker. Stale socket directories contain no credential and are retained after crashes; generation-specific exclusive creation refuses reuse.
+
+- AC-2001-5 (#2009): The checkout-owned installed CLI can use the same
+  Linux handoff under AC-1994-9. The child receives the existing CLI Bearer
+  environment only when an explicit client credential is absent. Authenticated
+  CLI requests remain direct to the verified loopback endpoint. Core's existing
+  non-OAuth local lifecycle authorization accepts the verified private session
+  in its Bearer form. Other Bearer credentials retain their existing path.

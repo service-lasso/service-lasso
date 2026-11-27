@@ -65,15 +65,20 @@ test('AC-2001 socket rejects oversized/mismatched input without credential respo
 });
 
 // Controlled Broker fixture exercises production readiness/ack reads; it is not
-// native encrypted Broker qualification or published-TUI evidence.
-test('AC-2001 installed TUI receives local session only after setup+ack, explicit credentials stay authoritative', {skip:process.platform!=='linux'},async(t)=>{
+// native encrypted Broker qualification or published-client evidence.
+test('AC-2001 installed clients receive a local session only after setup+ack', {skip:process.platform!=='linux'},async(t)=>{
   const {tempRoot,servicesRoot,workspaceRoot}=await makeTempServicesRoot('core2001-');
   const fixture=path.join(tempRoot,'fixture');await mkdir(fixture);
   await writeFile(path.join(fixture,'client'),`#!/usr/bin/env node
-    const token=process.env.SERVICE_LASSO_API_TOKEN;
-    const origin=process.env.SERVICE_LASSO_API_URL;
-    const auth=token && origin && !process.argv.includes('--explicit') ? await (await fetch(origin+'/api/runtime/security',{headers:{'x-service-lasso-admin-token':token}})).json() : null;
-    console.log(JSON.stringify({credential:Boolean(token),actor:auth?.auth?.actor?.kind??null,args:process.argv.slice(2)}));
+    const isCLI=process.argv[1].includes('/@cli/');
+    const token=isCLI?process.env.SERVICE_LASSO_CORE_TOKEN:process.env.SERVICE_LASSO_API_TOKEN;
+    const origin=isCLI?process.env.SERVICE_LASSO_CORE_URL:process.env.SERVICE_LASSO_API_URL;
+    const headers=isCLI?{authorization:'Bearer '+token}:{'x-service-lasso-admin-token':token};
+    const auth=token && origin && !process.argv.includes('--explicit') ? await (await fetch(origin+'/api/runtime/security',{headers})).json() : null;
+    const availability=isCLI && token && origin ? await fetch(origin+'/api/operator/v2/services/%40cli/lifecycle-availability',{
+      headers:process.argv.includes('--forwarded')?{...headers,forwarded:'for=127.0.0.1'}:headers
+    }) : null;
+    console.log(JSON.stringify({credential:Boolean(token),actor:auth?.auth?.actor?.kind??null,availability:availability?.status??null,args:process.argv.slice(2)}));
   `);
   await chmod(path.join(fixture,'client'),0o700);
   const archivePath=path.join(tempRoot,'client.tar.gz');assert.equal(spawnSync('tar',['-czf',archivePath,'-C',fixture,'client']).status,0);
@@ -85,17 +90,23 @@ test('AC-2001 installed TUI receives local session only after setup+ack, explici
   for(const [name,value] of Object.entries(environment)){const prior=process.env[name];process.env[name]=value;t.after(()=>{if(prior===undefined)delete process.env[name];else process.env[name]=prior;});}
   let runtime;
   try{
-    await writeManifest(servicesRoot,'@tui',{id:'@tui',name:'TUI fixture',description:'Local TUI fixture',role:'provider',artifact:{kind:'archive',source:{type:'github-release',repo:'service-lasso/service-lasso-tui',tag:'fixture-2001'},platforms:{[process.platform+'-'+process.arch]:{archiveType:'tar.gz',assetName:'client.tar.gz',assetUrl:'http://127.0.0.1:'+download.address().port+'/client.tar.gz',sha256:sha,command:'./client'}}}});
-    runtime=await startApiServer({port:0,servicesRoot,workspaceRoot,baselineBootstrap:{serviceIds:['@tui']}});
-    const launch=async(args=[],extra={})=>await new Promise((resolve,reject)=>{
-      const child=spawn(process.execPath,[path.resolve('dist/cli.js'),'tui',...args],{env:{PATH:process.env.PATH,...environment,...extra},stdio:['ignore','pipe','pipe']});
+    for (const client of ['tui', 'cli']) {
+      const id = '@'+client;
+      await writeManifest(servicesRoot,id,{id,name:client+' fixture',description:'Local operator fixture',role:'provider',artifact:{kind:'archive',source:{type:'github-release',repo:'service-lasso/service-lasso-'+client,tag:'fixture-2001'},platforms:{[process.platform+'-'+process.arch]:{archiveType:'tar.gz',assetName:'client.tar.gz',assetUrl:'http://127.0.0.1:'+download.address().port+'/client.tar.gz',sha256:sha,command:'./client'}}}});
+    }
+    runtime=await startApiServer({port:0,servicesRoot,workspaceRoot,baselineBootstrap:{serviceIds:['@tui','@cli']}});
+    const launch=async(args=[],extra={},client='tui')=>await new Promise((resolve,reject)=>{
+      const child=spawn(process.execPath,[path.resolve('dist/cli.js'),client,...args],{env:{PATH:process.env.PATH,HOME:tempRoot,...environment,...extra},stdio:['ignore','pipe','pipe']});
       let out='',err='';child.stdout.on('data',b=>out+=b);child.stderr.on('data',b=>err+=b);child.once('error',reject);
       child.once('close',code=>{try{assert.equal(code,0,err);resolve(JSON.parse(out));}catch(error){reject(error);}});
     });
+    const cli = (args=['operator','services'], extra={}) => launch(args,extra,'cli');
     assert.equal((await launch()).credential,false);
+    assert.equal((await cli()).credential,false);
     await ensureTestSecretsBrokerReady(workspaceRoot);
     await writeLocalOperatorAuthState(workspaceRoot,{token:'fixture-long-lived-not-transferred',password:'fixture-password',credentialsAcknowledged:false});
     assert.equal((await launch()).credential,false);
+    assert.equal((await cli()).credential,false);
     await acknowledgeLocalOperatorFirstRun(workspaceRoot);
     const accepted=await launch(['literal argument']);
     assert.equal(accepted.credential,true);assert.equal(accepted.actor,'local-token');assert.deepEqual(accepted.args,['literal argument']);
@@ -104,6 +115,17 @@ test('AC-2001 installed TUI receives local session only after setup+ack, explici
     assert.equal((await launch(['--api','https://remote.example'])).credential,false);
     assert.equal((await launch(['--profile','work'])).credential,false);
     assert.equal((await launch(['--explicit'],{SERVICE_LASSO_API_TOKEN:'explicit-kept'})).credential,true);
+    const cliSession = await cli();
+    assert.equal(cliSession.actor,'local-token');
+    assert.equal(cliSession.availability,200);
+    assert.notEqual((await cli(['operator','services','--forwarded'])).availability,200);
+    assert.equal((await cli(['operator','services','--core-url','https://remote.example'])).credential,false);
+    assert.equal((await cli(['service','init','sample'])).credential,false);
+    assert.equal((await cli(['operator','services'],{SERVICE_LASSO_CLI_LOCAL_ADMIN_TOKEN:'explicit-registration-token'})).credential,false);
+    const explicitCli = await cli(['operator','services','--explicit'],{SERVICE_LASSO_CORE_TOKEN:'explicit-kept'});
+    assert.equal(explicitCli.credential,true);
+    assert.notEqual(explicitCli.availability,200);
+    assert.equal(process.env.SERVICE_LASSO_CORE_TOKEN,undefined);
     const authFile=await readFile(path.join(workspaceRoot,'.service-lasso/local-operator-auth.json'),'utf8');
     assert.ok(!authFile.includes('fixture-long-lived-not-transferred'));
   }finally{await runtime?.stop();await new Promise(resolve=>download.close(resolve));await rm(tempRoot,{recursive:true,force:true});}

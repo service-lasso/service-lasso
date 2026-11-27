@@ -1328,6 +1328,7 @@ test("GET /api/runtime/capabilities returns versioned runtime capability metadat
       "echo-service",
       "@serviceadmin",
       "@tui",
+      "@cli",
     ]);
     assert.deepEqual(result.body.capabilities.baseline.serviceRoles, [
       {

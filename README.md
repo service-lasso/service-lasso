@@ -60,7 +60,7 @@ reports `service=runtime-api phase=port_selection` and fails without stopping or
 adopting the listener. Choose an unused port explicitly, for example
 `npm start -- --port 18080` or `SERVICE_LASSO_PORT=18080 npm start` in a
 Bash-compatible shell. Set the same port for `npm restart` and keep the same workspace
-for every command. The source CLI and TUI find its running Core.
+for every command. The installed CLI and TUI find its running Core.
 Do not delete another instance's workspace or stop an unrelated process to clear
 this conflict.
 
@@ -74,9 +74,9 @@ service's private diagnostics in the same workspace before retrying.
 
 ## CLI and TUI for that same instance
 
-Core prepares the pinned `@tui` release during baseline startup. It launches
-the binary in your terminal on demand. The checkout TUI needs Node/npm to run
-Core and needs no local Go installation.
+Core prepares the pinned `@tui` and `@cli` releases during baseline startup.
+It launches each installed binary in your terminal on demand. The CLI release
+supports Windows x64 and Linux x64.
 
 Run the TUI from the same checkout and workspace environment as Core:
 
@@ -91,28 +91,24 @@ For remote sign-in, use `node dist/cli.js tui --connect`, confirm the HTTPS targ
 then enter the OAuth bearer credential in the masked field. Existing named
 profiles, explicit URLs and environment credentials are also supported.
 
-The standalone CLI still uses its pinned source while its native release is
-pending. For authenticated CLI reads in a Bash-compatible shell:
+To list services from the same checkout, run:
 
 ```sh
-read -r -s -p "Local admin token: " SERVICE_LASSO_CLI_LOCAL_ADMIN_TOKEN; printf '\n'
-export SERVICE_LASSO_CLI_LOCAL_ADMIN_TOKEN
-npm run cli -- operator services
-unset SERVICE_LASSO_CLI_LOCAL_ADMIN_TOKEN
+node dist/cli.js cli operator services
 ```
 
-CLI runtime commands also find the checkout's running Core. Use `--core-url` or
-`--connection` to select a different instance. When you set custom services or
-workspace roots, export them in both the startup and operator terminals.
+`npm run cli -- operator services` invokes the same installed binary. On Linux,
+the local CLI signs in automatically after onboarding and credential
+acknowledgement when both processes run under the same user. Use `--core-url`
+or `--connection` to select a different instance. When you set custom services
+or workspace roots, export them in both the startup and operator terminals.
 Use Arrow keys, Tab and Enter to navigate the attached TUI, then `q` to quit.
 
 ### Release-backed client providers
 
-`service-lasso tui` is available when Core's package command is on `PATH`.
-The launcher checks that the installed binary matches the checked-in release
-tag, platform and archive checksum. Core also supports `service-lasso cli`
-when the workspace catalog contains a prepared `@cli` release. Follow release
-adoption in [Core #1992](https://github.com/service-lasso/service-lasso/issues/1992).
+`service-lasso tui` and `service-lasso cli` are available when Core's package
+command is on `PATH`. The launcher checks that the installed binary matches
+the checked-in release tag, platform and archive checksum.
 
 ## API-only development alternate
 
