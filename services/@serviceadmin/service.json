@@ -73,6 +73,22 @@
     {
       "id": "process-ready",
       "type": "process"
+    },
+    {
+      "id": "admin-http-ready",
+      "type": "http",
+      "url": "http://127.0.0.1:${UI_PORT}/",
+      "expected_status": 200,
+      "retries": 80,
+      "interval": 250
     }
-  ]
+  ],
+  "monitoring": {
+    "enabled": true
+  },
+  "restartPolicy": {
+    "enabled": true,
+    "onCrash": false,
+    "onUnhealthy": false
+  }
 }

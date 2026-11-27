@@ -64,3 +64,30 @@ Diagnostics bundles derive a compact health regression summary from recent persi
 Health history is operator-facing metadata only. It must not store raw secret values, credential payloads, provider tokens, private keys, cookies, passwords, environment values, or recovery material.
 
 HTTP observed targets strip query strings, fragments, and URL credentials before persistence. Variable health checks persist only a variable key when the expression is a simple `${NAME}` reference; other expressions are recorded as `<expression>`.
+
+## Scheduled HTTP observations
+
+Managed source-stack start/restart enables the existing monitor by default;
+`SERVICE_LASSO_MONITOR=0` disables it. The monitor probes installed, configured,
+running services every 30 seconds. `monitoring.enabled` and
+`restartPolicy.enabled` must both be true for this existing monitor path.
+The default managed HTTP daemons (Echo, NGINX, Traefik and Admin) enable observation with `onCrash: false` and
+`onUnhealthy: false`, so an unhealthy response records failure without restarting
+the process. `monitoring.intervalSeconds` does not override the monitor's global
+timer; the ordinary cadence is 30 seconds.
+
+The passive `GET /api/operator/v2/health-check-samples` endpoint exposes real
+per-check elapsed times and outcomes. Reading samples does not trigger probes;
+startup readiness and explicit health evaluations are separate observation
+sources. Samples remain bounded, process-local observations rather than durable
+transition history, and an empty sample list is not a healthy result.
+
+HTTP coverage includes Echo's health listener, NGINX `/health`, Traefik `/ping`,
+Admin `/`, optional Caddy `/health`, Node Sample `/health`, and OpenObserve
+`/healthz`. Optional Caddy, Node Sample and OpenObserve retain readiness checks
+without opting into scheduled monitoring. Admin's pinned `2026.11.2-dda9f96` release serves its real static root
+before and after onboarding; it has no dedicated health endpoint. Its HTTP root
+check proves UI listener/static readiness, while its retained process check and
+Core setup state describe separate concerns. Secrets Broker uses production
+local IPC. PHP is a runtime provider, not a managed HTTP daemon; neither receives
+an invented HTTP probe.
