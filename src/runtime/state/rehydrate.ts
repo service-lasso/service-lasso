@@ -564,7 +564,7 @@ function parseSetupState(setup: StoredSetupState | null): ServiceLifecycleState[
   };
 }
 
-function parseLifecycleState(service: DiscoveredService, snapshot: {
+export function parseLifecycleState(service: DiscoveredService, snapshot: {
   install: unknown | null;
   config: unknown | null;
   runtime: unknown | null;

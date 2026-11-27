@@ -110,6 +110,17 @@ CLI runtime commands also find the checkout's running Core. Use `--core-url` or
 workspace roots, export them in both the startup and operator terminals.
 Use Arrow keys, Tab and Enter to navigate the attached TUI, then `q` to quit.
 
+### Release-backed client providers
+
+When the workspace catalog contains the exact published `@cli` and `@tui`
+manifests and Core has prepared their archives, use `service-lasso cli` and
+`service-lasso tui`. Both commands run the installed executable with your
+terminal and arguments. An implicit connection uses that workspace's verified
+Core URL. The commands require the checked-in release tag, architecture and
+checksum to match the installed service state. Default catalog adoption of the
+two released manifests is tracked in
+[Core #1992](https://github.com/service-lasso/service-lasso/issues/1992).
+
 ## API-only development alternate
 
 ```sh

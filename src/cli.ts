@@ -1,3 +1,4 @@
+import { launchInstalledOperatorClient } from "./runtime/cli/installed-operator-client.js";
 import { startupFailureMessage } from "./runtime/cli/startup-diagnostics.js";
 import { startRuntimeApp } from "./runtime/app.js";
 import type { WorkspaceLifecycleResult } from "./runtime/lifecycle/workspace-commands.js";
@@ -89,6 +90,8 @@ function usageText(): string {
     "  service-lasso start [--port <number>] [--port-policy <automatic|preferred|fixed>] [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso stop [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso restart [--port <number>] [--port-policy <automatic|preferred|fixed>] [--services-root <path>] [--workspace-root <path>] [--json]",
+    "  service-lasso cli [client arguments]",
+    "  service-lasso tui [client arguments]",
     "  service-lasso install <serviceId> [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso setup list [--services-root <path>] [--workspace-root <path>] [--json]",
     "  service-lasso setup run <serviceId> [stepId] [--services-root <path>] [--workspace-root <path>] [--force] [--include-manual] [--json]",
@@ -1383,6 +1386,12 @@ function printReadinessGateResult(result: ReadinessGateCliResult, asJson: boolea
 }
 
 export async function runCli(argv: string[] = process.argv.slice(2)): Promise<void> {
+  const client = argv[0];
+  if (client === "cli" || client === "tui") {
+    process.exitCode = await launchInstalledOperatorClient(client, argv.slice(1));
+    return;
+  }
+
   const parsed = parseCliArgs(argv);
   const runtimeVersion = resolveRuntimeVersion();
 
