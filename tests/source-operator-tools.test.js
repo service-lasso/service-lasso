@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { copyFile, mkdir, mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
+import { chmod, copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -58,4 +58,28 @@ test('acquisition and builds receive no Core or client credentials; launch retai
   const output = await run(process.execPath, ['-e', 'process.stdout.write(process.env.SERVICE_LASSO_API_TOKEN)'], process.cwd(), { capture: true, env: environment });
   assert.equal(output, 'private');
   assert.equal(environment.SERVICE_LASSO_API_TOKEN, 'private');
+});
+
+
+test('acquired wrong source identity fails before checkout or build', { skip: process.platform === 'win32' }, async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), 'source-operator-pin-'));
+  try {
+    await mkdir(path.join(cwd, 'scripts'));
+    await mkdir(path.join(cwd, 'bin'));
+    await copyFile(new URL('../scripts/source-operator-tools.mjs', import.meta.url), path.join(cwd, 'scripts/source-operator-tools.mjs'));
+    const fakeGit = path.join(cwd, 'bin/git');
+    await writeFile(fakeGit, '#!' + process.execPath + '\n' + `
+      if (Object.keys(process.env).some(k => k.startsWith('SERVICE_LASSO_'))) process.exit(81);
+      if (process.argv.includes('rev-parse')) process.stdout.write('0000000000000000000000000000000000000000');
+      if (process.argv.includes('checkout')) process.exit(82);
+    `);
+    await chmod(fakeGit, 0o700);
+    const result = spawnSync(process.execPath, ['scripts/source-operator-tools.mjs', 'cli', 'status'], {
+      cwd, encoding: 'utf8', env: { ...process.env, PATH: path.join(cwd, 'bin'), SERVICE_LASSO_API_TOKEN: 'do-not-inherit' },
+    });
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /source commit mismatch/);
+    assert.doesNotMatch(result.stderr, /do-not-inherit|exit 81|exit 82/);
+    assert.deepEqual(await readdir(path.join(cwd, '.operator-tools')), []);
+  } finally { await rm(cwd, { recursive: true, force: true }); }
 });
