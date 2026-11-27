@@ -18,7 +18,11 @@ export function stackInvocation(action, flags = [], environment = process.env) {
     args.push('--port', environment.SERVICE_LASSO_PORT || '17883', '--port-policy', 'fixed');
   }
   args.push(...flags);
-  return { args, env: { ...environment, SERVICE_LASSO_HOST: environment.SERVICE_LASSO_HOST || '127.0.0.1' } };
+  const env = { ...environment, SERVICE_LASSO_HOST: environment.SERVICE_LASSO_HOST || '127.0.0.1' };
+  if (['start', 'restart'].includes(command)) {
+    env.SERVICE_LASSO_MONITOR = environment.SERVICE_LASSO_MONITOR ?? '1';
+  }
+  return { args, env };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {

@@ -19,7 +19,7 @@ npm ci
 npm start
 ```
 
-The start command builds Core and invokes its owned baseline installer/startup with the checked-in `services/` manifests and persistent `workspace/`. The API uses loopback port 17883 with a fixed port policy; an occupied port fails rather than silently moving. Keep the terminal open. No Go is required for Core; the optional CLI/TUI source tools described in the root README require Go on first build.
+The start command builds Core and invokes its owned baseline installer/startup with the checked-in `services/` manifests and persistent `workspace/`. The API uses loopback port 17883 with a fixed port policy; an occupied port fails rather than silently moving. Keep the terminal open. Core and the optional CLI use Node/npm and Git. Only the optional TUI needs Go 1.26+ for its first source build; `npm run operator:setup` builds both clients.
 
 ## 2. Open Service Admin
 
@@ -37,21 +37,23 @@ Once the services are running:
 2. Find `echo-service` in Service Admin, open **Details**, and inspect its status and logs.
 3. On that detail page, click **Stop service**, accept its confirmation dialog, wait for **Stopped**, then click **Start service** and reload the Echo page.
 
+For the attached TUI, follow the [root README client setup](https://github.com/service-lasso/service-lasso/blob/develop/README.md#cli-and-tui-for-that-same-instance), open **Stack**, and select `echo-service` to see real HTTP health latency. Allow up to about 30 seconds for the first scheduled sample; the process check remains available alongside HTTP health.
+
 Use the detail-page controls: the evaluated Admin release's table-row Stop button rejects the action because it does not present the required confirmation.
 
 The baseline includes a browser admin, Echo Service, NGINX, Traefik, and supporting providers. See [baseline services](ecosystem/README.md#baseline-services) for their roles and platform notes.
 
 ## Automatic service startup
 
-Normal runtime launches start enabled services automatically after the runtime API is ready. This is the default for both `npm start` and the demo runtime.
+The managed `npm start` path prepares the baseline providers and starts all supported runnable baseline services after secure onboarding. Optional service manifests outside that baseline are not added to this startup set. The demo runtime has its own startup flow. The saved Admin automatic-start preference controls manifest automatic startup when requested; `npm start` explicitly starts the baseline instead.
 
-To keep that preference but start only the runtime API for one launch, pass the explicit opt-out flag:
+To start only the runtime API for one launch, pass the explicit opt-out flag:
 
 ```sh
 npm start -- --noautostart
 ```
 
-In Service Admin releases that include the **Settings → Startup** page, turn off **Automatically start enabled services** to leave services stopped when the runtime starts; turn it back on to restore the default. The one-launch flag does not change this saved preference.
+In Service Admin releases that include the **Settings → Startup** page, **Automatically start enabled services** controls launches that request manifest automatic startup. The one-launch flag above does not change this saved preference.
 
 ## 4. Stop the stack
 

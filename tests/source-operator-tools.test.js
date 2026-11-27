@@ -10,7 +10,7 @@ import { buildEnvironment, main, prepareTool, run, sourceTools } from '../script
 test('source pins are fixed reviewed official source identities', async () => {
   assert.deepEqual(sourceTools, {
     cli: { url: 'https://github.com/service-lasso/service-lasso-cli.git', commit: 'b6383e1b125bdf1626ce380f9a36ffdd8bc001ae' },
-    tui: { url: 'https://github.com/service-lasso/service-lasso-tui.git', commit: 'dcce6f29e6d5ce313055cc5e9267d32588d27450' },
+    tui: { url: 'https://github.com/service-lasso/service-lasso-tui.git', commit: '90ef4b232b223bc7be7c7a1c6c572b94933f01b7' },
   });
   assert.ok(Object.isFrozen(sourceTools.cli));
   await assert.rejects(prepareTool('https://example.invalid/tool'), /Choose cli or tui/);
