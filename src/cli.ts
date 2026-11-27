@@ -1,3 +1,4 @@
+import { startupFailureMessage } from "./runtime/cli/startup-diagnostics.js";
 import { startRuntimeApp } from "./runtime/app.js";
 import type { WorkspaceLifecycleResult } from "./runtime/lifecycle/workspace-commands.js";
 import { runWorkspaceLifecycleCommand } from "./runtime/lifecycle/workspace-commands.js";
@@ -1704,10 +1705,6 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
 
 runCli().catch((error: unknown) => {
   console.error("[service-lasso] CLI failed");
-  if (error instanceof Error) {
-    console.error(error.message);
-  } else {
-    console.error(error);
-  }
+  console.error(startupFailureMessage(error) ?? (error instanceof Error ? error.message : String(error)));
   process.exitCode = 1;
 });

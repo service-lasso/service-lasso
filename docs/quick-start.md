@@ -67,7 +67,28 @@ You can also press `Ctrl+C` in the original start terminal. Start again with `np
 
 ## Something didn't start?
 
-Run `npm run demo:status` for a read-only report. The [runtime health endpoint](http://127.0.0.1:17883/api/health) helps distinguish runtime startup from an Admin UI problem. Use the [demo operations guide](demo/README.md) for endpoint URLs, port conflicts, logs, recovery, and reset commands.
+If that fixed API port is occupied (including by another application), startup
+reports `service=runtime-api phase=port_selection` and fails without stopping or
+adopting the listener. Choose an unused port explicitly, for example
+`npm start -- --port 18080` or `SERVICE_LASSO_PORT=18080 npm start` in a
+Bash-compatible shell. Set the same port for `npm restart`, keep the same workspace
+for every command, and connect Admin/CLI/TUI to the actual reported API URL.
+Do not delete another instance's workspace or stop an unrelated process to clear
+this conflict.
+
+Baseline failures name the service, lifecycle action, observed startup phase and a
+safe reason (for example `phase=health_check reason=required_readiness_failed`).
+`github_release_metadata_rate_limited` means wait for the public API limit to
+reset before retrying. An unclassified failure reports `<action>_failed` rather
+than exposing exception text. Startup stops at the first failure and rolls back
+its owned work; later services have not been proved running. Inspect that
+service's private diagnostics in the same workspace before retrying.
+
+Run `npm run status` for the source stack's read-only workspace report. The
+[runtime health endpoint](http://127.0.0.1:17883/api/health) uses the selected API
+port and helps distinguish Core startup from an Admin UI problem. Demo commands
+use a separate workspace; see [baseline dependency diagnostics](reference/baseline-dependency-diagnostics.md)
+for service readiness and blockers.
 
 ## Next steps
 

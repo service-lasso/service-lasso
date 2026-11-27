@@ -1,8 +1,8 @@
 # Project Intent
 
-## Clone-to-managed-stack startup (#1979)
+## Clone-to-managed-stack startup (#1979, #1983)
 
-Development AC-4CG.1979 makes root npm start use existing owned baseline startup with repo services, persistent workspace and fixed loopback API 17883. Admin first-run security and explicit API-only opt-out remain intact. Root stop/restart/status use the same workspace. CLI/TUI remain attached on-demand tools; source startup requires no Go. No publication, deployment, release admission or existing-instance adoption is authorized.
+Development AC-4CG.1979 makes root npm start use existing owned baseline startup with repo services, persistent workspace and fixed loopback API 17883. Admin first-run security and explicit API-only opt-out remain intact. Root stop/restart/status use the same workspace. CLI/TUI remain attached on-demand tools; source startup requires no Go. No publication, deployment, release admission or existing-instance adoption is authorized. AC-4CG.1983 adds service/action/phase/closed-reason failure attribution and explicit fixed-port recovery guidance while preserving foreign listeners and secure first-run.
 
 ## Source-checkout operator tools (#1977)
 
