@@ -22,7 +22,7 @@
     "test:v2:coverage": "npm run build && node --experimental-test-coverage --test --test-concurrency=1 tests/operator-v2-contract.test.js tests/operator-v2-routes.test.js",
     "e2e:v2": "node scripts/run-v2-e2e.mjs",
     "dev": "npm run build && node --enable-source-maps dist/index.js",
-    "start": "npm run build && node --enable-source-maps dist/index.js",
+    "start": "npm run build && node scripts/source-stack.mjs start",
     "release:artifact": "npm run build && node scripts/release-artifact.mjs",
     "release:verify": "npm run build && node scripts/release-verify.mjs",
     "package:stage": "npm run build && node scripts/publish-package.mjs",
@@ -78,7 +78,10 @@
     "operator:setup": "node scripts/source-operator-tools.mjs setup",
     "cli": "node scripts/source-operator-tools.mjs cli",
     "tui": "node scripts/source-operator-tools.mjs tui",
-    "serve": "npm run build && node --enable-source-maps dist/cli.js serve"
+    "serve": "npm run build && node --enable-source-maps dist/cli.js serve",
+    "stop": "node scripts/source-stack.mjs stop",
+    "restart": "npm run build && node scripts/source-stack.mjs restart",
+    "status": "node scripts/source-stack.mjs status"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.1",

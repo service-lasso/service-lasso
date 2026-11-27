@@ -2,13 +2,13 @@
 title: Quick Start
 ---
 
-# Try Service Lasso
+# Start Service Lasso
 
-Bring up the demo, open the browser UI, and try managing a service. For background, see the [introduction](INTRODUCTION.md).
+Start the recommended managed stack, open the browser UI, and try managing a service. For background, see the [introduction](INTRODUCTION.md).
 
-## 1. Start the demo
+## 1. Start the stack
 
-Install **Node.js 22+**, **npm**, and **Git**. You also need internet access to download the service releases; the first start takes longer than subsequent starts. Service artifacts have platform-specific support; for example, the pinned Python provider is Windows-only and is skipped on other hosts.
+Install **Node.js 22.12+**, **npm**, and **Git**. You also need internet access to download the service releases; the first start takes longer than subsequent starts. Service artifacts have platform-specific support; for example, the pinned Python provider is Windows-only and is skipped on other hosts.
 
 Run these commands in PowerShell or your usual terminal:
 
@@ -16,10 +16,10 @@ Run these commands in PowerShell or your usual terminal:
 git clone --branch develop https://github.com/service-lasso/service-lasso.git
 cd service-lasso
 npm ci
-npm run demo
+npm start
 ```
 
-The demo command builds the runtime, uses the checked-in `services/` manifests, and keeps its runtime state in `workspace/demo-instance/`. Keep the terminal open while trying it.
+The start command builds Core and invokes its owned baseline installer/startup with the checked-in `services/` manifests and persistent `workspace/`. The API uses loopback port 17883 with a fixed port policy; an occupied port fails rather than silently moving. Keep the terminal open. No Go is required for Core; the optional CLI/TUI source tools described in the root README require Go on first build.
 
 ## 2. Open Service Admin
 
@@ -39,7 +39,7 @@ Once the services are running:
 
 Use the detail-page controls: the evaluated Admin release's table-row Stop button rejects the action because it does not present the required confirmation.
 
-The demo includes a browser admin, Echo Service, NGINX, Traefik, and supporting providers. See [baseline services](ecosystem/README.md#baseline-services) for their roles and platform notes.
+The baseline includes a browser admin, Echo Service, NGINX, Traefik, and supporting providers. See [baseline services](ecosystem/README.md#baseline-services) for their roles and platform notes.
 
 ## Automatic service startup
 
@@ -53,15 +53,15 @@ npm start -- --noautostart
 
 In Service Admin releases that include the **Settings → Startup** page, turn off **Automatically start enabled services** to leave services stopped when the runtime starts; turn it back on to restore the default. The one-launch flag does not change this saved preference.
 
-## 4. Stop the demo
+## 4. Stop the stack
 
 From another terminal in the same folder:
 
 ```sh
-npm run demo:stop
+npm stop
 ```
 
-You can also press `Ctrl+C` in the original start terminal. Start again with `npm run demo`; stopping keeps the workspace data.
+You can also press `Ctrl+C` in the original start terminal. Start again with `npm start` (or use `npm restart` to stop and start the same owned workspace); stopping keeps the workspace data.
 
 ## Something didn't start?
 
