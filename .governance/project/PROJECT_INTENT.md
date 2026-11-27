@@ -10,6 +10,8 @@ in-memory credential when sign-in is required. Stack runtime intent reports
 first-run gating, daemon expectations and provider preparation from Core state
 (#1985, Stack Runtime Amendment AC-SR-6/7).
 
+The operator CLI and TUI move to release-backed service providers @cli and @tui. Each client repository owns its service manifest and binary archives. Core launches the installed provider on demand and resolves its owning workspace endpoint. SPEC-1994 adds the launcher; #1992 binds the exact published inputs and retires client source builds.
+
 ## Source-checkout operator tools (#1977)
 
 Development source-only AC-4CG.1977 adds explicit root CLI/TUI setup and launch from the Core checkout using exact reviewed sources. Existing release staging/admission remains unchanged. No runtime data, service catalog or deployment changes.
