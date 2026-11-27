@@ -36,3 +36,6 @@ when those exact production inputs are admitted.
   for @cli and @tui with their owning repository metadata. Until #1992 binds
   exact published artifacts, these entries have no artifact locator or command
   and are excluded from default startup preparation.
+- AC-1994-6 (#2002): The Core service inventory reflects both operator client
+  definitions in `/api/services`. Source inventory verification uses a
+  disposable copy of the checked-in manifests and never clears checkout state.
