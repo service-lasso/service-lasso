@@ -39,3 +39,11 @@ when those exact production inputs are admitted.
 - AC-1994-6 (#2002): The Core service inventory reflects both operator client
   definitions in `/api/services`. Source inventory verification uses a
   disposable copy of the checked-in manifests and never clears checkout state.
+- AC-1994-7 (#1992, TUI cutover): Replace the inactive @tui declaration with
+  the actual published protected manifest after verifying its exact tag,
+  source SHA, all archive digests and Linux executable. Add @tui as a default
+  prepared provider. The direct Core command and npm convenience both use the
+  installed artifact, and checkout TUI startup needs no Go toolchain or
+  locally built client. Linux local sign-in uses SPEC-2001 after secure
+  onboarding. Keep the CLI release cutover independent. Do not merge the TUI
+  cutover before the real publication input and combined default-stack proof.
