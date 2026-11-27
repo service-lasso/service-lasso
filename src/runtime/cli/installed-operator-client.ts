@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
-import { realpath, stat } from "node:fs/promises";
+import { readFile, realpath, stat } from "node:fs/promises";
 import { isIP } from "node:net";
+import { homedir } from "node:os";
 import path from "node:path";
 import { resolveRuntimeConfig, type RuntimeConfig } from "../config.js";
 import { discoverServices } from "../discovery/discoverServices.js";
@@ -35,6 +36,19 @@ function selectCheckoutTarget(client: InstalledOperatorClient, args: readonly st
   const [group, action] = args.filter(arg => !arg.startsWith("-"));
   return group === "instance" || group === "operator"
     || (group === "service" && ["list", "register", "operation"].includes(action));
+}
+
+// The installed CLI owns the connection values and validation. Check only
+// whether it has a saved selection, because the checkout environment would
+// otherwise override that selection in its existing precedence order.
+async function cliHasSavedTarget(): Promise<boolean> {
+  try {
+    const config = JSON.parse(await readFile(path.join(homedir(), ".service-lasso-cli", "config.json"), "utf8"));
+    if (!config || typeof config !== "object" || Array.isArray(config)) return true;
+    return Boolean(config.coreUrl || config.defaultConnection);
+  } catch (error) {
+    return (error as NodeJS.ErrnoException | undefined)?.code !== "ENOENT";
+  }
 }
 
 async function checkoutOrigin(config: RuntimeConfig): Promise<string | null> {
@@ -95,7 +109,7 @@ export async function launchInstalledOperatorClient(
 
   const env = { ...process.env };
   const forwarded = [...(definition.args ?? []), ...args];
-  if (selectCheckoutTarget(client, forwarded, env)) {
+  if (selectCheckoutTarget(client, forwarded, env) && !(client === "cli" && await cliHasSavedTarget())) {
     const origin = await checkoutOrigin(config).catch(() => {
       throw new Error("Cannot verify the running Core for this checkout. Run service-lasso instance or select an explicit connection.");
     });

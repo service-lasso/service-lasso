@@ -14,6 +14,8 @@ test('AC-1994 installed provider archives attach to the owning instance and reta
   const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot('lasso-installed-client-');
   const fixturePath = path.join(tempRoot, 'fixture');
   await mkdir(fixturePath);
+  const home = path.join(tempRoot, 'home');
+  await mkdir(path.join(home, '.service-lasso-cli'), { recursive: true });
   const executable = path.join(fixturePath, 'fixture-client');
   await writeFile(executable, '#!/usr/bin/env node\n' + `
     import { readFileSync } from 'node:fs';
@@ -64,7 +66,7 @@ test('AC-1994 installed provider archives attach to the owning instance and reta
       port:0, servicesRoot, workspaceRoot, baselineBootstrap:{serviceIds:installs.map(([id])=>id)},
     });
     assert.deepEqual(runtime.baselineBootstrap.services.map(row=>row.state.running), [false,false]);
-    const env = { PATH:process.env.PATH, ...coreEnvironment };
+    const env = { PATH:process.env.PATH, HOME:home, ...coreEnvironment };
     const cli = path.resolve('dist/cli.js');
     const launch = (args, extraEnv, input) =>
       spawnSync(process.execPath,[cli,...args],{cwd:fixturePath, env:{...env,...extraEnv}, input, encoding:'utf8', timeout:10000});
@@ -88,6 +90,19 @@ test('AC-1994 installed provider archives attach to the owning instance and reta
     const other = {SERVICE_LASSO_WORKSPACE_ROOT:path.join(tempRoot,'other')};
     assert.deepEqual(success(launch(['tui'],other)).args,['--connect']);
     assert.match(launch(['cli','instance','status'],other).stderr,/No running Core found/);
+
+    const configFile = path.join(home,'.service-lasso-cli','config.json');
+    for (const saved of [
+      {coreUrl:'https://saved.example'},
+      {defaultConnection:'work',connections:{work:{coreUrl:'https://remote.example'}}},
+    ]) {
+      await writeFile(configFile,JSON.stringify(saved));
+      assert.equal(success(launch(['cli','operator','services'])).cli,null);
+      assert.equal(success(launch(['cli','operator','services'],other)).cli,null);
+    }
+    await writeFile(configFile,'{}');
+    assert.equal(success(launch(['cli','operator','services'])).cli,origin);
+
 
     if (process.platform === 'linux') {
       const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
