@@ -1,3 +1,4 @@
+import { selectArtifactPlatform } from "../setup/artifact-platform.js";
 import path from "node:path";
 import type {
   DiscoveredService,
@@ -117,11 +118,7 @@ function githubHeaders(): Record<string, string> {
 }
 
 function getCurrentPlatformArtifact(artifact: ServiceArchiveArtifact): ServiceArtifactPlatform | null {
-  if (Object.prototype.hasOwnProperty.call(artifact.platforms, process.platform)) {
-    return artifact.platforms[process.platform] ?? null;
-  }
-
-  return artifact.platforms.default ?? null;
+  return selectArtifactPlatform(artifact.platforms)?.definition ?? null;
 }
 
 function getExpectedAssetName(platform: ServiceArtifactPlatform): string | null {

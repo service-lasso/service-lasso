@@ -1,3 +1,4 @@
+import { selectArtifactPlatform } from "../setup/artifact-platform.js";
 import { createHash, randomUUID } from "node:crypto";
 import type { DiscoveredService } from "../../contracts/service.js";
 import { summarizeServiceHealthRegression, type ServiceHealthHistoryState } from "../health/history.js";
@@ -618,7 +619,7 @@ function hasCurrentPlatformArtifact(service: DiscoveredService): boolean {
     return false;
   }
 
-  return Boolean(platforms[process.platform] ?? platforms.default);
+  return Boolean(selectArtifactPlatform(platforms));
 }
 
 function artifactReadinessCountSignals(

@@ -1,3 +1,4 @@
+import { selectArtifactPlatform } from "../setup/artifact-platform.js";
 import type {
   ServiceCompatibilityReport,
   ServiceCompatibilityRequirementStatus,
@@ -11,6 +12,7 @@ import type { ServiceUpdateState } from "../updates/state.js";
 
 export interface ServiceCompatibilityOptions {
   hostPlatform?: NodeJS.Platform | string;
+  hostArch?: string;
   updateState?: ServiceUpdateState | null;
 }
 
@@ -38,9 +40,6 @@ function collectRequiredPorts(manifest: ServiceManifest): ServiceCompatibilityRe
     .sort((left, right) => left.name.localeCompare(right.name));
 }
 
-function platformIsSupported(supportedPlatforms: string[], hostPlatform: string): boolean {
-  return supportedPlatforms.length === 0 || supportedPlatforms.includes(hostPlatform) || supportedPlatforms.includes("default");
-}
 
 function buildReleaseWarnings(
   manifest: ServiceManifest,
@@ -123,7 +122,7 @@ export function buildServiceCompatibilityReport(
     })),
   ];
   const blockers = [
-    ...(!platformIsSupported(supportedPlatforms, hostPlatform)
+    ...(!(supportedPlatforms.length === 0 || selectArtifactPlatform(service.manifest.artifact?.platforms, hostPlatform, options.hostArch ?? process.arch))
       ? [`Host platform "${hostPlatform}" is not declared in artifact platforms: ${supportedPlatforms.join(", ")}.`]
       : []),
     ...requirements

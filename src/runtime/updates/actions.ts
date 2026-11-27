@@ -1,3 +1,4 @@
+import { selectArtifactPlatform } from "../setup/artifact-platform.js";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
@@ -229,9 +230,7 @@ export class UpdateInstallDeferredError extends Error {
 }
 
 function getCurrentPlatformArtifact(artifact: ServiceArchiveArtifact): ServiceArtifactPlatform {
-  const platform = Object.prototype.hasOwnProperty.call(artifact.platforms, process.platform)
-    ? artifact.platforms[process.platform]
-    : artifact.platforms.default;
+  const platform = selectArtifactPlatform(artifact.platforms)?.definition;
 
   if (!platform) {
     throw new Error(`No update artifact platform is configured for "${process.platform}" and no default platform exists.`);
