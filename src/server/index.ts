@@ -2823,6 +2823,13 @@ async function buildLifecycleActionResponse(
   };
 }
 
+interface BaselineContinuationResponse {
+  action: "startAll";
+  ok: boolean;
+  results: { serviceId: string; ok: boolean }[];
+  skipped: { serviceId: string; reason: "already_running" | "not_installed" | "not_configured" | "dependency_not_ready" }[];
+}
+
 /** Resume selected daemons without repeating baseline materialization or setup. */
 export async function continuePreparedBaselineServices(
   runtimeModel: RuntimeModel,
@@ -2833,10 +2840,10 @@ export async function continuePreparedBaselineServices(
     runtimeInstanceId?: string | null;
     endpointAllocationPlan?: RuntimeEndpointAllocationPlan;
   },
-): Promise<RuntimeOrchestrationResponse> {
-  const results: LifecycleActionResponse[] = [];
+): Promise<BaselineContinuationResponse> {
+  const results: BaselineContinuationResponse["results"] = [];
   let failed = false;
-  const skipped: RuntimeOrchestrationResponse["skipped"] = [];
+  const skipped: BaselineContinuationResponse["skipped"] = [];
   const { workspaceRoot, runtimeGenerationId, runtimeInstanceId } = options;
   const plannedPortsByService = options.endpointAllocationPlan
     ? servicePortsFromEndpointAllocation(options.endpointAllocationPlan) : undefined;
@@ -2869,16 +2876,17 @@ export async function continuePreparedBaselineServices(
         plannedPorts: plannedPortsByService?.[serviceId],
       });
       await writeServiceState(service, result.state);
-      results.push(await buildLifecycleActionResponse(service, runtimeModel.registry, result, workspaceRoot));
+      results.push({ serviceId, ok: result.ok });
     } catch {
       // Failures already recorded by the lifecycle remain available to Admin.
       // Do not include arbitrary exception text or invalidate onboarding.
       failed = true;
+      results.push({ serviceId, ok: false });
       await writeServiceState(service, getLifecycleState(serviceId)).catch(() => undefined);
     }
   }
   return { action: "startAll", ok: !failed && results.every((result) => result.ok)
-    && !skipped.some((entry) => entry.reason === "dependency_not_ready"), results, skipped };
+    && !skipped.some((entry) => entry.reason !== "already_running"), results, skipped };
 }
 
 async function executeRuntimeOrchestrationAction(
@@ -5827,6 +5835,10 @@ async function routeRequestWithoutMutationCoordination(
   }
 
   if (request.method === "POST" && url.pathname === "/api/setup/bootstrap") {
+    if (config.baselineServiceIds && (!config.runtimeShutdownSlot?.invoke || config.runtimeShutdownSlot.stopping)) {
+      throw new ApiError("runtime_startup_not_ready", 503,
+        "Managed runtime is not ready for first-run bootstrap. Retry after startup completes.");
+    }
     const body = await readJsonBody(request);
     const setup = await runSecretsBrokerBootstrapStage(
       "secrets_broker_setup_status_failed",
@@ -6035,8 +6047,9 @@ async function routeRequestWithoutMutationCoordination(
       knownBrokerFactsFromRuntime(runtimeModel.registry, completedSetup),
     );
 
-    let continuation: RuntimeOrchestrationResponse | undefined;
-    if (config.baselineServiceIds && config.runtimeShutdownSlot?.invoke && !config.runtimeShutdownSlot.stopping) {
+    let continuation: BaselineContinuationResponse | undefined;
+    if (config.baselineServiceIds && completedSetup.vault.ready && !completedSetup.setupMode
+      && config.runtimeShutdownSlot?.invoke && !config.runtimeShutdownSlot.stopping) {
       try {
         continuation = await continuePreparedBaselineServices(
           runtimeModel, config.baselineServiceIds, {
