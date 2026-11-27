@@ -75,8 +75,10 @@ test("ServiceRegistry and DependencyGraph model dependencies and dependents", as
   const registry = createServiceRegistry(discovered);
   const graph = new DependencyGraph(registry);
 
-  assert.equal(registry.count(), 15);
-  assert.equal(registry.countEnabled(), 13);
+  assert.equal(registry.count(), 17);
+  assert.equal(registry.countEnabled(), 14);
+  assert.equal(registry.getById("@cli")?.manifest.role, "provider");
+  assert.equal(registry.getById("@tui")?.manifest.role, "provider");
   assert.ok(registry.getById("@archive"));
   assert.ok(registry.getById("@caddy"));
   assert.ok(registry.getById("@python"));
@@ -205,8 +207,8 @@ test("GET /api/runtime returns runtime summary state", async () => {
     const body = await response.json();
 
     assert.equal(response.status, 200);
-    assert.equal(body.runtime.totalServices, 15);
-    assert.equal(body.runtime.enabledServices, 13);
+    assert.equal(body.runtime.totalServices, 17);
+    assert.equal(body.runtime.enabledServices, 14);
     assert.equal(body.runtime.dependencyEdges, 5);
     assert.equal(body.runtime.servicesRoot, servicesRoot);
   } finally {
@@ -702,7 +704,7 @@ test("GET /api/dependencies returns graph nodes and edges", async () => {
     const body = await response.json();
 
     assert.equal(response.status, 200);
-    assert.equal(body.dependencies.nodes.length, 15);
+    assert.equal(body.dependencies.nodes.length, 17);
     assert.deepEqual(body.dependencies.edges, [
       { from: "@java", to: "@localcert" },
       { from: "@node", to: "@serviceadmin" },

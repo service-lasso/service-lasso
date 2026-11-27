@@ -329,11 +329,11 @@
       "name": "Service Lasso TUI",
       "repo": "service-lasso/service-lasso-tui",
       "group": "Runtime Providers",
-      "status": "Awaiting release",
-      "summary": "Keyboard-first terminal client launched on demand. Core will prepare the provider once its exact native release is pinned.",
-      "enabled": false,
+      "status": "Available",
+      "summary": "Keyboard-first terminal client prepared at startup and launched on demand.",
+      "enabled": true,
       "role": "provider",
-      "releaseTag": null
+      "releaseTag": "candidate-2026.11.27-6a057bc"
     }
   ]
 }

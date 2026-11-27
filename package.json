@@ -77,7 +77,7 @@
     "verify:release-governance": "node scripts/validate-release-governance.mjs && node --test tests/release-governance.test.js",
     "operator:setup": "node scripts/source-operator-tools.mjs setup",
     "cli": "node scripts/source-operator-tools.mjs cli",
-    "tui": "node scripts/source-operator-tools.mjs tui",
+    "tui": "node dist/cli.js tui",
     "serve": "npm run build && node --enable-source-maps dist/cli.js serve",
     "stop": "node scripts/source-stack.mjs stop",
     "restart": "npm run build && node scripts/source-stack.mjs restart",

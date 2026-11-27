@@ -302,6 +302,7 @@ Default baseline services currently are:
 - `@secretsbroker`
 - `echo-service`
 - `@serviceadmin`
+- `@tui` as an on-demand terminal client provider
 
 Non-baseline provider and app-owned manifests such as `zitadel`, `keycloak`, and `dagu` should not be added to default baseline start unless the app has the needed config and dependencies.
 

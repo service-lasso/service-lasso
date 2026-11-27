@@ -47,6 +47,7 @@ The checked-in baseline proves that a clean clone can acquire and run real servi
 | `@secretsbroker` | release-backed local-first secrets broker for service identities, policy, audit, and secret resolution | acquired from [`service-lasso/lasso-secretsbroker`](https://github.com/service-lasso/lasso-secretsbroker) immutable release `2026.10.15-3590178`; started as a managed daemon with process health and store-derived readiness |
 | `echo-service` | test harness service with UI/API/log/state behavior | acquired from [`service-lasso/lasso-echoservice`](https://github.com/service-lasso/lasso-echoservice) release `2026.5.3-6d3dc19` |
 | `@serviceadmin` | core browser UI for the Service Lasso runtime | acquired from [`service-lasso/lasso-serviceadmin`](https://github.com/service-lasso/lasso-serviceadmin) immutable release `2026.11.2-dda9f96` |
+| `@tui` | keyboard-first terminal client launched on demand | acquired from [`service-lasso/service-lasso-tui`](https://github.com/service-lasso/service-lasso-tui) immutable release `candidate-2026.11.27-6a057bc` |
 
 Additional manifests such as `node-sample-service` exist for provider-backed fixture coverage, but the canonical baseline and demo instance install the production baseline service set. `@archive` and supported `@python` artifacts are part of that baseline so archive-capable and Python-backed services can rely on prepared providers instead of fixture-only installs.
 

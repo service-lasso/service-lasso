@@ -6,7 +6,6 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 export const sourceTools = Object.freeze({
   cli: Object.freeze({ url: 'https://github.com/service-lasso/service-lasso-cli.git', commit: 'b6383e1b125bdf1626ce380f9a36ffdd8bc001ae' }),
-  tui: Object.freeze({ url: 'https://github.com/service-lasso/service-lasso-tui.git', commit: '2fcdf2c16d7c56e70a6501c3117ddcb4730c9499' }),
 });
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -30,10 +29,10 @@ export function run(command, args, cwd, { capture = false, env = process.env } =
 
 export async function prepareTool(name) {
   const pin = Object.hasOwn(sourceTools, name) ? sourceTools[name] : undefined;
-  if (!pin) throw new Error('Choose cli or tui.');
+  if (!pin) throw new Error('Choose cli. The TUI is installed through the Core service manifest.');
   const cache = path.join(root, '.operator-tools');
   const destination = path.join(cache, `${name}-${pin.commit}`);
-  const binary = path.join(destination, name === 'cli' ? 'dist/index.js' : `service-lasso-tui${process.platform === 'win32' ? '.exe' : ''}`);
+  const binary = path.join(destination, 'dist/index.js');
   try {
     if ((await readFile(path.join(destination, '.source-ready'), 'utf8')) === pin.commit) return binary;
   } catch (error) { if (error.code !== 'ENOENT') throw new Error('Cannot read operator cache. Check .operator-tools permissions.'); }
@@ -50,14 +49,10 @@ export async function prepareTool(name) {
     const actual = await build('git', ['rev-parse', 'FETCH_HEAD'], staging, { capture: true });
     if (actual !== pin.commit) throw new Error('Operator source commit mismatch; refusing to build.');
     await build('git', ['checkout', '--quiet', '--detach', pin.commit], staging);
-    if (name === 'cli') {
-      // npm's JS entrypoint avoids invoking npm.cmd through a shell on Windows.
-      if (!process.env.npm_execpath) throw new Error('Run operator setup through npm run operator:setup.');
-      await build(process.execPath, [process.env.npm_execpath, 'ci', '--ignore-scripts', '--no-audit', '--no-fund'], staging);
-      await build(process.execPath, [process.env.npm_execpath, 'run', 'build'], staging);
-    } else {
-      await build('go', ['build', '-trimpath', '-o', path.basename(binary), './cmd/service-lasso-tui'], staging);
-    }
+    // npm's JS entrypoint avoids invoking npm.cmd through a shell on Windows.
+    if (!process.env.npm_execpath) throw new Error('Run operator setup through npm run operator:setup.');
+    await build(process.execPath, [process.env.npm_execpath, 'ci', '--ignore-scripts', '--no-audit', '--no-fund'], staging);
+    await build(process.execPath, [process.env.npm_execpath, 'run', 'build'], staging);
     await writeFile(path.join(staging, '.source-ready'), pin.commit);
     await rename(staging, destination);
     return binary;
@@ -69,14 +64,8 @@ export async function prepareTool(name) {
 
 const hasFlag = (args, ...names) => args.some(arg => names.some(name => arg === name || arg.startsWith(name + '=')));
 
-function usesCheckoutTarget(name, args, environment) {
+function usesCheckoutTarget(args, environment) {
   if (hasFlag(args, '--help', '-help', '-h', '--version', '-V')) return false;
-  if (name === 'tui') {
-    return !hasFlag(args, '--api', '-api', '--profile', '-profile', '--connections', '-connections', '--connect', '-connect')
-      && !environment.SERVICE_LASSO_API_URL
-      && !environment.SERVICE_LASSO_API_PROFILE
-      && !environment.SERVICE_LASSO_CONNECTIONS_CONFIG;
-  }
   const [group, action] = args.filter(arg => !arg.startsWith('-'));
   const runtimeCommand = group === 'instance' || group === 'operator'
     || (group === 'service' && ['list', 'register', 'operation'].includes(action));
@@ -111,15 +100,10 @@ export async function checkoutRuntimeOrigin() {
 }
 
 export async function sourceClientInvocation(name, args, environment = process.env, resolveOrigin = checkoutRuntimeOrigin) {
-  if (!usesCheckoutTarget(name, args, environment)) return { args, env: environment };
+  if (!Object.hasOwn(sourceTools, name) || !usesCheckoutTarget(args, environment)) return { args, env: environment };
   const origin = await resolveOrigin().catch(() => {
     throw new Error('Cannot verify the running Core for this checkout. Run npm run status or select an explicit connection.');
   });
-  if (name === 'tui') {
-    return origin
-      ? { args, env: { ...environment, SERVICE_LASSO_API_URL: origin } }
-      : { args: ['--connect', ...args], env: environment };
-  }
   if (!origin) {
     throw new Error('No running Core found for this checkout. Run npm start in this workspace or pass --core-url.');
   }
@@ -130,14 +114,13 @@ export async function main(args = process.argv.slice(2)) {
   const [name, ...forwarded] = args;
   if (name === 'setup' && forwarded.length === 0) {
     for (const tool of Object.keys(sourceTools)) await prepareTool(tool);
-    console.log('Source operator tools ready. Use npm run cli -- instance status or npm run tui.');
+    console.log('Source CLI ready. Use npm run cli -- instance status.');
     return;
   }
-  if (!Object.hasOwn(sourceTools, name ?? '')) throw new Error('Usage: npm run operator:setup | npm run cli -- <args> | npm run tui -- <args>');
+  if (!Object.hasOwn(sourceTools, name ?? '')) throw new Error('Usage: npm run operator:setup | npm run cli -- <args>');
   const { args: clientArgs, env } = await sourceClientInvocation(name, forwarded);
   const executable = await prepareTool(name);
-  if (name === 'cli') await run(process.execPath, [executable, ...clientArgs], root, { env });
-  else await run(executable, clientArgs, root, { env });
+  await run(process.execPath, [executable, ...clientArgs], root, { env });
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   main().catch(error => { console.error(`[operator-tools] ${error.message}`); process.exitCode = error.exitCode || 1; });

@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { selectArtifactPlatform } from "../dist/runtime/setup/artifact-platform.js";
 import { buildReachabilityTargets } from "./demo-verify-canonical.mjs";
 import {
   discoverOwningRuntime,
@@ -15,8 +16,8 @@ import {
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const cliPath = path.join(repoRoot, "dist", "cli.js");
 const sourceServicesRoot = path.join(repoRoot, "services");
-const baselineServiceIds = ["@archive", "@java", "@localcert", "@nginx", "@node", "@python", "@secretsbroker", "@serviceadmin", "@traefik", "echo-service", "node-sample-service"];
-const providerServiceIds = new Set(["@archive", "@java", "@localcert", "@node", "@python"]);
+const baselineServiceIds = ["@archive", "@java", "@localcert", "@nginx", "@node", "@python", "@secretsbroker", "@serviceadmin", "@traefik", "@tui", "echo-service", "node-sample-service"];
+const providerServiceIds = new Set(["@archive", "@java", "@localcert", "@node", "@python", "@tui"]);
 const baselineDaemonServiceIds = ["@nginx", "@traefik", "echo-service"];
 const REAL_APP_PUBLICATION_TIMEOUT_MS = 10 * 60_000;
 
@@ -450,7 +451,7 @@ try {
     const isProvider = providerServiceIds.has(serviceId);
     const manifest = await readJson(path.join(servicesRoot, serviceId, "service.json"));
     const platforms = manifest.artifact?.platforms;
-    const platformSupported = !platforms || Boolean(platforms[process.platform] ?? platforms.default);
+    const platformSupported = !platforms || selectArtifactPlatform(platforms) !== null;
     platformSupportByService.set(serviceId, platformSupported);
     liveServices.set(
       serviceId,

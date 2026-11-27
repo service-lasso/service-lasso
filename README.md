@@ -72,31 +72,25 @@ service's private diagnostics in the same workspace before retrying.
 
 ## CLI and TUI for that same instance
 
-Core owns services; these are attached operator tools launched when requested.
-The CLI needs Node/npm and Git. Install **Go 1.26+** on PATH for the TUI's first
-source build. No sibling clones or global installs are needed.
-`npm run operator:setup` optionally builds both ahead
-of time; otherwise each command builds its own reviewed tool on first use in
-ignored `.operator-tools/`. See [the pinned sources](scripts/source-operator-tools.mjs).
-These source builds do not confer packaged release qualification.
+Core prepares the pinned `@tui` release during baseline startup. It launches
+the binary in your terminal on demand. The checkout TUI needs Node/npm to run
+Core and needs no local Go installation.
 
 Run the TUI from the same checkout and workspace environment as Core:
 
 ```sh
-npm run tui
+node dist/cli.js tui
 ```
 
-The launcher finds the running Core for that workspace, including on a custom
-port. If sign-in is required, confirm the displayed URL and paste the local admin
-token saved during Service Admin setup into the masked field. The TUI keeps
-that credential in memory for the session. If the checkout has no running Core,
-the connect screen opens with an empty target. To pick a different instance
-while a local Core is running, use `npm run tui -- --connect`. Enter the runtime
-URL, use Tab to select OAuth bearer for a remote HTTPS endpoint, and confirm the
-target. Existing named profiles, explicit URLs and environment credentials are
-also supported.
+`npm run tui` is an alias for this command. The launcher finds the Core instance
+for the selected workspace, including on a custom port. On Linux with an
+onboarded Core running under the same user, it opens Stack automatically.
+For remote sign-in, use `node dist/cli.js tui --connect`, confirm the HTTPS target,
+then enter the OAuth bearer credential in the masked field. Existing named
+profiles, explicit URLs and environment credentials are also supported.
 
-For authenticated CLI reads in a Bash-compatible shell:
+The standalone CLI still uses its pinned source while its native release is
+pending. For authenticated CLI reads in a Bash-compatible shell:
 
 ```sh
 read -r -s -p "Local admin token: " SERVICE_LASSO_CLI_LOCAL_ADMIN_TOKEN; printf '\n'
@@ -112,14 +106,11 @@ Use Arrow keys, Tab and Enter to navigate the attached TUI, then `q` to quit.
 
 ### Release-backed client providers
 
-When the workspace catalog contains the exact published `@cli` and `@tui`
-manifests and Core has prepared their archives, use `service-lasso cli` and
-`service-lasso tui`. Both commands run the installed executable with your
-terminal and arguments. An implicit connection uses that workspace's verified
-Core URL. The commands require the checked-in release tag, architecture and
-checksum to match the installed service state. Default catalog adoption of the
-two released manifests is tracked in
-[Core #1992](https://github.com/service-lasso/service-lasso/issues/1992).
+`service-lasso tui` is available when Core's package command is on `PATH`.
+The launcher checks that the installed binary matches the checked-in release
+tag, platform and archive checksum. Core also supports `service-lasso cli`
+when the workspace catalog contains a prepared `@cli` release. Follow release
+adoption in [Core #1992](https://github.com/service-lasso/service-lasso/issues/1992).
 
 ## API-only development alternate
 

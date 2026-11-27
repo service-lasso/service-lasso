@@ -11,12 +11,12 @@ export const repoRoot = path.resolve(scriptDir, "..");
 export const defaultDemoServicesRoot = path.join(repoRoot, "services");
 export const defaultDemoWorkspaceRoot = path.join(repoRoot, "workspace", "demo-instance");
 export const defaultDemoLogRoot = path.join(repoRoot, ".demo-logs");
-export const demoRequiredServiceIds = ["@archive", "@java", "@localcert", "@nginx", "@traefik", "@node", "@python", "@secretsbroker", "echo-service", "@serviceadmin"];
+export const demoRequiredServiceIds = ["@archive", "@java", "@localcert", "@nginx", "@traefik", "@node", "@python", "@secretsbroker", "echo-service", "@serviceadmin", "@tui"];
 export const defaultBaselineServiceIds = [...demoRequiredServiceIds];
 export const canonicalDemoAddOnServiceIds = ["openobserve"];
 export const canonicalDemoRequiredServiceIds = [...demoRequiredServiceIds, ...canonicalDemoAddOnServiceIds];
 export const demoServiceIds = [...canonicalDemoRequiredServiceIds, "node-sample-service"];
-export const demoProviderServiceIds = new Set(["@archive", "@java", "@localcert", "@node", "@python"]);
+export const demoProviderServiceIds = new Set(["@archive", "@java", "@localcert", "@node", "@python", "@tui"]);
 /**
  * Canonical Service Lasso runtime/API port for local demo start, gate, and recovery.
  * Must stay distinct from NGINX's reserved HTTP port 18080.

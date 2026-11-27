@@ -35,10 +35,10 @@ test("root package declares the bounded workspace map", async () => {
   }
 });
 
-test("npm start builds before launching the runtime entrypoint", async () => {
+test("npm start builds before dispatching the managed default stack", async () => {
   const packageJson = await readJson("package.json");
 
-  assert.equal(packageJson.scripts.start, "npm run build && node --enable-source-maps dist/index.js");
+  assert.equal(packageJson.scripts.start, "npm run build && node scripts/source-stack.mjs start");
 });
 
 test("core wrapper package exposes the canonical package boundary", async () => {
