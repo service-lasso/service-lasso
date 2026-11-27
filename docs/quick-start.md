@@ -37,13 +37,15 @@ Once the services are running:
 2. Find `echo-service` in Service Admin, open **Details**, and inspect its status and logs.
 3. On that detail page, click **Stop service**, accept its confirmation dialog, wait for **Stopped**, then click **Start service** and reload the Echo page.
 
+For the attached TUI, follow the root README client setup, open **Stack**, and select `echo-service` to see real HTTP health latency. Allow up to about 30 seconds for the first scheduled sample; the process check remains available alongside HTTP health.
+
 Use the detail-page controls: the evaluated Admin release's table-row Stop button rejects the action because it does not present the required confirmation.
 
 The baseline includes a browser admin, Echo Service, NGINX, Traefik, and supporting providers. See [baseline services](ecosystem/README.md#baseline-services) for their roles and platform notes.
 
 ## Automatic service startup
 
-Normal runtime launches start enabled services automatically after the runtime API is ready. This is the default for both `npm start` and the demo runtime.
+The managed `npm start` path prepares the baseline providers and starts all supported runnable baseline services after secure onboarding. Optional service manifests outside that baseline are not added to this startup set. The demo runtime has its own startup flow. Saved automatic-start preferences still govern automatic service startup.
 
 To keep that preference but start only the runtime API for one launch, pass the explicit opt-out flag:
 
