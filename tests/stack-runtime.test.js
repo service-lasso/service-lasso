@@ -10,6 +10,8 @@ import { getLifecycleState, resetLifecycleState } from '../dist/runtime/lifecycl
 import { writeServiceState } from '../dist/runtime/state/writeState.js';
 import { emitOperatorInboxServiceEvent, mutateOperatorInboxItem } from '../dist/runtime/operator/inbox.js';
 import { McpOperationService, mcpOperationStatePath } from '../dist/runtime/operator/mcp-operations.js';
+import { readPrivateJson, writePrivateJson } from '../dist/runtime/security/private-json.js';
+import { readAuditEvents } from '../dist/runtime/audit/store.js';
 import { makeTempServicesRoot, writeExecutableFixtureService } from './test-helpers.js';
 
 test('AC-SR real runtime restart, passive durable in-flight/terminal operation and safe incidents', async () => {
@@ -64,7 +66,14 @@ test('AC-SR real runtime restart, passive durable in-flight/terminal operation a
     const before = await readFile(mcpOperationStatePath(workspaceRoot));
     result = await read(); assert.equal(result.body.data.activeOperations.count, 1);
     assert.equal(result.body.data.incidents[0].kind, 'operation_active');
+    const auditBefore = await readAuditEvents({workspaceRoot});
     await read(); assert.deepEqual(await readFile(mcpOperationStatePath(workspaceRoot)), before, 'reads must not mutate operation records');
+    assert.deepEqual(await readAuditEvents({workspaceRoot}), auditBefore, 'read must not append permission/operation audit records');
+    const activeState = await readPrivateJson(workspaceRoot, mcpOperationStatePath(workspaceRoot));
+    const staleState = structuredClone(activeState); staleState.operations[0].heartbeatAt = '2000-01-01T00:00:00.000Z';
+    await writePrivateJson(workspaceRoot, mcpOperationStatePath(workspaceRoot), staleState);
+    result = await read(); assert.equal(result.body.data.activeOperations,null); assert.equal(result.body.data.incidents,null);
+    await writePrivateJson(workspaceRoot, mcpOperationStatePath(workspaceRoot), activeState);
     release();
     for (let i=0; i<100; i++) { result = await read(); if(result.body.data.activeOperations.count === 0) break; await new Promise(resolve=>setTimeout(resolve,10)); }
     assert.equal(result.body.data.activeOperations.count, 0); assert.equal(result.body.data.incidents[0].kind, 'operation_failed');
