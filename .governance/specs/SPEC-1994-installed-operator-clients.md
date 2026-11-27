@@ -47,3 +47,15 @@ when those exact production inputs are admitted.
   locally built client. Linux local sign-in uses SPEC-2001 after secure
   onboarding. Keep the CLI release cutover independent. Do not merge the TUI
   cutover before the real publication input and combined default-stack proof.
+- AC-1994-8 (#2009, CLI cutover): Verify and import the exact published `@cli`
+  manifest and immutable Windows x64 and Linux x64 archives. Prepare `@cli`
+  as a default provider and invoke it on demand through `service-lasso cli`
+  and `npm run cli`. Retire the checkout's client source builds and cache.
+  Smoke the real installed clients and the managed daemons in the same live
+  default stack. CLI candidate macOS qualification is deferred.
+- AC-1994-9 (#2009, CLI local session): For an implicitly selected Linux Core
+  generation, reuse the existing private local operator handoff and deliver
+  its short-lived session through the installed CLI's existing Bearer token
+  environment. The same onboarding and acknowledgement gates apply. Explicit
+  connection and credential selections retain precedence. No handoff takes
+  place for offline commands or other operating systems.
