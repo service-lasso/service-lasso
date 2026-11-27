@@ -116,18 +116,20 @@ export async function launchInstalledOperatorClient(
     });
     if (target) {
       env[originEnv] = target.origin;
-      if (client === "tui" && process.platform === "linux"
-          && !hasFlag(forwarded, "--token-env", "-token-env")
-          && !env.SERVICE_LASSO_API_TOKEN_ENV && !env.SERVICE_LASSO_API_TOKEN) {
+      const sessionEnv = client === "tui" ? "SERVICE_LASSO_API_TOKEN" : "SERVICE_LASSO_CORE_TOKEN";
+      const explicitCredential = client === "tui"
+        ? hasFlag(forwarded, "--token-env", "-token-env") || env.SERVICE_LASSO_API_TOKEN_ENV || env.SERVICE_LASSO_API_TOKEN
+        : env.SERVICE_LASSO_CORE_TOKEN || env.SERVICE_LASSO_CLI_LOCAL_ADMIN_TOKEN;
+      if (process.platform === "linux" && !explicitCredential) {
         const token = await requestLocalTuiSession({
           workspaceRoot: path.resolve(config.workspaceRoot), servicesRoot: path.resolve(config.servicesRoot),
           generationId: target.generationId, origin: target.origin,
         }).catch(() => null);
         const current = await checkoutTarget(config);
         if (!current || current.generationId !== target.generationId || current.origin !== target.origin) {
-          throw new Error("The owning Core generation changed before TUI launch.");
+          throw new Error(`The owning Core generation changed before ${client.toUpperCase()} launch.`);
         }
-        if (token) env.SERVICE_LASSO_API_TOKEN = token;
+        if (token) env[sessionEnv] = token;
       }
     }
     else if (client === "tui") forwarded.unshift("--connect");
