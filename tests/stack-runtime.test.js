@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { startApiServer } from '../dist/server/index.js';
+import { checkoutRuntimeOrigin } from '../scripts/source-operator-tools.mjs';
 import { discoverServices } from '../dist/runtime/discovery/discoverServices.js';
 import { createServiceRegistry } from '../dist/runtime/manager/DependencyGraph.js';
 import { configService, installService, startService, restartService, stopService } from '../dist/runtime/lifecycle/actions.js';
@@ -32,6 +33,7 @@ test('AC-SR real runtime restart, passive durable in-flight/terminal operation a
   let submission;
   try {
     let result = await read(); assert.equal(result.status, 200);
+    assert.equal(result.body.data.rows[0].stackIntent, "optional");
     assert.equal(result.body.data.rows[0].uptimeMs, null);
     assert.equal(result.body.data.rows[0].restartCount, null);
     assert.deepEqual(result.body.data.activeOperations, {scope:'workspace', count:0});
@@ -101,4 +103,57 @@ test('AC-SR real runtime restart, passive durable in-flight/terminal operation a
     runtime = await startApiServer({port:0, servicesRoot, workspaceRoot});
     assert.equal((await read()).body.data.rows[0].restartCount,1,'restart counter survives runtime hydration');
   } finally { release(); await runtime.stop(); await rm(tempRoot,{recursive:true,force:true}); resetLifecycleState(); }
+});
+
+
+test('AC-SR-6/7 verifies real baseline startup intent and exact checkout endpoint selection', async (t) => {
+  resetLifecycleState();
+  const { tempRoot, servicesRoot, workspaceRoot } = await makeTempServicesRoot('stack-intent-');
+  let runtime;
+  const route = {
+    SERVICE_LASSO_SERVICES_ROOT: servicesRoot,
+    SERVICE_LASSO_WORKSPACE_ROOT: workspaceRoot,
+    SERVICE_LASSO_INSTANCE_REGISTRY_PATH: path.join(tempRoot, 'instances.json'),
+    SERVICE_LASSO_HOST_PORT_REGISTRY_PATH: path.join(tempRoot, 'ports.json'),
+  };
+  for (const [name, value] of Object.entries(route)) {
+    const previous = process.env[name];
+    process.env[name] = value;
+    t.after(() => { if (previous === undefined) delete process.env[name]; else process.env[name] = previous; });
+  }
+  try {
+    await writeExecutableFixtureService(servicesRoot, '@serviceadmin');
+    await writeExecutableFixtureService(servicesRoot, 'gated-daemon');
+    await writeExecutableFixtureService(servicesRoot, 'provider', { role: 'provider', enabled: false });
+    await writeExecutableFixtureService(servicesRoot, 'provider-unprepared', { role: 'provider' });
+    await writeExecutableFixtureService(servicesRoot, 'optional-daemon');
+    await writeExecutableFixtureService(servicesRoot, 'disabled-daemon', { enabled: false });
+    runtime = await startApiServer({
+      port: 0, servicesRoot, workspaceRoot,
+      baselineBootstrap: { serviceIds: ['@serviceadmin', 'gated-daemon', 'provider', 'disabled-daemon'] },
+    });
+    assert.equal(await checkoutRuntimeOrigin(), new URL(runtime.url).origin);
+    process.env.SERVICE_LASSO_WORKSPACE_ROOT = path.join(tempRoot, 'separate-workspace');
+    assert.equal(await checkoutRuntimeOrigin(), null);
+    process.env.SERVICE_LASSO_WORKSPACE_ROOT = workspaceRoot;
+    const ids = ['@serviceadmin', 'gated-daemon', 'provider', 'provider-unprepared', 'optional-daemon', 'disabled-daemon'];
+    const query = new URLSearchParams(ids.map(id => ['serviceId', id]));
+    const response = await fetch(`${runtime.url}/api/operator/v2/stack-runtime?${query}`);
+    assert.equal(response.status, 200);
+    const { data } = await response.json();
+    assert.deepEqual(Object.fromEntries(data.rows.map(row => [row.serviceId, row.stackIntent])), {
+      '@serviceadmin': 'expected',
+      'gated-daemon': 'gated',
+      'provider': 'prepared',
+      'provider-unprepared': 'unprepared',
+      'optional-daemon': 'optional',
+      'disabled-daemon': 'disabled',
+    });
+    assert.ok(data.rows[0].uptimeMs >= 0);
+    assert.equal(data.rows[1].uptimeMs, null);
+  } finally {
+    await runtime?.stop();
+    await rm(tempRoot, {recursive: true, force: true});
+    resetLifecycleState();
+  }
 });

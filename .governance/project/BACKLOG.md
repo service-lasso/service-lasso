@@ -3,6 +3,10 @@
 ## Source-checkout operator tools (#1977)
 
 - #1977 in_progress: SPEC-002 AC-4CG.1977. Root setup/CLI/TUI commands, secure newcomer README and clean Core-connected source proofs; release distribution remains separate.
+- #1983 done: SPEC-002 AC-4CG.1983. Core #1987 landed startup diagnostics and passed focused postmerge verification.
+- #1984 done: SPEC-002 AC-4Z and AC-4CG.1984. Core #1986 landed default HTTP observation. Combined cadence and onboarded acceptance remain tracked by #1985.
+- #1985 in_progress: Stack Runtime Amendment AC-SR-6/7 and SPEC-002 AC-4CG.1977. Checkout connection, Stack runtime intent, exact reviewed TUI source pin and combined real-source acceptance.
+
 
 - #1837, in_review: SPEC-002 AC-4CE.1. Document custom env delivery versus OS
   confidentiality, Linux hidepid cross-UID and same-UID limits, Windows process

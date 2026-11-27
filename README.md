@@ -57,8 +57,8 @@ If that fixed API port is occupied (including by another application), startup
 reports `service=runtime-api phase=port_selection` and fails without stopping or
 adopting the listener. Choose an unused port explicitly, for example
 `npm start -- --port 18080` or `SERVICE_LASSO_PORT=18080 npm start` in a
-Bash-compatible shell. Set the same port for `npm restart`, keep the same workspace
-for every command, and connect Admin/CLI/TUI to the actual reported API URL.
+Bash-compatible shell. Set the same port for `npm restart` and keep the same workspace
+for every command. The source CLI and TUI find its running Core.
 Do not delete another instance's workspace or stop an unrelated process to clear
 this conflict.
 
@@ -80,25 +80,35 @@ of time; otherwise each command builds its own reviewed tool on first use in
 ignored `.operator-tools/`. See [the pinned sources](scripts/source-operator-tools.mjs).
 These source builds do not confer packaged release qualification.
 
-For authenticated operation, use the local administrator token saved during
-onboarding. In a Bash-compatible terminal, read it privately without placing it
-in shell history, then connect both tools to the running Core:
+Run the TUI from the same checkout and workspace environment as Core:
+
+```sh
+npm run tui
+```
+
+The launcher finds the running Core for that workspace, including on a custom
+port. If sign-in is required, confirm the displayed URL and paste the local admin
+token saved during Service Admin setup into the masked field. The TUI keeps
+that credential in memory for the session. If the checkout has no running Core,
+the connect screen opens with an empty target. To pick a different instance
+while a local Core is running, use `npm run tui -- --connect`. Enter the runtime
+URL, use Tab to select OAuth bearer for a remote HTTPS endpoint, and confirm the
+target. Existing named profiles, explicit URLs and environment credentials are
+also supported.
+
+For authenticated CLI reads in a Bash-compatible shell:
 
 ```sh
 read -r -s -p "Local admin token: " SERVICE_LASSO_CLI_LOCAL_ADMIN_TOKEN; printf '\n'
 export SERVICE_LASSO_CLI_LOCAL_ADMIN_TOKEN
-export SERVICE_LASSO_API_TOKEN="$SERVICE_LASSO_CLI_LOCAL_ADMIN_TOKEN"
-npm run cli -- --core-url http://127.0.0.1:17883 instance status
-npm run tui -- --api http://127.0.0.1:17883
-unset SERVICE_LASSO_CLI_LOCAL_ADMIN_TOKEN SERVICE_LASSO_API_TOKEN
+npm run cli -- operator services
+unset SERVICE_LASSO_CLI_LOCAL_ADMIN_TOKEN
 ```
 
-Bare `npm run tui` uses loopback Core and requires the token exported in that
-shell as shown above. The TUI requires an attached terminal. Use Arrow keys, Tab
-and Enter, then `q`
-to quit. API/authentication failures stay visible; an open dashboard alone does
-not prove a connection. For another configured authentication mode, use its
-normal client credential configuration. Never print or commit credentials.
+CLI runtime commands also find the checkout's running Core. Use `--core-url` or
+`--connection` to select a different instance. When you set custom services or
+workspace roots, export them in both the startup and operator terminals.
+Use Arrow keys, Tab and Enter to navigate the attached TUI, then `q` to quit.
 
 ## API-only development alternate
 

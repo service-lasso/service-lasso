@@ -4,6 +4,12 @@
 
 Development AC-4CG.1979 makes root npm start use existing owned baseline startup with repo services, persistent workspace and fixed loopback API 17883. Admin first-run security and explicit API-only opt-out remain intact. Root stop/restart/status use the same workspace. CLI/TUI remain attached on-demand tools; source startup requires no Go. No publication, deployment, release admission or existing-instance adoption is authorized. AC-4CG.1983 adds service/action/phase/closed-reason failure attribution and explicit fixed-port recovery guidance while preserving foreign listeners and secure first-run.
 
+Source operator clients resolve an owned running workspace before selecting an
+implicit endpoint. The TUI confirms an interactive target and accepts an
+in-memory credential when sign-in is required. Stack runtime intent reports
+first-run gating, daemon expectations and provider preparation from Core state
+(#1985, Stack Runtime Amendment AC-SR-6/7).
+
 ## Source-checkout operator tools (#1977)
 
 Development source-only AC-4CG.1977 adds explicit root CLI/TUI setup and launch from the Core checkout using exact reviewed sources. Existing release staging/admission remains unchanged. No runtime data, service catalog or deployment changes.
