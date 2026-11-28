@@ -752,7 +752,7 @@ function writeCombinedLogEntry(
   level: "stdout" | "stderr",
   message: string,
 ): void {
-  stream.write(`${JSON.stringify({ level, message })}\n`);
+  stream.write(`${JSON.stringify({ level, message, capturedAt: new Date().toISOString() })}\n`);
 }
 
 function matchOutputVariable(pattern: string, line: string): string | null {

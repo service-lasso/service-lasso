@@ -1,5 +1,7 @@
 # Backlog
 
+- #2019 in_progress: SPEC-1994 AC-1994-13. Real bounded operator/v2 runtime logs.
+
 - #2016 in_progress: SPEC-1994 AC-1994-12. Shared real full-stack update E2E harness for the TUI and Service Admin.
 
 - #2011 in_progress: SPEC-002 AC-4CG.2011. Observe real automatic same-generation daemon startup after protected onboarding instead of unconditional duplicate starts; retain optional sample and existing faults/cleanup.
