@@ -333,7 +333,7 @@
       "summary": "Keyboard-first terminal client prepared at startup and launched on demand.",
       "enabled": true,
       "role": "provider",
-      "releaseTag": "candidate-2026.11.27-6a057bc"
+      "releaseTag": "candidate-2026.11.28-1f840d3"
     }
   ]
 }

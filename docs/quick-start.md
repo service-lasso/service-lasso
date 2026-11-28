@@ -44,6 +44,8 @@ a remote target and sign in to it.
 In **Stack**, select a service to see its HTTP health latency. Admin, NGINX,
 Traefik and Echo have scheduled HTTP checks. Allow about 30 seconds for the first
 sample. Providers and the IPC-based Secrets Broker have no HTTP latency graph.
+**Ready** marks a prepared service. The service list shows uptime for confirmed
+running services. Select a service and press **a** to open its lifecycle actions.
 Run `node dist/cli.js cli operator services` to list the services from the same
 checkout on Windows x64 or Linux x64. For connection options, see the
 [root README client setup](https://github.com/service-lasso/service-lasso/blob/develop/README.md#cli-and-tui-for-that-same-instance).
