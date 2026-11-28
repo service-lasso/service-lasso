@@ -8,6 +8,10 @@ export interface OperatorV2ServiceInput {
   generation?: string;
   modelEpoch?: string;
   running?: boolean;
+  installed?: boolean;
+  configured?: boolean;
+  healthStatus?: OperatorV2Service["healthStatus"];
+  providerRole?: "provider" | "service";
   dependencies?: Array<{ fromServiceId: string; toServiceId: string; kind: string; state: string }>;
   endpoints?: Array<{ label: string; protocol: string; port: number | null; availability: OperatorV2Availability }>;
   setupMetadata?: unknown[];
@@ -162,10 +166,10 @@ export function buildOperatorV2Service(input: OperatorV2ServiceInput): OperatorV
     definitionRevision: input.definitionRevision ?? "definition-1",
     generation: input.generation ?? "generation-1",
     modelEpoch: input.modelEpoch ?? "operator-v2-epoch-1",
-    installed: "yes",
-    configured: "unknown",
+    installed: input.installed === false ? "no" : "yes",
+    configured: input.configured === true ? "yes" : input.configured === false ? "no" : "unknown",
     running: input.running === true ? "yes" : input.running === false ? "no" : "unknown",
-    healthStatus: "unknown",
+    healthStatus: input.healthStatus ?? "unknown",
     updateStatus: "not_checked",
     inboxUnread: null,
     queuePending: null,
@@ -203,7 +207,7 @@ export function buildOperatorV2ServicesPage(
 
 export function buildOperatorV2Detail(input: OperatorV2ServiceInput): {
   summary: OperatorV2Service;
-  provider: { role: "service"; availability: OperatorV2Availability };
+  provider: { role: "provider" | "service"; availability: OperatorV2Availability };
   dependencies: unknown[];
   endpoints: unknown[];
   variableMetadata: unknown[];
@@ -212,7 +216,7 @@ export function buildOperatorV2Detail(input: OperatorV2ServiceInput): {
 } {
   return {
     summary: buildOperatorV2Service(input),
-    provider: { role: "service", availability: available() },
+    provider: { role: input.providerRole ?? "service", availability: available() },
     dependencies: [...(input.dependencies ?? [])],
     endpoints: [...(input.endpoints ?? [])],
     variableMetadata: [],

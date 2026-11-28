@@ -81,13 +81,18 @@ test('v2 service page and detail are stable read-only projections', () => {
   assert.equal(page.rows[0].inboxUnread, null);
   assert.equal(page.rows[0].queuePending, null);
   const detail = buildOperatorV2Detail({
-    id: 'root', name: 'Root', running: true,
+    id: 'root', name: 'Root', running: true, installed: false, configured: true,
+    healthStatus: 'unhealthy', providerRole: 'provider',
     dependencies: [{ fromServiceId: 'db', toServiceId: 'root', kind: 'service', state: 'unknown' }],
     endpoints: [{ label: 'http', protocol: 'tcp', port: 8080, availability: { supported: true, available: true, reasonCode: null } }],
     setupMetadata: [{ stepId: 'step-1', description: 'step', rerun: 'manual', definitionRevision: 'revision-real', inputFields: [], status: null, availability: { supported: true, available: true, reasonCode: null }, expectedRevision: 'revision-real' }],
     actionMetadata: [{ actionId: 'action-1', description: 'action', definitionRevision: 'revision-real', payloadPolicy: { inline: false, references: false, allowMixed: false, required: false }, inputFields: null, payloadReferences: [], requiredProfile: 'operator', requiredScopes: [], declaredPermission: 'service:read', availability: { supported: true, available: true, reasonCode: null }, expectedRevision: 'revision-real' }],
   });
   assert.equal(detail.summary.serviceId, 'root');
+  assert.equal(detail.summary.installed, 'no');
+  assert.equal(detail.summary.configured, 'yes');
+  assert.equal(detail.summary.healthStatus, 'unhealthy');
+  assert.equal(detail.provider.role, 'provider');
   assert.deepEqual(detail.dependencies, [{ fromServiceId: 'db', toServiceId: 'root', kind: 'service', state: 'unknown' }]);
   assert.deepEqual(detail.endpoints, [{ label: 'http', protocol: 'tcp', port: 8080, availability: { supported: true, available: true, reasonCode: null } }]);
   assert.equal(detail.setupMetadata.length, 1);
