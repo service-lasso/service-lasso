@@ -76,3 +76,12 @@ when those exact production inputs are admitted.
   preparation. The next invocation uses the receipt without editing the source
   manifest or restarting Core. A changed source manifest supersedes that local
   selection. No other service or moving-update policy is changed.
+
+- AC-1994-12 (#2016): Durable update E2E harnesses use a fresh private workspace
+  with the checked-in default providers and real published artifacts. Successful
+  secure bootstrap must resume every supported default daemon in the original
+  Core generation. TUI and Service Admin checks, cancellation and confirmed
+  installation consume the same real API; validate the resulting executable
+  and preserved source pin and generation. The helper supplies a private local
+  operator session after test-only acknowledgement and owns its complete
+  teardown. Release credentials and service tokens are excluded from output.
