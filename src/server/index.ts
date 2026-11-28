@@ -1,3 +1,4 @@
+import { readOperatorV2Logs } from "../runtime/operator/v2-logs.js";
 import { startLocalTuiSessionServer, verifyLocalTuiSession } from "../runtime/auth/local-tui-session.js";
 import { validateServiceId } from "../runtime/discovery/validateManifest.js";
 import { HttpCheckSampleRecorder } from "../runtime/health/samples.js";
@@ -4966,7 +4967,17 @@ async function routeRequestWithoutMutationCoordination(
       const runtimeModel = await loadRuntimeModel(config.servicesRoot);
       const service = runtimeModel.registry.getById(serviceId);
       if (!service) throw new ApiError("service_not_found", 404, "The requested service is not available.");
-      if (request.method === "GET" && pathParts.length === 6 && ["variables", "endpoints", "health-history", "history", "logs"].includes(pathParts[5])) {
+      if (request.method === "GET" && pathParts.length === 6 && pathParts[5] === "logs") {
+        if (!auth.actor.authenticated) throw new ApiError("authentication_required", 401, "Authentication is required.");
+        if (!actorHasPermission(permissionActorFromRuntimeAuth(auth), "service:diagnose")) {
+          throw new ApiError("permission_denied", 403, "Service diagnostic permission is required.");
+        }
+        const page = await readOperatorV2Logs(service,
+          getLifecycleState(serviceId).runtime.logs.runId, config.runtimeGenerationId ?? "", url.searchParams);
+        writeJson(response, 200, operatorV2Envelope(page, requestId));
+        return;
+      }
+      if (request.method === "GET" && pathParts.length === 6 && ["variables", "endpoints", "health-history", "history"].includes(pathParts[5])) {
         writeJson(response, 200, operatorV2Envelope(buildOperatorV2EmptyPage(), requestId));
         return;
       }
@@ -8601,6 +8612,8 @@ function operatorV2ErrorStatus(error: unknown): number {
   const code = toApiErrorBody(error).error;
   switch (code) {
   case "service_not_found": return 404;
+  case "source_unavailable": return 503;
+  case "snapshot_expired": return 410;
   case "revision_conflict": return 409;
   case "confirmation_required":
   case "confirmation_expired":
@@ -8629,6 +8642,8 @@ function operatorV2ErrorBody(error: unknown): { contractVersion: string; request
   const mapped = (() => {
     switch (code) {
     case "service_not_found": return { code: "not_found", retryability: "never" };
+    case "source_unavailable": return { code: "source_unavailable", retryability: "read_retry" };
+    case "snapshot_expired": return { code: "snapshot_expired", retryability: "read_retry" };
     case "revision_conflict": return { code: "revision_conflict", retryability: "new_preview" };
     case "confirmation_required": return { code: "confirmation_required", retryability: "new_preview" };
     case "confirmation_expired": return { code: "confirmation_expired", retryability: "new_preview" };
