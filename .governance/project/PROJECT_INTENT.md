@@ -1,5 +1,10 @@
 # Project Intent
 
+Development #2015 / AC-1994-11 adds explicit in-place release updates for the
+pinned CLI and TUI through Core, Service Admin and TUI. Source pins remain the
+bootstrap baseline. The running Core prepares and activates the selected local
+client release without restarting managed services.
+
 Development #2013 / AC-1994-10 updates the default on-demand TUI provider to
 the published Windows and Linux candidate for Stack readiness, uptime, and
 actions. The installed Linux client uses the existing private operator session.

@@ -119,6 +119,8 @@ GET  /api/updates
 POST /api/updates/check
 POST /api/services/:id/update/download
 POST /api/services/:id/update/install
+POST /api/services/:id/pinned-release/check
+POST /api/services/:id/pinned-release/install
 GET  /api/recovery
 POST /api/services/:id/recovery/doctor
 ```

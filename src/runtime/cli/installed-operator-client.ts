@@ -1,3 +1,4 @@
+import { resolveActivatedOperatorExecutable } from "../updates/pinned-operator-release.js";
 import { requestLocalTuiSession } from "../auth/local-tui-session.js";
 import { spawn } from "node:child_process";
 import { readFile, realpath, stat } from "node:fs/promises";
@@ -85,16 +86,18 @@ export async function launchInstalledOperatorClient(
   if (!sha256 || !definition.assetName || !definition.command) throw unavailable();
   const state = parseLifecycleState(service, await readStoredState(service.serviceRoot));
   const installed = state?.installArtifacts.artifact;
-  if (!state?.installed || !state.configured || !installed?.extractedPath
-      || installed.sourceType !== "github-release" || installed.repo !== repository
-      || installed.tag !== artifact.source.tag || installed.assetName !== definition.assetName
-      || installed.archiveType !== definition.archiveType || installed.command !== definition.command
-      || installed.checksum?.assetName !== definition.assetName
-      || installed.checksum.expected !== sha256 || installed.checksum.actual !== sha256) {
-    throw unavailable();
-  }
+  if (!state?.installed || !state.configured) throw unavailable();
+  const activated = await resolveActivatedOperatorExecutable(service).catch(() => { throw unavailable(); });
+  const executable = activated ?? await (async () => {
+    if (!installed?.extractedPath
+        || installed.sourceType !== "github-release" || installed.repo !== repository
+        || installed.tag !== artifact.source.tag || installed.assetName !== definition.assetName
+        || installed.archiveType !== definition.archiveType || installed.command !== definition.command
+        || installed.checksum?.assetName !== definition.assetName
+        || installed.checksum.expected !== sha256 || installed.checksum.actual !== sha256) {
+      throw unavailable();
+    }
 
-  const executable = await (async () => {
     try {
       const root = await realpath(service.serviceRoot);
       const extracted = await realpath(installed.extractedPath!);
@@ -109,7 +112,7 @@ export async function launchInstalledOperatorClient(
   })();
 
   const env = { ...process.env };
-  const forwarded = [...(definition.args ?? []), ...args];
+  const forwarded = [...(activated ? [] : definition.args ?? []), ...args];
   if (selectCheckoutTarget(client, forwarded, env) && !(client === "cli" && await cliHasSavedTarget())) {
     const target = await checkoutTarget(config).catch(() => {
       throw new Error("Cannot verify the running Core for this checkout. Run service-lasso instance or select an explicit connection.");

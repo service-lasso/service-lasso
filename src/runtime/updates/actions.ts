@@ -508,7 +508,7 @@ async function downloadToFile(
   }
 }
 
-async function extractArchive(
+export async function extractUpdateArchive(
   archiveBytes: Buffer,
   archiveType: ServiceArtifactPlatform["archiveType"],
   destinationPath: string,
@@ -912,7 +912,7 @@ export async function installServiceUpdateCandidate(
           throw new Error(`The downloaded update candidate for "${service.manifest.id}" changed before immutable extraction.`);
         }
       }
-      await extractArchive(archiveBytes, platform.archiveType, extractedPath);
+      await extractUpdateArchive(archiveBytes, platform.archiveType, extractedPath);
     } catch (error) {
       await persistUpdateFailure(service, {
         reason: error instanceof Error ? error.message : "Failed to install update candidate.",
