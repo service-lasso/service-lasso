@@ -46,6 +46,10 @@ Traefik and Echo have scheduled HTTP checks. Allow about 30 seconds for the firs
 sample. Providers and the IPC-based Secrets Broker have no HTTP latency graph.
 **Ready** marks a prepared service. The service list shows uptime for confirmed
 running services. Select a service and press **a** to open its lifecycle actions.
+For `@tui` and `@cli`, **Check new releases** is available under Lifecycle in
+the TUI and **Client releases** in Service Admin. Review and confirm the exact
+release before installing. The new binary is used on the next client launch,
+while the running Core and its managed services continue.
 Run `node dist/cli.js cli operator services` to list the services from the same
 checkout on Windows x64 or Linux x64. For connection options, see the
 [root README client setup](https://github.com/service-lasso/service-lasso/blob/develop/README.md#cli-and-tui-for-that-same-instance).

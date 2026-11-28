@@ -448,6 +448,7 @@ import {
   listServiceUpdateStates,
 } from "../runtime/updates/actions.js";
 import { checkServiceUpdate } from "../runtime/updates/check.js";
+import { checkPinnedOperatorRelease, installPinnedOperatorRelease, PinnedOperatorReleaseError } from "../runtime/updates/pinned-operator-release.js";
 import { readServiceUpdateState } from "../runtime/updates/state.js";
 import {
   getServiceCatalogPackage,
@@ -7229,6 +7230,47 @@ async function routeRequestWithoutMutationCoordination(
           summary: "Failed to run recovery doctor.",
           reason: getAuditFailureReason(error),
         });
+        throw error;
+      }
+      return;
+    }
+
+    if (request.method === "POST" && pathParts.length === 5 && pathParts[3] === "pinned-release"
+        && (pathParts[4] === "check" || pathParts[4] === "install")) {
+      const install = pathParts[4] === "install";
+      const policy = getDurableHttpMutationPolicy(install ? "update-install" : "update-check");
+      const body = await readJsonBody(request);
+      if (!body || typeof body !== "object" || Array.isArray(body)) {
+        throw new ApiError("invalid_request", 400, "A JSON object is required.");
+      }
+      const input = body as Record<string, unknown>;
+      if (install ? Object.keys(input).some(key => key !== "tag" && key !== "confirm")
+          || typeof input.tag !== "string" || !/^[A-Za-z0-9][A-Za-z0-9.-]{0,127}$/.test(input.tag)
+          : Object.keys(input).length > 0) {
+        throw new ApiError("invalid_request", 400, "Invalid pinned release request.");
+      }
+      const actor = permissionActorFromRuntimeAuth(auth);
+      const routeTemplate = install ? "/api/services/:serviceId/pinned-release/install" : "/api/services/:serviceId/pinned-release/check";
+      await enforcePermission({
+        serviceRoot: service.serviceRoot, serviceId, actor, permission: policy.permission,
+        sensitive: policy.sensitive, confirmed: input.confirm === true, method: "POST",
+        routeTemplate, subject: "pinned-release",
+      });
+      try {
+        if (install && input.confirm !== true) throw new ApiError("confirmation_required", 403, "Confirm the exact release before installation.");
+        const result = install
+          ? await installPinnedOperatorRelease(service, input.tag as string)
+          : await checkPinnedOperatorRelease(service);
+        if (install) {
+          await appendAuditEvent({
+            serviceRoot: service.serviceRoot, source: "runtime-api", action: "service.update.install",
+            actor: actor.id, subject: "pinned-release", serviceId, method: "POST", routeTemplate,
+            outcome: "success", statusCode: 200, summary: "Installed the confirmed pinned release.",
+          });
+        }
+        writeJson(response, 200, result);
+      } catch (error) {
+        if (error instanceof PinnedOperatorReleaseError) throw new ApiError(error.code, error.status, error.message);
         throw error;
       }
       return;
