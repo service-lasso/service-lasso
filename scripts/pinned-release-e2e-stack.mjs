@@ -55,7 +55,7 @@ async function historicalTuiManifest(tag) {
 }
 
 /** Starts one real default stack per process. The caller owns close() in finally. */
-export async function startPinnedReleaseE2eStack({ previousTuiTag } = {}) {
+export async function startPinnedReleaseE2eStack({ previousTuiTag, portRange = { start: 23000, end: 55000 } } = {}) {
   assert.equal(process.platform, "linux", "This private-session E2E currently requires Linux");
   const scratchRoot = await mkdtemp(path.join(os.tmpdir(), 'lasso-pinned-release-e2e-'));
   const servicesRoot = path.join(scratchRoot, 'services');
@@ -107,8 +107,8 @@ export async function startPinnedReleaseE2eStack({ previousTuiTag } = {}) {
       SERVICE_LASSO_WORKSPACE_ROOT: workspaceRoot,
       SERVICE_LASSO_INSTANCE_REGISTRY_PATH: path.join(scratchRoot, 'instances.json'),
       SERVICE_LASSO_HOST_PORT_REGISTRY_PATH: path.join(scratchRoot, 'ports.json'),
-      SERVICE_LASSO_PORT_RANGE_START: '23000',
-      SERVICE_LASSO_PORT_RANGE_END: '55000',
+      SERVICE_LASSO_PORT_RANGE_START: String(portRange.start),
+      SERVICE_LASSO_PORT_RANGE_END: String(portRange.end),
     };
     for (const [name, value] of Object.entries(isolated)) setEnvironment(name, value);
     app = await startRuntimeApp({ port: 0, host: '127.0.0.1', baselineBootstrap: { serviceIds: [...DEFAULT_BASELINE_SERVICE_IDS] }, monitor: true });
@@ -116,8 +116,8 @@ export async function startPinnedReleaseE2eStack({ previousTuiTag } = {}) {
     const initial = await jsonRequest(apiUrl, '/api/runtime/instance');
     generationId = initial.instance.generationId;
     const setup = await jsonRequest(apiUrl, '/api/setup/bootstrap', {});
-    assert.equal(setup.bootstrap.ok, true);
-    assert.equal(setup.bootstrap.continuation.ok, true);
+    assert.equal(setup.bootstrap.ok, true, `Secure bootstrap did not complete: ${setup.bootstrap.state}`);
+    assert.equal(setup.bootstrap.continuation.ok, true, `Prepared baseline continuation failed: ${JSON.stringify(setup.bootstrap.continuation)}`);
     const verifyHealthy = async () => {
       const identity = await jsonRequest(apiUrl, '/api/runtime/instance');
       assert.equal(identity.instance.generationId, generationId);
