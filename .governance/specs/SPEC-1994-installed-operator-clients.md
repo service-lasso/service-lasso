@@ -67,3 +67,12 @@ when those exact production inputs are admitted.
   the installed TUI from the checkout with real Core inventory and lifecycle
   availability, using the acknowledged Linux private session from SPEC-2001.
   Keep existing Core generations and first-run credential acknowledgement intact.
+- AC-1994-11 (#2015): Running Core exposes an explicit check and confirmed
+  install for the pinned `@tui` and `@cli` providers. Check the canonical
+  producer for a newer compatible immutable release. Bind its exact tag,
+  released manifest, host executable and archive checksum. The install accepts
+  an exact candidate tag and uses the existing service-update permission with
+  confirmation. It publishes a local installation receipt only after successful
+  preparation. The next invocation uses the receipt without editing the source
+  manifest or restarting Core. A changed source manifest supersedes that local
+  selection. No other service or moving-update policy is changed.
