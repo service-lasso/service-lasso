@@ -1795,3 +1795,14 @@ After vault readiness, generated secrets and protected local operator provisioni
 ### AC-4CG.2011 - Real-app verifier observes first-run continuation
 
 Development verifier-only correction for #2011 after AC-4CG.2007: the real checked-in baseline first-run E2E must require successful bootstrap continuation and observe all five default daemons healthy in their original owned Core generation, without issuing redundant daemon start requests or restarting Core. Explicitly prepare/start only the optional node-sample-service when its observed lifecycle requires it. Preserve supported-platform/provider distinctions, actual advertised HTTP reachability, authenticated Broker stop/start, owner-exit fault tests and reverse cleanup. Existing hosted HTTP409 already-running failure is retained as obsolete-verifier evidence, never a product-startup failure. Direct real-public-archive execution (with accurately disclosed exact release-metadata mirror only when needed) or genuine hosted proof must pass; fixtures alone cannot prove matching real default daemons. No production lifecycle change, publication or deployment.
+
+### AC-4CG.2020 - Current operator service detail
+
+The existing operator/v2 service detail reports the current lifecycle status,
+installed/configured state and provider role from the selected service. Health
+uses Core's existing check evaluation and respects unknown or unconfigured
+results. Network endpoints include negotiated runtime ports when present and
+mark availability only for an active service with an allocated port. The
+projection retains existing v2 shapes and permissions with no endpoint URLs,
+credentials or host paths. Cover active services and prepared providers in the
+real disposable full default stack.

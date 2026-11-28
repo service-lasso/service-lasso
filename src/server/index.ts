@@ -5141,9 +5141,26 @@ async function routeRequestWithoutMutationCoordination(
           throw durableLifecycleOperationError(error) ?? error;
         }
       }
-      if (pathParts.length === 5) {
+      if (request.method === "GET" && pathParts.length === 5) {
         const definitionRevision = await buildServiceMutationDefinitionRevision(service);
-        const dependencySummary = runtimeModel.graph.getServiceDependencies(service.manifest.id);
+        const dependencySummary = runtimeModel.graph.getServiceDependencies(serviceId);
+        const lifecycle = getLifecycleState(serviceId);
+        const provider = isProviderRole(service.manifest);
+        const health = lifecycle.running || (provider && lifecycle.installed && lifecycle.configured)
+          ? await evaluateServiceHealth(service.manifest, lifecycle, service.serviceRoot, service,
+            collectRuntimeGlobalEnv(runtimeModel.registry.list()))
+          : undefined;
+        const ports = lifecycle.runtime.ports;
+        const endpoints = resolveServiceEndpoints(service, ports).filter(endpoint => endpoint.kind === "network")
+          .slice(0, 128).map(endpoint => {
+            const port = ports[endpoint.id] ?? endpoint.port ?? null;
+            const allocated = lifecycle.running && Object.hasOwn(ports, endpoint.id) && port !== null;
+            const protocol = endpoint.protocol === "http" || endpoint.protocol === "https"
+              ? endpoint.protocol : endpoint.transport === "udp" || endpoint.protocol === "udp" ? "udp" : "tcp";
+            return { label: endpoint.id, protocol, port, availability: {
+              supported: true, available: allocated, reasonCode: allocated ? null : "source_unavailable",
+            } };
+          });
         writeJson(response, 200, operatorV2Envelope(buildOperatorV2Detail({
           id: service.manifest.id,
           name: service.manifest.name,
@@ -5151,19 +5168,18 @@ async function routeRequestWithoutMutationCoordination(
           definitionRevision,
           generation: config.runtimeGenerationId ?? "generation-1",
           modelEpoch: config.runtimeGenerationId ?? "operator-v2-epoch-1",
-          running: getLifecycleState(service.manifest.id).running,
+          running: lifecycle.running,
+          installed: lifecycle.installed,
+          configured: lifecycle.configured,
+          providerRole: provider ? "provider" : "service",
+          healthStatus: health?.type === "unknown" ? "not_configured" : health ? (health.healthy ? "healthy" : "unhealthy") : "unknown",
           dependencies: dependencySummary.dependencies.map((id) => ({
             fromServiceId: id,
             toServiceId: service.manifest.id,
             kind: "service",
             state: "unknown",
           })),
-          endpoints: Object.entries(service.manifest.ports ?? {}).map(([label, port]) => ({
-            label,
-            protocol: "tcp",
-            port,
-            availability: { supported: true, available: true, reasonCode: null },
-          })),
+          endpoints,
           setupMetadata: Object.entries(service.manifest.setup?.steps ?? {}).slice(0, 128).map(([stepId, step]) => ({
             stepId,
             description: step.description ?? stepId,
