@@ -133,3 +133,16 @@ setup mode, the CLI/API runtime prepares only the setup dependency path
 service starts until the vault owner identity, Owner group, built-in groups, and
 permission catalogue are seeded. Existing workspaces with a ready vault marker
 continue the normal launch path.
+
+## Pinned client update E2E
+
+Run `npm run verify:pinned-release-update-e2e` to start the real default stack in
+a fresh private workspace, securely bootstrap it, and install a newer published
+TUI release through the running Core. The source pin and Core generation must
+remain stable, the new executable must launch, and all five supported default
+daemons must stay healthy. The helper in `scripts/pinned-release-e2e-stack.mjs`
+also supplies this stack to the Service Admin browser and TUI keyboard E2E
+harnesses. It owns its temporary roots and shuts down its daemons in `finally`.
+The optional `SERVICE_LASSO_E2E_PREVIOUS_TUI_TAG` selects a historical immutable
+release to upgrade. This proof requires public producer releases and does not
+publish or install into the caller’s workspace.
