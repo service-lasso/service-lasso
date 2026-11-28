@@ -85,3 +85,12 @@ when those exact production inputs are admitted.
   and preserved source pin and generation. The helper supplies a private local
   operator session after test-only acknowledgement and owns its complete
   teardown. Release credentials and service tokens are excluded from output.
+
+- AC-1994-13 (#2019): Operator/v2 service logs expose bounded real current
+  runtime output to the TUI. Capture actual UTC time on new combined NDJSON
+  records. Preserve legacy readers; unclocked-only output is explicitly
+  unavailable, while mixed skipped history marks the typed page truncated.
+  Read permission, safe redaction and no source paths apply. Combined/stdout/
+  stderr filters, byte-bounded search and source-bound cursors reject invalid
+  queries or stale continuation. Declared sources remain explicitly unsupported
+  until the v2 selector identifies an admitted source.

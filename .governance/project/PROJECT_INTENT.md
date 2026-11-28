@@ -1,5 +1,8 @@
 # Project Intent
 
+Development #2019 / AC-1994-13 replaces the operator/v2 empty Logs stub with
+actual bounded timestamped runtime output for the selected service.
+
 Development #2016 / AC-1994-12 provides a shared real default-stack E2E helper
 for the TUI and Service Admin pinned-release update flows, including exact
 artifact verification, same-generation health, and owned cleanup.
