@@ -26,19 +26,24 @@ function invalid(): never {
   throw new ApiError("invalid_request", 400, "Invalid operator log selection.");
 }
 
-function safeMessage(message: string, serviceRoot: string) {
-  const redacted = String(redactDiagnosticsValue(message))
+function safeMessage(message: string, serviceRoot: string, workspaceRoot?: string) {
+  let redacted = String(redactDiagnosticsValue(message))
     .replaceAll(serviceRoot, "[SERVICE_ROOT]")
     .replaceAll(serviceRoot.split(path.sep).join("/"), "[SERVICE_ROOT]")
     .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
     .replace(/\p{Cc}/gu, "")
     .replace(/((?:token|password|secret|api[_-]?key)\s*[=:]\s*)[^\s,;]+/gi, "$1[REDACTED]");
-  const points = Array.from(redacted);
-  let text = "";
-  for (const point of points) {
-    if (Buffer.byteLength(text + point, "utf8") > 4096) break;
-    text += point;
+  if (workspaceRoot) redacted = redacted.replaceAll(workspaceRoot, "[WORKSPACE_ROOT]")
+    .replaceAll(workspaceRoot.split(path.sep).join("/"), "[WORKSPACE_ROOT]");
+  const points: string[] = [];
+  let bytes = 0;
+  for (const point of redacted) {
+    const size = Buffer.byteLength(point, "utf8");
+    if (bytes + size > 4096) break;
+    points.push(point);
+    bytes += size;
   }
+  const text = points.join("");
   return { text, truncated: text.length < redacted.length };
 }
 
@@ -47,6 +52,7 @@ export async function readOperatorV2Logs(
   runId: string | null,
   generationId: string,
   query: URLSearchParams,
+  workspaceRoot?: string,
 ): Promise<OperatorV2Page<OperatorLogRow>> {
   const keys = [...query.keys()];
   if (keys.some(key => !["stream", "search", "cursor", "limit"].includes(key)) ||
@@ -138,7 +144,7 @@ export async function readOperatorV2Logs(
     }
     eventCount++;
     if (stream !== "combined" && record.level !== stream) continue;
-    const message = safeMessage(record.message, service.serviceRoot);
+    const message = safeMessage(record.message, service.serviceRoot, workspaceRoot);
     if (!message.text.toLocaleLowerCase().includes(search.toLocaleLowerCase())) continue;
     rows.push({ rowId: "log-row-" + digest(runIdentity + ":" + offset + ":" + index + ":" + line).slice(0, 40),
       serviceId: service.manifest.id, stream: record.level, runId: runIdentity,
@@ -149,7 +155,15 @@ export async function readOperatorV2Logs(
   }
   if (end !== null && end > rows.length) invalid();
   const before = end ?? rows.length;
-  const start = Math.max(0, before - limit);
+  let start = before;
+  let wireBytes = 0;
+  // Leave room for the envelope, page metadata and continuation within the advertised 256 KiB response.
+  while (start > Math.max(0, before - limit)) {
+    const rowBytes = Buffer.byteLength(JSON.stringify(rows[start - 1]), "utf8") + 1;
+    if (wireBytes + rowBytes > 240_000) break;
+    wireBytes += rowBytes;
+    start--;
+  }
   return { snapshotId: revision, sourceRevision: revision, rows: rows.slice(start, before),
     nextCursor: start > 0 ? Buffer.from(JSON.stringify([revision, start, expiresAt])).toString("base64url") : null,
     expiresAt: new Date(expiresAt).toISOString(), truncated: partial || skipped };

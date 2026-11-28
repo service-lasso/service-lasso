@@ -4973,7 +4973,7 @@ async function routeRequestWithoutMutationCoordination(
           throw new ApiError("permission_denied", 403, "Service diagnostic permission is required.");
         }
         const page = await readOperatorV2Logs(service,
-          getLifecycleState(serviceId).runtime.logs.runId, config.runtimeGenerationId ?? "", url.searchParams);
+          getLifecycleState(serviceId).runtime.logs.runId, config.runtimeGenerationId ?? "", url.searchParams, config.workspaceRoot);
         writeJson(response, 200, operatorV2Envelope(page, requestId));
         return;
       }

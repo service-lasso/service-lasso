@@ -55,6 +55,14 @@ test('operator logs page genuine captured output with bounded filters, redaction
     const clipped = (await read()).body.data.rows[0];
     assert.equal(clipped.truncated, true);
     assert.ok(Buffer.byteLength(clipped.text, 'utf8') <= 4096);
+    await writeFile(logPath, Array.from({ length: 50 }, () => line('\\'.repeat(4096))).join(''));
+    const escaped = await read('?limit=50');
+    assert.ok(Buffer.byteLength(JSON.stringify(escaped.body), 'utf8') < 262144);
+    assert.ok(escaped.body.data.rows.length > 0 && escaped.body.data.rows.length < 50);
+    assert.ok(escaped.body.data.nextCursor);
+    const remainder = await read('?limit=50&cursor=' + escaped.body.data.nextCursor);
+    assert.equal(remainder.body.data.rows.length + escaped.body.data.rows.length, 50);
+    assert.equal(remainder.body.data.expiresAt, escaped.body.data.expiresAt);
   } finally {
     await runtime.stop();
     await rm(tempRoot, { recursive: true, force: true });
