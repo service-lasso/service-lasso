@@ -5,7 +5,7 @@
   "role": "provider",
   "enabled": true,
   "autostart": false,
-  "version": "2026.11.27-6a057bc",
+  "version": "2026.11.28-1f840d3",
   "meta": {
     "repository": {
       "type": "git",
@@ -22,36 +22,22 @@
     "source": {
       "type": "github-release",
       "repo": "service-lasso/service-lasso-tui",
-      "tag": "candidate-2026.11.27-6a057bc"
+      "tag": "candidate-2026.11.28-1f840d3"
     },
     "platforms": {
       "win32-x64": {
-        "assetName": "service-lasso-tui-2026.11.27-6a057bc-win32-amd64.zip",
+        "assetName": "service-lasso-tui-2026.11.28-1f840d3-win32-amd64.zip",
         "archiveType": "zip",
         "command": "./service-lasso-tui.exe",
         "args": [],
-        "sha256": "44bc977d6edf7b06b0dd14ebf17af1f1e022830933d55c8df88e9e86bdaa8aa0"
+        "sha256": "f260f69e90ceaf67cb46f9811024159732417a7ce3f3cc5eb2ece0483728df0e"
       },
       "linux-x64": {
-        "assetName": "service-lasso-tui-2026.11.27-6a057bc-linux-amd64.tar.gz",
+        "assetName": "service-lasso-tui-2026.11.28-1f840d3-linux-amd64.tar.gz",
         "archiveType": "tar.gz",
         "command": "./service-lasso-tui",
         "args": [],
-        "sha256": "b2f1149dd3f93e258dff4e15989dea5088a48b5d90fe7376413fab2f0939430c"
-      },
-      "darwin-arm64": {
-        "assetName": "service-lasso-tui-2026.11.27-6a057bc-darwin-arm64.tar.gz",
-        "archiveType": "tar.gz",
-        "command": "./service-lasso-tui",
-        "args": [],
-        "sha256": "39f95aec3d269df4ee53c23a7927d2eb491bff540f75d6c64802b3827b37e1ef"
-      },
-      "darwin-x64": {
-        "assetName": "service-lasso-tui-2026.11.27-6a057bc-darwin-amd64.tar.gz",
-        "archiveType": "tar.gz",
-        "command": "./service-lasso-tui",
-        "args": [],
-        "sha256": "04fc6f7ead8edc722216f410f230e448c0eb72073444369f66abfdf059870abf"
+        "sha256": "030d5818682d833586167c158f71ea9b5b93538304a5f126fa65f0d24b86cc1a"
       }
     }
   }
