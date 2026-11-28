@@ -1787,3 +1787,5 @@ Active SPEC-1925-WINDOWS-OPERATOR-FIXTURE / WIN-FIXTURE-1..4 owns shared fixture
 Core #2001 / SPEC-2001 adds Linux same-OS-owner generation-bound local TUI sessions after actual secure setup and credential acknowledgement; explicit remote authentication and first-run gates remain authoritative.
 
 #1991 Development: SPEC-002 AC-4CG.1991 binds generation-owned Admin upstream to the matching current endpoint allocation and projects both API environment names at launch/restart. Remove fixed17883 manifest overrides; preserve unrelated callers and secure onboarding. Owned pinned Admin read-only identity/setup proof precedes integrated browser mutations.
+
+Development #2020 / AC-4CG.2020 projects live bounded service details for the existing operator view.
