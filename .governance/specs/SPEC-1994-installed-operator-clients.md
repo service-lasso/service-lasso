@@ -94,3 +94,13 @@ when those exact production inputs are admitted.
   stderr filters, byte-bounded search and source-bound cursors reject invalid
   queries or stale continuation. Declared sources remain explicitly unsupported
   until the v2 selector identifies an admitted source.
+
+- AC-1994-14 (#2023, TUI Details and Logs pin): Import byte-for-byte the
+  immutable published Windows/Linux `service.json` for TUI source
+  `1173a15fe2d7c31a7ad8e403a8dcd16f2300d226`, release
+  `candidate-2026.11.29-1173a15`. Verify the public exact tag/source, all
+  archived asset hashes and executable VCS identity; keep catalog/docs aligned.
+  Exercise `node dist/cli.js tui` from the actual checkout at 120×32 and 80×24
+  against a real private default stack with no manual token input, selected
+  service live details and captured runtime logs. Preserve Cabinet and foreign
+  state, retain evidence and shut down only owned resources. macOS is deferred.

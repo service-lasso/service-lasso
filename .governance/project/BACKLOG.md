@@ -1,5 +1,7 @@
 # Backlog
 
+- #2023 in_progress: SPEC-1994 AC-1994-14. Import the exact published TUI Details and Logs Windows/Linux manifest; verify immutable assets and actual-checkout private-stack terminal proof.
+
 - #2019 in_progress: SPEC-1994 AC-1994-13. Real bounded operator/v2 runtime logs.
 
 - #2016 in_progress: SPEC-1994 AC-1994-12. Shared real full-stack update E2E harness for the TUI and Service Admin.
