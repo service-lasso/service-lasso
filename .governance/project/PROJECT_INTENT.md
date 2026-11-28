@@ -1,5 +1,9 @@
 # Project Intent
 
+Development #2016 / AC-1994-12 provides a shared real default-stack E2E helper
+for the TUI and Service Admin pinned-release update flows, including exact
+artifact verification, same-generation health, and owned cleanup.
+
 Development #2015 / AC-1994-11 adds explicit in-place release updates for the
 pinned CLI and TUI through Core, Service Admin and TUI. Source pins remain the
 bootstrap baseline. The running Core prepares and activates the selected local
