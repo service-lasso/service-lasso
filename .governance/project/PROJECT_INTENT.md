@@ -1,5 +1,9 @@
 # Project Intent
 
+Development #2013 / AC-1994-10 updates the default on-demand TUI provider to
+the published Windows and Linux candidate for Stack readiness, uptime, and
+actions. The installed Linux client uses the existing private operator session.
+
 Development #2011 / AC-4CG.2011 aligns only the real-app E2E verifier with same-generation automatic post-bootstrap baseline startup. Preserve real health/reachability, optional sample start, Broker restart and owner-bound reverse cleanup; no production behavior changes.
 
 Development #2007 / AC-4CG.2007 resumes the original prepared managed baseline after successful first-run vault and protected auth provisioning, on its existing generation/allocation. No manual restart, opt-out or optional-service expansion, credential acknowledgement, publication or deployment.

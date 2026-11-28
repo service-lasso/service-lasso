@@ -59,3 +59,11 @@ when those exact production inputs are admitted.
   environment. The same onboarding and acknowledgement gates apply. Explicit
   connection and credential selections retain precedence. No handoff takes
   place for offline commands or other operating systems.
+- AC-1994-10 (#2013, TUI Stack update): Adopt the exact immutable TUI release
+  containing the green Ready state, blank uptime for non-running services,
+  and selected-service Actions shortcut. Verify the released Windows x64 and
+  Linux x64 archives and import their published `service.json` byte for byte.
+  macOS publication and qualification are deferred for this candidate. Exercise
+  the installed TUI from the checkout with real Core inventory and lifecycle
+  availability, using the acknowledged Linux private session from SPEC-2001.
+  Keep existing Core generations and first-run credential acknowledgement intact.
