@@ -1,5 +1,9 @@
 # Project Intent
 
+Development #2023 / AC-1994-14 pins the published TUI Details and Logs release
+for Windows/Linux and verifies its real private default-stack use from the
+actual checkout, preserving Cabinet and existing credential boundaries.
+
 Development #2019 / AC-1994-13 replaces the operator/v2 empty Logs stub with
 actual bounded timestamped runtime output for the selected service.
 
