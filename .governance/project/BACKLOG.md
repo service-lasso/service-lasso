@@ -2060,3 +2060,5 @@ Active SPEC-1925-WINDOWS-OPERATOR-FIXTURE / WIN-FIXTURE-1..4 owns shared fixture
 
 - #2001: Linux token-free installed TUI launch, SPEC-2001 AC-2001-1..4; Development in progress. CLI/platform extensions remain follow-up.
 - #1991 in_progress: SPEC-002 AC-4CG.1991 managed Admin owning-Core binding, stale-env override and pinned read-only upstream proof.
+
+- #2020 in_progress. SPEC-002 AC-4CG.2020 live service details.
